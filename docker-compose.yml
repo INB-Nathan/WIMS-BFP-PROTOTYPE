@@ -1,25 +1,36 @@
 version: '3.8'
 
+networks:
+  wims_internal:
+    driver: bridge
+    name: wims_internal
+
 services:
   # --- Infrastructure & Databases ---
   postgres:
-    image: postgres:15-alpine
+    image: postgis/postgis:15-3.4-alpine
     container_name: wims-postgres
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
       POSTGRES_DB: wims
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d
+    networks:
+      - wims_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d wims"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: always
 
   redis:
     image: redis:7.2-alpine
     container_name: wims-redis
-    ports:
-      - "6379:6379"
+    networks:
+      - wims_internal
     restart: always
 
   keycloak:
@@ -27,51 +38,99 @@ services:
     container_name: wims-keycloak
     command: start-dev
     environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
-      KC_HTTP_PORT: 8080
-      KC_HOSTNAME_STRICT: "false"
-    ports:
-      - "8080:8080"
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: secret
+      KEYCLOAK_ADMIN: admin # <--- ADDED Bootstrap Admin
+      KEYCLOAK_ADMIN_PASSWORD: admin # <--- ADDED Bootstrap Password
+      KC_HTTP_RELATIVE_PATH: /auth # <--- ADDED to align with Nginx
+      # KC_PROXY: edge (Removed as start-dev handles this)
+    networks:
+      - wims_internal
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: always
 
   ollama:
     image: ollama/ollama:latest
     container_name: wims-ollama
-    ports:
-      - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    networks:
+      - wims_internal
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4gb
     restart: always
 
   # --- Applications ---
-  # (Uncomment these if you want to run them via Docker instead of locally via terminal)
-  
-  # backend:
-  #   build: ./backend
-  #   container_name: wims-backend
-  #   ports:
-  #     - "8000:8000"
-  #   environment:
-  #     - DATABASE_URL=postgresql://postgres:password@postgres:5432/wims
-  #     - REDIS_URL=redis://redis:6379/0
-  #     - KEYCLOAK_URL=http://keycloak:8080
-  #     - OLLAMA_URL=http://ollama:11434
-  #   depends_on:
-  #     - postgres
-  #     - redis
-  #     - keycloak
-  #     - ollama
+  backend:
+    build: ./backend
+    container_name: wims-backend
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/wims
+      - REDIS_URL=redis://redis:6379/0
+      - KEYCLOAK_URL=http://keycloak:8080
+      - OLLAMA_URL=http://ollama:11434
+    networks:
+      - wims_internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      keycloak:
+        condition: service_started
+      ollama:
+        condition: service_started
 
-  # frontend:
-  #   build: ./frontend
-  #   container_name: wims-frontend
-  #   ports:
-  #     - "3000:3000"
-  #   environment:
-  #     - NEXT_PUBLIC_API_URL=http://localhost:8000
-  #   depends_on:
-  #     - backend
+  celery-worker:
+    build: ./backend
+    container_name: wims-celery-worker
+    command: celery -A main.celery_app worker --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/wims
+      - REDIS_URL=redis://redis:6379/0
+      - KEYCLOAK_URL=http://keycloak:8080
+      - OLLAMA_URL=http://ollama:11434
+    networks:
+      - wims_internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  frontend:
+    build: ./frontend
+    container_name: wims-frontend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost/api # <--- CHANGED for browser resolution
+      - NEXT_PUBLIC_AUTH_API_URL=http://localhost/api/auth/login # Explicit route for Task 4
+    networks:
+      - wims_internal
+    depends_on:
+      - backend
+
+  # --- Edge Gateway ---
+  nginx-gateway:
+    image: nginx:alpine
+    container_name: wims-nginx-gateway
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - wims_internal
+    depends_on:
+      - backend
+      - frontend
+      - keycloak
 
 volumes:
   postgres_data:

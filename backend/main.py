@@ -16,8 +16,9 @@ import time
 import redis.asyncio as aioredis
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import JSONResponse
-
-from .auth import get_current_user
+from celery import Celery
+import auth
+from auth import get_current_user
 
 # ---------------------------------------------------------------------------
 # App
@@ -25,6 +26,18 @@ from .auth import get_current_user
 app = FastAPI(title="WIMS-BFP Backend")
 
 logger = logging.getLogger("wims.rate_limit")
+
+# ---------------------------------------------------------------------------
+# Celery
+# ---------------------------------------------------------------------------
+celery_app = Celery("wims_worker", broker=os.environ.get("REDIS_URL", "redis://redis:6379/0"))
+celery_app.conf.update(
+    task_serializer="json",
+    accept_content=["json"],
+    result_serializer="json",
+    timezone="UTC",
+    enable_utc=True,
+)
 
 # ---------------------------------------------------------------------------
 # Redis
