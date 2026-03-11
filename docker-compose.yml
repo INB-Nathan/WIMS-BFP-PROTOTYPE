@@ -45,7 +45,10 @@ services:
       KEYCLOAK_ADMIN: admin # <--- ADDED Bootstrap Admin
       KEYCLOAK_ADMIN_PASSWORD: admin # <--- ADDED Bootstrap Password
       KC_HTTP_RELATIVE_PATH: /auth # <--- ADDED to align with Nginx
-      # KC_PROXY: edge (Removed as start-dev handles this)
+      KC_PROXY: edge
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME: localhost
+      KC_HTTP_ENABLED: "true"
     networks:
       - wims_internal
     depends_on:
