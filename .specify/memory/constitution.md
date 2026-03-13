@@ -1,17 +1,21 @@
-# WIMS-BFP: PROJECT CONSTITUTION
+# WIMS-BFP System Constitution
+**Version:** 1.0
+**Enforcement:** STRICT (All AI agents must abide by these rules).
 
-## 1. THE SUPREME DIRECTIVE: FORENSIC STABILITY
-You are building a Tier 3, mission-critical system for the Bureau of Fire Protection. "Works on my machine" is a failure state. Every feature must be quantified, resilient, and deterministic. 
+## 1. Stack & Infrastructure
+- **Frontend:** Next.js (App Router), React, TailwindCSS.
+- **Backend:** FastAPI (Python 3.10+).
+- **Database:** PostgreSQL with PostGIS extension.
+- **Authentication:** Keycloak (OIDC/JWT). **SUPABASE IS STRICTLY FORBIDDEN.**
+- **AI/ML:** Qwen2.5-3B via local inference (Ollama/llama.cpp).
 
-## 2. ZERO VIBE-CODING (DESIGN & UI)
-- **No Hardcoded Colors/Spacings:** You must never use raw Tailwind hexes (e.g., `bg-[#ff0000]`) or generic palette aliases (e.g., `text-white`) in component files. 
-- **Semantic Tokens Only:** Use `--color-theme-*` and `bg-theme-*`.
-- **The Fail-Safe Rule:** Every `var()` call in CSS MUST have a comma-separated fallback (e.g., `var(--spacing-32, 8rem)`). If you write a `var()` without a fallback, you have violated the Constitution.
+## 2. Data Integrity & Forensics (The Immutability Law)
+- **NO HARD DELETES:** Records in core tables (`fire_incidents`, `users`, `security_threat_logs`) must never be DELETEd. Use `is_archived = TRUE` or a `status` enum to logically remove records.
+- **Chain of Custody:** Every state change in a verification workflow must log the `user_id` of the actor.
 
-## 3. RED STATE / GREEN STATE (TDD)
-- You are not allowed to write implementation code until a failing test (Red State) exists that proves the feature is missing or broken.
-- Tests must be adversarial. Test for concurrency, missing environment variables, and malformed inputs.
+## 3. Geospatial Mandate
+- Any table representing a physical event (citizen reports, fire incidents) MUST use PostGIS `GEOGRAPHY(POINT, 4326)` for coordinates. String-based location approximations are invalid.
 
-## 4. ENVIRONMENTAL PURITY
-- Never hardcode localhost URLs, API endpoints, or Keycloak realms in the codebase.
-- Rely strictly on `NEXT_PUBLIC_*` for the frontend and os.environ for the backend. Fail loudly if an environment variable is missing.
+## 4. Agentic Workflow (Tier 3)
+- No code shall be generated without a passing Spec Audit (`@reviewer`).
+- No implementation shall be written without a failing test (`@qa-agent`).
