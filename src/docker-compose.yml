@@ -99,12 +99,15 @@ services:
   celery-worker:
     build: ./backend
     container_name: wims-celery-worker
-    command: celery -A main.celery_app worker --loglevel=info
+    command: celery -A main.celery_app worker --beat --loglevel=info
     environment:
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/wims
       - REDIS_URL=redis://redis:6379/0
       - KEYCLOAK_REALM_URL=http://keycloak:8080/auth/realms/bfp
       - OLLAMA_URL=http://ollama:11434
+      - SURICATA_EVE_PATH=/var/log/suricata/eve.json
+    volumes:
+      - ./suricata/logs:/var/log/suricata:ro
     networks:
       - wims_internal
     depends_on:
@@ -120,13 +123,13 @@ services:
         NEXT_PUBLIC_API_URL: http://localhost/api
         NEXT_PUBLIC_AUTH_API_URL: http://localhost/auth
         NEXT_PUBLIC_BASE_URL: http://localhost
-        NEXT_PUBLIC_OIDC_REDIRECT_URI: http://localhost/api/auth/callback
+        NEXT_PUBLIC_OIDC_REDIRECT_URI: http://localhost/callback
     container_name: wims-frontend
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost/api
       - NEXT_PUBLIC_AUTH_API_URL=http://localhost/auth
       - NEXT_PUBLIC_BASE_URL=http://localhost
-      - NEXT_PUBLIC_OIDC_REDIRECT_URI=http://localhost/api/auth/callback
+      - NEXT_PUBLIC_OIDC_REDIRECT_URI=http://localhost/callback
       - NEXT_PUBLIC_OIDC_AUTHORITY=http://localhost/auth/realms/bfp
       - NEXT_PUBLIC_OIDC_CLIENT_ID=wims-web
       - NEXT_PUBLIC_APP_URL=http://localhost
@@ -135,6 +138,19 @@ services:
       - wims_internal
     depends_on:
       - backend
+
+  wims-suricata:
+    image: jasonish/suricata:latest
+    container_name: wims-suricata
+    restart: unless-stopped
+    # In a real production environment, you use network_mode: "host"
+    # For this Docker prototype, we will sniff the internal bridge network
+    command: -i eth0
+    volumes:
+      - ./suricata/logs:/var/log/suricata
+      - ./suricata/rules:/var/lib/suricata/rules
+    networks:
+      - wims_internal
 
   # --- Edge Gateway ---
   nginx-gateway:

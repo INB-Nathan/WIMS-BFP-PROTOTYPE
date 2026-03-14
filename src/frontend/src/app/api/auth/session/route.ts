@@ -15,8 +15,19 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ user: null }, { status: res.status });
     }
 
-    const user = await res.json();
-    return NextResponse.json({ user });
+    const data = await res.json();
+    return NextResponse.json({
+      user: {
+        id: data.user_id,
+        email: data.email,
+        username: data.username,
+        role: data.role,
+        preferred_username: data.username,
+        assignedRegionId: data.assigned_region_id ?? null,
+      },
+      role: data.role,
+      assignedRegionId: data.assigned_region_id ?? null,
+    });
   } catch {
     return NextResponse.json({ user: null }, { status: 500 });
   }

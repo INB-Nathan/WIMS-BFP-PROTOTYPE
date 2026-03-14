@@ -1,18 +1,37 @@
-# Supabase
-supabase/config.toml
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+.next/
+out/
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Secrets and local config (never commit)
+.cursor/mcp.json
 .env
 .env.local
+.env.*.local
+*.pem
+*.key
 
-# Node
-node_modules
-npm-debug.log
+# Logs and runtime
+*.log
+*.rdb
 
-# Mac
+# OS
 .DS_Store
-
-# Windows
 Thumbs.db
-
-# IDEs
-.vscode
-.idea
