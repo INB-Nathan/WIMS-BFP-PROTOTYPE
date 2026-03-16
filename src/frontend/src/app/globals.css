@@ -4,6 +4,31 @@
   --background: #ffffff;
   --foreground: #171717;
   --theme-gradient-fire: linear-gradient(to right, #facc15, #f97316, #ef4444);
+
+  /* CoreUI-inspired design tokens */
+  --sidebar-bg: #3c4b64;
+  --sidebar-hover: #475a78;
+  --sidebar-active: #321fdb;
+  --sidebar-text: rgba(255, 255, 255, 0.87);
+  --sidebar-text-muted: rgba(255, 255, 255, 0.5);
+  --sidebar-width: 256px;
+  --sidebar-width-collapsed: 0px;
+
+  --content-bg: #ebedef;
+  --card-bg: #ffffff;
+  --card-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  --card-radius: 0.5rem;
+  --border-color: #d8dbe0;
+
+  --text-primary: #2c384a;
+  --text-secondary: #768192;
+  --text-muted: #9da5b1;
+
+  --bfp-maroon: #991b1b;
+  --bfp-maroon-dark: #7f1d1d;
+  --bfp-gradient: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%);
+
+  --header-height: 56px;
 }
 
 @theme inline {
@@ -18,7 +43,7 @@
   --color-theme-brand-light: #fee2e2;
   --color-theme-surface-hover: #f9fafb;
 
-  --color-theme-surface-subtle: #f9fafb;
+  --color-theme-surface-subtle: #ebedef;
   --color-theme-on-brand: #ffffff;
   --color-theme-surface: #ffffff;
   --color-theme-focus-offset: #ffffff;
@@ -28,6 +53,12 @@
   --color-theme-accent-mid: #f97316;
   --color-theme-accent-dark: #ef4444;
 
+  --color-sidebar-bg: #3c4b64;
+  --color-content-bg: #ebedef;
+  --color-card-bg: #ffffff;
+  --color-border: #d8dbe0;
+  --color-bfp-maroon: #991b1b;
+
   --spacing-auth-container: calc(100vh - var(--spacing-32, 8rem));
 }
 
@@ -35,15 +66,76 @@
   background-image: var(--theme-gradient-fire, linear-gradient(to right, currentColor, currentColor));
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+body {
+  background: var(--content-bg, #ebedef);
+  color: var(--text-primary, #2c384a);
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+/* Sidebar transitions */
+.sidebar-transition {
+  transition: width 0.3s ease, transform 0.3s ease;
+}
+
+/* Accordion panel animation */
+.accordion-enter {
+  animation: accordionOpen 0.25s ease-out forwards;
+}
+
+.accordion-exit {
+  animation: accordionClose 0.2s ease-in forwards;
+}
+
+@keyframes accordionOpen {
+  from { max-height: 0; opacity: 0; }
+  to { max-height: 800px; opacity: 1; }
+}
+
+@keyframes accordionClose {
+  from { max-height: 800px; opacity: 1; }
+  to { max-height: 0; opacity: 0; }
+}
+
+/* Login page clip-path wave */
+.login-wave-clip {
+  clip-path: polygon(0 0, 85% 0, 65% 100%, 0% 100%);
+}
+
+@media (max-width: 768px) {
+  .login-wave-clip {
+    clip-path: polygon(0 0, 100% 0, 100% 85%, 0% 100%);
   }
 }
 
-body {
-  background: var(--background, #ffffff);
-  color: var(--foreground, #171717);
-  font-family: Arial, Helvetica, sans-serif;
+/* Card utility */
+.card {
+  background: var(--card-bg);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-color);
+}
+
+.card-header {
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--border-color);
+  background: #f8f9fa;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+.card-body {
+  padding: 1.25rem;
+}
+
+/* Scrollbar styling for sidebar */
+.sidebar-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
 }

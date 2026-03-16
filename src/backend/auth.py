@@ -140,3 +140,48 @@ async def get_system_admin(
     if current_user.get("role") != "SYSTEM_ADMIN":
         raise HTTPException(status_code=403, detail="SYSTEM_ADMIN privileges required")
     return current_user
+
+
+async def get_regional_encoder(
+    current_user: Annotated[dict, Depends(get_current_wims_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    """
+    Require REGIONAL_ENCODER role with an assigned region.
+    Returns user dict augmented with assigned_region_id.
+    """
+    if current_user.get("role") != "REGIONAL_ENCODER":
+        raise HTTPException(status_code=403, detail="REGIONAL_ENCODER privileges required")
+
+    row = db.execute(
+        text("SELECT assigned_region_id FROM wims.users WHERE user_id = CAST(:uid AS uuid)"),
+        {"uid": current_user["user_id"]},
+    ).fetchone()
+
+    region_id = row[0] if row else None
+    if not region_id:
+        raise HTTPException(status_code=403, detail="No region assigned to this user")
+
+    current_user["assigned_region_id"] = region_id
+    return current_user
+
+
+async def get_regional_user(
+    current_user: Annotated[dict, Depends(get_current_wims_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    """
+    Any authenticated user with an assigned_region_id.
+    Useful for shared region-scoped endpoints.
+    """
+    row = db.execute(
+        text("SELECT assigned_region_id FROM wims.users WHERE user_id = CAST(:uid AS uuid)"),
+        {"uid": current_user["user_id"]},
+    ).fetchone()
+
+    region_id = row[0] if row else None
+    if not region_id:
+        raise HTTPException(status_code=403, detail="No region assigned to this user")
+
+    current_user["assigned_region_id"] = region_id
+    return current_user

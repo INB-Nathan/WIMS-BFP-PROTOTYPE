@@ -190,41 +190,39 @@ export default function AdminSystemPage() {
     ];
 
     return (
-        <div className="space-y-8">
-            <div className="flex justify-between items-center border-b border-gray-200 pb-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-gray-900">System Admin Hub</h1>
-                    <p className="text-sm text-gray-700 mt-1">Identity governance, threat telemetry, and system audit.</p>
-                </div>
+        <div className="space-y-6">
+            <div>
+                <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>System Admin Hub</h1>
+                <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Identity governance, threat telemetry, and system audit.</p>
             </div>
 
-            <section id="analytics" className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-                <div className="bg-gray-50 px-6 py-3 border-b border-gray-200 flex items-center gap-2">
-                    <BarChart3 className="w-5 h-5 text-gray-600" />
-                    <h2 className="text-lg font-bold text-gray-900">System Analytics / Flow</h2>
+            <section id="analytics" className="card overflow-hidden">
+                <div className="card-header flex items-center gap-2" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
+                    <BarChart3 className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                    <span>System Analytics / Flow</span>
                 </div>
-                <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="card-body grid grid-cols-1 md:grid-cols-3 gap-4">
                     {systemStats.map(({ label, value, icon: Icon }) => (
-                        <div key={label} className="bg-gray-50 rounded-lg p-4 border border-gray-100 flex items-center gap-4">
-                            <div className="p-2 bg-red-100 text-red-700 rounded-lg">
+                        <div key={label} className="p-4 rounded-lg flex items-center gap-4" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
+                            <div className="p-2 rounded-lg" style={{ backgroundColor: 'rgba(60,75,100,0.1)', color: 'var(--sidebar-bg)' }}>
                                 <Icon className="w-6 h-6" />
                             </div>
                             <div>
-                                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</div>
-                                <div className="text-2xl font-bold text-gray-900">{value}</div>
+                                <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>{label}</div>
+                                <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{value}</div>
                             </div>
                         </div>
                     ))}
                 </div>
             </section>
 
-            <section id="governance" className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-                <div className="bg-gray-50 px-6 py-3 border-b border-gray-200 flex items-center justify-between">
+            <section id="governance" className="card overflow-hidden">
+                <div className="card-header flex items-center justify-between" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
                     <div className="flex items-center gap-2">
-                        <Users className="w-5 h-5 text-gray-600" />
-                        <h2 className="text-lg font-bold text-gray-900">Identity Governance</h2>
+                        <Users className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                        <span>Identity Governance</span>
                     </div>
-                    <button onClick={loadUsers} disabled={loadingUsers} className="flex items-center gap-1 text-sm text-red-700 hover:text-red-800 font-medium disabled:opacity-50">
+                    <button onClick={loadUsers} disabled={loadingUsers} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
                         <RefreshCw className={`w-4 h-4 ${loadingUsers ? 'animate-spin' : ''}`} /> Refresh
                     </button>
                 </div>
@@ -250,13 +248,13 @@ export default function AdminSystemPage() {
                 </div>
             </section>
 
-            <section id="telemetry" className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-                <div className="bg-gray-50 px-6 py-3 border-b border-gray-200 flex items-center justify-between">
+            <section id="telemetry" className="card overflow-hidden">
+                <div className="card-header flex items-center justify-between" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
                     <div className="flex items-center gap-2">
-                        <ShieldAlert className="w-5 h-5 text-gray-600" />
-                        <h2 className="text-lg font-bold text-gray-900">Threat Telemetry</h2>
+                        <ShieldAlert className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                        <span>Threat Telemetry</span>
                     </div>
-                    <button onClick={loadSecurityLogs} disabled={loadingLogs} className="flex items-center gap-1 text-sm text-red-700 hover:text-red-800 font-medium disabled:opacity-50">
+                    <button onClick={loadSecurityLogs} disabled={loadingLogs} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
                         <RefreshCw className={`w-4 h-4 ${loadingLogs ? 'animate-spin' : ''}`} /> Refresh
                     </button>
                 </div>
@@ -307,13 +305,13 @@ export default function AdminSystemPage() {
                 </div>
             </section>
 
-            <section id="audit" className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-                <div className="bg-gray-50 px-6 py-3 border-b border-gray-200 flex items-center justify-between">
+            <section id="audit" className="card overflow-hidden">
+                <div className="card-header flex items-center justify-between" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
                     <div className="flex items-center gap-2">
-                        <FileText className="w-5 h-5 text-gray-600" />
-                        <h2 className="text-lg font-bold text-gray-900">System Audit</h2>
+                        <FileText className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                        <span>System Audit</span>
                     </div>
-                    <button onClick={loadAuditLogs} disabled={loadingAudit} className="flex items-center gap-1 text-sm text-red-700 hover:text-red-800 font-medium disabled:opacity-50">
+                    <button onClick={loadAuditLogs} disabled={loadingAudit} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
                         <RefreshCw className={`w-4 h-4 ${loadingAudit ? 'animate-spin' : ''}`} /> Refresh
                     </button>
                 </div>

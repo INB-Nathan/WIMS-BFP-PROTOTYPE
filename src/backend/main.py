@@ -27,7 +27,7 @@ import auth
 from auth import get_current_user
 from database import get_db
 
-from api.routes import incidents, admin, civilian, triage
+from api.routes import incidents, admin, civilian, triage, regional
 
 # ---------------------------------------------------------------------------
 # App
@@ -37,6 +37,7 @@ app.include_router(incidents.router)
 app.include_router(admin.router, prefix="/api/admin")
 app.include_router(civilian.router)
 app.include_router(triage.router)
+app.include_router(regional.router)
 
 logger = logging.getLogger("wims.rate_limit")
 

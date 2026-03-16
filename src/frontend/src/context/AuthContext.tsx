@@ -86,11 +86,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    setUser(null);
-    const userManager = createUserManager();
-    await userManager.removeUser();
-    router.push('/login');
+    try {
+      console.log('[AuthContext] logout: clearing local session');
+      await fetch('/api/auth/logout', { method: 'POST' });
+      setUser(null);
+      
+      console.log('[AuthContext] logout: calling Keycloak signoutRedirect');
+      const userManager = createUserManager();
+      // This will redirect to Keycloak's end_session_endpoint and then back to post_logout_redirect_uri (baseUrl)
+      await userManager.signoutRedirect();
+    } catch (err) {
+      console.error('[AuthContext] logout: failed during signoutRedirect', err);
+      router.push('/login');
+    }
   }, [router]);
 
   return (

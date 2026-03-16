@@ -1,14 +1,16 @@
 'use client';
 
-import { ReactNode, useEffect } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { NetworkStatusIndicator } from './NetworkStatusIndicator';
 import { useAuth } from '@/context/AuthContext';
 import { Header } from './Header';
+import { Sidebar } from './Sidebar';
 import { usePathname } from 'next/navigation';
 
 export function LayoutShell({ children }: { children: ReactNode }) {
     const { user, loading, login, logout } = useAuth();
     const pathname = usePathname();
+    const [sidebarOpen, setSidebarOpen] = useState(false);
 
     useEffect(() => {
         if ('serviceWorker' in navigator) {
@@ -30,22 +32,48 @@ export function LayoutShell({ children }: { children: ReactNode }) {
         }
     }, [user, loading, pathname, login]);
 
+    // Close sidebar on route change (mobile)
+    useEffect(() => {
+        setSidebarOpen(false);
+    }, [pathname]);
+
     if (loading) {
-        console.log('[LayoutShell] loading=true - blocking render. Check AuthContext logs for fetchSession/authority.');
-        return <div className="h-screen flex items-center justify-center">Loading...</div>;
+        console.log('[LayoutShell] loading=true - blocking render.');
+        return (
+            <div className="h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--content-bg)' }}>
+                <div className="flex flex-col items-center gap-3">
+                    <div className="w-10 h-10 border-4 border-gray-300 border-t-red-700 rounded-full animate-spin" />
+                    <span className="text-sm text-gray-500 font-medium">Loading WIMS-BFP...</span>
+                </div>
+            </div>
+        );
+    }
+
+    // Public routes: no sidebar, no header
+    const publicRoutes = ['/', '/login', '/callback', '/report'];
+    const isPublicRoute = publicRoutes.includes(pathname) || pathname.startsWith('/login');
+
+    if (isPublicRoute) {
+        return <>{children}</>;
     }
 
     return (
-        <div className="min-h-screen bg-theme-surface-subtle flex flex-col font-sans">
-            <Header />
+        <div className="flex h-screen overflow-hidden" style={{ backgroundColor: 'var(--content-bg)' }}>
+            {/* Sidebar */}
+            <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-            {/* Sub-header for User Controls - MOVED TO HEADER */}
-            {/* Main Content */}
+            {/* Main content area */}
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                {/* Header */}
+                <Header onMenuToggle={() => setSidebarOpen(!sidebarOpen)} />
 
-            {/* Main Content */}
-            <main className="flex-1 max-w-7xl w-full mx-auto p-4">
-                {children}
-            </main>
+                {/* Page content */}
+                <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+                    <div className="max-w-7xl mx-auto">
+                        {children}
+                    </div>
+                </main>
+            </div>
         </div>
     );
 }

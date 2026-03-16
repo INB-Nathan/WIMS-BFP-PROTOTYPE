@@ -45,3 +45,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ### Security
 - `.gitignore` rules for `.env`, `*.pem`, `*.key`, credential files (`1916a9b`)
 - Untracked ignored files, caches, and runtime logs (`2817965`)
+
+## [0.2.0] — 2026-03-17
+
+### Added
+- **UI/UX:** Complete transition to the CoreUI-inspired charcoal/white theme across the entire application.
+- **UI/UX:** Updated login screen with modern split-screen layout.
+- **UI/UX:** Dashboard summary cards and accordion drill-downs with server-side pagination.
+- **Backend/Parser:** Implementation of the coordinate-mapped (`CELL_MAP`) XLSX parser for official AFOR templates (Sections A-L).
+- **Backend/Parser:** Strict PostgreSQL `CHECK` constraint normalization via `ALARM_LEVEL_MAP` for consistent alarm level labels.
+- **Frontend Features:** Automated pre-filling of `IncidentForm` via `sessionStorage` handoff from the AFOR Import review table.
+- **Frontend Features:** PWA offline `Base64` sketch upload with two-step background synchronization.
+- **Auth & Identity:** Automated user and role provisioning script (`setup_roles_and_users.ps1`) for Keycloak and PostgreSQL synchronization.
+
+### Changed
+- **AFOR Import:** Refactored the Import page preview table to use the new `sessionStorage` review flow.
+- **Auth & Identity:** Fixed Keycloak silent relogin bug by implementing `signoutRedirect()` in the `AuthContext`.
+- **Infrastructure:** Increased Nginx `client_max_body_size` to 50MB for supporting large AFOR templates and attachments.
+- **DevOps:** Fixed Next.js Docker `.next/cache` `EACCES` permission error in the build pipeline.
+- `.gitignore` — added `src/suricata/logs/` to prevent runtime log tracking.
+
+### Removed
+- **Dead Code:** Eliminated obsolete generic tabular editing UI and old review modals from the `incidents/import` and `afor/import` pages.
+
+### Fixed
+- **Cleanup:** Removed 19 tracked `__pycache__/*.pyc` files and `src/suricata/logs/eve.json` from the git index.

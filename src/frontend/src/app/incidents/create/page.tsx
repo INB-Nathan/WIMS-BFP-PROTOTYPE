@@ -2,10 +2,10 @@
 
 import { IncidentForm } from '@/components/IncidentForm';
 import { useUserProfile } from '@/lib/auth';
-import { ChevronLeft } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
+import { FileText } from 'lucide-react';
 
 export default function CreateIncidentPage() {
     const { role, loading } = useUserProfile();
@@ -17,19 +17,20 @@ export default function CreateIncidentPage() {
         }
     }, [role, loading, router]);
 
-    if (loading) return <div>Loading...</div>;
+    if (loading) return <div style={{ color: 'var(--text-muted)' }}>Loading...</div>;
     if (role !== 'ENCODER') return null;
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center gap-4">
-                <Link href="/dashboard" className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                    <ChevronLeft className="w-6 h-6 text-gray-600" />
-                </Link>
-                <h1 className="text-2xl font-bold text-gray-900">Manual Incident Entry</h1>
+            <div className="card overflow-hidden">
+                <div className="card-header flex items-center gap-2" style={{ borderLeft: '4px solid var(--bfp-maroon)' }}>
+                    <FileText className="w-4 h-4" style={{ color: 'var(--bfp-maroon)' }} />
+                    <span>Manual Incident Entry</span>
+                </div>
+                <div className="card-body">
+                    <IncidentForm />
+                </div>
             </div>
-
-            <IncidentForm />
         </div>
     );
 }

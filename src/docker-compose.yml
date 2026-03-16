@@ -84,6 +84,8 @@ services:
       - KEYCLOAK_REALM_URL=http://keycloak:8080/auth/realms/bfp
       - KEYCLOAK_CLIENT_ID=wims-web
       - OLLAMA_URL=http://ollama:11434
+    volumes:
+      - incident_attachments_data:/app/storage
     networks:
       - wims_internal
     depends_on:
@@ -108,6 +110,7 @@ services:
       - SURICATA_EVE_PATH=/var/log/suricata/eve.json
     volumes:
       - ./suricata/logs:/var/log/suricata:ro
+      - incident_attachments_data:/app/storage
     networks:
       - wims_internal
     depends_on:
@@ -171,3 +174,4 @@ services:
 volumes:
   postgres_data:
   ollama_data:
+  incident_attachments_data:

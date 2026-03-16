@@ -1,15 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { edgeFunctions, Incident } from '@/lib/edgeFunctions';
 import { queueIncident, getPendingIncidents, markSynced } from '@/lib/offlineStore';
 import { useUserProfile } from '@/lib/auth';
 import { Loader2, Save, Upload } from 'lucide-react';
 
-export function IncidentForm() {
+export function IncidentForm({ initialData }: { initialData?: Incident }) {
     const { assignedRegionId } = useUserProfile();
     const [loading, setLoading] = useState(false);
     const [pendingCount, setPendingCount] = useState(0);
+    const [sketchFile, setSketchFile] = useState<File | null>(null);
+    const [sketchPreview, setSketchPreview] = useState<string | null>(null);
 
     // Initial State - Flattened for Form, Mapped to Incident on Submit
     const [formState, setFormState] = useState({
@@ -125,6 +127,104 @@ export function IncidentForm() {
         { name: '', designation: '', remarks: '' }
     ]);
 
+    // Handle initialData pre-fill
+    useEffect(() => {
+        if (initialData) {
+            const ns = initialData.incident_nonsensitive_details || {};
+            const sen = initialData.incident_sensitive_details || {};
+            const res = ns.resources_deployed || { trucks: {}, special_assets: {}, medical: {} };
+            const timeline = ns.alarm_timeline || {};
+            const casualties = ns.casualty_details || { injured: {}, fatalities: {} };
+            
+            setFormState((prev: any) => ({
+                ...prev,
+                responder_type: ns.responder_type || '',
+                fire_station_name: ns.fire_station_name || '',
+                notification_dt_date: ns.notification_dt ? ns.notification_dt.split('T')[0] : '',
+                notification_dt_time: ns.notification_dt ? ns.notification_dt.split('T')[1]?.substring(0, 5) : '',
+                region: ns.region || '',
+                province_district: ns.province_district || '',
+                city_municipality: initialData._city_text || ns.city_municipality || '',
+                incident_address: ns.incident_address || '',
+                nearest_landmark: ns.nearest_landmark || '',
+                caller_name: sen.caller_name || '',
+                caller_number: sen.caller_number || '',
+                receiver_name: ns.receiver_name || '',
+                engine_dispatched: ns.engine_dispatched || '',
+                time_engine_dispatched: ns.time_engine_dispatched || '',
+                time_arrived_at_scene: ns.time_arrived_at_scene || '',
+                total_response_time_minutes: ns.total_response_time_minutes?.toString() || '',
+                distance_to_fire_scene_km: ns.distance_to_fire_scene_km?.toString() || '',
+                alarm_level: ns.alarm_level || '',
+                time_returned_to_base: ns.time_returned_to_base || '',
+                total_gas_consumed_liters: ns.total_gas_consumed_liters?.toString() || '',
+
+                classification_of_involved: ns.classification_of_involved || '',
+                type_of_involved_general_category: ns.type_of_involved_general_category || '',
+                owner_name: initialData.incident_sensitive_details?.owner_name || ns.owner_name || '',
+                establishment_name: initialData.incident_sensitive_details?.establishment_name || ns.establishment_name || '',
+                general_description_of_involved: ns.general_description_of_involved || '',
+                area_of_origin: ns.area_of_origin || '',
+                stage_of_fire_upon_arrival: ns.stage_of_fire_upon_arrival || '',
+                extent_of_damage: ns.extent_of_damage || '',
+                extent_total_floor_area_sqm: ns.extent_total_floor_area_sqm?.toString() || '',
+                extent_total_land_area_hectares: ns.extent_total_land_area_hectares?.toString() || '',
+
+                structures_affected: ns.structures_affected?.toString() || '',
+                households_affected: ns.households_affected?.toString() || '',
+                families_affected: ns.families_affected?.toString() || '',
+                individuals_affected: ns.individuals_affected?.toString() || '',
+                vehicles_affected: ns.vehicles_affected?.toString() || '',
+
+                resources_bfp_trucks: res.trucks?.bfp?.toString() || '',
+                resources_lgu_trucks: res.trucks?.lgu?.toString() || '',
+                resources_non_bfp_trucks: res.trucks?.volunteer?.toString() || '',
+                resources_bfp_ambulance: res.medical?.bfp?.toString() || '',
+                resources_non_bfp_ambulance: res.medical?.non_bfp?.toString() || '',
+                resources_bfp_rescue: res.special_assets?.rescue_bfp?.toString() || '',
+                resources_non_bfp_rescue: res.special_assets?.rescue_non_bfp?.toString() || '',
+                resources_others: res.special_assets?.others || '',
+
+                alarm_1st: timeline.alarm_1st || '',
+                alarm_2nd: timeline.alarm_2nd || '',
+                alarm_3rd: timeline.alarm_3rd || '',
+                alarm_4th: timeline.alarm_4th || '',
+                alarm_5th: timeline.alarm_5th || '',
+                alarm_tf_alpha: timeline.alarm_tf_alpha || '',
+                alarm_tf_bravo: timeline.alarm_tf_bravo || '',
+                alarm_tf_charlie: timeline.alarm_tf_charlie || '',
+                alarm_tf_delta: timeline.alarm_tf_delta || '',
+                alarm_general: timeline.alarm_general || '',
+                alarm_fuc: timeline.alarm_fuc || '',
+                alarm_fo: timeline.alarm_fo || '',
+
+                injured_civilian_m: casualties.injured?.civilian_m?.toString() || '',
+                injured_civilian_f: casualties.injured?.civilian_f?.toString() || '',
+                injured_firefighter_m: casualties.injured?.bfp_m?.toString() || '',
+                injured_firefighter_f: casualties.injured?.bfp_f?.toString() || '',
+                fatal_civilian_m: casualties.fatalities?.civilian_m?.toString() || '',
+                fatal_civilian_f: casualties.fatalities?.civilian_f?.toString() || '',
+                
+                incident_commander: initialData.incident_sensitive_details?.personnel_on_duty?.engine_commander || '',
+                ground_commander: initialData.incident_sensitive_details?.personnel_on_duty?.shift_in_charge || '',
+                pod_engine_commander: initialData.incident_sensitive_details?.personnel_on_duty?.engine_commander || '',
+                pod_shift_in_charge: initialData.incident_sensitive_details?.personnel_on_duty?.shift_in_charge || '',
+
+                narrative_report: initialData.narrative_report || '',
+                recommendations: initialData.recommendations || '',
+                disposition: initialData.disposition || '',
+            }));
+
+            if (ns.other_personnel && Array.isArray(ns.other_personnel)) {
+                setOtherPersonnel(ns.other_personnel.map((p: any) => ({
+                    name: p.name || '',
+                    designation: p.designation || '',
+                    remarks: p.remarks || ''
+                })));
+            }
+        }
+    }, [initialData]);
+
     const handleOtherPersonnelChange = (index: number, field: string, value: string) => {
         const newPersonnel = [...otherPersonnel];
         // @ts-ignore
@@ -140,6 +240,26 @@ export function IncidentForm() {
         return () => window.removeEventListener('online', handleOnline);
     }, []);
 
+    const fileToBase64 = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = error => reject(error);
+        });
+    };
+
+    const base64ToBlob = (base64: string): Blob => {
+        const byteString = atob(base64.split(',')[1]);
+        const mimeString = base64.split(',')[0].split(':')[1].split(';')[0];
+        const ab = new ArrayBuffer(byteString.length);
+        const ia = new Uint8Array(ab);
+        for (let i = 0; i < byteString.length; i++) {
+            ia[i] = byteString.charCodeAt(i);
+        }
+        return new Blob([ab], { type: mimeString });
+    };
+
     const checkPending = async () => {
         const pending = await getPendingIncidents();
         setPendingCount(pending.length);
@@ -152,7 +272,16 @@ export function IncidentForm() {
         console.log('Syncing pending...', pending.length);
         for (const item of pending) {
             try {
-                await edgeFunctions.uploadBundle(item.payload);
+                const res = await edgeFunctions.uploadBundle(item.payload);
+                const incidentId = res.incident_ids[0];
+                
+                // If there's a stored sketch, upload it now
+                const firstIncident = item.payload.incidents[0];
+                if (firstIncident?.incident_sensitive_details?.sketch_base64) {
+                    const blob = base64ToBlob(firstIncident.incident_sensitive_details.sketch_base64);
+                    await edgeFunctions.uploadAttachment(incidentId, blob);
+                }
+                
                 await markSynced(item.id!);
             } catch (e) {
                 console.error('Failed to sync item', item.id, e);
@@ -318,12 +447,24 @@ export function IncidentForm() {
 
             if (navigator.onLine) {
                 const res = await edgeFunctions.uploadBundle(payload);
-                alert(`Uploaded successfully! Batch ID: ${res.batch_id}`);
+                const incidentId = res.incident_ids[0];
+                
+                // Upload sketch if exists
+                if (sketchFile && incidentId) {
+                    await edgeFunctions.uploadAttachment(incidentId, sketchFile);
+                }
+                
+                alert(`Uploaded successfully! Incident ID: ${incidentId}`);
                 // Optional: Reset form here
             } else {
+                // If offline, convert sketch to Base64 and store in payload
+                if (sketchFile) {
+                    const base64 = await fileToBase64(sketchFile);
+                    incident.incident_sensitive_details!.sketch_base64 = base64;
+                }
                 await queueIncident(payload);
                 await checkPending();
-                alert('Offline: Incident queued for sync.');
+                alert('Offline: Incident and sketch queued for sync.');
             }
         } catch (err: any) {
             console.error('Submission failed', err);
@@ -398,6 +539,10 @@ export function IncidentForm() {
                                 <option>Third Alarm</option>
                                 <option>Fourth Alarm</option>
                                 <option>Fifth Alarm</option>
+                                <option>Task Force Alpha</option>
+                                <option>Task Force Bravo</option>
+                                <option>Task Force Charlie</option>
+                                <option>Task Force Delta</option>
                                 <option>General Alarm</option>
                             </select>
                         </div>
@@ -528,13 +673,32 @@ export function IncidentForm() {
                     </div>
                 </div>
 
-                {/* H. SKETCH (Placeholder) */}
+                {/* H. SKETCH */}
                 <div className="space-y-4 border-b pb-4">
                     <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">H. Sketch of Fire Scene</h3>
-                    <div className="border-2 border-dashed border-gray-300 rounded p-8 text-center bg-gray-50">
-                        <Upload className="w-8 h-8 mx-auto text-gray-400 mb-2" />
-                        <span className="text-sm text-gray-500">Upload Sketch Image (Not fully connected in MVP)</span>
-                        <input type="file" className="hidden" />
+                    <div className="border-2 border-dashed border-gray-300 rounded p-4 text-center bg-gray-50">
+                        {sketchPreview ? (
+                            <div className="relative group mx-auto w-full max-w-md">
+                                <img src={sketchPreview} alt="Sketch Preview" className="mx-auto h-48 object-contain rounded shadow" />
+                                <button type="button" onClick={() => { setSketchFile(null); setSketchPreview(null); }} className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Loader2 className="w-4 h-4" /> {/* Fallback icon or just use 'x' */}
+                                </button>
+                            </div>
+                        ) : (
+                            <label className="cursor-pointer block">
+                                <Upload className="w-8 h-8 mx-auto text-gray-400 mb-2" />
+                                <span className="text-sm text-gray-500">Click to upload photo sketch of scene</span>
+                                <input type="file" accept="image/*" className="hidden" onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                        setSketchFile(file);
+                                        const reader = new FileReader();
+                                        reader.onloadend = () => setSketchPreview(reader.result as string);
+                                        reader.readAsDataURL(file);
+                                    }
+                                }} />
+                            </label>
+                        )}
                     </div>
                 </div>
 
@@ -558,9 +722,9 @@ export function IncidentForm() {
                         ].map(prob => (
                             <label key={prob} className="flex items-start gap-2">
                                 <input type="checkbox" className="mt-1 h-4 w-4" checked={(formState.problems_encountered || []).includes(prob)}
-                                    onChange={(e) => {
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                                         const current = formState.problems_encountered || [];
-                                        const updated = e.target.checked ? [...current, prob] : current.filter(p => p !== prob);
+                                        const updated = e.target.checked ? [...current, prob] : current.filter((p: string) => p !== prob);
                                         // @ts-ignore
                                         setFormState(prev => ({ ...prev, problems_encountered: updated }));
                                     }} />

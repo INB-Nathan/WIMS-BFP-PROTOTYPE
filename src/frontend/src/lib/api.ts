@@ -253,3 +253,45 @@ export async function submitCivilianReport(payload: {
   }
   return json as { report_id: number; latitude: number; longitude: number; description: string; trust_score: number; status: string; created_at: string };
 }
+
+// ---------------------------------------------------------------------------
+// Regional API (REGIONAL_ENCODER only)
+// ---------------------------------------------------------------------------
+
+export async function fetchRegionalIncidents(params?: { limit?: number; offset?: number; category?: string; status?: string }): Promise<any> {
+  const search = new URLSearchParams();
+  if (params?.limit != null) search.set('limit', String(params.limit));
+  if (params?.offset != null) search.set('offset', String(params.offset));
+  if (params?.category) search.set('category', params.category);
+  if (params?.status) search.set('status', params.status);
+  const qs = search.toString();
+  return apiFetch(`/regional/incidents${qs ? `?${qs}` : ''}`);
+}
+
+export async function fetchRegionalStats(): Promise<any> {
+  return apiFetch('/regional/stats');
+}
+
+export async function importAforFile(file: File): Promise<any> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const url = `${API_BASE.replace(/\/$/, '')}/regional/afor/import`;
+  const res = await fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((json as { message?: string; detail?: string }).message ?? (json as { detail?: string }).detail ?? `Request failed: ${res.status}`);
+  }
+  return json;
+}
+
+export async function commitAforImport(rows: any[]): Promise<any> {
+  return apiFetch('/regional/afor/commit', {
+    method: 'POST',
+    body: JSON.stringify({ rows }),
+  });
+}
+

@@ -46,7 +46,7 @@ CREATE TABLE wims.users (
   user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   keycloak_id UUID NOT NULL UNIQUE,
   username VARCHAR NOT NULL UNIQUE,
-  role VARCHAR NOT NULL CHECK (role IN ('ENCODER', 'VALIDATOR', 'ANALYST', 'ADMIN', 'SYSTEM_ADMIN')),
+  role VARCHAR NOT NULL CHECK (role IN ('ENCODER', 'VALIDATOR', 'ANALYST', 'ADMIN', 'SYSTEM_ADMIN', 'REGIONAL_ENCODER')),
   assigned_region_id INTEGER REFERENCES wims.ref_regions(region_id),
   is_active BOOLEAN DEFAULT TRUE,
   mfa_enabled BOOLEAN DEFAULT FALSE,

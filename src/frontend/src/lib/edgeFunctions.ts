@@ -4,6 +4,11 @@ import { apiFetch } from './api';
 export interface Incident {
     incident_id?: number;
     region_id: number;
+    _city_text?: string;
+    incident_type?: string; 
+    narrative_report?: string;
+    recommendations?: string;
+    disposition?: string;
     incident_nonsensitive_details: {
         alarm_level: string;
         general_category: string;
@@ -16,9 +21,25 @@ export interface Incident {
         province_id: number;
         fire_station_name?: string;
         responder_type?: string;
+        region?: string;
+        province_district?: string;
+        city_municipality?: string;
+        incident_address?: string;
+        nearest_landmark?: string;
+        receiver_name?: string;
+        engine_dispatched?: string;
+        time_engine_dispatched?: string;
+        time_arrived_at_scene?: string;
         fire_origin?: string;
         extent_of_damage?: string;
         stage_of_fire?: string;
+        stage_of_fire_upon_arrival?: string;
+        classification_of_involved?: string;
+        type_of_involved_general_category?: string;
+        owner_name?: string;
+        establishment_name?: string;
+        general_description_of_involved?: string;
+        area_of_origin?: string;
         structures_affected?: number;
         households_affected?: number;
         families_affected?: number;
@@ -26,12 +47,16 @@ export interface Incident {
         vehicles_affected?: number;
         total_response_time_minutes?: number;
         total_gas_consumed_liters?: number;
+        distance_to_fire_scene_km?: number;
+        time_returned_to_base?: string;
         extent_total_floor_area_sqm?: number;
         extent_total_land_area_hectares?: number;
         resources_deployed?: any;
         alarm_timeline?: any;
+        casualty_details?: any;
         problems_encountered?: string[];
         recommendations?: string;
+        other_personnel?: any[];
     };
     incident_sensitive_details: {
         occupancy?: string;
@@ -53,6 +78,7 @@ export interface Incident {
         disposition?: string;
         disposition_prepared_by?: string;
         disposition_noted_by?: string;
+        sketch_base64?: string; // For PWA Offline Base64 storage
     };
 }
 
@@ -130,4 +156,14 @@ export const edgeFunctions = {
         method: 'POST',
         body: JSON.stringify(payload),
     }),
+    
+    uploadAttachment: (incidentId: number, file: File | Blob) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        return apiFetch<{ status: string; message: string }>((`/incidents/${incidentId}/attachments`), {
+            method: 'POST',
+            body: formData,
+            headers: {}, // Let fetch set boundary for FormData
+        });
+    }
 };

@@ -19,7 +19,7 @@ router = APIRouter(tags=["admin"])
 # Schemas
 # ---------------------------------------------------------------------------
 
-VALID_ROLES = ("ENCODER", "VALIDATOR", "ANALYST", "ADMIN", "SYSTEM_ADMIN")
+VALID_ROLES = ("ENCODER", "VALIDATOR", "ANALYST", "ADMIN", "SYSTEM_ADMIN", "REGIONAL_ENCODER")
 
 
 class UserUpdate(BaseModel):
