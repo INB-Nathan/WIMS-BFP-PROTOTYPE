@@ -41,14 +41,12 @@ export default function DashboardPage() {
             router.replace('/admin/system');
         } else if (!loading && role === 'REGIONAL_ENCODER') {
             router.replace('/dashboard/regional');
+        } else if (!loading && role === 'NATIONAL_ANALYST') {
+            router.replace('/dashboard/analyst');
         }
     }, [loading, role, router]);
 
     const assignedRegionId = (user as { assignedRegionId?: number | null })?.assignedRegionId ?? null;
-
-    if (!loading && role === 'SYSTEM_ADMIN') {
-        return <div className="flex items-center justify-center min-h-[40vh] text-gray-500">Redirecting to Admin Hub...</div>;
-    }
 
     const [analytics, setAnalytics] = useState<AnalyticsSummaryResponse | null>(null);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -72,7 +70,7 @@ export default function DashboardPage() {
     const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
     const [subcategoryPage, setSubcategoryPage] = useState(1);
 
-    const authorizedForAnalytics = role === 'ADMIN' || role === 'ANALYST' || role === 'SYSTEM_ADMIN' || ((role === 'ENCODER' || role === 'VALIDATOR') && !assignedRegionId);
+    const authorizedForAnalytics = role === 'ADMIN' || role === 'SYSTEM_ADMIN' || ((role === 'ENCODER' || role === 'VALIDATOR') && !assignedRegionId);
 
     useEffect(() => { fetchRegions().then(setRegions); }, []);
 
@@ -96,7 +94,15 @@ export default function DashboardPage() {
         if (assignedRegionId) setSelectedRegion(assignedRegionId.toString());
     }, [assignedRegionId]);
 
-    const fetchAnalytics = async () => {
+    if (!loading && role === 'SYSTEM_ADMIN') {
+        return <div className="flex items-center justify-center min-h-[40vh] text-gray-500">Redirecting to Admin Hub...</div>;
+    }
+
+    if (!loading && role === 'NATIONAL_ANALYST') {
+        return <div className="flex items-center justify-center min-h-[40vh] text-gray-500">Redirecting to Analyst Dashboard...</div>;
+    }
+
+    async function fetchAnalytics() {
         if (!authorizedForAnalytics) return;
         setIsRefreshing(true);
         try {
@@ -115,7 +121,7 @@ export default function DashboardPage() {
         } finally {
             setIsRefreshing(false);
         }
-    };
+    }
 
     const handleApplyFilters = () => {
         if (!authorizedForAnalytics) return;

@@ -27,7 +27,35 @@ import auth
 from auth import get_current_user
 from database import get_db
 
-from api.routes import incidents, admin, civilian, triage, regional
+from api.routes import incidents, admin, civilian, triage, regional, analytics, ref
+
+# WIMS roles in precedence order (highest first). Used when resolving from Keycloak JWT.
+WIMS_ROLES_FROM_KEYCLOAK = (
+    "SYSTEM_ADMIN",
+    "NATIONAL_ANALYST",
+    "ANALYST",  # legacy alias -> maps to NATIONAL_ANALYST
+    "REGIONAL_ENCODER",
+    "VALIDATOR",
+    "ADMIN",
+    "ENCODER",
+)
+
+
+def _resolve_role_from_token(payload: dict) -> str:
+    """Extract WIMS role from Keycloak JWT. realm_access.roles or resource_access.<client>.roles."""
+    roles: list[str] = []
+    if isinstance(payload.get("realm_access"), dict):
+        ra = payload["realm_access"].get("roles")
+        if isinstance(ra, list):
+            roles.extend(ra)
+    if isinstance(payload.get("resource_access"), dict):
+        for cid, client_data in payload["resource_access"].items():
+            if isinstance(client_data, dict) and isinstance(client_data.get("roles"), list):
+                roles.extend(client_data["roles"])
+    for wims_role in WIMS_ROLES_FROM_KEYCLOAK:
+        if wims_role in roles:
+            return "NATIONAL_ANALYST" if wims_role == "ANALYST" else wims_role
+    return "ENCODER"
 
 # ---------------------------------------------------------------------------
 # App
@@ -38,6 +66,8 @@ app.include_router(admin.router, prefix="/api/admin")
 app.include_router(civilian.router)
 app.include_router(triage.router)
 app.include_router(regional.router)
+app.include_router(analytics.router)
+app.include_router(ref.router)  # GET /api/ref/regions, /api/ref/provinces, /api/ref/cities
 
 logger = logging.getLogger("wims.rate_limit")
 
@@ -46,8 +76,9 @@ logger = logging.getLogger("wims.rate_limit")
 # ---------------------------------------------------------------------------
 from celery_config import celery_app
 
-# Import task module so tasks are registered when worker loads main
+# Import task modules so tasks are registered when worker loads main
 import tasks.suricata  # noqa: F401
+import tasks.exports  # noqa: F401
 
 # Re-export for celery CLI: celery -A main.celery_app
 
@@ -240,19 +271,21 @@ async def auth_callback(
         raise HTTPException(status_code=401, detail="Invalid token: missing sub")
 
     username = preferred_username[:50]
+    role = _resolve_role_from_token(payload)
 
     try:
         result = db.execute(
             text("""
                 INSERT INTO wims.users (keycloak_id, username, role)
-                VALUES (CAST(:kid AS uuid), :username, 'ENCODER')
+                VALUES (CAST(:kid AS uuid), :username, :role)
                 ON CONFLICT (keycloak_id) DO UPDATE SET
                     username = EXCLUDED.username,
+                    role = EXCLUDED.role,
                     last_login = now(),
                     updated_at = now()
                 RETURNING user_id
             """),
-            {"kid": keycloak_sub, "username": username},
+            {"kid": keycloak_sub, "username": username, "role": role},
         ).fetchone()
         db.commit()
         user_id = result.user_id if result else None
@@ -295,18 +328,20 @@ async def get_me(
     ).fetchone()
 
     if row is None:
+        role = _resolve_role_from_token(token_payload)
         try:
             result = db.execute(
                 text("""
                     INSERT INTO wims.users (keycloak_id, username, role)
-                    VALUES (CAST(:kid AS uuid), :username, 'ENCODER')
+                    VALUES (CAST(:kid AS uuid), :username, :role)
                     ON CONFLICT (keycloak_id) DO UPDATE SET
                         username = EXCLUDED.username,
+                        role = EXCLUDED.role,
                         last_login = now(),
                         updated_at = now()
                     RETURNING user_id, username, role, assigned_region_id
                 """),
-                {"kid": keycloak_sub, "username": username},
+                {"kid": keycloak_sub, "username": username, "role": role},
             ).fetchone()
             db.commit()
             row = result

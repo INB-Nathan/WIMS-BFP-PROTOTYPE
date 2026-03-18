@@ -166,6 +166,23 @@ async def get_regional_encoder(
     return current_user
 
 
+async def get_analyst_or_admin(
+    current_user: Annotated[dict, Depends(get_current_wims_user)],
+) -> dict:
+    """
+    Require NATIONAL_ANALYST, ANALYST, or SYSTEM_ADMIN role for analytics endpoints.
+    ANALYST is accepted as alias for NATIONAL_ANALYST (legacy seed compatibility).
+    Raise 403 if current_user.role is not one of these.
+    """
+    role = current_user.get("role")
+    if role not in ("NATIONAL_ANALYST", "ANALYST", "SYSTEM_ADMIN"):
+        raise HTTPException(
+            status_code=403,
+            detail="NATIONAL_ANALYST or SYSTEM_ADMIN privileges required",
+        )
+    return current_user
+
+
 async def get_regional_user(
     current_user: Annotated[dict, Depends(get_current_wims_user)],
     db: Annotated[Session, Depends(get_db)],

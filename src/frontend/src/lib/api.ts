@@ -295,3 +295,104 @@ export async function commitAforImport(rows: any[]): Promise<any> {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Analytics API (NATIONAL_ANALYST, SYSTEM_ADMIN only)
+// ---------------------------------------------------------------------------
+
+export interface HeatmapFeatureProperties {
+  incident_id: number;
+  alarm_level: string | null;
+  general_category: string | null;
+  notification_dt: string | null;
+}
+
+export interface HeatmapGeoJSON {
+  type: 'FeatureCollection';
+  features: Array<{
+    type: 'Feature';
+    geometry: { type: 'Point'; coordinates: [number, number] };
+    properties: HeatmapFeatureProperties;
+  }>;
+}
+
+export interface TrendsResponse {
+  data: Array<{ bucket: string | null; count: number }>;
+}
+
+export interface ComparativeResponse {
+  range_a: { start: string; end: string; count: number };
+  range_b: { start: string; end: string; count: number };
+  variance_percent: number;
+}
+
+export interface HeatmapFilters {
+  start_date?: string;
+  end_date?: string;
+  region_id?: number;
+  alarm_level?: string;
+  incident_type?: string;
+}
+
+export interface TrendFilters {
+  start_date?: string;
+  end_date?: string;
+  region_id?: number;
+  incident_type?: string;
+  interval?: 'daily' | 'weekly' | 'monthly';
+}
+
+export interface ComparativeFilters {
+  range_a_start: string;
+  range_a_end: string;
+  range_b_start: string;
+  range_b_end: string;
+  region_id?: number;
+  incident_type?: string;
+}
+
+function buildAnalyticsParams(params: Record<string, string | number | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== '') search.set(k, String(v));
+  }
+  const qs = search.toString();
+  return qs ? `?${qs}` : '';
+}
+
+/** Fetch heatmap GeoJSON for verified incidents. Requires NATIONAL_ANALYST or SYSTEM_ADMIN. */
+export async function fetchHeatmapData(filters: HeatmapFilters = {}): Promise<HeatmapGeoJSON> {
+  const qs = buildAnalyticsParams({
+    start_date: filters.start_date,
+    end_date: filters.end_date,
+    region_id: filters.region_id,
+    alarm_level: filters.alarm_level,
+    incident_type: filters.incident_type,
+  });
+  return apiFetch<HeatmapGeoJSON>(`/analytics/heatmap${qs}`);
+}
+
+/** Fetch trends time-series data. Requires NATIONAL_ANALYST or SYSTEM_ADMIN. */
+export async function fetchTrendData(filters: TrendFilters = {}): Promise<TrendsResponse> {
+  const qs = buildAnalyticsParams({
+    start_date: filters.start_date,
+    end_date: filters.end_date,
+    region_id: filters.region_id,
+    incident_type: filters.incident_type,
+    interval: filters.interval ?? 'daily',
+  });
+  return apiFetch<TrendsResponse>(`/analytics/trends${qs}`);
+}
+
+/** Fetch comparative counts for two date ranges. Requires NATIONAL_ANALYST or SYSTEM_ADMIN. */
+export async function fetchComparativeData(filters: ComparativeFilters): Promise<ComparativeResponse> {
+  const qs = buildAnalyticsParams({
+    range_a_start: filters.range_a_start,
+    range_a_end: filters.range_a_end,
+    range_b_start: filters.range_b_start,
+    range_b_end: filters.range_b_end,
+    region_id: filters.region_id,
+    incident_type: filters.incident_type,
+  });
+  return apiFetch<ComparativeResponse>(`/analytics/comparative${qs}`);
+}
+
