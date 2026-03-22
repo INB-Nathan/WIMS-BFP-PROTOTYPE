@@ -6,13 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Documentation:** `README.md` — “Rebuilding Docker containers” with `docker compose build --no-cache` / `docker compose up -d` and the shorter `docker compose up --build -d` variant.
+- **Schema docs:** `SCHEMA_MERGE_NOTES.md` — canonical WIMS bootstrap, wildland AFOR mapping, archive pointer.
+- **Archive:** `archive/sql/CONSOLIDATED_UNUSED_SQL.sql` + `archive/sql/README.md` — superseded SQL (legacy migrations, seeds, stubs) consolidated for history only.
+- **Testing:** `src/backend/tests/integration/test_wims_initial_schema_bootstrap.py` — disposable-DB bootstrap check (requires `psql`, optional when DB unavailable).
 - Pre-push documentation audit pass:
   - `docs/ARCHITECTURE.md` refreshed with source-grounded stack, services, and flow details.
   - `docs/API_AND_FUNCTIONS.md` refreshed with verified backend routes, edge functions, frontend routes, and Next route handlers.
   - `README.md` tightened to keep documentation links and setup guidance aligned with current repository structure.
 
 ### Changed
+- **Database bootstrap:** Single canonical DDL at `src/postgres-init/01_wims_initial.sql`; thin idempotent `\ir` in `02_wims_schema.sql`; reference seed in `03_seed_reference.sql`.
+- **Docker (backend):** `postgresql-client` in the backend image; read-only mount `./postgres-init:/app/postgres-init` for integration tests.
 - `.cursor/prompts/pre-push-audit-and-docs.prompt.md` was rewritten to enforce deterministic audit phases, strict write scope, and source-evidence-only documentation updates.
+
+### Removed
+- **`src/supabase/`** — Deno edge functions and leftover Supabase-oriented SQL paths removed; stack uses Keycloak + FastAPI + Postgres only. DB thin re-include is `src/postgres-init/02_wims_schema.sql`; Docker no longer bind-mounts a separate `schema_v2.sql`.
+- **`src/get-tokens.mjs`** — Supabase auth helper script removed.
+- Redundant virtualenv folders (`.venv`) and obsolete standalone SQL (previously under `supabase/migrations/`, `supabase/seeds/`, legacy `wims_schema.sql`, no-op postgres-init stubs) — superseded by archive + `01_wims_initial.sql`.
 
 ## [0.1.0] — 2026-03-14
 

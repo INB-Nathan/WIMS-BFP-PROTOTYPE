@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from auth import get_current_wims_user
 from database import get_db
 from schemas.incident import IncidentCreate, IncidentResponse
+from services.analytics_read_model import sync_incident_to_analytics
 
 router = APIRouter(prefix="/api", tags=["incidents"])
 
@@ -127,6 +128,9 @@ def create_incident(
         raise HTTPException(status_code=500, detail="Failed to create incident")
 
     incident_id = row[0]
+    sync_incident_to_analytics(db, incident_id)
+    db.commit()
+
     # Extract lat/lon from PostGIS geography for response
     coord_row = db.execute(
         text("SELECT ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lon FROM wims.fire_incidents WHERE incident_id = :iid"),

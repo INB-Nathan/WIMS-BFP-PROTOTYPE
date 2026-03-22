@@ -193,7 +193,7 @@ describe('Analytics API wrappers', () => {
       expect(url).toMatch(/\/api\/analytics\/trends/);
     });
 
-    it('serializes query params including interval', async () => {
+    it('serializes query params including interval and alarm_level', async () => {
       fetchSpy.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({ data: [] }),
@@ -204,6 +204,7 @@ describe('Analytics API wrappers', () => {
         end_date: '2024-01-31',
         region_id: 3,
         incident_type: 'NON_STRUCTURAL',
+        alarm_level: '2',
         interval: 'weekly',
       });
 
@@ -213,6 +214,7 @@ describe('Analytics API wrappers', () => {
       expect(u.searchParams.get('end_date')).toBe('2024-01-31');
       expect(u.searchParams.get('region_id')).toBe('3');
       expect(u.searchParams.get('incident_type')).toBe('NON_STRUCTURAL');
+      expect(u.searchParams.get('alarm_level')).toBe('2');
       expect(u.searchParams.get('interval')).toBe('weekly');
     });
 
@@ -256,7 +258,7 @@ describe('Analytics API wrappers', () => {
       expect(url).toMatch(/\/api\/analytics\/comparative/);
     });
 
-    it('serializes range and filter params', async () => {
+    it('serializes range and filter params including alarm_level', async () => {
       fetchSpy.mockResolvedValue({
         ok: true,
         json: () =>
@@ -274,6 +276,7 @@ describe('Analytics API wrappers', () => {
         range_b_end: '2024-02-29',
         region_id: 7,
         incident_type: 'VEHICULAR',
+        alarm_level: '3',
       });
 
       const [url] = fetchSpy.mock.calls[0];
@@ -284,6 +287,7 @@ describe('Analytics API wrappers', () => {
       expect(u.searchParams.get('range_b_end')).toBe('2024-02-29');
       expect(u.searchParams.get('region_id')).toBe('7');
       expect(u.searchParams.get('incident_type')).toBe('VEHICULAR');
+      expect(u.searchParams.get('alarm_level')).toBe('3');
     });
 
     it('returns comparative response shape', async () => {

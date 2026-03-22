@@ -23,8 +23,7 @@
 | `src/backend/api/routes/` | HTTP route modules for incidents, admin, civilian reporting, triage, analytics, regional, and reference endpoints. |
 | `src/frontend/src/app/` | Next.js App Router pages, including dashboards, incident flows, public report, and auth callback. |
 | `src/frontend/src/app/api/auth/` | Next route handlers for session, token sync cookie set, and logout cookie clear. |
-| `src/supabase/functions/` | Deno edge functions used for analytics/commit/conflict/security-event/bundle workflows. |
-| `src/postgres-init/` | DB bootstrap SQL and initialization scripts. |
+| `src/postgres-init/` | DB bootstrap SQL (`01_wims_initial.sql`, thin `02_wims_schema.sql`, seeds). |
 | `src/keycloak/` | Realm import JSON used by Keycloak container startup. |
 | `src/suricata/` | IDS rules and runtime logs mount path. |
 

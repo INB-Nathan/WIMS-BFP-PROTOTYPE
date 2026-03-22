@@ -19,3 +19,8 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def get_session():
+    """Return a new session (for use in Celery tasks, scripts). Caller must close."""
+    return _SessionLocal()

@@ -330,6 +330,7 @@ export interface HeatmapFilters {
   end_date?: string;
   region_id?: number;
   alarm_level?: string;
+  /** API query `incident_type` filters `general_category` in analytics_incident_facts */
   incident_type?: string;
 }
 
@@ -337,7 +338,9 @@ export interface TrendFilters {
   start_date?: string;
   end_date?: string;
   region_id?: number;
+  /** API query `incident_type` filters `general_category` */
   incident_type?: string;
+  alarm_level?: string;
   interval?: 'daily' | 'weekly' | 'monthly';
 }
 
@@ -348,6 +351,7 @@ export interface ComparativeFilters {
   range_b_end: string;
   region_id?: number;
   incident_type?: string;
+  alarm_level?: string;
 }
 
 function buildAnalyticsParams(params: Record<string, string | number | undefined>): string {
@@ -378,6 +382,7 @@ export async function fetchTrendData(filters: TrendFilters = {}): Promise<Trends
     end_date: filters.end_date,
     region_id: filters.region_id,
     incident_type: filters.incident_type,
+    alarm_level: filters.alarm_level,
     interval: filters.interval ?? 'daily',
   });
   return apiFetch<TrendsResponse>(`/analytics/trends${qs}`);
@@ -392,6 +397,7 @@ export async function fetchComparativeData(filters: ComparativeFilters): Promise
     range_b_end: filters.range_b_end,
     region_id: filters.region_id,
     incident_type: filters.incident_type,
+    alarm_level: filters.alarm_level,
   });
   return apiFetch<ComparativeResponse>(`/analytics/comparative${qs}`);
 }

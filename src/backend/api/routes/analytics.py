@@ -2,6 +2,7 @@
 
 All endpoints require NATIONAL_ANALYST or SYSTEM_ADMIN.
 Scoped to verified, non-archived incidents only.
+Queries wims.analytics_incident_facts (read model) instead of raw operational tables.
 """
 
 from __future__ import annotations
@@ -10,48 +11,20 @@ from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from auth import get_analyst_or_admin
 from database import get_db
+from services.analytics_read_model import (
+    count_in_range,
+    get_heatmap_points,
+    get_trends,
+    verify_indexed_access,
+)
 
 from tasks.exports import export_incidents_csv_task
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
-
-
-# ---------------------------------------------------------------------------
-# Base filter: verified + non-archived
-# ---------------------------------------------------------------------------
-_VERIFIED_ARCHIVED = "fi.verification_status = 'VERIFIED' AND fi.is_archived = FALSE"
-
-
-def _build_heatmap_where(
-    start_date: Optional[str],
-    end_date: Optional[str],
-    region_id: Optional[int],
-    alarm_level: Optional[str],
-    incident_type: Optional[str],
-) -> tuple[str, dict]:
-    clauses = [_VERIFIED_ARCHIVED]
-    params: dict[str, Any] = {}
-    if start_date:
-        clauses.append("nd.notification_dt >= CAST(:start_date AS timestamptz)")
-        params["start_date"] = start_date
-    if end_date:
-        clauses.append("nd.notification_dt <= CAST(:end_date AS timestamptz)")
-        params["end_date"] = end_date
-    if region_id is not None:
-        clauses.append("fi.region_id = :region_id")
-        params["region_id"] = region_id
-    if alarm_level:
-        clauses.append("nd.alarm_level = :alarm_level")
-        params["alarm_level"] = alarm_level
-    if incident_type:
-        clauses.append("nd.general_category = :incident_type")
-        params["incident_type"] = incident_type
-    return " AND ".join(clauses), params
 
 
 @router.get("/heatmap")
@@ -66,130 +39,57 @@ def get_heatmap(
 ):
     """
     GeoJSON-compatible heatmap data for verified incidents.
+    Uses wims.analytics_incident_facts (indexed access).
     """
-    where_sql, params = _build_heatmap_where(
-        start_date, end_date, region_id, alarm_level, incident_type
+    points = get_heatmap_points(
+        db,
+        start_date=start_date,
+        end_date=end_date,
+        region_id=region_id,
+        alarm_level=alarm_level,
+        incident_type=incident_type,
     )
-    rows = db.execute(
-        text(f"""
-            SELECT fi.incident_id,
-                   ST_X(fi.location::geometry) AS lon,
-                   ST_Y(fi.location::geometry) AS lat,
-                   nd.alarm_level, nd.general_category, nd.notification_dt
-            FROM wims.fire_incidents fi
-            LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
-            WHERE {where_sql}
-        """),
-        params,
-    ).fetchall()
-
     features = [
         {
             "type": "Feature",
-            "geometry": {"type": "Point", "coordinates": [float(r[1]), float(r[2])]},
+            "geometry": {"type": "Point", "coordinates": [p["lon"], p["lat"]]},
             "properties": {
-                "incident_id": r[0],
-                "alarm_level": r[3],
-                "general_category": r[4],
-                "notification_dt": r[5].isoformat() if r[5] else None,
+                "incident_id": p["incident_id"],
+                "alarm_level": p["alarm_level"],
+                "general_category": p["general_category"],
+                "notification_dt": p["notification_dt"],
             },
         }
-        for r in rows
+        for p in points
     ]
     return {"type": "FeatureCollection", "features": features}
 
 
-def _build_trends_where(
-    start_date: Optional[str],
-    end_date: Optional[str],
-    region_id: Optional[int],
-    incident_type: Optional[str],
-) -> tuple[str, dict]:
-    clauses = [_VERIFIED_ARCHIVED]
-    params: dict[str, Any] = {}
-    if start_date:
-        clauses.append("nd.notification_dt >= CAST(:start_date AS timestamptz)")
-        params["start_date"] = start_date
-    if end_date:
-        clauses.append("nd.notification_dt <= CAST(:end_date AS timestamptz)")
-        params["end_date"] = end_date
-    if region_id is not None:
-        clauses.append("fi.region_id = :region_id")
-        params["region_id"] = region_id
-    if incident_type:
-        clauses.append("nd.general_category = :incident_type")
-        params["incident_type"] = incident_type
-    return " AND ".join(clauses), params
-
-
 @router.get("/trends")
-def get_trends(
+def get_trends_route(
     _user: Annotated[dict, Depends(get_analyst_or_admin)],
     db: Annotated[Session, Depends(get_db)],
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     region_id: Optional[int] = Query(None),
     incident_type: Optional[str] = None,
+    alarm_level: Optional[str] = None,
     interval: str = Query("daily", pattern="^(daily|weekly|monthly)$"),
 ):
     """
     Time-series counts for line/bar charts.
+    Uses wims.analytics_incident_facts (indexed access).
     """
-    where_sql, params = _build_trends_where(
-        start_date, end_date, region_id, incident_type
+    data = get_trends(
+        db,
+        start_date=start_date,
+        end_date=end_date,
+        region_id=region_id,
+        incident_type=incident_type,
+        alarm_level=alarm_level,
+        interval=interval,
     )
-    trunc_val = {"daily": "day", "weekly": "week", "monthly": "month"}[interval]
-
-    rows = db.execute(
-        text(f"""
-            SELECT date_trunc('{trunc_val}', nd.notification_dt) AS bucket, COUNT(*) AS cnt
-            FROM wims.fire_incidents fi
-            LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
-            WHERE {where_sql} AND nd.notification_dt IS NOT NULL
-            GROUP BY date_trunc('{trunc_val}', nd.notification_dt)
-            ORDER BY bucket
-        """),
-        params,
-    ).fetchall()
-
-    return {
-        "data": [{"bucket": r[0].isoformat() if r[0] else None, "count": r[1]} for r in rows]
-    }
-
-
-def _count_in_range(
-    db: Session,
-    range_start: str,
-    range_end: str,
-    region_id: Optional[int],
-    incident_type: Optional[str],
-) -> int:
-    clauses = [
-        _VERIFIED_ARCHIVED,
-        "nd.notification_dt >= CAST(:range_start AS timestamptz)",
-        "nd.notification_dt <= CAST(:range_end AS timestamptz)",
-    ]
-    params: dict[str, Any] = {
-        "range_start": range_start,
-        "range_end": range_end,
-    }
-    if region_id is not None:
-        clauses.append("fi.region_id = :region_id")
-        params["region_id"] = region_id
-    if incident_type:
-        clauses.append("nd.general_category = :incident_type")
-        params["incident_type"] = incident_type
-    where_sql = " AND ".join(clauses)
-    result = db.execute(
-        text(f"""
-            SELECT COUNT(*)
-            FROM wims.fire_incidents fi
-            LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
-            WHERE {where_sql}
-        """),
-        params,
-    ).scalar()
-    return result or 0
+    return {"data": data}
 
 
 @router.get("/comparative")
@@ -202,12 +102,28 @@ def get_comparative(
     range_b_end: str = Query(...),
     region_id: Optional[int] = Query(None),
     incident_type: Optional[str] = None,
+    alarm_level: Optional[str] = None,
 ):
     """
     Comparative counts for two date ranges with percentage variance.
+    Uses wims.analytics_incident_facts (indexed access).
     """
-    count_a = _count_in_range(db, range_a_start, range_a_end, region_id, incident_type)
-    count_b = _count_in_range(db, range_b_start, range_b_end, region_id, incident_type)
+    count_a = count_in_range(
+        db,
+        range_a_start,
+        range_a_end,
+        region_id=region_id,
+        incident_type=incident_type,
+        alarm_level=alarm_level,
+    )
+    count_b = count_in_range(
+        db,
+        range_b_start,
+        range_b_end,
+        region_id=region_id,
+        incident_type=incident_type,
+        alarm_level=alarm_level,
+    )
 
     variance_pct = 0.0
     if count_a > 0:
@@ -218,6 +134,18 @@ def get_comparative(
         "range_b": {"start": range_b_start, "end": range_b_end, "count": count_b},
         "variance_percent": round(variance_pct, 2),
     }
+
+
+@router.get("/execution-plans")
+def get_execution_plans(
+    _user: Annotated[dict, Depends(get_analyst_or_admin)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """
+    Return EXPLAIN output for analytics queries.
+    Evidence that filtered queries use indexed access or pre-aggregated objects.
+    """
+    return verify_indexed_access(db)
 
 
 class ExportCsvRequest(BaseModel):

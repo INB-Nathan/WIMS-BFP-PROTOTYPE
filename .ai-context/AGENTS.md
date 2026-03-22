@@ -11,7 +11,7 @@
 - **Backend HTTP Endpoints**: `src/backend/api/routes` (Keep handlers thin).
 - **Backend Business Logic & Cryptography**: `src/backend/services` (AES-256-GCM logic).
 - **Background Async Work**: `src/backend/tasks` (Celery workers for AI and Log parsing).
-- **Database Initialization**: `src/postgres-init` or Alembic migrations (Do not use Supabase migrations).
+- **Database Initialization**: `src/postgres-init/01_wims_initial.sql` (canonical); archived superseded SQL under `archive/sql/`.
 
 ## 3) API and Auth Rules
 - Every protected route MUST use auth dependencies from `src/backend/auth.py` validating Keycloak JWTs.

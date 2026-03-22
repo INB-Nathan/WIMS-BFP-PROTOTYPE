@@ -4,6 +4,9 @@ TDD: National Analyst Analytics API — RBAC and CSV Export.
 Red State: REGIONAL_ENCODER gets 403 on analytics endpoints.
 Green State: NATIONAL_ANALYST and SYSTEM_ADMIN can access analytics.
 CSV export dispatches Celery task and returns task_id.
+
+Comparative/trends filters: incident_type maps to general_category; alarm_level is optional.
+Comparative ranges may overlap — API does not enforce ordering between range A and range B.
 """
 
 from unittest.mock import MagicMock, patch
@@ -143,8 +146,8 @@ def test_analytics_comparative_rejects_regional_encoder(client: TestClient):
     assert response.status_code == 403
 
 
-def test_analytics_heatmap_scopes_to_verified_non_archived(client: TestClient):
-    """Heatmap query must filter by verification_status=VERIFIED and is_archived=FALSE."""
+def test_analytics_heatmap_uses_read_model(client: TestClient):
+    """Heatmap must query analytics_incident_facts (read model), not raw fire_incidents."""
     async def mock_national_analyst():
         return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "NATIONAL_ANALYST"}
 
@@ -164,9 +167,153 @@ def test_analytics_heatmap_scopes_to_verified_non_archived(client: TestClient):
 
     client.get("/api/analytics/heatmap")
 
-    # Verify execute was called with SQL containing verified + non-archived filter
+    # Verify execute was called with SQL against analytics_incident_facts (pre-filtered read model)
     call_args = mock_db.execute.call_args
     assert call_args is not None
     sql = str(call_args[0][0]) if call_args[0] else ""
-    assert "VERIFIED" in sql
-    assert "is_archived" in sql
+    assert "analytics_incident_facts" in sql
+
+
+def _mock_analyst_db():
+    mock_db = MagicMock()
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = []
+    mock_db.execute.return_value = mock_result
+
+    def mock_get_db():
+        try:
+            yield mock_db
+        finally:
+            pass
+
+    return mock_db, mock_get_db
+
+
+def test_analytics_comparative_passes_alarm_level_and_incident_type_to_count_in_range(
+    client: TestClient,
+):
+    """GET /api/analytics/comparative must forward alarm_level and incident_type to count_in_range."""
+
+    async def mock_national_analyst():
+        return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "NATIONAL_ANALYST"}
+
+    mock_db, mock_get_db = _mock_analyst_db()
+
+    app.dependency_overrides[auth.get_current_wims_user] = mock_national_analyst
+    app.dependency_overrides[get_db] = mock_get_db
+
+    with patch("api.routes.analytics.count_in_range", side_effect=[3, 7]) as mock_count:
+        response = client.get(
+            "/api/analytics/comparative",
+            params={
+                "range_a_start": "2024-01-01",
+                "range_a_end": "2024-01-15",
+                "range_b_start": "2024-02-01",
+                "range_b_end": "2024-02-15",
+                "incident_type": "STRUCTURAL",
+                "alarm_level": "2",
+            },
+        )
+
+    assert response.status_code == 200
+    assert mock_count.call_count == 2
+    for call in mock_count.call_args_list:
+        assert call.kwargs.get("incident_type") == "STRUCTURAL"
+        assert call.kwargs.get("alarm_level") == "2"
+    data = response.json()
+    assert data["range_a"]["count"] == 3
+    assert data["range_b"]["count"] == 7
+
+
+def test_analytics_comparative_counts_differ_when_incident_type_filter_changes(
+    client: TestClient,
+):
+    """Same date ranges; different incident_type must yield different counts when underlying data differs."""
+
+    async def mock_national_analyst():
+        return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "NATIONAL_ANALYST"}
+
+    mock_db, mock_get_db = _mock_analyst_db()
+
+    app.dependency_overrides[auth.get_current_wims_user] = mock_national_analyst
+    app.dependency_overrides[get_db] = mock_get_db
+
+    params_base = {
+        "range_a_start": "2024-01-01",
+        "range_a_end": "2024-01-31",
+        "range_b_start": "2024-02-01",
+        "range_b_end": "2024-02-29",
+    }
+
+    with patch("api.routes.analytics.count_in_range", side_effect=[10, 12]) as mock_count_structural:
+        r1 = client.get("/api/analytics/comparative", params={**params_base, "incident_type": "STRUCTURAL"})
+    assert r1.status_code == 200
+    assert r1.json()["range_a"]["count"] == 10
+
+    with patch("api.routes.analytics.count_in_range", side_effect=[4, 5]) as mock_count_other:
+        r2 = client.get("/api/analytics/comparative", params={**params_base, "incident_type": "VEHICULAR"})
+    assert r2.status_code == 200
+    assert r2.json()["range_a"]["count"] == 4
+    assert mock_count_structural.call_args_list[0].kwargs.get("incident_type") == "STRUCTURAL"
+    assert mock_count_other.call_args_list[0].kwargs.get("incident_type") == "VEHICULAR"
+
+
+def test_analytics_comparative_counts_differ_when_alarm_level_filter_changes(
+    client: TestClient,
+):
+    """Same date ranges; different alarm_level must yield different counts when implementation applies the filter."""
+
+    async def mock_national_analyst():
+        return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "NATIONAL_ANALYST"}
+
+    mock_db, mock_get_db = _mock_analyst_db()
+
+    app.dependency_overrides[auth.get_current_wims_user] = mock_national_analyst
+    app.dependency_overrides[get_db] = mock_get_db
+
+    params_base = {
+        "range_a_start": "2024-01-01",
+        "range_a_end": "2024-01-31",
+        "range_b_start": "2024-02-01",
+        "range_b_end": "2024-02-29",
+    }
+
+    with patch("api.routes.analytics.count_in_range", side_effect=[8, 9]) as mock_a:
+        r1 = client.get("/api/analytics/comparative", params={**params_base, "alarm_level": "1"})
+    assert r1.status_code == 200
+    assert r1.json()["range_a"]["count"] == 8
+
+    with patch("api.routes.analytics.count_in_range", side_effect=[1, 2]) as mock_b:
+        r2 = client.get("/api/analytics/comparative", params={**params_base, "alarm_level": "3"})
+    assert r2.status_code == 200
+    assert r2.json()["range_a"]["count"] == 1
+    assert mock_a.call_args_list[0].kwargs.get("alarm_level") == "1"
+    assert mock_b.call_args_list[0].kwargs.get("alarm_level") == "3"
+
+
+def test_analytics_trends_passes_alarm_level_to_get_trends(client: TestClient):
+    """GET /api/analytics/trends must forward alarm_level to get_trends."""
+
+    async def mock_national_analyst():
+        return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "NATIONAL_ANALYST"}
+
+    mock_db, mock_get_db = _mock_analyst_db()
+
+    app.dependency_overrides[auth.get_current_wims_user] = mock_national_analyst
+    app.dependency_overrides[get_db] = mock_get_db
+
+    with patch("api.routes.analytics.get_trends", return_value=[]) as mock_gt:
+        response = client.get(
+            "/api/analytics/trends",
+            params={
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "alarm_level": "2",
+                "incident_type": "STRUCTURAL",
+            },
+        )
+
+    assert response.status_code == 200
+    assert mock_gt.called
+    assert mock_gt.call_args.kwargs.get("alarm_level") == "2"
+    assert mock_gt.call_args.kwargs.get("incident_type") == "STRUCTURAL"

@@ -19,11 +19,11 @@ Panel defense feedback requires implementing a `REGIONAL_ENCODER` role with stri
 
 ### Auth & Database (Role + Keycloak)
 
-#### [MODIFY] [schema_v2.sql](file:///e:/WIMS-GIT/WIMS-BFP-PROTOTYPE/src/supabase/schema_v2.sql)
+#### [MODIFY] [01_wims_initial.sql](file:///e:/WIMS-GIT/WIMS-BFP-PROTOTYPE/src/postgres-init/01_wims_initial.sql)
 - Add `REGIONAL_ENCODER` to the `wims.users.role` CHECK constraint so the canonical schema reflects the new role.
 
-#### [NEW] [20260315000000_add_regional_encoder_role.sql](file:///e:/WIMS-GIT/WIMS-BFP-PROTOTYPE/src/supabase/migrations/20260315000000_add_regional_encoder_role.sql)
-- Migration SQL to `ALTER TABLE wims.users DROP CONSTRAINT ... ADD CONSTRAINT` including `REGIONAL_ENCODER` in the role enum.
+#### ~~[NEW] migration~~ (archived)
+- Historical migration SQL was consolidated into `archive/sql/CONSOLIDATED_UNUSED_SQL.sql`. Role changes live in `src/postgres-init/01_wims_initial.sql`.
 
 #### [MODIFY] [auth.py](file:///e:/WIMS-GIT/WIMS-BFP-PROTOTYPE/src/backend/auth.py)
 - Add `get_regional_encoder` dependency function: validates user has `REGIONAL_ENCODER` role and returns their `assigned_region_id`. Rejects with 403 if no region assigned.

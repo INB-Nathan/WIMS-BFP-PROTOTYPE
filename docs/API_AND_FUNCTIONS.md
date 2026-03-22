@@ -68,19 +68,9 @@ Source of truth: `src/backend/main.py` and `src/backend/api/routes/*.py`
 |---|---|---|---|
 | GET | `/api/ref/regions` | `get_current_wims_user` | Returns region reference records (optional `region_id` filter). |
 
-## Supabase Edge Functions
+## Frontend → backend “edge” naming (`src/frontend/src/lib/edgeFunctions.ts`)
 
-Source: `src/supabase/functions/`
-
-| Function | Path | Purpose (code-verified) |
-|---|---|---|
-| analytics-summary | `analytics-summary/index.ts` | Returns analytics aggregates with auth/role checks and optional date/geo filters. |
-| commit-incident | `commit-incident/index.ts` | Applies VERIFY/REJECT/MERGE decision, writes verification history and audit trail. |
-| conflict-detection | `conflict-detection/index.ts` | Finds possible duplicate incidents in region/time/city proximity window. |
-| security-event-action | `security-event-action/index.ts` | Updates security log action metadata and writes audit entry. |
-| upload-bundle | `upload-bundle/index.ts` | Accepts encoder bundle payload, inserts batch and incident detail rows with region checks. |
-
-Shared helper: `_shared/cors.ts`
+The module name is historical. Calls use `apiFetch` against the **FastAPI** app (`NEXT_PUBLIC_API_URL`, typically `/api`). Equivalent behavior previously lived in hosted Supabase Edge Functions; those have been removed from the repo. Implement or extend behavior in `src/backend/api/routes/` and `main.py`.
 
 ## Frontend Routes (Next.js App Router)
 

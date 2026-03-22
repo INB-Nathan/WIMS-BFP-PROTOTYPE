@@ -14,7 +14,6 @@ Primary implementation lives under `src/`:
 
 - `src/frontend` — Next.js app (App Router)
 - `src/backend` — FastAPI API + Celery task modules
-- `src/supabase/functions` — Deno edge functions
 - `src/postgres-init` — PostgreSQL bootstrap SQL
 - `src/keycloak` — realm import configuration
 - `src/docker-compose.yml` — local multi-service orchestration
@@ -41,13 +40,32 @@ Primary implementation lives under `src/`:
 3. **Start all services:**
    ```bash
    cd src
-   docker-compose up --build
+   docker compose up --build
    ```
 
 4. **Access the application:**
    - **Frontend:** http://localhost
    - **Keycloak Admin:** http://localhost/auth (admin / admin)
    - **Backend API:** http://localhost/api
+
+## Rebuilding Docker containers
+
+Use this after changing Dockerfiles, `requirements.txt`, `package.json`, or when you want a clean image rebuild (not just restarting containers).
+
+**Rebuild all application images and recreate containers:**
+```bash
+cd src
+docker compose build --no-cache
+docker compose up -d
+```
+
+**Shorter option** (rebuild images that changed, then start):
+```bash
+cd src
+docker compose up --build -d
+```
+
+To stop the stack: `docker compose down` (add `-v` only if you intend to drop named volumes such as Postgres data).
 
 ## Environment Variables
 
@@ -69,8 +87,7 @@ All service configuration is managed through `src/docker-compose.yml` environmen
 src/
 ├── backend/          # FastAPI + Celery
 ├── frontend/         # Next.js (App Router)
-├── supabase/         # Edge Functions, schema, migrations, seeds
-├── postgres-init/    # DB initialization scripts
+├── postgres-init/    # DB initialization scripts (`01` + thin `02` + seed)
 ├── keycloak/         # Realm import configuration
 ├── suricata/         # IDS rules and logs
 ├── nginx/            # Reverse proxy configuration

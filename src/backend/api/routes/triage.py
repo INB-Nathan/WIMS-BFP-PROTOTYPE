@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user
 from database import get_db
+from services.analytics_read_model import sync_incident_to_analytics
 
 router = APIRouter(prefix="/api/triage", tags=["triage"])
 
@@ -128,5 +129,8 @@ def promote_report(
     except Exception:
         db.rollback()
         raise
+
+    sync_incident_to_analytics(db, incident_id)
+    db.commit()
 
     return {"report_id": report_id, "incident_id": incident_id}

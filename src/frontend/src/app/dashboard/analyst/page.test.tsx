@@ -71,8 +71,13 @@ describe('Analyst dashboard page', () => {
       expect(screen.getByLabelText(/start date|date from/i)).toBeInTheDocument();
     });
     expect(screen.getByLabelText(/end date|date to/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/region/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^region$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/incident type|type/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/alarm level/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/range a start/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/range a end/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/range b start/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/range b end/i)).toBeInTheDocument();
   });
 
   it('loads analytics data on success', async () => {
@@ -82,6 +87,30 @@ describe('Analyst dashboard page', () => {
       expect(mockFetchHeatmapData).toHaveBeenCalled();
       expect(mockFetchTrendData).toHaveBeenCalled();
       expect(mockFetchComparativeData).toHaveBeenCalled();
+    });
+  });
+
+  it('passes shared filters and explicit comparative ranges to all analytics fetches', async () => {
+    const user = userEvent.setup();
+    render(<AnalystDashboardPage />);
+
+    await waitFor(() => {
+      expect(mockFetchComparativeData).toHaveBeenCalled();
+    });
+
+    await user.selectOptions(screen.getByLabelText(/alarm level/i), '2');
+    await user.clear(screen.getByLabelText(/range a start/i));
+    await user.type(screen.getByLabelText(/range a start/i), '2024-06-01');
+    await user.click(screen.getByRole('button', { name: /^apply$/i }));
+
+    await waitFor(() => {
+      const lastHeat = mockFetchHeatmapData.mock.calls[mockFetchHeatmapData.mock.calls.length - 1][0];
+      const lastTrend = mockFetchTrendData.mock.calls[mockFetchTrendData.mock.calls.length - 1][0];
+      const lastCmp = mockFetchComparativeData.mock.calls[mockFetchComparativeData.mock.calls.length - 1][0];
+      expect(lastHeat.alarm_level).toBe('2');
+      expect(lastTrend.alarm_level).toBe('2');
+      expect(lastCmp.alarm_level).toBe('2');
+      expect(lastCmp.range_a_start).toBe('2024-06-01');
     });
   });
 
@@ -160,6 +189,7 @@ describe('Analyst dashboard page', () => {
       expect(filters.end_date).toBeUndefined();
       expect(filters.region_id).toBeUndefined();
       expect(filters.incident_type).toBeUndefined();
+      expect(filters.alarm_level).toBeUndefined();
     });
   });
 });

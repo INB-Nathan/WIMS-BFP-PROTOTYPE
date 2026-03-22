@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from auth import get_system_admin
 from database import get_db
 from services.ai_service import analyze_threat_log
+from services.analytics_read_model import backfill_analytics_facts
 
 router = APIRouter(tags=["admin"])
 
@@ -186,6 +187,20 @@ def update_security_log(
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Security log not found")
     return {"status": "ok", "log_id": log_id}
+
+
+# ---------------------------------------------------------------------------
+# Analytics Read Model
+# ---------------------------------------------------------------------------
+
+@router.post("/analytics/backfill")
+def backfill_analytics(
+    _admin: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Backfill wims.analytics_incident_facts from existing VERIFIED non-archived incidents."""
+    count = backfill_analytics_facts(db)
+    return {"status": "ok", "synced_count": count}
 
 
 # ---------------------------------------------------------------------------

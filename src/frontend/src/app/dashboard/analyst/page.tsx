@@ -28,6 +28,15 @@ const INCIDENT_TYPES = [
   { value: 'VEHICULAR', label: 'Vehicular' },
 ];
 
+const ALARM_LEVELS = [
+  { value: '', label: 'All Alarms' },
+  { value: '1', label: 'Alarm 1' },
+  { value: '2', label: 'Alarm 2' },
+  { value: '3', label: 'Alarm 3' },
+  { value: '4', label: 'Alarm 4' },
+  { value: '5', label: 'Alarm 5' },
+];
+
 const INTERVALS = [
   { value: 'daily', label: 'Daily' },
   { value: 'weekly', label: 'Weekly' },
@@ -35,6 +44,26 @@ const INTERVALS = [
 ];
 
 const ANALYST_ROLES = ['NATIONAL_ANALYST', 'SYSTEM_ADMIN'];
+
+/** Default comparative windows: last 30 days split into Range A then Range B (ranges may overlap — server does not enforce ordering). */
+function initialComparativeRanges(): {
+  rangeAStart: string;
+  rangeAEnd: string;
+  rangeBStart: string;
+  rangeBEnd: string;
+} {
+  const end = new Date();
+  const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const mid = new Date(start.getTime() + (end.getTime() - start.getTime()) / 2);
+  const rangeBStart = new Date(mid.getTime() + 24 * 60 * 60 * 1000);
+  const fmt = (d: Date) => d.toISOString().split('T')[0];
+  return {
+    rangeAStart: fmt(start),
+    rangeAEnd: fmt(mid),
+    rangeBStart: fmt(rangeBStart),
+    rangeBEnd: fmt(end),
+  };
+}
 
 export default function AnalystDashboardPage() {
   const router = useRouter();
@@ -58,15 +87,23 @@ export default function AnalystDashboardPage() {
   const [endDate, setEndDate] = useState('');
   const [regionId, setRegionId] = useState<string>('');
   const [incidentType, setIncidentType] = useState('');
+  const [alarmLevel, setAlarmLevel] = useState('');
   const [interval, setInterval] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [regions, setRegions] = useState<{ region_id: number; region_name: string; region_code: string }[]>([]);
+
+  const [cmpRanges, setCmpRanges] = useState(() => initialComparativeRanges());
 
   type FilterOverrides = {
     startDate?: string;
     endDate?: string;
     regionId?: string;
     incidentType?: string;
+    alarmLevel?: string;
     interval?: 'daily' | 'weekly' | 'monthly';
+    rangeAStart?: string;
+    rangeAEnd?: string;
+    rangeBStart?: string;
+    rangeBEnd?: string;
   };
 
   const loadData = useCallback(async (overrides?: FilterOverrides) => {
@@ -75,7 +112,12 @@ export default function AnalystDashboardPage() {
     const ed = overrides?.endDate ?? endDate;
     const rid = overrides?.regionId ?? regionId;
     const it = overrides?.incidentType ?? incidentType;
+    const al = overrides?.alarmLevel ?? alarmLevel;
     const iv = overrides?.interval ?? interval;
+    const raS = overrides?.rangeAStart ?? cmpRanges.rangeAStart;
+    const raE = overrides?.rangeAEnd ?? cmpRanges.rangeAEnd;
+    const rbS = overrides?.rangeBStart ?? cmpRanges.rangeBStart;
+    const rbE = overrides?.rangeBEnd ?? cmpRanges.rangeBEnd;
 
     setLoadingData(true);
     setError(null);
@@ -86,23 +128,20 @@ export default function AnalystDashboardPage() {
         end_date: ed || undefined,
         region_id: rid ? parseInt(rid, 10) : undefined,
         incident_type: it || undefined,
+        alarm_level: al || undefined,
       };
       const [heatmapRes, trendsRes, comparativeRes] = await Promise.all([
         fetchHeatmapData(filters),
         fetchTrendData({ ...filters, interval: iv }),
-        (() => {
-          const end = ed ? new Date(ed) : new Date();
-          const start = sd ? new Date(sd) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
-          const rangeAEnd = new Date(start.getTime() + (end.getTime() - start.getTime()) / 2);
-          return fetchComparativeData({
-            range_a_start: start.toISOString().split('T')[0],
-            range_a_end: rangeAEnd.toISOString().split('T')[0],
-            range_b_start: new Date(rangeAEnd.getTime() + 86400000).toISOString().split('T')[0],
-            range_b_end: end.toISOString().split('T')[0],
-            region_id: rid ? parseInt(rid, 10) : undefined,
-            incident_type: it || undefined,
-          });
-        })(),
+        fetchComparativeData({
+          range_a_start: raS,
+          range_a_end: raE,
+          range_b_start: rbS,
+          range_b_end: rbE,
+          region_id: rid ? parseInt(rid, 10) : undefined,
+          incident_type: it || undefined,
+          alarm_level: al || undefined,
+        }),
       ]);
       setHeatmap(heatmapRes);
       setTrends(trendsRes);
@@ -117,7 +156,16 @@ export default function AnalystDashboardPage() {
     } finally {
       setLoadingData(false);
     }
-  }, [role, startDate, endDate, regionId, incidentType, interval]);
+  }, [
+    role,
+    startDate,
+    endDate,
+    regionId,
+    incidentType,
+    alarmLevel,
+    interval,
+    cmpRanges,
+  ]);
 
   useEffect(() => {
     if (loading) return;
@@ -179,108 +227,203 @@ export default function AnalystDashboardPage() {
       {/* Filter bar */}
       <div className="card">
         <div className="card-header">Filters</div>
-        <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-4 items-end">
-            <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
-                Start Date
-              </label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full rounded-md py-2 px-3 text-sm border"
-                style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                aria-label="Start date"
-              />
+        <div className="card-body space-y-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
+              Heatmap &amp; trends window
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-8 gap-4 items-end">
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                  Start Date
+                </label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full rounded-md py-2 px-3 text-sm border"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                  aria-label="Start date"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                  End Date
+                </label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full rounded-md py-2 px-3 text-sm border"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                  aria-label="End date"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                  Region
+                </label>
+                <select
+                  value={regionId}
+                  onChange={(e) => setRegionId(e.target.value)}
+                  className="w-full rounded-md py-2 px-3 text-sm border cursor-pointer"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                  aria-label="Region"
+                >
+                  <option value="">All Regions</option>
+                  {regions.map((r) => (
+                    <option key={r.region_id} value={String(r.region_id)}>
+                      {r.region_name} ({r.region_code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                  Incident Type
+                </label>
+                <select
+                  value={incidentType}
+                  onChange={(e) => setIncidentType(e.target.value)}
+                  className="w-full rounded-md py-2 px-3 text-sm border cursor-pointer"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                  aria-label="Incident type"
+                >
+                  {INCIDENT_TYPES.map((o) => (
+                    <option key={o.value || 'all'} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                  Alarm level
+                </label>
+                <select
+                  value={alarmLevel}
+                  onChange={(e) => setAlarmLevel(e.target.value)}
+                  className="w-full rounded-md py-2 px-3 text-sm border cursor-pointer"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                  aria-label="Alarm level"
+                >
+                  {ALARM_LEVELS.map((o) => (
+                    <option key={o.value || 'all'} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                  Interval
+                </label>
+                <select
+                  value={interval}
+                  onChange={(e) => setInterval(e.target.value as 'daily' | 'weekly' | 'monthly')}
+                  className="w-full rounded-md py-2 px-3 text-sm border cursor-pointer"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                  aria-label="Interval"
+                >
+                  {INTERVALS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex gap-2 md:col-span-2">
+                <button
+                  onClick={() => void loadData()}
+                  disabled={loadingData}
+                  className="flex-1 text-sm font-bold py-2 px-3 rounded-md text-white transition-colors"
+                  style={{ backgroundColor: 'var(--bfp-maroon)' }}
+                >
+                  Apply
+                </button>
+                <button
+                  onClick={() => {
+                    const reset = initialComparativeRanges();
+                    setStartDate('');
+                    setEndDate('');
+                    setRegionId('');
+                    setIncidentType('');
+                    setAlarmLevel('');
+                    setInterval('daily');
+                    setCmpRanges(reset);
+                    loadData({
+                      startDate: '',
+                      endDate: '',
+                      regionId: '',
+                      incidentType: '',
+                      alarmLevel: '',
+                      interval: 'daily',
+                      rangeAStart: reset.rangeAStart,
+                      rangeAEnd: reset.rangeAEnd,
+                      rangeBStart: reset.rangeBStart,
+                      rangeBEnd: reset.rangeBEnd,
+                    });
+                  }}
+                  className="text-sm py-2 px-3 rounded-md border hover:bg-gray-50"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+                >
+                  Clear
+                </button>
+              </div>
             </div>
-            <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
-                End Date
-              </label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full rounded-md py-2 px-3 text-sm border"
-                style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                aria-label="End date"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
-                Region
-              </label>
-              <select
-                value={regionId}
-                onChange={(e) => setRegionId(e.target.value)}
-                className="w-full rounded-md py-2 px-3 text-sm border cursor-pointer"
-                style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                aria-label="Region"
-              >
-                <option value="">All Regions</option>
-                {regions.map((r) => (
-                  <option key={r.region_id} value={String(r.region_id)}>
-                    {r.region_name} ({r.region_code})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
-                Incident Type
-              </label>
-              <select
-                value={incidentType}
-                onChange={(e) => setIncidentType(e.target.value)}
-                className="w-full rounded-md py-2 px-3 text-sm border cursor-pointer"
-                style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                aria-label="Incident type"
-              >
-                {INCIDENT_TYPES.map((o) => (
-                  <option key={o.value || 'all'} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
-                Interval
-              </label>
-              <select
-                value={interval}
-                onChange={(e) => setInterval(e.target.value as 'daily' | 'weekly' | 'monthly')}
-                className="w-full rounded-md py-2 px-3 text-sm border cursor-pointer"
-                style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                aria-label="Interval"
-              >
-                {INTERVALS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => void loadData()}
-                disabled={loadingData}
-                className="flex-1 text-sm font-bold py-2 px-3 rounded-md text-white transition-colors"
-                style={{ backgroundColor: 'var(--bfp-maroon)' }}
-              >
-                Apply
-              </button>
-              <button
-                onClick={() => {
-                  setStartDate('');
-                  setEndDate('');
-                  setRegionId('');
-                  setIncidentType('');
-                  setInterval('daily');
-                  loadData({ startDate: '', endDate: '', regionId: '', incidentType: '', interval: 'daily' });
-                }}
-                className="text-sm py-2 px-3 rounded-md border hover:bg-gray-50"
-                style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
-              >
-                Clear
-              </button>
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
+              Comparative periods (variance)
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                  Range A start
+                </label>
+                <input
+                  type="date"
+                  value={cmpRanges.rangeAStart}
+                  onChange={(e) => setCmpRanges((prev) => ({ ...prev, rangeAStart: e.target.value }))}
+                  className="w-full rounded-md py-2 px-3 text-sm border"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                  aria-label="Range A start"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                  Range A end
+                </label>
+                <input
+                  type="date"
+                  value={cmpRanges.rangeAEnd}
+                  onChange={(e) => setCmpRanges((prev) => ({ ...prev, rangeAEnd: e.target.value }))}
+                  className="w-full rounded-md py-2 px-3 text-sm border"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                  aria-label="Range A end"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                  Range B start
+                </label>
+                <input
+                  type="date"
+                  value={cmpRanges.rangeBStart}
+                  onChange={(e) => setCmpRanges((prev) => ({ ...prev, rangeBStart: e.target.value }))}
+                  className="w-full rounded-md py-2 px-3 text-sm border"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                  aria-label="Range B start"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                  Range B end
+                </label>
+                <input
+                  type="date"
+                  value={cmpRanges.rangeBEnd}
+                  onChange={(e) => setCmpRanges((prev) => ({ ...prev, rangeBEnd: e.target.value }))}
+                  className="w-full rounded-md py-2 px-3 text-sm border"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                  aria-label="Range B end"
+                />
+              </div>
             </div>
           </div>
         </div>
