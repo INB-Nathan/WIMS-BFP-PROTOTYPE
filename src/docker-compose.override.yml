@@ -1,0 +1,21 @@
+services:
+  ollama:
+    image: alpine:3.20
+    entrypoint: ["sh", "-c", "tail -f /dev/null"]
+    volumes: !reset []
+    deploy: !reset {}
+
+  backend:
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      keycloak:
+        condition: service_started
+
+  wims-suricata:
+    image: alpine:3.20
+    entrypoint: ["sh", "-c", "tail -f /dev/null"]
+    volumes: !reset []
+    command: !override ""
