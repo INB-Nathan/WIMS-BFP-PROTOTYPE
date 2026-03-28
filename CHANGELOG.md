@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Security — AES-256-GCM PII encryption:** Implemented zero-trust AES-256-GCM encryption for `incident_sensitive_details` PII blob. `caller_name`, `caller_number`, `owner_name`, and `occupant_name` are now stored exclusively in an encrypted blob (`pii_blob_enc`) with a 12-byte nonce (`encryption_iv`), bound to the record via AAD (`incident_id:N`). Plaintext PII columns are always `NULL` for new writes; decryption falls back to legacy columns if blob is absent. Commits `182fb46`, `65fd600` (`src/backend/utils/crypto.py`, `src/backend/api/routes/regional.py`).
+- **Security — Hardened caller_info parsing:** Fixed `caller_info` parsing to correctly handle the slash-delimited `"Name / Number"` format at the top-level AFOR row field. All PII values are validated before inclusion in the encrypted blob; malformed or missing delimiters do not cause silent data loss.
+- **Security — Audit trail:** SecurityProvider logs `CRITICAL` events (decryption failures) with `incident_id` only — never logs nonce, ciphertext, or plaintext.
+- **Tests — Flat import refactor:** Refactored `src/backend/tests/` to use flat container imports (`from models.x import X` instead of `from backend.models.x`) for correct operation inside the Docker container at `/app`. Claude Code identified 1 file, 2 imports affected.
+
+### Changed
 - feat(auth): enforce role-based OTP for admin/validator with 7-day trusted device
 - **Regional encoder UI:** Dashboard incident table with server `total`, `limit`/`offset` pagination (page sizes 10 / 25 / 50), `category` and `status` filters, and region-scoped detail at `/dashboard/regional/incidents/[id]` using `GET /api/regional/incidents/{id}`. Client: `fetchRegionalIncident`, `buildRegionalIncidentsQueryString`, and pagination helpers in `src/frontend/src/lib/regional-incidents.ts`.
 - **Regional AFOR — WGS84:** `POST /api/regional/afor/commit` requires JSON **`latitude`** and **`longitude`** (finite WGS84 numbers). `POST /api/regional/afor/import` preview includes **`requires_location`** when coordinates must be supplied before commit (templates do not embed reliable coords). Polygon/region-boundary checks are not enforced yet — follow-up if a shared geometry helper is added.

@@ -114,6 +114,26 @@ cd src/frontend
 npm run lint
 ```
 
+## Security Architecture
+
+> ⚠️ This system is a **capstone prototype** — not used for real emergency operations.
+
+### Encryption at Rest
+
+- **AES-256-GCM (active):** PII fields in `wims.incident_sensitive_details` — specifically `caller_name`, `caller_number`, `owner_name`, and `occupant_name` — are encrypted at rest via AES-256-GCM blob (`pii_blob_enc`) with a 12-byte nonce (`encryption_iv`), bound to each record via Additional Authenticated Data (AAD = `incident_id`). Plaintext columns are always `NULL` for new writes. Key is loaded from the `WIMS_MASTER_KEY` environment variable at backend startup.
+- **Fail-closed read path:** If decryption fails for a row that claims to have a blob, the system logs a `CRITICAL` event with `incident_id` only (never nonce, ciphertext, or plaintext) and falls back to legacy plaintext columns.
+- **Key generation:** `python3 -c "import secrets,base64; print(base64.b64encode(secrets.token_bytes(32)).decode())"`
+
+### Authentication & Authorization
+
+- Keycloak OIDC/PKCE — JWT tokens with role-based access (`SYSTEM_ADMIN`, `NATIONAL_ANALYST`, `REGIONAL_ENCODER`, `VALIDATOR`, `ENCODER`)
+- Rate limiting: Redis sliding-window on `POST /api/auth/login` (5 requests / 15 minutes per IP)
+- OTP required for admin and validator roles on trusted-device login (7-day window)
+
+### OWASP ASVS Alignment (Level 2 target)
+
+Session management, input validation, output encoding, cryptography, and access controls implemented per OWASP ASVS L2 where applicable. Formal ASVS L2 audit is pending.
+
 ## License
 
 This project is developed for academic and government use by the Bureau of Fire Protection.
