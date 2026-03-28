@@ -36,3 +36,13 @@ src/suricata/logs/
 # OS
 .DS_Store
 Thumbs.db
+CLAUDE.md
+
+# Cursor / agent tooling (local only)
+.cursor/
+
+# Office temp/lock files
+**/.~lock.*
+
+# Local AFOR filled workbook (if not meant for version control)
+AFORs/afor_filled.xlsx
