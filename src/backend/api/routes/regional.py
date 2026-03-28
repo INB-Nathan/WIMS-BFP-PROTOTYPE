@@ -1349,13 +1349,20 @@ async def commit_afor_import(
         # PII fields (caller_name, caller_number, owner_name, occupant_name) are
         # stored ONLY in the encrypted blob. Plaintext columns are set to NULL.
         # receiver_name is NOT encrypted (public / internal use only).
+        #
+        # caller_info arrives as "Name / Number" at the top-level row_data field;
+        # owner_name / occupant_name arrive in sens (incident_sensitive_details body).
+        ci = str(row_data.get("caller_info") or "")
+        caller_name_row = ci.split("/")[0].strip() if "/" in ci else ci
+        caller_number_row = ci.split("/")[1].strip() if "/" in ci else ""
+
         pii_for_blob = {
             k: v
             for k, v in (
-                ("caller_name",     sens.get("caller_name")),
-                ("caller_number",   sens.get("caller_number")),
-                ("owner_name",      sens.get("owner_name")),
-                ("occupant_name",   sens.get("occupant_name")),
+                ("caller_name",    caller_name_row),
+                ("caller_number",  caller_number_row),
+                ("owner_name",     sens.get("owner_name")),
+                ("occupant_name",  sens.get("occupant_name")),
             )
             if v  # omit None / falsy; empty string IS included
         }
