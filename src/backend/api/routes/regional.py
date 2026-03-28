@@ -1352,9 +1352,16 @@ async def commit_afor_import(
         #
         # caller_info arrives as "Name / Number" at the top-level row_data field;
         # owner_name / occupant_name arrive in sens (incident_sensitive_details body).
-        ci = str(row_data.get("caller_info") or "")
-        caller_name_row = ci.split("/")[0].strip() if "/" in ci else ci
-        caller_number_row = ci.split("/")[1].strip() if "/" in ci else ""
+        ci = str(row_data.get("caller_info") or "").strip()
+        caller_name_row, caller_number_row = "", ""
+
+        if ci:
+            if "/" in ci:
+                left, right = ci.split("/", 1)
+                caller_name_row = left.strip()
+                caller_number_row = right.strip()
+            else:
+                caller_name_row = ci
 
         pii_for_blob = {
             k: v
@@ -1364,7 +1371,7 @@ async def commit_afor_import(
                 ("owner_name",     sens.get("owner_name")),
                 ("occupant_name",  sens.get("occupant_name")),
             )
-            if v  # omit None / falsy; empty string IS included
+            if v  # omit None and empty strings
         }
         # Always produce a dict (empty or populated) so decrypt never raises on None
         if not pii_for_blob:
