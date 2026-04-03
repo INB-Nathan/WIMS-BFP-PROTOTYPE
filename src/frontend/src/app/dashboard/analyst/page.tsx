@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
+import type { Region } from '@/types/api';
 import {
   fetchHeatmapData,
   fetchTrendData,
@@ -89,7 +90,7 @@ export default function AnalystDashboardPage() {
   const [incidentType, setIncidentType] = useState('');
   const [alarmLevel, setAlarmLevel] = useState('');
   const [interval, setInterval] = useState<'daily' | 'weekly' | 'monthly'>('daily');
-  const [regions, setRegions] = useState<{ region_id: number; region_name: string; region_code: string }[]>([]);
+  const [regions, setRegions] = useState<Region[]>([]);
 
   const [cmpRanges, setCmpRanges] = useState(() => initialComparativeRanges());
 

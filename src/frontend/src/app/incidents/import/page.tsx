@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useUserProfile } from '@/lib/auth';
 import { edgeFunctions, Incident } from '@/lib/edgeFunctions';
-import { fetchProvinces, fetchCitiesByProvinces, fetchBarangays, City, Barangay } from '@/lib/api';
+import { fetchProvinces, fetchCitiesByProvinces, fetchBarangays } from '@/lib/api';
+import type { City, Barangay } from '@/types/api';
 import { ChevronLeft, Upload, FileSpreadsheet, CheckCircle, AlertCircle, Loader2, Download, X, Save } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -88,7 +89,7 @@ export default function ImportIncidentPage() {
                 const sheet = workbook.Sheets[sheetName];
                 const jsonData = XLSX.utils.sheet_to_json(sheet);
 
-                const mapped = jsonData.map((row: Record<string, unknown>, idx: number) => mapRowToIncident(row, idx));
+                const mapped = (jsonData as Record<string, unknown>[]).map((row, idx) => mapRowToIncident(row, idx));
                 setIncidents(mapped);
             } catch (err) {
                 console.error("Error parsing file:", err);
@@ -98,7 +99,7 @@ export default function ImportIncidentPage() {
         reader.readAsBinaryString(file);
     };
 
-    const findBestMatch = (input: string, list: Record<string, unknown>[], key: string) => {
+    const findBestMatch = <T extends Record<string, unknown>>(input: string, list: T[], key: string): T | null => {
         if (!input) return null;
         const normalizedInput = input.toString().trim().toLowerCase();
         return list.find(item => item[key]?.toString().toLowerCase() === normalizedInput) || null;
@@ -111,7 +112,7 @@ export default function ImportIncidentPage() {
         let barangayId: number | undefined;
 
         // 1. Resolve City & Province
-        const cityInput = row['City'] || row['city_name'] || row['Municipality'];
+        const cityInput = (row['City'] || row['city_name'] || row['Municipality']) as string;
         const matchedCity = findBestMatch(cityInput, cities, 'city_name');
 
         if (matchedCity) {
@@ -124,7 +125,7 @@ export default function ImportIncidentPage() {
         }
 
         // 2. Resolve Barangay
-        const brgyInput = row['Barangay'] || row['barangay_name'];
+        const brgyInput = (row['Barangay'] || row['barangay_name']) as string;
         if (cityId && brgyInput) {
             const potentialBarangays = barangays.filter(b => b.city_id === cityId);
             const matchedBrgy = findBestMatch(brgyInput, potentialBarangays, 'barangay_name');
@@ -138,29 +139,30 @@ export default function ImportIncidentPage() {
         }
 
         // 3. Construct Incident (Simplified for sessionStorage handoff)
+        const rv = (k: string): string => String(row[k] ?? '');
         const incident: Incident = {
             region_id: assignedRegionId || 0,
             incident_nonsensitive_details: {
-                notification_dt: row['Notification Date'] || row['notification_dt'] || new Date().toISOString(),
+                notification_dt: rv('Notification Date') || rv('notification_dt') || new Date().toISOString(),
                 barangay: brgyInput || 'Unknown',
                 barangay_id: barangayId,
                 city_id: cityId,
                 province_id: provinceId,
                 district_id: 1,
-                general_category: row['Category'] || row['general_category'] || 'Residential',
-                incident_type: row['Classification'] || row['incident_type'] || 'Structural',
-                alarm_level: row['Alarm Level'] || row['alarm_level'] || 'First Alarm',
-                responder_type: row['Responder Type'] || row['responder_type'] || 'First Responder',
-                structures_affected: parseInt(row['Structures Affected'] || row['structures_affected'] || '0'),
-                area_of_origin: row['Area of Origin'] || row['fire_origin'] || '',
-                extent_of_damage: row['Extent of Damage'] || row['extent_of_damage'] || '',
+                general_category: rv('Category') || rv('general_category') || 'Residential',
+                incident_type: rv('Classification') || rv('incident_type') || 'Structural',
+                alarm_level: rv('Alarm Level') || rv('alarm_level') || 'First Alarm',
+                responder_type: rv('Responder Type') || rv('responder_type') || 'First Responder',
+                structures_affected: parseInt(rv('Structures Affected') || rv('structures_affected') || '0'),
+                area_of_origin: rv('Area of Origin') || rv('fire_origin') || '',
+                extent_of_damage: rv('Extent of Damage') || rv('extent_of_damage') || '',
             },
             incident_sensitive_details: {
-                estimated_damage: parseInt(row['Est. Damage'] || row['estimated_damage'] || '0'),
-                caller_name: row['Caller Name'] || row['caller_name'] || '',
-                owner_name: row['Owner Name'] || row['owner_name'] || '',
-                establishment_name: row['Establishment Name'] || row['establishment_name'] || '',
-                narrative_report: row['Narrative'] || row['narrative_report'] || '',
+                estimated_damage: parseInt(rv('Est. Damage') || rv('estimated_damage') || '0'),
+                caller_name: rv('Caller Name') || rv('caller_name') || '',
+                owner_name: rv('Owner Name') || rv('owner_name') || '',
+                establishment_name: rv('Establishment Name') || rv('establishment_name') || '',
+                narrative_report: rv('Narrative') || rv('narrative_report') || '',
             },
             _city_text: cityInput
         };

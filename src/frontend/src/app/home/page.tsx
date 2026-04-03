@@ -26,22 +26,22 @@ export default function HomePage() {
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
 
-    useEffect(() => {
-        // eslint-disable react-hooks/set-state-in-effect
-        if (!authLoading) loadIncidents();
-    }, [authLoading, assignedRegionId, loadIncidents]);
-
     const loadIncidents = useCallback(async () => {
         setLoading(true);
         try {
             const data = await fetchIncidents({ region_id: assignedRegionId ?? undefined });
-            setIncidents((data as IncidentSummary[]) || []);
+            setIncidents((data as unknown as IncidentSummary[]) || []);
         } catch (err) {
             console.error("Error fetching home incidents", err);
         } finally {
             setLoading(false);
         }
     }, [assignedRegionId]);
+
+    useEffect(() => {
+        // eslint-disable react-hooks/set-state-in-effect
+        if (!authLoading) loadIncidents();
+    }, [authLoading, assignedRegionId, loadIncidents]);
 
     const nonsensitive = (i: IncidentSummary) => i.incident_nonsensitive_details;
     const ongoingIncidents = incidents.filter(i =>

@@ -27,11 +27,11 @@ router = APIRouter(prefix="/api/v1/public", tags=["public-dmz"])
 # ---------------------------------------------------------------------------
 # Redis Rate Limiter — 3 req/IP/hour (strictly tighter than /api/auth/login)
 # ---------------------------------------------------------------------------
-_PUBLIC_RATE_LIMIT_WINDOW = 3600   # 1 hour in seconds
-_PUBLIC_RATE_LIMIT_THRESHOLD = 3   # max 3 submissions per IP per hour
+_PUBLIC_RATE_LIMIT_WINDOW = 3600  # 1 hour in seconds
+_PUBLIC_RATE_LIMIT_THRESHOLD = 3  # max 3 submissions per IP per hour
 
-_REDIS_URL = os.environ.get(
-    "REDIS_URL", "redis://redis:6379/0")
+_REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+
 
 async def _get_redis():
     try:

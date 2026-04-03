@@ -118,7 +118,19 @@ export default function AdminSystemPage() {
         setLoadingAudit(true);
         try {
             const data = await fetchAuditLogs({ limit: 50, offset: 0 });
-            setAuditLogs(data);
+            setAuditLogs({
+              items: data.items.map((item): AuditItem => ({
+                audit_id: item.id,
+                user_id: item.user_id,
+                action_type: item.action,
+                table_affected: item.resource,
+                record_id: null,
+                ip_address: null,
+                user_agent: null,
+                timestamp: item.timestamp,
+              })),
+              total: data.total,
+            });
         } catch {
             setAuditLogs({ items: [], total: 0 });
         } finally {

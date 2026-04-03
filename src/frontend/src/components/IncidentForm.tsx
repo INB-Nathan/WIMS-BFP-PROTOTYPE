@@ -132,11 +132,12 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
         if (initialData) {
             const ns = initialData.incident_nonsensitive_details || {};
             const sen = initialData.incident_sensitive_details || {};
-            const res = ns.resources_deployed || { trucks: {}, special_assets: {}, medical: {} };
+            const res = (ns.resources_deployed || { trucks: {}, special_assets: {}, medical: {} }) as Record<string, Record<string, unknown>>;
             const timeline = ns.alarm_timeline || {};
-            const casualties = ns.casualty_details || { injured: {}, fatalities: {} };
-            
-            setFormState((prev: Record<string, unknown>) => ({
+            const casualties = (ns.casualty_details || { injured: {}, fatalities: {} }) as { injured: Record<string, unknown>; fatalities: Record<string, unknown> };
+
+            // @ts-expect-error -- prev spread preserves all fields; type checker cannot verify exhaustive return
+            setFormState((prev) => ({
                 ...prev,
                 responder_type: ns.responder_type || '',
                 fire_station_name: ns.fire_station_name || '',
@@ -217,9 +218,9 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
 
             if (ns.other_personnel && Array.isArray(ns.other_personnel)) {
                 setOtherPersonnel(ns.other_personnel.map((p: Record<string, unknown>) => ({
-                    name: p.name || '',
-                    designation: p.designation || '',
-                    remarks: p.remarks || ''
+                    name: (p.name as string) || '',
+                    designation: (p.designation as string) || '',
+                    remarks: (p.remarks as string) || ''
                 })));
             }
         }
@@ -231,14 +232,6 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
         newPersonnel[index][field] = value;
         setOtherPersonnel(newPersonnel);
     };
-
-    // Check pending
-    useEffect(() => {
-        checkPending();
-        const handleOnline = () => syncPending();
-        window.addEventListener('online', handleOnline);
-        return () => window.removeEventListener('online', handleOnline);
-    }, [syncPending, checkPending]);
 
     const fileToBase64 = (file: File): Promise<string> => {
         return new Promise((resolve, reject) => {
@@ -272,11 +265,12 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
         console.log('Syncing pending...', pending.length);
         for (const item of pending) {
             try {
-                const res = await edgeFunctions.uploadBundle(item.payload);
+                const payload = item.payload as { region_id: number; incidents: Incident[] };
+                const res = await edgeFunctions.uploadBundle(payload);
                 const incidentId = res.incident_ids[0];
 
                 // If there's a stored sketch, upload it now
-                const firstIncident = item.payload.incidents[0];
+                const firstIncident = payload.incidents[0];
                 if (firstIncident?.incident_sensitive_details?.sketch_base64) {
                     const blob = base64ToBlob(firstIncident.incident_sensitive_details.sketch_base64);
                     await edgeFunctions.uploadAttachment(incidentId, blob);
@@ -289,6 +283,14 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
         }
         await checkPending();
     }, [checkPending]);
+
+    // Check pending - online sync listener (declared after callbacks to avoid TDZ)
+    useEffect(() => {
+        checkPending();
+        const handleOnline = () => syncPending();
+        window.addEventListener('online', handleOnline);
+        return () => window.removeEventListener('online', handleOnline);
+    }, [syncPending, checkPending]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
@@ -388,6 +390,7 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
 
                     recommendations: formState.recommendations,
                     problems_encountered: formState.problems_encountered ? [...(formState.problems_encountered || []), formState.problems_others].filter(Boolean) : [],
+                    other_personnel: otherPersonnel,
                 },
                 incident_sensitive_details: {
                     caller_name: formState.caller_name,
@@ -415,8 +418,6 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                         safety_officer: { name: formState.pod_safety_officer, contact: formState.pod_safety_officer_contact },
                         investigator: { name: formState.pod_inv_name, contact: formState.pod_inv_contact }
                     },
-
-                    other_personnel: otherPersonnel,
 
                     casualty_details: {
                         injured: {
@@ -726,7 +727,6 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                                         const current = formState.problems_encountered || [];
                                         const updated = e.target.checked ? [...current, prob] : current.filter((p: string) => p !== prob);
-                                        // @ts-expect-error -- dynamic problems_encountered field update
                                         setFormState(prev => ({ ...prev, problems_encountered: updated }));
                                     }} />
                                 <span>{prob}</span>

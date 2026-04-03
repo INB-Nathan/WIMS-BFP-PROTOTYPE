@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { fetchRegions, fetchProvinces, fetchCities, Region, Province, City } from '@/lib/api';
+import { fetchRegions, fetchProvinces, fetchCities } from '@/lib/api';
+import type { Region, Province, City } from '@/types/api';
 import { edgeFunctions, AnalyticsSummaryResponse } from '@/lib/edgeFunctions';
 import { RefreshCw, Download, HelpCircle, X, Info, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Flame, Building2, TreePine, Car, Clock } from 'lucide-react';
 import Link from 'next/link';
