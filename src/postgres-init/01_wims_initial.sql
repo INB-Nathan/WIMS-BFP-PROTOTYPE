@@ -398,3 +398,329 @@ CREATE TABLE IF NOT EXISTS wims.system_audit_trails (
   user_agent TEXT,
   timestamp TIMESTAMPTZ DEFAULT now()
 );
+
+-- ---------------------------------------------------------------------------
+-- WIMS RLS patch (regional isolation + least privilege)
+-- Assumes app sets:
+--   SET LOCAL wims.current_user_id = '<uuid>';
+-- ---------------------------------------------------------------------------
+
+-- 0) Safety helper to read current app user UUID from GUC
+CREATE OR REPLACE FUNCTION wims.current_user_uuid()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT NULLIF(current_setting('wims.current_user_id', true), '')::uuid
+$$;
+
+-- 1) Helper: current WIMS role
+CREATE OR REPLACE FUNCTION wims.current_user_role()
+RETURNS text
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT u.role
+  FROM wims.users u
+  WHERE u.user_id = wims.current_user_uuid()
+    AND u.is_active = TRUE
+$$;
+
+-- 2) Helper: current assigned region
+CREATE OR REPLACE FUNCTION wims.current_user_region_id()
+RETURNS integer
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT u.assigned_region_id
+  FROM wims.users u
+  WHERE u.user_id = wims.current_user_uuid()
+    AND u.is_active = TRUE
+$$;
+
+-- 3) Enable + force RLS on multi-tenant/sensitive tables
+ALTER TABLE wims.users                          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wims.users                          FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE wims.data_import_batches            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wims.data_import_batches            FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE wims.fire_incidents                 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wims.fire_incidents                 FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE wims.citizen_reports                ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wims.citizen_reports                FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE wims.incident_nonsensitive_details  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wims.incident_nonsensitive_details  FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE wims.incident_sensitive_details     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wims.incident_sensitive_details     FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE wims.incident_verification_history  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wims.incident_verification_history  FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE wims.incident_attachments           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wims.incident_attachments           FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE wims.involved_parties               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wims.involved_parties               FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE wims.operational_challenges         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wims.operational_challenges         FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE wims.responding_units               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wims.responding_units               FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE wims.incident_wildland_afor         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wims.incident_wildland_afor         FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE wims.wildland_afor_alarm_statuses   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wims.wildland_afor_alarm_statuses   FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE wims.wildland_afor_assistance_rows  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wims.wildland_afor_assistance_rows  FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE wims.security_threat_logs           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wims.security_threat_logs           FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE wims.system_audit_trails            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wims.system_audit_trails            FORCE ROW LEVEL SECURITY;
+
+-- 4) Users table policy (self row, admin full)
+CREATE POLICY users_self_or_admin_select
+ON wims.users
+FOR SELECT
+USING (
+  user_id = wims.current_user_uuid()
+  OR wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN')
+);
+
+CREATE POLICY users_self_update_or_admin
+ON wims.users
+FOR UPDATE
+USING (
+  user_id = wims.current_user_uuid()
+  OR wims.current_user_role() IN ('SYSTEM_ADMIN')
+)
+WITH CHECK (
+  user_id
+  = wims.current_user_uuid()
+  OR wims.current_user_role() IN ('SYSTEM_ADMIN')
+);
+
+-- Optional: only SYSTEM_ADMIN can insert/delete users
+CREATE POLICY users_admin_insert
+ON wims.users
+FOR INSERT
+WITH CHECK (wims.current_user_role() = 'SYSTEM_ADMIN');
+
+CREATE POLICY users_admin_delete
+ON wims.users
+FOR DELETE
+USING (wims.current_user_role() = 'SYSTEM_ADMIN');
+
+-- 5) Region-scoped parent tables
+-- fire_incidents
+CREATE POLICY fire_incidents_select
+ON wims.fire_incidents
+FOR SELECT
+USING (
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN', 'NATIONAL_ANALYST', 'ANALYST')
+  OR region_id = wims.current_user_region_id()
+);
+
+CREATE POLICY fire_incidents_insert
+ON wims.fire_incidents
+FOR INSERT
+WITH CHECK (
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN')
+  OR region_id = wims.current_user_region_id()
+);
+
+CREATE POLICY fire_incidents_update
+ON wims.fire_incidents
+FOR UPDATE
+USING (
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN')
+  OR region_id = wims.current_user_region_id()
+)
+WITH CHECK (
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN')
+  OR region_id = wims.current_user_region_id()
+);
+
+CREATE POLICY fire_incidents_delete
+ON wims.fire_incidents
+FOR DELETE
+USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN'));
+
+-- data_import_batches
+CREATE POLICY batches_region_read
+ON wims.data_import_batches
+FOR SELECT
+USING (
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN', 'NATIONAL_ANALYST', 'ANALYST')
+  OR region_id = wims.current_user_region_id()
+);
+
+CREATE POLICY batches_region_write
+ON wims.data_import_batches
+FOR ALL
+USING (
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN')
+  OR region_id = wims.current_user_region_id()
+)
+WITH CHECK (
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN')
+  OR region_id = wims.current_user_region_id()
+);
+
+-- citizen_reports (via incident region when incident_id present)
+CREATE POLICY citizen_reports_select
+ON wims.citizen_reports
+FOR SELECT
+USING (
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN', 'NATIONAL_ANALYST', 'ANALYST')
+  OR (
+    incident_id IS NOT NULL
+    AND EXISTS (
+      SELECT 1
+      FROM wims.fire_incidents fi
+      WHERE fi.incident_id = wims.citizen_reports.incident_id
+        AND fi.region_id = wims.current_user_region_id()
+    )
+  )
+);
+
+CREATE POLICY citizen_reports_write
+ON wims.citizen_reports
+FOR UPDATE
+USING (
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN')
+  OR (
+    incident_id IS NOT NULL
+    AND EXISTS (
+      SELECT 1 FROM wims.fire_incidents fi
+      WHERE fi.incident_id = wims.citizen_reports.incident_id
+        AND fi.region_id = wims.current_user_region_id()
+    )
+  )
+)
+WITH CHECK (
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN')
+  OR (
+    incident_id IS NOT NULL
+    AND EXISTS (
+      SELECT 1 FROM wims.fire_incidents fi
+      WHERE fi.incident_id = wims.citizen_reports.incident_id
+        AND fi.region_id = wims.current_user_region_id()
+    )
+  )
+);
+
+CREATE POLICY citizen_reports_insert
+ON wims.citizen_reports
+FOR INSERT
+WITH CHECK (
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN')
+  OR (
+    incident_id IS NOT NULL
+    AND EXISTS (
+      SELECT 1 FROM wims.fire_incidents fi
+      WHERE fi.incident_id = wims.citizen_reports.incident_id
+        AND fi.region_id = wims.current_user_region_id()
+    )
+  )
+);
+
+CREATE POLICY citizen_reports_delete
+ON wims.citizen_reports
+FOR DELETE
+USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN'));
+
+-- 6) Child tables: policy by parent incident region
+-- Reusable pattern shown; apply to all incident child tables
+CREATE POLICY incident_nonsensitive_details_region_all
+ON wims.incident_nonsensitive_details
+FOR ALL
+USING (
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN', 'NATIONAL_ANALYST', 'ANALYST')
+  OR EXISTS (
+    SELECT 1 FROM wims.fire_incidents fi
+    WHERE fi.incident_id = wims.incident_nonsensitive_details.incident_id
+      AND fi.region_id = wims.current_user_region_id()
+  )
+)
+WITH CHECK (
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN')
+  OR EXISTS (
+    SELECT 1 FROM wims.fire_incidents fi
+    WHERE fi.incident_id = wims.incident_nonsensitive_details.incident_id
+      AND fi.region_id = wims.current_user_region_id()
+  )
+);
+
+CREATE POLICY incident_sensitive_details_region_all
+ON wims.incident_sensitive_details
+FOR ALL
+USING (
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN')
+  OR EXISTS (
+    SELECT 1 FROM wims.fire_incidents fi
+    WHERE fi.incident_id = wims.incident_sensitive_details.incident_id
+      AND fi.region_id = wims.current_user_region_id()
+  )
+)
+WITH CHECK (
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN')
+  OR EXISTS (
+    SELECT 1 FROM wims.fire_incidents fi
+    WHERE fi.incident_id = wims.incident_sensitive_details.incident_id
+      AND fi.region_id = wims.current_user_region_id()
+  )
+);
+
+-- Repeat same parent-region FOR ALL policy for:
+-- wims.incident_attachments
+-- wims.incident_verification_history
+-- wims.involved_parties
+-- wims.operational_challenges
+-- wims.responding_units
+-- wims.incident_wildland_afor
+-- wims.wildland_afor_alarm_statuses (via incident_wildland_afor -> fire_incidents)
+-- wims.wildland_afor_assistance_rows (via incident_wildland_afor -> fire_incidents)
+
+-- 7) Security/audit tables
+CREATE POLICY security_logs_admin_only
+ON wims.security_threat_logs
+FOR ALL
+USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN', 'NATIONAL_ANALYST'))
+WITH CHECK (wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN'));
+
+CREATE POLICY audit_trails_read_admin_or_self
+ON wims.system_audit_trails
+FOR SELECT
+USING (
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN', 'NATIONAL_ANALYST')
+  OR user_id = wims.current_user_uuid()
+);
+
+CREATE POLICY audit_trails_insert_service
+ON wims.system_audit_trails
+FOR INSERT
+WITH CHECK (TRUE);
+
+-- 8) Lock down raw table privileges (important: RLS is not enough alone)
+REVOKE ALL ON SCHEMA wims FROM PUBLIC;
+REVOKE ALL ON ALL TABLES IN SCHEMA wims FROM PUBLIC;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA wims FROM PUBLIC;
+
+-- Example app role grants (adjust role names to your DB roles)
+-- GRANT USAGE ON SCHEMA wims TO wims_app;
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA wims TO wims_app;
+-- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA wims TO wims_app;
+
+-- Ensure future tables are also locked by default
+ALTER DEFAULT PRIVILEGES IN SCHEMA wims REVOKE ALL ON TABLES FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES IN SCHEMA wims REVOKE ALL ON SEQUENCES FROM PUBLIC;
