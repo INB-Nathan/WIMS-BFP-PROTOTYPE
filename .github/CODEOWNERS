@@ -1,0 +1,32 @@
+# CODEOWNERS — WIMS-BFP Prototype
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# ---------------------------------------------------------------------------
+# Global fallback — at least one team member must review any change
+# ---------------------------------------------------------------------------
+*       @x1n4te
+
+# ---------------------------------------------------------------------------
+# Frontend — Next.js, React, Tailwind, Mapbox, E2E tests
+# ---------------------------------------------------------------------------
+src/frontend/       @x1n4te
+src/frontend/**     @x1n4te
+
+# ---------------------------------------------------------------------------
+# Backend — FastAPI, SQLAlchemy, Pydantic, authentication, API routes
+# ---------------------------------------------------------------------------
+src/backend/       @x1n4te
+src/backend/**     @x1n4te
+
+# ---------------------------------------------------------------------------
+# Infrastructure — Docker Compose, CI/CD, deployment configs
+# ---------------------------------------------------------------------------
+*.yml       @x1n4te
+*.yaml      @x1n4te
+Docker*     @x1n4te
+
+# ---------------------------------------------------------------------------
+# Documentation — thesis docs, architecture docs, API spec
+# ---------------------------------------------------------------------------
+*.md        @x1n4te
+docs/**     @x1n4te 
