@@ -156,12 +156,16 @@ class ExportCsvRequest(BaseModel):
 @router.post("/export/csv")
 def export_csv(
     body: ExportCsvRequest,
-    _user: Annotated[dict, Depends(get_analyst_or_admin)],
+    current_user: Annotated[dict, Depends(get_analyst_or_admin)],
 ):
     """
     Dispatch Celery task for CSV export. Returns task_id.
+
+    The task runs with the requesting user's RLS context so that
+    exported data is filtered by their role and assigned region.
     """
     result = export_incidents_csv_task.delay(
+        user_id=str(current_user["user_id"]),
         filters=body.filters,
         columns=body.columns,
     )

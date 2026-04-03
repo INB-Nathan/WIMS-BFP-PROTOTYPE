@@ -29,6 +29,7 @@ from auth import get_current_user
 from database import get_db
 
 from api.routes import incidents, admin, civilian, triage, regional, analytics, ref
+from api.routes.public_dmz import router as public_dmz_router
 
 # WIMS roles in precedence order (highest first). Used when resolving from Keycloak JWT.
 WIMS_ROLES_FROM_KEYCLOAK = (
@@ -74,6 +75,7 @@ app.include_router(analytics.router)
 app.include_router(
     ref.router
 )  # GET /api/ref/regions, /api/ref/provinces, /api/ref/cities
+app.include_router(public_dmz_router)  # POST /api/v1/public/report (no-auth DMZ)
 
 logger = logging.getLogger("wims.rate_limit")
 

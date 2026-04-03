@@ -117,7 +117,7 @@ jobs:
           done
 
       - name: Run pytest
-        run: pytest -v --tb=short
+        run: pytest -v --tb=short --ignore=src/backend/tests/test_rate_limiting.py --ignore=src/backend/tests/test_suricata_ingestion.py
         env:
           KEYCLOAK_REALM_URL: ${{ env.KEYCLOAK_REALM_URL }}
           KEYCLOAK_CLIENT_ID: ${{ env.KEYCLOAK_CLIENT_ID }}

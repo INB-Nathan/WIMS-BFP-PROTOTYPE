@@ -9,7 +9,7 @@ import uuid
 from typing import Any
 
 from celery_config import celery_app
-from database import get_session
+from database import get_session, set_rls_context
 from services.analytics_read_model import get_export_rows
 
 logger = logging.getLogger(__name__)
@@ -53,19 +53,31 @@ def _serialize_value(v: Any) -> str:
 
 
 @celery_app.task(name="tasks.exports.export_incidents_csv")
-def export_incidents_csv_task(filters: dict[str, Any], columns: list[str]) -> str:
+def export_incidents_csv_task(
+    user_id: str, filters: dict[str, Any], columns: list[str]
+) -> str:
     """
     Export verified, non-archived incidents to CSV from analytics_incident_facts.
     Returns storage path.
+
+    Args:
+        user_id: Internal wims user_id (UUID str) — used to set RLS context
+                 so that exported data is filtered by the requesting user's role/region.
+        filters: Column filters passed to get_export_rows.
+        columns: Columns to include in the CSV.
     """
     valid_cols = [c for c in columns if c in ALLOWED_EXPORT_COLUMNS]
     if not valid_cols:
         valid_cols = ["incident_id", "notification_dt"]
 
-    logger.info("Export task started: filters=%s, columns=%s", filters, valid_cols)
+    logger.info(
+        "Export task started: user_id=%s, filters=%s, columns=%s",
+        user_id, filters, valid_cols,
+    )
 
     db = get_session()
     try:
+        set_rls_context(db, uuid.UUID(user_id))
         rows = get_export_rows(db, filters, valid_cols)
     finally:
         db.close()

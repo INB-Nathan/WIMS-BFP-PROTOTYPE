@@ -172,12 +172,16 @@ async def get_current_user(request: Request):
 
 
 async def get_current_wims_user(
+    request: Request,
     token_payload: Annotated[dict, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> dict:
     """
     Resolve JWT payload to wims.users row. Ensures only authenticated
     Keycloak users present in wims.users can access protected routes.
+
+    Also attaches the resolved user dict to request.state so that
+    get_db() can call SET LOCAL wims.current_user_id for RLS enforcement.
     """
     keycloak_sub = token_payload.get("sub")
     if not keycloak_sub:
@@ -204,7 +208,12 @@ async def get_current_wims_user(
     if row is None:
         raise HTTPException(status_code=403, detail="User not found in WIMS")
 
-    return {"user_id": row[0], "keycloak_id": keycloak_sub, "role": row[1]}
+    user_dict = {"user_id": row[0], "keycloak_id": keycloak_sub, "role": row[1]}
+
+    # Attach to request.state so get_db() can set the RLS GUC for this transaction
+    request.state.wims_user = user_dict
+
+    return user_dict
 
 
 async def get_system_admin(
