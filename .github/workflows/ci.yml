@@ -9,11 +9,10 @@ on:
 env:
   NODE_VERSION: "20"
   PYTHON_VERSION: "3.12"
-  # Default stubs — override in repo secrets if needed
   KEYCLOAK_REALM_URL: "http://localhost:8080/auth/realms/bfp"
   KEYCLOAK_CLIENT_ID: "bfp-client"
   KEYCLOAK_AUDIENCE: "account"
-  DATABASE_URL: "postgresql+asyncpg://postgres:postgres@localhost:5432/wims_test"
+  DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/wims_test"
   REDIS_URL: "redis://localhost:6379/0"
 
 jobs:
@@ -62,7 +61,6 @@ jobs:
       run:
         working-directory: src/backend
 
-    # Spin up PostgreSQL 16 and Redis 7 containers for integration tests
     services:
       postgres:
         image: postgres:16-alpine
@@ -101,11 +99,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install ruff pytest pytest-asyncio httpx
-          # Install project requirements if present
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          fi
+          pip install ruff
+          pip install -r requirements.txt
 
       - name: Run Ruff linter
         run: ruff check .
