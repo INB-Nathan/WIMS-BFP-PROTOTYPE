@@ -77,9 +77,7 @@ def cleanup_test_user(engine, unique_identity):
 
 
 @respx.mock
-def test_auth_callback_idempotent_same_user_twice(
-    unique_identity, cleanup_test_user
-):
+def test_auth_callback_idempotent_same_user_twice(unique_identity, cleanup_test_user):
     """
     Same user logs in twice — both calls succeed, same user_id returned.
     Proves idempotency: no IntegrityError on users_username_key.
@@ -90,10 +88,12 @@ def test_auth_callback_idempotent_same_user_twice(
 
     # Mock Keycloak token endpoint
     token_url = main_module.TOKEN_ENDPOINT
-    respx.post(token_url).mock(return_value=respx.MockResponse(
-        status_code=200,
-        json={"access_token": fake_token},
-    ))
+    respx.post(token_url).mock(
+        return_value=respx.MockResponse(
+            status_code=200,
+            json={"access_token": fake_token},
+        )
+    )
 
     # Mock JWT validation to return our payload
     with patch.object(

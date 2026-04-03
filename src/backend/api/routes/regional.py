@@ -12,7 +12,6 @@ import json
 import logging
 import math
 import re
-import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal, Optional
 
@@ -37,6 +36,7 @@ def _get_security_provider() -> SecurityProvider:
         _sp_instance = SecurityProvider()
     return _sp_instance
 
+
 logger = logging.getLogger("wims.regional")
 
 router = APIRouter(prefix="/api/regional", tags=["regional"])
@@ -45,6 +45,7 @@ router = APIRouter(prefix="/api/regional", tags=["regional"])
 # ---------------------------------------------------------------------------
 # Pydantic Schemas
 # ---------------------------------------------------------------------------
+
 
 class AforParsedRow(BaseModel):
     row_index: int
@@ -104,29 +105,44 @@ def _wgs84_pair_from_raw(latitude: Any, longitude: Any) -> tuple[float, float]:
     if latitude is None or longitude is None:
         raise HTTPException(
             status_code=400,
-            detail={"code": AFOR_WGS84_INVALID_CODE, "message": AFOR_WGS84_INVALID_MESSAGE},
+            detail={
+                "code": AFOR_WGS84_INVALID_CODE,
+                "message": AFOR_WGS84_INVALID_MESSAGE,
+            },
         )
     if type(latitude) is bool or type(longitude) is bool:
         raise HTTPException(
             status_code=400,
-            detail={"code": AFOR_WGS84_INVALID_CODE, "message": AFOR_WGS84_INVALID_MESSAGE},
+            detail={
+                "code": AFOR_WGS84_INVALID_CODE,
+                "message": AFOR_WGS84_INVALID_MESSAGE,
+            },
         )
     if type(latitude) not in (int, float) or type(longitude) not in (int, float):
         raise HTTPException(
             status_code=400,
-            detail={"code": AFOR_WGS84_INVALID_CODE, "message": AFOR_WGS84_INVALID_MESSAGE},
+            detail={
+                "code": AFOR_WGS84_INVALID_CODE,
+                "message": AFOR_WGS84_INVALID_MESSAGE,
+            },
         )
     lat = float(latitude)
     lon = float(longitude)
     if not math.isfinite(lat) or not math.isfinite(lon):
         raise HTTPException(
             status_code=400,
-            detail={"code": AFOR_WGS84_INVALID_CODE, "message": AFOR_WGS84_INVALID_MESSAGE},
+            detail={
+                "code": AFOR_WGS84_INVALID_CODE,
+                "message": AFOR_WGS84_INVALID_MESSAGE,
+            },
         )
     if lat < -90.0 or lat > 90.0 or lon < -180.0 or lon > 180.0:
         raise HTTPException(
             status_code=400,
-            detail={"code": AFOR_WGS84_INVALID_CODE, "message": AFOR_WGS84_INVALID_MESSAGE},
+            detail={
+                "code": AFOR_WGS84_INVALID_CODE,
+                "message": AFOR_WGS84_INVALID_MESSAGE,
+            },
         )
     return lon, lat
 
@@ -195,9 +211,16 @@ def _safe_dt(val: Any) -> str | None:
         return val.isoformat()
     if not val:
         return None
-    
+
     dt_str = str(val).strip()
-    for fmt in ["%Y-%m-%d %H:%M", "%m-%d-%Y %H:%M", "%H:%M", "%Y-%m-%d", "%m-%d-%Y", "%m/%d/%Y"]:
+    for fmt in [
+        "%Y-%m-%d %H:%M",
+        "%m-%d-%Y %H:%M",
+        "%H:%M",
+        "%Y-%m-%d",
+        "%m-%d-%Y",
+        "%m/%d/%Y",
+    ]:
         try:
             return datetime.strptime(dt_str, fmt).isoformat()
         except ValueError:
@@ -435,7 +458,9 @@ class WildlandXlsxParser:
             alarm_rows.append(
                 {
                     "alarm_status": str(status).strip(),
-                    "time_declared": str(time_declared).strip() if time_declared else "",
+                    "time_declared": str(time_declared).strip()
+                    if time_declared
+                    else "",
                     "ground_commander": str(commander).strip() if commander else "",
                 }
             )
@@ -469,7 +494,9 @@ class WildlandXlsxParser:
             "causes_and_ignition_factors": {},
             "suppression_factors": {},
             "weather": {},
-            "fire_behavior": {k: v for k, v in fire_behavior.items() if v not in (None, "", 0.0)},
+            "fire_behavior": {
+                k: v for k, v in fire_behavior.items() if v not in (None, "", 0.0)
+            },
             "peso_losses": {},
             "casualties": {},
             "narration": self.get("B68"),
@@ -484,7 +511,9 @@ class WildlandXlsxParser:
         }
 
 
-def parse_wildland_afor_report_data(data: dict[str, Any], region_id: int) -> AforParsedRow:
+def parse_wildland_afor_report_data(
+    data: dict[str, Any], region_id: int
+) -> AforParsedRow:
     """Map wildland workbook dict into commit payload + validation."""
     errors: list[str] = []
 
@@ -506,7 +535,11 @@ def parse_wildland_afor_report_data(data: dict[str, Any], region_id: int) -> Afo
             "Use the Sheet1 list (e.g. Brush Fire, Forest Fire)."
         )
 
-    wl_payload = {k: v for k, v in data.items() if k not in ("raw_wildland_fire_type", "recommendations_list")}
+    wl_payload = {
+        k: v
+        for k, v in data.items()
+        if k not in ("raw_wildland_fire_type", "recommendations_list")
+    }
     wl_payload["recommendations"] = data.get("recommendations_list") or []
 
     mapped: dict[str, Any] = {
@@ -530,26 +563,32 @@ def _combine_date_and_time(notification_dt: str | None, time_value: Any) -> str 
 
 class BfpXlsxParser:
     """Parser for the official BFP manual entry form (AFOR)."""
-    
+
     def __init__(self, ws):
         self.ws = ws
 
     def get(self, coord: str) -> Any:
         val = self.ws[coord].value
-        if val is None: return None
-        if isinstance(val, str): return val.strip()
+        if val is None:
+            return None
+        if isinstance(val, str):
+            return val.strip()
         return val
 
     def _is_marked(self, coord: str) -> bool:
         val = str(self.get(coord)).strip().lower() if self.get(coord) else ""
-        return val in ['x', '1', 'true', 'v', '✓', '✔', '/']
+        return val in ["x", "1", "true", "v", "✓", "✔", "/"]
 
     def parse(self) -> dict[str, Any]:
         """Extract sections A through L into a comprehensive data dictionary."""
-        
+
         # Section A: Response Details
-        responder_type = "First Responder" if self._is_marked("B20") else ("Augmenting Team" if self._is_marked("B21") else "First Responder")
-        
+        responder_type = (
+            "First Responder"
+            if self._is_marked("B20")
+            else ("Augmenting Team" if self._is_marked("B21") else "First Responder")
+        )
+
         # Section B: Classification
         classification = "Structural"
         cat_val = self.get("D48")
@@ -566,31 +605,49 @@ class BfpXlsxParser:
 
         # Extent of Damage
         extent = "None / Minor"
-        if self._is_marked("B57"): extent = "Confined to Object"
-        elif self._is_marked("B58"): extent = "Confined to Room"
-        elif self._is_marked("B59"): extent = "Confined to Structure"
-        elif self._is_marked("B60"): extent = "Total Loss"
-        elif self._is_marked("B61"): extent = "Extended Beyond Structure"
+        if self._is_marked("B57"):
+            extent = "Confined to Object"
+        elif self._is_marked("B58"):
+            extent = "Confined to Room"
+        elif self._is_marked("B59"):
+            extent = "Confined to Structure"
+        elif self._is_marked("B60"):
+            extent = "Total Loss"
+        elif self._is_marked("B61"):
+            extent = "Extended Beyond Structure"
 
         # Section J: Problems
         problems = []
         prob_map = {
-            "B195": "Inaccurate address", "B196": "Geographically challenged",
-            "B197": "Road conditions", "B198": "Road under construction",
-            "B199": "Traffic congestion", "B200": "Road accidents",
-            "B201": "Vehicles failure to yield", "B202": "Natural Disasters",
-            "B203": "Civil Disturbance", "B204": "Uncooperative or panicked residents",
-            "B205": "Safety and security threats", "B206": "Property security or owner delays",
-            "B207": "Engine failure", "B208": "Uncooperative fire auxiliary",
-            "B209": "Poor water supply access", "B210": "Intense heat and smoke",
-            "B211": "Structural hazards", "B212": "Equipment malfunction",
-            "B213": "Poor inter-agency coordination", "B214": "Radio communication breakdown",
-            "B215": "HazMat risks", "B216": "Physical exhaustion and injuries",
-            "B217": "Emotional and psychological effects", "B218": "Community complaints",
-            "B219": "Others"
+            "B195": "Inaccurate address",
+            "B196": "Geographically challenged",
+            "B197": "Road conditions",
+            "B198": "Road under construction",
+            "B199": "Traffic congestion",
+            "B200": "Road accidents",
+            "B201": "Vehicles failure to yield",
+            "B202": "Natural Disasters",
+            "B203": "Civil Disturbance",
+            "B204": "Uncooperative or panicked residents",
+            "B205": "Safety and security threats",
+            "B206": "Property security or owner delays",
+            "B207": "Engine failure",
+            "B208": "Uncooperative fire auxiliary",
+            "B209": "Poor water supply access",
+            "B210": "Intense heat and smoke",
+            "B211": "Structural hazards",
+            "B212": "Equipment malfunction",
+            "B213": "Poor inter-agency coordination",
+            "B214": "Radio communication breakdown",
+            "B215": "HazMat risks",
+            "B216": "Physical exhaustion and injuries",
+            "B217": "Emotional and psychological effects",
+            "B218": "Community complaints",
+            "B219": "Others",
         }
         for c, flavor in prob_map.items():
-            if self._is_marked(c): problems.append(flavor)
+            if self._is_marked(c):
+                problems.append(flavor)
 
         icp_present = self._is_marked("B102")
         icp_location = self.get("D102") if icp_present else None
@@ -599,8 +656,9 @@ class BfpXlsxParser:
         narrative_lines = []
         for r in range(160, 191):
             line = self.get(f"B{r}")
-            if line: narrative_lines.append(str(line))
-        
+            if line:
+                narrative_lines.append(str(line))
+
         # Section G: Other Personnel (Rows 124 to 132)
         others = []
         for r in range(124, 133):
@@ -611,7 +669,9 @@ class BfpXlsxParser:
 
         return {
             "responder_type": responder_type,
-            "fire_station_name": self.get("D20") if responder_type == "First Responder" else self.get("D21"),
+            "fire_station_name": self.get("D20")
+            if responder_type == "First Responder"
+            else self.get("D21"),
             "notification_date": self.get("D22"),
             "notification_time": self.get("D23"),
             "region": self.get("D24"),
@@ -629,7 +689,6 @@ class BfpXlsxParser:
             "alarm_level": self.get("D42"),
             "time_returned": self.get("D43"),
             "gas_liters": self.get("D44"),
-
             "classification": classification,
             "category": cat_val,
             "owner": self.get("D51"),
@@ -637,16 +696,17 @@ class BfpXlsxParser:
             "origin": self.get("D53"),
             "stage": stage,
             "extent": extent,
-            
-            "extent_total_floor_area_sqm": self.get("D56") or self.get("D57") or self.get("D58") or self.get("D59") or self.get("D60"),
+            "extent_total_floor_area_sqm": self.get("D56")
+            or self.get("D57")
+            or self.get("D58")
+            or self.get("D59")
+            or self.get("D60"),
             "extent_total_land_area_hectares": self.get("D59") or self.get("D60"),
-            
             "struct_aff": self.get("D62"),
             "house_aff": self.get("D63"),
             "fam_aff": self.get("D64"),
             "indiv_aff": self.get("D65"),
             "vehic_aff": self.get("D66"),
-
             "res_bfp_truck": self.get("D70"),
             "res_lgu_truck": self.get("D71"),
             "res_vol_truck": self.get("D72"),
@@ -662,7 +722,6 @@ class BfpXlsxParser:
             "tool_hydra": self.get("D83"),
             "tool_others": self.get("D84"),
             "hydrant_dist": self.get("D85"),
-
             "timeline": {
                 "alarm_1st": {"time": self.get("D89"), "date": self.get("E89")},
                 "alarm_2nd": {"time": self.get("D90"), "date": self.get("E90")},
@@ -675,18 +734,22 @@ class BfpXlsxParser:
                 "tf_delta": {"time": self.get("D97"), "date": self.get("E97")},
                 "general": {"time": self.get("D98"), "date": self.get("E98")},
                 "fuc": {"time": self.get("D99"), "date": self.get("E99")},
-                "fo": {"time": self.get("D100"), "date": self.get("E100")}
+                "fo": {"time": self.get("D100"), "date": self.get("E100")},
             },
             "icp_present": icp_present,
             "icp_location": icp_location,
-            
-            "inj_civ_m": self.get("D106"), "inj_civ_f": self.get("E106"),
-            "inj_bfp_m": self.get("D107"), "inj_bfp_f": self.get("E107"),
-            "inj_aux_m": self.get("D108"), "inj_aux_f": self.get("E108"),
-            "fat_civ_m": self.get("D109"), "fat_civ_f": self.get("E109"),
-            "fat_bfp_m": self.get("D110"), "fat_bfp_f": self.get("E110"),
-            "fat_aux_m": self.get("D111"), "fat_aux_f": self.get("E111"),
-
+            "inj_civ_m": self.get("D106"),
+            "inj_civ_f": self.get("E106"),
+            "inj_bfp_m": self.get("D107"),
+            "inj_bfp_f": self.get("E107"),
+            "inj_aux_m": self.get("D108"),
+            "inj_aux_f": self.get("E108"),
+            "fat_civ_m": self.get("D109"),
+            "fat_civ_f": self.get("E109"),
+            "fat_bfp_m": self.get("D110"),
+            "fat_bfp_f": self.get("E110"),
+            "fat_aux_m": self.get("D111"),
+            "fat_aux_f": self.get("E111"),
             "pod_commander": self.get("D114"),
             "pod_shift": self.get("D115"),
             "pod_nozzleman": self.get("D116"),
@@ -694,7 +757,6 @@ class BfpXlsxParser:
             "pod_crew": self.get("D118"),
             "pod_dpo": self.get("D119"),
             "pod_safety": self.get("D120"),
-            
             "others_list": others,
             "narrative": "\n".join(narrative_lines),
             "problems": problems,
@@ -702,7 +764,6 @@ class BfpXlsxParser:
             "disposition": self.get("B229"),
             "prepared_by": self.get("C238"),
             "noted_by": self.get("F238"),
-
             # Backward-compatible aliases used by older tests/scripts.
             "extent_of_damage": extent,
             "structures_affected": self.get("D62"),
@@ -720,13 +781,17 @@ def parse_afor_report_data(data: dict, region_id: int) -> AforParsedRow:
             return None
 
         if t:
-            date_part = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d).split(" ")[0]
+            date_part = (
+                d.strftime("%Y-%m-%d")
+                if hasattr(d, "strftime")
+                else str(d).split(" ")[0]
+            )
             return _safe_dt(f"{date_part} {str(t).strip()}")
 
         return _safe_dt(d)
 
     notif_dt = _dt(data.get("notification_date"), data.get("notification_time"))
-    
+
     # Split caller_info: "Name / 0917-..."
     ci = str(data.get("caller_info") or "")
     c_name = ci.split("/")[0].strip() if "/" in ci else ci
@@ -734,19 +799,40 @@ def parse_afor_report_data(data: dict, region_id: int) -> AforParsedRow:
 
     casualty_details = {
         "injured": {
-            "civilian": {"m": _safe_int(data.get("inj_civ_m")), "f": _safe_int(data.get("inj_civ_f"))},
-            "firefighter": {"m": _safe_int(data.get("inj_bfp_m")), "f": _safe_int(data.get("inj_bfp_f"))},
-            "auxiliary": {"m": _safe_int(data.get("inj_aux_m")), "f": _safe_int(data.get("inj_aux_f"))},
+            "civilian": {
+                "m": _safe_int(data.get("inj_civ_m")),
+                "f": _safe_int(data.get("inj_civ_f")),
+            },
+            "firefighter": {
+                "m": _safe_int(data.get("inj_bfp_m")),
+                "f": _safe_int(data.get("inj_bfp_f")),
+            },
+            "auxiliary": {
+                "m": _safe_int(data.get("inj_aux_m")),
+                "f": _safe_int(data.get("inj_aux_f")),
+            },
         },
         "fatalities": {
-            "civilian": {"m": _safe_int(data.get("fat_civ_m")), "f": _safe_int(data.get("fat_civ_f"))},
-            "firefighter": {"m": _safe_int(data.get("fat_bfp_m")), "f": _safe_int(data.get("fat_bfp_f"))},
-            "auxiliary": {"m": _safe_int(data.get("fat_aux_m")), "f": _safe_int(data.get("fat_aux_f"))},
+            "civilian": {
+                "m": _safe_int(data.get("fat_civ_m")),
+                "f": _safe_int(data.get("fat_civ_f")),
+            },
+            "firefighter": {
+                "m": _safe_int(data.get("fat_bfp_m")),
+                "f": _safe_int(data.get("fat_bfp_f")),
+            },
+            "auxiliary": {
+                "m": _safe_int(data.get("fat_aux_m")),
+                "f": _safe_int(data.get("fat_aux_f")),
+            },
         },
     }
 
     timeline = data.get("timeline") or {
-        "alarm_1st": {"time": data.get("alarm_1st"), "date": data.get("notification_date")},
+        "alarm_1st": {
+            "time": data.get("alarm_1st"),
+            "date": data.get("notification_date"),
+        },
         "alarm_2nd": {"time": None, "date": data.get("notification_date")},
         "alarm_3rd": {"time": None, "date": data.get("notification_date")},
         "alarm_4th": {"time": None, "date": data.get("notification_date")},
@@ -764,25 +850,45 @@ def parse_afor_report_data(data: dict, region_id: int) -> AforParsedRow:
         "notification_dt": notif_dt,
         "responder_type": data.get("responder_type"),
         "fire_station_name": data.get("fire_station_name") or "",
-        "alarm_level": ALARM_LEVEL_MAP.get(str(data.get("alarm_level") or "").strip().upper(), data.get("alarm_level")),
-        "general_category": data.get("classification") or data.get("classification_of_involved"),
-        "sub_category": data.get("category") or data.get("type_of_involved_general_category"),
+        "alarm_level": ALARM_LEVEL_MAP.get(
+            str(data.get("alarm_level") or "").strip().upper(), data.get("alarm_level")
+        ),
+        "general_category": data.get("classification")
+        or data.get("classification_of_involved"),
+        "sub_category": data.get("category")
+        or data.get("type_of_involved_general_category"),
         "fire_origin": data.get("origin") or data.get("area_of_origin"),
         "extent_of_damage": data.get("extent") or data.get("extent_of_damage"),
         "stage_of_fire": data.get("stage") or data.get("stage_of_fire_upon_arrival"),
-        "structures_affected": _safe_int(data.get("struct_aff") if data.get("struct_aff") is not None else data.get("structures_affected")),
+        "structures_affected": _safe_int(
+            data.get("struct_aff")
+            if data.get("struct_aff") is not None
+            else data.get("structures_affected")
+        ),
         "households_affected": _safe_int(data.get("house_aff")),
         "families_affected": _safe_int(data.get("fam_aff")),
         "individuals_affected": _safe_int(data.get("indiv_aff")),
         "vehicles_affected": _safe_int(data.get("vehic_aff")),
-        "distance_from_station_km": _safe_float(data.get("distance_km") if data.get("distance_km") is not None else data.get("distance_from_station_km")),
+        "distance_from_station_km": _safe_float(
+            data.get("distance_km")
+            if data.get("distance_km") is not None
+            else data.get("distance_from_station_km")
+        ),
         "total_response_time_minutes": _safe_int(data.get("response_time")),
         "total_gas_consumed_liters": _safe_float(data.get("gas_liters")),
-        "extent_total_floor_area_sqm": _safe_float(data.get("extent_total_floor_area_sqm")),
-        "extent_total_land_area_hectares": _safe_float(data.get("extent_total_land_area_hectares")),
+        "extent_total_floor_area_sqm": _safe_float(
+            data.get("extent_total_floor_area_sqm")
+        ),
+        "extent_total_land_area_hectares": _safe_float(
+            data.get("extent_total_land_area_hectares")
+        ),
         "resources_deployed": {
             "trucks": {
-                "bfp": _safe_int(data.get("res_bfp_truck") if data.get("res_bfp_truck") is not None else data.get("res_bfp_trucks")),
+                "bfp": _safe_int(
+                    data.get("res_bfp_truck")
+                    if data.get("res_bfp_truck") is not None
+                    else data.get("res_bfp_trucks")
+                ),
                 "lgu": _safe_int(data.get("res_lgu_truck")),
                 "volunteer": _safe_int(data.get("res_vol_truck")),
             },
@@ -806,16 +912,36 @@ def parse_afor_report_data(data: dict, region_id: int) -> AforParsedRow:
             "hydrant_distance": str(data.get("hydrant_dist") or ""),
         },
         "alarm_timeline": {
-            "alarm_1st": _dt(timeline["alarm_1st"]["date"], timeline["alarm_1st"]["time"]),
-            "alarm_2nd": _dt(timeline["alarm_2nd"]["date"], timeline["alarm_2nd"]["time"]),
-            "alarm_3rd": _dt(timeline["alarm_3rd"]["date"], timeline["alarm_3rd"]["time"]),
-            "alarm_4th": _dt(timeline["alarm_4th"]["date"], timeline["alarm_4th"]["time"]),
-            "alarm_5th": _dt(timeline["alarm_5th"]["date"], timeline["alarm_5th"]["time"]),
-            "alarm_tf_alpha": _dt(timeline["tf_alpha"]["date"], timeline["tf_alpha"]["time"]),
-            "alarm_tf_bravo": _dt(timeline["tf_bravo"]["date"], timeline["tf_bravo"]["time"]),
-            "alarm_tf_charlie": _dt(timeline["tf_charlie"]["date"], timeline["tf_charlie"]["time"]),
-            "alarm_tf_delta": _dt(timeline["tf_delta"]["date"], timeline["tf_delta"]["time"]),
-            "alarm_general": _dt(timeline["general"]["date"], timeline["general"]["time"]),
+            "alarm_1st": _dt(
+                timeline["alarm_1st"]["date"], timeline["alarm_1st"]["time"]
+            ),
+            "alarm_2nd": _dt(
+                timeline["alarm_2nd"]["date"], timeline["alarm_2nd"]["time"]
+            ),
+            "alarm_3rd": _dt(
+                timeline["alarm_3rd"]["date"], timeline["alarm_3rd"]["time"]
+            ),
+            "alarm_4th": _dt(
+                timeline["alarm_4th"]["date"], timeline["alarm_4th"]["time"]
+            ),
+            "alarm_5th": _dt(
+                timeline["alarm_5th"]["date"], timeline["alarm_5th"]["time"]
+            ),
+            "alarm_tf_alpha": _dt(
+                timeline["tf_alpha"]["date"], timeline["tf_alpha"]["time"]
+            ),
+            "alarm_tf_bravo": _dt(
+                timeline["tf_bravo"]["date"], timeline["tf_bravo"]["time"]
+            ),
+            "alarm_tf_charlie": _dt(
+                timeline["tf_charlie"]["date"], timeline["tf_charlie"]["time"]
+            ),
+            "alarm_tf_delta": _dt(
+                timeline["tf_delta"]["date"], timeline["tf_delta"]["time"]
+            ),
+            "alarm_general": _dt(
+                timeline["general"]["date"], timeline["general"]["time"]
+            ),
             "alarm_fuc": _dt(timeline["fuc"]["date"], timeline["fuc"]["time"]),
             "alarm_fo": _dt(timeline["fo"]["date"], timeline["fo"]["time"]),
         },
@@ -842,7 +968,7 @@ def parse_afor_report_data(data: dict, region_id: int) -> AforParsedRow:
                 "engine_crew": data.get("pod_crew") or "",
                 "driver": data.get("pod_dpo") or "",
                 "pump_operator": data.get("pod_dpo") or "",
-                "safety_officer": {"name": data.get("pod_safety") or "", "contact": ""}
+                "safety_officer": {"name": data.get("pod_safety") or "", "contact": ""},
             },
             "other_personnel": data.get("others_list", []),
             "casualty_details": casualty_details,
@@ -859,16 +985,20 @@ def parse_afor_report_data(data: dict, region_id: int) -> AforParsedRow:
             "station_name": data.get("fire_station_name") or "",
             "engine_number": data.get("engine") or "",
             "responder_type": data.get("responder_type") or "",
-            "dispatch_dt": _combine_date_and_time(notif_dt, data.get("time_dispatched")),
+            "dispatch_dt": _combine_date_and_time(
+                notif_dt, data.get("time_dispatched")
+            ),
             "arrival_dt": _combine_date_and_time(notif_dt, data.get("time_arrived")),
             "return_dt": _combine_date_and_time(notif_dt, data.get("time_returned")),
         },
         "_city_text": data.get("city") or "",
         "_province_text": data.get("province") or "",
     }
-    
+
     if not notif_dt:
-        errors.append("Missing required fields: notification_dt (Check D22/D23 in XLSX)")
+        errors.append(
+            "Missing required fields: notification_dt (Check D22/D23 in XLSX)"
+        )
     if not mapped["_city_text"]:
         errors.append("Missing required fields: _city_text (City/Municipality)")
 
@@ -878,7 +1008,9 @@ def parse_afor_report_data(data: dict, region_id: int) -> AforParsedRow:
     return AforParsedRow(row_index=0, status=status, errors=errors, data=mapped)
 
 
-def parse_csv_content(content: str, region_id: int) -> tuple[list[AforParsedRow], AforFormKind]:
+def parse_csv_content(
+    content: str, region_id: int
+) -> tuple[list[AforParsedRow], AforFormKind]:
     """Parse either the official AFOR form-style CSV or a flat tabular CSV (structural only)."""
     rows = list(csv.reader(io.StringIO(content)))
     if _looks_like_official_afor_csv(rows):
@@ -894,7 +1026,9 @@ def parse_csv_content(content: str, region_id: int) -> tuple[list[AforParsedRow]
     return results, "STRUCTURAL_AFOR"
 
 
-def parse_xlsx_content(content: bytes, region_id: int) -> tuple[list[AforParsedRow], AforFormKind]:
+def parse_xlsx_content(
+    content: bytes, region_id: int
+) -> tuple[list[AforParsedRow], AforFormKind]:
     """Parse XLSX: detect structural vs wildland, then dispatch."""
     from openpyxl import load_workbook
 
@@ -929,6 +1063,7 @@ def parse_xlsx_content(content: bytes, region_id: int) -> tuple[list[AforParsedR
 # Endpoints
 # ---------------------------------------------------------------------------
 
+
 @router.post("/afor/import", response_model=AforParseResponse)
 async def import_afor_file(
     file: UploadFile = File(...),
@@ -946,7 +1081,9 @@ async def import_afor_file(
 
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
     if ext not in ("xlsx", "xls", "csv"):
-        raise HTTPException(status_code=400, detail="Only .xlsx, .xls, and .csv files are supported")
+        raise HTTPException(
+            status_code=400, detail="Only .xlsx, .xls, and .csv files are supported"
+        )
 
     content = await file.read()
     if len(content) == 0:
@@ -1020,8 +1157,12 @@ def _commit_wildland_afor_row(
 ) -> None:
     """Insert fire_incident + incident_wildland_afor + optional alarm/assistance children."""
     wl = dict(row_data.get("wildland") or {})
-    alarm_statuses: list[dict[str, Any]] = list(wl.pop("wildland_alarm_statuses", []) or [])
-    assistance_rows: list[dict[str, Any]] = list(wl.pop("wildland_assistance_rows", []) or [])
+    alarm_statuses: list[dict[str, Any]] = list(
+        wl.pop("wildland_alarm_statuses", []) or []
+    )
+    assistance_rows: list[dict[str, Any]] = list(
+        wl.pop("wildland_assistance_rows", []) or []
+    )
 
     inc_row = db.execute(
         text("""
@@ -1033,7 +1174,13 @@ def _commit_wildland_afor_row(
                  'DRAFT')
             RETURNING incident_id
         """),
-        {"batch_id": batch_id, "uid": user_id, "region_id": region_id, "lon": lon, "lat": lat},
+        {
+            "batch_id": batch_id,
+            "uid": user_id,
+            "region_id": region_id,
+            "lon": lon,
+            "lat": lat,
+        },
     ).fetchone()
 
     if not inc_row:
@@ -1065,7 +1212,9 @@ def _commit_wildland_afor_row(
         "total_area_burned_hectares": wl.get("total_area_burned_hectares"),
         "wildland_fire_type": wl.get("wildland_fire_type") or None,
         "area_type_summary": json.dumps(wl.get("area_type_summary") or {}),
-        "causes_and_ignition_factors": json.dumps(wl.get("causes_and_ignition_factors") or {}),
+        "causes_and_ignition_factors": json.dumps(
+            wl.get("causes_and_ignition_factors") or {}
+        ),
         "suppression_factors": json.dumps(wl.get("suppression_factors") or {}),
         "weather": json.dumps(wl.get("weather") or {}),
         "fire_behavior": json.dumps(wl.get("fire_behavior") or {}),
@@ -1253,9 +1402,21 @@ async def commit_afor_import(
 
         ns = row_data.get("incident_nonsensitive_details", {})
         sens = row_data.get("incident_sensitive_details", {})
-        casualty_details = sens.get("casualty_details", {}) if isinstance(sens.get("casualty_details", {}), dict) else {}
-        injured_groups = casualty_details.get("injured", {}) if isinstance(casualty_details.get("injured", {}), dict) else {}
-        fatal_groups = casualty_details.get("fatalities", {}) or casualty_details.get("fatal", {}) or {}
+        casualty_details = (
+            sens.get("casualty_details", {})
+            if isinstance(sens.get("casualty_details", {}), dict)
+            else {}
+        )
+        injured_groups = (
+            casualty_details.get("injured", {})
+            if isinstance(casualty_details.get("injured", {}), dict)
+            else {}
+        )
+        fatal_groups = (
+            casualty_details.get("fatalities", {})
+            or casualty_details.get("fatal", {})
+            or {}
+        )
 
         inc_row = db.execute(
             text("""
@@ -1267,7 +1428,13 @@ async def commit_afor_import(
                      'DRAFT')
                 RETURNING incident_id
             """),
-            {"batch_id": batch_id, "uid": user_id, "region_id": region_id, "lon": lon, "lat": lat},
+            {
+                "batch_id": batch_id,
+                "uid": user_id,
+                "region_id": region_id,
+                "lon": lon,
+                "lat": lat,
+            },
         ).fetchone()
 
         if not inc_row:
@@ -1366,10 +1533,10 @@ async def commit_afor_import(
         pii_for_blob = {
             k: v
             for k, v in (
-                ("caller_name",    caller_name_row),
-                ("caller_number",  caller_number_row),
-                ("owner_name",     sens.get("owner_name")),
-                ("occupant_name",  sens.get("occupant_name")),
+                ("caller_name", caller_name_row),
+                ("caller_number", caller_number_row),
+                ("owner_name", sens.get("owner_name")),
+                ("occupant_name", sens.get("occupant_name")),
             )
             if v  # omit None and empty strings
         }
@@ -1412,27 +1579,36 @@ async def commit_afor_import(
                 "street_address": sens.get("street_address", ""),
                 "landmark": sens.get("landmark", ""),
                 # Plaintext PII columns → NULL; only pii_blob_enc is authoritative
-                "receiver_name":      sens.get("receiver_name", ""),
+                "receiver_name": sens.get("receiver_name", ""),
                 "establishment_name": sens.get("establishment_name", ""),
-                "narrative_report":   sens.get("narrative_report", ""),
-                "disposition":        sens.get("disposition", ""),
+                "narrative_report": sens.get("narrative_report", ""),
+                "disposition": sens.get("disposition", ""),
                 "disposition_prepared_by": sens.get("disposition_prepared_by", ""),
-                "disposition_noted_by":    sens.get("disposition_noted_by", ""),
-                "prepared_by_officer":     sens.get("prepared_by_officer", ""),
-                "noted_by_officer":        sens.get("noted_by_officer", ""),
-                "personnel_on_duty":  json.dumps(sens.get("personnel_on_duty", {})),
-                "other_personnel":    json.dumps(sens.get("other_personnel", [])),
-                "casualty_details":   json.dumps(casualty_details),
+                "disposition_noted_by": sens.get("disposition_noted_by", ""),
+                "prepared_by_officer": sens.get("prepared_by_officer", ""),
+                "noted_by_officer": sens.get("noted_by_officer", ""),
+                "personnel_on_duty": json.dumps(sens.get("personnel_on_duty", {})),
+                "other_personnel": json.dumps(sens.get("other_personnel", [])),
+                "casualty_details": json.dumps(casualty_details),
                 "is_icp_present": sens.get("is_icp_present", False),
-                "icp_location":      sens.get("icp_location", ""),
+                "icp_location": sens.get("icp_location", ""),
                 # Encrypted PII blob
                 "pii_blob_enc": ct_b64,
-                "pii_nonce":    nonce_b64,
+                "pii_nonce": nonce_b64,
             },
         )
 
         responding_unit = row_data.get("responding_unit", {})
-        if any(responding_unit.get(key) for key in ("station_name", "engine_number", "dispatch_dt", "arrival_dt", "return_dt")):
+        if any(
+            responding_unit.get(key)
+            for key in (
+                "station_name",
+                "engine_number",
+                "dispatch_dt",
+                "arrival_dt",
+                "return_dt",
+            )
+        ):
             db.execute(
                 text("""
                     INSERT INTO wims.responding_units (
@@ -1515,14 +1691,17 @@ def get_regional_incidents(
         params,
     ).fetchall()
 
-    total = db.execute(
-        text(f"""
+    total = (
+        db.execute(
+            text(f"""
             SELECT COUNT(*) FROM wims.fire_incidents fi
             LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
             WHERE {where_sql}
         """),
-        {k: v for k, v in params.items() if k not in ("limit", "offset")},
-    ).scalar() or 0
+            {k: v for k, v in params.items() if k not in ("limit", "offset")},
+        ).scalar()
+        or 0
+    )
 
     return {
         "items": [
@@ -1576,7 +1755,9 @@ def get_regional_incident_detail(
 
     # Fetch nonsensitive
     ns = db.execute(
-        text("SELECT * FROM wims.incident_nonsensitive_details WHERE incident_id = :iid"),
+        text(
+            "SELECT * FROM wims.incident_nonsensitive_details WHERE incident_id = :iid"
+        ),
         {"iid": incident_id},
     ).fetchone()
 
@@ -1591,7 +1772,7 @@ def get_regional_incident_detail(
             return {}
         if keys:
             return {k: r[i] for i, k in enumerate(keys)}
-        return dict(r._mapping) if hasattr(r, '_mapping') else {}
+        return dict(r._mapping) if hasattr(r, "_mapping") else {}
 
     sd_dict = row_to_dict(sd_row)
 
@@ -1605,10 +1786,10 @@ def get_regional_incident_detail(
                 aad,
             )
             # Inject decrypted PII fields so frontend contract is unchanged
-            sd_dict["caller_name"]    = pii_plaintext.get("caller_name")
-            sd_dict["caller_number"]  = pii_plaintext.get("caller_number")
-            sd_dict["owner_name"]     = pii_plaintext.get("owner_name")
-            sd_dict["occupant_name"]  = pii_plaintext.get("occupant_name")
+            sd_dict["caller_name"] = pii_plaintext.get("caller_name")
+            sd_dict["caller_number"] = pii_plaintext.get("caller_number")
+            sd_dict["owner_name"] = pii_plaintext.get("owner_name")
+            sd_dict["occupant_name"] = pii_plaintext.get("occupant_name")
         except SecurityProviderError:
             # Auth/key failure on a blob that claims to be valid — possible tampering
             # or key rotation without re-encrypt. Log with incident_id; never log
@@ -1621,7 +1802,7 @@ def get_regional_incident_detail(
             pass
 
     # Do not expose internal blob columns in API response
-    sd_dict.pop("pii_blob_enc",  None)
+    sd_dict.pop("pii_blob_enc", None)
     sd_dict.pop("encryption_iv", None)
 
     return {
@@ -1642,10 +1823,15 @@ def get_regional_stats(
     """Quick summary stats scoped to the user's region."""
     region_id = user["assigned_region_id"]
 
-    total = db.execute(
-        text("SELECT COUNT(*) FROM wims.fire_incidents WHERE region_id = :rid AND is_archived = FALSE"),
-        {"rid": region_id},
-    ).scalar() or 0
+    total = (
+        db.execute(
+            text(
+                "SELECT COUNT(*) FROM wims.fire_incidents WHERE region_id = :rid AND is_archived = FALSE"
+            ),
+            {"rid": region_id},
+        ).scalar()
+        or 0
+    )
 
     by_cat_rows = db.execute(
         text("""

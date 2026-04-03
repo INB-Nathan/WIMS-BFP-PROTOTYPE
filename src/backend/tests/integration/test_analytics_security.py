@@ -53,7 +53,11 @@ def _reset_overrides():
 
 def _mock_user(role: str):
     async def _fn():
-        return {"user_id": "00000000-0000-0000-0000-000000000001", "keycloak_id": "kid", "role": role}
+        return {
+            "user_id": "00000000-0000-0000-0000-000000000001",
+            "keycloak_id": "kid",
+            "role": role,
+        }
 
     return _fn
 
@@ -121,7 +125,9 @@ def test_analytics_all_routes_reject_forbidden_roles(
 
 
 @pytest.mark.parametrize("role", FORBIDDEN_ANALYTICS_ROLES)
-def test_analytics_403_response_has_no_stack_trace_or_sql_leak(client: TestClient, role: str):
+def test_analytics_403_response_has_no_stack_trace_or_sql_leak(
+    client: TestClient, role: str
+):
     """403 bodies must not expose internal errors or SQL/engine strings."""
     app.dependency_overrides[auth.get_current_wims_user] = _mock_user(role)
 
@@ -129,7 +135,7 @@ def test_analytics_403_response_has_no_stack_trace_or_sql_leak(client: TestClien
     assert response.status_code == 403
     text = response.text.lower()
     assert "traceback" not in text
-    assert "file \"" not in text
+    assert 'file "' not in text
     assert "sqlalchemy" not in text
     assert "postgres" not in text
 
@@ -141,7 +147,11 @@ def test_analytics_rejects_missing_or_invalid_role(client: TestClient):
         return {"user_id": "00000000-0000-0000-0000-000000000001", "keycloak_id": "kid"}
 
     async def mock_empty_role():
-        return {"user_id": "00000000-0000-0000-0000-000000000001", "keycloak_id": "kid", "role": ""}
+        return {
+            "user_id": "00000000-0000-0000-0000-000000000001",
+            "keycloak_id": "kid",
+            "role": "",
+        }
 
     for mock_fn in (mock_no_role, mock_empty_role):
         app.dependency_overrides[auth.get_current_wims_user] = mock_fn
@@ -153,7 +163,9 @@ def test_analytics_unauthenticated_yields_401_not_200(client: TestClient):
     """If authentication fails before role resolution, endpoints must not return 200."""
 
     async def raise_unauthorized():
-        raise HTTPException(status_code=401, detail="Authentication credentials missing")
+        raise HTTPException(
+            status_code=401, detail="Authentication credentials missing"
+        )
 
     app.dependency_overrides[auth.get_current_wims_user] = raise_unauthorized
 
@@ -186,10 +198,14 @@ def test_analytics_heatmap_allows_all_privileged_roles(client: TestClient, role:
     assert response.json().get("type") == "FeatureCollection"
 
 
-def test_analytics_comparative_missing_required_range_params_returns_422(client: TestClient):
+def test_analytics_comparative_missing_required_range_params_returns_422(
+    client: TestClient,
+):
     """Comparative endpoint must not run with incomplete query (validation)."""
     mock_db, mock_get_db = _mock_analyst_db()
-    app.dependency_overrides[auth.get_current_wims_user] = _mock_user("NATIONAL_ANALYST")
+    app.dependency_overrides[auth.get_current_wims_user] = _mock_user(
+        "NATIONAL_ANALYST"
+    )
     app.dependency_overrides[get_db] = mock_get_db
 
     response = client.get(
@@ -205,7 +221,9 @@ def test_analytics_comparative_missing_required_range_params_returns_422(client:
 def test_analytics_trends_invalid_interval_rejected(client: TestClient):
     """Trends interval must match allowed enum (injection / abuse hardening)."""
     mock_db, mock_get_db = _mock_analyst_db()
-    app.dependency_overrides[auth.get_current_wims_user] = _mock_user("NATIONAL_ANALYST")
+    app.dependency_overrides[auth.get_current_wims_user] = _mock_user(
+        "NATIONAL_ANALYST"
+    )
     app.dependency_overrides[get_db] = mock_get_db
 
     response = client.get("/api/analytics/trends", params={"interval": "yearly"})
@@ -215,7 +233,9 @@ def test_analytics_trends_invalid_interval_rejected(client: TestClient):
 def test_analytics_region_id_non_integer_rejected(client: TestClient):
     """region_id must coerce to int; garbage must not reach SQL as raw string."""
     mock_db, mock_get_db = _mock_analyst_db()
-    app.dependency_overrides[auth.get_current_wims_user] = _mock_user("NATIONAL_ANALYST")
+    app.dependency_overrides[auth.get_current_wims_user] = _mock_user(
+        "NATIONAL_ANALYST"
+    )
     app.dependency_overrides[get_db] = mock_get_db
 
     response = client.get("/api/analytics/heatmap", params={"region_id": "not-an-int"})
@@ -230,7 +250,9 @@ def test_heatmap_incident_type_and_alarm_level_passed_as_bound_parameters_not_sq
     Prevents classic SQL injection via query parameters.
     """
     mock_db, mock_get_db = _mock_analyst_db()
-    app.dependency_overrides[auth.get_current_wims_user] = _mock_user("NATIONAL_ANALYST")
+    app.dependency_overrides[auth.get_current_wims_user] = _mock_user(
+        "NATIONAL_ANALYST"
+    )
     app.dependency_overrides[get_db] = mock_get_db
 
     malicious = "'; DELETE FROM wims.analytics_incident_facts WHERE '1'='1"
@@ -259,7 +281,9 @@ def test_heatmap_incident_type_and_alarm_level_passed_as_bound_parameters_not_sq
 def test_comparative_count_in_range_receives_bound_range_strings(client: TestClient):
     """Date range filters for comparative counts must be passed as parameters to the read model."""
     mock_db, mock_get_db = _mock_analyst_db()
-    app.dependency_overrides[auth.get_current_wims_user] = _mock_user("NATIONAL_ANALYST")
+    app.dependency_overrides[auth.get_current_wims_user] = _mock_user(
+        "NATIONAL_ANALYST"
+    )
     app.dependency_overrides[get_db] = mock_get_db
 
     with patch("api.routes.analytics.count_in_range", return_value=0) as mock_count:
@@ -274,8 +298,14 @@ def test_comparative_count_in_range_receives_bound_range_strings(client: TestCli
 
     assert mock_count.call_count == 2
     for c in mock_count.call_args_list:
-        assert c.args[1] in (COMPARATIVE_PARAMS["range_a_start"], COMPARATIVE_PARAMS["range_b_start"])
-        assert c.args[2] in (COMPARATIVE_PARAMS["range_a_end"], COMPARATIVE_PARAMS["range_b_end"])
+        assert c.args[1] in (
+            COMPARATIVE_PARAMS["range_a_start"],
+            COMPARATIVE_PARAMS["range_b_start"],
+        )
+        assert c.args[2] in (
+            COMPARATIVE_PARAMS["range_a_end"],
+            COMPARATIVE_PARAMS["range_b_end"],
+        )
         assert c.kwargs.get("incident_type") == "STRUCTURAL"
         assert c.kwargs.get("alarm_level") == "2"
 
@@ -296,7 +326,9 @@ def test_export_csv_rejects_forbidden_role_even_with_valid_payload(client: TestC
 
 def test_export_csv_privileged_dispatches_task(client: TestClient):
     """Authorized user: export still requires analyst; task is queued (no raw row leak in response)."""
-    app.dependency_overrides[auth.get_current_wims_user] = _mock_user("NATIONAL_ANALYST")
+    app.dependency_overrides[auth.get_current_wims_user] = _mock_user(
+        "NATIONAL_ANALYST"
+    )
     mock_task = MagicMock()
     mock_task.delay.return_value = MagicMock(id="task-secure-1")
 
@@ -314,7 +346,9 @@ def test_export_csv_privileged_dispatches_task(client: TestClient):
 
 def test_execution_plans_requires_same_rbac_as_heatmap(client: TestClient):
     """EXPLAIN / execution-plans must not be weaker than heatmap (information disclosure)."""
-    app.dependency_overrides[auth.get_current_wims_user] = _mock_user("REGIONAL_ENCODER")
+    app.dependency_overrides[auth.get_current_wims_user] = _mock_user(
+        "REGIONAL_ENCODER"
+    )
     assert client.get("/api/analytics/execution-plans").status_code == 403
 
     mock_db, mock_get_db = _mock_analyst_db()
@@ -322,6 +356,8 @@ def test_execution_plans_requires_same_rbac_as_heatmap(client: TestClient):
     app.dependency_overrides[auth.get_current_wims_user] = _mock_user("SYSTEM_ADMIN")
     app.dependency_overrides[get_db] = mock_get_db
 
-    with patch("api.routes.analytics.verify_indexed_access", return_value={"heatmap": "Seq"}):
+    with patch(
+        "api.routes.analytics.verify_indexed_access", return_value={"heatmap": "Seq"}
+    ):
         r = client.get("/api/analytics/execution-plans")
     assert r.status_code == 200

@@ -2,9 +2,7 @@ import json
 from pathlib import Path
 
 
-REALM_PATH = (
-    Path(__file__).resolve().parents[3] / "keycloak" / "bfp-realm.json"
-)
+REALM_PATH = Path(__file__).resolve().parents[3] / "keycloak" / "bfp-realm.json"
 
 
 def _load_realm() -> dict:

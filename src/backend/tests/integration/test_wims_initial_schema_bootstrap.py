@@ -205,10 +205,15 @@ def test_bootstrap_creates_v2_and_afor_objects(bootstrap_engine):
         ).scalar()
         assert chk
 
-        cols = {r[0] for r in conn.execute(text("""
+        cols = {
+            r[0]
+            for r in conn.execute(
+                text("""
             SELECT column_name FROM information_schema.columns
             WHERE table_schema = 'wims' AND table_name = 'citizen_reports'
-        """))}
+        """)
+            )
+        }
         assert "trust_score" in cols
         assert "description" in cols
 
@@ -248,9 +253,14 @@ def test_bootstrap_creates_v2_and_afor_objects(bootstrap_engine):
         ).scalar()
         assert alarm_chk and "No Firefighting Conducted" in alarm_chk
 
-        idx_names = {r[0] for r in conn.execute(text("""
+        idx_names = {
+            r[0]
+            for r in conn.execute(
+                text("""
             SELECT indexname FROM pg_indexes WHERE schemaname = 'wims'
-        """))}
+        """)
+            )
+        }
         for idx in (
             "idx_fire_incidents_location",
             "idx_citizen_reports_location",

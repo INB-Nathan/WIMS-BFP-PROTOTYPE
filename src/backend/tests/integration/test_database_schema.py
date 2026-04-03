@@ -68,7 +68,9 @@ class TestAuthConstraint:
     def test_insert_users_with_null_keycloak_id_fails(self, engine):
         """Insert wims.users with keycloak_id=NULL must raise IntegrityError."""
         with engine.connect() as conn:
-            with pytest.raises((DataError, IntegrityError, InternalError, ProgrammingError)) as exc_info:
+            with pytest.raises(
+                (DataError, IntegrityError, InternalError, ProgrammingError)
+            ) as exc_info:
                 conn.execute(
                     text("""
                         INSERT INTO wims.users (user_id, keycloak_id, username, role)
@@ -81,7 +83,9 @@ class TestAuthConstraint:
     def test_insert_users_without_keycloak_id_fails(self, engine):
         """Insert wims.users omitting keycloak_id must fail (NOT NULL)."""
         with engine.connect() as conn:
-            with pytest.raises((DataError, IntegrityError, InternalError, ProgrammingError)) as exc_info:
+            with pytest.raises(
+                (DataError, IntegrityError, InternalError, ProgrammingError)
+            ) as exc_info:
                 conn.execute(
                     text("""
                         INSERT INTO wims.users (user_id, username, role)
@@ -110,7 +114,9 @@ class TestGeospatialConstraint:
             region_id = row[0]
 
         with engine.connect() as conn:
-            with pytest.raises((DataError, IntegrityError, InternalError, ProgrammingError)) as exc_info:
+            with pytest.raises(
+                (DataError, IntegrityError, InternalError, ProgrammingError)
+            ) as exc_info:
                 conn.execute(
                     text("""
                         INSERT INTO wims.fire_incidents (region_id, location)
@@ -132,7 +138,9 @@ class TestDoSPayloadConstraint:
         payload_70k = "x" * 70_000
 
         with engine.connect() as conn:
-            with pytest.raises((DataError, IntegrityError, InternalError, ProgrammingError)) as exc_info:
+            with pytest.raises(
+                (DataError, IntegrityError, InternalError, ProgrammingError)
+            ) as exc_info:
                 conn.execute(
                     text("""
                         INSERT INTO wims.security_threat_logs
@@ -156,7 +164,9 @@ class TestForensicConstraint:
         location_wkt = "SRID=4326;POINT(121.0 14.6)"
 
         with engine.connect() as conn:
-            with pytest.raises((DataError, IntegrityError, InternalError, ProgrammingError)) as exc_info:
+            with pytest.raises(
+                (DataError, IntegrityError, InternalError, ProgrammingError)
+            ) as exc_info:
                 conn.execute(
                     text("""
                         INSERT INTO wims.citizen_reports
@@ -177,7 +187,9 @@ class TestSuricataSidConstraint:
     def test_insert_suricata_sid_negative_fails(self, engine):
         """Insert suricata_sid=-5 must fail."""
         with engine.connect() as conn:
-            with pytest.raises((DataError, IntegrityError, InternalError, ProgrammingError)) as exc_info:
+            with pytest.raises(
+                (DataError, IntegrityError, InternalError, ProgrammingError)
+            ) as exc_info:
                 conn.execute(
                     text("""
                         INSERT INTO wims.security_threat_logs
@@ -190,7 +202,9 @@ class TestSuricataSidConstraint:
     def test_insert_suricata_sid_zero_fails(self, engine):
         """Insert suricata_sid=0 must fail (must be > 0)."""
         with engine.connect() as conn:
-            with pytest.raises((DataError, IntegrityError, InternalError, ProgrammingError)) as exc_info:
+            with pytest.raises(
+                (DataError, IntegrityError, InternalError, ProgrammingError)
+            ) as exc_info:
                 conn.execute(
                     text("""
                         INSERT INTO wims.security_threat_logs

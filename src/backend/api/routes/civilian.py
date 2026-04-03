@@ -36,6 +36,7 @@ def submit_civilian_report(
 
     if row is None:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=500, detail="Failed to create report")
 
     report_id = row[0]

@@ -18,7 +18,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import textwrap
 from typing import Tuple
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -26,6 +25,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 class SecurityProviderError(Exception):
     """Raised on any crypto failure — missing key, decode error, auth failure."""
+
     pass
 
 
@@ -56,8 +56,8 @@ class SecurityProvider:
             raise SecurityProviderError(
                 f"{self.KEY_ENV!r} must decode to exactly 32 bytes for AES-256; "
                 f"got {len(key_bytes)} bytes. "
-                "Generate one with: python -c \"import secrets,base64; "
-                "print(base64.b64encode(secrets.token_bytes(32)).decode())\""
+                'Generate one with: python -c "import secrets,base64; '
+                'print(base64.b64encode(secrets.token_bytes(32)).decode())"'
             )
 
         self._aesgcm = AESGCM(key_bytes)
@@ -93,7 +93,9 @@ class SecurityProvider:
                 separators=(",", ":"),
             ).encode("utf-8")
         except Exception as e:
-            raise SecurityProviderError(f"Failed to serialise PII dict to JSON: {e}") from e
+            raise SecurityProviderError(
+                f"Failed to serialise PII dict to JSON: {e}"
+            ) from e
 
         nonce = os.urandom(self.NONCE_BYTES)
 
@@ -107,7 +109,9 @@ class SecurityProvider:
             nonce_b64 = base64.b64encode(nonce).decode("ascii")
             ct_b64 = base64.b64encode(ciphertext).decode("ascii")
         except Exception as e:
-            raise SecurityProviderError(f"Failed to base64-encode ciphertext: {e}") from e
+            raise SecurityProviderError(
+                f"Failed to base64-encode ciphertext: {e}"
+            ) from e
 
         return nonce_b64, ct_b64
 
@@ -144,12 +148,14 @@ class SecurityProvider:
         try:
             ciphertext = base64.b64decode(ct_b64)
         except Exception as e:
-            raise SecurityProviderError(f"Failed to base64-decode ciphertext: {e}") from e
+            raise SecurityProviderError(
+                f"Failed to base64-decode ciphertext: {e}"
+            ) from e
 
         try:
             plaintext = self._aesgcm.decrypt(nonce, ciphertext, aad)
         except Exception as e:
-            #Cryptography library raises InvalidTag on auth failure
+            # Cryptography library raises InvalidTag on auth failure
             raise SecurityProviderError(
                 "AES-256-GCM authentication failed — wrong key, tampered ciphertext, "
                 f"or mismatched AAD. Detail: {e}"
@@ -158,4 +164,6 @@ class SecurityProvider:
         try:
             return json.loads(plaintext.decode("utf-8"))
         except Exception as e:
-            raise SecurityProviderError(f"Decrypted payload is not valid UTF-8 JSON: {e}") from e
+            raise SecurityProviderError(
+                f"Decrypted payload is not valid UTF-8 JSON: {e}"
+            ) from e

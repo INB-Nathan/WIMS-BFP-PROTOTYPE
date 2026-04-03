@@ -1,13 +1,12 @@
 """TDD tests for SecurityProvider — AES-256-GCM encrypted PII blob storage."""
 
 import base64
-import json
-import os
 import secrets
 
 import pytest
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
 
 def _fresh_key() -> bytes:
     """32-byte key for AES-256."""
@@ -24,7 +23,6 @@ def _b64_to_bytes(b64: str) -> bytes:
 
 # ── crypto module ─────────────────────────────────────────────────────────────
 
-import cryptography.hazmat.primitives.ciphers.aead as aead_mod
 
 try:
     from utils.crypto import SecurityProvider, SecurityProviderError
@@ -35,6 +33,7 @@ except ImportError:
 # ════════════════════════════════════════════════════════════════════════════════
 # Key Management
 # ════════════════════════════════════════════════════════════════════════════════
+
 
 class TestKeyManagement:
     """WIMS_MASTER_KEY must be a base64-encoded 32-byte key from environment."""
@@ -73,6 +72,7 @@ class TestKeyManagement:
 # ════════════════════════════════════════════════════════════════════════════════
 # API Shape
 # ════════════════════════════════════════════════════════════════════════════════
+
 
 class TestAPI:
     """encrypt_json and decrypt_json must return (nonce_b64, ct_b64) / dict."""
@@ -179,4 +179,8 @@ class TestAPI:
 
     def test_invalid_ct_base64_raises(self, sp):
         with pytest.raises(SecurityProviderError, match="ciphertext"):
-            sp.decrypt_json(base64.b64encode(secrets.token_bytes(12)).decode(), "!!!not-base64!!!", aad=b"incident_id:1")
+            sp.decrypt_json(
+                base64.b64encode(secrets.token_bytes(12)).decode(),
+                "!!!not-base64!!!",
+                aad=b"incident_id:1",
+            )

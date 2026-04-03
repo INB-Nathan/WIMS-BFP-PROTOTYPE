@@ -201,10 +201,7 @@ def get_trends(
         {**params, "trunc_val": trunc_val},
     ).fetchall()
 
-    return [
-        {"bucket": r[0].isoformat() if r[0] else None, "count": r[1]}
-        for r in rows
-    ]
+    return [{"bucket": r[0].isoformat() if r[0] else None, "count": r[1]} for r in rows]
 
 
 def count_in_range(
@@ -253,19 +250,40 @@ def get_export_rows(
     Joins incident_nonsensitive_details and fire_incidents for columns not in facts.
     """
     allowed = {
-        "incident_id", "notification_dt", "alarm_level", "general_category",
-        "sub_category", "fire_origin", "extent_of_damage", "structures_affected",
-        "households_affected", "individuals_affected", "vehicles_affected",
-        "total_response_time_minutes", "total_gas_consumed_liters",
-        "extent_total_floor_area_sqm", "extent_total_land_area_hectares",
-        "civilian_injured", "civilian_deaths", "firefighter_injured", "firefighter_deaths",
-        "fire_station_name", "region_id", "verification_status",
+        "incident_id",
+        "notification_dt",
+        "alarm_level",
+        "general_category",
+        "sub_category",
+        "fire_origin",
+        "extent_of_damage",
+        "structures_affected",
+        "households_affected",
+        "individuals_affected",
+        "vehicles_affected",
+        "total_response_time_minutes",
+        "total_gas_consumed_liters",
+        "extent_total_floor_area_sqm",
+        "extent_total_land_area_hectares",
+        "civilian_injured",
+        "civilian_deaths",
+        "firefighter_injured",
+        "firefighter_deaths",
+        "fire_station_name",
+        "region_id",
+        "verification_status",
     }
     valid_cols = [c for c in columns if c in allowed]
     if not valid_cols:
         valid_cols = ["incident_id", "notification_dt"]
 
-    fact_cols = {"incident_id", "region_id", "notification_dt", "alarm_level", "general_category"}
+    fact_cols = {
+        "incident_id",
+        "region_id",
+        "notification_dt",
+        "alarm_level",
+        "general_category",
+    }
     select_parts = []
     for c in valid_cols:
         if c == "verification_status":

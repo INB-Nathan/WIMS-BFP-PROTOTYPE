@@ -128,13 +128,17 @@ def require_wildland_schema(db_session: Session):
         )
     ).scalar()
     if not ok:
-        pytest.skip("wims.incident_wildland_afor missing — apply src/postgres-init/01_wims_initial.sql to the DB")
+        pytest.skip(
+            "wims.incident_wildland_afor missing — apply src/postgres-init/01_wims_initial.sql to the DB"
+        )
 
 
 @pytest.fixture
 def client_regional_encoder(client: TestClient, regional_user_id, db_session: Session):
     rid = db_session.execute(
-        text("SELECT assigned_region_id FROM wims.users WHERE user_id = CAST(:u AS uuid)"),
+        text(
+            "SELECT assigned_region_id FROM wims.users WHERE user_id = CAST(:u AS uuid)"
+        ),
         {"u": regional_user_id},
     ).scalar()
 
@@ -197,10 +201,18 @@ def _assert_wgs84_error(res, status: int = 400):
 # ---------------------------------------------------------------------------
 
 
-def test_regional_import_preview_structural_form_kind(client_regional_encoder: TestClient):
+def test_regional_import_preview_structural_form_kind(
+    client_regional_encoder: TestClient,
+):
     response = client_regional_encoder.post(
         "/api/regional/afor/import",
-        files={"file": ("struct.xlsx", _build_structural_afor_xlsx_bytes(), "application/octet-stream")},
+        files={
+            "file": (
+                "struct.xlsx",
+                _build_structural_afor_xlsx_bytes(),
+                "application/octet-stream",
+            )
+        },
     )
     assert response.status_code == 200
     data = response.json()
@@ -208,10 +220,18 @@ def test_regional_import_preview_structural_form_kind(client_regional_encoder: T
     assert data.get("requires_location") is True
 
 
-def test_regional_import_preview_wildland_form_kind(client_regional_encoder: TestClient):
+def test_regional_import_preview_wildland_form_kind(
+    client_regional_encoder: TestClient,
+):
     response = client_regional_encoder.post(
         "/api/regional/afor/import",
-        files={"file": ("wild.xlsx", _build_wildland_afor_xlsx_bytes(), "application/octet-stream")},
+        files={
+            "file": (
+                "wild.xlsx",
+                _build_wildland_afor_xlsx_bytes(),
+                "application/octet-stream",
+            )
+        },
     )
     assert response.status_code == 200
     data = response.json()
@@ -222,7 +242,13 @@ def test_regional_import_preview_wildland_form_kind(client_regional_encoder: Tes
 def test_regional_import_ambiguous_returns_400(client_regional_encoder: TestClient):
     response = client_regional_encoder.post(
         "/api/regional/afor/import",
-        files={"file": ("bad.xlsx", _build_ambiguous_xlsx_bytes(), "application/octet-stream")},
+        files={
+            "file": (
+                "bad.xlsx",
+                _build_ambiguous_xlsx_bytes(),
+                "application/octet-stream",
+            )
+        },
     )
     assert response.status_code == 400
     detail = response.json().get("detail", "")
@@ -237,7 +263,13 @@ def test_commit_wildland_persists_incident_wildland_afor(
 ):
     prev = client_regional_encoder.post(
         "/api/regional/afor/import",
-        files={"file": ("wild.xlsx", _build_wildland_afor_xlsx_bytes(), "application/octet-stream")},
+        files={
+            "file": (
+                "wild.xlsx",
+                _build_wildland_afor_xlsx_bytes(),
+                "application/octet-stream",
+            )
+        },
     )
     assert prev.status_code == 200
     preview = prev.json()
@@ -357,7 +389,13 @@ def test_commit_missing_coordinates_returns_400(
 ):
     prev = client_regional_encoder.post(
         "/api/regional/afor/import",
-        files={"file": ("wild.xlsx", _build_wildland_afor_xlsx_bytes(), "application/octet-stream")},
+        files={
+            "file": (
+                "wild.xlsx",
+                _build_wildland_afor_xlsx_bytes(),
+                "application/octet-stream",
+            )
+        },
     )
     assert prev.status_code == 200
     rows = [r["data"] for r in prev.json()["rows"] if r["status"] == "VALID"]
@@ -375,13 +413,24 @@ def test_commit_invalid_latitude_returns_400(
 ):
     prev = client_regional_encoder.post(
         "/api/regional/afor/import",
-        files={"file": ("wild.xlsx", _build_wildland_afor_xlsx_bytes(), "application/octet-stream")},
+        files={
+            "file": (
+                "wild.xlsx",
+                _build_wildland_afor_xlsx_bytes(),
+                "application/octet-stream",
+            )
+        },
     )
     assert prev.status_code == 200
     rows = [r["data"] for r in prev.json()["rows"] if r["status"] == "VALID"]
     res = client_regional_encoder.post(
         "/api/regional/afor/commit",
-        json={"form_kind": "WILDLAND_AFOR", "rows": rows, "latitude": 91.0, "longitude": 121.0},
+        json={
+            "form_kind": "WILDLAND_AFOR",
+            "rows": rows,
+            "latitude": 91.0,
+            "longitude": 121.0,
+        },
     )
     _assert_wgs84_error(res)
 
@@ -392,13 +441,24 @@ def test_commit_invalid_longitude_returns_400(
 ):
     prev = client_regional_encoder.post(
         "/api/regional/afor/import",
-        files={"file": ("wild.xlsx", _build_wildland_afor_xlsx_bytes(), "application/octet-stream")},
+        files={
+            "file": (
+                "wild.xlsx",
+                _build_wildland_afor_xlsx_bytes(),
+                "application/octet-stream",
+            )
+        },
     )
     assert prev.status_code == 200
     rows = [r["data"] for r in prev.json()["rows"] if r["status"] == "VALID"]
     res = client_regional_encoder.post(
         "/api/regional/afor/commit",
-        json={"form_kind": "WILDLAND_AFOR", "rows": rows, "latitude": 14.5, "longitude": 200.0},
+        json={
+            "form_kind": "WILDLAND_AFOR",
+            "rows": rows,
+            "latitude": 14.5,
+            "longitude": 200.0,
+        },
     )
     _assert_wgs84_error(res)
 
@@ -409,7 +469,13 @@ def test_commit_structural_persists_wgs84_coordinates(
 ):
     prev = client_regional_encoder.post(
         "/api/regional/afor/import",
-        files={"file": ("struct.xlsx", _build_structural_afor_xlsx_bytes(), "application/octet-stream")},
+        files={
+            "file": (
+                "struct.xlsx",
+                _build_structural_afor_xlsx_bytes(),
+                "application/octet-stream",
+            )
+        },
     )
     assert prev.status_code == 200
     rows = [r["data"] for r in prev.json()["rows"] if r["status"] == "VALID"]
@@ -431,7 +497,13 @@ def test_commit_rejects_form_kind_mismatch(
 ):
     prev = client_regional_encoder.post(
         "/api/regional/afor/import",
-        files={"file": ("wild.xlsx", _build_wildland_afor_xlsx_bytes(), "application/octet-stream")},
+        files={
+            "file": (
+                "wild.xlsx",
+                _build_wildland_afor_xlsx_bytes(),
+                "application/octet-stream",
+            )
+        },
     )
     assert prev.status_code == 200
     rows = [r["data"] for r in prev.json()["rows"] if r["status"] == "VALID"]

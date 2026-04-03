@@ -1,6 +1,5 @@
 import hashlib
 import os
-import shutil
 import uuid
 from typing import Annotated
 
@@ -16,6 +15,7 @@ from services.analytics_read_model import sync_incident_to_analytics
 router = APIRouter(prefix="/api", tags=["incidents"])
 
 STORAGE_DIR = "/app/storage/attachments"
+
 
 @router.post("/incidents/{incident_id}/attachments", status_code=201)
 async def upload_attachment(
@@ -35,9 +35,9 @@ async def upload_attachment(
     # For now, just check existence
     incident = db.execute(
         text("SELECT incident_id FROM wims.fire_incidents WHERE incident_id = :iid"),
-        {"iid": incident_id}
+        {"iid": incident_id},
     ).fetchone()
-    
+
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
 
@@ -71,8 +71,8 @@ async def upload_attachment(
                 "path": storage_path,
                 "mime": file.content_type,
                 "hash": sha256_hash.hexdigest(),
-                "uid": user["user_id"]
-            }
+                "uid": user["user_id"],
+            },
         )
         db.commit()
     except Exception as e:
@@ -84,7 +84,7 @@ async def upload_attachment(
     return {
         "status": "ok",
         "attachment_id": incident_id,  # Serial ID, but we don't have it immediately without RETURNING
-        "message": "Attachment uploaded successfully"
+        "message": "Attachment uploaded successfully",
     }
 
 
@@ -102,9 +102,13 @@ def create_incident(
     user_id = user["user_id"]
 
     # Resolve a default region (required by schema)
-    region_row = db.execute(text("SELECT region_id FROM wims.ref_regions LIMIT 1")).fetchone()
+    region_row = db.execute(
+        text("SELECT region_id FROM wims.ref_regions LIMIT 1")
+    ).fetchone()
     if region_row is None:
-        raise HTTPException(status_code=500, detail="No ref_regions seed data — cannot create incident")
+        raise HTTPException(
+            status_code=500, detail="No ref_regions seed data — cannot create incident"
+        )
 
     region_id = region_row[0]
 
@@ -133,7 +137,9 @@ def create_incident(
 
     # Extract lat/lon from PostGIS geography for response
     coord_row = db.execute(
-        text("SELECT ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lon FROM wims.fire_incidents WHERE incident_id = :iid"),
+        text(
+            "SELECT ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lon FROM wims.fire_incidents WHERE incident_id = :iid"
+        ),
         {"iid": incident_id},
     ).fetchone()
 

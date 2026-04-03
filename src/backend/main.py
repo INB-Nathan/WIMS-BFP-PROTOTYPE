@@ -13,15 +13,16 @@ import logging
 from typing import Annotated
 import os
 import time
-
+import tasks.suricata  # noqa: F401, E402
+import tasks.exports  # noqa: F401, E402
 import httpx
 import redis.asyncio as aioredis
-from celery import Celery
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
 
 import auth
 from auth import get_current_user
@@ -50,12 +51,15 @@ def _resolve_role_from_token(payload: dict) -> str:
             roles.extend(ra)
     if isinstance(payload.get("resource_access"), dict):
         for cid, client_data in payload["resource_access"].items():
-            if isinstance(client_data, dict) and isinstance(client_data.get("roles"), list):
+            if isinstance(client_data, dict) and isinstance(
+                client_data.get("roles"), list
+            ):
                 roles.extend(client_data["roles"])
     for wims_role in WIMS_ROLES_FROM_KEYCLOAK:
         if wims_role in roles:
             return "NATIONAL_ANALYST" if wims_role == "ANALYST" else wims_role
     return "ENCODER"
+
 
 # ---------------------------------------------------------------------------
 # App
@@ -67,25 +71,24 @@ app.include_router(civilian.router)
 app.include_router(triage.router)
 app.include_router(regional.router)
 app.include_router(analytics.router)
-app.include_router(ref.router)  # GET /api/ref/regions, /api/ref/provinces, /api/ref/cities
+app.include_router(
+    ref.router
+)  # GET /api/ref/regions, /api/ref/provinces, /api/ref/cities
 
 logger = logging.getLogger("wims.rate_limit")
 
 # ---------------------------------------------------------------------------
 # Celery
 # ---------------------------------------------------------------------------
-from celery_config import celery_app
 
 # Import task modules so tasks are registered when worker loads main
-import tasks.suricata  # noqa: F401
-import tasks.exports  # noqa: F401
 
 # Re-export for celery CLI: celery -A main.celery_app
 
 # ---------------------------------------------------------------------------
 # Redis
 # ---------------------------------------------------------------------------
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
+REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
 _redis: aioredis.Redis | None = None
 
@@ -98,7 +101,9 @@ async def _get_redis() -> aioredis.Redis | None:
             _redis = aioredis.from_url(REDIS_URL, decode_responses=True)
             await _redis.ping()
         except Exception:
-            logger.warning("Redis unavailable at %s — rate limiting disabled", REDIS_URL)
+            logger.warning(
+                "Redis unavailable at %s — rate limiting disabled", REDIS_URL
+            )
             _redis = None
     return _redis
 
@@ -224,7 +229,9 @@ KEYCLOAK_REALM_URL = os.environ.get(
     os.environ.get("KEYCLOAK_URL", "http://keycloak:8080/auth/realms/bfp"),
 )
 TOKEN_ENDPOINT = f"{KEYCLOAK_REALM_URL}/protocol/openid-connect/token"
-AUTH_REDIRECT_URI = os.environ.get("AUTH_REDIRECT_URI", "http://localhost:3000/auth/callback")
+AUTH_REDIRECT_URI = os.environ.get(
+    "AUTH_REDIRECT_URI", "http://localhost:3000/auth/callback"
+)
 
 
 @app.post("/api/auth/callback")
@@ -264,7 +271,6 @@ async def auth_callback(
 
     payload = await auth.authenticator.validate_token(access_token)
     keycloak_sub = payload.get("sub")
-    email = payload.get("email") or ""
     preferred_username = payload.get("preferred_username") or keycloak_sub or "unknown"
 
     if not keycloak_sub:
@@ -302,9 +308,6 @@ async def auth_callback(
     }
 
 
-app.include_router(incidents.router)
-
-
 @app.get("/api/user/me")
 async def get_me(
     token_payload: Annotated[dict, Depends(get_current_user)],
@@ -315,7 +318,9 @@ async def get_me(
     if not keycloak_sub:
         raise HTTPException(status_code=401, detail="Invalid token: missing sub")
 
-    preferred_username = token_payload.get("preferred_username") or keycloak_sub or "unknown"
+    preferred_username = (
+        token_payload.get("preferred_username") or keycloak_sub or "unknown"
+    )
     username = preferred_username[:50]
 
     row = db.execute(

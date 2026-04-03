@@ -34,22 +34,33 @@ def _reset_overrides():
 
 def test_analytics_heatmap_rejects_regional_encoder(client: TestClient):
     """REGIONAL_ENCODER must receive 403 on GET /api/analytics/heatmap."""
+
     async def mock_regional_encoder():
-        return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "REGIONAL_ENCODER"}
+        return {
+            "user_id": "test-uuid",
+            "keycloak_id": "kid",
+            "role": "REGIONAL_ENCODER",
+        }
 
     app.dependency_overrides[auth.get_current_wims_user] = mock_regional_encoder
 
     response = client.get("/api/analytics/heatmap")
     assert response.status_code == 403
-    assert "NATIONAL_ANALYST" in (response.json().get("detail") or "") or "analyst" in (
-        response.json().get("detail") or ""
-    ).lower()
+    assert (
+        "NATIONAL_ANALYST" in (response.json().get("detail") or "")
+        or "analyst" in (response.json().get("detail") or "").lower()
+    )
 
 
 def test_analytics_heatmap_accepts_national_analyst(client: TestClient):
     """NATIONAL_ANALYST must receive 200 on GET /api/analytics/heatmap."""
+
     async def mock_national_analyst():
-        return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "NATIONAL_ANALYST"}
+        return {
+            "user_id": "test-uuid",
+            "keycloak_id": "kid",
+            "role": "NATIONAL_ANALYST",
+        }
 
     mock_db = MagicMock()
     mock_result = MagicMock()
@@ -73,6 +84,7 @@ def test_analytics_heatmap_accepts_national_analyst(client: TestClient):
 
 def test_analytics_heatmap_accepts_system_admin(client: TestClient):
     """SYSTEM_ADMIN must receive 200 on GET /api/analytics/heatmap."""
+
     async def mock_system_admin():
         return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "SYSTEM_ADMIN"}
 
@@ -96,8 +108,13 @@ def test_analytics_heatmap_accepts_system_admin(client: TestClient):
 
 def test_analytics_export_csv_dispatches_task_and_returns_task_id(client: TestClient):
     """POST /api/analytics/export/csv must dispatch Celery task and return task_id."""
+
     async def mock_national_analyst():
-        return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "NATIONAL_ANALYST"}
+        return {
+            "user_id": "test-uuid",
+            "keycloak_id": "kid",
+            "role": "NATIONAL_ANALYST",
+        }
 
     mock_task = MagicMock()
     mock_task.delay.return_value = MagicMock(id="mock-task-id-123")
@@ -118,8 +135,13 @@ def test_analytics_export_csv_dispatches_task_and_returns_task_id(client: TestCl
 
 def test_analytics_trends_rejects_regional_encoder(client: TestClient):
     """REGIONAL_ENCODER must receive 403 on GET /api/analytics/trends."""
+
     async def mock_regional_encoder():
-        return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "REGIONAL_ENCODER"}
+        return {
+            "user_id": "test-uuid",
+            "keycloak_id": "kid",
+            "role": "REGIONAL_ENCODER",
+        }
 
     app.dependency_overrides[auth.get_current_wims_user] = mock_regional_encoder
 
@@ -129,8 +151,13 @@ def test_analytics_trends_rejects_regional_encoder(client: TestClient):
 
 def test_analytics_comparative_rejects_regional_encoder(client: TestClient):
     """REGIONAL_ENCODER must receive 403 on GET /api/analytics/comparative."""
+
     async def mock_regional_encoder():
-        return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "REGIONAL_ENCODER"}
+        return {
+            "user_id": "test-uuid",
+            "keycloak_id": "kid",
+            "role": "REGIONAL_ENCODER",
+        }
 
     app.dependency_overrides[auth.get_current_wims_user] = mock_regional_encoder
 
@@ -148,8 +175,13 @@ def test_analytics_comparative_rejects_regional_encoder(client: TestClient):
 
 def test_analytics_heatmap_uses_read_model(client: TestClient):
     """Heatmap must query analytics_incident_facts (read model), not raw fire_incidents."""
+
     async def mock_national_analyst():
-        return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "NATIONAL_ANALYST"}
+        return {
+            "user_id": "test-uuid",
+            "keycloak_id": "kid",
+            "role": "NATIONAL_ANALYST",
+        }
 
     mock_db = MagicMock()
     mock_result = MagicMock()
@@ -195,7 +227,11 @@ def test_analytics_comparative_passes_alarm_level_and_incident_type_to_count_in_
     """GET /api/analytics/comparative must forward alarm_level and incident_type to count_in_range."""
 
     async def mock_national_analyst():
-        return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "NATIONAL_ANALYST"}
+        return {
+            "user_id": "test-uuid",
+            "keycloak_id": "kid",
+            "role": "NATIONAL_ANALYST",
+        }
 
     mock_db, mock_get_db = _mock_analyst_db()
 
@@ -231,7 +267,11 @@ def test_analytics_comparative_counts_differ_when_incident_type_filter_changes(
     """Same date ranges; different incident_type must yield different counts when underlying data differs."""
 
     async def mock_national_analyst():
-        return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "NATIONAL_ANALYST"}
+        return {
+            "user_id": "test-uuid",
+            "keycloak_id": "kid",
+            "role": "NATIONAL_ANALYST",
+        }
 
     mock_db, mock_get_db = _mock_analyst_db()
 
@@ -245,16 +285,29 @@ def test_analytics_comparative_counts_differ_when_incident_type_filter_changes(
         "range_b_end": "2024-02-29",
     }
 
-    with patch("api.routes.analytics.count_in_range", side_effect=[10, 12]) as mock_count_structural:
-        r1 = client.get("/api/analytics/comparative", params={**params_base, "incident_type": "STRUCTURAL"})
+    with patch(
+        "api.routes.analytics.count_in_range", side_effect=[10, 12]
+    ) as mock_count_structural:
+        r1 = client.get(
+            "/api/analytics/comparative",
+            params={**params_base, "incident_type": "STRUCTURAL"},
+        )
     assert r1.status_code == 200
     assert r1.json()["range_a"]["count"] == 10
 
-    with patch("api.routes.analytics.count_in_range", side_effect=[4, 5]) as mock_count_other:
-        r2 = client.get("/api/analytics/comparative", params={**params_base, "incident_type": "VEHICULAR"})
+    with patch(
+        "api.routes.analytics.count_in_range", side_effect=[4, 5]
+    ) as mock_count_other:
+        r2 = client.get(
+            "/api/analytics/comparative",
+            params={**params_base, "incident_type": "VEHICULAR"},
+        )
     assert r2.status_code == 200
     assert r2.json()["range_a"]["count"] == 4
-    assert mock_count_structural.call_args_list[0].kwargs.get("incident_type") == "STRUCTURAL"
+    assert (
+        mock_count_structural.call_args_list[0].kwargs.get("incident_type")
+        == "STRUCTURAL"
+    )
     assert mock_count_other.call_args_list[0].kwargs.get("incident_type") == "VEHICULAR"
 
 
@@ -264,7 +317,11 @@ def test_analytics_comparative_counts_differ_when_alarm_level_filter_changes(
     """Same date ranges; different alarm_level must yield different counts when implementation applies the filter."""
 
     async def mock_national_analyst():
-        return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "NATIONAL_ANALYST"}
+        return {
+            "user_id": "test-uuid",
+            "keycloak_id": "kid",
+            "role": "NATIONAL_ANALYST",
+        }
 
     mock_db, mock_get_db = _mock_analyst_db()
 
@@ -279,12 +336,16 @@ def test_analytics_comparative_counts_differ_when_alarm_level_filter_changes(
     }
 
     with patch("api.routes.analytics.count_in_range", side_effect=[8, 9]) as mock_a:
-        r1 = client.get("/api/analytics/comparative", params={**params_base, "alarm_level": "1"})
+        r1 = client.get(
+            "/api/analytics/comparative", params={**params_base, "alarm_level": "1"}
+        )
     assert r1.status_code == 200
     assert r1.json()["range_a"]["count"] == 8
 
     with patch("api.routes.analytics.count_in_range", side_effect=[1, 2]) as mock_b:
-        r2 = client.get("/api/analytics/comparative", params={**params_base, "alarm_level": "3"})
+        r2 = client.get(
+            "/api/analytics/comparative", params={**params_base, "alarm_level": "3"}
+        )
     assert r2.status_code == 200
     assert r2.json()["range_a"]["count"] == 1
     assert mock_a.call_args_list[0].kwargs.get("alarm_level") == "1"
@@ -295,7 +356,11 @@ def test_analytics_trends_passes_alarm_level_to_get_trends(client: TestClient):
     """GET /api/analytics/trends must forward alarm_level to get_trends."""
 
     async def mock_national_analyst():
-        return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "NATIONAL_ANALYST"}
+        return {
+            "user_id": "test-uuid",
+            "keycloak_id": "kid",
+            "role": "NATIONAL_ANALYST",
+        }
 
     mock_db, mock_get_db = _mock_analyst_db()
 

@@ -6,15 +6,15 @@ from typing import TYPE_CHECKING
 
 from geoalchemy2 import Geography
 from geoalchemy2.elements import WKBElement
-from sqlalchemy import CheckConstraint, Enum, ForeignKey
+from sqlalchemy import CheckConstraint, Enum, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
+from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from .base import Base
 from .geometry_validation import validate_location
 
 if TYPE_CHECKING:
-    from .user import User
+    pass
 
 
 class VerificationStatus(str, enum.Enum):
@@ -51,6 +51,16 @@ class FireIncident(Base):
     verification_status: Mapped[VerificationStatus] = mapped_column(
         Enum(VerificationStatus),
         default=VerificationStatus.DRAFT,
+    )
+    region_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("wims.ref_regions.region_id"),
+        nullable=False,
+    )
+    import_batch_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("wims.data_import_batches.batch_id"),
+        nullable=True,
     )
     is_archived: Mapped[bool] = mapped_column(default=False)
 

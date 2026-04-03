@@ -19,7 +19,9 @@ def _require_encoder_or_validator(
     """Require ENCODER or VALIDATOR role."""
     role = current_user.get("role")
     if role not in ("ENCODER", "VALIDATOR"):
-        raise HTTPException(status_code=403, detail="ENCODER or VALIDATOR role required")
+        raise HTTPException(
+            status_code=403, detail="ENCODER or VALIDATOR role required"
+        )
     return current_user
 
 
@@ -89,7 +91,9 @@ def promote_report(
     user_id = user["user_id"]
 
     # Resolve default region (required by fire_incidents schema)
-    region_row = db.execute(text("SELECT region_id FROM wims.ref_regions LIMIT 1")).fetchone()
+    region_row = db.execute(
+        text("SELECT region_id FROM wims.ref_regions LIMIT 1")
+    ).fetchone()
     if region_row is None:
         raise HTTPException(status_code=500, detail="No ref_regions seed data")
 

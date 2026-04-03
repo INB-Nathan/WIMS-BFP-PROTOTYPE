@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 """
 IDS-to-SLM AI Analysis Pipeline — TDD Red State.
 
@@ -12,6 +13,8 @@ Run from project root:
 """
 
 from __future__ import annotations
+from auth import get_system_admin
+from main import app
 
 import os
 import sys
@@ -27,10 +30,6 @@ import respx
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
-
-from auth import get_system_admin
-from database import get_db
-from main import app
 
 # ---------------------------------------------------------------------------
 # DB Setup
@@ -64,7 +63,10 @@ def mock_system_admin():
     """Override get_system_admin to return SYSTEM_ADMIN without auth."""
 
     async def _mock():
-        return {"role": "SYSTEM_ADMIN", "user_id": "00000000-0000-0000-0000-000000000001"}
+        return {
+            "role": "SYSTEM_ADMIN",
+            "user_id": "00000000-0000-0000-0000-000000000001",
+        }
 
     app.dependency_overrides[get_system_admin] = _mock
     yield
@@ -94,7 +96,10 @@ def threat_log_row(db_session):
     log_id = row[0]
     db_session.commit()
     yield log_id
-    db_session.execute(text("DELETE FROM wims.security_threat_logs WHERE log_id = :lid"), {"lid": log_id})
+    db_session.execute(
+        text("DELETE FROM wims.security_threat_logs WHERE log_id = :lid"),
+        {"lid": log_id},
+    )
     db_session.commit()
 
 
@@ -114,20 +119,28 @@ def test_analyze_threat_log_success(mock_system_admin, threat_log_row, db_sessio
     # Mock Ollama API
     respx.post("http://wims-ollama:11434/api/generate").respond(
         status_code=200,
-        json={"response": '{"narrative": "Simulated attack detected.", "confidence": 0.95}'},
+        json={
+            "response": '{"narrative": "Simulated attack detected.", "confidence": 0.95}'
+        },
     )
 
     with TestClient(app) as client:
         resp = client.post(f"/api/admin/security-logs/{log_id}/analyze")
 
-    assert resp.status_code == 200, f"Expected 200 OK, got {resp.status_code}: {resp.text}"
+    assert resp.status_code == 200, (
+        f"Expected 200 OK, got {resp.status_code}: {resp.text}"
+    )
 
     # Query DB and assert updated values
     row = db_session.execute(
-        text("SELECT xai_narrative, xai_confidence FROM wims.security_threat_logs WHERE log_id = :lid"),
+        text(
+            "SELECT xai_narrative, xai_confidence FROM wims.security_threat_logs WHERE log_id = :lid"
+        ),
         {"lid": log_id},
     ).fetchone()
 
     assert row is not None, "Log row not found after analyze"
-    assert row[0] == "Simulated attack detected.", f"Expected xai_narrative, got {row[0]!r}"
+    assert row[0] == "Simulated attack detected.", (
+        f"Expected xai_narrative, got {row[0]!r}"
+    )
     assert row[1] == 0.95, f"Expected xai_confidence 0.95, got {row[1]!r}"

@@ -116,10 +116,30 @@ class TestEveToThreatLogRow:
     def test_severity_mapping(self):
         """Severity 1→LOW, 2→MEDIUM, 3→HIGH; default MEDIUM if missing."""
         base = {"event_type": "alert", "src_ip": "1.1.1.1", "dest_ip": "2.2.2.2"}
-        assert eve_to_threat_log_row({**base, "alert": {"signature_id": 1, "severity": 1}}, raw_payload="")["severity_level"] == "LOW"
-        assert eve_to_threat_log_row({**base, "alert": {"signature_id": 1, "severity": 2}}, raw_payload="")["severity_level"] == "MEDIUM"
-        assert eve_to_threat_log_row({**base, "alert": {"signature_id": 1, "severity": 3}}, raw_payload="")["severity_level"] == "HIGH"
-        assert eve_to_threat_log_row({**base, "alert": {"signature_id": 1}}, raw_payload="")["severity_level"] == "MEDIUM"
+        assert (
+            eve_to_threat_log_row(
+                {**base, "alert": {"signature_id": 1, "severity": 1}}, raw_payload=""
+            )["severity_level"]
+            == "LOW"
+        )
+        assert (
+            eve_to_threat_log_row(
+                {**base, "alert": {"signature_id": 1, "severity": 2}}, raw_payload=""
+            )["severity_level"]
+            == "MEDIUM"
+        )
+        assert (
+            eve_to_threat_log_row(
+                {**base, "alert": {"signature_id": 1, "severity": 3}}, raw_payload=""
+            )["severity_level"]
+            == "HIGH"
+        )
+        assert (
+            eve_to_threat_log_row(
+                {**base, "alert": {"signature_id": 1}}, raw_payload=""
+            )["severity_level"]
+            == "MEDIUM"
+        )
 
 
 @pytest.mark.skipif(

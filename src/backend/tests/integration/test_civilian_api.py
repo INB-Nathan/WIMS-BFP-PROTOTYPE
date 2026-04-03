@@ -14,9 +14,10 @@ import sys
 import os
 
 # Ensure backend is on path when running from src/
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
-import pytest
 from fastapi.testclient import TestClient
 
 from main import app

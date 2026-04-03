@@ -50,7 +50,9 @@ class TestFireIncidentLocationValidation:
 
     def test_string_location_raises_value_error(self):
         """Assigning comma-separated coords as plain string must raise ValueError or StatementError."""
-        with pytest.raises((ValueError, InvalidLocationError, StatementError)) as exc_info:
+        with pytest.raises(
+            (ValueError, InvalidLocationError, StatementError)
+        ) as exc_info:
             FireIncident(location="14.5995,120.9842")
         assert exc_info.value is not None
 
@@ -140,6 +142,8 @@ class TestFireIncidentLocationIntegration:
             if incident_id is not None:
                 with engine.connect() as conn:
                     conn.execute(
-                        text("DELETE FROM wims.fire_incidents WHERE incident_id = :iid"),
+                        text(
+                            "DELETE FROM wims.fire_incidents WHERE incident_id = :iid"
+                        ),
                         {"iid": incident_id},
                     )

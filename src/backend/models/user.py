@@ -5,7 +5,7 @@ import uuid
 
 from sqlalchemy import CheckConstraint, Enum, String
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
 

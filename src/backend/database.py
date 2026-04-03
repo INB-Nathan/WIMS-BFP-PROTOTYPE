@@ -3,7 +3,7 @@
 import os
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 SQLALCHEMY_DATABASE_URL = os.environ.get(
     "SQLALCHEMY_DATABASE_URL",

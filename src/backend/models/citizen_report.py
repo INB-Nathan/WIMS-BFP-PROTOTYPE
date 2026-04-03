@@ -8,14 +8,13 @@ from geoalchemy2 import Geography
 from geoalchemy2.elements import WKBElement
 from sqlalchemy import CheckConstraint, Enum, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
+from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from .base import Base
 from .geometry_validation import validate_location
 
 if TYPE_CHECKING:
-    from .user import User
-    from .fire_incident import FireIncident
+    pass
 
 
 class CitizenReportStatus(str, enum.Enum):

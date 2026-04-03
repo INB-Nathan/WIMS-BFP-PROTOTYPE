@@ -11,7 +11,6 @@ From project root (with Docker): cd src && docker compose run --rm backend pytes
 
 from __future__ import annotations
 
-import os
 import uuid
 
 import pytest
@@ -19,7 +18,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from database import get_db
 from main import app
 from auth import get_current_wims_user
 
@@ -28,10 +26,12 @@ from auth import get_current_wims_user
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def db_session():
     """Yield a DB session for test setup/teardown."""
     from database import _SessionLocal  # noqa: SLF001
+
     db = _SessionLocal()
     try:
         yield db
@@ -62,7 +62,11 @@ def mock_encoder(encoder_user):
     """Override get_current_wims_user to return ENCODER user."""
 
     async def _mock():
-        return {"user_id": encoder_user, "keycloak_id": str(uuid.uuid4()), "role": "ENCODER"}
+        return {
+            "user_id": encoder_user,
+            "keycloak_id": str(uuid.uuid4()),
+            "role": "ENCODER",
+        }
 
     return _mock
 
@@ -94,7 +98,9 @@ def pending_report(db_session: Session):
     db_session.commit()
     report_id = row[0]
     coord = db_session.execute(
-        text("SELECT ST_Y(location::geometry), ST_X(location::geometry) FROM wims.citizen_reports WHERE report_id = :rid"),
+        text(
+            "SELECT ST_Y(location::geometry), ST_X(location::geometry) FROM wims.citizen_reports WHERE report_id = :rid"
+        ),
         {"rid": report_id},
     ).fetchone()
     return report_id, float(coord[0]), float(coord[1])
@@ -104,7 +110,10 @@ def pending_report(db_session: Session):
 # Test 1: GET /api/triage/pending
 # ---------------------------------------------------------------------------
 
-def test_get_triage_pending_returns_pending_reports(client_with_encoder, pending_report, db_session):
+
+def test_get_triage_pending_returns_pending_reports(
+    client_with_encoder, pending_report, db_session
+):
     """
     GET /api/triage/pending with ENCODER token returns list of citizen_reports
     where status == 'PENDING'.
@@ -127,7 +136,9 @@ def test_get_triage_pending_returns_pending_reports(client_with_encoder, pending
     assert abs(ours["longitude"] - lon) < 1e-6
 
 
-def test_get_triage_pending_excludes_non_pending(client_with_encoder, db_session, encoder_user):
+def test_get_triage_pending_excludes_non_pending(
+    client_with_encoder, db_session, encoder_user
+):
     """PENDING reports only; VERIFIED/FALSE_ALARM/DUPLICATE excluded."""
     wkt = "SRID=4326;POINT(121.10 14.65)"
     db_session.execute(
@@ -158,6 +169,7 @@ def test_get_triage_pending_excludes_non_pending(client_with_encoder, db_session
 # Test 2: POST /api/triage/{report_id}/promote
 # ---------------------------------------------------------------------------
 
+
 def test_promote_report_returns_201_and_updates_db(
     client_with_encoder, pending_report, db_session, encoder_user
 ):
@@ -175,7 +187,9 @@ def test_promote_report_returns_201_and_updates_db(
 
     # Query citizen_report
     cr = db_session.execute(
-        text("SELECT status, validated_by, verified_incident_id FROM wims.citizen_reports WHERE report_id = :rid"),
+        text(
+            "SELECT status, validated_by, verified_incident_id FROM wims.citizen_reports WHERE report_id = :rid"
+        ),
         {"rid": report_id},
     ).fetchone()
     assert cr is not None
@@ -203,7 +217,9 @@ def test_promote_nonexistent_report_returns_404(client_with_encoder):
     assert response.status_code == 404
 
 
-def test_promote_already_verified_report_returns_4xx(client_with_encoder, db_session, encoder_user):
+def test_promote_already_verified_report_returns_4xx(
+    client_with_encoder, db_session, encoder_user
+):
     """Promoting an already VERIFIED report should fail (409 or 400)."""
     wkt = "SRID=4326;POINT(121.20 14.70)"
     result = db_session.execute(

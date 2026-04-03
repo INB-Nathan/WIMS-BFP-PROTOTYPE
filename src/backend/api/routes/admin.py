@@ -20,7 +20,15 @@ router = APIRouter(tags=["admin"])
 # Schemas
 # ---------------------------------------------------------------------------
 
-VALID_ROLES = ("ENCODER", "VALIDATOR", "ANALYST", "NATIONAL_ANALYST", "ADMIN", "SYSTEM_ADMIN", "REGIONAL_ENCODER")
+VALID_ROLES = (
+    "ENCODER",
+    "VALIDATOR",
+    "ANALYST",
+    "NATIONAL_ANALYST",
+    "ADMIN",
+    "SYSTEM_ADMIN",
+    "REGIONAL_ENCODER",
+)
 
 
 class UserUpdate(BaseModel):
@@ -44,6 +52,7 @@ class SecurityLogUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 # Identity Management
 # ---------------------------------------------------------------------------
+
 
 @router.get("/users")
 def get_users(
@@ -115,6 +124,7 @@ def update_user(
 # ---------------------------------------------------------------------------
 # Security Telemetry
 # ---------------------------------------------------------------------------
+
 
 @router.get("/security-logs")
 def get_security_logs(
@@ -193,6 +203,7 @@ def update_security_log(
 # Analytics Read Model
 # ---------------------------------------------------------------------------
 
+
 @router.post("/analytics/backfill")
 def backfill_analytics(
     _admin: Annotated[dict, Depends(get_system_admin)],
@@ -206,6 +217,7 @@ def backfill_analytics(
 # ---------------------------------------------------------------------------
 # Audit Oversight
 # ---------------------------------------------------------------------------
+
 
 @router.get("/audit-logs")
 def get_audit_logs(
@@ -226,9 +238,12 @@ def get_audit_logs(
         {"limit": limit, "offset": offset},
     ).fetchall()
 
-    total = db.execute(
-        text("SELECT COUNT(*) FROM wims.system_audit_trails"),
-    ).scalar() or 0
+    total = (
+        db.execute(
+            text("SELECT COUNT(*) FROM wims.system_audit_trails"),
+        ).scalar()
+        or 0
+    )
 
     return {
         "items": [

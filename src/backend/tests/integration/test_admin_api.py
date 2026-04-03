@@ -29,6 +29,7 @@ def _reset_overrides():
 
 def test_admin_rejects_encoder(client: TestClient):
     """Mock ENCODER token: GET /api/admin/users must return 403 Forbidden."""
+
     async def mock_encoder_user():
         return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "ENCODER"}
 
@@ -41,6 +42,7 @@ def test_admin_rejects_encoder(client: TestClient):
 
 def test_admin_accepts_system_admin(client: TestClient):
     """Mock SYSTEM_ADMIN token: GET /api/admin/users must return 200 OK."""
+
     async def mock_system_admin_user():
         return {"user_id": "test-uuid", "keycloak_id": "kid", "role": "SYSTEM_ADMIN"}
 

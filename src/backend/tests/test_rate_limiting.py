@@ -101,8 +101,7 @@ class TestRateLimiting:
 
         # If there are no 429s at all, the rate limiter is missing — fail hard.
         assert len(throttled) > 0, (
-            "No HTTP 429 responses received.  "
-            "The endpoint is completely unthrottled."
+            "No HTTP 429 responses received.  The endpoint is completely unthrottled."
         )
 
         for i, resp in enumerate(throttled):
