@@ -16,9 +16,11 @@ EVE_LOG_PATH = os.environ.get("SURICATA_EVE_PATH", "/var/log/suricata/eve.json")
 
 # Hard-coded system service account for Suricata ingestion.
 # Created via: INSERT INTO wims.users (user_id, keycloak_id, username, role)
-#              VALUES ('00000000-0000-0000-0000-000000000001', NULL, 'svc_suricata', 'NATIONAL_ANALYST')
+#              VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', 'svc_suricata', 'NATIONAL_ANALYST')
 # This user has NATIONAL_ANALYST role, which satisfies the security_threat_logs
-# RLS policy: USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'ADMIN', 'NATIONAL_ANALYST'))
+# RLS policy: USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST'))
+# WITH CHECK (wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST'))
+# See: src/postgres-init/01_wims_initial.sql — security_logs_admin_only policy.
 SYSTEM_SURICATA_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 

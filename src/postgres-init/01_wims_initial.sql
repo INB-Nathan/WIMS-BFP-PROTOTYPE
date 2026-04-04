@@ -1361,17 +1361,20 @@ USING (
 );
 
 -- 7) Security/audit tables
+-- RLS: SELECT allowed for SYSTEM_ADMIN + NATIONAL_ANALYST (threat correlation)
+--      INSERT/UPDATE/DELETE allowed for SYSTEM_ADMIN + NATIONAL_ANALYST (svc_suricata INGESTS here)
+-- Note: svc_suricata account has role=NATIONAL_ANALYST and needs INSERT for eve.json ingestion.
 CREATE POLICY security_logs_admin_only
 ON wims.security_threat_logs
 FOR ALL
-USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN', 'NATIONAL_ANALYST'))
-WITH CHECK (wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN'));
+USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST'))
+WITH CHECK (wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST'));
 
 CREATE POLICY audit_trails_read_admin_or_self
 ON wims.system_audit_trails
 FOR SELECT
 USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN', 'NATIONAL_ANALYST')
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST')
   OR user_id = wims.current_user_uuid()
 );
 

@@ -85,9 +85,9 @@ logger = logging.getLogger("wims.rate_limit")
 # Celery
 # ---------------------------------------------------------------------------
 
-# Import task modules so tasks are registered when worker loads main
-
 # Re-export for celery CLI: celery -A main.celery_app
+# (tasks.suricata and tasks.exports are imported at module top for registration)
+from celery_config import celery_app  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
 # Redis
