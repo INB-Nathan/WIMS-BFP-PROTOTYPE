@@ -16,16 +16,6 @@ CREATE ROLE NATIONAL_VALIDATOR;
 CREATE ROLE NATIONAL_ANALYST;
 CREATE ROLE SYSTEM_ADMIN;
 
--- current_region_id() — thin alias for current_user_region_id() so callers
--- (analytics RLS policies) do not need to change
-CREATE OR REPLACE FUNCTION wims.current_region_id()
-RETURNS integer
-LANGUAGE sql
-STABLE
-AS $$
-  SELECT wims.current_user_region_id()
-$$;
-
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Reference geography
@@ -465,6 +455,16 @@ AS $$
   WHERE u.user_id = wims.current_user_uuid()
     AND u.is_active = TRUE
 $$;
+-- current_region_id() — thin alias for current_user_region_id() so callers
+-- (analytics RLS policies) do not need to change
+CREATE OR REPLACE FUNCTION wims.current_region_id()
+RETURNS integer
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT wims.current_user_region_id()
+$$;
+
 
 -- 3) Enable + force RLS on multi-tenant/sensitive tables
 ALTER TABLE wims.users                          ENABLE ROW LEVEL SECURITY;
