@@ -49,7 +49,7 @@ jobs:
         env:
           NEXT_PUBLIC_AUTH_API_URL: "http://localhost:8080/auth/realms/bfp"
           NEXT_PUBLIC_MAPBOX_TOKEN: ""
-          NEXT_PUBLIC_BASE_URL: "http://localhost" # MISSING THATS WHY FRONT END CI IS NOT WORKING.
+          NEXT_PUBLIC_BASE_URL: "http://localhost"
 
   # ---------------------------------------------------------------------------
   # BACKEND — FastAPI lint + test (with PostgreSQL + Redis services)
@@ -117,13 +117,22 @@ jobs:
             sleep 1
           done
 
+      - name: Initialize test database schema
+        run: |
+          # Init scripts create the wims schema + tables inside wims_test DB.
+          # Skip 02_wims_schema.sql — it only re-includes 01_wims_initial.sql via \ir.
+          psql -v ON_ERROR_STOP=1 -h localhost -p 5432 -U postgres -d wims_test \
+            -f "$GITHUB_WORKSPACE/src/postgres-init/01_wims_initial.sql"
+          psql -v ON_ERROR_STOP=1 -h localhost -p 5432 -U postgres -d wims_test \
+            -f "$GITHUB_WORKSPACE/src/postgres-init/03_seed_reference.sql"
+
       - name: Run pytest
         run: pytest -v --tb=short --ignore=src/backend/tests/test_rate_limiting.py --ignore=src/backend/tests/test_suricata_ingestion.py
         env:
           KEYCLOAK_REALM_URL: ${{ env.KEYCLOAK_REALM_URL }}
           KEYCLOAK_CLIENT_ID: ${{ env.KEYCLOAK_CLIENT_ID }}
           KEYCLOAK_AUDIENCE: ${{ env.KEYCLOAK_AUDIENCE }}
-          DATABASE_URL: ${{ env.DATABASE_URL }}
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/wims_test
           REDIS_URL: ${{ env.REDIS_URL }}
 
   # ---------------------------------------------------------------------------
