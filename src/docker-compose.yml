@@ -84,6 +84,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - KEYCLOAK_REALM_URL=http://keycloak:8080/auth/realms/bfp
       - KEYCLOAK_CLIENT_ID=wims-web
+      - KEYCLOAK_AUDIENCE=wims-web
       - OLLAMA_URL=http://ollama:11434
     volumes:
       - incident_attachments_data:/app/storage
@@ -129,16 +130,17 @@ services:
       context: ./frontend
       args:
         NEXT_PUBLIC_API_URL: http://localhost/api
-        NEXT_PUBLIC_AUTH_API_URL: http://localhost/auth
-        NEXT_PUBLIC_BASE_URL: http://localhost
-        NEXT_PUBLIC_OIDC_REDIRECT_URI: http://localhost/callback
+        NEXT_PUBLIC_AUTH_API_URL: http://localhost:8080/auth
+        NEXT_PUBLIC_BASE_URL: http://localhost:3000
+        NEXT_PUBLIC_OIDC_REDIRECT_URI: http://localhost:3000/callback
+        NEXT_PUBLIC_OIDC_AUTHORITY: http://localhost:8080/auth/realms/bfp
     container_name: wims-frontend
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost/api
-      - NEXT_PUBLIC_AUTH_API_URL=http://localhost/auth
-      - NEXT_PUBLIC_BASE_URL=http://localhost
-      - NEXT_PUBLIC_OIDC_REDIRECT_URI=http://localhost/callback
-      - NEXT_PUBLIC_OIDC_AUTHORITY=http://localhost/auth/realms/bfp
+      - NEXT_PUBLIC_AUTH_API_URL=http://localhost:8080/auth
+      - NEXT_PUBLIC_BASE_URL=http://localhost:3000
+      - NEXT_PUBLIC_OIDC_REDIRECT_URI=http://localhost:3000/callback
+      - NEXT_PUBLIC_OIDC_AUTHORITY=http://localhost:8080/auth/realms/bfp
       - NEXT_PUBLIC_OIDC_CLIENT_ID=wims-web
       - NEXT_PUBLIC_APP_URL=http://localhost
       - BACKEND_URL=http://backend:8000
