@@ -1367,6 +1367,9 @@ REVOKE ALL ON SCHEMA wims FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA wims FROM PUBLIC;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA wims FROM PUBLIC;
 
+-- Application role (used by FastAPI app to connect)
+CREATE ROLE wims_app WITH LOGIN NOCREATEROLE NOCREATEDB NOSUPERUSER NOREPLICATION;
+
 -- Application role grants (RLS enforces security — grants provide minimum object access)
 GRANT USAGE ON SCHEMA wims TO wims_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA wims TO wims_app;
