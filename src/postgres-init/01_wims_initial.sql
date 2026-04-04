@@ -15,6 +15,7 @@ CREATE ROLE REGIONAL_ENCODER;
 CREATE ROLE NATIONAL_VALIDATOR;
 CREATE ROLE NATIONAL_ANALYST;
 CREATE ROLE SYSTEM_ADMIN;
+CREATE ROLE ANONYMOUS;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -433,12 +434,25 @@ AS $$
 $$;
 
 -- 1) Helper: current WIMS role
+--
+-- Returns the user's FRS role from wims.users.role, guarded by COALESCE.
+-- The wims.users.role column is enforced NOT NULL and CHECK-constrained to
+-- the five FRS literals, so NULL role cannot occur through normal DML.
+-- The COALESCE to 'ANONYMOUS' is a defensive sentinel for two cases:
+--   (a) No session — wims.current_user_uuid() is NULL (public DMZ, broken
+--       service-account config, or request that bypassed set_rls_context).
+--   (b) Future-proofing if a migration ever removes the NOT NULL constraint.
+-- 'ANONYMOUS' does NOT appear in any RLS policy IN clause; it is a deny
+-- sentinel only. All operational table policies return FALSE for it.
 CREATE OR REPLACE FUNCTION wims.current_user_role()
 RETURNS text
 LANGUAGE sql
 STABLE
 AS $$
-  SELECT u.role
+  SELECT COALESCE(
+    u.role,
+    'ANONYMOUS'::text
+  )
   FROM wims.users u
   WHERE u.user_id = wims.current_user_uuid()
     AND u.is_active = TRUE
@@ -521,7 +535,7 @@ ON wims.users
 FOR SELECT
 USING (
   user_id = wims.current_user_uuid()
-  OR wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN')
+  OR wims.current_user_role() IN ('SYSTEM_ADMIN')
 );
 
 CREATE POLICY users_self_update_or_admin
@@ -541,12 +555,12 @@ WITH CHECK (
 CREATE POLICY users_admin_insert
 ON wims.users
 FOR INSERT
-WITH CHECK (wims.current_user_role() = 'SYSTEM_ADMIN');
+WITH CHECK (wims.current_user_role() IN ('SYSTEM_ADMIN'));
 
 CREATE POLICY users_admin_delete
 ON wims.users
 FOR DELETE
-USING (wims.current_user_role() = 'SYSTEM_ADMIN');
+USING (wims.current_user_role() IN ('SYSTEM_ADMIN'));
 
 -- 5) Region-scoped parent tables
 -- fire_incidents
@@ -554,7 +568,7 @@ CREATE POLICY fire_incidents_select
 ON wims.fire_incidents
 FOR SELECT
 USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'NATIONAL_ANALYST')
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST')
   OR region_id = wims.current_user_region_id()
 );
 
@@ -562,7 +576,7 @@ CREATE POLICY fire_incidents_insert
 ON wims.fire_incidents
 FOR INSERT
 WITH CHECK (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN')
+  wims.current_user_role() IN ('SYSTEM_ADMIN')
   OR region_id = wims.current_user_region_id()
 );
 
@@ -570,18 +584,18 @@ CREATE POLICY fire_incidents_update
 ON wims.fire_incidents
 FOR UPDATE
 USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN')
+  wims.current_user_role() IN ('SYSTEM_ADMIN')
   OR region_id = wims.current_user_region_id()
 )
 WITH CHECK (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN')
+  wims.current_user_role() IN ('SYSTEM_ADMIN')
   OR region_id = wims.current_user_region_id()
 );
 
 CREATE POLICY fire_incidents_delete
 ON wims.fire_incidents
 FOR DELETE
-USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN'));
+USING (wims.current_user_role() IN ('SYSTEM_ADMIN'));
 
 -- data_import_batches
 -- Drop the broken batches_region_read (had deprecated ADMIN/ANALYST, wrongly region-locked SYSTEM_ADMIN/NATIONAL_ANALYST)
@@ -687,15 +701,15 @@ USING (
 CREATE POLICY batches_system_admin_all
 ON wims.data_import_batches
 FOR ALL
-USING (wims.current_user_role() = 'SYSTEM_ADMIN')
-WITH CHECK (wims.current_user_role() = 'SYSTEM_ADMIN');
+USING (wims.current_user_role() IN ('SYSTEM_ADMIN'))
+WITH CHECK (wims.current_user_role() IN ('SYSTEM_ADMIN'));
 
 -- citizen_reports (via incident region when incident_id present)
 CREATE POLICY citizen_reports_select
 ON wims.citizen_reports
 FOR SELECT
 USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'NATIONAL_ANALYST')
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST')
   OR (
     incident_id IS NOT NULL
     AND EXISTS (
@@ -711,7 +725,7 @@ CREATE POLICY citizen_reports_write
 ON wims.citizen_reports
 FOR UPDATE
 USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN')
+  wims.current_user_role() IN ('SYSTEM_ADMIN')
   OR (
     incident_id IS NOT NULL
     AND EXISTS (
@@ -722,7 +736,7 @@ USING (
   )
 )
 WITH CHECK (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN')
+  wims.current_user_role() IN ('SYSTEM_ADMIN')
   OR (
     incident_id IS NOT NULL
     AND EXISTS (
@@ -737,7 +751,7 @@ CREATE POLICY citizen_reports_insert
 ON wims.citizen_reports
 FOR INSERT
 WITH CHECK (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN')
+  wims.current_user_role() IN ('SYSTEM_ADMIN')
   OR (
     incident_id IS NOT NULL
     AND EXISTS (
@@ -751,7 +765,7 @@ WITH CHECK (
 CREATE POLICY citizen_reports_delete
 ON wims.citizen_reports
 FOR DELETE
-USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN'));
+USING (wims.current_user_role() IN ('SYSTEM_ADMIN'));
 
 -- 6) Child tables: incident_id FK → fire_incidents.region_id
 -- Reusable pattern; split into per-operation policies to enforce read-only analysts.
@@ -766,7 +780,7 @@ CREATE POLICY incident_nonsensitive_details_region_select
 ON wims.incident_nonsensitive_details
 FOR SELECT
 USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
   OR EXISTS (
     SELECT 1 FROM wims.fire_incidents fi
     WHERE fi.incident_id = wims.incident_nonsensitive_details.incident_id
@@ -826,7 +840,7 @@ CREATE POLICY incident_sensitive_details_region_select
 ON wims.incident_sensitive_details
 FOR SELECT
 USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
   OR EXISTS (
     SELECT 1 FROM wims.fire_incidents fi
     WHERE fi.incident_id = wims.incident_sensitive_details.incident_id
@@ -887,7 +901,7 @@ CREATE POLICY incident_attachments_region_select
 ON wims.incident_attachments
 FOR SELECT
 USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
   OR EXISTS (
     SELECT 1 FROM wims.fire_incidents fi
     WHERE fi.incident_id = wims.incident_attachments.incident_id
@@ -945,7 +959,7 @@ CREATE POLICY incident_verification_history_region_select
 ON wims.incident_verification_history
 FOR SELECT
 USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
   OR EXISTS (
     SELECT 1 FROM wims.fire_incidents fi
     WHERE fi.incident_id = wims.incident_verification_history.incident_id
@@ -1003,7 +1017,7 @@ CREATE POLICY involved_parties_region_select
 ON wims.involved_parties
 FOR SELECT
 USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
   OR EXISTS (
     SELECT 1 FROM wims.fire_incidents fi
     WHERE fi.incident_id = wims.involved_parties.incident_id
@@ -1061,7 +1075,7 @@ CREATE POLICY operational_challenges_region_select
 ON wims.operational_challenges
 FOR SELECT
 USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
   OR EXISTS (
     SELECT 1 FROM wims.fire_incidents fi
     WHERE fi.incident_id = wims.operational_challenges.incident_id
@@ -1119,7 +1133,7 @@ CREATE POLICY responding_units_region_select
 ON wims.responding_units
 FOR SELECT
 USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
   OR EXISTS (
     SELECT 1 FROM wims.fire_incidents fi
     WHERE fi.incident_id = wims.responding_units.incident_id
@@ -1179,7 +1193,7 @@ CREATE POLICY incident_wildland_afor_region_select
 ON wims.incident_wildland_afor
 FOR SELECT
 USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
   OR EXISTS (
     SELECT 1 FROM wims.fire_incidents fi
     WHERE fi.incident_id = wims.incident_wildland_afor.incident_id
@@ -1238,7 +1252,7 @@ CREATE POLICY wildland_afor_alarm_statuses_region_select
 ON wims.wildland_afor_alarm_statuses
 FOR SELECT
 USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
   OR EXISTS (
     SELECT 1 FROM wims.incident_wildland_afor iwa
     JOIN wims.fire_incidents fi ON fi.incident_id = iwa.incident_id
@@ -1302,7 +1316,7 @@ CREATE POLICY wildland_afor_assistance_rows_region_select
 ON wims.wildland_afor_assistance_rows
 FOR SELECT
 USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
   OR EXISTS (
     SELECT 1 FROM wims.incident_wildland_afor iwa
     JOIN wims.fire_incidents fi ON fi.incident_id = iwa.incident_id
@@ -1364,14 +1378,14 @@ USING (
 CREATE POLICY security_logs_admin_only
 ON wims.security_threat_logs
 FOR ALL
-USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN', 'NATIONAL_ANALYST'))
-WITH CHECK (wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN'));
+USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST'))
+WITH CHECK (wims.current_user_role() IN ('SYSTEM_ADMIN'));
 
 CREATE POLICY audit_trails_read_admin_or_self
 ON wims.system_audit_trails
 FOR SELECT
 USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'SYSTEM_ADMIN', 'NATIONAL_ANALYST')
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST')
   OR user_id = wims.current_user_uuid()
 );
 
