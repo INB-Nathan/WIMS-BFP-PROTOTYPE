@@ -49,6 +49,7 @@ jobs:
         env:
           NEXT_PUBLIC_AUTH_API_URL: "http://localhost:8080/auth/realms/bfp"
           NEXT_PUBLIC_MAPBOX_TOKEN: ""
+          NEXT_PUBLIC_BASE_URL: "http://localhost" # MISSING THATS WHY FRONT END CI IS NOT WORKING.
 
   # ---------------------------------------------------------------------------
   # BACKEND — FastAPI lint + test (with PostgreSQL + Redis services)
