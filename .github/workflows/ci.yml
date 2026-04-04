@@ -130,13 +130,14 @@ jobs:
           PGPASSWORD: postgres
 
       - name: Run pytest
-        run: pytest -v --tb=short --ignore=src/backend/tests/test_rate_limiting.py --ignore=src/backend/tests/test_suricata_ingestion.py
+        run: pytest -v --tb=short --ignore=tests/test_rate_limiting.py --ignore=tests/test_suricata_ingestion.py
         env:
           KEYCLOAK_REALM_URL: ${{ env.KEYCLOAK_REALM_URL }}
           KEYCLOAK_CLIENT_ID: ${{ env.KEYCLOAK_CLIENT_ID }}
           KEYCLOAK_AUDIENCE: ${{ env.KEYCLOAK_AUDIENCE }}
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/wims_test
           REDIS_URL: ${{ env.REDIS_URL }}
+          WIMS_MASTER_KEY: ${{ secrets.WIMS_MASTER_KEY }}
 
   # ---------------------------------------------------------------------------
   # MERGE GATE — all CI jobs must pass before merge is allowed
