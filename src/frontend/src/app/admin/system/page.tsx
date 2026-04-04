@@ -118,7 +118,19 @@ export default function AdminSystemPage() {
         setLoadingAudit(true);
         try {
             const data = await fetchAuditLogs({ limit: 50, offset: 0 });
-            setAuditLogs(data);
+            setAuditLogs({
+              items: data.items.map((item): AuditItem => ({
+                audit_id: item.id,
+                user_id: item.user_id,
+                action_type: item.action,
+                table_affected: item.resource,
+                record_id: null,
+                ip_address: null,
+                user_agent: null,
+                timestamp: item.timestamp,
+              })),
+              total: data.total,
+            });
         } catch {
             setAuditLogs({ items: [], total: 0 });
         } finally {
@@ -133,8 +145,8 @@ export default function AdminSystemPage() {
         try {
             await updateAdminUser(userId, payload);
             await loadUsers();
-        } catch (e: any) {
-            alert(e?.message ?? 'Update failed');
+        } catch (e: unknown) {
+            alert((e as { message?: string })?.message ?? 'Update failed');
         }
     };
 
@@ -146,8 +158,8 @@ export default function AdminSystemPage() {
             setSelectedLog(null);
             setActionNote('');
             await loadSecurityLogs();
-        } catch (e: any) {
-            alert(e?.message ?? 'Update failed');
+        } catch (e: unknown) {
+            alert((e as { message?: string })?.message ?? 'Update failed');
         } finally {
             setIsSubmitting(false);
         }
@@ -168,8 +180,8 @@ export default function AdminSystemPage() {
             if (selectedLog?.log_id === log.log_id) {
                 setSelectedLog((s) => (s && s.log_id === log.log_id ? { ...s, ...updated } : s));
             }
-        } catch (e: any) {
-            alert(e?.message ?? 'Failed to analyze');
+        } catch (e: unknown) {
+            alert((e as { message?: string })?.message ?? 'Failed to analyze');
         } finally {
             setAnalyzingLogId(null);
         }

@@ -72,7 +72,9 @@ def export_incidents_csv_task(
 
     logger.info(
         "Export task started: user_id=%s, filters=%s, columns=%s",
-        user_id, filters, valid_cols,
+        user_id,
+        filters,
+        valid_cols,
     )
 
     db = get_session()

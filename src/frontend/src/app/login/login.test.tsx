@@ -19,8 +19,9 @@ vi.mock('@/lib/auth', () => ({
 // Mock Next/Image to prevent warnings
 vi.mock('next/image', () => ({
   __esModule: true,
-  default: (props: any) => {
-    return <img {...props} alt={props.alt} />;
+  default: (props: Record<string, unknown>) => {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img {...props} alt={String(props.alt ?? '')} />;
   },
 }));
 
@@ -44,8 +45,8 @@ describe('Tier 3 Compliance: Auth Guard Consistency', () => {
   it('Adversarial Test 2: Should attempt login via OIDC/PKCE to Keycloak endpoint', async () => {
     const assignSpy = vi.fn();
     const originalLocation = window.location;
-    delete (window as any).location;
-    window.location = { ...originalLocation, assign: assignSpy, href: '' } as any;
+    delete (window as unknown as { location?: Location }).location;
+    window.location = { ...originalLocation, assign: assignSpy, href: '' } as unknown as Location & { assign: typeof assignSpy; href: string };
 
     render(<LoginPage />);
 
@@ -93,8 +94,8 @@ describe('Tier 3 Compliance: Auth Guard Consistency', () => {
   it('Adversarial Test 4: Redirect URL contains PKCE code_challenge and method', async () => {
     const originalLocation = window.location;
     // Mock window.location to intercept redirects
-    delete (window as any).location;
-    window.location = { ...originalLocation, assign: vi.fn(), href: '' } as any;
+    delete (window as unknown as { location?: Location }).location;
+    window.location = { ...originalLocation, assign: vi.fn(), href: '' } as unknown as Location & { assign: ReturnType<typeof vi.fn>; href: string };
 
     render(<LoginPage />);
     
@@ -113,7 +114,7 @@ describe('Tier 3 Compliance: Auth Guard Consistency', () => {
     fireEvent.click(button);
 
     await waitFor(() => {
-        const assignCalls = (window.location.assign as any).mock.calls;
+        const assignCalls = (window.location.assign as unknown as { mock: { calls: unknown[][] } }).mock.calls;
         const hrefSet = window.location.href;
         
         // Either window.location.assign was called or window.location.href was mutated

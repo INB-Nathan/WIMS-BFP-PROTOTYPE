@@ -2,6 +2,16 @@
  * Fetch-based API client for FastAPI backend.
  * Uses credentials: 'include' for cookie-based auth.
  */
+import type {
+  Region,
+  Province,
+  City,
+  Barangay,
+  IncidentListItem,
+  SecurityLog,
+  AuditLogEntry,
+  PaginatedResponse,
+} from '@/types/api';
 import {
   buildRegionalIncidentsQueryString,
   type RegionalIncidentsQueryParams,
@@ -32,7 +42,7 @@ export async function apiFetch<T>(
 }
 
 /** Fetch incidents list - returns [] on error or 404 */
-export async function fetchIncidents(params?: { region_id?: number; category?: string; from?: string; to?: string; type?: string }): Promise<any[]> {
+export async function fetchIncidents(params?: { region_id?: number; category?: string; from?: string; to?: string; type?: string }): Promise<IncidentListItem[]> {
   try {
     const search = new URLSearchParams();
     if (params?.region_id) search.set('region_id', String(params.region_id));
@@ -41,7 +51,7 @@ export async function fetchIncidents(params?: { region_id?: number; category?: s
     if (params?.to) search.set('to', params.to);
     if (params?.type) search.set('type', params.type);
     const qs = search.toString();
-    const data = await apiFetch<{ data?: any[]; items?: any[] } | any[]>(`/incidents${qs ? `?${qs}` : ''}`);
+    const data = await apiFetch<{ data?: IncidentListItem[]; items?: IncidentListItem[] } | IncidentListItem[]>(`/incidents${qs ? `?${qs}` : ''}`);
     return Array.isArray(data) ? data : (data?.data ?? data?.items ?? []);
   } catch {
     return [];
@@ -49,18 +59,19 @@ export async function fetchIncidents(params?: { region_id?: number; category?: s
 }
 
 /** Fetch single incident - returns null on error */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function fetchIncident(id: number): Promise<any | null> {
   try {
-    return await apiFetch<any>(`/incidents/${id}`);
+    return await apiFetch<Record<string, unknown>>(`/incidents/${id}`);
   } catch {
     return null;
   }
 }
 
 /** Fetch reference regions - returns [] on error */
-export async function fetchRegions(): Promise<any[]> {
+export async function fetchRegions(): Promise<Region[]> {
   try {
-    const data = await apiFetch<any[] | { data?: any[] }>('/ref/regions');
+    const data = await apiFetch<Region[] | { data?: Region[] }>('/ref/regions');
     return Array.isArray(data) ? data : (data?.data ?? []);
   } catch {
     return [];
@@ -68,9 +79,9 @@ export async function fetchRegions(): Promise<any[]> {
 }
 
 /** Fetch provinces by region - returns [] on error */
-export async function fetchProvinces(regionId: string | number): Promise<any[]> {
+export async function fetchProvinces(regionId: string | number): Promise<Province[]> {
   try {
-    const data = await apiFetch<any[] | { data?: any[] }>(`/ref/provinces?region_id=${regionId}`);
+    const data = await apiFetch<Province[] | { data?: Province[] }>(`/ref/provinces?region_id=${regionId}`);
     return Array.isArray(data) ? data : (data?.data ?? []);
   } catch {
     return [];
@@ -78,9 +89,9 @@ export async function fetchProvinces(regionId: string | number): Promise<any[]> 
 }
 
 /** Fetch cities by province - returns [] on error */
-export async function fetchCities(provinceId: string | number): Promise<any[]> {
+export async function fetchCities(provinceId: string | number): Promise<City[]> {
   try {
-    const data = await apiFetch<any[] | { data?: any[] }>(`/ref/cities?province_id=${provinceId}`);
+    const data = await apiFetch<City[] | { data?: City[] }>(`/ref/cities?province_id=${provinceId}`);
     return Array.isArray(data) ? data : (data?.data ?? []);
   } catch {
     return [];
@@ -88,10 +99,10 @@ export async function fetchCities(provinceId: string | number): Promise<any[]> {
 }
 
 /** Fetch cities by multiple province IDs - returns [] on error */
-export async function fetchCitiesByProvinces(provinceIds: number[]): Promise<any[]> {
+export async function fetchCitiesByProvinces(provinceIds: number[]): Promise<City[]> {
   if (provinceIds.length === 0) return [];
   try {
-    const data = await apiFetch<any[] | { data?: any[] }>(`/ref/cities?province_ids=${provinceIds.join(',')}`);
+    const data = await apiFetch<City[] | { data?: City[] }>(`/ref/cities?province_ids=${provinceIds.join(',')}`);
     return Array.isArray(data) ? data : (data?.data ?? []);
   } catch {
     return [];
@@ -99,10 +110,10 @@ export async function fetchCitiesByProvinces(provinceIds: number[]): Promise<any
 }
 
 /** Fetch barangays by city IDs - returns [] on error */
-export async function fetchBarangays(cityIds: number[]): Promise<any[]> {
+export async function fetchBarangays(cityIds: number[]): Promise<Barangay[]> {
   if (cityIds.length === 0) return [];
   try {
-    const data = await apiFetch<any[] | { data?: any[] }>(`/ref/barangays?city_ids=${cityIds.join(',')}`);
+    const data = await apiFetch<Barangay[] | { data?: Barangay[] }>(`/ref/barangays?city_ids=${cityIds.join(',')}`);
     return Array.isArray(data) ? data : (data?.data ?? []);
   } catch {
     return [];
@@ -110,9 +121,9 @@ export async function fetchBarangays(cityIds: number[]): Promise<any[]> {
 }
 
 /** Fetch regions filtered by region_id - returns [] on error */
-export async function fetchRegionsByRegionId(regionId: number): Promise<any[]> {
+export async function fetchRegionsByRegionId(regionId: number): Promise<Region[]> {
   try {
-    const data = await apiFetch<any[] | { data?: any[] }>(`/ref/regions?region_id=${regionId}`);
+    const data = await apiFetch<Region[] | { data?: Region[] }>(`/ref/regions?region_id=${regionId}`);
     return Array.isArray(data) ? data : (data?.data ?? []);
   } catch {
     return [];
@@ -120,9 +131,9 @@ export async function fetchRegionsByRegionId(regionId: number): Promise<any[]> {
 }
 
 /** Fetch security threat logs - returns [] on error */
-export async function fetchSecurityLogs(): Promise<any[]> {
+export async function fetchSecurityLogs(): Promise<SecurityLog[]> {
   try {
-    const data = await apiFetch<any[] | { data?: any[] }>('/security-threat-logs');
+    const data = await apiFetch<SecurityLog[] | { data?: SecurityLog[] }>('/security-threat-logs');
     return Array.isArray(data) ? data : (data?.data ?? []);
   } catch {
     return [];
@@ -134,9 +145,10 @@ export async function fetchSecurityLogs(): Promise<any[]> {
 // ---------------------------------------------------------------------------
 
 /** Fetch all users (admin) - returns [] on error */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function fetchAdminUsers(): Promise<any[]> {
   try {
-    const data = await apiFetch<any[] | { data?: any[] }>('/admin/users');
+    const data = await apiFetch<Record<string, unknown>[] | { data?: Record<string, unknown>[] }>('/admin/users');
     return Array.isArray(data) ? data : (data?.data ?? []);
   } catch {
     return [];
@@ -155,9 +167,10 @@ export async function updateAdminUser(
 }
 
 /** Fetch security logs (admin) - ordered by timestamp desc */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function fetchAdminSecurityLogs(): Promise<any[]> {
   try {
-    const data = await apiFetch<any[] | { data?: any[] }>('/admin/security-logs');
+    const data = await apiFetch<Record<string, unknown>[] | { data?: Record<string, unknown>[] }>('/admin/security-logs');
     return Array.isArray(data) ? data : (data?.data ?? []);
   } catch {
     return [];
@@ -189,12 +202,12 @@ export async function updateAdminSecurityLog(
 export async function fetchAuditLogs(params?: {
   limit?: number;
   offset?: number;
-}): Promise<{ items: any[]; total: number; limit: number; offset: number }> {
+}): Promise<PaginatedResponse<AuditLogEntry>> {
   const search = new URLSearchParams();
   if (params?.limit != null) search.set('limit', String(params.limit));
   if (params?.offset != null) search.set('offset', String(params.offset));
   const qs = search.toString();
-  return apiFetch(`/admin/audit-logs${qs ? `?${qs}` : ''}`);
+  return apiFetch<PaginatedResponse<AuditLogEntry>>(`/admin/audit-logs${qs ? `?${qs}` : ''}`);
 }
 
 /** Create incident (geospatial intake) - POST /api/incidents */
@@ -227,7 +240,14 @@ export async function fetchPendingReports(): Promise<{
   status: string;
 }[]> {
   try {
-    const data = await apiFetch<any[]>('/triage/pending');
+    const data = await apiFetch<{
+      report_id: number;
+      latitude: number;
+      longitude: number;
+      description: string;
+      created_at: string | null;
+      status: string;
+    }[]>('/triage/pending');
     return Array.isArray(data) ? data : [];
   } catch {
     return [];
@@ -314,8 +334,9 @@ export async function fetchRegionalIncident(
   return apiFetch<RegionalIncidentDetailResponse>(`/regional/incidents/${incidentId}`);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function fetchRegionalStats(): Promise<any> {
-  return apiFetch('/regional/stats');
+  return apiFetch<Record<string, unknown>>('/regional/stats');
 }
 
 export type AforFormKind = 'STRUCTURAL_AFOR' | 'WILDLAND_AFOR';
@@ -354,7 +375,7 @@ export async function importAforFile(file: File): Promise<AforImportPreviewRespo
 export type WildlandRowSource = 'AFOR_IMPORT' | 'MANUAL';
 
 export async function commitAforImport(
-  rows: any[],
+  rows: Record<string, unknown>[],
   formKind: AforFormKind,
   options?: {
     wildlandRowSource?: WildlandRowSource;

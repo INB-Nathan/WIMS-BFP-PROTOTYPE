@@ -5,13 +5,14 @@ import { useParams, useRouter } from 'next/navigation';
 import { useUserProfile } from '@/lib/auth';
 import { fetchIncident } from '@/lib/api';
 import { edgeFunctions, ConflictDetectionResponse } from '@/lib/edgeFunctions';
-import { Loader2, CheckCircle, XCircle, ShieldAlert } from 'lucide-react';
+import { CheckCircle, XCircle, ShieldAlert } from 'lucide-react';
 
 export default function IncidentDetailPage() {
     const params = useParams();
     const id = parseInt(params.id as string);
     const router = useRouter();
     const { role, loading: authLoading } = useUserProfile();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [incident, setIncident] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [conflictData, setConflictData] = useState<ConflictDetectionResponse | null>(null);
@@ -25,6 +26,7 @@ export default function IncidentDetailPage() {
     }, [id]);
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         if (!isNaN(id)) loadIncident();
     }, [id, loadIncident]);
 
@@ -33,8 +35,8 @@ export default function IncidentDetailPage() {
         try {
             const res = await edgeFunctions.runConflictDetection(id);
             setConflictData(res);
-        } catch (e: any) {
-            alert('Error checking conflicts: ' + e.message);
+        } catch (e: unknown) {
+            alert('Error checking conflicts: ' + (e as Error).message);
         }
         setProcessing(false);
     };
@@ -46,8 +48,8 @@ export default function IncidentDetailPage() {
             await edgeFunctions.commitIncident({ incident_id: id, decision });
             alert(`Incident ${decision}ED successfully!`);
             router.push('/incidents');
-        } catch (e: any) {
-            alert('Error committing incident: ' + e.message);
+        } catch (e: unknown) {
+            alert('Error committing incident: ' + (e as Error).message);
         }
         setProcessing(false);
     };

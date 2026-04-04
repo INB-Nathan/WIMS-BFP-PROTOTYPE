@@ -11,12 +11,12 @@ from .base import Base
 
 
 class UserRole(str, enum.Enum):
-    """CHECK (role IN ('ENCODER', 'VALIDATOR', 'ANALYST', 'ADMIN', 'SYSTEM_ADMIN'))."""
+    """FRS roles — must match users_role_check in the DB schema."""
 
-    ENCODER = "ENCODER"
-    VALIDATOR = "VALIDATOR"
-    ANALYST = "ANALYST"
-    ADMIN = "ADMIN"
+    CIVILIAN_REPORTER = "CIVILIAN_REPORTER"
+    REGIONAL_ENCODER = "REGIONAL_ENCODER"
+    NATIONAL_VALIDATOR = "NATIONAL_VALIDATOR"
+    NATIONAL_ANALYST = "NATIONAL_ANALYST"
     SYSTEM_ADMIN = "SYSTEM_ADMIN"
 
 
@@ -26,7 +26,7 @@ class User(Base):
     __tablename__ = "users"
     __table_args__ = (
         CheckConstraint(
-            "role IN ('ENCODER', 'VALIDATOR', 'ANALYST', 'ADMIN', 'SYSTEM_ADMIN')",
+            "role IN ('CIVILIAN_REPORTER', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST', 'SYSTEM_ADMIN')",
             name="users_role_check",
         ),
         {"schema": "wims"},

@@ -12,7 +12,7 @@ export default function LoginPage() {
 
     useEffect(() => {
         if (!loading && user) {
-            const role = (user as any)?.role;
+            const role = (user as { role?: string })?.role;
             if (role === 'REGIONAL_ENCODER') {
                 router.push('/dashboard/regional');
             } else {

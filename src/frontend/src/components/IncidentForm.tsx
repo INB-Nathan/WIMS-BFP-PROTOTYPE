@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { edgeFunctions, Incident } from '@/lib/edgeFunctions';
 import { queueIncident, getPendingIncidents, markSynced } from '@/lib/offlineStore';
 import { useUserProfile } from '@/lib/auth';
@@ -132,11 +132,12 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
         if (initialData) {
             const ns = initialData.incident_nonsensitive_details || {};
             const sen = initialData.incident_sensitive_details || {};
-            const res = ns.resources_deployed || { trucks: {}, special_assets: {}, medical: {} };
+            const res = (ns.resources_deployed || { trucks: {}, special_assets: {}, medical: {} }) as Record<string, Record<string, unknown>>;
             const timeline = ns.alarm_timeline || {};
-            const casualties = ns.casualty_details || { injured: {}, fatalities: {} };
-            
-            setFormState((prev: any) => ({
+            const casualties = (ns.casualty_details || { injured: {}, fatalities: {} }) as { injured: Record<string, unknown>; fatalities: Record<string, unknown> };
+
+            // @ts-expect-error -- prev spread preserves all fields; type checker cannot verify exhaustive return
+            setFormState((prev) => ({
                 ...prev,
                 responder_type: ns.responder_type || '',
                 fire_station_name: ns.fire_station_name || '',
@@ -216,10 +217,10 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
             }));
 
             if (ns.other_personnel && Array.isArray(ns.other_personnel)) {
-                setOtherPersonnel(ns.other_personnel.map((p: any) => ({
-                    name: p.name || '',
-                    designation: p.designation || '',
-                    remarks: p.remarks || ''
+                setOtherPersonnel(ns.other_personnel.map((p: Record<string, unknown>) => ({
+                    name: (p.name as string) || '',
+                    designation: (p.designation as string) || '',
+                    remarks: (p.remarks as string) || ''
                 })));
             }
         }
@@ -227,18 +228,10 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
 
     const handleOtherPersonnelChange = (index: number, field: string, value: string) => {
         const newPersonnel = [...otherPersonnel];
-        // @ts-ignore
+        // @ts-expect-error -- dynamic field assignment on typed array element
         newPersonnel[index][field] = value;
         setOtherPersonnel(newPersonnel);
     };
-
-    // Check pending
-    useEffect(() => {
-        checkPending();
-        const handleOnline = () => syncPending();
-        window.addEventListener('online', handleOnline);
-        return () => window.removeEventListener('online', handleOnline);
-    }, []);
 
     const fileToBase64 = (file: File): Promise<string> => {
         return new Promise((resolve, reject) => {
@@ -260,35 +253,44 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
         return new Blob([ab], { type: mimeString });
     };
 
-    const checkPending = async () => {
+    const checkPending = useCallback(async () => {
         const pending = await getPendingIncidents();
         setPendingCount(pending.length);
-    };
+    }, []);
 
-    const syncPending = async () => {
+    const syncPending = useCallback(async () => {
         if (!navigator.onLine) return;
         const pending = await getPendingIncidents();
         if (pending.length === 0) return;
         console.log('Syncing pending...', pending.length);
         for (const item of pending) {
             try {
-                const res = await edgeFunctions.uploadBundle(item.payload);
+                const payload = item.payload as { region_id: number; incidents: Incident[] };
+                const res = await edgeFunctions.uploadBundle(payload);
                 const incidentId = res.incident_ids[0];
-                
+
                 // If there's a stored sketch, upload it now
-                const firstIncident = item.payload.incidents[0];
+                const firstIncident = payload.incidents[0];
                 if (firstIncident?.incident_sensitive_details?.sketch_base64) {
                     const blob = base64ToBlob(firstIncident.incident_sensitive_details.sketch_base64);
                     await edgeFunctions.uploadAttachment(incidentId, blob);
                 }
-                
+
                 await markSynced(item.id!);
             } catch (e) {
                 console.error('Failed to sync item', item.id, e);
             }
         }
         await checkPending();
-    };
+    }, [checkPending]);
+
+    // Check pending - online sync listener (declared after callbacks to avoid TDZ)
+    useEffect(() => {
+        checkPending();
+        const handleOnline = () => syncPending();
+        window.addEventListener('online', handleOnline);
+        return () => window.removeEventListener('online', handleOnline);
+    }, [syncPending, checkPending]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
@@ -388,6 +390,7 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
 
                     recommendations: formState.recommendations,
                     problems_encountered: formState.problems_encountered ? [...(formState.problems_encountered || []), formState.problems_others].filter(Boolean) : [],
+                    other_personnel: otherPersonnel,
                 },
                 incident_sensitive_details: {
                     caller_name: formState.caller_name,
@@ -415,8 +418,6 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                         safety_officer: { name: formState.pod_safety_officer, contact: formState.pod_safety_officer_contact },
                         investigator: { name: formState.pod_inv_name, contact: formState.pod_inv_contact }
                     },
-
-                    other_personnel: otherPersonnel,
 
                     casualty_details: {
                         injured: {
@@ -466,9 +467,9 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                 await checkPending();
                 alert('Offline: Incident and sketch queued for sync.');
             }
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error('Submission failed', err);
-            alert(`Error: ${err.message}`);
+            alert(`Error: ${(err as Error).message}`);
         } finally {
             setLoading(false);
         }
@@ -585,7 +586,7 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                             {['Structures', 'Households', 'Families', 'Individuals', 'Vehicles'].map(item => (
                                 <div key={item}>
                                     <label className="block text-xs font-bold text-gray-900 mb-1">{item} Affected</label>
-                                    <input type="number" name={`${item.toLowerCase()}_affected`} className="w-full border border-gray-300 rounded p-2 text-gray-900 font-medium" value={(formState as any)[`${item.toLowerCase()}_affected`]} onChange={handleChange} />
+                                    <input type="number" name={`${item.toLowerCase()}_affected`} className="w-full border border-gray-300 rounded p-2 text-gray-900 font-medium" value={(formState as Record<string, unknown>)[`${item.toLowerCase()}_affected`] as string ?? ''} onChange={handleChange} />
                                 </div>
                             ))}
                         </div>
@@ -600,7 +601,7 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                         {['resources_bfp_trucks', 'resources_lgu_trucks', 'resources_bfp_ambulance'].map(f => (
                             <div key={f}>
                                 <label className="block text-xs font-bold text-gray-600 mb-1">{f.replace('resources_', '').replace(/_/g, ' ').toUpperCase()}</label>
-                                <input type="number" name={f} className="w-full border border-gray-300 rounded p-2 text-gray-900 font-medium" value={(formState as any)[f]} onChange={handleChange} />
+                                <input type="number" name={f} className="w-full border border-gray-300 rounded p-2 text-gray-900 font-medium" value={(formState as Record<string, unknown>)[f] as string ?? ''} onChange={handleChange} />
                             </div>
                         ))}
                     </div>
@@ -613,7 +614,7 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                         {['alarm_1st', 'alarm_2nd', 'alarm_3rd', 'alarm_general', 'alarm_fuc', 'alarm_fo'].map(f => (
                             <div key={f}>
                                 <label className="block text-xs font-bold text-gray-600 mb-1">{f.replace('alarm_', '').toUpperCase()}</label>
-                                <input type="datetime-local" name={f} className="w-full border border-gray-300 rounded p-2 text-gray-900 font-medium text-xs" value={(formState as any)[f]} onChange={handleChange} />
+                                <input type="datetime-local" name={f} className="w-full border border-gray-300 rounded p-2 text-gray-900 font-medium text-xs" value={(formState as Record<string, unknown>)[f] as string ?? ''} onChange={handleChange} />
                             </div>
                         ))}
                     </div>
@@ -634,8 +635,8 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                             {['injured_civilian', 'injured_firefighter', 'fatal_civilian', 'fatal_firefighter'].map(cat => (
                                 <tr key={cat}>
                                     <td className="border px-2 py-1 font-bold">{cat.replace(/_/g, ' ').toUpperCase()}</td>
-                                    <td className="border px-1 py-1"><input type="number" name={`${cat}_m`} className="w-full border rounded p-1" value={(formState as any)[`${cat}_m`]} onChange={handleChange} /></td>
-                                    <td className="border px-1 py-1"><input type="number" name={`${cat}_f`} className="w-full border rounded p-1" value={(formState as any)[`${cat}_f`]} onChange={handleChange} /></td>
+                                    <td className="border px-1 py-1"><input type="number" name={`${cat}_m`} className="w-full border rounded p-1" value={(formState as Record<string, unknown>)[`${cat}_m`] as string ?? ''} onChange={handleChange} /></td>
+                                    <td className="border px-1 py-1"><input type="number" name={`${cat}_f`} className="w-full border rounded p-1" value={(formState as Record<string, unknown>)[`${cat}_f`] as string ?? ''} onChange={handleChange} /></td>
                                 </tr>
                             ))}
                         </tbody>
@@ -679,6 +680,7 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                     <div className="border-2 border-dashed border-gray-300 rounded p-4 text-center bg-gray-50">
                         {sketchPreview ? (
                             <div className="relative group mx-auto w-full max-w-md">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img src={sketchPreview} alt="Sketch Preview" className="mx-auto h-48 object-contain rounded shadow" />
                                 <button type="button" onClick={() => { setSketchFile(null); setSketchPreview(null); }} className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
                                     <Loader2 className="w-4 h-4" /> {/* Fallback icon or just use 'x' */}
@@ -725,7 +727,6 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                                         const current = formState.problems_encountered || [];
                                         const updated = e.target.checked ? [...current, prob] : current.filter((p: string) => p !== prob);
-                                        // @ts-ignore
                                         setFormState(prev => ({ ...prev, problems_encountered: updated }));
                                     }} />
                                 <span>{prob}</span>

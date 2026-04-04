@@ -31,13 +31,12 @@ COMPARATIVE_PARAMS = {
 
 # Roles that must never receive analytics data (defense-in-depth matrix).
 FORBIDDEN_ANALYTICS_ROLES = (
+    "CIVILIAN_REPORTER",
     "REGIONAL_ENCODER",
-    "ENCODER",
-    "VALIDATOR",
-    "ADMIN",  # legacy; distinct from SYSTEM_ADMIN
+    "NATIONAL_VALIDATOR",
 )
 
-PRIVILEGED_ANALYTICS_ROLES = ("NATIONAL_ANALYST", "ANALYST", "SYSTEM_ADMIN")
+PRIVILEGED_ANALYTICS_ROLES = ("NATIONAL_ANALYST", "SYSTEM_ADMIN")
 
 
 @pytest.fixture
@@ -312,7 +311,9 @@ def test_comparative_count_in_range_receives_bound_range_strings(client: TestCli
 
 def test_export_csv_rejects_forbidden_role_even_with_valid_payload(client: TestClient):
     """POST body must not bypass RBAC — encoder cannot export national analytics."""
-    app.dependency_overrides[auth.get_current_wims_user] = _mock_user("ENCODER")
+    app.dependency_overrides[auth.get_current_wims_user] = _mock_user(
+        "REGIONAL_ENCODER"
+    )
 
     response = client.post(
         "/api/analytics/export/csv",

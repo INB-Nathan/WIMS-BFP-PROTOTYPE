@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { fetchRegions, fetchProvinces, fetchCities } from '@/lib/api';
+import type { Region, Province, City } from '@/types/api';
 import { edgeFunctions, AnalyticsSummaryResponse } from '@/lib/edgeFunctions';
 import { RefreshCw, Download, HelpCircle, X, Info, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Flame, Building2, TreePine, Car, Clock } from 'lucide-react';
 import Link from 'next/link';
@@ -62,15 +63,36 @@ export default function DashboardPage() {
     const [selectedType, setSelectedType] = useState('');
 
     // Reference Data
-    const [regions, setRegions] = useState<any[]>([]);
-    const [provinces, setProvinces] = useState<any[]>([]);
-    const [cities, setCities] = useState<any[]>([]);
+    const [regions, setRegions] = useState<Region[]>([]);
+    const [provinces, setProvinces] = useState<Province[]>([]);
+    const [cities, setCities] = useState<City[]>([]);
 
     // Accordion state
     const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
     const [subcategoryPage, setSubcategoryPage] = useState(1);
 
-    const authorizedForAnalytics = role === 'ADMIN' || role === 'SYSTEM_ADMIN' || ((role === 'ENCODER' || role === 'VALIDATOR') && !assignedRegionId);
+    const authorizedForAnalytics = role === 'NATIONAL_ANALYST' || role === 'SYSTEM_ADMIN' || ((role === 'REGIONAL_ENCODER' || role === 'NATIONAL_VALIDATOR') && !assignedRegionId);
+
+    const fetchAnalytics = useCallback(async () => {
+        if (!authorizedForAnalytics) return;
+        setIsRefreshing(true);
+        try {
+            const filters: Record<string, string | number> = {};
+            if (fromDate) filters.from_date = fromDate;
+            if (toDate) filters.to_date = toDate;
+            if (selectedRegion) filters.region_id = parseInt(selectedRegion);
+            if (selectedProvince) filters.province_id = parseInt(selectedProvince);
+            if (selectedCity) filters.city_id = parseInt(selectedCity);
+            const data = await edgeFunctions.getAnalyticsSummary(filters);
+            setAnalytics(data);
+            setFilterFeedback(data?.total_incidents === 0 ? "No incidents found matching these filters." : null);
+        } catch (e) {
+            console.error("Failed to fetch analytics", e);
+            setFilterFeedback("Error loading data. Please try again.");
+        } finally {
+            setIsRefreshing(false);
+        }
+    }, [authorizedForAnalytics, fromDate, toDate, selectedRegion, selectedProvince, selectedCity]);
 
     useEffect(() => { fetchRegions().then(setRegions); }, []);
 
@@ -87,8 +109,10 @@ export default function DashboardPage() {
     }, [selectedProvince]);
 
     useEffect(() => {
-        if (role && authorizedForAnalytics) fetchAnalytics();
-    }, [role, authorizedForAnalytics]);
+        // eslint-disable react-hooks/set-state-in-effect
+        if (role && authorizedForAnalytics)
+            fetchAnalytics();
+    }, [role, authorizedForAnalytics, fetchAnalytics]);
 
     useEffect(() => {
         if (assignedRegionId) setSelectedRegion(assignedRegionId.toString());
@@ -100,27 +124,6 @@ export default function DashboardPage() {
 
     if (!loading && role === 'NATIONAL_ANALYST') {
         return <div className="flex items-center justify-center min-h-[40vh] text-gray-500">Redirecting to Analyst Dashboard...</div>;
-    }
-
-    async function fetchAnalytics() {
-        if (!authorizedForAnalytics) return;
-        setIsRefreshing(true);
-        try {
-            const filters: any = {};
-            if (fromDate) filters.from_date = fromDate;
-            if (toDate) filters.to_date = toDate;
-            if (selectedRegion) filters.region_id = parseInt(selectedRegion);
-            if (selectedProvince) filters.province_id = parseInt(selectedProvince);
-            if (selectedCity) filters.city_id = parseInt(selectedCity);
-            const data = await edgeFunctions.getAnalyticsSummary(filters);
-            setAnalytics(data);
-            setFilterFeedback(data?.total_incidents === 0 ? "No incidents found matching these filters." : null);
-        } catch (e) {
-            console.error("Failed to fetch analytics", e);
-            setFilterFeedback("Error loading data. Please try again.");
-        } finally {
-            setIsRefreshing(false);
-        }
     }
 
     const handleApplyFilters = () => {
@@ -418,7 +421,7 @@ export default function DashboardPage() {
                             </button>
                         </div>
                         <div className="card-body space-y-3 text-sm" style={{ color: 'var(--text-primary)' }}>
-                            <p><strong>Filters:</strong> Use the filter bar to narrow data by Date Range, Region, or Type. Click 'Apply' to update.</p>
+                            <p><strong>Filters:</strong> Use the filter bar to narrow data by Date Range, Region, or Type. Click &apos;Apply&apos; to update.</p>
                             <p><strong>Drill-down:</strong> Click on category summary cards to expand subcategory details with pagination.</p>
                             <p><strong>Export:</strong> Downloads a CSV file of the current summary view.</p>
                         </div>

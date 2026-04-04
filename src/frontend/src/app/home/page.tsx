@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useUserProfile } from '@/lib/auth';
 import { fetchIncidents } from '@/lib/api';
 import Link from 'next/link';
@@ -21,26 +21,27 @@ interface IncidentSummary {
 }
 
 export default function HomePage() {
-    const { role, assignedRegionId, loading: authLoading } = useUserProfile();
+    const { assignedRegionId, loading: authLoading } = useUserProfile();
     const [incidents, setIncidents] = useState<IncidentSummary[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
 
-    useEffect(() => {
-        if (!authLoading) loadIncidents();
-    }, [authLoading, assignedRegionId]);
-
-    const loadIncidents = async () => {
+    const loadIncidents = useCallback(async () => {
         setLoading(true);
         try {
             const data = await fetchIncidents({ region_id: assignedRegionId ?? undefined });
-            setIncidents((data as IncidentSummary[]) || []);
+            setIncidents((data as unknown as IncidentSummary[]) || []);
         } catch (err) {
             console.error("Error fetching home incidents", err);
         } finally {
             setLoading(false);
         }
-    };
+    }, [assignedRegionId]);
+
+    useEffect(() => {
+        // eslint-disable react-hooks/set-state-in-effect
+        if (!authLoading) loadIncidents();
+    }, [authLoading, assignedRegionId, loadIncidents]);
 
     const nonsensitive = (i: IncidentSummary) => i.incident_nonsensitive_details;
     const ongoingIncidents = incidents.filter(i =>
@@ -48,14 +49,14 @@ export default function HomePage() {
         (i.verification_status === 'VERIFIED' && new Date(nonsensitive(i).notification_dt).getTime() > Date.now() - 24 * 60 * 60 * 1000)
     ).filter(i =>
         nonsensitive(i).barangay?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (nonsensitive(i) as any).specific_type?.toLowerCase().includes(searchTerm.toLowerCase())
+        nonsensitive(i).specific_type?.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     const fireOutIncidents = incidents.filter(i =>
         i.verification_status === 'VERIFIED' || i.verification_status === 'REJECTED'
     ).filter(i =>
         nonsensitive(i).barangay?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (nonsensitive(i) as any).specific_type?.toLowerCase().includes(searchTerm.toLowerCase())
+        nonsensitive(i).specific_type?.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     if (authLoading) return <div className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>Loading Operations Center...</div>;

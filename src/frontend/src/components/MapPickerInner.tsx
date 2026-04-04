@@ -43,9 +43,8 @@ export function MapPickerInner({
 }: MapPickerInnerProps) {
     const [position, setPosition] = useState<{ lat: number; lng: number } | null>(value ?? null);
 
-    useEffect(() => {
-        setPosition(value ?? null);
-    }, [value]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    useEffect(() => { setPosition(value ?? null); }, [value]);
 
     const handleChange = useCallback(
         (lat: number, lng: number) => {

@@ -48,7 +48,7 @@ def mock_user_and_override(client):
             conn.execute(
                 text("""
                     INSERT INTO wims.users (user_id, keycloak_id, username, role)
-                    VALUES (:uid, :kid, :username, 'ENCODER')
+                    VALUES (:uid, :kid, :username, 'REGIONAL_ENCODER')
                 """),
                 {"uid": user_id, "kid": keycloak_id, "username": username},
             )

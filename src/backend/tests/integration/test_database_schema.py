@@ -74,7 +74,7 @@ class TestAuthConstraint:
                 conn.execute(
                     text("""
                         INSERT INTO wims.users (user_id, keycloak_id, username, role)
-                        VALUES (:uid, NULL, 'null_kc_user', 'ENCODER')
+                        VALUES (:uid, NULL, 'null_kc_user', 'REGIONAL_ENCODER')
                     """),
                     {"uid": str(uuid.uuid4())},
                 )
@@ -89,7 +89,7 @@ class TestAuthConstraint:
                 conn.execute(
                     text("""
                         INSERT INTO wims.users (user_id, username, role)
-                        VALUES (:uid, 'missing_kc_user', 'ENCODER')
+                        VALUES (:uid, 'missing_kc_user', 'REGIONAL_ENCODER')
                     """),
                     {"uid": str(uuid.uuid4())},
                 )

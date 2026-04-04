@@ -14,7 +14,6 @@ import {
     ShieldAlert,
     Users,
     Settings,
-    ChevronLeft,
     X,
 } from 'lucide-react';
 

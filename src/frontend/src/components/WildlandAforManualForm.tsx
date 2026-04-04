@@ -182,7 +182,7 @@ function wildlandFromInitial(wl: Record<string, unknown> | null | undefined): Wi
     const alarms = wl.wildland_alarm_statuses;
     const alarmRows: WildlandAlarmRow[] =
         Array.isArray(alarms) && alarms.length > 0
-            ? alarms.map((a: any) => ({
+            ? alarms.map((a: Record<string, unknown>) => ({
                   alarm_status: String(a?.alarm_status ?? ''),
                   time_declared: String(a?.time_declared ?? ''),
                   ground_commander: String(a?.ground_commander ?? ''),
@@ -192,7 +192,7 @@ function wildlandFromInitial(wl: Record<string, unknown> | null | undefined): Wi
     const assists = wl.wildland_assistance_rows;
     const assistRows: WildlandAssistRow[] =
         Array.isArray(assists) && assists.length > 0
-            ? assists.map((a: any) => ({
+            ? assists.map((a: Record<string, unknown>) => ({
                   organization_or_unit: String(a?.organization_or_unit ?? a?.organization ?? ''),
                   detail: String(a?.detail ?? ''),
               }))

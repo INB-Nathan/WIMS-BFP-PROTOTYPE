@@ -131,7 +131,6 @@ describe('Audit 4 — Resilience: var() fallback enforcement (globals.css)', () 
     // Match all var(...) calls. We need to handle nested var() too.
     // var(--name)          → NO fallback (FAIL)
     // var(--name, value)   → HAS fallback (PASS)
-    const VAR_REGEX = /var\(([^)]+)\)/g;
     const violations: { expression: string; line: number }[] = [];
 
     const lines = css.split('\n');

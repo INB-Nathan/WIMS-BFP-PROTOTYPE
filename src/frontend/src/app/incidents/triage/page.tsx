@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { useUserProfile } from '@/lib/auth';
 import { fetchPendingReports, promoteReport } from '@/lib/api';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Loader2, MapPin, Clock, FileText, CheckCircle, ClipboardList } from 'lucide-react';
 

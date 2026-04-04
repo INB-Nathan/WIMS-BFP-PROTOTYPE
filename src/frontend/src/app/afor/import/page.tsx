@@ -63,8 +63,8 @@ export default function AforImportPage() {
             setPreviewData(data);
             setCommitLatStr('');
             setCommitLngStr('');
-        } catch (err: any) {
-            setError(err.message || 'Failed to upload and parse the file.');
+        } catch (err: unknown) {
+            setError((err as { message?: string }).message || 'Failed to upload and parse the file.');
         } finally {
             setIsUploading(false);
         }
@@ -97,8 +97,8 @@ export default function AforImportPage() {
             if (res.status === 'ok') {
                 router.push('/dashboard/regional');
             }
-        } catch (err: any) {
-            setError(err.message || 'Failed to commit the imported data.');
+        } catch (err: unknown) {
+            setError((err as { message?: string }).message || 'Failed to commit the imported data.');
             setIsCommitting(false);
         }
     };

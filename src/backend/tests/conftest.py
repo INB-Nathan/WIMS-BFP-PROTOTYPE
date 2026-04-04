@@ -1,6 +1,9 @@
 import os
-
 import pytest
+
+from dotenv import load_dotenv
+
+load_dotenv()  # Load .env for local test runs against Docker containers
 
 try:
     import pytest_asyncio

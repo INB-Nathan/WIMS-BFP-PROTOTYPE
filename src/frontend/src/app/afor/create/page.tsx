@@ -9,11 +9,13 @@ import type { AforFormKind } from '@/lib/api';
 export default function AforCreatePage() {
     const { role } = useUserProfile();
     const router = useRouter();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [initialData, setInitialData] = useState<any | null>(null);
     /** Structural vs wildland when not fixed by import handoff */
     const [formKind, setFormKind] = useState<AforFormKind>('STRUCTURAL_AFOR');
 
     useEffect(() => {
+        /* eslint-disable react-hooks/set-state-in-effect */
         if (role && role !== 'REGIONAL_ENCODER' && role !== 'SYSTEM_ADMIN') {
             router.push('/dashboard');
         }

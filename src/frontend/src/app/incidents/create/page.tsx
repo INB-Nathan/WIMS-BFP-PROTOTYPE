@@ -2,7 +2,6 @@
 
 import { IncidentForm } from '@/components/IncidentForm';
 import { useUserProfile } from '@/lib/auth';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { FileText } from 'lucide-react';

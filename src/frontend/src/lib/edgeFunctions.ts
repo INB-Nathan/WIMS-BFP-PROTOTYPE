@@ -51,12 +51,12 @@ export interface Incident {
         time_returned_to_base?: string;
         extent_total_floor_area_sqm?: number;
         extent_total_land_area_hectares?: number;
-        resources_deployed?: any;
-        alarm_timeline?: any;
-        casualty_details?: any;
+        resources_deployed?: Record<string, unknown>;
+        alarm_timeline?: Record<string, unknown>;
+        casualty_details?: Record<string, unknown>;
         problems_encountered?: string[];
         recommendations?: string;
-        other_personnel?: any[];
+        other_personnel?: Array<{ name: string; designation: string; remarks: string }>;
     };
     incident_sensitive_details: {
         occupancy?: string;
@@ -70,9 +70,9 @@ export interface Incident {
         occupant_name?: string;
         icp_location?: string;
         is_icp_present?: boolean;
-        personnel_on_duty?: any;
-        other_personnel?: any;
-        casualty_details?: any;
+        personnel_on_duty?: Record<string, unknown>;
+        other_personnel?: Record<string, unknown>;
+        casualty_details?: Record<string, unknown>;
         narrative_report?: string;
         sketch_of_fire_scene?: string;
         disposition?: string;

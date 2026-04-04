@@ -21,13 +21,11 @@ router = APIRouter(tags=["admin"])
 # ---------------------------------------------------------------------------
 
 VALID_ROLES = (
-    "ENCODER",
-    "VALIDATOR",
-    "ANALYST",
-    "NATIONAL_ANALYST",
-    "ADMIN",
-    "SYSTEM_ADMIN",
+    "CIVILIAN_REPORTER",
     "REGIONAL_ENCODER",
+    "NATIONAL_VALIDATOR",
+    "NATIONAL_ANALYST",
+    "SYSTEM_ADMIN",
 )
 
 

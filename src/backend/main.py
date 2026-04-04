@@ -33,13 +33,11 @@ from api.routes.public_dmz import router as public_dmz_router
 
 # WIMS roles in precedence order (highest first). Used when resolving from Keycloak JWT.
 WIMS_ROLES_FROM_KEYCLOAK = (
-    "SYSTEM_ADMIN",
-    "NATIONAL_ANALYST",
-    "ANALYST",  # legacy alias -> maps to NATIONAL_ANALYST
+    "CIVILIAN_REPORTER",
     "REGIONAL_ENCODER",
-    "VALIDATOR",
-    "ADMIN",
-    "ENCODER",
+    "NATIONAL_VALIDATOR",
+    "NATIONAL_ANALYST",
+    "SYSTEM_ADMIN",
 )
 
 
@@ -58,8 +56,8 @@ def _resolve_role_from_token(payload: dict) -> str:
                 roles.extend(client_data["roles"])
     for wims_role in WIMS_ROLES_FROM_KEYCLOAK:
         if wims_role in roles:
-            return "NATIONAL_ANALYST" if wims_role == "ANALYST" else wims_role
-    return "ENCODER"
+            return wims_role
+    return "REGIONAL_ENCODER"
 
 
 # ---------------------------------------------------------------------------

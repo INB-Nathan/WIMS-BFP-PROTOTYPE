@@ -5,7 +5,7 @@ const STORE_NAME = 'incident-queue';
 
 interface PendingIncident {
     id?: number;
-    payload: any;
+    payload: Record<string, unknown>;
     createdAt: number;
     status: 'pending' | 'synced';
 }
@@ -20,7 +20,7 @@ async function getDB(): Promise<IDBPDatabase> {
     });
 }
 
-export async function queueIncident(payload: any) {
+export async function queueIncident(payload: Record<string, unknown>) {
     const db = await getDB();
     await db.add(STORE_NAME, {
         payload,

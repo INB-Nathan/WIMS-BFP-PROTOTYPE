@@ -1,7 +1,6 @@
 'use client';
 
 import { ReactNode, useEffect, useState } from 'react';
-import { NetworkStatusIndicator } from './NetworkStatusIndicator';
 import { useAuth } from '@/context/AuthContext';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
@@ -34,6 +33,7 @@ export function LayoutShell({ children }: { children: ReactNode }) {
 
     // Close sidebar on route change (mobile)
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setSidebarOpen(false);
     }, [pathname]);
 

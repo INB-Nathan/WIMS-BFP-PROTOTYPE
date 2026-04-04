@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { LogOut, Menu, Bell } from 'lucide-react';
+import { LogOut, Menu } from 'lucide-react';
 import { NetworkStatusIndicator } from './NetworkStatusIndicator';
 
 interface HeaderProps {

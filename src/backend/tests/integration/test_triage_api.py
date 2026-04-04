@@ -47,7 +47,7 @@ def encoder_user(db_session: Session):
     result = db_session.execute(
         text("""
             INSERT INTO wims.users (keycloak_id, username, role)
-            VALUES (:kid, :username, 'ENCODER')
+            VALUES (:kid, :username, 'REGIONAL_ENCODER')
             RETURNING user_id
         """),
         {"kid": keycloak_id, "username": username},
@@ -65,7 +65,7 @@ def mock_encoder(encoder_user):
         return {
             "user_id": encoder_user,
             "keycloak_id": str(uuid.uuid4()),
-            "role": "ENCODER",
+            "role": "REGIONAL_ENCODER",
         }
 
     return _mock
