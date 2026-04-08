@@ -52,8 +52,9 @@ async def upload_attachment(
             while content := await file.read(1024 * 1024):  # Read in chunks
                 sha256_hash.update(content)
                 buffer.write(content)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
+    except Exception:
+        logger.exception("Failed to save uploaded file")
+        raise HTTPException(status_code=500, detail="Failed to save uploaded file")
 
     # 3. Record in DB
     try:
@@ -75,11 +76,12 @@ async def upload_attachment(
             },
         )
         db.commit()
-    except Exception as e:
+    except Exception:
         db.rollback()
         if os.path.exists(storage_path):
             os.remove(storage_path)
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        logger.exception("Database error during attachment upload")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
     return {
         "status": "ok",
