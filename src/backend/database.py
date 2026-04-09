@@ -12,28 +12,26 @@ from sqlalchemy.orm import sessionmaker, Session
 
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 SQLALCHEMY_DATABASE_URL = os.environ.get(
     "SQLALCHEMY_DATABASE_URL",
     os.environ.get("DATABASE_URL", "postgresql://postgres:***@postgres:5432/wims"),
 )
 
-_engine: Engine | None = None
-_SessionLocal: sessionmaker | None = None
+_engine: Engine = create_engine(SQLALCHEMY_DATABASE_URL)
+_SessionLocal: sessionmaker = sessionmaker(
+    autocommit=False, autoflush=False, bind=_engine
+)
 
 
 def get_engine() -> Engine:
-    global _engine
-    if _engine is None:
-        _engine = create_engine(SQLALCHEMY_DATABASE_URL)
     return _engine
 
 
 def get_session_maker() -> sessionmaker:
-    global _SessionLocal
-    if _SessionLocal is None:
-        _SessionLocal = sessionmaker(
-            autocommit=False, autoflush=False, bind=get_engine()
-        )
     return _SessionLocal
 
 
@@ -51,31 +49,47 @@ def set_rls_context(session: Session, user_id: uuid.UUID) -> None:
     )
 
 
-def get_db(request: Request):
+def get_db():
     """
-    FastAPI dependency that yields a SQLAlchemy session with RLS context set.
+    FastAPI dependency that yields a bare SQLAlchemy session.
+    RLS context is NOT set here — use get_db_with_rls() or set_rls_context()
+    after user resolution.
 
-    Usage:
-        async def my_route(db: Annotated[Session, Depends(get_db)]):
-            ...
-
-    FastAPI automatically injects Request when it is declared as a dependency
-    parameter.  RLS context is set via SET LOCAL wims.current_user_id using
-    the user_id stored in request.state by get_current_wims_user().
-    SET LOCAL is transaction-scoped so it is automatically undone when the
-    session transaction ends.
+    This avoids the dependency cycle where get_current_wims_user depends on
+    get_db, but get_db needs the user resolved first to set RLS context.
     """
     _SessionLocal = get_session_maker()
     db = _SessionLocal()
     try:
-        # If a valid user was resolved by get_current_wims_user and attached
-        # to request.state, push the user_id into the session's transaction.
+        yield db
+    finally:
+        db.close()
+
+
+def get_db_with_rls(request: Request):
+    """
+    FastAPI dependency that yields a SQLAlchemy session with RLS context set.
+    Use this ONLY in routes where get_current_wims_user has already been called
+    as a dependency (so request.state.wims_user is populated).
+
+    Usage:
+        async def my_route(
+            user: Annotated[dict, Depends(get_current_wims_user)],
+            db: Annotated[Session, Depends(get_db_with_rls)],
+        ):
+            ...
+
+    Note: get_current_wims_user must be listed BEFORE get_db_with_rls in the
+    dependency list, OR FastAPI must resolve it first via dependency ordering.
+    """
+    _SessionLocal = get_session_maker()
+    db = _SessionLocal()
+    try:
         wims_user = getattr(request.state, "wims_user", None)
         if wims_user is not None:
             user_id = wims_user.get("user_id")
             if user_id is not None:
                 set_rls_context(db, user_id)
-
         yield db
     finally:
         db.close()
