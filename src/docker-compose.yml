@@ -156,7 +156,7 @@ services:
       - NEXT_PUBLIC_OIDC_AUTHORITY=http://localhost:8080/auth/realms/bfp
       - NEXT_PUBLIC_OIDC_CLIENT_ID=wims-web
       - NEXT_PUBLIC_APP_URL=http://localhost
-      - BACKEND_URL=http://backend:8000
+      - BACKEND_URL=http://nginx-gateway:80
     networks:
       - wims_internal
     depends_on:
