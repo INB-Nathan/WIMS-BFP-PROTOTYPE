@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 const BACKEND_URL =
   process.env.BACKEND_URL ||
   process.env.API_SERVER_URL ||
-  'http://backend:8000';
+  (process.env.NEXT_PUBLIC_BASE_URL?.replace(/:\d+$/, '') + '/api');
 
 export async function POST(req: NextRequest) {
   try {

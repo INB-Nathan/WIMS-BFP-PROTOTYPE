@@ -10,7 +10,14 @@ function CallbackContent() {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
+        // Guard against React 18 StrictMode double-invocation of effects.
+        // signinCallback() must only run once per callback URL, or the second
+        // invocation fails with "No matching state" (state already consumed).
+        let didRun = false;
+
         const run = async () => {
+            if (didRun) return;
+            didRun = true;
             try {
                 const userManager = createUserManager();
                 const user = await userManager.signinCallback();
