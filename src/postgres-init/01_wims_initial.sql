@@ -1375,6 +1375,9 @@ USING (
 );
 
 -- 7) Security/audit tables
+-- RLS: SELECT allowed for SYSTEM_ADMIN + NATIONAL_ANALYST (threat correlation)
+--      INSERT/UPDATE/DELETE allowed for SYSTEM_ADMIN + NATIONAL_ANALYST (svc_suricata INGESTS here)
+-- Note: svc_suricata account has role=NATIONAL_ANALYST and needs INSERT for eve.json ingestion.
 CREATE POLICY security_logs_admin_only
 ON wims.security_threat_logs
 FOR ALL

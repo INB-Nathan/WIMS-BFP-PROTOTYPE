@@ -95,12 +95,17 @@ def test_auth_callback_idempotent_same_user_twice(unique_identity, cleanup_test_
         )
     )
 
-    # Mock JWT validation to return our payload
+    # Mock JWT validation to return our payload with a valid FRS role.
+    # Tokens without a recognized WIMS role are now rejected (strict FRS enforcement).
     with patch.object(
         main_module.auth.authenticator,
         "validate_token",
         new_callable=AsyncMock,
-        return_value={"sub": sub, "preferred_username": username},
+        return_value={
+            "sub": sub,
+            "preferred_username": username,
+            "realm_access": {"roles": ["REGIONAL_ENCODER"]},
+        },
     ):
         client = TestClient(main_module.app)
 

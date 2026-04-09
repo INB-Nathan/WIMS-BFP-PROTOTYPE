@@ -1,2 +1,4 @@
--- Thin re-include of canonical DDL (idempotent). \ir resolves next to this file.
-\ir 01_wims_initial.sql
+-- Schema v2 migration placeholder.
+-- Canonical DDL is in 01_wims_initial.sql (idempotent).
+-- This file exists for future incremental migrations.
+-- On first init, 01_wims_initial.sql already creates everything.

@@ -21,7 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from auth import get_regional_encoder
-from database import get_db
+from database import get_db, get_db_with_rls
 from services.analytics_read_model import sync_incidents_batch
 from utils.crypto import SecurityProvider, SecurityProviderError
 
@@ -1068,7 +1068,7 @@ def parse_xlsx_content(
 async def import_afor_file(
     file: UploadFile = File(...),
     user: dict = Depends(get_regional_encoder),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_with_rls),
 ):
     """
     Upload and parse an AFOR file (.xlsx or .csv).
@@ -1097,10 +1097,10 @@ async def import_afor_file(
             rows, form_kind = parse_xlsx_content(content, region_id)
     except ValueError as e:
         logger.warning("AFOR type detection failed: %s", e)
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Failed to parse AFOR file: {e}")
-        raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)}")
+        raise HTTPException(status_code=400, detail="Unrecognized AFOR file format")
+    except Exception:
+        logger.exception("Failed to parse AFOR file")
+        raise HTTPException(status_code=400, detail="Failed to parse file")
 
     if len(rows) == 0:
         raise HTTPException(status_code=400, detail="No data rows found in file")
@@ -1317,7 +1317,7 @@ def _commit_wildland_afor_row(
 async def commit_afor_import(
     request: Request,
     user: Annotated[dict, Depends(get_regional_encoder)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """
     Commit validated AFOR rows to the database.
@@ -1649,7 +1649,7 @@ async def commit_afor_import(
 @router.get("/incidents")
 def get_regional_incidents(
     user: Annotated[dict, Depends(get_regional_encoder)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     category: Optional[str] = None,
@@ -1735,7 +1735,7 @@ def get_regional_incidents(
 def get_regional_incident_detail(
     incident_id: int,
     user: Annotated[dict, Depends(get_regional_encoder)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """Fetch a single incident detail, scoped to user's region."""
     region_id = user["assigned_region_id"]
@@ -1818,7 +1818,7 @@ def get_regional_incident_detail(
 @router.get("/stats", response_model=RegionalStatsResponse)
 def get_regional_stats(
     user: Annotated[dict, Depends(get_regional_encoder)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """Quick summary stats scoped to the user's region."""
     region_id = user["assigned_region_id"]
@@ -1874,3 +1874,344 @@ def get_regional_stats(
         by_alarm_level=[{"alarm_level": r[0], "count": r[1]} for r in by_alarm_rows],
         by_status=[{"status": r[0], "count": r[1]} for r in by_status_rows],
     )
+
+
+# ---------------------------------------------------------------------------
+# CRUD — Direct Incident Create / Update / Delete
+# ---------------------------------------------------------------------------
+
+
+class IncidentCreateRequest(BaseModel):
+    """Create a new fire incident with nonsensitive + optional sensitive details."""
+    latitude: float
+    longitude: float
+    # Nonsensitive details
+    notification_dt: str | None = None
+    alarm_level: str | None = None
+    general_category: str | None = None
+    sub_category: str | None = None
+    specific_type: str | None = None
+    occupancy_type: str | None = None
+    city_id: int | None = None
+    barangay_id: int | None = None
+    distance_from_station_km: float | None = None
+    estimated_damage_php: float | None = None
+    civilian_injured: int = 0
+    civilian_deaths: int = 0
+    firefighter_injured: int = 0
+    firefighter_deaths: int = 0
+    families_affected: int = 0
+    structures_affected: int = 0
+    households_affected: int = 0
+    individuals_affected: int = 0
+    responder_type: str | None = None
+    fire_origin: str | None = None
+    extent_of_damage: str | None = None
+    stage_of_fire: str | None = None
+    fire_station_name: str | None = None
+    total_response_time_minutes: int | None = None
+    recommendations: str | None = None
+    # Sensitive details (optional — PII fields)
+    street_address: str | None = None
+    landmark: str | None = None
+    caller_name: str | None = None
+    caller_number: str | None = None
+    narrative_report: str | None = None
+    owner_name: str | None = None
+    occupant_name: str | None = None
+    establishment_name: str | None = None
+    receiver_name: str | None = None
+    prepared_by_officer: str | None = None
+    noted_by_officer: str | None = None
+    remarks: str | None = None
+
+
+class IncidentUpdateRequest(BaseModel):
+    """Update an existing DRAFT/PENDING incident."""
+    # Nonsensitive fields
+    notification_dt: str | None = None
+    alarm_level: str | None = None
+    general_category: str | None = None
+    sub_category: str | None = None
+    specific_type: str | None = None
+    occupancy_type: str | None = None
+    city_id: int | None = None
+    barangay_id: int | None = None
+    distance_from_station_km: float | None = None
+    estimated_damage_php: float | None = None
+    civilian_injured: int | None = None
+    civilian_deaths: int | None = None
+    firefighter_injured: int | None = None
+    firefighter_deaths: int | None = None
+    families_affected: int | None = None
+    structures_affected: int | None = None
+    households_affected: int | None = None
+    individuals_affected: int | None = None
+    responder_type: str | None = None
+    fire_origin: str | None = None
+    extent_of_damage: str | None = None
+    stage_of_fire: str | None = None
+    fire_station_name: str | None = None
+    total_response_time_minutes: int | None = None
+    recommendations: str | None = None
+    # Sensitive fields
+    street_address: str | None = None
+    landmark: str | None = None
+    caller_name: str | None = None
+    caller_number: str | None = None
+    narrative_report: str | None = None
+    owner_name: str | None = None
+    occupant_name: str | None = None
+    establishment_name: str | None = None
+    receiver_name: str | None = None
+    prepared_by_officer: str | None = None
+    noted_by_officer: str | None = None
+    remarks: str | None = None
+
+
+@router.post("/incidents", status_code=201)
+def create_incident(
+    body: IncidentCreateRequest,
+    user: Annotated[dict, Depends(get_regional_encoder)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Create a new fire incident (DRAFT) with nonsensitive + optional sensitive details."""
+    region_id = user["assigned_region_id"]
+    encoder_id = user["user_id"]
+
+    # Insert fire_incidents core row
+    incident_row = db.execute(
+        text("""
+            INSERT INTO wims.fire_incidents (encoder_id, region_id, location, verification_status)
+            VALUES (:eid, :rid, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 'DRAFT')
+            RETURNING incident_id
+        """),
+        {"eid": encoder_id, "rid": region_id, "lon": body.longitude, "lat": body.latitude},
+    ).fetchone()
+    incident_id = incident_row[0]
+
+    # Insert nonsensitive details
+    ns_fields = {
+        "notification_dt", "alarm_level", "general_category", "sub_category",
+        "specific_type", "occupancy_type", "city_id", "barangay_id",
+        "distance_from_station_km", "estimated_damage_php", "civilian_injured",
+        "civilian_deaths", "firefighter_injured", "firefighter_deaths",
+        "families_affected", "structures_affected", "households_affected",
+        "individuals_affected", "responder_type", "fire_origin", "extent_of_damage",
+        "stage_of_fire", "fire_station_name", "total_response_time_minutes",
+        "recommendations",
+    }
+    ns_params = {"iid": incident_id}
+    ns_cols = ["incident_id"]
+    ns_vals = [":iid"]
+    for field in ns_fields:
+        val = getattr(body, field, None)
+        if val is not None:
+            ns_cols.append(field)
+            ns_vals.append(f":{field}")
+            ns_params[field] = val
+
+    if len(ns_cols) > 1:
+        db.execute(
+            text(f"INSERT INTO wims.incident_nonsensitive_details ({', '.join(ns_cols)}) VALUES ({', '.join(ns_vals)})"),
+            ns_params,
+        )
+
+    # Insert sensitive details (with PII encryption if caller_name/caller_number provided)
+    pii_fields = ["caller_name", "caller_number", "owner_name", "occupant_name"]
+    has_pii = any(getattr(body, f, None) for f in pii_fields)
+
+    sd_fields = {
+        "street_address", "landmark", "narrative_report", "establishment_name",
+        "receiver_name", "prepared_by_officer", "noted_by_officer", "remarks",
+    }
+    sd_params = {"iid": incident_id}
+    sd_cols = ["incident_id"]
+    sd_vals = [":iid"]
+
+    if has_pii:
+        pii_dict = {f: getattr(body, f) or "" for f in pii_fields}
+        try:
+            sp = _get_security_provider()
+            nonce_b64, ct_b64 = sp.encrypt_json(pii_dict, f"incident_id:{incident_id}".encode())
+            sd_cols.extend(["pii_blob_enc", "encryption_iv"])
+            sd_vals.extend([":pii_blob", ":enc_iv"])
+            sd_params["pii_blob"] = ct_b64
+            sd_params["enc_iv"] = nonce_b64
+        except SecurityProviderError:
+            logger.warning("PII encryption failed — storing without blob (incident_id=%s)", incident_id)
+
+    for field in sd_fields:
+        val = getattr(body, field, None)
+        if val is not None:
+            sd_cols.append(field)
+            sd_vals.append(f":{field}")
+            sd_params[field] = val
+
+    if len(sd_cols) > 1:
+        db.execute(
+            text(f"INSERT INTO wims.incident_sensitive_details ({', '.join(sd_cols)}) VALUES ({', '.join(sd_vals)})"),
+            sd_params,
+        )
+
+    db.commit()
+    logger.info("Created incident %s in region %s by encoder %s", incident_id, region_id, encoder_id)
+    return {"status": "created", "incident_id": incident_id, "verification_status": "DRAFT"}
+
+
+@router.put("/incidents/{incident_id}")
+def update_incident(
+    incident_id: int,
+    body: IncidentUpdateRequest,
+    user: Annotated[dict, Depends(get_regional_encoder)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Update a DRAFT or PENDING incident. Encoder can only edit their own region's incidents."""
+    region_id = user["assigned_region_id"]
+
+    # Verify ownership + editable status
+    incident = db.execute(
+        text("""
+            SELECT incident_id, verification_status
+            FROM wims.fire_incidents
+            WHERE incident_id = :iid AND region_id = :rid AND is_archived = FALSE
+        """),
+        {"iid": incident_id, "rid": region_id},
+    ).fetchone()
+
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found in your region")
+
+    if incident[1] not in ("DRAFT", "PENDING", "REJECTED"):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Cannot edit incident with status '{incident[1]}'. Only DRAFT, PENDING, or REJECTED incidents can be edited.",
+        )
+
+    # Update nonsensitive details
+    ns_fields = {
+        "notification_dt", "alarm_level", "general_category", "sub_category",
+        "specific_type", "occupancy_type", "city_id", "barangay_id",
+        "distance_from_station_km", "estimated_damage_php", "civilian_injured",
+        "civilian_deaths", "firefighter_injured", "firefighter_deaths",
+        "families_affected", "structures_affected", "households_affected",
+        "individuals_affected", "responder_type", "fire_origin", "extent_of_damage",
+        "stage_of_fire", "fire_station_name", "total_response_time_minutes",
+        "recommendations",
+    }
+    ns_updates = []
+    ns_params = {"iid": incident_id}
+    for field in ns_fields:
+        val = getattr(body, field, None)
+        if val is not None:
+            ns_updates.append(f"{field} = :{field}")
+            ns_params[field] = val
+
+    if ns_updates:
+        db.execute(
+            text(f"UPDATE wims.incident_nonsensitive_details SET {', '.join(ns_updates)} WHERE incident_id = :iid"),
+            ns_params,
+        )
+
+    # Update sensitive details
+    sd_fields = {
+        "street_address", "landmark", "narrative_report", "establishment_name",
+        "receiver_name", "prepared_by_officer", "noted_by_officer", "remarks",
+    }
+    pii_fields = ["caller_name", "caller_number", "owner_name", "occupant_name"]
+    sd_updates = []
+    sd_params = {"iid": incident_id}
+    has_pii_update = False
+
+    for field in sd_fields | set(pii_fields):
+        val = getattr(body, field, None)
+        if val is not None:
+            if field in pii_fields:
+                has_pii_update = True
+            else:
+                sd_updates.append(f"{field} = :{field}")
+                sd_params[field] = val
+
+    # Re-encrypt PII if any PII field updated
+    if has_pii_update:
+        # Fetch existing PII blob and merge
+        existing = db.execute(
+            text("SELECT pii_blob_enc, encryption_iv FROM wims.incident_sensitive_details WHERE incident_id = :iid"),
+            {"iid": incident_id},
+        ).fetchone()
+
+        existing_pii = {}
+        if existing and existing[0] and existing[1]:
+            try:
+                sp = _get_security_provider()
+                existing_pii = sp.decrypt_json(existing[1], existing[0], f"incident_id:{incident_id}".encode())
+            except SecurityProviderError:
+                logger.warning("Failed to decrypt existing PII for incident %s — overwriting", incident_id)
+
+        # Merge updates
+        for field in pii_fields:
+            val = getattr(body, field, None)
+            if val is not None:
+                existing_pii[field] = val
+
+        # Re-encrypt
+        try:
+            sp = _get_security_provider()
+            nonce_b64, ct_b64 = sp.encrypt_json(existing_pii, f"incident_id:{incident_id}".encode())
+            sd_updates.extend(["pii_blob_enc = :pii_blob", "encryption_iv = :enc_iv"])
+            sd_params["pii_blob"] = ct_b64
+            sd_params["enc_iv"] = nonce_b64
+        except SecurityProviderError:
+            logger.warning("PII re-encryption failed for incident %s", incident_id)
+
+    if sd_updates:
+        db.execute(
+            text(f"UPDATE wims.incident_sensitive_details SET {', '.join(sd_updates)} WHERE incident_id = :iid"),
+            sd_params,
+        )
+
+    # Update timestamp
+    db.execute(
+        text("UPDATE wims.fire_incidents SET updated_at = now() WHERE incident_id = :iid"),
+        {"iid": incident_id},
+    )
+
+    db.commit()
+    logger.info("Updated incident %s in region %s", incident_id, region_id)
+    return {"status": "updated", "incident_id": incident_id}
+
+
+@router.delete("/incidents/{incident_id}")
+def delete_incident(
+    incident_id: int,
+    user: Annotated[dict, Depends(get_regional_encoder)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Soft-delete a DRAFT incident. Sets is_archived = TRUE."""
+    region_id = user["assigned_region_id"]
+
+    incident = db.execute(
+        text("""
+            SELECT incident_id, verification_status
+            FROM wims.fire_incidents
+            WHERE incident_id = :iid AND region_id = :rid AND is_archived = FALSE
+        """),
+        {"iid": incident_id, "rid": region_id},
+    ).fetchone()
+
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found in your region")
+
+    if incident[1] != "DRAFT":
+        raise HTTPException(
+            status_code=403,
+            detail=f"Cannot delete incident with status '{incident[1]}'. Only DRAFT incidents can be deleted.",
+        )
+
+    db.execute(
+        text("UPDATE wims.fire_incidents SET is_archived = TRUE, updated_at = now() WHERE incident_id = :iid"),
+        {"iid": incident_id},
+    )
+    db.commit()
+    logger.info("Soft-deleted incident %s in region %s", incident_id, region_id)
+    return {"status": "deleted", "incident_id": incident_id}

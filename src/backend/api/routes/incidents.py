@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user
-from database import get_db
+from database import get_db_with_rls
 from schemas.incident import IncidentCreate, IncidentResponse
 from services.analytics_read_model import sync_incident_to_analytics
 
@@ -21,7 +21,7 @@ STORAGE_DIR = "/app/storage/attachments"
 async def upload_attachment(
     incident_id: int,
     file: UploadFile = File(...),
-    db: Annotated[Session, Depends(get_db)] = None,
+    db: Annotated[Session, Depends(get_db_with_rls)] = None,
     user: Annotated[dict, Depends(get_current_wims_user)] = None,
 ):
     """
@@ -52,8 +52,9 @@ async def upload_attachment(
             while content := await file.read(1024 * 1024):  # Read in chunks
                 sha256_hash.update(content)
                 buffer.write(content)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
+    except Exception:
+        logger.exception("Failed to save uploaded file")
+        raise HTTPException(status_code=500, detail="Failed to save uploaded file")
 
     # 3. Record in DB
     try:
@@ -75,11 +76,12 @@ async def upload_attachment(
             },
         )
         db.commit()
-    except Exception as e:
+    except Exception:
         db.rollback()
         if os.path.exists(storage_path):
             os.remove(storage_path)
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        logger.exception("Database error during attachment upload")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
     return {
         "status": "ok",
@@ -91,8 +93,8 @@ async def upload_attachment(
 @router.post("/incidents", response_model=IncidentResponse, status_code=201)
 def create_incident(
     body: IncidentCreate,
-    db: Annotated[Session, Depends(get_db)],
     user: Annotated[dict, Depends(get_current_wims_user)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
 ) -> IncidentResponse:
     """
     Create a fire incident from geospatial intake.

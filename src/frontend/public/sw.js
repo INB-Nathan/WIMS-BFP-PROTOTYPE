@@ -17,6 +17,12 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+    // Don't intercept API or auth routes — these must always go to the network
+    const url = event.request.url;
+    if (url.includes('/api/') || url.includes('/auth/')) {
+        return;
+    }
+
     event.respondWith(
         caches.match(event.request).then((response) => {
             // Cache hit - return response

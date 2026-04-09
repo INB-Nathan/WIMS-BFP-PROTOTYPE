@@ -42,7 +42,11 @@ WIMS_ROLES_FROM_KEYCLOAK = (
 
 
 def _resolve_role_from_token(payload: dict) -> str:
-    """Extract WIMS role from Keycloak JWT. realm_access.roles or resource_access.<client>.roles."""
+    """
+    Extract WIMS role from Keycloak JWT. realm_access.roles or resource_access.<client>.roles.
+    Returns ONLY roles in WIMS_ROLES_FROM_KEYCLOAK (exact FRS literals).
+    Returns None if no FRS role is present in the token — callers must handle this.
+    """
     roles: list[str] = []
     if isinstance(payload.get("realm_access"), dict):
         ra = payload["realm_access"].get("roles")
@@ -57,7 +61,7 @@ def _resolve_role_from_token(payload: dict) -> str:
     for wims_role in WIMS_ROLES_FROM_KEYCLOAK:
         if wims_role in roles:
             return wims_role
-    return "REGIONAL_ENCODER"
+    return None  # No FRS role found — do not silently default
 
 
 # ---------------------------------------------------------------------------
@@ -81,9 +85,9 @@ logger = logging.getLogger("wims.rate_limit")
 # Celery
 # ---------------------------------------------------------------------------
 
-# Import task modules so tasks are registered when worker loads main
-
 # Re-export for celery CLI: celery -A main.celery_app
+# (tasks.suricata and tasks.exports are imported at module top for registration)
+from celery_config import celery_app  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
 # Redis
@@ -278,6 +282,11 @@ async def auth_callback(
 
     username = preferred_username[:50]
     role = _resolve_role_from_token(payload)
+    if role is None:
+        raise HTTPException(
+            status_code=403,
+            detail="No valid WIMS role found in Keycloak token — access denied",
+        )
 
     try:
         result = db.execute(
@@ -334,6 +343,11 @@ async def get_me(
 
     if row is None:
         role = _resolve_role_from_token(token_payload)
+        if role is None:
+            raise HTTPException(
+                status_code=403,
+                detail="No valid WIMS role found in Keycloak token — access denied",
+            )
         try:
             result = db.execute(
                 text("""

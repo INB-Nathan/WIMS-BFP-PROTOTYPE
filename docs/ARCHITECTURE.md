@@ -68,3 +68,15 @@ This aligns with glossary terms: civilian intake, validator-centered verificatio
 - Login rate limiting is implemented in backend middleware for `POST /api/auth/login` using a Redis Lua sliding-window script.
 - Suricata logs are mounted into worker-accessible paths and ingested by task modules.
 - No hard-delete admin endpoint is defined in admin route modules; updates are mutation-oriented (user/log state updates and audit readout).
+- PII fields (`caller_name`, `caller_number`, `owner_name`, `street_address`) are encrypted at rest using AES-256-GCM via `utils/crypto.py`. Plaintext PII columns are always `NULL` for new writes.
+
+## Database Session Management
+
+`database.py` uses eager initialization — `_engine` and `_SessionLocal` are created at module import time (not lazily). Two FastAPI dependency functions are exposed:
+
+| Function | RLS Context | Use Case |
+|---|---|---|
+| `get_db()` | No | Bare session for tests and routes where RLS is not needed |
+| `get_db_with_rls(request)` | Yes (via `SET LOCAL wims.current_user_id`) | Routes where `get_current_wims_user` has already resolved the user |
+
+**Dependency ordering:** `get_current_wims_user` must be listed BEFORE `get_db_with_rls` in route dependency lists so `request.state.wims_user` is populated before RLS context is set.

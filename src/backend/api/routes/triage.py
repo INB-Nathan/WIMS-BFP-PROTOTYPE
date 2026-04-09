@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user
-from database import get_db
+from database import get_db_with_rls
 from services.analytics_read_model import sync_incident_to_analytics
 
 router = APIRouter(prefix="/api/triage", tags=["triage"])
@@ -29,7 +29,7 @@ def _require_encoder_or_validator(
 @router.get("/pending")
 def get_pending_reports(
     user: Annotated[dict, Depends(_require_encoder_or_validator)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """
     Return citizen_reports where status == 'PENDING'.
@@ -62,7 +62,7 @@ def get_pending_reports(
 def promote_report(
     report_id: int,
     user: Annotated[dict, Depends(_require_encoder_or_validator)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """
     Promote a PENDING citizen_report to an official fire_incident.

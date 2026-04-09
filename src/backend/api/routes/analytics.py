@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from auth import get_analyst_or_admin
-from database import get_db
+from database import get_db, get_db_with_rls
 from services.analytics_read_model import (
     count_in_range,
     get_heatmap_points,
@@ -30,7 +30,7 @@ router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 @router.get("/heatmap")
 def get_heatmap(
     _user: Annotated[dict, Depends(get_analyst_or_admin)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     region_id: Optional[int] = Query(None),
@@ -68,7 +68,7 @@ def get_heatmap(
 @router.get("/trends")
 def get_trends_route(
     _user: Annotated[dict, Depends(get_analyst_or_admin)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     region_id: Optional[int] = Query(None),
@@ -95,7 +95,7 @@ def get_trends_route(
 @router.get("/comparative")
 def get_comparative(
     _user: Annotated[dict, Depends(get_analyst_or_admin)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
     range_a_start: str = Query(...),
     range_a_end: str = Query(...),
     range_b_start: str = Query(...),
@@ -139,7 +139,7 @@ def get_comparative(
 @router.get("/execution-plans")
 def get_execution_plans(
     _user: Annotated[dict, Depends(get_analyst_or_admin)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """
     Return EXPLAIN output for analytics queries.

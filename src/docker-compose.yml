@@ -34,6 +34,11 @@ services:
     restart: always
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   keycloak:
     image: quay.io/keycloak/keycloak:24.0.0
@@ -58,7 +63,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL","exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /auth/ HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -qE '200 OK|302'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     restart: always
+    ports:
+      - "8080:8080"
 
   ollama:
     image: ollama/ollama:latest
@@ -83,7 +96,9 @@ services:
       - PYTHONPATH=/app
       - REDIS_URL=redis://redis:6379/0
       - KEYCLOAK_REALM_URL=http://keycloak:8080/auth/realms/bfp
+      - KEYCLOAK_ISSUER=http://localhost/auth/realms/bfp
       - KEYCLOAK_CLIENT_ID=wims-web
+      - KEYCLOAK_AUDIENCE=wims-web
       - OLLAMA_URL=http://ollama:11434
     volumes:
       - incident_attachments_data:/app/storage
@@ -96,9 +111,9 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       keycloak:
-        condition: service_started
+        condition: service_healthy
       ollama:
         condition: service_started
 
@@ -122,26 +137,27 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
 
   frontend:
     build:
       context: ./frontend
       args:
         NEXT_PUBLIC_API_URL: http://localhost/api
-        NEXT_PUBLIC_AUTH_API_URL: http://localhost/auth
+        NEXT_PUBLIC_AUTH_API_URL: http://localhost:8080/auth
         NEXT_PUBLIC_BASE_URL: http://localhost
         NEXT_PUBLIC_OIDC_REDIRECT_URI: http://localhost/callback
+        NEXT_PUBLIC_OIDC_AUTHORITY: http://localhost:8080/auth/realms/bfp
     container_name: wims-frontend
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost/api
-      - NEXT_PUBLIC_AUTH_API_URL=http://localhost/auth
+      - NEXT_PUBLIC_AUTH_API_URL=http://localhost:8080/auth
       - NEXT_PUBLIC_BASE_URL=http://localhost
       - NEXT_PUBLIC_OIDC_REDIRECT_URI=http://localhost/callback
-      - NEXT_PUBLIC_OIDC_AUTHORITY=http://localhost/auth/realms/bfp
+      - NEXT_PUBLIC_OIDC_AUTHORITY=http://localhost:8080/auth/realms/bfp
       - NEXT_PUBLIC_OIDC_CLIENT_ID=wims-web
       - NEXT_PUBLIC_APP_URL=http://localhost
-      - BACKEND_URL=http://backend:8000
+      - BACKEND_URL=http://nginx-gateway:80
     networks:
       - wims_internal
     depends_on:
@@ -155,7 +171,7 @@ services:
     # For this Docker prototype, we will sniff the internal bridge network
     command: -i eth0
     volumes:
-      - ./suricata/logs:/var/log/suricata:ro # changed to ro kasi naka read/write kapag walang :ro
+      - ./suricata/logs:/var/log/suricata
       - ./suricata/rules:/var/lib/suricata/rules
     networks:
       - wims_internal

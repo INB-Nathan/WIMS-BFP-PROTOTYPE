@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user
-from database import get_db
+from database import get_db_with_rls
 
 router = APIRouter(prefix="/api/ref", tags=["ref"])
 
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/ref", tags=["ref"])
 @router.get("/regions")
 def get_regions(
     _user: Annotated[dict, Depends(get_current_wims_user)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
     region_id: Optional[int] = Query(None),
 ):
     """Return ref_regions. Optional region_id filter."""

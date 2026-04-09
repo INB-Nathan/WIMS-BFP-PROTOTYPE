@@ -1,4 +1,5 @@
 import os
+import time
 import uuid
 import logging
 from typing import Annotated, Optional, Dict, Any
@@ -22,12 +23,25 @@ KEYCLOAK_REALM_URL = os.environ.get(
 )
 KEYCLOAK_URL = os.environ.get("NEXT_PUBLIC_AUTH_API_URL", KEYCLOAK_REALM_URL)
 CLIENT_ID = os.environ.get("KEYCLOAK_CLIENT_ID", "bfp-client")
-AUDIENCE = os.environ.get("KEYCLOAK_AUDIENCE", "account")  # Default Keycloak audience
+# audience is what Keycloak puts in the token's "aud" claim — must match CLIENT_ID.
+# If KEYCLOAK_AUDIENCE is unset, default to the CLIENT_ID so they stay in sync.
+AUDIENCE = os.environ.get(
+    "KEYCLOAK_AUDIENCE", os.environ.get("KEYCLOAK_CLIENT_ID", "bfp-client")
+)
+JWKS_CACHE_TTL_SECONDS = 60  # 60 seconds — Keycloak key rotation typically hourly/daily; balance freshness vs latency
+# Issuer URL as it appears in JWT `iss` claim — differs from KEYCLOAK_REALM_URL
+# when Keycloak is accessed externally (browser → localhost:8080) vs internally
+# (container network → keycloak:8080). Set KEYCLOAK_ISSUER so jwt.decode()
+# validates the token's iss claim against the browser-visible issuer.
+KEYCLOAK_ISSUER = os.environ.get(
+    "KEYCLOAK_ISSUER", KEYCLOAK_REALM_URL.rstrip("/") + "/"
+)
 
 
 class KeycloakAuthenticator:
     def __init__(self):
         self.jwks: Optional[Dict[str, Any]] = None
+        self.jwks_fetched_at: float = 0.0
         self.oidc_config: Optional[Dict[str, Any]] = None
 
     async def _fetch_oidc_config(self):
@@ -48,8 +62,9 @@ class KeycloakAuthenticator:
             )
 
     async def _fetch_jwks(self):
-        """Fetch JWKS (Public Keys) from Keycloak."""
-        if self.jwks:
+        """Fetch JWKS (Public Keys) from Keycloak. Cached for JWKS_CACHE_TTL_SECONDS."""
+        now = time.time()
+        if self.jwks and (now - self.jwks_fetched_at) < JWKS_CACHE_TTL_SECONDS:
             return
 
         if not self.oidc_config:
@@ -69,17 +84,17 @@ class KeycloakAuthenticator:
                 response = await client.get(jwks_uri)
                 response.raise_for_status()
                 self.jwks = response.json()
+                self.jwks_fetched_at = now
         except Exception as e:
             logger.error(f"Failed to fetch JWKS from {jwks_uri}: {e}")
             raise HTTPException(
                 status_code=503, detail="Identity Provider public keys unreachable"
             )
 
-    def _get_key_for_kid(self, kid: str) -> Dict[str, Any]:
+    def _get_key_for_kid(self, kid: str) -> Optional[Dict[str, Any]]:
+        """Return the JWKS key dict matching kid, or None if not found."""
         if not self.jwks or "keys" not in self.jwks:
-            raise HTTPException(
-                status_code=503, detail="Identity Provider public keys unavailable"
-            )
+            return None
 
         for key_data in self.jwks["keys"]:
             if key_data.get("kid") != kid:
@@ -91,8 +106,21 @@ class KeycloakAuthenticator:
             if key_data.get("alg") not in (None, "RS256"):
                 continue
             return key_data
+        return None
 
-        raise HTTPException(status_code=401, detail="Invalid token: kid mismatch")
+    def _get_first_valid_key(self) -> Optional[Dict[str, Any]]:
+        """Return the first RSA signing key from JWKS, for fallback when kid is unknown."""
+        if not self.jwks or "keys" not in self.jwks:
+            return None
+        for key_data in self.jwks["keys"]:
+            if key_data.get("kty") != "RSA":
+                continue
+            if key_data.get("use") not in (None, "sig"):
+                continue
+            if key_data.get("alg") not in (None, "RS256"):
+                continue
+            return key_data
+        return None
 
     async def validate_token(self, token: str) -> Dict[str, Any]:
         await self._fetch_oidc_config()
@@ -101,38 +129,64 @@ class KeycloakAuthenticator:
         try:
             unverified_header = jwt.get_unverified_header(token)
             kid = unverified_header.get("kid")
-            if not kid:
-                raise HTTPException(
-                    status_code=401, detail="Invalid token: kid missing"
-                )
 
-            key_data = self._get_key_for_kid(kid)
-            public_key = jwk.construct(key_data)
+            # Try kid-matched key first, then fall back to trying all JWKS keys.
+            # The all-keys loop handles tokens signed with a rotated key whose
+            # kid is no longer in the current JWKS cache.
+            candidate_keys: list[Optional[Dict[str, Any]]] = []
+            if kid:
+                key_data = self._get_key_for_kid(kid)
+                candidate_keys = [key_data] if key_data else []
+            # If kid unknown or key not found, try every RSA signing key
+            if not candidate_keys or candidate_keys[0] is None:
+                candidate_keys = [
+                    k
+                    for k in self.jwks.get("keys", [])
+                    if k.get("kty") == "RSA"
+                    and k.get("use") in (None, "sig")
+                    and k.get("alg") in (None, "RS256")
+                ]
 
-            payload = jwt.decode(
-                token,
-                public_key.to_pem().decode()
-                if hasattr(public_key, "to_pem")
-                else public_key,
-                algorithms=["RS256"],
-                audience=CLIENT_ID,
-                issuer=KEYCLOAK_REALM_URL.rstrip("/") + "/",
-                options={
-                    "verify_at_hash": False,
-                    "require": ["exp", "iat", "iss", "aud"],
-                },
-            )
+            last_error: Exception | None = None
+            for key_data in candidate_keys:
+                try:
+                    public_key = jwk.construct(key_data)
+                    payload = jwt.decode(
+                        token,
+                        public_key.to_pem().decode()
+                        if hasattr(public_key, "to_pem")
+                        else public_key,
+                        algorithms=["RS256"],
+                        audience=AUDIENCE,
+                        issuer=KEYCLOAK_ISSUER,
+                        options={
+                            "verify_at_hash": False,
+                            "require": ["exp", "iat", "iss", "aud"],
+                        },
+                    )
+                    azp = payload.get("azp")
+                    if azp != CLIENT_ID:
+                        logger.warning(
+                            f"Token issued for client {azp} but expected {CLIENT_ID}"
+                        )
+                        raise HTTPException(
+                            status_code=401, detail="Invalid token: client mismatch"
+                        )
+                    return payload
+                except HTTPException:
+                    raise
+                except JWTError as e:
+                    last_error = e
+                    continue  # try next key
 
-            azp = payload.get("azp")
-            if azp != CLIENT_ID:
+            # All keys exhausted
+            if last_error:
                 logger.warning(
-                    f"Token issued for client {azp} but expected {CLIENT_ID}"
+                    f"JWT Validation failed after trying all keys: {last_error}"
                 )
-                raise HTTPException(
-                    status_code=401, detail="Invalid token: client mismatch"
-                )
-
-            return payload
+            raise HTTPException(
+                status_code=401, detail="Invalid token: JWT validation failed"
+            )
 
         except HTTPException:
             raise
@@ -154,15 +208,11 @@ authenticator = KeycloakAuthenticator()
 
 async def get_current_user(request: Request):
     """
-    Extract and validate the access_token from HttpOnly cookies.
+    Extract and validate the access_token from HttpOnly cookies only.
+    The Authorization header is NOT consulted — HttpOnly cookies are the
+    sole token transport to prevent XSS-driven token theft (CSRF mitigation).
     """
     token = request.cookies.get("access_token")
-    if not token:
-        # Fallback to Authorization header for testing/tools
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header.split(" ")[1]
-
     if not token:
         raise HTTPException(
             status_code=401, detail="Authentication credentials missing"
