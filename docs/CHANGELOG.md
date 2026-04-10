@@ -6,6 +6,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Keycloak configuration persisted to realm JSON:** Audience mapper, 5 custom roles, and 5 test users now in `src/keycloak/bfp-realm.json`. Previously all config was done via admin API and lost on container recreation.
+- **Keycloak documentation:** `docs/ARCHITECTURE.md` now documents realm JSON vs scripts, auth env vars, and the KEYCLOAK_REALM_URL vs KEYCLOAK_ISSUER split.
+
 - **XAI Pipeline documentation:** `docs/ARCHITECTURE.md` now documents the full Suricata → Qwen2.5-3B → narrative pipeline, including design principle (SLM translates, Suricata detects), component roles, NFR targets, and optimization priorities.
 
 - **Regional Encoder CRUD — full lifecycle:** `POST /api/regional/incidents` (create with DRAFT status), `PUT /api/regional/incidents/{id}` (update with status gating), `DELETE /api/regional/incidents/{id}` (soft-delete). PII fields encrypted via AES-256-GCM. Status gates: DRAFT/PENDING/REJECTED editable, VERIFIED blocked (403); soft-delete DRAFT only.

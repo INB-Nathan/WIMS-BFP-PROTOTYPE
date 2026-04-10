@@ -70,6 +70,39 @@ This aligns with glossary terms: civilian intake, validator-centered verificatio
 - No hard-delete admin endpoint is defined in admin route modules; updates are mutation-oriented (user/log state updates and audit readout).
 - PII fields (`caller_name`, `caller_number`, `owner_name`, `street_address`) are encrypted at rest using AES-256-GCM via `utils/crypto.py`. Plaintext PII columns are always `NULL` for new writes.
 
+## Keycloak Configuration
+
+Keycloak uses `--import-realm` with `IGNORE_EXISTING` strategy. Once the realm exists, the JSON is NOT re-imported. All config must be in `src/keycloak/bfp-realm.json` at first boot.
+
+### What's in bfp-realm.json
+
+| Config | Details |
+|---|---|
+| Realm | `bfp` |
+| Client | `wims-web` (public, OIDC, standard flow + direct access grants) |
+| Audience mapper | `oidc-audience-mapper` on wims-web — adds `aud: "wims-web"` to access tokens |
+| Roles | REGIONAL_ENCODER, SYSTEM_ADMIN, VALIDATOR, ANALYST, NATIONAL_ANALYST |
+| Users | 5 test users (password: `password123`) |
+
+### What requires scripts
+
+| Task | Script | Why |
+|---|---|---|
+| PostgreSQL user sync | `scripts/seed-dev-users.sh` | Links Keycloak UUIDs to `wims.users` table |
+
+The realm JSON creates users in Keycloak but does NOT sync to PostgreSQL. Run `seed-dev-users.sh` after first boot to link Keycloak user IDs to the database.
+
+### Auth Environment Variables (backend)
+
+| Variable | Value | Purpose |
+|---|---|---|
+| KEYCLOAK_REALM_URL | `http://keycloak:8080/auth/realms/bfp` | JWKS fetching (Docker internal) |
+| KEYCLOAK_ISSUER | `http://localhost/auth/realms/bfp` | JWT `iss` claim validation (browser-visible) |
+| KEYCLOAK_CLIENT_ID | `wims-web` | Client ID for token validation |
+| KEYCLOAK_AUDIENCE | `wims-web` | Expected `aud` claim value |
+
+**Why two URLs:** Backend fetches JWKS from `keycloak:8080` (Docker network) but validates issuer as `localhost` (what Keycloak puts in tokens via `KC_HOSTNAME=localhost`).
+
 ## XAI Pipeline (Suricata → Qwen2.5-3B → Forensic Narratives)
 
 The Explainable AI layer translates Suricata IDS alerts into human-readable reports. It does NOT perform threat detection — Suricata handles that deterministically. The SLM only translates.
