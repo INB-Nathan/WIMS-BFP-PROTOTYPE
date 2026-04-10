@@ -85,6 +85,41 @@
         "clientRole": false,
         "containerId": "0d7644e4-1107-4da2-83f4-ca7ac87ce39b",
         "attributes": {}
+      },
+      {
+        "name": "REGIONAL_ENCODER",
+        "description": "REGIONAL_ENCODER role for WIMS-BFP",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "0d7644e4-1107-4da2-83f4-ca7ac87ce39b"
+      },
+      {
+        "name": "SYSTEM_ADMIN",
+        "description": "SYSTEM_ADMIN role for WIMS-BFP",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "0d7644e4-1107-4da2-83f4-ca7ac87ce39b"
+      },
+      {
+        "name": "VALIDATOR",
+        "description": "VALIDATOR role for WIMS-BFP",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "0d7644e4-1107-4da2-83f4-ca7ac87ce39b"
+      },
+      {
+        "name": "ANALYST",
+        "description": "ANALYST role for WIMS-BFP",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "0d7644e4-1107-4da2-83f4-ca7ac87ce39b"
+      },
+      {
+        "name": "NATIONAL_ANALYST",
+        "description": "NATIONAL_ANALYST role for WIMS-BFP",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "0d7644e4-1107-4da2-83f4-ca7ac87ce39b"
       }
     ],
     "client": {
@@ -851,6 +886,20 @@
         "phone",
         "offline_access",
         "microprofile-jwt"
+      ],
+      "protocolMappers": [
+        {
+          "name": "audience-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "wims-web",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        }
       ]
     }
   ],
@@ -2314,5 +2363,67 @@
   },
   "clientPolicies": {
     "policies": []
-  }
+  },
+  "users": [
+    {
+      "username": "encoder_test",
+      "email": "encoder@bfp.gov.ph",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "validator_test",
+      "email": "validator@bfp.gov.ph",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "analyst_test",
+      "email": "analyst@bfp.gov.ph",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "analyst1_test",
+      "email": "analyst1_test@gmail.com",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "admin_test",
+      "email": "admin@bfp.gov.ph",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password123",
+          "temporary": false
+        }
+      ]
+    }
+  ]
 }
