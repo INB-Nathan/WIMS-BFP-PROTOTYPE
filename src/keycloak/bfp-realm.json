@@ -2208,49 +2208,6 @@
       ]
     },
     {
-      "alias": "browser-with-mfa",
-      "description": "Browser flow with enforced MFA (TOTP enrollment on first login)",
-      "providerId": "basic-flow",
-      "topLevel": true,
-      "builtIn": false,
-      "authenticationExecutions": [
-        {
-          "requirement": "ALTERNATIVE",
-          "priority": 0
-        },
-        {
-          "requirement": "DISABLED",
-          "priority": 0
-        },
-        {
-          "requirement": "ALTERNATIVE",
-          "priority": 0
-        },
-        {
-          "requirement": "ALTERNATIVE",
-          "priority": 0,
-          "displayName": "browser-with-mfa forms",
-          "authenticatorFlow": true,
-          "autheticatorFlow": true
-        },
-        {
-          "requirement": "REQUIRED",
-          "priority": 0
-        },
-        {
-          "requirement": "CONDITIONAL",
-          "priority": 0,
-          "displayName": "mfa-otp",
-          "authenticatorFlow": true,
-          "autheticatorFlow": true
-        },
-        {
-          "requirement": "REQUIRED",
-          "priority": 0
-        }
-      ]
-    },
-    {
       "alias": "forms",
       "description": "Username/password form + required MFA",
       "providerId": "basic-flow",
@@ -2266,28 +2223,10 @@
           "autheticatorFlow": false
         },
         {
-          "displayName": "mfa-otp",
           "requirement": "REQUIRED",
           "priority": 20,
           "autheticatorFlow": true,
           "authenticatorFlow": true
-        }
-      ]
-    },
-    {
-      "alias": "mfa-otp",
-      "description": "Required OTP \u2014 forces enrollment for unenrolled users",
-      "providerId": "basic-flow",
-      "topLevel": false,
-      "builtIn": false,
-      "authenticationExecutions": [
-        {
-          "authenticator": "auth-otp-form",
-          "authenticatorFlow": false,
-          "requirement": "REQUIRED",
-          "priority": 10,
-          "userSetupAllowed": true,
-          "autheticatorFlow": false
         }
       ]
     }
@@ -2423,7 +2362,6 @@
       "config": {}
     }
   ],
-  "browserFlow": "browser-with-mfa",
   "registrationFlow": "registration",
   "directGrantFlow": "direct grant",
   "resetCredentialsFlow": "reset credentials",
@@ -2456,7 +2394,7 @@
       "credentials": [
         {
           "type": "password",
-          "value": "password123",
+          "value": "WimsBFP2026!",
           "temporary": false
         }
       ]
@@ -2468,7 +2406,7 @@
       "credentials": [
         {
           "type": "password",
-          "value": "password123",
+          "value": "WimsBFP2026!",
           "temporary": false
         }
       ]
@@ -2480,7 +2418,7 @@
       "credentials": [
         {
           "type": "password",
-          "value": "password123",
+          "value": "WimsBFP2026!",
           "temporary": false
         }
       ]
@@ -2492,7 +2430,7 @@
       "credentials": [
         {
           "type": "password",
-          "value": "password123",
+          "value": "WimsBFP2026!",
           "temporary": false
         }
       ]
@@ -2504,12 +2442,13 @@
       "credentials": [
         {
           "type": "password",
-          "value": "password123",
+          "value": "WimsBFP2026!",
           "temporary": false
         }
       ]
     }
   ],
   "loginTheme": "wims-bfp",
-  "passwordPolicy": "length(12) and upperCase(1) and lowerCase(1) and digits(1) and specialChars(1)"
+  "passwordPolicy": "length(12) and upperCase(1) and lowerCase(1) and digits(1) and specialChars(1)",
+  "browserFlow": "browser-with-mfa"
 }

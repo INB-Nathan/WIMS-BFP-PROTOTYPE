@@ -41,7 +41,7 @@ services:
       retries: 5
 
   keycloak:
-    image: quay.io/keycloak/keycloak:24.0.0
+    image: quay.io/keycloak/keycloak:26.6.0
     container_name: wims-keycloak
     command: start-dev --import-realm
     volumes:
@@ -54,9 +54,8 @@ services:
       KC_DB_PASSWORD: secret
       KEYCLOAK_ADMIN: admin # <--- ADDED Bootstrap Admin
       KEYCLOAK_ADMIN_PASSWORD: admin # <--- ADDED Bootstrap Password
-      KC_HTTP_RELATIVE_PATH: /auth # <--- ADDED to align with Nginx
-      KC_PROXY: edge
-      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_PROXY_HEADERS: forwarded
       KC_HOSTNAME: localhost
       KC_HTTP_ENABLED: "true"
     networks:
