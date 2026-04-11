@@ -36,15 +36,15 @@
   "duplicateEmailsAllowed": false,
   "resetPasswordAllowed": false,
   "editUsernameAllowed": false,
-  "bruteForceProtected": false,
+  "bruteForceProtected": true,
   "permanentLockout": false,
   "maxTemporaryLockouts": 0,
   "maxFailureWaitSeconds": 900,
   "minimumQuickLoginWaitSeconds": 60,
-  "waitIncrementSeconds": 60,
+  "waitIncrementSeconds": 300,
   "quickLoginCheckMilliSeconds": 1000,
   "maxDeltaTimeSeconds": 43200,
-  "failureFactor": 30,
+  "failureFactor": 5,
   "roles": {
     "realm": [
       {
@@ -863,7 +863,7 @@
       "consentRequired": false,
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
-      "directAccessGrantsEnabled": true,
+      "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "publicClient": true,
       "frontchannelLogout": false,
@@ -2206,6 +2206,87 @@
           "userSetupAllowed": false
         }
       ]
+    },
+    {
+      "alias": "browser-with-mfa",
+      "description": "Browser flow with enforced MFA (TOTP enrollment on first login)",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-cookie",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        },
+        {
+          "authenticator": "auth-spnego",
+          "authenticatorFlow": false,
+          "requirement": "DISABLED",
+          "priority": 20,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        },
+        {
+          "authenticator": "identity-provider-redirector",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 25,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        },
+        {
+          "displayName": "forms",
+          "requirement": "ALTERNATIVE",
+          "priority": 30,
+          "autheticatorFlow": true,
+          "authenticatorFlow": true
+        }
+      ]
+    },
+    {
+      "alias": "forms",
+      "description": "Username/password form + required MFA",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-username-password-form",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        },
+        {
+          "displayName": "mfa-otp",
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "autheticatorFlow": true,
+          "authenticatorFlow": true
+        }
+      ]
+    },
+    {
+      "alias": "mfa-otp",
+      "description": "Required OTP \u2014 forces enrollment for unenrolled users",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-otp-form",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": true,
+          "autheticatorFlow": false
+        }
+      ]
     }
   ],
   "authenticatorConfig": [
@@ -2339,7 +2420,7 @@
       "config": {}
     }
   ],
-  "browserFlow": "browser",
+  "browserFlow": "browser-with-mfa",
   "registrationFlow": "registration",
   "directGrantFlow": "direct grant",
   "resetCredentialsFlow": "reset credentials",
@@ -2426,5 +2507,13 @@
       ]
     }
   ],
-  "loginTheme": "wims-bfp"
+  "loginTheme": "wims-bfp",
+  "otpPolicy": {
+    "type": "totp",
+    "algorithm": "HmacSHA1",
+    "digits": 6,
+    "initialCounter": 0,
+    "period": 30
+  },
+  "passwordPolicy": "length(12) and upperCase(1) and lowerCase(1) and digits(1) and specialChars(1)"
 }
