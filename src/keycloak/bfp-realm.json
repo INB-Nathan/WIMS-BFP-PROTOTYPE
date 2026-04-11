@@ -2215,35 +2215,38 @@
       "builtIn": false,
       "authenticationExecutions": [
         {
-          "authenticator": "auth-cookie",
-          "authenticatorFlow": false,
           "requirement": "ALTERNATIVE",
-          "priority": 10,
-          "userSetupAllowed": false,
-          "autheticatorFlow": false
+          "priority": 0
         },
         {
-          "authenticator": "auth-spnego",
-          "authenticatorFlow": false,
           "requirement": "DISABLED",
-          "priority": 20,
-          "userSetupAllowed": false,
-          "autheticatorFlow": false
+          "priority": 0
         },
         {
-          "authenticator": "identity-provider-redirector",
-          "authenticatorFlow": false,
           "requirement": "ALTERNATIVE",
-          "priority": 25,
-          "userSetupAllowed": false,
-          "autheticatorFlow": false
+          "priority": 0
         },
         {
-          "displayName": "forms",
           "requirement": "ALTERNATIVE",
-          "priority": 30,
+          "priority": 0,
+          "displayName": "browser-with-mfa forms",
           "autheticatorFlow": true,
           "authenticatorFlow": true
+        },
+        {
+          "requirement": "REQUIRED",
+          "priority": 0
+        },
+        {
+          "requirement": "REQUIRED",
+          "priority": 0,
+          "displayName": "mfa-otp",
+          "autheticatorFlow": true,
+          "authenticatorFlow": true
+        },
+        {
+          "requirement": "REQUIRED",
+          "priority": 0
         }
       ]
     },
@@ -2508,12 +2511,5 @@
     }
   ],
   "loginTheme": "wims-bfp",
-  "otpPolicy": {
-    "type": "totp",
-    "algorithm": "HmacSHA1",
-    "digits": 6,
-    "initialCounter": 0,
-    "period": 30
-  },
   "passwordPolicy": "length(12) and upperCase(1) and lowerCase(1) and digits(1) and specialChars(1)"
 }
