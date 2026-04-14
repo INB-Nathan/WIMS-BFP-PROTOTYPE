@@ -33,11 +33,13 @@ describe('Dashboard page — NATIONAL_ANALYST redirect', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useAuth).mockReturnValue({
-      user: { role: 'NATIONAL_ANALYST' },
+      user: { id: 'test-user', role: 'NATIONAL_ANALYST' },
       loading: false,
+      loggingOut: false,
       isAuthenticated: true,
       login: vi.fn(),
       logout: vi.fn(),
+      refreshSession: vi.fn(),
     });
   });
 

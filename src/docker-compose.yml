@@ -96,7 +96,7 @@ services:
       - PYTHONPATH=/app
       - REDIS_URL=redis://redis:6379/0
       - KEYCLOAK_REALM_URL=http://keycloak:8080/auth/realms/bfp
-      - KEYCLOAK_ISSUER=http://localhost/auth/realms/bfp
+      - KEYCLOAK_ISSUER=http://localhost:8080/auth/realms/bfp
       - KEYCLOAK_CLIENT_ID=wims-web
       - KEYCLOAK_AUDIENCE=wims-web
       - OLLAMA_URL=http://ollama:11434

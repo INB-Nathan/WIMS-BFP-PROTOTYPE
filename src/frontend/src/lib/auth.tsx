@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 
 export interface User {
@@ -14,6 +14,7 @@ interface UserProfile {
     assignedRegionId: number | null;
     loading: boolean;
     signOut: () => Promise<void>;
+    refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<UserProfile | undefined>(undefined);
@@ -25,28 +26,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [loading, setLoading] = useState(true);
     const router = useRouter();
 
-    useEffect(() => {
-        const initAuth = async () => {
-            try {
-                // Fetch from our HttpOnly cookie session endpoint instead of Supabase client
-                const res = await fetch('/api/auth/session');
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.user) {
-                        setUser(data.user);
-                        setRole(data.role);
-                        setAssignedRegionId(data.assignedRegionId);
-                    }
+    const fetchProfile = useCallback(async () => {
+        try {
+            // Fetch from our HttpOnly cookie session endpoint instead of Supabase client
+            const res = await fetch('/api/auth/session');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.user) {
+                    setUser(data.user);
+                    setRole(data.role);
+                    setAssignedRegionId(data.assignedRegionId);
                 }
-            } catch (err) {
-                console.error("initAuth: Initialization failed:", err);
-            } finally {
-                setLoading(false);
             }
-        };
-
-        initAuth();
+        } catch (err) {
+            console.error("initAuth: Initialization failed:", err);
+        } finally {
+            setLoading(false);
+        }
     }, []);
+
+    useEffect(() => {
+        fetchProfile();
+    }, [fetchProfile]);
 
     const signOut = async () => {
         await fetch('/api/auth/logout', { method: 'POST' });
@@ -57,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     return (
-        <AuthContext.Provider value={{ user, role, assignedRegionId, loading, signOut }}>
+        <AuthContext.Provider value={{ user, role, assignedRegionId, loading, signOut, refreshProfile: fetchProfile }}>
             {children}
         </AuthContext.Provider>
     );
