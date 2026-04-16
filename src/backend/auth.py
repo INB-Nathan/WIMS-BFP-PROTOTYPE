@@ -230,6 +230,12 @@ async def get_current_wims_user(
     Resolve JWT payload to wims.users row. Ensures only authenticated
     Keycloak users present in wims.users can access protected routes.
 
+    Resolution order:
+    1) Match by keycloak_id = token sub
+    2) Fallback match by username when legacy rows are not yet linked
+       to a keycloak_id. If a username row is already linked to a
+       different keycloak_id, reject as identity mismatch.
+
     Also attaches the resolved user dict to request.state so that
     get_db() can call SET LOCAL wims.current_user_id for RLS enforcement.
     """
@@ -256,7 +262,33 @@ async def get_current_wims_user(
         raise HTTPException(status_code=500, detail="Authentication system error")
 
     if row is None:
-        raise HTTPException(status_code=403, detail="User not found in WIMS")
+        preferred_username = token_payload.get("preferred_username")
+        if not preferred_username:
+            raise HTTPException(status_code=403, detail="User not found in WIMS")
+
+        try:
+            row_by_username = db.execute(
+                text(
+                    "SELECT user_id, role, keycloak_id "
+                    "FROM wims.users "
+                    "WHERE username = :uname AND is_active = TRUE"
+                ),
+                {"uname": preferred_username},
+            ).fetchone()
+        except DataError as e:
+            logger.error(
+                f"DB error validating username {preferred_username}: {e}"
+            )
+            raise HTTPException(status_code=500, detail="Authentication system error")
+
+        if row_by_username is None:
+            raise HTTPException(status_code=403, detail="User not found in WIMS")
+
+        existing_keycloak_id = row_by_username[2]
+        if existing_keycloak_id is not None and str(existing_keycloak_id) != keycloak_sub:
+            raise HTTPException(status_code=403, detail="User identity mismatch")
+
+        row = (row_by_username[0], row_by_username[1])
 
     user_dict = {"user_id": row[0], "keycloak_id": keycloak_sub, "role": row[1]}
 
