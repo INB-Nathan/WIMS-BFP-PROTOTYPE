@@ -79,6 +79,15 @@ class KeycloakAuthenticator:
                 detail="JWKS URI missing in Identity Provider configuration",
             )
 
+        # Docker networking fix: Keycloak's OIDC discovery returns URLs with
+        # localhost:8080 which is unreachable from inside containers. Rewrite
+        # the JWKS URI to use the internal KEYCLOAK_REALM_URL host instead.
+        if "localhost" in jwks_uri:
+            jwks_uri = jwks_uri.replace(
+                "http://localhost:8080",
+                KEYCLOAK_REALM_URL.rsplit("/auth/realms", 1)[0],
+            )
+
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(jwks_uri)

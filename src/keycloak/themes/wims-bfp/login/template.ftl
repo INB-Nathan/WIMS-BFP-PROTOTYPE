@@ -26,7 +26,7 @@
     </#if>
     <#if properties.scripts?has_content>
         <#list properties.scripts?split(' ') as script>
-            <script src="${url.resourcesPath}/${script}" type="text/javascript"></script>
+            <script src="${url.resourcesPath}/${script}" type="text/javascript" defer></script>
         </#list>
     </#if>
     <#if scripts??>
@@ -34,17 +34,7 @@
             <script src="${script}" type="text/javascript"></script>
         </#list>
     </#if>
-    <#if authenticationSession??>
-        <script type="module">
-            import { checkCookiesAndSetTimer } from "${url.resourcesPath}/js/authChecker.js";
-
-            checkCookiesAndSetTimer(
-              "${authenticationSession.authSessionId}",
-              "${authenticationSession.tabId}",
-              "${url.ssoLoginInOtherTabsUrl}"
-            );
-        </script>
-    </#if>
+    <#-- authChecker.js removed: not present in Keycloak 26.6.0 -->
 </head>
 
 <body id="keycloak-bg" class="${properties.kcBodyClass!}">
@@ -77,6 +67,16 @@
     x-on:focusin.window="! $refs.panel?.contains($event.target) && close()"
     x-id="['language-select']"
 >
+  <div class="wims-login-branding">
+    <div class="wims-branding-content">
+      <div class="wims-logo-wrap">
+        <img src="${url.resourcesPath}/img/bfp-logo.png" alt="BFP" class="wims-logo" />
+      </div>
+      <h1 class="wims-brand-title">Web-based Incident<br/>Management System</h1>
+      <p class="wims-brand-subtitle">Bureau of Fire Protection</p>
+      <div class="wims-brand-tagline">Secured &bull; Monitored &bull; Explainable</div>
+    </div>
+  </div>
   <div class="pf-v5-c-login__container">
     <main class="pf-v5-c-login__main">
       <header class="pf-v5-c-login__main-header">

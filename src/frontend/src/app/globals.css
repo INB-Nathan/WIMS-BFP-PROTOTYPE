@@ -97,14 +97,215 @@ body {
   to { max-height: 0; opacity: 0; }
 }
 
-/* Login page clip-path wave */
-.login-wave-clip {
-  clip-path: polygon(0 0, 85% 0, 65% 100%, 0% 100%);
+/* Login page — diagonal split layout */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  overflow: hidden;
+  background: #f8f9fa;
 }
 
+.login-left {
+  position: relative;
+  width: 45%;
+  min-height: 100vh;
+  background: #992222;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Diagonal clip: top-right to bottom-left */
+  clip-path: polygon(0 0, 90% 0, 70% 100%, 0 100%);
+}
+
+/* Subtle cross pattern overlay */
+.login-left::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+.login-left-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 380px;
+  padding: 2rem;
+  margin-right: -5%; /* offset left due to diagonal */
+}
+
+.login-logo {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  margin-bottom: 1.5rem;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.2));
+}
+
+.login-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.3;
+  margin-bottom: 0.5rem;
+}
+
+.login-subtitle {
+  font-size: 0.95rem;
+  color: rgba(255,255,255,0.75);
+  margin-bottom: 1.5rem;
+}
+
+.login-tagline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.55);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* Right panel */
+.login-right {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 6%;
+}
+
+.login-form-container {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.login-form-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #2c384a;
+}
+
+.login-form-subtitle {
+  font-size: 0.875rem;
+  color: #768192;
+  margin-top: -1rem;
+}
+
+.login-form-card {
+  background: #ffffff;
+  border-radius: 0.75rem;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.login-sso-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: #f9fafb;
+}
+
+.login-sso-notice p {
+  font-size: 0.75rem;
+  color: #768192;
+  line-height: 1.5;
+}
+
+.login-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.875rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(135deg, #992222 0%, #7f1d1d 100%);
+  border: none;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  box-shadow: 0 2px 8px rgba(153,34,34,0.3);
+  transition: all 0.2s ease;
+}
+
+.login-button:hover {
+  box-shadow: 0 4px 16px rgba(153,34,34,0.4);
+  transform: translateY(-1px);
+}
+
+.login-button:active {
+  transform: translateY(0);
+}
+
+.login-button-arrow {
+  transition: transform 0.2s ease;
+}
+
+.login-button:hover .login-button-arrow {
+  transform: translateX(4px);
+}
+
+.login-copyright {
+  text-align: center;
+  font-size: 0.75rem;
+  color: #9da5b1;
+}
+
+/* Mobile: stack vertically */
 @media (max-width: 768px) {
-  .login-wave-clip {
-    clip-path: polygon(0 0, 100% 0, 100% 85%, 0% 100%);
+  .login-page {
+    flex-direction: column;
+  }
+
+  .login-left {
+    width: 100%;
+    min-height: 260px;
+    clip-path: polygon(0 0, 100% 0, 100% 85%, 0 100%);
+  }
+
+  .login-left-content {
+    margin-right: 0;
+    padding: 2rem 1rem;
+  }
+
+  .login-logo {
+    width: 80px;
+    height: 80px;
+    margin-bottom: 1rem;
+  }
+
+  .login-title {
+    font-size: 1.25rem;
+  }
+
+  .login-right {
+    justify-content: center;
+    padding: 2rem 1.5rem;
+  }
+
+  .login-form-title {
+    text-align: center;
+  }
+
+  .login-form-subtitle {
+    text-align: center;
   }
 }
 

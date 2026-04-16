@@ -1,9 +1,8 @@
 parent=keycloak
 import=common/keycloak
 
-# REMOVED stylesCommon — PatternFly CSS doesn't exist in Keycloak 26
-# All styles are self-contained in wims-custom.css
 styles=css/styles.css css/wims-custom.css
+stylesCommon=node_modules/@patternfly-v5/patternfly/patternfly.min.css node_modules/@patternfly-v5/patternfly/patternfly-addons.css
 scripts=script/cdn.min.js
 
 kcFormGroupClass=pf-v5-c-form__group

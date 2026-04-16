@@ -43,11 +43,13 @@ describe('Analyst dashboard page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useAuth).mockReturnValue({
-      user: { role: 'NATIONAL_ANALYST' },
+      user: { id: 'test-user', role: 'NATIONAL_ANALYST' },
       loading: false,
+      loggingOut: false,
       isAuthenticated: true,
       login: vi.fn(),
       logout: vi.fn(),
+      refreshSession: vi.fn(),
     });
     mockFetchRegions.mockResolvedValue([
       { region_id: 1, region_name: 'NCR', region_code: 'NCR' },
@@ -118,9 +120,11 @@ describe('Analyst dashboard page', () => {
     vi.mocked(useAuth).mockReturnValue({
       user: null,
       loading: true,
+      loggingOut: false,
       isAuthenticated: false,
       login: vi.fn(),
       logout: vi.fn(),
+      refreshSession: vi.fn(),
     });
 
     render(<AnalystDashboardPage />);

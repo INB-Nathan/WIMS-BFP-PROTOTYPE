@@ -1,48 +1,17 @@
-/* WIMS-BFP Keycloak Theme — Fully Self-Contained
- * No PatternFly dependency (Keycloak 26 compatibility)
- * Matches Next.js frontend login page exactly
- */
+/* WIMS-BFP Keycloak Theme — Diagonal Split Layout */
+/* Matches the Next.js app login page design exactly */
 
-/* === Google Fonts — Inter (matches frontend) === */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
-/* === CSS Reset / Base === */
-*, *::before, *::after {
-    box-sizing: border-box;
-}
-
-html {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: 16px;
-    line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-}
-
-body.login-pf {
-    background: #ffffff !important;
+/* === Reset / Base === */
+.login-pf body {
+    background: #f8f9fa !important;
     margin: 0;
     padding: 0;
     min-height: 100vh;
     overflow-x: hidden;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-    color: #2c384a;
 }
 
-/* Kill the dark poly background from base keycloak theme */
-#keycloak-bg,
-.login-pf body {
-    background: #ffffff !important;
-}
-
-/* Kill ALL default Keycloak chrome */
-#kc-header,
-#kc-header-wrapper {
-    display: none !important;
-}
-
-#kc-locale,
-.pf-v5-c-login__main-header {
+/* Hide default Keycloak header */
+#kc-header {
     display: none !important;
 }
 
@@ -51,8 +20,6 @@ body.login-pf {
     display: flex !important;
     min-height: 100vh !important;
     background: transparent !important;
-    margin: 0 !important;
-    padding: 0 !important;
 }
 
 .pf-v5-c-login__container {
@@ -73,6 +40,7 @@ body.login-pf {
     display: flex;
     align-items: center;
     justify-content: center;
+    /* DIAGONAL: top-right to bottom-left */
     clip-path: polygon(0 0, 90% 0, 70% 100%, 0 100%);
     flex-shrink: 0;
     overflow: hidden;
@@ -97,6 +65,7 @@ body.login-pf {
     text-align: center;
     max-width: 380px;
     padding: 2rem;
+    /* Offset slightly left to center within the diagonal shape */
     margin-right: -5%;
 }
 
@@ -105,6 +74,7 @@ body.login-pf {
     height: 120px;
     margin-bottom: 1.5rem;
     filter: drop-shadow(0 4px 12px rgba(0,0,0,0.2));
+    position: relative;
 }
 
 .wims-logo {
@@ -113,27 +83,23 @@ body.login-pf {
     object-fit: contain;
 }
 
-/* FIXED: Title must be WHITE on red background (was dark blue due to missing PatternFly) */
 .wims-brand-title {
-    font-family: 'Inter', sans-serif !important;
     font-size: 1.75rem;
     font-weight: 700;
-    color: #ffffff !important;
+    color: #ffffff;
     line-height: 1.3;
     margin: 0 0 0.5rem 0;
 }
 
 .wims-brand-subtitle {
-    font-family: 'Inter', sans-serif !important;
     font-size: 0.95rem;
-    color: rgba(255,255,255,0.75) !important;
+    color: rgba(255,255,255,0.75);
     margin: 0 0 1.5rem 0;
 }
 
 .wims-brand-tagline {
-    font-family: 'Inter', sans-serif !important;
     font-size: 0.8rem;
-    color: rgba(255,255,255,0.55) !important;
+    color: rgba(255,255,255,0.55);
     letter-spacing: 0.05em;
     text-transform: uppercase;
 }
@@ -147,12 +113,14 @@ body.login-pf {
     flex: 1 !important;
     padding: 0 6% !important;
     background: transparent !important;
-    font-family: 'Inter', sans-serif !important;
+}
+
+.pf-v5-c-login__main-header {
+    display: none !important;
 }
 
 /* === Login Card === */
-.card-pf,
-#kc-form {
+.card-pf {
     background: #ffffff !important;
     border-radius: 12px !important;
     box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
@@ -165,7 +133,6 @@ body.login-pf {
 
 /* === Page Title (Sign In) === */
 #kc-page-title {
-    font-family: 'Inter', sans-serif !important;
     color: #2c384a !important;
     font-size: 28px !important;
     font-weight: 700 !important;
@@ -174,78 +141,34 @@ body.login-pf {
 
 /* === Subtitle === */
 #kc-info-message {
-    font-family: 'Inter', sans-serif !important;
     color: #768192 !important;
     font-size: 14px !important;
     margin-bottom: 24px !important;
 }
 
 /* === Form Labels === */
-.pf-v5-c-form__label-text,
+.pf-v5-c-form__label,
 label {
-    font-family: 'Inter', sans-serif !important;
     color: #2c384a !important;
     font-weight: 500 !important;
     font-size: 14px !important;
-    display: block !important;
-    margin-bottom: 6px !important;
 }
 
-/* === Input Fields — Span wrapper + Input === */
-/* Span is the visible container, input fills it */
-.pf-v5-c-form-control {
-    display: block !important;
-    position: relative !important;
+/* === Input Fields === */
+.pf-v5-c-form-control,
+input[type="text"],
+input[type="password"],
+input[type="email"] {
     border-radius: 8px !important;
     border: 1px solid #d1d5db !important;
-    background: #fff !important;
-    padding: 0 !important;
+    padding: 10px 12px !important;
+    font-size: 14px !important;
     transition: border-color 0.2s, box-shadow 0.2s !important;
     width: 100% !important;
     box-sizing: border-box !important;
 }
 
-.pf-v5-c-form-control:focus-within {
-    border-color: #992222 !important;
-    box-shadow: 0 0 0 3px rgba(153,34,34,0.1) !important;
-}
-
-/* Input inside span — no border, fills container */
-.pf-v5-c-form-control input[type="text"],
-.pf-v5-c-form-control input[type="password"],
-.pf-v5-c-form-control input[type="email"] {
-    font-family: 'Inter', sans-serif !important;
-    border: none !important;
-    border-radius: 0 !important;
-    padding: 10px 12px !important;
-    font-size: 14px !important;
-    width: 100% !important;
-    box-sizing: border-box !important;
-    outline: none !important;
-    background: transparent !important;
-    color: #2c384a !important;
-    line-height: 1.5 !important;
-    box-shadow: none !important;
-}
-
-/* Standalone inputs (outside span) — fallback */
-input[type="text"],
-input[type="password"],
-input[type="email"] {
-    font-family: 'Inter', sans-serif !important;
-    border-radius: 8px !important;
-    border: 1px solid #d1d5db !important;
-    padding: 10px 12px !important;
-    font-size: 14px !important;
-    width: 100% !important;
-    box-sizing: border-box !important;
-    outline: none !important;
-    background: #fff !important;
-    color: #2c384a !important;
-    line-height: 1.5 !important;
-}
-
-/* Focus for standalone inputs */
+.pf-v5-c-form-control:focus,
 input[type="text"]:focus,
 input[type="password"]:focus,
 input[type="email"]:focus {
@@ -254,52 +177,10 @@ input[type="email"]:focus {
     outline: none !important;
 }
 
-/* Input error state — on span wrapper */
-.pf-v5-c-form-control.pf-m-error {
-    border-color: #c9302c !important;
-}
-
-/* Input group (password + toggle) */
-.pf-v5-c-input-group {
-    display: flex !important;
-    align-items: stretch !important;
-    gap: 0 !important;
-}
-
-/* Span inside input group — flat right edge */
-.pf-v5-c-input-group .pf-v5-c-form-control {
-    border-top-right-radius: 0 !important;
-    border-bottom-right-radius: 0 !important;
-    flex: 1 !important;
-}
-
-/* === Password Toggle Button === */
-.pf-v5-c-button.pf-m-control {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    background: #f9fafb !important;
-    border: 1px solid #d1d5db !important;
-    border-left: 1px solid #e5e7eb !important;
-    border-radius: 0 8px 8px 0 !important;
-    padding: 0 12px !important;
-    cursor: pointer !important;
-    color: #6b7280 !important;
-    font-size: 14px !important;
-    min-width: 40px !important;
-    transition: background 0.15s !important;
-}
-
-.pf-v5-c-button.pf-m-control:hover {
-    background: #f3f4f6 !important;
-    color: #374151 !important;
-}
-
 /* === Primary Button (Sign In) === */
 .pf-v5-c-button.pf-m-primary,
 #kc-login,
 input[type="submit"] {
-    font-family: 'Inter', sans-serif !important;
     background: linear-gradient(135deg, #992222 0%, #7f1d1d 100%) !important;
     border: none !important;
     border-radius: 8px !important;
@@ -332,7 +213,6 @@ input[type="submit"]:active {
 
 /* === Links === */
 a {
-    font-family: 'Inter', sans-serif !important;
     color: #992222 !important;
     text-decoration: none !important;
     font-size: 14px !important;
@@ -361,13 +241,10 @@ a:hover {
 
 input[type="checkbox"] {
     accent-color: #992222 !important;
-    width: 16px !important;
-    height: 16px !important;
 }
 
 .pf-v5-c-check__label,
 #kc-form-options label {
-    font-family: 'Inter', sans-serif !important;
     color: #768192 !important;
     font-size: 13px !important;
 }
@@ -379,11 +256,9 @@ input[type="checkbox"] {
 }
 
 /* === Error Messages === */
-.pf-v5-c-alert,
 .pf-v5-c-alert.pf-m-danger,
 .pf-v5-c-alert.pf-m-error,
 .alert-error {
-    font-family: 'Inter', sans-serif !important;
     background: #fef2f2 !important;
     border: 1px solid #fecaca !important;
     color: #991b1b !important;
@@ -391,25 +266,11 @@ input[type="checkbox"] {
     padding: 12px 16px !important;
     font-size: 13px !important;
     margin-bottom: 16px !important;
-    display: flex !important;
-    align-items: flex-start !important;
-    gap: 8px !important;
-}
-
-.pf-v5-c-alert__icon {
-    flex-shrink: 0 !important;
-    display: flex !important;
-    align-items: center !important;
-}
-
-.pf-v5-c-alert__title {
-    font-weight: 500 !important;
 }
 
 /* === Success/Info Messages === */
 .pf-v5-c-alert.pf-m-success,
 .alert-success {
-    font-family: 'Inter', sans-serif !important;
     background: #f0fdf4 !important;
     border: 1px solid #bbf7d0 !important;
     color: #166534 !important;
@@ -420,22 +281,12 @@ input[type="checkbox"] {
 
 .pf-v5-c-alert.pf-m-info,
 .alert-info {
-    font-family: 'Inter', sans-serif !important;
     background: #eff6ff !important;
     border: 1px solid #bfdbfe !important;
     color: #1e40af !important;
     border-radius: 8px !important;
     padding: 12px 16px !important;
     font-size: 13px !important;
-}
-
-/* === Input Error Helper Text === */
-.pf-v5-c-helper-text__item.pf-m-error,
-.kc-feedback-text {
-    font-family: 'Inter', sans-serif !important;
-    color: #c9302c !important;
-    font-size: 12px !important;
-    margin-top: 4px !important;
 }
 
 /* === TOTP / MFA Input === */
@@ -446,14 +297,12 @@ input[type="checkbox"] {
     padding: 16px !important;
 }
 
-/* === General Typography === */
+/* === Typography === */
 h1, h2, h3 {
-    font-family: 'Inter', sans-serif !important;
     color: #2c384a !important;
 }
 
 p {
-    font-family: 'Inter', sans-serif !important;
     color: #768192 !important;
     font-size: 14px !important;
     line-height: 1.5 !important;
@@ -462,7 +311,6 @@ p {
 /* === Footer === */
 .login-pf-page-footer,
 #kc-footer-wrapper {
-    font-family: 'Inter', sans-serif !important;
     text-align: center !important;
     color: #9da5b1 !important;
     font-size: 12px !important;
@@ -470,16 +318,11 @@ p {
 }
 
 /* === Language Selector === */
-.pf-v5-c-select__toggle,
-.pf-v5-c-select__menu {
-    font-family: 'Inter', sans-serif !important;
-}
-
-/* === Registration / Other Pages === */
-.pf-v5-c-title {
-    font-family: 'Inter', sans-serif !important;
-    color: #2c384a !important;
-    font-weight: 700 !important;
+.pf-v5-c-login__main-header-utilities {
+    position: absolute !important;
+    top: 16px !important;
+    right: 16px !important;
+    z-index: 10 !important;
 }
 
 /* === Mobile Responsive === */
@@ -514,8 +357,7 @@ p {
         padding: 2rem 1.5rem !important;
     }
 
-    .card-pf,
-    #kc-form {
+    .card-pf {
         max-width: 100% !important;
     }
 
