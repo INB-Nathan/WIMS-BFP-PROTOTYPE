@@ -3,16 +3,18 @@ import { useState, useEffect } from 'react';
 import { IncidentForm } from '@/components/IncidentForm';
 import { WildlandAforManualForm } from '@/components/WildlandAforManualForm';
 import { useUserProfile } from '@/lib/auth';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import type { AforFormKind } from '@/lib/api';
 
 export default function AforCreatePage() {
     const { role } = useUserProfile();
     const router = useRouter();
+    const searchParams = useSearchParams();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [initialData, setInitialData] = useState<any | null>(null);
     /** Structural vs wildland when not fixed by import handoff */
     const [formKind, setFormKind] = useState<AforFormKind>('STRUCTURAL_AFOR');
+    const cameFromImport = searchParams.get('from') === 'import';
 
     useEffect(() => {
         /* eslint-disable react-hooks/set-state-in-effect */
@@ -56,14 +58,24 @@ export default function AforCreatePage() {
                             : 'Enter fire operation details manually into the system.'}
                     </p>
                 </div>
-                {initialData && (
-                    <button
-                        onClick={() => setInitialData(null)}
-                        className="text-sm text-gray-500 hover:text-gray-700 underline"
-                    >
-                        Start Fresh
-                    </button>
-                )}
+                <div className="flex items-center gap-3">
+                    {(initialData || cameFromImport) && (
+                        <button
+                            onClick={() => router.push('/afor/import?reset=1')}
+                            className="text-sm text-blue-600 hover:text-blue-800 underline"
+                        >
+                            Back to import
+                        </button>
+                    )}
+                    {initialData && (
+                        <button
+                            onClick={() => setInitialData(null)}
+                            className="text-sm text-gray-500 hover:text-gray-700 underline"
+                        >
+                            Start Fresh
+                        </button>
+                    )}
+                </div>
             </div>
 
             {showToggle && (
@@ -130,7 +142,7 @@ export default function AforCreatePage() {
                                 ? (initialData.wildland as Record<string, unknown>)
                                 : null
                         }
-                        showDebugJson={!!initialData?.wildland}
+                        showDebugJson={false}
                     />
                 </>
             )}

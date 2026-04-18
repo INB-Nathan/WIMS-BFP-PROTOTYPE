@@ -134,7 +134,15 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
             const sen = initialData.incident_sensitive_details || {};
             const res = (ns.resources_deployed || { trucks: {}, special_assets: {}, medical: {} }) as Record<string, Record<string, unknown>>;
             const timeline = ns.alarm_timeline || {};
-            const casualties = (ns.casualty_details || { injured: {}, fatalities: {} }) as { injured: Record<string, unknown>; fatalities: Record<string, unknown> };
+            const casualties = ((sen.casualty_details as { injured?: Record<string, unknown>; fatalities?: Record<string, unknown> }) || { injured: {}, fatalities: {} });
+            const injured = (casualties.injured || {}) as Record<string, unknown>;
+            const fatalities = (casualties.fatalities || {}) as Record<string, unknown>;
+            const civilianInjured = (injured.civilian as Record<string, unknown>) || {};
+            const firefighterInjured = ((injured.firefighter || injured.bfp) as Record<string, unknown>) || {};
+            const auxiliaryInjured = (injured.auxiliary as Record<string, unknown>) || {};
+            const civilianFatalities = (fatalities.civilian as Record<string, unknown>) || {};
+            const firefighterFatalities = ((fatalities.firefighter || fatalities.bfp) as Record<string, unknown>) || {};
+            const auxiliaryFatalities = (fatalities.auxiliary as Record<string, unknown>) || {};
 
             // @ts-expect-error -- prev spread preserves all fields; type checker cannot verify exhaustive return
             setFormState((prev) => ({
@@ -150,7 +158,7 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                 nearest_landmark: ns.nearest_landmark || '',
                 caller_name: sen.caller_name || '',
                 caller_number: sen.caller_number || '',
-                receiver_name: ns.receiver_name || '',
+                receiver_name: sen.receiver_name || ns.receiver_name || '',
                 engine_dispatched: ns.engine_dispatched || '',
                 time_engine_dispatched: ns.time_engine_dispatched || '',
                 time_arrived_at_scene: ns.time_arrived_at_scene || '',
@@ -160,8 +168,8 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                 time_returned_to_base: ns.time_returned_to_base || '',
                 total_gas_consumed_liters: ns.total_gas_consumed_liters?.toString() || '',
 
-                classification_of_involved: ns.classification_of_involved || '',
-                type_of_involved_general_category: ns.type_of_involved_general_category || '',
+                classification_of_involved: ns.classification_of_involved || ns.general_category || '',
+                type_of_involved_general_category: ns.type_of_involved_general_category || ns.sub_category || '',
                 owner_name: initialData.incident_sensitive_details?.owner_name || ns.owner_name || '',
                 establishment_name: initialData.incident_sensitive_details?.establishment_name || ns.establishment_name || '',
                 general_description_of_involved: ns.general_description_of_involved || '',
@@ -199,25 +207,34 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                 alarm_fuc: timeline.alarm_fuc || '',
                 alarm_fo: timeline.alarm_fo || '',
 
-                injured_civilian_m: casualties.injured?.civilian_m?.toString() || '',
-                injured_civilian_f: casualties.injured?.civilian_f?.toString() || '',
-                injured_firefighter_m: casualties.injured?.bfp_m?.toString() || '',
-                injured_firefighter_f: casualties.injured?.bfp_f?.toString() || '',
-                fatal_civilian_m: casualties.fatalities?.civilian_m?.toString() || '',
-                fatal_civilian_f: casualties.fatalities?.civilian_f?.toString() || '',
+                injured_civilian_m: (civilianInjured.m as number | string | undefined)?.toString() || '',
+                injured_civilian_f: (civilianInjured.f as number | string | undefined)?.toString() || '',
+                injured_firefighter_m: (firefighterInjured.m as number | string | undefined)?.toString() || '',
+                injured_firefighter_f: (firefighterInjured.f as number | string | undefined)?.toString() || '',
+                injured_auxiliary_m: (auxiliaryInjured.m as number | string | undefined)?.toString() || '',
+                injured_auxiliary_f: (auxiliaryInjured.f as number | string | undefined)?.toString() || '',
+                fatal_civilian_m: (civilianFatalities.m as number | string | undefined)?.toString() || '',
+                fatal_civilian_f: (civilianFatalities.f as number | string | undefined)?.toString() || '',
+                fatal_firefighter_m: (firefighterFatalities.m as number | string | undefined)?.toString() || '',
+                fatal_firefighter_f: (firefighterFatalities.f as number | string | undefined)?.toString() || '',
+                fatal_auxiliary_m: (auxiliaryFatalities.m as number | string | undefined)?.toString() || '',
+                fatal_auxiliary_f: (auxiliaryFatalities.f as number | string | undefined)?.toString() || '',
                 
                 incident_commander: initialData.incident_sensitive_details?.personnel_on_duty?.engine_commander || '',
                 ground_commander: initialData.incident_sensitive_details?.personnel_on_duty?.shift_in_charge || '',
                 pod_engine_commander: initialData.incident_sensitive_details?.personnel_on_duty?.engine_commander || '',
                 pod_shift_in_charge: initialData.incident_sensitive_details?.personnel_on_duty?.shift_in_charge || '',
 
-                narrative_report: initialData.narrative_report || '',
-                recommendations: initialData.recommendations || '',
-                disposition: initialData.disposition || '',
+                narrative_report: (sen.narrative_report as string) || '',
+                recommendations: (ns.recommendations as string) || '',
+                disposition: (sen.disposition as string) || '',
+                disposition_prepared_by: (sen.disposition_prepared_by as string) || '',
+                disposition_noted_by: (sen.disposition_noted_by as string) || '',
             }));
 
-            if (ns.other_personnel && Array.isArray(ns.other_personnel)) {
-                setOtherPersonnel(ns.other_personnel.map((p: Record<string, unknown>) => ({
+            const people = (sen.other_personnel || ns.other_personnel) as Record<string, unknown>[] | undefined;
+            if (people && Array.isArray(people)) {
+                setOtherPersonnel(people.map((p: Record<string, unknown>) => ({
                     name: (p.name as string) || '',
                     designation: (p.designation as string) || '',
                     remarks: (p.remarks as string) || ''

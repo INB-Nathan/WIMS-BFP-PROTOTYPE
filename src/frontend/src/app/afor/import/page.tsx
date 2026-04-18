@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useCallback, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Upload, FileDown, CheckCircle, AlertCircle, RefreshCw, X } from 'lucide-react';
 import { importAforFile, commitAforImport, type AforImportPreviewResponse } from '@/lib/api';
 import { MapPicker } from '@/components/MapPicker';
@@ -19,6 +19,7 @@ function isValidWgs84(lat: number, lng: number): boolean {
 
 export default function AforImportPage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const [file, setFile] = useState<File | null>(null);
     const [isUploading, setIsUploading] = useState(false);
     const [isCommitting, setIsCommitting] = useState(false);
@@ -26,6 +27,16 @@ export default function AforImportPage() {
     const [error, setError] = useState<string | null>(null);
     const [commitLatStr, setCommitLatStr] = useState('');
     const [commitLngStr, setCommitLngStr] = useState('');
+
+    useEffect(() => {
+        if (searchParams.get('reset') === '1') {
+            setFile(null);
+            setPreviewData(null);
+            setError(null);
+            setCommitLatStr('');
+            setCommitLngStr('');
+        }
+    }, [searchParams]);
 
     const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
 
@@ -384,7 +395,7 @@ export default function AforImportPage() {
                                                     onClick={() => {
                                                         sessionStorage.setItem('temp_afor_review', JSON.stringify(row.data));
                                                         sessionStorage.setItem('temp_afor_form_kind', previewData.form_kind);
-                                                        router.push('/afor/create');
+                                                        router.push('/afor/create?from=import');
                                                     }}
                                                     className="text-blue-600 hover:text-blue-800 font-medium"
                                                 >
