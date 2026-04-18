@@ -152,6 +152,22 @@ def test_parse_afor_report_data_invalid_date():
     assert any("notification_dt" in err for err in result.errors)
 
 
+def test_parse_afor_report_data_excel_serial_notification_datetime():
+    """Excel serial values (e.g., D22/D23) should produce a valid notification_dt."""
+    result = parse_afor_report_data(
+        {
+            "notification_date": 46096.0,
+            "notification_time": 0.6041666666666666,
+            "city": "Manila",
+            "fire_station_name": "Sampaloc Central Fire Station",
+        },
+        region_id=13,
+    )
+
+    assert result.status == "VALID"
+    assert result.data["incident_nonsensitive_details"]["notification_dt"] is not None
+
+
 def test_parse_csv_content_supports_official_form_layout():
     """The official AFOR CSV export should be parsed as a worksheet, not a DictReader table."""
     rows = [["" for _ in range(6)] for _ in range(241)]
@@ -225,6 +241,43 @@ def test_detect_structural_workbook():
     ws["A14"] = "AFTER FIRE OPERATIONS REPORT"
     ws["A18"] = "A. RESPONSE DETAILS"
     assert detect_afor_template_kind(wb) == "STRUCTURAL_AFOR"
+
+
+def test_detect_structural_workbook_shifted_rows():
+    """Filled variants with row-shifted title/section markers should still classify."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Filled AFOR"
+    ws["A15"] = "AFTER FIRE OPERATIONS REPORT"
+    ws["A19"] = "A. RESPONSE DETAILS"
+    assert detect_afor_template_kind(wb) == "STRUCTURAL_AFOR"
+
+
+def test_bfp_xlsx_parser_shifted_rows_reads_required_fields():
+    """Row-shifted structural sheets should still map required cells correctly."""
+    mock_ws = _FakeSheet(
+        {
+            "A15": "AFTER FIRE OPERATIONS REPORT",
+            "A19": "A. RESPONSE DETAILS",
+            "B21": "x",
+            "D21": "Station A",
+            "D23": "2025-11-20",
+            "D24": "14:30",
+            "D27": "Manila",
+            "D43": "1ST ALARM",
+            "D57": 500,
+        }
+    )
+
+    data = BfpXlsxParser(mock_ws).parse()
+    result = parse_afor_report_data(data, region_id=1)
+
+    assert result.status == "VALID"
+    assert result.data["_city_text"] == "Manila"
+    assert (
+        result.data["incident_nonsensitive_details"]["fire_station_name"]
+        == "Station A"
+    )
 
 
 def test_detect_wildland_workbook():

@@ -12,7 +12,7 @@ import json
 import logging
 import math
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
@@ -212,11 +212,38 @@ def _safe_dt(val: Any) -> str | None:
     if not val:
         return None
 
+    # Excel stores dates/times as serial floats in many filled templates.
+    # Serial date epoch (Windows): 1899-12-30.
+    if isinstance(val, (int, float)):
+        try:
+            serial = float(val)
+            base = datetime(1899, 12, 30)
+            dt = base + timedelta(days=serial)
+            if serial < 1:
+                return dt.strftime("%H:%M:%S")
+            return dt.isoformat()
+        except Exception:
+            return None
+
+    raw_numeric = str(val).strip()
+    try:
+        serial = float(raw_numeric)
+        base = datetime(1899, 12, 30)
+        dt = base + timedelta(days=serial)
+        if serial < 1:
+            return dt.strftime("%H:%M:%S")
+        return dt.isoformat()
+    except (ValueError, TypeError):
+        pass
+
     dt_str = str(val).strip()
     for fmt in [
+        "%Y-%m-%d %H:%M:%S",
         "%Y-%m-%d %H:%M",
+        "%m-%d-%Y %H:%M:%S",
         "%m-%d-%Y %H:%M",
         "%H:%M",
+        "%H:%M:%S",
         "%Y-%m-%d",
         "%m-%d-%Y",
         "%m/%d/%Y",
@@ -293,10 +320,33 @@ def _cell_str(ws: Any, coord: str) -> str:
 
 
 def _sheet_has_structural_markers(ws: Any) -> bool:
-    """Official structural AFOR: title in column A row 14, section header row 18."""
-    a14 = _cell_str(ws, "A14").upper()
-    a18 = _cell_str(ws, "A18").upper()
-    return "AFTER FIRE OPERATIONS REPORT" in a14 and "A. RESPONSE DETAILS" in a18
+    """Structural AFOR marker detection, tolerant to row shifts in filled templates."""
+    title_row, section_row = _find_structural_marker_rows(ws)
+    if title_row is None or section_row is None:
+        return False
+    # In official templates, section header appears a few rows after title.
+    return 2 <= (section_row - title_row) <= 8
+
+
+def _find_structural_marker_rows(ws: Any) -> tuple[int | None, int | None]:
+    """Find title/section marker rows by scanning column A and nearby cells."""
+    title_row: int | None = None
+    section_row: int | None = None
+
+    for row in range(1, 90):
+        a_val = _cell_str(ws, f"A{row}").upper()
+        b_val = _cell_str(ws, f"B{row}").upper()
+        combined = f"{a_val} {b_val}".strip()
+
+        if title_row is None and "AFTER FIRE OPERATIONS REPORT" in combined:
+            title_row = row
+        if section_row is None and "A. RESPONSE DETAILS" in combined:
+            section_row = row
+
+        if title_row is not None and section_row is not None:
+            break
+
+    return title_row, section_row
 
 
 def _sheet_has_wildland_markers(ws: Any) -> bool:
@@ -346,6 +396,10 @@ def detect_afor_template_kind(wb: Any) -> AforFormKind | None:
 
 
 def _pick_structural_worksheet(wb: Any) -> Any:
+    for name in wb.sheetnames:
+        ws = wb[name]
+        if _sheet_has_structural_markers(ws):
+            return ws
     for name in wb.sheetnames:
         if "AFOR" in name.upper():
             return wb[name]
@@ -566,9 +620,35 @@ class BfpXlsxParser:
 
     def __init__(self, ws):
         self.ws = ws
+        self._row_offset = self._infer_row_offset()
+
+    def _infer_row_offset(self) -> int:
+        """Infer row offset when users fill a structurally identical AFOR with shifted rows."""
+        title_row, section_row = _find_structural_marker_rows(self.ws)
+        if title_row is None:
+            return 0
+
+        offset = title_row - 14
+        # Validate offset with section marker when available.
+        if section_row is not None and (section_row - 18) != offset:
+            return 0
+        return offset
+
+    def _coord_with_offset(self, coord: str) -> str:
+        match = _COORD_RE.match(coord.upper())
+        if not match or self._row_offset == 0:
+            return coord
+
+        col, row_str = match.groups()
+        shifted_row = max(1, int(row_str) + self._row_offset)
+        return f"{col}{shifted_row}"
 
     def get(self, coord: str) -> Any:
-        val = self.ws[coord].value
+        shifted_coord = self._coord_with_offset(coord)
+        val = self.ws[shifted_coord].value
+        if val is None and shifted_coord != coord:
+            # Fallback to canonical location to support mixed/custom sheets.
+            val = self.ws[coord].value
         if val is None:
             return None
         if isinstance(val, str):
@@ -781,6 +861,33 @@ def parse_afor_report_data(data: dict, region_id: int) -> AforParsedRow:
             return None
 
         if t:
+            # Native Excel conversions often give datetime/date + datetime.time objects.
+            if isinstance(d, datetime) and hasattr(t, "hour") and hasattr(t, "minute"):
+                try:
+                    return datetime.combine(d.date(), t).isoformat()
+                except Exception:
+                    pass
+
+            # Excel serial date/time support for real filled XLSX exports.
+            d_serial: float | None = None
+            t_serial: float | None = None
+            try:
+                d_serial = float(d)
+                t_serial = float(t)
+            except (TypeError, ValueError):
+                d_serial = None
+                t_serial = None
+
+            if d_serial is not None and t_serial is not None:
+                try:
+                    base = datetime(1899, 12, 30)
+                    date_dt = base + timedelta(days=d_serial)
+                    time_dt = base + timedelta(days=t_serial)
+                    merged = datetime.combine(date_dt.date(), time_dt.time())
+                    return merged.isoformat()
+                except Exception:
+                    pass
+
             date_part = (
                 d.strftime("%Y-%m-%d")
                 if hasattr(d, "strftime")
