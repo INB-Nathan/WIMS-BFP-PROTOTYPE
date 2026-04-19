@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { Fragment, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Upload, FileDown, CheckCircle, AlertCircle, RefreshCw, X, MapPin, ChevronDown, ChevronUp
@@ -12,6 +12,7 @@ import {
   fieldLabel,
   displayValue,
   ALL_PROBLEM_OPTIONS,
+  normalizeProblemLabel,
 } from '@/lib/afor-utils';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -101,7 +102,7 @@ function PersonnelSection({ pod, others }: { pod: PersonnelOnDuty; others: Other
 
 // ── FIX 6: Problems Encountered grid ─────────────────────────────────────────
 function ProblemsGrid({ selected }: { selected: string[] }) {
-  const selectedSet = new Set(selected);
+  const selectedSet = new Set((selected ?? []).map((s) => normalizeProblemLabel(String(s))));
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
       {ALL_PROBLEM_OPTIONS.map((label) => {
@@ -129,17 +130,17 @@ function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown
     const wl = rowData.wildland as Record<string, unknown> | undefined;
     if (!wl) return null;
     return (
-      <div className="px-4 pb-4">
+      <div className="px-4 pb-4 whitespace-normal break-words">
         <button onClick={() => setOpen(!open)} className="text-xs text-blue-600 flex items-center gap-1">
           {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           {open ? 'Hide' : 'Show'} wildland details
         </button>
         {open && (
-          <div className="mt-3 space-y-2 text-sm">
+          <div className="mt-3 space-y-2 text-sm whitespace-normal break-words">
             {Object.entries(wl).map(([k, v]) => (
-              <div key={k} className="grid grid-cols-3 gap-2 border-b border-gray-100 pb-1">
-                <span className="font-medium text-gray-600">{fieldLabel(k)}</span>
-                <span className="col-span-2 text-gray-900 break-words whitespace-pre-wrap">
+              <div key={k} className="grid grid-cols-1 gap-1 border-b border-gray-100 pb-1 md:grid-cols-3 md:gap-2">
+                <span className="font-medium text-gray-600 md:min-w-0">{fieldLabel(k)}</span>
+                <span className="text-gray-900 break-words whitespace-pre-wrap md:col-span-2 md:min-w-0">
                   {displayValue(typeof v === 'object' ? JSON.stringify(v) : v)}
                 </span>
               </div>
@@ -159,13 +160,13 @@ function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown
   const problems = (ns?.problems_encountered ?? []) as string[];
 
   return (
-    <div className="px-4 pb-4">
+    <div className="px-4 pb-4 whitespace-normal break-words">
       <button onClick={() => setOpen(!open)} className="text-xs text-blue-600 flex items-center gap-1">
         {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
         {open ? 'Hide' : 'Show'} full record details
       </button>
       {open && (
-        <div className="mt-4 space-y-6">
+        <div className="mt-4 space-y-6 whitespace-normal break-words">
           {/* Non-sensitive details */}
           {ns && (
             <div>
@@ -180,9 +181,9 @@ function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown
                 ] as const).map((k) => {
                   const v = (ns as Record<string, unknown>)[k];
                   return (
-                    <div key={k} className="grid grid-cols-3 gap-2 text-sm border-b border-gray-100 pb-1">
-                      <span className="font-medium text-gray-600">{FIELD_LABELS[k]}</span>
-                      <span className="col-span-2 text-gray-900">{displayValue(v)}</span>
+                    <div key={k} className="grid grid-cols-1 gap-1 text-sm border-b border-gray-100 pb-1 whitespace-normal md:grid-cols-3 md:gap-2">
+                      <span className="font-medium text-gray-600 md:min-w-0">{FIELD_LABELS[k]}</span>
+                      <span className="text-gray-900 whitespace-normal break-words md:col-span-2 md:min-w-0">{displayValue(v)}</span>
                     </div>
                   );
                 })}
@@ -196,9 +197,9 @@ function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown
               <h4 className="text-xs font-bold uppercase text-gray-500 mb-2">Location &amp; Contact</h4>
               <div className="grid grid-cols-1 gap-y-2">
                 {(['street_address', 'landmark', 'caller_name', 'caller_number', 'receiver_name', 'owner_name'] as const).map((k) => (
-                  <div key={k} className="grid grid-cols-3 gap-2 text-sm border-b border-gray-100 pb-1">
-                    <span className="font-medium text-gray-600">{FIELD_LABELS[k]}</span>
-                    <span className="col-span-2 text-gray-900">{displayValue((sens as Record<string, unknown>)[k])}</span>
+                  <div key={k} className="grid grid-cols-1 gap-1 text-sm border-b border-gray-100 pb-1 whitespace-normal md:grid-cols-3 md:gap-2">
+                    <span className="font-medium text-gray-600 md:min-w-0">{FIELD_LABELS[k]}</span>
+                    <span className="text-gray-900 whitespace-normal break-words md:col-span-2 md:min-w-0">{displayValue((sens as Record<string, unknown>)[k])}</span>
                   </div>
                 ))}
               </div>
@@ -271,9 +272,37 @@ export default function AforImportPage() {
   const [isCommitting, setIsCommitting] = useState(false);
   const [previewData, setPreviewData] = useState<AforImportPreviewResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [previewStatusFilter, setPreviewStatusFilter] = useState<'ALL' | 'VALID' | 'INVALID'>('ALL');
+  const [previewSearch, setPreviewSearch] = useState('');
   const [commitLatStr, setCommitLatStr] = useState('');
   const [commitLngStr, setCommitLngStr] = useState('');
   const geocodeTriggered = useRef(false);
+
+  const filteredPreviewRows = useMemo(() => {
+    if (!previewData) return [];
+
+    const q = previewSearch.trim().toLowerCase();
+    return previewData.rows.filter((row) => {
+      if (previewStatusFilter !== 'ALL' && row.status !== previewStatusFilter) {
+        return false;
+      }
+      if (!q) return true;
+
+      const ns = (row.data.incident_nonsensitive_details ?? {}) as Record<string, unknown>;
+      const haystack = [
+        row.data._city_text,
+        ns.fire_station_name,
+        ns.general_category,
+        ns.sub_category,
+        ns.alarm_level,
+        row.errors.join(' '),
+      ]
+        .map((v) => String(v ?? '').toLowerCase())
+        .join(' ');
+
+      return haystack.includes(q);
+    });
+  }, [previewData, previewStatusFilter, previewSearch]);
 
   // FIX 9: extract address + city from first valid row for geocoding
   const firstRow = previewData?.rows.find((r) => r.status === 'VALID');
@@ -359,11 +388,14 @@ export default function AforImportPage() {
 
   const handleCommit = async () => {
     if (!previewData || previewData.valid_rows === 0) return;
-    if (!coordsReady) return;
+    if (!coordsReady) {
+      setError('Please provide a valid map pin (latitude/longitude) before committing.');
+      return;
+    }
     setIsCommitting(true);
     setError(null);
+    const validRows = previewData.rows.filter((r) => r.status === 'VALID').map((r) => r.data);
     try {
-      const validRows = previewData.rows.filter((r) => r.status === 'VALID').map((r) => r.data);
       const res = await commitAforImport(validRows, previewData.form_kind, {
         latitude: commitLat,
         longitude: commitLng,
@@ -373,9 +405,31 @@ export default function AforImportPage() {
       }
     } catch (err: unknown) {
       const errMsg = (err as { message?: string }).message || 'Failed to commit the imported data.';
-      // Surface deduplication conflicts clearly
       if (errMsg.includes('DUPLICATE_INCIDENT')) {
-        setError('⚠️ Duplicate detected: an incident with the same date, station, and city already exists. Contact your system admin to force re-import.');
+        try {
+          const replaceOriginal = window.confirm(
+            'Duplicate incident detected. Press OK to Replace Original, or Cancel to Keep Original and skip duplicate rows.',
+          );
+          const retry = await commitAforImport(validRows, previewData.form_kind, {
+            latitude: commitLat,
+            longitude: commitLng,
+            duplicateStrategy: replaceOriginal ? 'REPLACE_ORIGINAL' : 'KEEP_ORIGINAL',
+          });
+          if (retry.status === 'ok') {
+            if (retry.total_committed === 0) {
+              setError('No rows were committed because all valid rows were duplicates and were kept as original.');
+              setIsCommitting(false);
+              return;
+            }
+            router.push('/dashboard/regional');
+            return;
+          }
+        } catch (retryErr: unknown) {
+          const retryMsg = (retryErr as { message?: string }).message || 'Failed while resolving duplicate incidents.';
+          setError(retryMsg);
+          setIsCommitting(false);
+          return;
+        }
       } else {
         setError(errMsg);
       }
@@ -387,6 +441,8 @@ export default function AforImportPage() {
     setFile(null);
     setPreviewData(null);
     setError(null);
+    setPreviewStatusFilter('ALL');
+    setPreviewSearch('');
     setCommitLatStr('');
     setCommitLngStr('');
     geocodeTriggered.current = false;
@@ -405,9 +461,6 @@ export default function AforImportPage() {
         </div>
         {!previewData && (
           <div className="flex flex-wrap gap-2">
-            <a href="/templates/afor_template_v2.xlsx" download className="card flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-gray-50 transition-colors">
-              <FileDown className="w-4 h-4" /> Structural template v2 (.xlsx)
-            </a>
             <a href="/templates/afor_template.xlsx" download className="card flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-gray-50 transition-colors">
               <FileDown className="w-4 h-4" /> Structural template (.xlsx)
             </a>
@@ -588,8 +641,35 @@ export default function AforImportPage() {
                 </button>
               </div>
             </div>
+            <div className="flex flex-wrap items-end gap-3 px-4 py-3 border-b bg-gray-50/60">
+              <label className="flex flex-col gap-1 text-xs font-medium text-gray-700">
+                Row status
+                <select
+                  className="rounded border border-gray-300 px-2 py-1.5 text-sm bg-white"
+                  value={previewStatusFilter}
+                  onChange={(e) => setPreviewStatusFilter(e.target.value as 'ALL' | 'VALID' | 'INVALID')}
+                >
+                  <option value="ALL">All rows</option>
+                  <option value="VALID">Valid only</option>
+                  <option value="INVALID">Invalid only</option>
+                </select>
+              </label>
+              <label className="flex-1 min-w-[220px] flex flex-col gap-1 text-xs font-medium text-gray-700">
+                Search
+                <input
+                  type="text"
+                  className="rounded border border-gray-300 px-3 py-1.5 text-sm bg-white"
+                  placeholder="Search city, station, category, alarm level, or errors"
+                  value={previewSearch}
+                  onChange={(e) => setPreviewSearch(e.target.value)}
+                />
+              </label>
+              <p className="text-xs text-gray-600 pb-1">
+                Showing {filteredPreviewRows.length} of {previewData.rows.length}
+              </p>
+            </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left whitespace-nowrap">
+              <table className="w-full text-sm text-left">
                 <thead className="text-xs uppercase bg-gray-50 text-gray-700">
                   <tr>
                     <th className="px-4 py-3 w-10">Status</th>
@@ -613,7 +693,13 @@ export default function AforImportPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {previewData.rows.map((row, i) => {
+                  {filteredPreviewRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                        No rows match the current filter.
+                      </td>
+                    </tr>
+                  ) : filteredPreviewRows.map((row, i) => {
                     const wl = row.data.wildland as Record<string, unknown> | undefined;
                     const callAt =
                       typeof wl?.call_received_at === 'string'
@@ -623,7 +709,7 @@ export default function AforImportPage() {
                           : '—';
                     const ns = row.data.incident_nonsensitive_details as Record<string, unknown> | undefined;
                     return (
-                      <div key={i}>
+                      <Fragment key={`${row.status}-${i}`}>
                         <tr className={`border-b ${row.status === 'INVALID' ? 'bg-red-50/30' : 'hover:bg-gray-50'}`}>
                           <td className="px-4 py-3">
                             {row.status === 'VALID'
@@ -666,12 +752,12 @@ export default function AforImportPage() {
                           </td>
                         </tr>
                         {/* Expandable detail panel */}
-                        <tr className="border-b bg-white">
-                          <td colSpan={7} className="p-0">
+                        <tr className="border-b bg-white whitespace-normal">
+                          <td colSpan={7} className="p-0 whitespace-normal">
                             <RowDetailPanel rowData={row.data} formKind={previewData.form_kind} />
                           </td>
                         </tr>
-                      </div>
+                      </Fragment>
                     );
                   })}
                 </tbody>

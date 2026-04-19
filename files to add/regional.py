@@ -63,6 +63,7 @@ Data isolation: every query filters by the user's assigned_region_id.
 from __future__ import annotations
 
 import csv
+import base64
 import hashlib
 import io
 import json
@@ -137,6 +138,7 @@ class AforCommitRequest(BaseModel):
     # WGS84 (SRID 4326). PostGIS stores POINT(longitude latitude) — not GeoJSON [lat, lon].
     latitude: float | None = None
     longitude: float | None = None
+    duplicate_strategy: Literal["REPLACE_ORIGINAL", "KEEP_ORIGINAL"] | None = None
 
 
 class AforCommitResponse(BaseModel):
@@ -723,6 +725,89 @@ class BfpXlsxParser:
     def parse(self) -> dict[str, Any]:
         """Extract sections A through L into a comprehensive data dictionary."""
 
+        def _first_non_empty(*coords: str) -> Any:
+            for coord in coords:
+                val = self.get(coord)
+                if val is None:
+                    continue
+                if isinstance(val, str) and not val.strip():
+                    continue
+                return val
+            return None
+
+        def _looks_like_label(text: str) -> bool:
+            t = text.strip().lower()
+            if not t:
+                return True
+            label_tokens = (
+                "prepared",
+                "noted",
+                "signed",
+                "signature",
+                "position",
+                "rank",
+                "designation",
+                "name",
+                "date",
+            )
+            return any(tok in t for tok in label_tokens)
+
+        def _find_signatory_by_label(kind: str) -> str:
+            kind = kind.lower()
+            # Search the footer area where AFOR signatories are usually located.
+            cols = ["A", "B", "C", "D", "E", "F", "G", "H"]
+            for r in range(220, 256):
+                row_vals: dict[str, str] = {}
+                for c in cols:
+                    v = self.get(f"{c}{r}")
+                    row_vals[c] = str(v).strip() if v is not None else ""
+
+                # Identify rows that contain a signatory label keyword.
+                if kind == "prepared":
+                    label_hit = any("prepared" in v.lower() for v in row_vals.values() if v)
+                else:
+                    label_hit = any(("noted" in v.lower() or "signed" in v.lower()) for v in row_vals.values() if v)
+
+                if not label_hit:
+                    continue
+
+                # Candidate names are usually adjacent/same row or within the next 3 rows.
+                candidate_rows = [r, r + 1, r + 2, r + 3]
+                for rr in candidate_rows:
+                    for c in cols:
+                        vv = self.get(f"{c}{rr}")
+                        if vv is None:
+                            continue
+                        s = str(vv).strip()
+                        if not s:
+                            continue
+                        if _looks_like_label(s):
+                            continue
+                        # Avoid tiny non-name fragments.
+                        if len(s) < 3:
+                            continue
+                        return s
+
+            return ""
+
+        def _is_marked_loose(coord: str) -> bool:
+            if self._is_marked(coord):
+                return True
+            raw = self.get(coord)
+            if raw is None:
+                return False
+            t = str(raw).strip()
+            if not t:
+                return False
+            # Accept common checkbox-like symbols seen in user-filled AFOR variants.
+            if t in {"√", "☑", "■", "●", "•", "*", "Y", "y", "P", "p"}:
+                return True
+            return False
+
+        def _is_problem_marked_row(row_num: int) -> bool:
+            # Some AFOR variants place checkmarks in B/C/D for the same option row.
+            return any(_is_marked_loose(f"{col}{row_num}") for col in ("B", "C", "D"))
+
         # Section A: Response Details
         responder_type = (
             "First Responder"
@@ -787,8 +872,14 @@ class BfpXlsxParser:
             "B219": "Others",
         }
         for c, flavor in prob_map.items():
-            if self._is_marked(c):
+            row_num = int(c[1:])
+            if _is_problem_marked_row(row_num):
                 problems.append(flavor)
+
+        # Tolerate one-row drift observed in some user-filled AFOR variants.
+        if "Uncooperative or panicked residents" not in problems:
+            if _is_problem_marked_row(203) or _is_problem_marked_row(205):
+                problems.append("Uncooperative or panicked residents")
 
         icp_present = self._is_marked("B102")
         icp_location = self.get("D102") if icp_present else None
@@ -911,8 +1002,10 @@ class BfpXlsxParser:
             "problems": problems,
             "recommendations": self.get("B222"),
             "disposition": self.get("B229"),
-            "prepared_by": self.get("C238"),
-            "noted_by": self.get("F238"),
+            # Signature blocks vary slightly across template revisions; prefer canonical cells
+            # but keep fallbacks for shifted/customized files.
+            "prepared_by": _first_non_empty("C238", "B238", "D238", "C237", "B237", "D237", "C239", "B239", "D239") or _find_signatory_by_label("prepared"),
+            "noted_by": _first_non_empty("F238", "E238", "G238", "F237", "E237", "G237", "F239", "E239", "G239") or _find_signatory_by_label("noted"),
             # Backward-compatible aliases used by older tests/scripts.
             "extent_of_damage": extent,
             "structures_affected": self.get("D62"),
@@ -922,14 +1015,29 @@ class BfpXlsxParser:
 
 
     def extract_sketch_image(self) -> bytes | None:
-        """Return the first embedded image bytes from the worksheet as PNG, or None.
+        """Return the best embedded image bytes from the worksheet as PNG, or None.
 
         Security: caller must validate magic bytes before persisting.
         """
         images = getattr(self.ws, "_images", [])
         if not images:
             return None
-        img = images[0]
+
+        # Prefer images near AFOR sketch area around B135; de-prioritize header/logo rows.
+        target_row, target_col = 134, 1  # zero-based anchor for B135
+
+        def _score(image: Any) -> tuple[int, int]:
+            anchor = getattr(image, "anchor", None)
+            origin = getattr(anchor, "_from", None)
+            row = getattr(origin, "row", None)
+            col = getattr(origin, "col", None)
+            if not isinstance(row, int) or not isinstance(col, int):
+                return (10_000, 10_000)
+            distance = abs(row - target_row) + abs(col - target_col)
+            header_penalty = 500 if row < 80 else 0
+            return (distance + header_penalty, row)
+
+        img = sorted(images, key=_score)[0]
         try:
             from io import BytesIO
             buf = BytesIO()
@@ -1296,7 +1404,19 @@ def parse_xlsx_content(
                 sketch_bytes = parser.extract_sketch_image()
                 if sketch_bytes:
                     sketch_path = _save_sketch_image(sketch_bytes)
+                    sketch_b64 = base64.b64encode(sketch_bytes).decode("ascii")
+                    sketch_data_url = f"data:image/png;base64,{sketch_b64}"
                     parsed_row.data["sketch_image_path"] = sketch_path
+                    parsed_row.data["sketch_base64"] = sketch_data_url
+                    parsed_row.data["sketch_images_base64"] = [sketch_data_url]
+                    parsed_row.data["sketch_mime_type"] = "image/png"
+                    parsed_row.data["sketch_mime_types"] = ["image/png"]
+                    sens = parsed_row.data.get("incident_sensitive_details")
+                    if isinstance(sens, dict):
+                        sens["sketch_base64"] = sketch_data_url
+                        sens["sketch_images_base64"] = [sketch_data_url]
+                        sens["sketch_mime_type"] = "image/png"
+                        sens["sketch_mime_types"] = ["image/png"]
             except Exception:
                 logger.warning("Sketch image extraction failed (non-fatal).")
                 parsed_row.data["sketch_image_path"] = None
@@ -1589,6 +1709,11 @@ async def commit_afor_import(
     if not body.rows:
         raise HTTPException(status_code=400, detail="No rows to commit")
 
+    duplicate_strategy = str(raw_body.get("duplicate_strategy") or "").strip().upper()
+    if duplicate_strategy not in ("", "REPLACE_ORIGINAL", "KEEP_ORIGINAL"):
+        raise HTTPException(status_code=400, detail="Invalid duplicate_strategy")
+    rows_to_commit: list[dict[str, Any]] = list(body.rows)
+
     # ── Deduplication check (FIX: Guideline) ────────────────────────────────
     force_reimport = raw_body.get("force") is True
     if force_reimport:
@@ -1601,7 +1726,8 @@ async def commit_afor_import(
             )
 
     if body.form_kind == "STRUCTURAL_AFOR" and not force_reimport:
-        for row_data in body.rows:
+        duplicate_hits: list[dict[str, Any]] = []
+        for idx, row_data in enumerate(rows_to_commit):
             ns = row_data.get("incident_nonsensitive_details", {})
             notif_dt = ns.get("notification_dt")
             station = ns.get("fire_station_name", "")
@@ -1626,19 +1752,47 @@ async def commit_afor_import(
                     {"ndt": notif_dt, "station": station, "city_id": city_id_dup},
                 ).fetchone()
                 if existing:
-                    raise HTTPException(
-                        status_code=409,
-                        detail={
-                            "code": "DUPLICATE_INCIDENT",
+                    duplicate_hits.append(
+                        {
+                            "row_index": idx,
                             "existing_incident_id": existing[0],
-                            "message": (
-                                "An incident with the same date, station, and city already exists. "
-                                "Use force=true with SYSTEM_ADMIN role to override."
-                            ),
-                        },
+                            "notification_dt": notif_dt,
+                            "fire_station_name": station,
+                            "city": city_text,
+                        }
                     )
 
-    for row_data in body.rows:
+        if duplicate_hits:
+            if duplicate_strategy == "REPLACE_ORIGINAL":
+                existing_ids = sorted({int(hit["existing_incident_id"]) for hit in duplicate_hits})
+                if existing_ids:
+                    db.execute(
+                        text("UPDATE wims.fire_incidents SET is_archived = TRUE WHERE incident_id = ANY(:ids)"),
+                        {"ids": existing_ids},
+                    )
+            elif duplicate_strategy == "KEEP_ORIGINAL":
+                duplicate_indexes = {int(hit["row_index"]) for hit in duplicate_hits}
+                rows_to_commit = [r for i, r in enumerate(rows_to_commit) if i not in duplicate_indexes]
+                if not rows_to_commit:
+                    return AforCommitResponse(
+                        status="ok",
+                        batch_id=0,
+                        incident_ids=[],
+                        total_committed=0,
+                    )
+            else:
+                # Default behavior keeps originals to avoid hard-blocking commit UX.
+                duplicate_indexes = {int(hit["row_index"]) for hit in duplicate_hits}
+                rows_to_commit = [r for i, r in enumerate(rows_to_commit) if i not in duplicate_indexes]
+                if not rows_to_commit:
+                    return AforCommitResponse(
+                        status="ok",
+                        batch_id=0,
+                        incident_ids=[],
+                        total_committed=0,
+                    )
+
+    for row_data in rows_to_commit:
         rk = row_data.get("_form_kind")
         if rk != body.form_kind:
             raise HTTPException(
@@ -1650,7 +1804,7 @@ async def commit_afor_import(
     if body.form_kind == "WILDLAND_AFOR":
         wildland_errors: list[str] = []
         validated_wildland_rows = []
-        for idx, row_data in enumerate(body.rows):
+        for idx, row_data in enumerate(rows_to_commit):
             wl_dict = row_data.get("wildland") or {}
             parsed = parse_wildland_afor_report_data(wl_dict, region_id)
             if parsed.status != "VALID":
@@ -1668,7 +1822,7 @@ async def commit_afor_import(
             VALUES (:region_id, CAST(:uid AS uuid), :count)
             RETURNING batch_id
         """),
-        {"region_id": region_id, "uid": user_id, "count": len(body.rows)},
+        {"region_id": region_id, "uid": user_id, "count": len(rows_to_commit)},
     ).fetchone()
 
     if not batch_row:
@@ -1685,7 +1839,7 @@ async def commit_afor_import(
         bucket = groups.get(key, {}) if isinstance(groups, dict) else {}
         return _safe_int(bucket.get("m")) + _safe_int(bucket.get("f"))
 
-    for idx, row_data in enumerate(body.rows):
+    for idx, row_data in enumerate(rows_to_commit):
         if body.form_kind == "WILDLAND_AFOR":
             assert validated_wildland_rows is not None
             _commit_wildland_afor_row(
@@ -1703,6 +1857,16 @@ async def commit_afor_import(
 
         ns = row_data.get("incident_nonsensitive_details", {})
         sens = row_data.get("incident_sensitive_details", {})
+        prepared_officer = (
+            sens.get("prepared_by_officer")
+            or sens.get("disposition_prepared_by")
+            or ""
+        )
+        noted_officer = (
+            sens.get("noted_by_officer")
+            or sens.get("disposition_noted_by")
+            or ""
+        )
         casualty_details = (
             sens.get("casualty_details", {})
             if isinstance(sens.get("casualty_details", {}), dict)
@@ -1886,8 +2050,8 @@ async def commit_afor_import(
                 "disposition": sens.get("disposition", ""),
                 "disposition_prepared_by": sens.get("disposition_prepared_by", ""),
                 "disposition_noted_by": sens.get("disposition_noted_by", ""),
-                "prepared_by_officer": sens.get("prepared_by_officer", ""),
-                "noted_by_officer": sens.get("noted_by_officer", ""),
+                "prepared_by_officer": prepared_officer,
+                "noted_by_officer": noted_officer,
                 "personnel_on_duty": json.dumps(sens.get("personnel_on_duty", {})),
                 "other_personnel": json.dumps(sens.get("other_personnel", [])),
                 "casualty_details": json.dumps(casualty_details),
@@ -1909,7 +2073,7 @@ async def commit_afor_import(
                 db.execute(
                     text("""
                         INSERT INTO wims.incident_attachments
-                            (incident_id, file_name, mime_type, file_path, file_hash_sha256)
+                            (incident_id, file_name, mime_type, storage_path, file_hash_sha256)
                         VALUES
                             (:iid, 'afor_sketch.png', 'image/png', :fpath, :fhash)
                         ON CONFLICT DO NOTHING
@@ -1917,7 +2081,7 @@ async def commit_afor_import(
                     {"iid": incident_id, "fpath": sketch_path, "fhash": _file_hash},
                 )
             except Exception:
-                logger.warning("Failed to insert sketch attachment for incident %s (non-fatal).", incident_id)
+                logger.exception("Failed to insert sketch attachment for incident %s.", incident_id)
 
         responding_unit = row_data.get("responding_unit", {})
         if any(
@@ -2097,6 +2261,13 @@ def get_regional_incident_detail(
 
     sd_dict = row_to_dict(sd_row)
 
+    # Backward/variant compatibility: some rows may have signatories in
+    # disposition_* while prepared_by_officer/noted_by_officer are blank.
+    if not sd_dict.get("prepared_by_officer"):
+        sd_dict["prepared_by_officer"] = sd_dict.get("disposition_prepared_by") or ""
+    if not sd_dict.get("noted_by_officer"):
+        sd_dict["noted_by_officer"] = sd_dict.get("disposition_noted_by") or ""
+
     # ── Decrypt PII blob if present (new writes use encrypted blob; old rows fall back) ──
     if sd_dict.get("pii_blob_enc") and sd_dict.get("encryption_iv"):
         try:
@@ -2126,13 +2297,67 @@ def get_regional_incident_detail(
     sd_dict.pop("pii_blob_enc", None)
     sd_dict.pop("encryption_iv", None)
 
+    ns_dict = row_to_dict(ns)
+
+    # Canonicalize known problem label variants for stable frontend checkbox matching.
+    raw_problems = ns_dict.get("problems_encountered")
+    if isinstance(raw_problems, list):
+        alias_map = {
+            "uncooperative/panicked residents": "Uncooperative or panicked residents",
+            "uncooperative / panicked residents": "Uncooperative or panicked residents",
+            "uncooperative & panicked residents": "Uncooperative or panicked residents",
+            "uncooperative panicked residents": "Uncooperative or panicked residents",
+        }
+        normalized: list[str] = []
+        for item in raw_problems:
+            s = str(item).strip()
+            if not s:
+                continue
+            normalized.append(alias_map.get(s.lower(), s))
+        ns_dict["problems_encountered"] = normalized
+
+    attachment_rows = db.execute(
+        text(
+            """
+            SELECT attachment_id, file_name, mime_type, storage_path
+            FROM wims.incident_attachments
+            WHERE incident_id = :iid
+            ORDER BY uploaded_at ASC, attachment_id ASC
+            """
+        ),
+        {"iid": incident_id},
+    ).fetchall()
+
+    attachments: list[dict[str, Any]] = []
+    for att in attachment_rows:
+        storage_path = att[3]
+        data_url = None
+        if storage_path and os.path.isfile(storage_path):
+            try:
+                with open(storage_path, "rb") as fh:
+                    payload = fh.read()
+                mime = att[2] or "application/octet-stream"
+                data_url = f"data:{mime};base64,{base64.b64encode(payload).decode('ascii')}"
+            except Exception:
+                logger.warning("Failed to read attachment file for incident %s: %s", incident_id, storage_path)
+
+        attachments.append(
+            {
+                "attachment_id": att[0],
+                "file_name": att[1],
+                "mime_type": att[2],
+                "url": data_url,
+            }
+        )
+
     return {
         "incident_id": row[0],
         "verification_status": row[1],
         "created_at": row[2].isoformat() if row[2] else None,
         "region_id": row[3],
-        "nonsensitive": row_to_dict(ns),
+        "nonsensitive": ns_dict,
         "sensitive": sd_dict,
+        "attachments": attachments,
     }
 
 

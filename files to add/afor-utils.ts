@@ -137,3 +137,28 @@ export const ALL_PROBLEM_OPTIONS: string[] = [
   "Community complaints",
   "Others",
 ];
+
+const PROBLEM_LABEL_ALIASES: Record<string, string> = {
+  "uncooperative/panicked residents": "Uncooperative or panicked residents",
+  "uncooperative / panicked residents": "Uncooperative or panicked residents",
+  "uncooperative or panic residents": "Uncooperative or panicked residents",
+  "uncooperative & panicked residents": "Uncooperative or panicked residents",
+  "uncooperative panicked residents": "Uncooperative or panicked residents",
+};
+
+/**
+ * Normalize problem labels coming from parser/legacy records so checkbox rendering
+ * remains stable despite minor wording differences.
+ */
+export function normalizeProblemLabel(label: string): string {
+  const trimmed = String(label ?? "").trim();
+  if (!trimmed) return "";
+
+  const lowered = trimmed.toLowerCase();
+  if (PROBLEM_LABEL_ALIASES[lowered]) {
+    return PROBLEM_LABEL_ALIASES[lowered];
+  }
+
+  const canonical = ALL_PROBLEM_OPTIONS.find((opt) => opt.toLowerCase() === lowered);
+  return canonical ?? trimmed;
+}

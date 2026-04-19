@@ -11,6 +11,7 @@ import {
   fieldLabel,
   displayValue,
   ALL_PROBLEM_OPTIONS,
+  normalizeProblemLabel,
 } from '@/lib/afor-utils';
 
 // ── FIX 4: Narrative as ordered bullets ──────────────────────────────────────
@@ -28,7 +29,7 @@ function NarrativeReport({ text }: { text: string }) {
 
 // ── FIX 6: Problems grid ─────────────────────────────────────────────────────
 function ProblemsGrid({ selected }: { selected: string[] }) {
-  const selectedSet = new Set(selected);
+  const selectedSet = new Set((selected ?? []).map((s) => normalizeProblemLabel(String(s))));
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
       {ALL_PROBLEM_OPTIONS.map((label) => {
@@ -120,7 +121,15 @@ function FieldRow({ label, value }: { label: string; value: unknown }) {
 }
 
 // ── Section card ─────────────────────────────────────────────────────────────
-function Section({ title, sectionId, children }: { title: string; sectionId: string; children: React.ReactNode }) {
+function Section({
+  title,
+  sectionId,
+  children,
+}: {
+  title: string;
+  sectionId: string;
+  children: React.ReactNode;
+}) {
   return (
     <section className="card" aria-labelledby={sectionId}>
       <div className="card-header px-4 py-3 border-b">
@@ -326,7 +335,7 @@ export default function RegionalIncidentDetailPage() {
           {/* H. Sketch (if attachment available) */}
           {Array.isArray((detail as Record<string, unknown>).attachments) &&
             ((detail as Record<string, unknown>).attachments as Array<{ file_name: string; url: string }>)
-              .filter((a) => a.file_name === 'afor_sketch.png')
+              .filter((a) => a.file_name === 'afor_sketch.png' && !!a.url)
               .map((a) => (
                 <Section key={a.url} title="H. Fire Scene Sketch" sectionId="sec-sketch">
                   <img src={a.url} alt="Fire Scene Sketch" className="max-w-full rounded border border-gray-200" />
