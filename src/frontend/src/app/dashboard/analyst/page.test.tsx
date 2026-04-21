@@ -23,12 +23,22 @@ const mockFetchHeatmapData = vi.fn();
 const mockFetchTrendData = vi.fn();
 const mockFetchComparativeData = vi.fn();
 const mockFetchRegions = vi.fn();
+const mockFetchTypeDistribution = vi.fn();
+const mockFetchTopBarangays = vi.fn();
+const mockFetchResponseTimeByRegion = vi.fn();
+const mockFetchCompareRegions = vi.fn();
+const mockFetchTopN = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   fetchHeatmapData: (f: object) => mockFetchHeatmapData(f),
   fetchTrendData: (f: object) => mockFetchTrendData(f),
   fetchComparativeData: (f: object) => mockFetchComparativeData(f),
   fetchRegions: () => mockFetchRegions(),
+  fetchTypeDistribution: (f: object) => mockFetchTypeDistribution(f),
+  fetchTopBarangays: (f: object) => mockFetchTopBarangays(f),
+  fetchResponseTimeByRegion: (f: object) => mockFetchResponseTimeByRegion(f),
+  fetchCompareRegions: (f: object) => mockFetchCompareRegions(f),
+  fetchTopN: (f: object) => mockFetchTopN(f),
 }));
 
 vi.mock('react-leaflet', () => ({
@@ -64,6 +74,19 @@ describe('Analyst dashboard page', () => {
       range_b: { start: '2024-02-01', end: '2024-02-29', count: 12 },
       variance_percent: 20,
     });
+    mockFetchTypeDistribution.mockResolvedValue([
+      { type: 'STRUCTURAL', count: 42 },
+    ]);
+    mockFetchTopBarangays.mockResolvedValue([
+      { barangay: 'Barangay 1', count: 120 },
+    ]);
+    mockFetchResponseTimeByRegion.mockResolvedValue([
+      { region_id: 1, region_name: 'NCR', avg_response_time: 12.5, min_response_time: 3, max_response_time: 45 },
+    ]);
+    mockFetchCompareRegions.mockResolvedValue([]);
+    mockFetchTopN.mockResolvedValue([
+      { name: 'Barangay A', value: 120 },
+    ]);
   });
 
   it('renders filter controls', async () => {

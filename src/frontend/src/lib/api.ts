@@ -406,6 +406,7 @@ export interface RegionalIncidentListItem {
   owner_name: string | null;
   establishment_name: string | null;
   caller_name: string | null;
+  is_wildland: boolean;
 }
 
 export interface RegionalIncidentsListResponse {
@@ -423,6 +424,10 @@ export interface RegionalIncidentDetailResponse {
   region_id: number;
   latitude: number | null;
   longitude: number | null;
+  is_wildland: boolean;
+  wildland_fire_type: string | null;
+  wildland_area_hectares: number | null;
+  wildland_area_display: string | null;
   nonsensitive: Record<string, unknown>;
   sensitive: Record<string, unknown>;
   attachments?: Array<{
@@ -619,5 +624,65 @@ export async function fetchComparativeData(filters: ComparativeFilters): Promise
     alarm_level: filters.alarm_level,
   });
   return apiFetch<ComparativeResponse>(`/analytics/comparative${qs}`);
+}
+
+// ---------------------------------------------------------------------------
+// AQ-06 / AQ-07 / AQ-08 / AQ-13 / AQ-14 — New analytics types and functions
+// ---------------------------------------------------------------------------
+
+export interface TypeDistributionItem {
+  type: string;
+  count: number;
+}
+
+export interface TopBarangayItem {
+  barangay: string;
+  count: number;
+}
+
+export interface ResponseTimeRegionItem {
+  region_id: number;
+  region_name: string;
+  avg_response_time: number;
+  min_response_time: number;
+  max_response_time: number;
+}
+
+export interface CompareRegionItem {
+  region_id: number;
+  region_name: string;
+  total_incidents: number;
+  avg_response_time: number | null;
+  top_type: string | null;
+}
+
+export interface TopNItem {
+  name: string;
+  value: number;
+}
+
+export async function fetchTypeDistribution(filters: { start_date?: string; end_date?: string; region_id?: number } = {}): Promise<TypeDistributionItem[]> {
+  const qs = buildAnalyticsParams({ start_date: filters.start_date, end_date: filters.end_date, region_id: filters.region_id });
+  return apiFetch<TypeDistributionItem[]>(`/analytics/type-distribution${qs}`);
+}
+
+export async function fetchTopBarangays(filters: { limit?: number; start_date?: string; end_date?: string; incident_type?: string } = {}): Promise<TopBarangayItem[]> {
+  const qs = buildAnalyticsParams({ limit: filters.limit, start_date: filters.start_date, end_date: filters.end_date, incident_type: filters.incident_type });
+  return apiFetch<TopBarangayItem[]>(`/analytics/top-barangays${qs}`);
+}
+
+export async function fetchResponseTimeByRegion(filters: { start_date?: string; end_date?: string } = {}): Promise<ResponseTimeRegionItem[]> {
+  const qs = buildAnalyticsParams({ start_date: filters.start_date, end_date: filters.end_date });
+  return apiFetch<ResponseTimeRegionItem[]>(`/analytics/response-time-by-region${qs}`);
+}
+
+export async function fetchCompareRegions(filters: { region_ids: string; start_date?: string; end_date?: string; incident_type?: string }): Promise<CompareRegionItem[]> {
+  const qs = buildAnalyticsParams({ region_ids: filters.region_ids, start_date: filters.start_date, end_date: filters.end_date, incident_type: filters.incident_type });
+  return apiFetch<CompareRegionItem[]>(`/analytics/compare-regions${qs}`);
+}
+
+export async function fetchTopN(filters: { metric: string; dimension: string; limit?: number; start_date?: string; end_date?: string }): Promise<TopNItem[]> {
+  const qs = buildAnalyticsParams({ metric: filters.metric, dimension: filters.dimension, limit: filters.limit, start_date: filters.start_date, end_date: filters.end_date });
+  return apiFetch<TopNItem[]>(`/analytics/top-n${qs}`);
 }
 

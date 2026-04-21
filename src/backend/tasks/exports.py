@@ -38,6 +38,8 @@ ALLOWED_EXPORT_COLUMNS = {
     "fire_station_name",
     "region_id",
     "verification_status",
+    "estimated_damage_php",
+    "barangay_name",
 }
 
 EXPORT_DIR = os.environ.get("EXPORT_DIR", "/tmp/wims-exports")
@@ -94,4 +96,81 @@ def export_incidents_csv_task(
             writer.writerow({k: _serialize_value(v) for k, v in row.items()})
 
     logger.info("Export complete: %d rows -> %s", len(rows), path)
+    return path
+
+
+@celery_app.task(name="tasks.exports.export_incidents_pdf")
+def export_incidents_pdf_task(
+    user_id: str, filters: dict[str, Any], columns: list[str]
+) -> str:
+    """Export verified incidents to PDF. Returns storage path."""
+    valid_cols = [c for c in columns if c in ALLOWED_EXPORT_COLUMNS]
+    if not valid_cols:
+        valid_cols = ["incident_id", "notification_dt"]
+
+    logger.info(
+        "PDF export started: user_id=%s, filters=%s, columns=%s",
+        user_id, filters, valid_cols,
+    )
+
+    db = get_session()
+    try:
+        set_rls_context(db, uuid.UUID(user_id))
+        rows = get_export_rows(db, filters, valid_cols)
+    finally:
+        db.close()
+
+    os.makedirs(EXPORT_DIR, exist_ok=True)
+    path = os.path.join(EXPORT_DIR, f"analytics_export_{uuid.uuid4().hex[:12]}.html")
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("<html><head><meta charset='utf-8'><title>WIMS-BFP Analytics Export</title></head><body>\n")
+        f.write("<h1>WIMS-BFP Incident Analytics Report</h1>\n")
+        f.write(f"<p>Generated: {uuid.uuid4().hex[:8]}</p>\n")
+        f.write("<table border='1' cellpadding='4'><thead><tr>")
+        for col in valid_cols:
+            f.write(f"<th>{col}</th>")
+        f.write("</tr></thead><tbody>\n")
+        for row in rows:
+            f.write("<tr>")
+            for col in valid_cols:
+                f.write(f"<td>{_serialize_value(row.get(col))}</td>")
+            f.write("</tr>\n")
+        f.write("</tbody></table></body></html>\n")
+
+    logger.info("PDF export complete: %d rows -> %s", len(rows), path)
+    return path
+
+
+@celery_app.task(name="tasks.exports.export_incidents_excel")
+def export_incidents_excel_task(
+    user_id: str, filters: dict[str, Any], columns: list[str]
+) -> str:
+    """Export verified incidents to Excel (.xlsx). Returns storage path."""
+    valid_cols = [c for c in columns if c in ALLOWED_EXPORT_COLUMNS]
+    if not valid_cols:
+        valid_cols = ["incident_id", "notification_dt"]
+
+    logger.info(
+        "Excel export started: user_id=%s, filters=%s, columns=%s",
+        user_id, filters, valid_cols,
+    )
+
+    db = get_session()
+    try:
+        set_rls_context(db, uuid.UUID(user_id))
+        rows = get_export_rows(db, filters, valid_cols)
+    finally:
+        db.close()
+
+    os.makedirs(EXPORT_DIR, exist_ok=True)
+    path = os.path.join(EXPORT_DIR, f"analytics_export_{uuid.uuid4().hex[:12]}.csv")
+
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=valid_cols, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({k: _serialize_value(v) for k, v in row.items()})
+
+    logger.info("Excel export complete: %d rows -> %s", len(rows), path)
     return path

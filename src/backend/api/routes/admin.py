@@ -433,3 +433,90 @@ def get_audit_logs(
         "limit": limit,
         "offset": offset,
     }
+
+
+# ---------------------------------------------------------------------------
+# Scheduled Reports (AQ-15)
+# ---------------------------------------------------------------------------
+
+import re
+from typing import Literal, Any
+
+_CRON_RE = re.compile(
+    r"^(\*|[0-5]?\d|\d+(-\d+)?(,\d+(-\d+)?)*)(/[1-9]\d?)? "
+    r"(\*|[01]?\d|2[0-3]|\d+(-\d+)?(,\d+(-\d+)?)*)(/[1-9]\d?)? "
+    r"(\*|[12]?\d|3[01]|\d+(-\d+)?(,\d+(-\d+)?)*)(/[1-9]\d?)? "
+    r"(\*|[01]?\d|1[0-2]|\d+(-\d+)?(,\d+(-\d+)?)*)(/[1-9]\d?)? "
+    r"(\*|[0-6]|\d+(-\d+)?(,\d+(-\d+)?)*)(/[1-9]\d?)?$"
+)
+
+
+class ScheduledReportCreate(BaseModel):
+    name: str
+    cron_expr: str
+    format: Literal["pdf", "excel", "csv"]
+    filters: dict[str, Any] = {}
+    recipients: list[str] = []
+    enabled: bool = True
+
+    @field_validator("cron_expr")
+    @classmethod
+    def cron_must_be_valid(cls, v: str) -> str:
+        if not _CRON_RE.match(v.strip()):
+            raise ValueError("Invalid cron expression")
+        return v
+
+
+@router.post("/scheduled-reports", status_code=201)
+def create_scheduled_report(
+    body: ScheduledReportCreate,
+    _user: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Create a scheduled analytics report."""
+    result = db.execute(
+        text("""
+            INSERT INTO wims.scheduled_reports (name, cron_expr, format, filters, recipients, enabled)
+            VALUES (:name, :cron_expr, :format, :filters, :recipients, :enabled)
+            RETURNING id, name, cron_expr, format, enabled, created_at
+        """),
+        {
+            "name": body.name,
+            "cron_expr": body.cron_expr,
+            "format": body.format,
+            "filters": body.filters,
+            "recipients": body.recipients,
+            "enabled": body.enabled,
+        },
+    ).fetchone()
+    db.commit()
+    return {
+        "id": result[0],
+        "name": result[1],
+        "cron_expr": result[2],
+        "format": result[3],
+        "enabled": result[4],
+        "created_at": result[5].isoformat() if result[5] else None,
+    }
+
+
+@router.get("/scheduled-reports")
+def list_scheduled_reports(
+    _user: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """List all scheduled analytics reports."""
+    rows = db.execute(
+        text("SELECT id, name, cron_expr, format, enabled, created_at FROM wims.scheduled_reports ORDER BY id DESC")
+    ).fetchall()
+    return [
+        {
+            "id": r[0],
+            "name": r[1],
+            "cron_expr": r[2],
+            "format": r[3],
+            "enabled": r[4],
+            "created_at": r[5].isoformat() if r[5] else None,
+        }
+        for r in rows
+    ]
