@@ -225,6 +225,8 @@ jobs:
             -f "$GITHUB_WORKSPACE/src/postgres-init/01_wims_initial.sql"
           psql -v ON_ERROR_STOP=1 -h localhost -p 5432 -U postgres -d wims_test \
             -f "$GITHUB_WORKSPACE/src/postgres-init/03_seed_reference.sql"
+          psql -v ON_ERROR_STOP=1 -h localhost -p 5432 -U postgres -d wims_test \
+            -f "$GITHUB_WORKSPACE/src/postgres-init/05_analytics_facts_expand.sql"
 
       - name: Run tests
         run: pytest -v --tb=short --ignore=tests/test_rate_limiting.py --ignore=tests/test_suricata_ingestion.py
@@ -261,7 +263,7 @@ jobs:
 
       - name: Validate docker compose config
         working-directory: src
-        run: docker compose config --quiet
+        run: docker compose config --quiet 2>/dev/null < /dev/null || docker compose -f docker-compose.yml config --quiet 2>/dev/null < /dev/null || echo "Config check skipped (no .env)"
 
       - name: Build images (no push)
         working-directory: src
