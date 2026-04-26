@@ -174,7 +174,11 @@ export default function ProfilePage() {
                         </div>
                         <div>
                             <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>Assigned Region</p>
-                            <p style={{ color: 'var(--text-primary)' }}>{typedUser?.assignedRegionId ?? 'None'}</p>
+                            <p style={{ color: 'var(--text-primary)' }}>
+                              {typedUser?.role === 'NATIONAL_ANALYST' || typedUser?.role === 'SYSTEM_ADMIN'
+                                ? 'National'
+                                : (typedUser?.assignedRegionId ?? '—')}
+                            </p>
                         </div>
                     </div>
                     <p className="mt-4 text-xs text-gray-400">

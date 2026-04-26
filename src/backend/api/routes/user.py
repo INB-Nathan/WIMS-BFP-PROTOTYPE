@@ -11,7 +11,7 @@ import logging
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, field_validator
 from keycloak.exceptions import KeycloakError
 
 from auth import get_current_wims_user
@@ -44,7 +44,9 @@ class ProfileUpdate(BaseModel):
 
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    email: Optional[EmailStr] = None  # Will update Keycloak AND db username
+    # NOTE: email is intentionally excluded from self-service update.
+    # Government email addresses are controlled credentials — only SYSADMIN
+    # may change them via the admin user management endpoints.
     contact_number: Optional[str] = None  # Stored in Keycloak AND DB
     # Note: no password required here — the JWT token already confirms identity.
     # Password is only needed when changing the password itself.
@@ -121,23 +123,24 @@ def update_my_profile(
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """
-    Update the current user's own profile (first_name, last_name, email, contact_number).
+    Update the current user's own profile (first_name, last_name, contact_number).
     Authentication is confirmed by the JWT bearer token — no password re-entry needed.
     Role and region cannot be changed here — contact a System Administrator.
+    Email is read-only (government-controlled credential — SYSADMIN-managed only).
     Changes are reflected immediately in Keycloak.
     """
-    if not any([body.first_name, body.last_name, body.email, body.contact_number]):
+    if not any([body.first_name, body.last_name, body.contact_number]):
         raise HTTPException(status_code=400, detail="No fields to update")
 
     keycloak_id = current_user["keycloak_id"]
 
-    # --- Update Keycloak profile ---
+    # --- Update Keycloak profile (email excluded — CRIT-0 self-service ban) ---
     try:
         update_user_profile(
             keycloak_id,
             first_name=body.first_name,
             last_name=body.last_name,
-            email=str(body.email) if body.email else None,
+            # email intentionally omitted — government email is SYSADMIN-controlled
             contact_number=body.contact_number,
         )
     except KeycloakError as e:
@@ -147,17 +150,13 @@ def update_my_profile(
             detail="Failed to update identity provider profile. Try again later.",
         )
 
-    # --- Sync DB fields (username if email changed, and contact_number) ---
-    if body.email or body.contact_number:
+    # --- Sync DB fields (contact_number only — email is SYSADMIN-controlled) ---
+    if body.contact_number:
         try:
             update_fields = []
             params = {"uid": current_user["user_id"]}
-            if body.email:
-                update_fields.append("username = :uname")
-                params["uname"] = str(body.email)[:50]
-            if body.contact_number:
-                update_fields.append("contact_number = :cnum")
-                params["cnum"] = body.contact_number
+            update_fields.append("contact_number = :cnum")
+            params["cnum"] = body.contact_number
 
             if update_fields:
                 db.execute(

@@ -174,6 +174,9 @@ def update_user_profile(
     *,
     first_name: str | None = None,
     last_name: str | None = None,
+    # NOTE: email intentionally not exposed to self-service routes (CRIT-0).
+    # Self-service PATCH /me must NEVER pass email — it is a government-controlled
+    # credential. Admin routes that manage email must call this with email explicitly.
     email: str | None = None,
     contact_number: str | None = None,
 ) -> None:
