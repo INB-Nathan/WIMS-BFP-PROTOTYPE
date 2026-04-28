@@ -55,10 +55,10 @@ export function LayoutShell({ children }: { children: ReactNode }) {
     if (loading) {
         console.log('[LayoutShell] loading=true - blocking render.');
         return (
-            <div className="h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--content-bg)' }}>
+            <div className="h-screen flex items-center justify-center bg-theme-surface-subtle">
                 <div className="flex flex-col items-center gap-3">
-                    <div className="w-10 h-10 border-4 border-gray-300 border-t-red-700 rounded-full animate-spin" />
-                    <span className="text-sm text-gray-500 font-medium">Loading WIMS-BFP...</span>
+                    <div className="w-10 h-10 border-4 border-theme-border border-t-theme-brand-primary rounded-full animate-spin" />
+                    <span className="text-sm text-theme-text-secondary font-medium">Loading WIMS-BFP...</span>
                 </div>
             </div>
         );
@@ -73,7 +73,7 @@ export function LayoutShell({ children }: { children: ReactNode }) {
     }
 
     return (
-        <div className="flex h-screen overflow-hidden" style={{ backgroundColor: 'var(--content-bg)' }}>
+        <div className="flex h-screen overflow-hidden bg-theme-surface-subtle">
             {/* Sidebar */}
             <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 

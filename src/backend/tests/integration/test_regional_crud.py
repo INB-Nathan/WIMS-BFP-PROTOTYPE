@@ -51,7 +51,9 @@ def encoder_user(db_session: Session):
     ).fetchone()
     if not region:
         region = db_session.execute(
-            text("INSERT INTO wims.ref_regions (region_name, region_code) VALUES ('Test Region', 'TEST') RETURNING region_id")
+            text(
+                "INSERT INTO wims.ref_regions (region_name, region_code) VALUES ('Test Region', 'TEST') RETURNING region_id"
+            )
         ).fetchone()
         db_session.commit()
     region_id = region[0]
@@ -239,11 +241,15 @@ class TestUpdateIncident:
         )
         assert resp.status_code == 404
 
-    def test_update_verified_blocked(self, client_with_encoder, test_incident, db_session):
+    def test_update_verified_blocked(
+        self, client_with_encoder, test_incident, db_session
+    ):
         """Cannot update a VERIFIED incident."""
         # Force status to VERIFIED
         db_session.execute(
-            text("UPDATE wims.fire_incidents SET verification_status = 'VERIFIED' WHERE incident_id = :iid"),
+            text(
+                "UPDATE wims.fire_incidents SET verification_status = 'VERIFIED' WHERE incident_id = :iid"
+            ),
             {"iid": test_incident},
         )
         db_session.commit()
@@ -272,10 +278,14 @@ class TestDeleteIncident:
         resp = client_with_encoder.delete("/api/regional/incidents/999999")
         assert resp.status_code == 404
 
-    def test_delete_pending_blocked(self, client_with_encoder, test_incident, db_session):
+    def test_delete_pending_blocked(
+        self, client_with_encoder, test_incident, db_session
+    ):
         """Cannot delete a PENDING incident."""
         db_session.execute(
-            text("UPDATE wims.fire_incidents SET verification_status = 'PENDING' WHERE incident_id = :iid"),
+            text(
+                "UPDATE wims.fire_incidents SET verification_status = 'PENDING' WHERE incident_id = :iid"
+            ),
             {"iid": test_incident},
         )
         db_session.commit()
@@ -283,10 +293,14 @@ class TestDeleteIncident:
         resp = client_with_encoder.delete(f"/api/regional/incidents/{test_incident}")
         assert resp.status_code == 403
 
-    def test_delete_verified_blocked(self, client_with_encoder, test_incident, db_session):
+    def test_delete_verified_blocked(
+        self, client_with_encoder, test_incident, db_session
+    ):
         """Cannot delete a VERIFIED incident."""
         db_session.execute(
-            text("UPDATE wims.fire_incidents SET verification_status = 'VERIFIED' WHERE incident_id = :iid"),
+            text(
+                "UPDATE wims.fire_incidents SET verification_status = 'VERIFIED' WHERE incident_id = :iid"
+            ),
             {"iid": test_incident},
         )
         db_session.commit()

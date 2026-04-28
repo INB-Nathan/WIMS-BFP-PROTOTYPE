@@ -23,7 +23,9 @@ logger = logging.getLogger("wims.keycloak_admin")
 # ---------------------------------------------------------------------------
 # Configuration (populated from environment / compose env_file)
 # ---------------------------------------------------------------------------
-_KC_SERVER_URL = os.environ.get("KEYCLOAK_REALM_URL", "http://keycloak:8080/auth/realms/bfp")
+_KC_SERVER_URL = os.environ.get(
+    "KEYCLOAK_REALM_URL", "http://keycloak:8080/auth/realms/bfp"
+)
 # Derive base server URL from realm URL: strip "/realms/bfp" suffix
 _KC_BASE_URL = _KC_SERVER_URL.split("/realms/")[0] + "/"
 _KC_REALM = "bfp"
@@ -33,13 +35,16 @@ _KC_CLIENT_SECRET = os.environ.get("KEYCLOAK_ADMIN_CLIENT_SECRET", "")
 # Password alphabet: upper + lower + digits + safe special chars.
 # Avoids confusable chars (0/O, l/1) and shell-sensitive chars.
 _PWD_ALPHABET = string.ascii_letters + string.digits + "!@#$%^&*"
-_PWD_LENGTH = 14  # 14-char temporary password; sufficient entropy for a one-time credential
+_PWD_LENGTH = (
+    14  # 14-char temporary password; sufficient entropy for a one-time credential
+)
 
 
 # ---------------------------------------------------------------------------
 # Singleton helper — lazy-initialized so tests / offline environments
 # do not fail at import time.
 # ---------------------------------------------------------------------------
+
 
 def _get_admin_client() -> KeycloakAdmin:
     """
@@ -65,6 +70,7 @@ def _get_admin_client() -> KeycloakAdmin:
 # ---------------------------------------------------------------------------
 # Public helpers
 # ---------------------------------------------------------------------------
+
 
 def generate_temp_password() -> str:
     """Generate a cryptographically secure temporary password."""
@@ -163,7 +169,17 @@ def set_user_enabled(keycloak_id: str, *, enabled: bool) -> None:
         raise
 
 
-def update_user_profile(keycloak_id: str, *, first_name: str | None = None, last_name: str | None = None, email: str | None = None, contact_number: str | None = None) -> None:
+def update_user_profile(
+    keycloak_id: str,
+    *,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    # NOTE: email intentionally not exposed to self-service routes (CRIT-0).
+    # Self-service PATCH /me must NEVER pass email — it is a government-controlled
+    # credential. Admin routes that manage email must call this with email explicitly.
+    email: str | None = None,
+    contact_number: str | None = None,
+) -> None:
     """
     Update mutable profile attributes on a Keycloak user.
     Only non-None values are sent to avoid overwriting unchanged fields.
@@ -188,7 +204,9 @@ def update_user_profile(keycloak_id: str, *, first_name: str | None = None, last
 
     try:
         adm.update_user(user_id=keycloak_id, payload=payload)
-        logger.info(f"Keycloak user {keycloak_id} profile updated: {list(payload.keys())}")
+        logger.info(
+            f"Keycloak user {keycloak_id} profile updated: {list(payload.keys())}"
+        )
     except KeycloakError as e:
         logger.error(f"Keycloak update_user_profile failed for {keycloak_id}: {e}")
         raise
@@ -204,11 +222,14 @@ def change_user_password(keycloak_id: str, new_password: str) -> None:
     """
     adm = _get_admin_client()
     try:
-        adm.set_user_password(user_id=keycloak_id, password=new_password, temporary=False)
+        adm.set_user_password(
+            user_id=keycloak_id, password=new_password, temporary=False
+        )
         logger.info(f"Password changed for Keycloak user {keycloak_id}")
     except KeycloakError as e:
         logger.error(f"Keycloak change_user_password failed for {keycloak_id}: {e}")
         raise
+
 
 def get_user_profile(keycloak_id: str) -> dict:
     """Retrieve full name and attributes from Keycloak."""
@@ -228,4 +249,9 @@ def get_user_profile(keycloak_id: str) -> dict:
         }
     except KeycloakError as e:
         logger.error(f"Failed to fetch keycloak user {keycloak_id}: {e}")
-        return {"first_name": "", "last_name": "", "full_name": "", "contact_number": ""}
+        return {
+            "first_name": "",
+            "last_name": "",
+            "full_name": "",
+            "contact_number": "",
+        }

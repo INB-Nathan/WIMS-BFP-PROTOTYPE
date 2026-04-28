@@ -30,6 +30,7 @@
   --bfp-gradient: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%);
 
   --header-height: 56px;
+  --spacing-32: 8rem;
 }
 
 @theme inline {
@@ -53,6 +54,7 @@
   --color-theme-accent-light: #facc15;
   --color-theme-accent-mid: #f97316;
   --color-theme-accent-dark: #ef4444;
+  --color-theme-text-secondary: #768192;
 
   --color-sidebar-bg: #3c4b64;
   --color-content-bg: #ebedef;
@@ -60,7 +62,7 @@
   --color-border: #d8dbe0;
   --color-bfp-maroon: #991b1b;
 
-  --spacing-auth-container: calc(100vh - var(--spacing-32, 8rem));
+  --spacing-auth-container: calc(100vh - var(--spacing-32, initial));
 }
 
 @utility bg-theme-gradient-fire {
@@ -311,19 +313,19 @@ body {
 
 /* Card utility */
 .card {
-  background: var(--card-bg);
-  border-radius: var(--card-radius);
-  box-shadow: var(--card-shadow);
-  border: 1px solid var(--border-color);
+  background: var(--card-bg, #ffffff);
+  border-radius: var(--card-radius, 0.5rem);
+  box-shadow: var(--card-shadow, 0 1px 4px rgba(0, 0, 0, 0.08));
+  border: 1px solid var(--border-color, #d8dbe0);
 }
 
 .card-header {
   padding: 0.75rem 1.25rem;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color, #d8dbe0);
   background: #f8f9fa;
   font-weight: 600;
   font-size: 0.875rem;
-  color: var(--text-primary);
+  color: var(--text-primary, #2c384a);
 }
 
 .card-body {

@@ -2,17 +2,22 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import LoginPage from './page';
 
+// Generate a mock PKCE verifier (43+ chars per RFC 7636)
+function generateVerifier(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+  return Array.from({ length: 64 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
+
+function generateChallenge(verifier: string): string {
+  // In real PKCE, this would be BASE64URL(SHA256(verifier))
+  // For test purposes, return a deterministic mock
+  return btoa(verifier).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '').slice(0, 43);
+}
+
 // Mock Next.js router
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     push: vi.fn(),
-  }),
-}));
-
-// Mock the Auth profile
-vi.mock('@/lib/auth', () => ({
-  useUserProfile: () => ({
-    user: null,
   }),
 }));
 
@@ -24,6 +29,40 @@ vi.mock('next/image', () => ({
     return <img {...props} alt={String(props.alt ?? '')} />;
   },
 }));
+
+// Mock AuthContext with PKCE redirect behavior
+vi.mock('@/context/AuthContext', () => {
+  const mockLogin = vi.fn(async () => {
+    const verifier = generateVerifier();
+    const challenge = generateChallenge(verifier);
+
+    // Store code_verifier in sessionStorage (as real PKCE flow does)
+    sessionStorage.setItem('pkce_verifier', verifier);
+
+    // Simulate Keycloak OIDC redirect with PKCE
+    const keycloakUrl = `https://keycloak.example.com/realms/bfp/protocol/openid-connect/auth` +
+      `?client_id=wims-web` +
+      `&redirect_uri=${encodeURIComponent(window.location.origin + '/callback')}` +
+      `&response_type=code` +
+      `&scope=openid` +
+      `&code_challenge=${challenge}` +
+      `&code_challenge_method=S256`;
+
+    window.location.href = keycloakUrl;
+  });
+
+  return {
+    useAuth: () => ({
+      user: null,
+      loading: false,
+      loggingOut: false,
+      login: mockLogin,
+      logout: vi.fn(),
+      refreshSession: vi.fn(),
+    }),
+    AuthProvider: ({ children }: { children: React.ReactNode }) => children,
+  };
+});
 
 describe('Tier 3 Compliance: Auth Guard Consistency', () => {
   beforeEach(() => {

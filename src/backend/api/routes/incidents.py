@@ -39,7 +39,9 @@ def _resolve_storage_dir() -> str:
             return candidate
         except Exception:
             continue
-    raise HTTPException(status_code=500, detail="No writable attachment storage path available")
+    raise HTTPException(
+        status_code=500, detail="No writable attachment storage path available"
+    )
 
 
 @router.post("/incidents/upload-bundle")
@@ -57,7 +59,9 @@ def upload_incident_bundle(
     try:
         region_id = int(region_id_raw)
     except (TypeError, ValueError):
-        region_row = db.execute(text("SELECT region_id FROM wims.ref_regions LIMIT 1")).fetchone()
+        region_row = db.execute(
+            text("SELECT region_id FROM wims.ref_regions LIMIT 1")
+        ).fetchone()
         if not region_row:
             raise HTTPException(status_code=500, detail="No region available")
         region_id = int(region_row[0])
@@ -190,8 +194,12 @@ def upload_incident_bundle(
                 "families_affected": _safe_int(ns.get("families_affected")),
                 "individuals_affected": _safe_int(ns.get("individuals_affected")),
                 "vehicles_affected": _safe_int(ns.get("vehicles_affected")),
-                "total_response_time_minutes": _safe_int(ns.get("total_response_time_minutes")),
-                "total_gas_consumed_liters": _safe_float(ns.get("total_gas_consumed_liters")),
+                "total_response_time_minutes": _safe_int(
+                    ns.get("total_response_time_minutes")
+                ),
+                "total_gas_consumed_liters": _safe_float(
+                    ns.get("total_gas_consumed_liters")
+                ),
                 "resources_deployed": json.dumps(ns.get("resources_deployed", {})),
                 "alarm_timeline": json.dumps(ns.get("alarm_timeline", {})),
                 "problems_encountered": json.dumps(ns.get("problems_encountered", [])),
@@ -200,7 +208,10 @@ def upload_incident_bundle(
                 "stage_of_fire": ns.get("stage_of_fire", ""),
                 "floor_area": _safe_float(ns.get("extent_total_floor_area_sqm")),
                 "land_area": _safe_float(ns.get("extent_total_land_area_hectares")),
-                "distance_from_station_km": _safe_float(ns.get("distance_to_fire_scene_km") or ns.get("distance_from_station_km")),
+                "distance_from_station_km": _safe_float(
+                    ns.get("distance_to_fire_scene_km")
+                    or ns.get("distance_from_station_km")
+                ),
             },
         )
 
@@ -228,7 +239,9 @@ def upload_incident_bundle(
             ),
             {
                 "incident_id": incident_id,
-                "street_address": sens.get("street_address") or ns.get("incident_address") or "",
+                "street_address": sens.get("street_address")
+                or ns.get("incident_address")
+                or "",
                 "landmark": sens.get("landmark") or ns.get("nearest_landmark") or "",
                 "caller_name": sens.get("caller_name", ""),
                 "caller_number": sens.get("caller_number", ""),
@@ -252,7 +265,9 @@ def upload_incident_bundle(
     except Exception as e:
         db.rollback()
         logger.exception("upload-bundle commit failed")
-        raise HTTPException(status_code=500, detail=f"upload-bundle commit failed: {type(e).__name__}") from None
+        raise HTTPException(
+            status_code=500, detail=f"upload-bundle commit failed: {type(e).__name__}"
+        ) from None
 
     for iid in incident_ids:
         try:
