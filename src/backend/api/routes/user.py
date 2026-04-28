@@ -11,7 +11,7 @@ import logging
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, field_validator
 from keycloak.exceptions import KeycloakError
 
 from auth import get_current_wims_user
@@ -38,11 +38,15 @@ router = APIRouter(prefix="/api/user", tags=["user-profile"])
 # Schemas
 # ---------------------------------------------------------------------------
 
+
 class ProfileUpdate(BaseModel):
     """Fields a user is allowed to update on their own profile."""
+
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    email: Optional[EmailStr] = None      # Will update Keycloak AND db username
+    # NOTE: email is intentionally excluded from self-service update.
+    # Government email addresses are controlled credentials — only SYSADMIN
+    # may change them via the admin user management endpoints.
     contact_number: Optional[str] = None  # Stored in Keycloak AND DB
     # Note: no password required here — the JWT token already confirms identity.
     # Password is only needed when changing the password itself.
@@ -66,6 +70,7 @@ class ProfileUpdate(BaseModel):
 
 class PasswordChange(BaseModel):
     """Payload for self-service password change."""
+
     current_password: str
     new_password: str
     otp_code: Optional[str] = None  # Required only if user has 2FA/OTP enrolled
@@ -90,6 +95,7 @@ class PasswordChange(BaseModel):
 # Routes
 # ---------------------------------------------------------------------------
 
+
 @router.get("/me/profile")
 def get_my_profile(
     current_user: Annotated[dict, Depends(get_current_wims_user)],
@@ -98,16 +104,17 @@ def get_my_profile(
     """Retrieve full name and contact number (names from Keycloak, number from DB)."""
     keycloak_id = current_user["keycloak_id"]
     profile = get_user_profile(keycloak_id)
-    
+
     # Sync contact_number from database
     row = db.execute(
         text("SELECT contact_number FROM wims.users WHERE keycloak_id = :kid"),
-        {"kid": keycloak_id}
+        {"kid": keycloak_id},
     ).fetchone()
     if row and row[0]:
         profile["contact_number"] = row[0]
-        
+
     return profile
+
 
 @router.patch("/me")
 def update_my_profile(
@@ -116,23 +123,24 @@ def update_my_profile(
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """
-    Update the current user's own profile (first_name, last_name, email, contact_number).
+    Update the current user's own profile (first_name, last_name, contact_number).
     Authentication is confirmed by the JWT bearer token — no password re-entry needed.
     Role and region cannot be changed here — contact a System Administrator.
+    Email is read-only (government-controlled credential — SYSADMIN-managed only).
     Changes are reflected immediately in Keycloak.
     """
-    if not any([body.first_name, body.last_name, body.email, body.contact_number]):
+    if not any([body.first_name, body.last_name, body.contact_number]):
         raise HTTPException(status_code=400, detail="No fields to update")
 
     keycloak_id = current_user["keycloak_id"]
 
-    # --- Update Keycloak profile ---
+    # --- Update Keycloak profile (email excluded — CRIT-0 self-service ban) ---
     try:
         update_user_profile(
             keycloak_id,
             first_name=body.first_name,
             last_name=body.last_name,
-            email=str(body.email) if body.email else None,
+            # email intentionally omitted — government email is SYSADMIN-controlled
             contact_number=body.contact_number,
         )
     except KeycloakError as e:
@@ -142,22 +150,20 @@ def update_my_profile(
             detail="Failed to update identity provider profile. Try again later.",
         )
 
-    # --- Sync DB fields (username if email changed, and contact_number) ---
-    if body.email or body.contact_number:
+    # --- Sync DB fields (contact_number only — email is SYSADMIN-controlled) ---
+    if body.contact_number:
         try:
             update_fields = []
             params = {"uid": current_user["user_id"]}
-            if body.email:
-                update_fields.append("username = :uname")
-                params["uname"] = str(body.email)[:50]
-            if body.contact_number:
-                update_fields.append("contact_number = :cnum")
-                params["cnum"] = body.contact_number
+            update_fields.append("contact_number = :cnum")
+            params["cnum"] = body.contact_number
 
             if update_fields:
                 db.execute(
-                    text(f"UPDATE wims.users SET {', '.join(update_fields)}, updated_at = now() WHERE user_id = :uid"),
-                    params
+                    text(
+                        f"UPDATE wims.users SET {', '.join(update_fields)}, updated_at = now() WHERE user_id = :uid"
+                    ),
+                    params,
                 )
                 db.commit()
         except Exception:
@@ -201,10 +207,14 @@ def change_my_password(
         token_kwargs = {}
         if body.otp_code:
             token_kwargs["totp"] = body.otp_code
-        kc_openid.token(username=target_username, password=body.current_password, **token_kwargs)
+        kc_openid.token(
+            username=target_username, password=body.current_password, **token_kwargs
+        )
     except KeycloakError as e:
         logger.warning(f"Change PW verification failed for {keycloak_id}: {e}")
-        raise HTTPException(status_code=401, detail="Incorrect current password or OTP code")
+        raise HTTPException(
+            status_code=401, detail="Incorrect current password or OTP code"
+        )
 
     try:
         change_user_password(keycloak_id, body.new_password)

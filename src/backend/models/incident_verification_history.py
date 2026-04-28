@@ -14,8 +14,8 @@ from .base import Base
 class TargetType(str, enum.Enum):
     """Type of record being reviewed by the validator."""
 
-    OFFICIAL = "OFFICIAL"   # wims.fire_incidents (encoder-submitted)
-    CIVILIAN = "CIVILIAN"   # wims.citizen_reports (public DMZ submission)
+    OFFICIAL = "OFFICIAL"  # wims.fire_incidents (encoder-submitted)
+    CIVILIAN = "CIVILIAN"  # wims.citizen_reports (public DMZ submission)
 
 
 class IncidentVerificationHistory(Base):

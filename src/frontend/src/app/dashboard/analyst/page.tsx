@@ -10,12 +10,22 @@ import {
   fetchTrendData,
   fetchComparativeData,
   fetchRegions,
+  fetchTypeDistribution,
+  fetchTopBarangays,
+  fetchResponseTimeByRegion,
+  fetchCompareRegions,
+  fetchTopN,
   type HeatmapGeoJSON,
   type TrendsResponse,
   type ComparativeResponse,
+  type TypeDistributionItem,
+  type TopBarangayItem,
+  type ResponseTimeRegionItem,
+  type CompareRegionItem,
+  type TopNItem,
 } from '@/lib/api';
 import { TrendCharts } from '@/components/analytics/TrendCharts';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Download } from 'lucide-react';
 
 const HeatmapViewer = dynamic(
   () => import('@/components/analytics/HeatmapViewer').then((m) => m.HeatmapViewer),
@@ -94,6 +104,24 @@ export default function AnalystDashboardPage() {
 
   const [cmpRanges, setCmpRanges] = useState(() => initialComparativeRanges());
 
+  // AQ-04: Casualty severity filter
+  const [casualtySeverity, setCasualtySeverity] = useState('');
+  // AQ-05: Damage range filter
+  const [damageMin, setDamageMin] = useState('');
+  const [damageMax, setDamageMax] = useState('');
+  // AQ-06: Type distribution
+  const [typeDistribution, setTypeDistribution] = useState<TypeDistributionItem[] | null>(null);
+  // AQ-07: Top barangays
+  const [topBarangays, setTopBarangays] = useState<TopBarangayItem[] | null>(null);
+  // AQ-08: Response time by region
+  const [responseTime, setResponseTime] = useState<ResponseTimeRegionItem[] | null>(null);
+  // AQ-13: Cross-region comparison
+  const [compareRegions, setCompareRegions] = useState<CompareRegionItem[] | null>(null);
+  // AQ-14: Top-N
+  const [topNData, setTopNData] = useState<TopNItem[] | null>(null);
+  const [topNMetric, setTopNMetric] = useState('incidents');
+  const [topNDimension, setTopNDimension] = useState('barangay');
+
   type FilterOverrides = {
     startDate?: string;
     endDate?: string;
@@ -105,6 +133,9 @@ export default function AnalystDashboardPage() {
     rangeAEnd?: string;
     rangeBStart?: string;
     rangeBEnd?: string;
+    casualtySeverity?: string;
+    damageMin?: string;
+    damageMax?: string;
   };
 
   const loadData = useCallback(async (overrides?: FilterOverrides) => {
@@ -119,6 +150,9 @@ export default function AnalystDashboardPage() {
     const raE = overrides?.rangeAEnd ?? cmpRanges.rangeAEnd;
     const rbS = overrides?.rangeBStart ?? cmpRanges.rangeBStart;
     const rbE = overrides?.rangeBEnd ?? cmpRanges.rangeBEnd;
+    const cs = overrides?.casualtySeverity ?? casualtySeverity;
+    const dm = overrides?.damageMin ?? damageMin;
+    const dx = overrides?.damageMax ?? damageMax;
 
     setLoadingData(true);
     setError(null);
@@ -130,8 +164,11 @@ export default function AnalystDashboardPage() {
         region_id: rid ? parseInt(rid, 10) : undefined,
         incident_type: it || undefined,
         alarm_level: al || undefined,
+        casualty_severity: cs || undefined,
+        damage_min: dm ? parseFloat(dm) : undefined,
+        damage_max: dx ? parseFloat(dx) : undefined,
       };
-      const [heatmapRes, trendsRes, comparativeRes] = await Promise.all([
+      const [heatmapRes, trendsRes, comparativeRes, typeDistRes, topBgyRes, respTimeRes, cmpRegionsRes, topNRes] = await Promise.all([
         fetchHeatmapData(filters),
         fetchTrendData({ ...filters, interval: iv }),
         fetchComparativeData({
@@ -143,10 +180,20 @@ export default function AnalystDashboardPage() {
           incident_type: it || undefined,
           alarm_level: al || undefined,
         }),
+        fetchTypeDistribution({ start_date: sd || undefined, end_date: ed || undefined, region_id: rid ? parseInt(rid, 10) : undefined }),
+        fetchTopBarangays({ start_date: sd || undefined, end_date: ed || undefined, incident_type: it || undefined }),
+        fetchResponseTimeByRegion({ start_date: sd || undefined, end_date: ed || undefined }),
+        rid ? fetchCompareRegions({ region_ids: rid, start_date: sd || undefined, end_date: ed || undefined }).catch(() => []) : Promise.resolve([]),
+        fetchTopN({ metric: topNMetric, dimension: topNDimension, start_date: sd || undefined, end_date: ed || undefined }),
       ]);
       setHeatmap(heatmapRes);
       setTrends(trendsRes);
       setComparative(comparativeRes);
+      setTypeDistribution(typeDistRes);
+      setTopBarangays(topBgyRes);
+      setResponseTime(respTimeRes);
+      setCompareRegions(cmpRegionsRes.length >= 2 ? cmpRegionsRes : null);
+      setTopNData(topNRes);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (/403|NATIONAL_ANALYST|SYSTEM_ADMIN|required|forbidden/i.test(msg)) {
@@ -166,6 +213,11 @@ export default function AnalystDashboardPage() {
     alarmLevel,
     interval,
     cmpRanges,
+    casualtySeverity,
+    damageMin,
+    damageMax,
+    topNMetric,
+    topNDimension,
   ]);
 
   useEffect(() => {
@@ -327,6 +379,53 @@ export default function AnalystDashboardPage() {
                   ))}
                 </select>
               </div>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                  Casualty Severity
+                </label>
+                <select
+                  value={casualtySeverity}
+                  onChange={(e) => setCasualtySeverity(e.target.value)}
+                  className="w-full rounded-md py-2 px-3 text-sm border cursor-pointer"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                  aria-label="Casualty severity"
+                >
+                  <option value="">All</option>
+                  <option value="high">High (deaths)</option>
+                  <option value="medium">Medium (injuries)</option>
+                  <option value="low">Low (none)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                  Damage Min
+                </label>
+                <input
+                  type="number"
+                  value={damageMin}
+                  onChange={(e) => setDamageMin(e.target.value)}
+                  placeholder="0"
+                  min="0"
+                  className="w-full rounded-md py-2 px-3 text-sm border"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                  aria-label="Damage min"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                  Damage Max
+                </label>
+                <input
+                  type="number"
+                  value={damageMax}
+                  onChange={(e) => setDamageMax(e.target.value)}
+                  placeholder="∞"
+                  min="0"
+                  className="w-full rounded-md py-2 px-3 text-sm border"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                  aria-label="Damage max"
+                />
+              </div>
               <div className="flex gap-2 md:col-span-2">
                 <button
                   onClick={() => void loadData()}
@@ -484,6 +583,183 @@ export default function AnalystDashboardPage() {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Export buttons */}
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                fetch('/api/analytics/export/pdf', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({ filters: {}, columns: ['incident_id', 'notification_dt', 'alarm_level', 'general_category'] }),
+                }).then(r => r.json()).then(d => { if (d.task_id) alert('PDF export queued: ' + d.task_id); });
+              }}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md text-white"
+              style={{ backgroundColor: 'var(--bfp-maroon)' }}
+            >
+              <Download className="w-4 h-4" /> Export PDF
+            </button>
+            <button
+              onClick={() => {
+                fetch('/api/analytics/export/excel', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({ filters: {}, columns: ['incident_id', 'notification_dt', 'alarm_level', 'general_category'] }),
+                }).then(r => r.json()).then(d => { if (d.task_id) alert('Excel export queued: ' + d.task_id); });
+              }}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md text-white"
+              style={{ backgroundColor: 'var(--bfp-maroon)' }}
+            >
+              <Download className="w-4 h-4" /> Export Excel
+            </button>
+          </div>
+
+          {/* Charts grid: pie, top barangays, response time */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* AQ-06: Type distribution pie chart */}
+            <div className="card">
+              <div className="card-header">Incident Type Distribution</div>
+              <div className="card-body">
+                {typeDistribution && typeDistribution.length > 0 ? (
+                  <div data-testid="pie-chart">
+                    {typeDistribution.map((d) => (
+                      <div key={d.type} className="flex justify-between py-1 text-sm border-b" style={{ borderColor: 'var(--border-color)' }} data-testid={`pie-segment-${d.type}`}>
+                        <span>{d.type}</span>
+                        <span className="font-bold">{d.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">No distribution data.</p>
+                )}
+              </div>
+            </div>
+
+            {/* AQ-07: Top barangays */}
+            <div className="card">
+              <div className="card-header">Top Barangays</div>
+              <div className="card-body">
+                {topBarangays && topBarangays.length > 0 ? (
+                  <div data-testid="bar-chart">
+                    {topBarangays.map((d) => (
+                      <div key={d.barangay} className="flex justify-between py-1 text-sm border-b" style={{ borderColor: 'var(--border-color)' }}>
+                        <span>{d.barangay}</span>
+                        <span className="font-bold">{d.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">No barangay data.</p>
+                )}
+              </div>
+            </div>
+
+            {/* AQ-08: Response time by region */}
+            <div className="card">
+              <div className="card-header">Response Time by Region</div>
+              <div className="card-body">
+                {responseTime && responseTime.length > 0 ? (
+                  <div>
+                    {responseTime.map((d) => (
+                      <div key={d.region_id} className="py-2 text-sm border-b" style={{ borderColor: 'var(--border-color)' }}>
+                        <div className="font-medium">Region {d.region_id}</div>
+                        <div className="text-gray-500">
+                          Avg: <span className="font-bold text-gray-700">{d.avg_response_time}</span> min
+                          &nbsp;|&nbsp; Min: {d.min_response_time} / Max: {d.max_response_time}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">No response time data.</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* AQ-13: Cross-region comparison */}
+          {compareRegions && (
+            <div className="card">
+              <div className="card-header">Cross-Region Comparison</div>
+              <div className="card-body">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b" style={{ borderColor: 'var(--border-color)' }}>
+                      <th className="text-left py-2">Region</th>
+                      <th className="text-right py-2">Total Incidents</th>
+                      <th className="text-right py-2">Avg Response Time</th>
+                      <th className="text-right py-2">Top Type</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {compareRegions.map((r) => (
+                      <tr key={r.region_id} className="border-b" style={{ borderColor: 'var(--border-color)' }}>
+                        <td className="py-2">Region {r.region_name}</td>
+                        <td className="text-right py-2 font-bold">{r.total_incidents}</td>
+                        <td className="text-right py-2">{r.avg_response_time ?? '—'}</td>
+                        <td className="text-right py-2">{r.top_type ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* AQ-14: Top-N configurable analysis */}
+          <div className="card">
+            <div className="card-header">Top-N Analysis</div>
+            <div className="card-body space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                    Metric
+                  </label>
+                  <select
+                    value={topNMetric}
+                    onChange={(e) => setTopNMetric(e.target.value)}
+                    className="w-full rounded-md py-2 px-3 text-sm border cursor-pointer"
+                    style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                    aria-label="Metric"
+                  >
+                    <option value="incidents">Incidents</option>
+                    <option value="response_time">Response Time</option>
+                    <option value="casualties">Casualties</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                    Dimension
+                  </label>
+                  <select
+                    value={topNDimension}
+                    onChange={(e) => setTopNDimension(e.target.value)}
+                    className="w-full rounded-md py-2 px-3 text-sm border cursor-pointer"
+                    style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                    aria-label="Dimension"
+                  >
+                    <option value="barangay">Barangay</option>
+                    <option value="fire_station">Fire Station</option>
+                    <option value="region">Region</option>
+                  </select>
+                </div>
+              </div>
+              {topNData && topNData.length > 0 ? (
+                <div data-testid="bar-chart">
+                  {topNData.map((d) => (
+                    <div key={d.name} className="flex justify-between py-1 text-sm border-b" style={{ borderColor: 'var(--border-color)' }}>
+                      <span>{d.name}</span>
+                      <span className="font-bold">{typeof d.value === 'number' ? d.value.toFixed(1) : d.value}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">No top-N data.</p>
+              )}
+            </div>
           </div>
         </>
       )}

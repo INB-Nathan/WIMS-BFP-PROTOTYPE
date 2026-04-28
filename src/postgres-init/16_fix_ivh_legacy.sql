@@ -1,3 +1,6 @@
+-- Migration: 16_fix_ivh_legacy.sql
+-- Purpose: Legacy incident_verification_history compatibility after validator workflow.
+
 BEGIN;
 
 ALTER TABLE wims.incident_verification_history

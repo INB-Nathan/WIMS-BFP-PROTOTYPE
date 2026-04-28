@@ -15,7 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import auth
-from database import get_db
+from database import get_db, get_db_with_rls
 from main import app
 
 
@@ -195,7 +195,7 @@ def test_analytics_heatmap_uses_read_model(client: TestClient):
             pass
 
     app.dependency_overrides[auth.get_current_wims_user] = mock_national_analyst
-    app.dependency_overrides[get_db] = mock_get_db
+    app.dependency_overrides[get_db_with_rls] = mock_get_db
 
     client.get("/api/analytics/heatmap")
 

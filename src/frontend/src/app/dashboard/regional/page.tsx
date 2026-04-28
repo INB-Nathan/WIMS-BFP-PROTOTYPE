@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { RefreshCw, Flame, Building2, TreePine, Car, ChevronLeft, ChevronRight } from 'lucide-react';
+import { RefreshCw, Flame, Building2, TreePine, Car, ChevronLeft, ChevronRight, Trees } from 'lucide-react';
 import { fetchRegionalIncidents, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
 import Link from 'next/link';
 import {
@@ -18,6 +18,8 @@ import {
 interface RegionalStatsPayload {
   total_incidents?: number;
   by_category?: Array<{ category: string | null; count: number }>;
+  wildland_total?: number;
+  by_wildland_type?: Array<{ fire_type: string | null; count: number }>;
 }
 
 export default function RegionalDashboardPage() {
@@ -121,6 +123,7 @@ export default function RegionalDashboardPage() {
     { key: 'STRUCTURAL', title: 'Structural', icon: Building2, value: stats?.by_category?.find((c) => c.category === 'STRUCTURAL')?.count.toLocaleString() ?? '0', borderColor: '#f97316' },
     { key: 'NON_STRUCTURAL', title: 'Non-Structural', icon: TreePine, value: stats?.by_category?.find((c) => c.category === 'NON_STRUCTURAL')?.count.toLocaleString() ?? '0', borderColor: '#22c55e' },
     { key: 'VEHICULAR', title: 'Vehicular', icon: Car, value: stats?.by_category?.find((c) => c.category === 'VEHICULAR')?.count.toLocaleString() ?? '0', borderColor: '#3b82f6' },
+    { key: 'WILDLAND', title: 'Wildland Fire', icon: Trees, value: stats?.wildland_total?.toLocaleString() ?? '0', borderColor: '#92400e' },
   ];
 
   return (
@@ -154,7 +157,7 @@ export default function RegionalDashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
         {summaryCards.map((card) => {
           const IconComp = card.icon;
           return (
@@ -314,7 +317,16 @@ export default function RegionalDashboardPage() {
                         return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
                       })()}
                     </td>
-                    <td className="px-6 py-4 font-medium">{inc.general_category ?? '—'}</td>
+                    <td className="px-6 py-4 font-medium">
+                      <div className="flex items-center gap-2">
+                        {inc.general_category ?? '—'}
+                        {inc.is_wildland && (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                            Wildland
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-6 py-4 text-gray-500">{inc.fire_station_name || 'N/A'}</td>
                     <td className="px-6 py-4">
                       <span
@@ -376,6 +388,56 @@ export default function RegionalDashboardPage() {
           </div>
         </div>
       </section>
+
+      {/* Wildland Fire Classifications Breakdown */}
+      {stats && (stats.wildland_total ?? 0) > 0 && (
+        <section className="card" aria-labelledby="wildland-breakdown-heading">
+          <div className="card-header flex items-center justify-between px-4 py-3 border-b">
+            <div>
+              <h2 id="wildland-breakdown-heading" className="font-bold">
+                Wildland Fire Classifications
+              </h2>
+              <p className="mt-1 text-xs text-gray-500">
+                Breakdown by wildland fire type (Wildland Fire AFOR)
+              </p>
+            </div>
+            <span className="text-2xl font-bold" style={{ color: '#92400e' }}>
+              {stats.wildland_total?.toLocaleString() ?? '0'}
+            </span>
+          </div>
+          <div className="card-body p-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+              {[
+                { type: 'fire', label: 'Fire', color: '#dc2626' },
+                { type: 'agricultural land fire', label: 'Agricultural Fire', color: '#65a30d' },
+                { type: 'forest fire', label: 'Forest Fire', color: '#166534' },
+                { type: 'grassland fire', label: 'Grassland Fire', color: '#84cc16' },
+                { type: 'brush fire', label: 'Brush Fire', color: '#d97706' },
+                { type: 'peatland fire', label: 'Peatland Fire', color: '#78350f' },
+                { type: 'grazing land fire', label: 'Grazing Land Fire', color: '#a16207' },
+                { type: 'mineral land fire', label: 'Mineral Land Fire', color: '#57534e' },
+              ].map(({ type, label, color }) => {
+                const count = stats.by_wildland_type?.find((w) => (w.fire_type ?? '').toLowerCase() === type)?.count ?? 0;
+                return (
+                  <div
+                    key={type}
+                    className="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5 transition-all hover:shadow-sm"
+                    style={{ borderLeft: `3px solid ${color}` }}
+                  >
+                    <div
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white"
+                      style={{ backgroundColor: color }}
+                    >
+                      {count}
+                    </div>
+                    <span className="text-sm font-medium text-gray-700">{label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

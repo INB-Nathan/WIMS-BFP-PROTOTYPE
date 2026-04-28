@@ -285,16 +285,17 @@ async def get_current_wims_user(
                 {"uname": preferred_username},
             ).fetchone()
         except DataError as e:
-            logger.error(
-                f"DB error validating username {preferred_username}: {e}"
-            )
+            logger.error(f"DB error validating username {preferred_username}: {e}")
             raise HTTPException(status_code=500, detail="Authentication system error")
 
         if row_by_username is None:
             raise HTTPException(status_code=403, detail="User not found in WIMS")
 
         existing_keycloak_id = row_by_username[2]
-        if existing_keycloak_id is not None and str(existing_keycloak_id) != keycloak_sub:
+        if (
+            existing_keycloak_id is not None
+            and str(existing_keycloak_id) != keycloak_sub
+        ):
             raise HTTPException(status_code=403, detail="User identity mismatch")
 
         row = (row_by_username[0], row_by_username[1], row_by_username[3])
@@ -304,7 +305,7 @@ async def get_current_wims_user(
         "keycloak_id": keycloak_sub,
         "role": row[1],
         "username": row[2],
-        "kc_username": token_payload.get("preferred_username")
+        "kc_username": token_payload.get("preferred_username"),
     }
 
     # Attach to request.state so get_db() can set the RLS GUC for this transaction

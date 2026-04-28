@@ -70,7 +70,7 @@ export default function LoginPage() {
 
                     <div className="login-form-card">
                         <div className="login-sso-notice">
-                            <Lock className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                            <Lock className="w-4 h-4 text-theme-accent-mid flex-shrink-0" />
                             <p>
                                 Secure single sign-on powered by Keycloak.
                                 Your credentials are never stored by this application.
