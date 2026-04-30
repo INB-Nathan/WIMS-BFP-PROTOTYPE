@@ -204,13 +204,17 @@ BEGIN
                 CHECK (target_type IN ('OFFICIAL', 'CIVILIAN'));
         END IF;
 
-        ALTER TABLE wims.incident_verification_history
-            ADD CONSTRAINT incident_verification_history_action_by_user_id_fkey
-            FOREIGN KEY (action_by_user_id) REFERENCES wims.users(user_id) ON DELETE RESTRICT;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_namespace n ON n.oid = c.connamespace
+            WHERE n.nspname = 'wims'
+              AND c.conname = 'incident_verification_history_action_by_user_id_fkey'
+        ) THEN
+            ALTER TABLE wims.incident_verification_history
+                ADD CONSTRAINT incident_verification_history_action_by_user_id_fkey
+                FOREIGN KEY (action_by_user_id) REFERENCES wims.users(user_id) ON DELETE RESTRICT;
+        END IF;
     END IF;
-EXCEPTION
-    WHEN duplicate_object THEN
-        NULL;
 END $$;
 
 COMMENT ON TABLE wims.incident_verification_history IS

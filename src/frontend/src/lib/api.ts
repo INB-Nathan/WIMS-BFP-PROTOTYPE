@@ -1,6 +1,6 @@
 /**
  * Fetch-based API client for FastAPI backend.
- * Uses credentials: 'include' for cookie-based auth.
+ * Uses Authorization: Bearer tokens from OIDC user storage.
  */
 import type {
   Region,
@@ -16,6 +16,7 @@ import {
   buildRegionalIncidentsQueryString,
   type RegionalIncidentsQueryParams,
 } from './regional-incidents';
+import { getUser } from './oidc';
 
 const API_BASE = typeof window !== 'undefined'
   ? (process.env.NEXT_PUBLIC_API_URL || '/api')
@@ -63,6 +64,18 @@ function errorMessageFromJson(json: unknown, fallback: string): string {
   return fallback;
 }
 
+async function resolveAccessToken(): Promise<string | null> {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  try {
+    const user = await getUser();
+    return user?.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function apiFetch<T>(
   path: string,
   options: RequestInit = {}
@@ -77,9 +90,13 @@ export async function apiFetch<T>(
   if (!isFormDataBody && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
+  const accessToken = await resolveAccessToken();
+  if (accessToken && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${accessToken}`);
+  }
   const res = await fetch(url, {
     ...options,
-    credentials: 'include',
+    credentials: 'omit',
     headers,
   });
   const json = await res.json().catch(() => ({}));
@@ -425,6 +442,8 @@ export interface RegionalIncidentDetailResponse {
   longitude: number | null;
   nonsensitive: Record<string, unknown>;
   sensitive: Record<string, unknown>;
+  /** Dispatch / arrival / return times and engine number from responding_units table. */
+  responding_unit?: Record<string, unknown>;
   attachments?: Array<{
     attachment_id: number;
     file_name: string;

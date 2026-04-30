@@ -537,17 +537,6 @@ class WildlandXlsxParser:
         raw_type = self.get("G44")
         wft = _normalize_wildland_fire_type(raw_type)
 
-        engines = [
-            self.get("D31"),
-            self.get("D32"),
-            self.get("D33"),
-        ]
-        engine_list = [
-            str(e).strip()
-            for e in engines
-            if e is not None and str(e).strip() and str(e).strip().upper() != "N/A"
-        ]
-
         return {
             "call_received_at": call_received,
             "fire_started_at": fire_started,
@@ -791,9 +780,6 @@ class BfpXlsxParser:
                 classification = "Transportation"
                 cat_val = d50
 
-        if cat_val and "pick from dropdown" in str(cat_val).lower():
-            cat_val = None
-
         stage = self.get("D54") or self.get("B54")
         if stage and "pick from dropdown" in str(stage).lower():
             stage = None
@@ -882,13 +868,6 @@ class BfpXlsxParser:
         fat_bfp_m, fat_bfp_f = self._male_female_pair(110)
         fat_aux_m, fat_aux_f = self._male_female_pair(111)
 
-        engines = [self.get("D31"), self.get("D32"), self.get("D33")]
-        engine_list = [
-            str(e).strip()
-            for e in engines
-            if e is not None and str(e).strip() and str(e).strip().upper() != "N/A"
-        ]
-
         return {
             "responder_type": responder_type,
             "fire_station_name": self.get("D20")
@@ -903,7 +882,7 @@ class BfpXlsxParser:
             "landmark": self.get("D28"),
             "caller_info": self.get("D29"),
             "receiver": self.get("D30"),
-            "engine": ", ".join(engine_list),
+            "engine": self.get("D31"),
             "time_dispatched": self.get("D34"),
             "time_arrived": self.get("D37"),
             "response_time": self.get("D40"),
@@ -941,71 +920,18 @@ class BfpXlsxParser:
             "tool_others": self.get("D84"),
             "hydrant_dist": self.get("D85"),
             "timeline": {
-                "foua": {
-                    "time": self.get("D88"),
-                    "date": self.get("E88"),
-                    "commander": self.get("F88"),
-                },
-                "alarm_1st": {
-                    "time": self.get("D89"),
-                    "date": self.get("E89"),
-                    "commander": self.get("F89"),
-                },
-                "alarm_2nd": {
-                    "time": self.get("D90"),
-                    "date": self.get("E90"),
-                    "commander": self.get("F90"),
-                },
-                "alarm_3rd": {
-                    "time": self.get("D91"),
-                    "date": self.get("E91"),
-                    "commander": self.get("F91"),
-                },
-                "alarm_4th": {
-                    "time": self.get("D92"),
-                    "date": self.get("E92"),
-                    "commander": self.get("F92"),
-                },
-                "alarm_5th": {
-                    "time": self.get("D93"),
-                    "date": self.get("E93"),
-                    "commander": self.get("F93"),
-                },
-                "tf_alpha": {
-                    "time": self.get("D94"),
-                    "date": self.get("E94"),
-                    "commander": self.get("F94"),
-                },
-                "tf_bravo": {
-                    "time": self.get("D95"),
-                    "date": self.get("E95"),
-                    "commander": self.get("F95"),
-                },
-                "tf_charlie": {
-                    "time": self.get("D96"),
-                    "date": self.get("E96"),
-                    "commander": self.get("F96"),
-                },
-                "tf_delta": {
-                    "time": self.get("D97"),
-                    "date": self.get("E97"),
-                    "commander": self.get("F97"),
-                },
-                "general": {
-                    "time": self.get("D98"),
-                    "date": self.get("E98"),
-                    "commander": self.get("F98"),
-                },
-                "fuc": {
-                    "time": self.get("D99"),
-                    "date": self.get("E99"),
-                    "commander": self.get("F99"),
-                },
-                "fo": {
-                    "time": self.get("D100"),
-                    "date": self.get("E100"),
-                    "commander": self.get("F100"),
-                },
+                "alarm_1st": {"time": self.get("D89"), "date": self.get("E89")},
+                "alarm_2nd": {"time": self.get("D90"), "date": self.get("E90")},
+                "alarm_3rd": {"time": self.get("D91"), "date": self.get("E91")},
+                "alarm_4th": {"time": self.get("D92"), "date": self.get("E92")},
+                "alarm_5th": {"time": self.get("D93"), "date": self.get("E93")},
+                "tf_alpha": {"time": self.get("D94"), "date": self.get("E94")},
+                "tf_bravo": {"time": self.get("D95"), "date": self.get("E95")},
+                "tf_charlie": {"time": self.get("D96"), "date": self.get("E96")},
+                "tf_delta": {"time": self.get("D97"), "date": self.get("E97")},
+                "general": {"time": self.get("D98"), "date": self.get("E98")},
+                "fuc": {"time": self.get("D99"), "date": self.get("E99")},
+                "fo": {"time": self.get("D100"), "date": self.get("E100")},
             },
             "icp_present": icp_present,
             "icp_location": icp_location,
@@ -1028,7 +954,6 @@ class BfpXlsxParser:
             "pod_crew": self.get("D118"),
             "pod_dpo": self.get("D119"),
             "pod_safety": self.get("D120"),
-            "pod_inv": self.get("D121"),
             "others_list": others,
             "narrative": "\n".join(narrative_lines),
             "problems": problems,
@@ -1128,36 +1053,22 @@ def parse_afor_report_data(data: dict, region_id: int) -> AforParsedRow:
     }
 
     timeline = data.get("timeline") or {
-        "foua": {"time": None, "date": data.get("notification_date"), "commander": None},
         "alarm_1st": {
             "time": data.get("alarm_1st"),
             "date": data.get("notification_date"),
-            "commander": None,
         },
-        "alarm_2nd": {"time": None, "date": data.get("notification_date"), "commander": None},
-        "alarm_3rd": {"time": None, "date": data.get("notification_date"), "commander": None},
-        "alarm_4th": {"time": None, "date": data.get("notification_date"), "commander": None},
-        "alarm_5th": {"time": None, "date": data.get("notification_date"), "commander": None},
-        "tf_alpha": {"time": None, "date": data.get("notification_date"), "commander": None},
-        "tf_bravo": {"time": None, "date": data.get("notification_date"), "commander": None},
-        "tf_charlie": {"time": None, "date": data.get("notification_date"), "commander": None},
-        "tf_delta": {"time": None, "date": data.get("notification_date"), "commander": None},
-        "general": {"time": None, "date": data.get("notification_date"), "commander": None},
-        "fuc": {"time": None, "date": data.get("notification_date"), "commander": None},
-        "fo": {"time": None, "date": data.get("notification_date"), "commander": None},
+        "alarm_2nd": {"time": None, "date": data.get("notification_date")},
+        "alarm_3rd": {"time": None, "date": data.get("notification_date")},
+        "alarm_4th": {"time": None, "date": data.get("notification_date")},
+        "alarm_5th": {"time": None, "date": data.get("notification_date")},
+        "tf_alpha": {"time": None, "date": data.get("notification_date")},
+        "tf_bravo": {"time": None, "date": data.get("notification_date")},
+        "tf_charlie": {"time": None, "date": data.get("notification_date")},
+        "tf_delta": {"time": None, "date": data.get("notification_date")},
+        "general": {"time": None, "date": data.get("notification_date")},
+        "fuc": {"time": None, "date": data.get("notification_date")},
+        "fo": {"time": None, "date": data.get("notification_date")},
     }
-
-    pod_safety_raw = str(data.get("pod_safety") or "").strip()
-    if "/" in pod_safety_raw:
-        pod_safety_name, pod_safety_contact = [s.strip() for s in pod_safety_raw.split("/", 1)]
-    else:
-        pod_safety_name, pod_safety_contact = pod_safety_raw, ""
-
-    pod_inv_raw = str(data.get("pod_inv") or "").strip()
-    if "/" in pod_inv_raw:
-        pod_inv_name, pod_inv_contact = [s.strip() for s in pod_inv_raw.split("/", 1)]
-    else:
-        pod_inv_name, pod_inv_contact = pod_inv_raw, ""
 
     # ── Section A: resolve engine/time/distance fields ──────────────────────
     engine_dispatched = data.get("engine") or data.get("engine_dispatched") or ""
@@ -1265,83 +1176,40 @@ def parse_afor_report_data(data: dict, region_id: int) -> AforParsedRow:
             "other_tools": str(data.get("tool_others") or ""),
             # Hydrant
             "hydrant_distance": str(data.get("hydrant_dist") or ""),
-            # Backward-compatible nested structure expected by older tests/clients.
-            "trucks": {
-                "bfp": _safe_int(
-                    data.get("res_bfp_truck")
-                    if data.get("res_bfp_truck") is not None
-                    else data.get("res_bfp_trucks")
-                ),
-                "lgu": _safe_int(data.get("res_lgu_truck")),
-                "volunteer": _safe_int(data.get("res_vol_truck")),
-            },
-            "medical": {
-                "bfp": _safe_int(data.get("res_bfp_amb")),
-                "non_bfp": _safe_int(data.get("res_non_amb")),
-            },
-            "special_assets": {
-                "rescue_bfp": _safe_int(data.get("res_bfp_resc")),
-                "rescue_non_bfp": _safe_int(data.get("res_non_resc")),
-                "others": str(data.get("res_others") or ""),
-            },
-            "tools": {
-                "scba": _safe_int(data.get("tool_scba")),
-                "rope": _safe_int(data.get("tool_rope")),
-                "ladder": _safe_int(data.get("tool_ladder")),
-                "hoseline": _safe_int(data.get("tool_hose")),
-                "hydraulic": _safe_int(data.get("tool_hydra")),
-                "others": str(data.get("tool_others") or ""),
-            },
         },
         "alarm_timeline": {
-            "alarm_foua": _dt(
-                timeline["foua"]["date"], timeline["foua"]["time"]
-            ),
-            "alarm_foua_commander": timeline["foua"].get("commander"),
             "alarm_1st": _dt(
                 timeline["alarm_1st"]["date"], timeline["alarm_1st"]["time"]
             ),
-            "alarm_1st_commander": timeline["alarm_1st"].get("commander"),
             "alarm_2nd": _dt(
                 timeline["alarm_2nd"]["date"], timeline["alarm_2nd"]["time"]
             ),
-            "alarm_2nd_commander": timeline["alarm_2nd"].get("commander"),
             "alarm_3rd": _dt(
                 timeline["alarm_3rd"]["date"], timeline["alarm_3rd"]["time"]
             ),
-            "alarm_3rd_commander": timeline["alarm_3rd"].get("commander"),
             "alarm_4th": _dt(
                 timeline["alarm_4th"]["date"], timeline["alarm_4th"]["time"]
             ),
-            "alarm_4th_commander": timeline["alarm_4th"].get("commander"),
             "alarm_5th": _dt(
                 timeline["alarm_5th"]["date"], timeline["alarm_5th"]["time"]
             ),
-            "alarm_5th_commander": timeline["alarm_5th"].get("commander"),
             "alarm_tf_alpha": _dt(
                 timeline["tf_alpha"]["date"], timeline["tf_alpha"]["time"]
             ),
-            "alarm_tf_alpha_commander": timeline["tf_alpha"].get("commander"),
             "alarm_tf_bravo": _dt(
                 timeline["tf_bravo"]["date"], timeline["tf_bravo"]["time"]
             ),
-            "alarm_tf_bravo_commander": timeline["tf_bravo"].get("commander"),
             "alarm_tf_charlie": _dt(
                 timeline["tf_charlie"]["date"], timeline["tf_charlie"]["time"]
             ),
-            "alarm_tf_charlie_commander": timeline["tf_charlie"].get("commander"),
             "alarm_tf_delta": _dt(
                 timeline["tf_delta"]["date"], timeline["tf_delta"]["time"]
             ),
-            "alarm_tf_delta_commander": timeline["tf_delta"].get("commander"),
             "alarm_general": _dt(
                 timeline["general"]["date"], timeline["general"]["time"]
             ),
-            "alarm_general_commander": timeline["general"].get("commander"),
             "alarm_fuc": _dt(timeline["fuc"]["date"], timeline["fuc"]["time"]),
-            "alarm_fuc_commander": timeline["fuc"].get("commander"),
             "alarm_fo": _dt(timeline["fo"]["date"], timeline["fo"]["time"]),
-            "alarm_fo_commander": timeline["fo"].get("commander"),
         },
         "problems_encountered": data.get("problems", []),
         "recommendations": data.get("recommendations") or "",
@@ -1386,11 +1254,7 @@ def parse_afor_report_data(data: dict, region_id: int) -> AforParsedRow:
                 "engine_crew": data.get("pod_crew") or "",
                 "driver": data.get("pod_dpo") or "",
                 "pump_operator": data.get("pod_dpo") or "",
-                "safety_officer": {"name": pod_safety_name, "contact": pod_safety_contact},
-                "fire_arson_investigator": {
-                    "name": pod_inv_name,
-                    "contact": pod_inv_contact,
-                },
+                "safety_officer": {"name": data.get("pod_safety") or "", "contact": ""},
             },
             "other_personnel": data.get("others_list", []),
             "casualty_details": casualty_details,
@@ -1529,14 +1393,6 @@ async def import_afor_file(
         raise HTTPException(status_code=400, detail="No data rows found in file")
 
     valid_count = sum(1 for r in rows if r.status == "VALID")
-
-    if rows:
-        _ns0 = rows[0].data.get("incident_nonsensitive_details", {})
-        logger.debug(
-            "AFOR import response — row 0 classification fields: general_category=%r, sub_category=%r",
-            _ns0.get("general_category"),
-            _ns0.get("sub_category"),
-        )
 
     return AforParseResponse(
         total_rows=len(rows),
@@ -1885,13 +1741,6 @@ async def commit_afor_import(
             {"city": city_text},
         ).fetchone()
         city_id = geo_ids[0] if geo_ids else None
-
-        logger.debug(
-            "commit_afor_import row %s: general_category=%r sub_category=%r",
-            incident_id,
-            ns.get("general_category"),
-            ns.get("sub_category"),
-        )
 
         db.execute(
             text("""

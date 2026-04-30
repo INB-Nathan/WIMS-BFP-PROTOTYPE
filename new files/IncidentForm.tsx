@@ -289,7 +289,7 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                 time_engine_dispatched: ns.time_engine_dispatched || '',
                 time_arrived_at_scene: ns.time_arrived_at_scene || '',
                 total_response_time_minutes: ns.total_response_time_minutes?.toString() || '',
-                distance_to_fire_scene_km: (ns.distance_from_station_km as number | undefined)?.toString() || (ns.distance_to_fire_scene_km as number | undefined)?.toString() || '',
+                distance_to_fire_scene_km: ns.distance_to_fire_scene_km?.toString() || '',
                 alarm_level: ns.alarm_level || '',
                 time_returned_to_base: ns.time_returned_to_base || '',
                 total_gas_consumed_liters: ns.total_gas_consumed_liters?.toString() || '',
@@ -299,8 +299,8 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                 owner_name: initialData.incident_sensitive_details?.owner_name || ns.owner_name || '',
                 establishment_name: initialData.incident_sensitive_details?.establishment_name || ns.establishment_name || '',
                 general_description_of_involved: ns.general_description_of_involved || '',
-                area_of_origin: ns.fire_origin || '',
-                stage_of_fire_upon_arrival: (ns.stage_of_fire as string) || (ns.stage_of_fire_upon_arrival as string) || '',
+                area_of_origin: ns.area_of_origin || '',
+                stage_of_fire_upon_arrival: ns.stage_of_fire_upon_arrival || '',
                 extent_of_damage: ns.extent_of_damage || '',
                 extent_total_floor_area_sqm: ns.extent_total_floor_area_sqm?.toString() || '',
                 extent_total_land_area_hectares: ns.extent_total_land_area_hectares?.toString() || '',
@@ -353,30 +353,18 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                 fatal_auxiliary_m: (auxiliaryFatalities.m as number | string | undefined)?.toString() || '',
                 fatal_auxiliary_f: (auxiliaryFatalities.f as number | string | undefined)?.toString() || '',
                 
-                incident_commander: (initialData.incident_sensitive_details?.personnel_on_duty?.incident_commander as string) || '',
-                ground_commander: (initialData.incident_sensitive_details?.personnel_on_duty?.ground_commander as string) || '',
-                pod_engine_commander: (initialData.incident_sensitive_details?.personnel_on_duty?.engine_commander as string) || '',
-                pod_shift_in_charge: (initialData.incident_sensitive_details?.personnel_on_duty?.shift_in_charge as string) || '',
-                pod_nozzleman: (initialData.incident_sensitive_details?.personnel_on_duty?.nozzleman as string) || '',
-                pod_lineman: (initialData.incident_sensitive_details?.personnel_on_duty?.lineman as string) || '',
-                pod_engine_crew: (initialData.incident_sensitive_details?.personnel_on_duty?.engine_crew as string) || '',
-                pod_driver: (initialData.incident_sensitive_details?.personnel_on_duty?.driver as string) || '',
-                pod_pump_operator: (initialData.incident_sensitive_details?.personnel_on_duty?.pump_operator as string) || '',
-                pod_safety_officer: (initialData.incident_sensitive_details?.personnel_on_duty?.safety_officer as { name?: string })?.name || '',
-                pod_safety_officer_contact: (initialData.incident_sensitive_details?.personnel_on_duty?.safety_officer as { contact?: string })?.contact || '',
-                pod_inv_name: (initialData.incident_sensitive_details?.personnel_on_duty?.fire_arson_investigator as { name?: string })?.name || '',
-                pod_inv_contact: (initialData.incident_sensitive_details?.personnel_on_duty?.fire_arson_investigator as { contact?: string })?.contact || '',
-
-                icp_present: sen.is_icp_present === true ? 'with' : sen.is_icp_present === false ? 'without' : '',
-                icp_location: (sen.icp_location as string) || '',
+                incident_commander: initialData.incident_sensitive_details?.personnel_on_duty?.engine_commander || '',
+                ground_commander: initialData.incident_sensitive_details?.personnel_on_duty?.shift_in_charge || '',
+                pod_engine_commander: initialData.incident_sensitive_details?.personnel_on_duty?.engine_commander || '',
+                pod_shift_in_charge: initialData.incident_sensitive_details?.personnel_on_duty?.shift_in_charge || '',
 
                 narrative_report: (sen.narrative_report as string) || '',
                 recommendations: (ns.recommendations as string) || '',
                 problems_encountered: selectedProblems,
                 problems_others: combinedOthers,
                 disposition: (sen.disposition as string) || '',
-                disposition_prepared_by: (sen.disposition_prepared_by as string) || (sen.prepared_by_officer as string) || '',
-                disposition_noted_by: (sen.disposition_noted_by as string) || (sen.noted_by_officer as string) || '',
+                disposition_prepared_by: (sen.disposition_prepared_by as string) || '',
+                disposition_noted_by: (sen.disposition_noted_by as string) || '',
                 // Location — pre-fill from top-level Incident fields
                 latitude: initialData.latitude != null ? String(initialData.latitude) : '',
                 longitude: initialData.longitude != null ? String(initialData.longitude) : '',
@@ -474,8 +462,8 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                     city_id: 1,
                     district_id: 1,
                     province_id: 1,
-                    general_category: formState.classification_of_involved,
-                    sub_category: formState.type_of_involved_general_category,
+                    general_category: formState.type_of_involved_general_category,
+                    incident_type: formState.classification_of_involved,
 
                     fire_origin: formState.area_of_origin,
                     extent_of_damage: formState.extent_of_damage,
@@ -518,13 +506,13 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                         alarm_3rd: formState.alarm_3rd,
                         alarm_4th: formState.alarm_4th,
                         alarm_5th: formState.alarm_5th,
-                        alarm_tf_alpha: formState.alarm_tf_alpha,
-                        alarm_tf_bravo: formState.alarm_tf_bravo,
-                        alarm_tf_charlie: formState.alarm_tf_charlie,
-                        alarm_tf_delta: formState.alarm_tf_delta,
-                        alarm_general: formState.alarm_general,
-                        alarm_fuc: formState.alarm_fuc,
-                        alarm_fo: formState.alarm_fo
+                        tf_alpha: formState.alarm_tf_alpha,
+                        tf_bravo: formState.alarm_tf_bravo,
+                        tf_charlie: formState.alarm_tf_charlie,
+                        tf_delta: formState.alarm_tf_delta,
+                        general: formState.alarm_general,
+                        fuc: formState.alarm_fuc,
+                        fo: formState.alarm_fo
                     },
 
                     recommendations: formState.recommendations,
@@ -558,7 +546,7 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                         driver: formState.pod_driver,
                         pump_operator: formState.pod_pump_operator,
                         safety_officer: { name: formState.pod_safety_officer, contact: formState.pod_safety_officer_contact },
-                        fire_arson_investigator: { name: formState.pod_inv_name, contact: formState.pod_inv_contact }
+                        investigator: { name: formState.pod_inv_name, contact: formState.pod_inv_contact }
                     },
 
                     casualty_details: {
@@ -795,7 +783,7 @@ export function IncidentForm({ initialData }: { initialData?: Incident }) {
                         <div className="md:col-span-2 space-y-2">
                             <label className="block text-sm font-bold text-gray-900">Extent of Damage</label>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-                                {['None/Minor Damage', 'Confined to Object/Vehicle', 'Confined to Room', 'Confined to Structure or Property', 'Total Loss', 'Extended Beyond Structure or Property'].map(opt => (
+                                {['None / Minor', 'Confined to Object', 'Confined to Room', 'Confined to Structure', 'Total Loss', 'Extended Beyond Structure'].map(opt => (
                                     <label key={opt} className="flex items-center gap-2">
                                         <input type="radio" name="extent_of_damage" className="h-4 w-4" value={opt} checked={formState.extent_of_damage === opt} onChange={() => handleRadioChange('extent_of_damage', opt)} />
                                         <span>{opt}</span>

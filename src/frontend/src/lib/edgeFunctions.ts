@@ -4,6 +4,10 @@ import { apiFetch } from './api';
 export interface Incident {
     incident_id?: number;
     region_id: number;
+    /** WGS-84 decimal degrees. Stored as ST_MakePoint(longitude, latitude) in PostGIS. */
+    latitude?: number;
+    /** WGS-84 decimal degrees. */
+    longitude?: number;
     _city_text?: string;
     incident_type?: string; 
     narrative_report?: string;
@@ -12,7 +16,8 @@ export interface Incident {
     incident_nonsensitive_details: {
         alarm_level: string;
         general_category: string;
-        incident_type: string;
+        sub_category?: string;
+        incident_type?: string;
         notification_dt: string;
         barangay: string;
         barangay_id?: number;

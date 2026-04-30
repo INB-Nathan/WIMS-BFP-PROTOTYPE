@@ -2,7 +2,7 @@
  * OIDC UserManager configuration for Keycloak.
  * Used by AuthContext for login redirect and callback handling.
  */
-import { UserManager } from 'oidc-client-ts';
+import { UserManager, type User } from 'oidc-client-ts';
 
 if (!process.env.NEXT_PUBLIC_AUTH_API_URL) {
   throw new Error('OIDC Authority URL is undefined');
@@ -24,9 +24,15 @@ export const oidcConfig = {
   scope: 'openid profile email',
 };
 
+const userManager = new UserManager({
+  ...oidcConfig,
+  post_logout_redirect_uri: baseUrl,
+});
+
 export function createUserManager(): UserManager {
-  return new UserManager({
-    ...oidcConfig,
-    post_logout_redirect_uri: baseUrl,
-  });
+  return userManager;
+}
+
+export async function getUser(): Promise<User | null> {
+  return userManager.getUser();
 }

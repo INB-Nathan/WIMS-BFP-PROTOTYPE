@@ -419,8 +419,8 @@ export default function RegionalIncidentDetailPage() {
           {/* L. Disposition & Signatories */}
           <Section title="L. Disposition &amp; Signatories" sectionId="sec-disp">
             <FieldRow label={FIELD_LABELS.disposition} value={sens?.disposition} />
-            <FieldRow label={FIELD_LABELS.prepared_by_officer} value={sens?.prepared_by_officer ?? sens?.disposition_prepared_by} />
-            <FieldRow label={FIELD_LABELS.noted_by_officer} value={sens?.noted_by_officer ?? sens?.disposition_noted_by} />
+            <FieldRow label={FIELD_LABELS.prepared_by_officer} value={sens?.prepared_by_officer} />
+            <FieldRow label={FIELD_LABELS.noted_by_officer} value={sens?.noted_by_officer} />
           </Section>
 
           {/* Caller / Contact (sensitive) */}

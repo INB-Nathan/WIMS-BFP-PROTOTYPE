@@ -217,11 +217,20 @@ authenticator = KeycloakAuthenticator()
 
 async def get_current_user(request: Request):
     """
-    Extract and validate the access_token from HttpOnly cookies only.
-    The Authorization header is NOT consulted — HttpOnly cookies are the
-    sole token transport to prevent XSS-driven token theft (CSRF mitigation).
+    Extract and validate access tokens from either Authorization header
+    (Bearer token) or HttpOnly cookie fallback.
     """
-    token = request.cookies.get("access_token")
+    token = None
+
+    auth_header = request.headers.get("Authorization")
+    if auth_header:
+        parts = auth_header.split(" ", 1)
+        if len(parts) == 2 and parts[0].lower() == "bearer" and parts[1].strip():
+            token = parts[1].strip()
+
+    if not token:
+        token = request.cookies.get("access_token")
+
     if not token:
         raise HTTPException(
             status_code=401, detail="Authentication credentials missing"
