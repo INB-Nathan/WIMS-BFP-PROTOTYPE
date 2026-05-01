@@ -917,7 +917,7 @@
       "enabled": true,
       "alwaysDisplayInConsole": false,
       "clientAuthenticatorType": "client-secret",
-      "secret": "wims-admin-secret-key-change-in-prod",
+      "secret": "uXKKJt2bQTS9WGGmM1YJuQp8aJQH1JT3",
       "redirectUris": [],
       "webOrigins": [],
       "notBefore": 0,
