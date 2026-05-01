@@ -86,7 +86,7 @@ export function MapPickerInner({
     zoom = DEFAULT_ZOOM,
     value,
     onChange,
-    mapHeight = '500px',
+    mapHeight = '320px',
 }: MapPickerInnerProps) {
     const readOnly = !onChange;
     const [position, setPosition] = useState<{ lat: number; lng: number } | null>(value ?? null);
@@ -253,11 +253,12 @@ export function MapPickerInner({
                 </>
             )}
 
+            <div style={{ overflow: 'hidden', borderRadius: '0.375rem', position: 'relative' }}>
             <MapContainer
                 center={mapCenter}
                 zoom={zoom}
                 style={{ height: mapHeight, width: '100%' }}
-                className="rounded-md z-0"
+                className="z-0"
                 scrollWheelZoom={!readOnly}
             >
                 <TileLayer
@@ -268,6 +269,7 @@ export function MapPickerInner({
                 <ClickHandler onChange={handleChange} />
                 {displayPosition && <Marker position={[displayPosition.lat, displayPosition.lng]} />}
             </MapContainer>
+            </div>
         </div>
     );
 }

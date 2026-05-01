@@ -215,7 +215,7 @@ export default function RegionalDashboardPage() {
 
           <div className="flex flex-wrap items-end gap-3">
             <label className="flex flex-col gap-1 text-xs font-medium text-gray-700">
-              Category
+              Classification
               <select
                 className="card min-w-[10rem] rounded border border-gray-200 px-2 py-1.5 text-sm"
                 value={categoryFilter}
@@ -225,10 +225,10 @@ export default function RegionalDashboardPage() {
                 }}
                 disabled={incidentsLoading}
               >
-                <option value="">All categories</option>
+                <option value="">All classifications</option>
                 {REGIONAL_INCIDENT_GENERAL_CATEGORIES.map((c) => (
                   <option key={c} value={c}>
-                    {c.replace(/_/g, ' ')}
+                    {c === 'NON_STRUCTURAL' ? 'Non-Structural' : c.charAt(0) + c.slice(1).toLowerCase()}
                   </option>
                 ))}
               </select>
@@ -302,7 +302,7 @@ export default function RegionalDashboardPage() {
             <thead className="bg-gray-50 text-xs uppercase text-gray-700">
               <tr>
                 <th className="px-6 py-3">Date</th>
-                <th className="px-6 py-3">Type</th>
+                <th className="px-6 py-3">Classification</th>
                 <th className="px-6 py-3">Station</th>
                 <th className="px-6 py-3">Status</th>
                 <th className="px-6 py-3 text-right">Actions</th>

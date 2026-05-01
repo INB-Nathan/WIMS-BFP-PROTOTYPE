@@ -1760,7 +1760,7 @@ async def commit_afor_import(
                 "distance_from_station_km": ns.get("distance_from_station_km"),
                 "notification_dt": ns.get("notification_dt"),
                 "alarm_level": ns.get("alarm_level", ""),
-                "general_category": ns.get("general_category", ""),
+                "general_category": _normalize_general_category(ns.get("general_category", "") or ""),
                 "sub_category": ns.get("sub_category", ""),
                 "civ_inj": _group_total(injured_groups, "civilian"),
                 "civ_fat": _group_total(fatal_groups, "civilian"),
@@ -2187,6 +2187,38 @@ def get_regional_incident_detail(
     }
 
 
+@router.get("/validator/stats")
+def get_validator_stats(
+    user: Annotated[dict, Depends(get_national_validator)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Counts of VERIFIED incidents by category visible to this validator."""
+    by_cat_rows = db.execute(
+        text("""
+            SELECT nd.general_category, COUNT(*) as cnt
+            FROM wims.fire_incidents fi
+            JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+            WHERE fi.verification_status = 'VERIFIED' AND fi.is_archived = FALSE
+            GROUP BY nd.general_category
+            ORDER BY cnt DESC
+        """),
+    ).fetchall()
+
+    pending_count = db.execute(
+        text("""
+            SELECT COUNT(*) FROM wims.fire_incidents
+            WHERE verification_status = 'PENDING_VALIDATION' AND is_archived = FALSE
+        """),
+    ).scalar() or 0
+
+    total_verified = sum(r[1] for r in by_cat_rows)
+    return {
+        "total_verified": total_verified,
+        "pending_validation": pending_count,
+        "by_category": [{"category": r[0], "count": r[1]} for r in by_cat_rows],
+    }
+
+
 @router.get("/stats", response_model=RegionalStatsResponse)
 def get_regional_stats(
     user: Annotated[dict, Depends(get_regional_encoder)],
@@ -2348,6 +2380,8 @@ class IncidentUpdateRequest(BaseModel):
     personnel_on_duty: dict | None = None
     casualty_details: dict | None = None
     disposition: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 @router.post("/incidents", status_code=201)
@@ -2630,11 +2664,22 @@ def update_incident(
             jsonb_sd_params,
         )
 
-    # Update timestamp
-    db.execute(
-        text("UPDATE wims.fire_incidents SET updated_at = now() WHERE incident_id = :iid"),
-        {"iid": incident_id},
-    )
+    # Update timestamp (and optionally coordinates)
+    if body.latitude is not None and body.longitude is not None:
+        db.execute(
+            text("""
+                UPDATE wims.fire_incidents
+                SET updated_at = now(),
+                    location = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)
+                WHERE incident_id = :iid
+            """),
+            {"lon": body.longitude, "lat": body.latitude, "iid": incident_id},
+        )
+    else:
+        db.execute(
+            text("UPDATE wims.fire_incidents SET updated_at = now() WHERE incident_id = :iid"),
+            {"iid": incident_id},
+        )
 
     try:
         db.commit()
@@ -2644,6 +2689,41 @@ def update_incident(
         raise HTTPException(status_code=500, detail="Failed to save incident draft update")
     logger.info("Updated incident %s by encoder %s", incident_id, encoder_id)
     return {"status": "updated", "incident_id": incident_id}
+
+
+@router.patch("/incidents/{incident_id}/unpend")
+def unpend_incident(
+    incident_id: int,
+    user: Annotated[dict, Depends(get_regional_encoder)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Allow encoder to withdraw a PENDING submission back to DRAFT."""
+    encoder_id = user["user_id"]
+
+    row = db.execute(
+        text("""
+            SELECT incident_id, verification_status
+            FROM wims.fire_incidents
+            WHERE incident_id = :iid
+              AND encoder_id = CAST(:eid AS uuid)
+              AND is_archived = FALSE
+        """),
+        {"iid": incident_id, "eid": str(encoder_id)},
+    ).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Incident not found or not owned by you")
+
+    if row[1] != "PENDING":
+        raise HTTPException(status_code=400, detail=f"Incident is {row[1]}, not PENDING")
+
+    db.execute(
+        text("UPDATE wims.fire_incidents SET verification_status = 'DRAFT', updated_at = now() WHERE incident_id = :iid"),
+        {"iid": incident_id},
+    )
+    db.commit()
+    logger.info("Unpended incident %s by encoder %s", incident_id, encoder_id)
+    return {"status": "unpended", "incident_id": incident_id}
 
 
 @router.delete("/incidents/{incident_id}")

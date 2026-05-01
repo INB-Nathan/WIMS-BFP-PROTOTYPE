@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Upload, FileDown, CheckCircle, AlertCircle, RefreshCw, X, MapPin, ChevronDown, ChevronUp
 } from 'lucide-react';
-import { importAforFile, commitAforImport, type AforImportPreviewResponse } from '@/lib/api';
+import { importAforFile, commitAforImport, submitIncidentForReview, type AforImportPreviewResponse } from '@/lib/api';
 import { MapPicker } from '@/components/MapPicker';
 import {
   FIELD_LABELS,
@@ -401,6 +401,8 @@ export default function AforImportPage() {
   const [previewSearch, setPreviewSearch] = useState('');
   const [commitLatStr, setCommitLatStr] = useState('');
   const [commitLngStr, setCommitLngStr] = useState('');
+  const [committedIds, setCommittedIds] = useState<number[]>([]);
+  const [isSubmittingAll, setIsSubmittingAll] = useState(false);
   const geocodeTriggered = useRef(false);
 
   const filteredPreviewRows = useMemo(() => {
@@ -526,7 +528,9 @@ export default function AforImportPage() {
         longitude: commitLng,
       });
       if (res.status === 'ok') {
-        router.push('/dashboard/regional');
+        setCommittedIds(res.incident_ids ?? []);
+        setIsCommitting(false);
+        return;
       }
     } catch (err: unknown) {
       const errMsg = (err as { message?: string }).message || 'Failed to commit the imported data.';
@@ -546,7 +550,8 @@ export default function AforImportPage() {
               setIsCommitting(false);
               return;
             }
-            router.push('/dashboard/regional');
+            setCommittedIds(retry.incident_ids ?? []);
+            setIsCommitting(false);
             return;
           }
         } catch (retryErr: unknown) {
@@ -562,6 +567,18 @@ export default function AforImportPage() {
     }
   };
 
+  const handleSubmitAll = async () => {
+    setIsSubmittingAll(true);
+    setError(null);
+    try {
+      await Promise.all(committedIds.map((id) => submitIncidentForReview(id)));
+      router.push('/dashboard/regional');
+    } catch (err: unknown) {
+      setError((err as { message?: string }).message || 'Failed to submit incidents for review.');
+      setIsSubmittingAll(false);
+    }
+  };
+
   const reset = () => {
     setFile(null);
     setPreviewData(null);
@@ -570,6 +587,7 @@ export default function AforImportPage() {
     setPreviewSearch('');
     setCommitLatStr('');
     setCommitLngStr('');
+    setCommittedIds([]);
     geocodeTriggered.current = false;
   };
 
@@ -595,6 +613,37 @@ export default function AforImportPage() {
           </div>
         )}
       </div>
+
+      {committedIds.length > 0 && (
+        <div className="card p-6 border-green-300 bg-green-50 space-y-4">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
+            <div>
+              <p className="font-semibold text-green-900">
+                {committedIds.length} incident{committedIds.length !== 1 ? 's' : ''} saved as Draft.
+              </p>
+              <p className="text-sm text-green-700 mt-0.5">Choose to keep as draft or submit all for validator review.</p>
+            </div>
+          </div>
+          {error && <p className="text-sm text-red-700">{error}</p>}
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => router.push('/dashboard/regional')}
+              className="px-5 py-2 text-sm font-medium border border-gray-300 rounded-md bg-white hover:bg-gray-50"
+            >
+              Keep as Draft
+            </button>
+            <button
+              onClick={handleSubmitAll}
+              disabled={isSubmittingAll}
+              className="px-5 py-2 text-sm font-bold text-white rounded-md disabled:opacity-50"
+              style={{ backgroundColor: 'var(--bfp-maroon)' }}
+            >
+              {isSubmittingAll ? 'Submitting…' : 'Submit All for Review'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {isOffline && (
         <div className="card overflow-hidden">

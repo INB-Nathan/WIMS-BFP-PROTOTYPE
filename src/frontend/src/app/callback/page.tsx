@@ -31,7 +31,10 @@ function CallbackContent() {
                 const res = await fetch('/api/auth/sync', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ access_token: user.access_token }),
+                    body: JSON.stringify({
+                        access_token: user.access_token,
+                        refresh_token: user.refresh_token ?? null,
+                    }),
                 });
                 if (!res.ok) {
                     const data = await res.json().catch(() => ({}));

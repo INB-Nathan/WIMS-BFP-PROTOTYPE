@@ -108,6 +108,7 @@ export function IncidentForm({
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Set<string>>(new Set());
   const locationHydratedRef = useRef(false);
+  const formHydratedRef = useRef(false);
 
   const showToast = (message: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -328,12 +329,14 @@ export function IncidentForm({
   }, [selectedProvinceId]);
 
   useEffect(() => {
-    if (!initialData) return;
+    if (!initialData || formHydratedRef.current) return;
+    formHydratedRef.current = true;
 
     const ns = initialData.incident_nonsensitive_details || {};
     const sen = initialData.incident_sensitive_details || {};
     const res = (ns.resources_deployed || {}) as Record<string, Record<string, unknown>>;
     const timeline = (ns.alarm_timeline || {}) as Record<string, unknown>;
+    const responseFields = (timeline._response as Record<string, string> | undefined) ?? {};
     const casualties = ((sen.casualty_details as { injured?: Record<string, unknown>; fatalities?: Record<string, unknown> }) || {});
     const injured = (casualties.injured || {}) as Record<string, unknown>;
     const fatalities = (casualties.fatalities || {}) as Record<string, unknown>;
@@ -344,8 +347,12 @@ export function IncidentForm({
     const ff = ((fatalities.firefighter || fatalities.bfp) as Record<string, unknown>) || {};
     const af = (fatalities.auxiliary as Record<string, unknown>) || {};
 
-    const incomingProblems = Array.isArray(ns.problems_encountered)
-      ? (ns.problems_encountered as unknown[]).map(String).filter(Boolean)
+    let rawProblems = ns.problems_encountered;
+    if (typeof rawProblems === 'string') {
+      try { rawProblems = JSON.parse(rawProblems); } catch { rawProblems = []; }
+    }
+    const incomingProblems = Array.isArray(rawProblems)
+      ? (rawProblems as unknown[]).map(String).filter(Boolean)
       : [];
     const normalizedOptionMap = new Map(ALL_PROBLEM_OPTIONS.map((o) => [normalizeProblemLabel(o), o]));
     const selectedProblems: string[] = [];
@@ -387,13 +394,13 @@ export function IncidentForm({
       caller_name: sen.caller_name || '',
       caller_number: sen.caller_number || '',
       receiver_name: sen.receiver_name || ns.receiver_name || '',
-      engine_dispatched: ns.engine_dispatched || '',
-      time_engine_dispatched: ns.time_engine_dispatched || '',
-      time_arrived_at_scene: ns.time_arrived_at_scene || '',
+      engine_dispatched: ns.engine_dispatched || responseFields.engine_dispatched || '',
+      time_engine_dispatched: ns.time_engine_dispatched || responseFields.time_engine_dispatched || '',
+      time_arrived_at_scene: ns.time_arrived_at_scene || responseFields.time_arrived_at_scene || '',
       total_response_time_minutes: ns.total_response_time_minutes?.toString() || '',
       distance_to_fire_scene_km: (ns.distance_to_fire_scene_km ?? (ns as Record<string, unknown>).distance_from_station_km)?.toString() || '',
       alarm_level: ns.alarm_level || '',
-      time_returned_to_base: ns.time_returned_to_base || '',
+      time_returned_to_base: ns.time_returned_to_base || responseFields.time_returned_to_base || '',
       total_gas_consumed_liters: ns.total_gas_consumed_liters?.toString() || '',
 
       classification_of_involved: (() => {
@@ -404,7 +411,7 @@ export function IncidentForm({
       type_of_involved_general_category: ns.type_of_involved_general_category || (ns as Record<string, unknown>).sub_category as string || '',
       owner_name: sen.owner_name || ns.owner_name || '',
       establishment_name: sen.establishment_name || ns.establishment_name || '',
-      general_description_of_involved: ns.general_description_of_involved || '',
+      general_description_of_involved: ns.general_description_of_involved || responseFields.general_description_of_involved || '',
       area_of_origin: ns.area_of_origin || (ns as Record<string, unknown>).fire_origin as string || '',
       stage_of_fire_upon_arrival: ns.stage_of_fire_upon_arrival || (ns as Record<string, unknown>).stage_of_fire as string || '',
       extent_of_damage: ns.extent_of_damage || '',
@@ -424,6 +431,14 @@ export function IncidentForm({
       resources_bfp_rescue: res.special_assets?.rescue_bfp?.toString() || '',
       resources_non_bfp_rescue: res.special_assets?.rescue_non_bfp?.toString() || '',
       resources_others: res.special_assets?.others?.toString() || '',
+
+      tools_scba: res.tools?.scba?.toString() || '',
+      tools_rope: res.tools?.rope?.toString() || '',
+      tools_ladder: res.tools?.ladder?.toString() || '',
+      tools_hoseline: res.tools?.hoseline?.toString() || '',
+      tools_hydraulic: res.tools?.hydraulic?.toString() || '',
+      tools_others: res.tools?.others?.toString() || '',
+      hydrant_location_distance: res.hydrant_distance?.toString() || '',
 
       alarm_foua: alarmEntryToDateTimeLocal(timeline.alarm_foua),
       alarm_foua_commander: alarmEntryToCommander(timeline.alarm_foua),
@@ -756,6 +771,13 @@ export function IncidentForm({
           alarm_general: alarmEntry('alarm_general'),
           alarm_fuc: alarmEntry('alarm_fuc'),
           alarm_fo: alarmEntry('alarm_fo'),
+          _response: {
+            engine_dispatched: formState.engine_dispatched || '',
+            time_engine_dispatched: formState.time_engine_dispatched || '',
+            time_arrived_at_scene: formState.time_arrived_at_scene || '',
+            time_returned_to_base: formState.time_returned_to_base || '',
+            general_description_of_involved: formState.general_description_of_involved || '',
+          },
         },
         problems_encountered: [
           ...(formState.problems_encountered || []),
@@ -779,7 +801,6 @@ export function IncidentForm({
           lineman: formState.pod_lineman || 'N/A',
           engine_crew: formState.pod_engine_crew || 'N/A',
           driver: formState.pod_driver || 'N/A',
-          pump_operator: formState.pod_pump_operator || formState.pod_driver || 'N/A',
           safety_officer: {
             name: formState.pod_safety_officer || 'N/A',
             contact: formState.pod_safety_officer_contact || 'N/A',
@@ -848,9 +869,12 @@ export function IncidentForm({
         personnel_on_duty: incident.incident_sensitive_details.personnel_on_duty,
         casualty_details: incident.incident_sensitive_details.casualty_details,
         disposition: incident.incident_sensitive_details.disposition,
+        latitude: latitude ?? undefined,
+        longitude: longitude ?? undefined,
       };
       try {
         await updateRegionalIncident(existingIncidentId, updatePayload);
+        showToast('Incident saved successfully.');
         onSaved?.();
       } catch (err: unknown) {
         showToast(`Save failed: ${(err as Error).message}`);

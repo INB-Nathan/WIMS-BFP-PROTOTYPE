@@ -13,6 +13,7 @@ from auth import get_current_wims_user
 from database import get_db_with_rls
 from schemas.incident import IncidentCreate, IncidentResponse
 from services.analytics_read_model import sync_incident_to_analytics
+from api.routes.regional import _normalize_general_category
 
 router = APIRouter(prefix="/api", tags=["incidents"])
 logger = logging.getLogger("wims.incidents")
@@ -180,7 +181,7 @@ def upload_incident_bundle(
                 "city_id": city_id,
                 "notification_dt": ns.get("notification_dt"),
                 "alarm_level": ns.get("alarm_level", ""),
-                "general_category": ns.get("general_category", ""),
+                "general_category": _normalize_general_category(ns.get("general_category", "") or ""),
                 "sub_category": ns.get("incident_type") or ns.get("sub_category") or "",
                 "responder_type": ns.get("responder_type", ""),
                 "fire_origin": ns.get("fire_origin", ""),

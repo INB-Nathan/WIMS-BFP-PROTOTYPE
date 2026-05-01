@@ -315,6 +315,7 @@ async def auth_callback(
 
     return {
         "access_token": access_token,
+        "refresh_token": token_data.get("refresh_token"),
         "user_id": str(user_id),
     }
 

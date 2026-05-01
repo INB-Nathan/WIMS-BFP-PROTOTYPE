@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Pencil, Send } from 'lucide-react';
@@ -8,6 +8,7 @@ import { useAuth } from '@/context/AuthContext';
 import {
   fetchRegionalIncident,
   submitIncidentForReview,
+  unpendIncident,
   apiFetch,
   type RegionalIncidentDetailResponse,
 } from '@/lib/api';
@@ -86,7 +87,7 @@ type PersonnelOnDuty = Record<string, string | { name?: string; contact?: string
 type OtherPerson = { name: string; designation: string };
 
 function PersonnelSection({ pod, others }: { pod: PersonnelOnDuty; others: OtherPerson[] }) {
-  const simpleKeys = ['engine_commander', 'shift_in_charge', 'nozzleman', 'lineman', 'engine_crew', 'driver', 'pump_operator'];
+  const simpleKeys = ['engine_commander', 'shift_in_charge', 'nozzleman', 'lineman', 'engine_crew', 'driver'];
   const complexKeys = ['safety_officer', 'fire_arson_investigator'];
 
   return (
@@ -269,15 +270,18 @@ export default function RegionalIncidentDetailPage() {
     load();
   }, [authLoading, canAccessRegional, load]);
 
-  // Convert detail response to the Incident shape IncidentForm expects
-  const detailToIncident = (d: RegionalIncidentDetailResponse): Incident => ({
-    incident_id: d.incident_id,
-    region_id: d.region_id,
-    latitude: d.latitude,
-    longitude: d.longitude,
-    incident_nonsensitive_details: d.nonsensitive as unknown as Incident['incident_nonsensitive_details'],
-    incident_sensitive_details: d.sensitive as unknown as Incident['incident_sensitive_details'],
-  });
+  // Memoized: only recompute when detail changes so IncidentForm's hydration runs once
+  const incidentFormData = useMemo<Incident | undefined>(() => {
+    if (!detail) return undefined;
+    return {
+      incident_id: detail.incident_id,
+      region_id: detail.region_id,
+      latitude: detail.latitude,
+      longitude: detail.longitude,
+      incident_nonsensitive_details: detail.nonsensitive as unknown as Incident['incident_nonsensitive_details'],
+      incident_sensitive_details: detail.sensitive as unknown as Incident['incident_sensitive_details'],
+    };
+  }, [detail]);
 
   const handleSubmit = async () => {
     setActionLoading(true);
@@ -287,6 +291,19 @@ export default function RegionalIncidentDetailPage() {
       await load();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Failed to submit incident.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleUnpend = async () => {
+    setActionLoading(true);
+    setActionError(null);
+    try {
+      await unpendIncident(incidentId);
+      await load();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to withdraw submission.');
     } finally {
       setActionLoading(false);
     }
@@ -320,9 +337,24 @@ export default function RegionalIncidentDetailPage() {
   const pod = (sens?.personnel_on_duty ?? {}) as PersonnelOnDuty;
   const others = (sens?.other_personnel ?? []) as OtherPerson[];
   const alarmTimeline = (ns?.alarm_timeline ?? {}) as AlarmTimeline;
-  const problems = (ns?.problems_encountered ?? []) as string[];
+
+  // Defensive: problems_encountered may come back as a JSON array or (rarely) a string
+  const rawProblems = ns?.problems_encountered;
+  const problems: string[] = Array.isArray(rawProblems)
+    ? (rawProblems as unknown[]).map(String)
+    : typeof rawProblems === 'string' && rawProblems.trim()
+    ? (() => { try { return JSON.parse(rawProblems); } catch { return []; } })()
+    : [];
+
   const narrative = String(sens?.narrative_report ?? '');
   const resources = ns?.resources_deployed as Record<string, unknown> | undefined;
+
+  // Response-timing fields stored in alarm_timeline._response or as direct ns fields
+  const responseFields = ((alarmTimeline as Record<string, unknown>)._response as Record<string, string> | undefined) ?? {};
+  const engineDispatched = String(ns?.engine_dispatched ?? responseFields.engine_dispatched ?? '').trim() || null;
+  const timeEngineDispatched = String(ns?.time_engine_dispatched ?? responseFields.time_engine_dispatched ?? '').trim() || null;
+  const timeArrivedAtScene = String(ns?.time_arrived_at_scene ?? responseFields.time_arrived_at_scene ?? '').trim() || null;
+  const timeReturnedToBase = String(ns?.time_returned_to_base ?? responseFields.time_returned_to_base ?? '').trim() || null;
 
   const canEditOrSubmit = isEncoder && detail &&
     (detail.verification_status === 'DRAFT' ||
@@ -358,14 +390,24 @@ export default function RegionalIncidentDetailPage() {
                   <Pencil className="h-3.5 w-3.5" />
                   Edit
                 </button>
-                <button
-                  onClick={handleSubmit}
-                  disabled={actionLoading}
-                  className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium bg-red-800 text-white hover:bg-red-700 disabled:opacity-50"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  {detail.verification_status === 'REJECTED' ? 'Resubmit for Review' : 'Submit for Review'}
-                </button>
+                {detail.verification_status === 'PENDING' ? (
+                  <button
+                    onClick={handleUnpend}
+                    disabled={actionLoading}
+                    className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium bg-yellow-600 text-white hover:bg-yellow-700 disabled:opacity-50"
+                  >
+                    Withdraw from Review
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSubmit}
+                    disabled={actionLoading}
+                    className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium bg-red-800 text-white hover:bg-red-700 disabled:opacity-50"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    {detail.verification_status === 'REJECTED' ? 'Resubmit for Review' : 'Submit for Review'}
+                  </button>
+                )}
               </>
             )}
             {isEditing && (
@@ -405,9 +447,9 @@ export default function RegionalIncidentDetailPage() {
         </div>
       )}
 
-      {detail && isEditing && (
+      {detail && isEditing && incidentFormData && (
         <IncidentForm
-          initialData={detailToIncident(detail)}
+          initialData={incidentFormData}
           existingIncidentId={detail.incident_id}
           onSaved={() => { setIsEditing(false); void load(); }}
         />
@@ -446,13 +488,18 @@ export default function RegionalIncidentDetailPage() {
 
           {/* A. Response Details */}
           <Section title="A. Response Details" sectionId="sec-response">
-            <FieldRow label={FIELD_LABELS.notification_dt} value={ns?.notification_dt} />
+            <FieldRow label={FIELD_LABELS.notification_dt} value={ns?.notification_dt ? new Date(String(ns.notification_dt)).toLocaleString() : null} />
             <FieldRow label={FIELD_LABELS.fire_station_name} value={ns?.fire_station_name} />
             <FieldRow label={FIELD_LABELS.responder_type} value={ns?.responder_type} />
             <FieldRow label={FIELD_LABELS.alarm_level} value={ns?.alarm_level} />
+            <FieldRow label="Engine / Unit Dispatched" value={engineDispatched} />
+            <FieldRow label="Time Engine Dispatched" value={timeEngineDispatched} />
+            <FieldRow label="Time Arrived at Fire Scene" value={timeArrivedAtScene} />
+            <FieldRow label="Time Returned to Base" value={timeReturnedToBase} />
             <FieldRow label={FIELD_LABELS.distance_from_station_km} value={ns?.distance_from_station_km} />
             <FieldRow label={FIELD_LABELS.total_response_time_minutes} value={ns?.total_response_time_minutes} />
             <FieldRow label={FIELD_LABELS.total_gas_consumed_liters} value={ns?.total_gas_consumed_liters} />
+            <FieldRow label="Location" value={[ns?.city_municipality, ns?.province_district, ns?.region].filter(Boolean).join(', ') || null} />
             <FieldRow label={FIELD_LABELS.street_address} value={sens?.street_address ?? ns?.incident_address} />
             <FieldRow label={FIELD_LABELS.landmark} value={sens?.landmark ?? ns?.nearest_landmark} />
             <FieldRow label={FIELD_LABELS.caller_name} value={sens?.caller_name} />
@@ -479,26 +526,59 @@ export default function RegionalIncidentDetailPage() {
             <FieldRow label={FIELD_LABELS.vehicles_affected} value={ns?.vehicles_affected} />
           </Section>
 
-          {/* C. Resources Deployed */}
-          {resources && (
-            <Section title="C. Assets and Resources Deployed" sectionId="sec-resources">
-              {Object.entries(resources).map(([k, v]) => (
-                <div key={k}>
-                  <p className="text-xs font-bold uppercase text-gray-500 mb-1">{fieldLabel(k)}</p>
-                  {typeof v === 'object' && v !== null ? (
-                    Object.entries(v as Record<string, unknown>).map(([sk, sv]) => (
-                      <div key={sk} className="grid grid-cols-3 gap-4 text-sm border-b border-gray-100 pb-1 pl-3">
-                        <span className="font-medium text-gray-600">{fieldLabel(sk)}</span>
-                        <span className="col-span-2 text-gray-900">{displayValue(sv)}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <FieldRow label="" value={v} />
+          {/* C. Assets and Resources Deployed */}
+          <Section title="C. Assets and Resources Deployed" sectionId="sec-resources">
+            {(() => {
+              const trucks = resources?.trucks as Record<string, unknown> | undefined;
+              const medical = resources?.medical as Record<string, unknown> | undefined;
+              const special = resources?.special_assets as Record<string, unknown> | undefined;
+              const tools = resources?.tools as Record<string, unknown> | undefined;
+              const TRUCK_LABELS: Record<string, string> = { bfp: 'BFP Fire Trucks', lgu: 'BFP-Manned (LGU Owned)', non_bfp: 'Non-BFP Fire Trucks', volunteer: 'Non-BFP Fire Trucks' };
+              const MEDICAL_LABELS: Record<string, string> = { bfp: 'BFP Ambulance', non_bfp: 'Non-BFP Ambulance' };
+              const SPECIAL_LABELS: Record<string, string> = { rescue_bfp: 'BFP Rescue Trucks', rescue_non_bfp: 'Non-BFP Rescue Trucks', others: 'Other Vehicles / Assets' };
+              const TOOL_LABELS: Record<string, string> = { scba: 'SCBA', rope: 'Rope', ladder: 'Ladder', hoseline: 'Hoseline', hydraulic: 'Hydraulic Tools & Equipment', others: 'Other Tools' };
+              const rows: { label: string; value: unknown }[] = [];
+              if (trucks) Object.entries(trucks).forEach(([k, v]) => rows.push({ label: TRUCK_LABELS[k] ?? k, value: v }));
+              if (medical) Object.entries(medical).forEach(([k, v]) => rows.push({ label: MEDICAL_LABELS[k] ?? k, value: v }));
+              if (special) Object.entries(special).forEach(([k, v]) => rows.push({ label: SPECIAL_LABELS[k] ?? k, value: v }));
+              const hasAny = rows.some((r) => r.value !== 0 && r.value !== null && r.value !== undefined && r.value !== 'N/A');
+              return (
+                <>
+                  {rows.length > 0 && (
+                    <>
+                      <p className="text-xs font-bold uppercase text-gray-500 mb-1">Vehicles</p>
+                      {rows.map(({ label, value }) => (
+                        <div key={label} className="grid grid-cols-3 gap-4 text-sm border-b border-gray-100 pb-1 pl-2">
+                          <span className="font-medium text-gray-600">{label}</span>
+                          <span className="col-span-2 text-gray-900">{displayValue(value)}</span>
+                        </div>
+                      ))}
+                    </>
                   )}
-                </div>
-              ))}
-            </Section>
-          )}
+                  {tools && (
+                    <>
+                      <p className="text-xs font-bold uppercase text-gray-500 mt-3 mb-1">Tools &amp; Equipment</p>
+                      {Object.entries(tools).map(([k, v]) => (
+                        <div key={k} className="grid grid-cols-3 gap-4 text-sm border-b border-gray-100 pb-1 pl-2">
+                          <span className="font-medium text-gray-600">{TOOL_LABELS[k] ?? k}</span>
+                          <span className="col-span-2 text-gray-900">{displayValue(v)}</span>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  {resources?.hydrant_distance && (
+                    <div className="grid grid-cols-3 gap-4 text-sm border-b border-gray-100 pb-1 pl-2 mt-1">
+                      <span className="font-medium text-gray-600">Hydrant Location / Distance</span>
+                      <span className="col-span-2 text-gray-900">{displayValue(resources.hydrant_distance)}</span>
+                    </div>
+                  )}
+                  {!hasAny && !tools && !resources?.hydrant_distance && (
+                    <span className="text-gray-400 text-sm">No resources recorded</span>
+                  )}
+                </>
+              );
+            })()}
+          </Section>
 
           {/* D. Alarm Timeline */}
           <Section title="D. Fire Alarm Level / Timeline" sectionId="sec-timeline">
@@ -615,6 +695,18 @@ export default function RegionalIncidentDetailPage() {
           </Section>
 
           {/* Validator actions — shown only to validators at the bottom of the view */}
+          {!isValidator && (
+            <div className="flex justify-start pt-2">
+              <Link
+                href="/dashboard/regional"
+                className="inline-flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900 border border-gray-300 rounded px-4 py-2"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back to Regional Dashboard
+              </Link>
+            </div>
+          )}
+
           {isValidator && (
             <section className="card border-2 border-blue-200" aria-labelledby="sec-validator-actions">
               <div className="card-header px-4 py-3 border-b bg-blue-50">
@@ -624,18 +716,20 @@ export default function RegionalIncidentDetailPage() {
                 {validatorError && (
                   <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{validatorError}</div>
                 )}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Notes <span className="font-normal text-gray-400">(optional)</span>
-                  </label>
-                  <textarea
-                    className="w-full border rounded px-3 py-2 text-sm h-20 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Reason for this decision…"
-                    value={validatorNotes}
-                    onChange={(e) => setValidatorNotes(e.target.value)}
-                    disabled={validatorLoading}
-                  />
-                </div>
+                {validatorAction === 'reject' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Reason for rejection <span className="text-red-600">*</span>
+                    </label>
+                    <textarea
+                      className="w-full border rounded px-3 py-2 text-sm h-20 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Required for rejection…"
+                      value={validatorNotes}
+                      onChange={(e) => setValidatorNotes(e.target.value)}
+                      disabled={validatorLoading}
+                    />
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-2 items-center">
                   <button
                     onClick={() => setValidatorAction('accept')}
@@ -676,7 +770,7 @@ export default function RegionalIncidentDetailPage() {
                     </span>
                     <button
                       onClick={submitValidatorAction}
-                      disabled={validatorLoading}
+                      disabled={validatorLoading || (validatorAction === 'reject' && !validatorNotes.trim())}
                       className={`px-4 py-1.5 text-sm rounded text-white disabled:opacity-50 ${
                         validatorAction === 'accept'
                           ? 'bg-green-600 hover:bg-green-700'
