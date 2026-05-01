@@ -20,10 +20,11 @@ export interface MapPickerInnerProps {
     zoom?: number;
     value?: { lat: number; lng: number } | null;
     onChange?: (lat: number, lng: number) => void;
+    mapHeight?: string;
 }
 
 const DEFAULT_CENTER: [number, number] = [14.5995, 120.9842]; // Manila area
-const DEFAULT_ZOOM = 10;
+const DEFAULT_ZOOM = 6;
 
 type GeoSuggestion = {
     lat: string;
@@ -85,7 +86,9 @@ export function MapPickerInner({
     zoom = DEFAULT_ZOOM,
     value,
     onChange,
+    mapHeight = '500px',
 }: MapPickerInnerProps) {
+    const readOnly = !onChange;
     const [position, setPosition] = useState<{ lat: number; lng: number } | null>(value ?? null);
     const [mapCenter, setMapCenter] = useState<[number, number]>(
         value ? [value.lat, value.lng] : center
@@ -196,62 +199,66 @@ export function MapPickerInner({
 
     return (
         <div className="space-y-2">
-            <div className="flex flex-col md:flex-row gap-2">
-                <input
-                    type="text"
-                    value={searchText}
-                    onChange={(e) => setSearchText(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            e.preventDefault();
-                            void handleSearch();
-                        }
-                    }}
-                    placeholder="Search place/address to set marker"
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
-                />
-                <button
-                    type="button"
-                    onClick={() => void handleSearch()}
-                    disabled={searching}
-                    className="px-4 py-2 text-sm font-semibold text-white rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-70"
-                >
-                    {searching ? 'Searching...' : 'Search'}
-                </button>
-            </div>
-            {searchText.trim().length > 0 && searchText.trim().length < 2 && (
-                <p className="text-xs text-gray-600">Type at least 2 characters to see Philippines suggestions.</p>
-            )}
-            {suggestions.length > 0 && (
-                <div className="border border-gray-200 rounded bg-white">
-                    {suggestions.map((s, idx) => (
-                        <button
-                            key={`${s.lat}-${s.lon}-${idx}`}
-                            type="button"
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
-                            onClick={() => {
-                                setSearchText(s.display_name);
-                                setSuggestions([]);
-                                const lat = Number(s.lat);
-                                const lng = Number(s.lon);
-                                if (Number.isFinite(lat) && Number.isFinite(lng)) {
-                                    handleChange(lat, lng);
+            {!readOnly && (
+                <>
+                    <div className="flex flex-col md:flex-row gap-2">
+                        <input
+                            type="text"
+                            value={searchText}
+                            onChange={(e) => setSearchText(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    void handleSearch();
                                 }
                             }}
+                            placeholder="Search place/address to set marker"
+                            className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                        />
+                        <button
+                            type="button"
+                            onClick={() => void handleSearch()}
+                            disabled={searching}
+                            className="px-4 py-2 text-sm font-semibold text-white rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-70"
                         >
-                            {s.display_name}
+                            {searching ? 'Searching...' : 'Search'}
                         </button>
-                    ))}
-                </div>
+                    </div>
+                    {searchText.trim().length > 0 && searchText.trim().length < 2 && (
+                        <p className="text-xs text-gray-600">Type at least 2 characters to see Philippines suggestions.</p>
+                    )}
+                    {suggestions.length > 0 && (
+                        <div className="border border-gray-200 rounded bg-white">
+                            {suggestions.map((s, idx) => (
+                                <button
+                                    key={`${s.lat}-${s.lon}-${idx}`}
+                                    type="button"
+                                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                                    onClick={() => {
+                                        setSearchText(s.display_name);
+                                        setSuggestions([]);
+                                        const lat = Number(s.lat);
+                                        const lng = Number(s.lon);
+                                        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                                            handleChange(lat, lng);
+                                        }
+                                    }}
+                                >
+                                    {s.display_name}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                    {searchError && <p className="text-xs text-red-600">{searchError}</p>}
+                </>
             )}
-            {searchError && <p className="text-xs text-red-600">{searchError}</p>}
 
             <MapContainer
                 center={mapCenter}
                 zoom={zoom}
-                style={{ height: '500px', width: '100%' }}
+                style={{ height: mapHeight, width: '100%' }}
                 className="rounded-md z-0"
-                scrollWheelZoom
+                scrollWheelZoom={!readOnly}
             >
                 <TileLayer
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'

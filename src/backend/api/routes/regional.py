@@ -145,6 +145,11 @@ def _wgs84_pair_from_raw(latitude: Any, longitude: Any) -> tuple[float, float]:
 
 def _incident_verification_history_uses_target_columns(db: Session) -> bool:
     """Return True when IVH table already has target_type/target_id columns."""
+    return _incident_verification_history_has_column(db, "target_type")
+
+
+def _incident_verification_history_has_column(db: Session, column_name: str) -> bool:
+    """Return True when IVH table has the given column."""
     return bool(
         db.execute(
             text("""
@@ -153,9 +158,10 @@ def _incident_verification_history_uses_target_columns(db: Session) -> bool:
                     FROM information_schema.columns
                     WHERE table_schema = 'wims'
                       AND table_name = 'incident_verification_history'
-                      AND column_name = 'target_type'
+                      AND column_name = :column_name
                 )
-            """)
+            """),
+            {"column_name": column_name},
         ).scalar()
     )
 
@@ -247,6 +253,26 @@ ALARM_LEVEL_MAP = {
     "GENERAL": "General Alarm",
     "GENERAL ALARM": "General Alarm",
 }
+
+_CATEGORY_CANONICAL: dict[str, str] = {
+    "STRUCTURAL": "STRUCTURAL",
+    "NON_STRUCTURAL": "NON_STRUCTURAL",
+    "NON-STRUCTURAL": "NON_STRUCTURAL",
+    "VEHICULAR": "VEHICULAR",
+    "TRANSPORTATION": "VEHICULAR",
+}
+
+# All known DB values for each canonical category (covers legacy form submissions)
+_CATEGORY_DB_VARIANTS: dict[str, list[str]] = {
+    "STRUCTURAL": ["STRUCTURAL", "Structural"],
+    "NON_STRUCTURAL": ["NON_STRUCTURAL", "Non-Structural", "NON-STRUCTURAL"],
+    "VEHICULAR": ["VEHICULAR", "Transportation", "TRANSPORTATION", "Vehicular"],
+}
+
+
+def _normalize_general_category(val: str) -> str:
+    key = val.strip().upper().replace("-", "_").replace(" ", "_")
+    return _CATEGORY_CANONICAL.get(key, val)
 
 
 def _safe_int(val: Any, default: int = 0) -> int:
@@ -1793,9 +1819,18 @@ async def commit_afor_import(
         if not pii_for_blob:
             pii_for_blob = {}
 
-        sp = _get_security_provider()
         aad = f"incident_id:{incident_id}".encode("utf-8")
-        nonce_b64, ct_b64 = sp.encrypt_json(pii_for_blob, aad)
+        nonce_b64: str | None = None
+        ct_b64: str | None = None
+        try:
+            sp = _get_security_provider()
+            nonce_b64, ct_b64 = sp.encrypt_json(pii_for_blob, aad)
+        except SecurityProviderError as exc:
+            logger.warning(
+                "PII encryption unavailable for incident_id=%s during AFOR commit; proceeding without encrypted blob (%s)",
+                incident_id,
+                exc,
+            )
 
         db.execute(
             text("""
@@ -1918,8 +1953,12 @@ def get_regional_incidents(
     }
 
     if category:
-        where_clauses.append("nd.general_category = :category")
-        params["category"] = category
+        cat_key = category.strip().upper().replace("-", "_").replace(" ", "_")
+        if cat_key == "TRANSPORTATION":
+            cat_key = "VEHICULAR"
+        variants = _CATEGORY_DB_VARIANTS.get(cat_key, [category])
+        where_clauses.append("nd.general_category = ANY(:categories)")
+        params["categories"] = variants
     if status:
         where_clauses.append("fi.verification_status = :status")
         params["status"] = status
@@ -2098,20 +2137,41 @@ def get_regional_incident_detail(
             nonsensitive["province_district"] = loc_row[1]
             nonsensitive["_province_text"] = loc_row[1]
 
-    # Fetch the most recent rejection reason (if any)
-    rejection_row = db.execute(
-        text("""
-            SELECT notes, changed_at
-            FROM wims.incident_verification_history
-            WHERE incident_id = :iid
-              AND new_status = 'REJECTED'
-            ORDER BY changed_at DESC
-            LIMIT 1
-        """),
-        {"iid": incident_id},
-    ).fetchone()
-    rejection_reason = rejection_row[0] if rejection_row else None
-    rejection_at = rejection_row[1].isoformat() if rejection_row and rejection_row[1] else None
+    # Fetch the most recent rejection reason with compatibility across IVH schemas.
+    ivh_has_notes = _incident_verification_history_has_column(db, "notes")
+    ivh_has_comments = _incident_verification_history_has_column(db, "comments")
+    ivh_has_action_timestamp = _incident_verification_history_has_column(db, "action_timestamp")
+    ivh_has_created_at = _incident_verification_history_has_column(db, "created_at")
+    ivh_uses_target_columns = _incident_verification_history_uses_target_columns(db)
+
+    rejection_reason = None
+    rejection_at = None
+
+    if (ivh_has_notes or ivh_has_comments) and (ivh_has_action_timestamp or ivh_has_created_at):
+        notes_column = "notes" if ivh_has_notes else "comments"
+        timestamp_column = "action_timestamp" if ivh_has_action_timestamp else "created_at"
+        incident_filter = (
+            "target_type = 'OFFICIAL' AND target_id = :iid"
+            if ivh_uses_target_columns
+            else "incident_id = :iid"
+        )
+        rejection_row = db.execute(
+            text(f"""
+                SELECT {notes_column}, {timestamp_column}
+                FROM wims.incident_verification_history
+                WHERE {incident_filter}
+                  AND new_status = 'REJECTED'
+                ORDER BY {timestamp_column} DESC
+                LIMIT 1
+            """),
+            {"iid": incident_id},
+        ).fetchone()
+        rejection_reason = rejection_row[0] if rejection_row else None
+        rejection_at = rejection_row[1].isoformat() if rejection_row and rejection_row[1] else None
+    else:
+        logger.warning(
+            "IVH schema missing notes/comments or timestamp columns; skipping rejection history lookup."
+        )
 
     return {
         "incident_id": row[0],
@@ -2330,6 +2390,10 @@ def create_incident(
     for field in ns_fields:
         val = getattr(body, field, None)
         if val is not None:
+            if field == "alarm_level" and isinstance(val, str):
+                val = ALARM_LEVEL_MAP.get(val.upper().strip(), val)
+            elif field == "general_category" and isinstance(val, str):
+                val = _normalize_general_category(val)
             ns_cols.append(field)
             ns_vals.append(f":{field}")
             ns_params[field] = val
@@ -2413,7 +2477,12 @@ def update_incident(
             detail=f"Cannot edit incident with status '{incident[1]}'. Only DRAFT, PENDING, or REJECTED incidents can be edited.",
         )
 
-    # Ensure child rows exist so UPDATE statements never fail due to missing details rows.
+    # Ensure child rows exist so UPDATE statements never silently affect 0 rows.
+    # incident_nonsensitive_details and incident_sensitive_details have no UNIQUE
+    # constraint on incident_id (PK is a separate SERIAL detail_id / sensitive_id),
+    # so ON CONFLICT cannot be used. The WHERE NOT EXISTS guard is correct: RLS
+    # SELECT on these tables passes for the owning encoder, so existing rows are
+    # visible and the INSERT is correctly skipped when a row already exists.
     db.execute(
         text("""
             INSERT INTO wims.incident_nonsensitive_details (incident_id)
@@ -2451,6 +2520,10 @@ def update_incident(
     for field in ns_fields:
         val = getattr(body, field, None)
         if val is not None:
+            if field == "alarm_level" and isinstance(val, str):
+                val = ALARM_LEVEL_MAP.get(val.upper().strip(), val)
+            elif field == "general_category" and isinstance(val, str):
+                val = _normalize_general_category(val)
             ns_updates.append(f"{field} = :{field}")
             ns_params[field] = val
 
@@ -2527,7 +2600,7 @@ def update_incident(
     jsonb_ns_params = {"iid": incident_id}
     for field, val in jsonb_ns.items():
         if val is not None:
-            jsonb_ns_updates.append(f"{field} = :{field}::jsonb")
+            jsonb_ns_updates.append(f"{field} = CAST(:{field} AS jsonb)")
             jsonb_ns_params[field] = json.dumps(val)
     if jsonb_ns_updates:
         db.execute(
@@ -2549,7 +2622,7 @@ def update_incident(
             if field == "disposition":
                 jsonb_sd_updates.append(f"{field} = :{field}")
             else:
-                jsonb_sd_updates.append(f"{field} = :{field}::jsonb")
+                jsonb_sd_updates.append(f"{field} = CAST(:{field} AS jsonb)")
             jsonb_sd_params[field] = json.dumps(val) if field != "disposition" else val
     if jsonb_sd_updates:
         db.execute(

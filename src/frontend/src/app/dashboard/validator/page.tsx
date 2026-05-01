@@ -261,7 +261,7 @@ export default function ValidatorDashboard() {
                 <th className="text-left px-4 py-3 font-medium">Alarm</th>
                 <th className="text-left px-4 py-3 font-medium">Structures</th>
                 <th className="text-left px-4 py-3 font-medium">Notification</th>
-                <th className="text-left px-4 py-3 font-medium">Encoder</th>
+                <th className="text-left px-4 py-3 font-medium">Region</th>
                 <th className="text-left px-4 py-3 font-medium">Details</th>
                 <th className="text-left px-4 py-3 font-medium">Actions</th>
               </tr>
@@ -288,8 +288,8 @@ export default function ValidatorDashboard() {
                       ? new Date(inc.notification_dt).toLocaleString()
                       : "—"}
                   </td>
-                  <td className="px-4 py-3 font-mono text-xs text-gray-400 truncate max-w-[120px]">
-                    {inc.encoder_id ? inc.encoder_id.slice(0, 8) + "…" : "—"}
+                  <td className="px-4 py-3 text-xs text-gray-600">
+                    {inc.region_id ? `Region ${inc.region_id}` : "—"}
                   </td>
                   <td className="px-4 py-3">
                     <Link

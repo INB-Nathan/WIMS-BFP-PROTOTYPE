@@ -8,6 +8,7 @@ import { useAuth } from '@/context/AuthContext';
 import {
   fetchRegionalIncident,
   submitIncidentForReview,
+  apiFetch,
   type RegionalIncidentDetailResponse,
 } from '@/lib/api';
 import dynamic from 'next/dynamic';
@@ -17,18 +18,19 @@ import type { Incident } from '@/lib/edgeFunctions';
 const IncidentLocationMap = dynamic(
   () => import('@/components/MapPickerInner').then((mod) => {
     const ReadOnlyMap = (props: { latitude: number; longitude: number }) => (
-      <div style={{ height: '350px', width: '100%' }}>
+      <div style={{ height: '300px', width: '100%', overflow: 'hidden' }}>
         <mod.MapPickerInner
           value={{ lat: props.latitude, lng: props.longitude }}
           center={[props.latitude, props.longitude]}
           zoom={16}
+          mapHeight="300px"
         />
       </div>
     );
     ReadOnlyMap.displayName = 'ReadOnlyIncidentMap';
     return ReadOnlyMap;
   }),
-  { ssr: false, loading: () => <div className="h-[350px] bg-gray-100 animate-pulse rounded" /> },
+  { ssr: false, loading: () => <div className="h-[300px] bg-gray-100 animate-pulse rounded" /> },
 );
 
 // Full AFOR form used for editing
@@ -63,7 +65,9 @@ function ProblemsGrid({ selected }: { selected: string[] }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
       {ALL_PROBLEM_OPTIONS.map((label) => {
-        const checked = selectedSet.has(label);
+        // Normalize both the label and check against the selected set
+        const normalizedLabel = normalizeProblemLabel(label);
+        const checked = selectedSet.has(normalizedLabel);
         return (
           <div key={label} className="flex items-center gap-2 py-1">
             {checked
@@ -226,6 +230,13 @@ export default function RegionalIncidentDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
+  const isValidator = role === 'NATIONAL_VALIDATOR' || role === 'VALIDATOR';
+
+  // Validator action state
+  const [validatorAction, setValidatorAction] = useState<'accept' | 'pending' | 'reject' | null>(null);
+  const [validatorNotes, setValidatorNotes] = useState('');
+  const [validatorLoading, setValidatorLoading] = useState(false);
+  const [validatorError, setValidatorError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !canAccessRegional) {
@@ -281,6 +292,25 @@ export default function RegionalIncidentDetailPage() {
     }
   };
 
+  const submitValidatorAction = async () => {
+    if (!validatorAction) return;
+    setValidatorLoading(true);
+    setValidatorError(null);
+    try {
+      await apiFetch(`/regional/incidents/${incidentId}/verification`, {
+        method: 'PATCH',
+        body: JSON.stringify({ action: validatorAction, notes: validatorNotes.trim() || null }),
+      });
+      await load();
+      setValidatorAction(null);
+      setValidatorNotes('');
+    } catch (e) {
+      setValidatorError(e instanceof Error ? e.message : 'Action failed.');
+    } finally {
+      setValidatorLoading(false);
+    }
+  };
+
   if (authLoading || !canAccessRegional) {
     return <div className="flex min-h-[40vh] items-center justify-center text-gray-500">Loading…</div>;
   }
@@ -295,7 +325,9 @@ export default function RegionalIncidentDetailPage() {
   const resources = ns?.resources_deployed as Record<string, unknown> | undefined;
 
   const canEditOrSubmit = isEncoder && detail &&
-    (detail.verification_status === 'DRAFT' || detail.verification_status === 'REJECTED');
+    (detail.verification_status === 'DRAFT' ||
+     detail.verification_status === 'PENDING' ||
+     detail.verification_status === 'REJECTED');
 
   const STATUS_COLORS: Record<string, string> = {
     DRAFT: 'bg-gray-100 text-gray-700',
@@ -308,9 +340,12 @@ export default function RegionalIncidentDetailPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <Link href="/dashboard/regional" className="inline-flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900">
+        <Link
+          href={isValidator ? '/dashboard/validator' : '/dashboard/regional'}
+          className="inline-flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+        >
           <ArrowLeft className="h-4 w-4" aria-hidden />
-          Back to regional dashboard
+          {isValidator ? 'Back to validator dashboard' : 'Back to regional dashboard'}
         </Link>
         {detail && canEditOrSubmit && (
           <div className="flex items-center gap-2">
@@ -554,6 +589,17 @@ export default function RegionalIncidentDetailPage() {
           {/* J. Problems Encountered */}
           <Section title="J. Problems Encountered" sectionId="sec-problems">
             <ProblemsGrid selected={problems} />
+            {(() => {
+              const normalizedSet = new Set(ALL_PROBLEM_OPTIONS.map(normalizeProblemLabel));
+              const customEntries = problems.filter((p) => !normalizedSet.has(normalizeProblemLabel(String(p))));
+              if (!customEntries.length) return null;
+              return (
+                <div className="mt-2 border-t border-gray-100 pt-2">
+                  <p className="text-xs font-bold text-gray-500 uppercase mb-1">Others (specify)</p>
+                  <p className="text-sm text-gray-800">{customEntries.join(', ')}</p>
+                </div>
+              );
+            })()}
           </Section>
 
           {/* K. Recommendations */}
@@ -567,6 +613,92 @@ export default function RegionalIncidentDetailPage() {
             <FieldRow label={FIELD_LABELS.prepared_by_officer} value={sens?.prepared_by_officer ?? sens?.disposition_prepared_by} />
             <FieldRow label={FIELD_LABELS.noted_by_officer} value={sens?.noted_by_officer ?? sens?.disposition_noted_by} />
           </Section>
+
+          {/* Validator actions — shown only to validators at the bottom of the view */}
+          {isValidator && (
+            <section className="card border-2 border-blue-200" aria-labelledby="sec-validator-actions">
+              <div className="card-header px-4 py-3 border-b bg-blue-50">
+                <h2 id="sec-validator-actions" className="font-bold text-base text-blue-900">Validator Actions</h2>
+              </div>
+              <div className="card-body p-4 space-y-4">
+                {validatorError && (
+                  <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{validatorError}</div>
+                )}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Notes <span className="font-normal text-gray-400">(optional)</span>
+                  </label>
+                  <textarea
+                    className="w-full border rounded px-3 py-2 text-sm h-20 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Reason for this decision…"
+                    value={validatorNotes}
+                    onChange={(e) => setValidatorNotes(e.target.value)}
+                    disabled={validatorLoading}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <button
+                    onClick={() => setValidatorAction('accept')}
+                    disabled={validatorLoading || detail?.verification_status === 'VERIFIED'}
+                    className="px-4 py-2 text-sm rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Accept
+                  </button>
+                  <button
+                    onClick={() => setValidatorAction('pending')}
+                    disabled={validatorLoading || detail?.verification_status === 'PENDING'}
+                    className="px-4 py-2 text-sm rounded bg-yellow-500 text-white hover:bg-yellow-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Return to Pending
+                  </button>
+                  <button
+                    onClick={() => setValidatorAction('reject')}
+                    disabled={validatorLoading || detail?.verification_status === 'REJECTED'}
+                    className="px-4 py-2 text-sm rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Reject
+                  </button>
+                  <Link
+                    href="/dashboard/validator"
+                    className="ml-auto px-4 py-2 text-sm rounded border border-gray-300 bg-white hover:bg-gray-50 text-gray-700"
+                  >
+                    Back to Dashboard
+                  </Link>
+                </div>
+                {validatorAction && (
+                  <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
+                    <span className="text-sm text-gray-600">
+                      Confirm:{' '}
+                      <strong>
+                        {validatorAction === 'accept' ? 'Accept' : validatorAction === 'reject' ? 'Reject' : 'Return to Pending'}
+                      </strong>
+                      {' '}this incident?
+                    </span>
+                    <button
+                      onClick={submitValidatorAction}
+                      disabled={validatorLoading}
+                      className={`px-4 py-1.5 text-sm rounded text-white disabled:opacity-50 ${
+                        validatorAction === 'accept'
+                          ? 'bg-green-600 hover:bg-green-700'
+                          : validatorAction === 'reject'
+                          ? 'bg-red-600 hover:bg-red-700'
+                          : 'bg-yellow-500 hover:bg-yellow-600'
+                      }`}
+                    >
+                      {validatorLoading ? 'Saving…' : 'Confirm'}
+                    </button>
+                    <button
+                      onClick={() => { setValidatorAction(null); setValidatorError(null); }}
+                      disabled={validatorLoading}
+                      className="px-4 py-1.5 text-sm rounded border border-gray-300 hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
         </>
       )}
     </div>

@@ -9,6 +9,7 @@ import { useUserProfile } from '@/lib/auth';
 import { Loader2, Save, Shuffle } from 'lucide-react';
 import type { Region, Province, City } from '@/types/api';
 import dynamic from 'next/dynamic';
+import { ALL_PROBLEM_OPTIONS, normalizeProblemLabel } from '@/lib/afor-utils';
 
 const MapPicker = dynamic(
   () => import('./MapPicker').then((m) => m.MapPicker),
@@ -16,33 +17,6 @@ const MapPicker = dynamic(
 );
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const PROBLEM_OPTIONS = [
-  'Inaccurate address / no landmarks',
-  'Geographically challenged',
-  'Road conditions',
-  'Road under construction',
-  'Traffic congestion',
-  'Road accidents',
-  'Vehicles failure to yield',
-  'Natural disasters / phenomenon',
-  'Civil disturbance (riots/rallies)',
-  'Uncooperative / panicked residents',
-  'Safety and security threats',
-  'Response delays (security/owner)',
-  'Engine / mechanical failure',
-  'Uncooperative fire auxiliary',
-  'Poor water supply access',
-  'Intense heat and smoke',
-  'Structural hazards',
-  'Equipment malfunction',
-  'Lack of coordination',
-  'Radio communication breakdown',
-  'HazMat contamination',
-  'Physical exhaustion and injuries',
-  'Emotional and psychological effects',
-  'Community complaints',
-];
 
 const STAGE_OF_FIRE_OPTIONS = [
   'Incipient',
@@ -108,15 +82,6 @@ const CASUALTY_ROWS = [
 ] as const;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-const normalizeProblemLabel = (value: string): string =>
-  value
-    .toLowerCase()
-    .replace(/[()]/g, ' ')
-    .replace(/[/\-]/g, ' ')
-    .replace(/\b(or|and)\b/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -382,7 +347,7 @@ export function IncidentForm({
     const incomingProblems = Array.isArray(ns.problems_encountered)
       ? (ns.problems_encountered as unknown[]).map(String).filter(Boolean)
       : [];
-    const normalizedOptionMap = new Map(PROBLEM_OPTIONS.map((o) => [normalizeProblemLabel(o), o]));
+    const normalizedOptionMap = new Map(ALL_PROBLEM_OPTIONS.map((o) => [normalizeProblemLabel(o), o]));
     const selectedProblems: string[] = [];
     const extraProblems: string[] = [];
     for (const p of incomingProblems) {
@@ -426,18 +391,22 @@ export function IncidentForm({
       time_engine_dispatched: ns.time_engine_dispatched || '',
       time_arrived_at_scene: ns.time_arrived_at_scene || '',
       total_response_time_minutes: ns.total_response_time_minutes?.toString() || '',
-      distance_to_fire_scene_km: ns.distance_to_fire_scene_km?.toString() || '',
+      distance_to_fire_scene_km: (ns.distance_to_fire_scene_km ?? (ns as Record<string, unknown>).distance_from_station_km)?.toString() || '',
       alarm_level: ns.alarm_level || '',
       time_returned_to_base: ns.time_returned_to_base || '',
       total_gas_consumed_liters: ns.total_gas_consumed_liters?.toString() || '',
 
-      classification_of_involved: ns.classification_of_involved || ns.general_category || '',
+      classification_of_involved: (() => {
+        const raw = ns.classification_of_involved || ns.general_category || '';
+        const legacyMap: Record<string, string> = { 'Structural': 'STRUCTURAL', 'Non-Structural': 'NON_STRUCTURAL', 'Transportation': 'VEHICULAR' };
+        return legacyMap[raw] ?? raw;
+      })(),
       type_of_involved_general_category: ns.type_of_involved_general_category || (ns as Record<string, unknown>).sub_category as string || '',
       owner_name: sen.owner_name || ns.owner_name || '',
       establishment_name: sen.establishment_name || ns.establishment_name || '',
       general_description_of_involved: ns.general_description_of_involved || '',
-      area_of_origin: ns.area_of_origin || '',
-      stage_of_fire_upon_arrival: ns.stage_of_fire_upon_arrival || '',
+      area_of_origin: ns.area_of_origin || (ns as Record<string, unknown>).fire_origin as string || '',
+      stage_of_fire_upon_arrival: ns.stage_of_fire_upon_arrival || (ns as Record<string, unknown>).stage_of_fire as string || '',
       extent_of_damage: ns.extent_of_damage || '',
       extent_total_floor_area_sqm: ns.extent_total_floor_area_sqm?.toString() || '',
       extent_total_land_area_hectares: ns.extent_total_land_area_hectares?.toString() || '',
@@ -449,7 +418,7 @@ export function IncidentForm({
 
       resources_bfp_trucks: res.trucks?.bfp?.toString() || '',
       resources_lgu_trucks: res.trucks?.lgu?.toString() || '',
-      resources_non_bfp_trucks: res.trucks?.volunteer?.toString() || '',
+      resources_non_bfp_trucks: res.trucks?.volunteer?.toString() || res.trucks?.non_bfp?.toString() || '',
       resources_bfp_ambulance: res.medical?.bfp?.toString() || '',
       resources_non_bfp_ambulance: res.medical?.non_bfp?.toString() || '',
       resources_bfp_rescue: res.special_assets?.rescue_bfp?.toString() || '',
@@ -515,8 +484,10 @@ export function IncidentForm({
       problems_encountered: selectedProblems,
       problems_others: combinedOthers,
       disposition: sen.disposition || '',
-      disposition_prepared_by: sen.disposition_prepared_by || '',
-      disposition_noted_by: sen.disposition_noted_by || '',
+      disposition_prepared_by: (sen as Record<string, unknown>).prepared_by_officer as string
+        || sen.disposition_prepared_by || '',
+      disposition_noted_by: (sen as Record<string, unknown>).noted_by_officer as string
+        || sen.disposition_noted_by || '',
     }));
 
     const people = (sen.other_personnel || ns.other_personnel) as Record<string, unknown>[] | undefined;
@@ -662,7 +633,7 @@ export function IncidentForm({
     if (!formState.alarm_level) errors.add('alarm_level');
     if (!formState.classification_of_involved) errors.add('classification_of_involved');
     if (!resolveRegionId()) errors.add('region');
-    if (latitude === null || longitude === null) errors.add('map_location');
+    if (!existingIncidentId && (latitude === null || longitude === null)) errors.add('map_location');
     if (errors.size > 0) {
       setFieldErrors(errors);
       const FIELD_NAMES: Record<string, string> = {
@@ -931,7 +902,6 @@ export function IncidentForm({
     setLongitude(coords.lng);
     const STATIONS = ['BFP QC District III', 'BFP Makati Central', 'BFP Manila District IV', 'BFP Pasig Station 1', 'BFP Mandaluyong Station'];
     const CMDS = ['FINSP Juan dela Cruz', 'FSUPT Maria Santos', 'FO3 Roberto Reyes', 'FO1 Ana Garcia', 'FSMS Pedro Bautista'];
-    const CATEGORIES = ['Residential', 'Commercial', 'Industrial', 'Institutional'];
     const FIRE_ORIGINS = ['Kitchen / Cooking Area', 'Electrical Wiring', 'Bedroom', 'Storage Room', 'Garage', 'Living Room', 'Engine Compartment'];
     const EXTENTS = ['None / Minor Damage', 'Confined to Object/Vehicle', 'Confined to Room', 'Confined to Structure or Property', 'Total Loss', 'Extended Beyond Structure or Property'];
     const STAGES = ['Incipient', 'Free-burning', 'Smoldering', 'Flashover', 'Fully Developed'];
@@ -961,10 +931,10 @@ export function IncidentForm({
       time_arrived_at_scene: rtime(),
       total_response_time_minutes: ri(5, 30),
       distance_to_fire_scene_km: String((Math.random() * 9 + 0.5).toFixed(1)),
-      alarm_level: pick(['1st Alarm', '2nd Alarm', '3rd Alarm', 'General Alarm']),
+      alarm_level: pick(['First Alarm', 'Second Alarm', 'Third Alarm', 'General Alarm']),
       time_returned_to_base: rtime(),
       total_gas_consumed_liters: String((Math.random() * 200 + 50).toFixed(1)),
-      classification_of_involved: pick(CATEGORIES),
+      classification_of_involved: pick(['STRUCTURAL', 'NON_STRUCTURAL', 'VEHICULAR']),
       type_of_involved_general_category: pick(['Single-Family Residential', 'Multi-Storey Residential', 'Commercial Building', 'Warehouse', 'Factory']),
       owner_name: pick(['Juan Dela Cruz', 'Maria Santos', 'ABC Corporation', 'N/A']),
       establishment_name: pick(['Dela Cruz Residence', 'Santos Apartment', 'ABC Bodega', 'N/A']),
@@ -1025,12 +995,22 @@ export function IncidentForm({
       pod_inv_name: `${pick(['FINSP', 'FSUPT'])} ${pick(CMDS).split(' ').slice(1).join(' ')}`,
       pod_inv_contact: `09${ri(100000000, 999999999)}`,
       narrative_report: pick(NARRATIVES),
-      problems_encountered: [pick(['Traffic congestion', 'Inaccurate address / no landmarks', 'Poor water supply access', 'Intense heat and smoke'])],
+      problems_encountered: (() => {
+        const shuffled = [...ALL_PROBLEM_OPTIONS].sort(() => Math.random() - 0.5);
+        return shuffled.slice(0, 3);
+      })(),
+      problems_others: pick(['Poor inter-agency communication, Lack of manpower', 'Narrow access road, Uncooperative bystanders', 'Low water pressure from hydrant, Communication breakdown']),
       recommendations: 'Conduct regular fire drills and safety inspection. Install proper fire exits and smoke detectors in all floors.',
       disposition: 'As of this date, no formal complaint has been filed. Fire investigation is ongoing.',
       disposition_prepared_by: pick(CMDS),
       disposition_noted_by: pick(CMDS),
     }));
+    setOtherPersonnel([
+      { name: `FO2 ${pick(['Santos', 'Reyes', 'Garcia', 'Lopez'])}`, designation: 'BFP Personnel', remarks: 'On standby at scene' },
+      { name: `FO1 ${pick(['Cruz', 'Bautista', 'Ramos', 'Mendoza'])}`, designation: 'BFP Personnel', remarks: 'Crowd control perimeter' },
+      { name: pick(['Barangay Captain Juan Dela Cruz', 'Kagawad Pedro Santos', 'Barangay Captain Maria Reyes']), designation: 'Barangay Official', remarks: 'Assisted in area clearing' },
+      { name: pick(['Dr. Maria Reyes', 'EMT Ana Lopez', 'Nurse Carlo Gomez']), designation: 'DRRMO / Medical Response', remarks: 'Standby medical support' },
+    ]);
   };
 
   // ── JSX helpers ────────────────────────────────────────────────────────────
@@ -1258,9 +1238,9 @@ export function IncidentForm({
               <label className={labelCls}>Classification of Involved{reqMark}</label>
               <select name="classification_of_involved" className={errCls('classification_of_involved')} value={formState.classification_of_involved} onChange={handleChange}>
                 <option value="">Select Classification</option>
-                <option>Structural</option>
-                <option>Non-Structural</option>
-                <option>Transportation</option>
+                <option value="STRUCTURAL">Structural</option>
+                <option value="NON_STRUCTURAL">Non-Structural</option>
+                <option value="VEHICULAR">Vehicular / Transportation</option>
               </select>
             </div>
 
@@ -1533,6 +1513,7 @@ export function IncidentForm({
               center={latitude && longitude ? [latitude, longitude] : [14.5995, 120.9842]}
               value={latitude && longitude ? { lat: latitude, lng: longitude } : null}
               onChange={(lat, lng) => { setLatitude(lat); setLongitude(lng); }}
+              mapHeight="320px"
             />
           </div>
           {latitude !== null && longitude !== null ? (
@@ -1562,21 +1543,45 @@ export function IncidentForm({
         <section className="space-y-4 border-b pb-6">
           <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">J. Problems Encountered</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-            {PROBLEM_OPTIONS.map((prob) => (
-              <label key={prob} className="flex items-start gap-2">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4 flex-shrink-0"
-                  checked={(formState.problems_encountered || []).includes(prob)}
-                  onChange={(e) => {
-                    const current = formState.problems_encountered || [];
-                    const updated = e.target.checked ? [...current, prob] : current.filter((p) => p !== prob);
-                    setFormState((prev) => ({ ...prev, problems_encountered: updated }));
-                  }}
-                />
-                <span>{prob}</span>
-              </label>
-            ))}
+            {ALL_PROBLEM_OPTIONS.filter((o) => o !== 'Others').map((prob, idx) => {
+              // Normalize the label to ensure consistent comparison
+              const normalizedProb = normalizeProblemLabel(prob);
+              const isChecked = (formState.problems_encountered || []).some((p) => normalizeProblemLabel(p) === normalizedProb);
+              const checkboxId = `problem-checkbox-${idx}`;
+              
+              return (
+                <label key={`${idx}-${prob}`} htmlFor={checkboxId} className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    id={checkboxId}
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 flex-shrink-0 cursor-pointer"
+                    checked={isChecked}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setFormState((prev) => {
+                        const current = prev.problems_encountered || [];
+                        let updated: string[];
+                        
+                        if (checked) {
+                          // Add the canonical form if not already present
+                          if (!current.some((p) => normalizeProblemLabel(p) === normalizedProb)) {
+                            updated = [...current, prob];
+                          } else {
+                            updated = current;
+                          }
+                        } else {
+                          // Remove all variants that normalize to this problem
+                          updated = current.filter((p) => normalizeProblemLabel(p) !== normalizedProb);
+                        }
+                        
+                        return { ...prev, problems_encountered: updated };
+                      });
+                    }}
+                  />
+                  <span className="select-none">{prob}</span>
+                </label>
+              );
+            })}
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-900 mb-1">Others (specify, separate by comma)</label>
