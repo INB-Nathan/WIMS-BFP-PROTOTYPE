@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from auth import get_analyst_or_admin
-from database import get_db, get_db_with_rls
+from database import get_db_with_rls
 from services.analytics_read_model import (
     count_in_range,
     get_heatmap_points,
