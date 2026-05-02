@@ -32,8 +32,8 @@ Regional Encoder creates incidents with geometry point.
 - **Frontend:** `/incidents/create` page for authenticated regional encoders
 
 #### Exit Criteria
-- [ ] Encoder can create incident with map-picked coordinates
-- [ ] Incident appears in regional incident list
+- [/] Encoder can create incident with map-picked coordinates
+- [/] Incident appears in regional incident list
 
 ---
 
@@ -50,8 +50,8 @@ Regional Encoder edits their own pending incidents.
 - **Frontend:** `/dashboard/regional/incidents/[id]` edit mode
 
 #### Exit Criteria
-- [ ] Encoder can edit their own `PENDING_REVIEW` incidents
-- [ ] Encoder cannot edit `VERIFIED` or other users' incidents
+- [/] Encoder can edit their own `PENDING_REVIEW` incidents
+- [/] Encoder cannot edit `VERIFIED` or other users' incidents
 - [ ] Edit creates audit trail entry
 
 ---
@@ -110,8 +110,8 @@ Regional Encoder can save incident drafts and resume later.
 - **Auto-Expiry:** Drafts expire after 30 days (Celery periodic task)
 
 #### Exit Criteria
-- [ ] Encoder can save and resume drafts
-- [ ] Drafts do not appear in validator queue
+- [/] Encoder can save and resume drafts
+- [/] Drafts do not appear in validator queue
 
 ---
 
@@ -132,7 +132,7 @@ Upgrade existing validator queue with full workflow.
 
 #### Exit Criteria
 - [ ] Validator sees cross-region queue
-- [ ] Validator can approve or reject with reason
+- [/] Validator can approve or reject with reason
 - [ ] Each action creates audit trail entry
 
 ---
