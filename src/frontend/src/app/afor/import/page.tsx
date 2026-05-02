@@ -3,9 +3,18 @@
 import { Fragment, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  Upload, FileDown, CheckCircle, AlertCircle, RefreshCw, X, MapPin, ChevronDown, ChevronUp
+  Upload, FileDown, CheckCircle, AlertCircle, RefreshCw, X, MapPin
 } from 'lucide-react';
-import { importAforFile, commitAforImport, submitIncidentForReview, type AforImportPreviewResponse } from '@/lib/api';
+import {
+  importAforFile,
+  commitAforImport,
+  submitIncidentForReview,
+  ApiRequestError,
+  type AforImportPreviewResponse,
+  type DuplicateMatch,
+  type DuplicateStrategy,
+  type AforRowStrategy,
+} from '@/lib/api';
 import { MapPicker } from '@/components/MapPicker';
 import {
   FIELD_LABELS,
@@ -126,8 +135,6 @@ function ProblemsGrid({ selected }: { selected: string[] }) {
 
 // ── Data preview expandable panel ────────────────────────────────────────────
 function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown>; formKind: string }) {
-  const [open, setOpen] = useState(false);
-
   if (formKind === 'WILDLAND_AFOR') {
     const wl = rowData.wildland as Record<string, unknown> | undefined;
     if (!wl) return null;
@@ -161,12 +168,7 @@ function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown
 
     return (
       <div className="px-4 pb-4 whitespace-normal break-words">
-        <button onClick={() => setOpen(!open)} className="text-xs text-blue-600 flex items-center gap-1">
-          {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          {open ? 'Hide' : 'Show'} wildland details
-        </button>
-        {open && (
-          <div className="mt-4 space-y-6 text-sm whitespace-normal break-words">
+        <div className="mt-2 space-y-6 text-sm whitespace-normal break-words">
             {sections.map((section) => (
               <div key={section.title}>
                 <h4 className="text-xs font-bold uppercase text-gray-500 mb-2">{section.title}</h4>
@@ -270,8 +272,7 @@ function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown
                 </table>
               )}
             </div>
-          </div>
-        )}
+        </div>
       </div>
     );
   }
@@ -286,12 +287,7 @@ function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown
 
   return (
     <div className="px-4 pb-4 whitespace-normal break-words">
-      <button onClick={() => setOpen(!open)} className="text-xs text-blue-600 flex items-center gap-1">
-        {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-        {open ? 'Hide' : 'Show'} full record details
-      </button>
-      {open && (
-        <div className="mt-4 space-y-6 whitespace-normal break-words">
+      <div className="mt-2 space-y-6 whitespace-normal break-words">
           {/* Non-sensitive details */}
           {ns && (
             <div>
@@ -350,8 +346,7 @@ function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown
             <h4 className="text-xs font-bold uppercase text-gray-500 mb-2">Problems Encountered</h4>
             <ProblemsGrid selected={problems} />
           </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -404,6 +399,14 @@ export default function AforImportPage() {
   const [committedIds, setCommittedIds] = useState<number[]>([]);
   const [isSubmittingAll, setIsSubmittingAll] = useState(false);
   const geocodeTriggered = useRef(false);
+
+  // Duplicate resolution modal state (M4-D)
+  interface AforDuplicateRow {
+    row_index: number;
+    matches: DuplicateMatch[];
+  }
+  const [aforDuplicateRows, setAforDuplicateRows] = useState<AforDuplicateRow[] | null>(null);
+  const [aforRowStrategies, setAforRowStrategies] = useState<Record<number, { strategy: DuplicateStrategy; incidentId: number | null }>>({});
 
   const filteredPreviewRows = useMemo(() => {
     if (!previewData) return [];
@@ -513,6 +516,19 @@ export default function AforImportPage() {
     setCommitLngStr(String(lng));
   }, []);
 
+  const _doCommit = async (rowStrategies?: AforRowStrategy[]) => {
+    if (!previewData) return;
+    const validRows = previewData.rows.filter((r) => r.status === 'VALID').map((r) => r.data);
+    const res = await commitAforImport(validRows, previewData.form_kind, {
+      latitude: commitLat,
+      longitude: commitLng,
+      rowStrategies,
+    });
+    if (res.status === 'ok') {
+      setCommittedIds(res.incident_ids ?? []);
+    }
+  };
+
   const handleCommit = async () => {
     if (!previewData || previewData.valid_rows === 0) return;
     if (!coordsReady) {
@@ -521,48 +537,46 @@ export default function AforImportPage() {
     }
     setIsCommitting(true);
     setError(null);
-    const validRows = previewData.rows.filter((r) => r.status === 'VALID').map((r) => r.data);
     try {
-      const res = await commitAforImport(validRows, previewData.form_kind, {
-        latitude: commitLat,
-        longitude: commitLng,
-      });
-      if (res.status === 'ok') {
-        setCommittedIds(res.incident_ids ?? []);
-        setIsCommitting(false);
-        return;
-      }
+      await _doCommit();
     } catch (err: unknown) {
-      const errMsg = (err as { message?: string }).message || 'Failed to commit the imported data.';
-      if (errMsg.includes('DUPLICATE_INCIDENT')) {
-        try {
-          const replaceOriginal = window.confirm(
-            'Duplicate incident detected. Press OK to Replace Original, or Cancel to Keep Original and skip duplicate rows.',
-          );
-          const retry = await commitAforImport(validRows, previewData.form_kind, {
-            latitude: commitLat,
-            longitude: commitLng,
-            duplicateStrategy: replaceOriginal ? 'REPLACE_ORIGINAL' : 'KEEP_ORIGINAL',
-          });
-          if (retry.status === 'ok') {
-            if (retry.total_committed === 0) {
-              setError('No rows were committed because all valid rows were duplicates and were kept as original.');
-              setIsCommitting(false);
-              return;
-            }
-            setCommittedIds(retry.incident_ids ?? []);
-            setIsCommitting(false);
-            return;
-          }
-        } catch (retryErr: unknown) {
-          const retryMsg = (retryErr as { message?: string }).message || 'Failed while resolving duplicate incidents.';
-          setError(retryMsg);
-          setIsCommitting(false);
-          return;
+      const detail = err instanceof ApiRequestError
+        ? (err.detail as { code?: string; duplicate_rows?: { row_index: number; matches: DuplicateMatch[] }[] } | undefined)
+        : undefined;
+      if (detail?.code === 'DUPLICATE_DETECTED' && detail.duplicate_rows) {
+        setAforDuplicateRows(detail.duplicate_rows);
+        const initial: Record<number, { strategy: DuplicateStrategy; incidentId: number | null }> = {};
+        for (const dr of detail.duplicate_rows) {
+          initial[dr.row_index] = { strategy: 'SUBMIT_AS_NEW', incidentId: null };
         }
+        setAforRowStrategies(initial);
       } else {
-        setError(errMsg);
+        setError(err instanceof Error ? err.message : 'Failed to commit the imported data.');
       }
+    } finally {
+      setIsCommitting(false);
+    }
+  };
+
+  const handleAforDuplicateConfirm = async () => {
+    if (!aforDuplicateRows) return;
+    setIsCommitting(true);
+    setError(null);
+    try {
+      const strategies: AforRowStrategy[] = aforDuplicateRows.map((dr) => {
+        const s = aforRowStrategies[dr.row_index] ?? { strategy: 'SUBMIT_AS_NEW', incidentId: null };
+        return {
+          rowIndex: dr.row_index,
+          strategy: s.strategy,
+          duplicateIncidentId: s.strategy === 'UPDATE_EXISTING' ? (s.incidentId ?? undefined) : undefined,
+        };
+      });
+      await _doCommit(strategies);
+      setAforDuplicateRows(null);
+      setAforRowStrategies({});
+    } catch (err: unknown) {
+      setError((err as { message?: string }).message || 'Failed to commit with duplicate resolution.');
+    } finally {
       setIsCommitting(false);
     }
   };
@@ -938,6 +952,84 @@ export default function AforImportPage() {
                   })}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* M4-D: AFOR duplicate resolution modal */}
+      {aforDuplicateRows && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-xl p-6 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-lg font-semibold mb-1">Duplicate Rows Detected</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              {aforDuplicateRows.length} row{aforDuplicateRows.length !== 1 ? 's' : ''} match existing incidents. Choose how to handle each one.
+            </p>
+
+            <div className="space-y-4 mb-5">
+              {aforDuplicateRows.map((dr) => {
+                const sel = aforRowStrategies[dr.row_index] ?? { strategy: 'SUBMIT_AS_NEW' as DuplicateStrategy, incidentId: null };
+                return (
+                  <div key={dr.row_index} className="rounded border border-gray-200 p-3">
+                    <p className="text-sm font-medium mb-2">Row {dr.row_index + 1}</p>
+                    <p className="text-xs text-gray-500 mb-2">
+                      Matches: {dr.matches.map((m) => `#${m.incident_id} (${m.verification_status})`).join(', ')}
+                    </p>
+                    <div className="space-y-1">
+                      {(['SUBMIT_AS_NEW', 'UPDATE_EXISTING'] as DuplicateStrategy[]).map((s) => (
+                        <label key={s} className={`flex items-center gap-2 text-xs rounded border px-2 py-1.5 cursor-pointer ${sel.strategy === s ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                          <input
+                            type="radio"
+                            name={`dup-row-${dr.row_index}`}
+                            checked={sel.strategy === s}
+                            onChange={() => setAforRowStrategies((prev) => ({
+                              ...prev,
+                              [dr.row_index]: {
+                                strategy: s,
+                                incidentId: s === 'UPDATE_EXISTING' ? (dr.matches[0]?.incident_id ?? null) : null,
+                              },
+                            }))}
+                          />
+                          <span className="font-medium">{s.replace(/_/g, ' ')}</span>
+                        </label>
+                      ))}
+                      {sel.strategy === 'UPDATE_EXISTING' && dr.matches.length > 1 && (
+                        <select
+                          className="mt-1 border rounded px-2 py-1 text-xs w-full"
+                          value={sel.incidentId ?? dr.matches[0]?.incident_id}
+                          onChange={(e) => setAforRowStrategies((prev) => ({
+                            ...prev,
+                            [dr.row_index]: { ...prev[dr.row_index], incidentId: parseInt(e.target.value, 10) },
+                          }))}
+                        >
+                          {dr.matches.map((m) => (
+                            <option key={m.incident_id} value={m.incident_id}>
+                              #{m.incident_id} ({m.verification_status})
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => { setAforDuplicateRows(null); setAforRowStrategies({}); }}
+                disabled={isCommitting}
+                className="px-4 py-2 text-sm border rounded hover:bg-gray-50 disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAforDuplicateConfirm}
+                disabled={isCommitting}
+                className="px-4 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {isCommitting ? 'Committing…' : 'Confirm and Commit'}
+              </button>
             </div>
           </div>
         </div>

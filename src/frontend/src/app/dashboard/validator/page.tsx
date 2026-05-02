@@ -9,8 +9,8 @@
  *  - Uses the same apiFetch helper from src/lib/api.ts
  *  - Owns its own loading / error / empty states
  *
- * Region isolation is enforced server-side; this page never leaks
- * incidents from other regions.
+ * The backend returns encoder-submitted incidents cross-region; no region
+ * filtering is applied. Only Accept and Reject actions are permitted.
  */
 
 import { useEffect, useState, useCallback } from "react";
@@ -45,7 +45,7 @@ interface QueueResponse {
   offset: number;
 }
 
-type ActionType = "accept" | "pending" | "reject";
+type ActionType = "accept" | "reject";
 
 const STATUS_FILTER_QUEUE = "__QUEUE__";
 const STATUS_FILTER_ALL = "__ALL__";
@@ -154,12 +154,7 @@ export default function ValidatorDashboard() {
       );
 
       // Optimistic update — replace just this row's status in local state
-      const nextStatus =
-        actionType === "accept"
-          ? "VERIFIED"
-          : actionType === "reject"
-          ? "REJECTED"
-          : "PENDING";
+      const nextStatus = actionType === "accept" ? "VERIFIED" : "REJECTED";
 
       setIncidents((prev) =>
         prev.map((inc) =>
@@ -209,7 +204,7 @@ export default function ValidatorDashboard() {
     <div className="p-6 max-w-7xl mx-auto">
       <h1 className="text-2xl font-bold mb-1">Validator Queue</h1>
       <p className="text-gray-500 text-sm mb-6">
-        Encoder-submitted incidents in your assigned region awaiting review.
+        Encoder-submitted incidents across all regions awaiting review.
       </p>
 
       {/* ── Summary cards ── */}
@@ -340,13 +335,6 @@ export default function ValidatorDashboard() {
                         Accept
                       </button>
                       <button
-                        onClick={() => openAction(inc, "pending")}
-                        disabled={inc.verification_status === "PENDING"}
-                        className="px-2 py-1 text-xs rounded bg-yellow-500 text-white hover:bg-yellow-600 disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        Pend
-                      </button>
-                      <button
                         onClick={() => openAction(inc, "reject")}
                         disabled={inc.verification_status === "REJECTED"}
                         className="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -390,11 +378,7 @@ export default function ValidatorDashboard() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
             <h2 className="text-lg font-semibold mb-1">
-              {actionType === "accept"
-                ? "Accept Incident"
-                : actionType === "reject"
-                ? "Reject Incident"
-                : "Return to Pending"}
+              {actionType === "accept" ? "Accept Incident" : "Reject Incident"}
             </h2>
             <p className="text-sm text-gray-500 mb-4">
               Incident #{actionTarget.incident_id} ·{" "}
@@ -434,9 +418,7 @@ export default function ValidatorDashboard() {
                 className={`px-4 py-2 text-sm rounded text-white disabled:opacity-50 ${
                   actionType === "accept"
                     ? "bg-green-600 hover:bg-green-700"
-                    : actionType === "reject"
-                    ? "bg-red-600 hover:bg-red-700"
-                    : "bg-yellow-500 hover:bg-yellow-600"
+                    : "bg-red-600 hover:bg-red-700"
                 }`}
               >
                 {actionLoading ? "Saving…" : "Confirm"}

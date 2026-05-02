@@ -9,6 +9,7 @@ import logging
 import math
 import re
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
@@ -64,6 +65,14 @@ class AforParseResponse(BaseModel):
     requires_location: bool = True
 
 
+class AforRowStrategy(BaseModel):
+    """Per-row duplicate resolution strategy for AFOR commit."""
+
+    row_index: int
+    strategy: Literal["SUBMIT_AS_NEW", "UPDATE_EXISTING"]
+    duplicate_incident_id: int | None = None
+
+
 class AforCommitRequest(BaseModel):
     form_kind: AforFormKind
     rows: list[dict[str, Any]]
@@ -72,6 +81,8 @@ class AforCommitRequest(BaseModel):
     # WGS84 (SRID 4326). PostGIS stores POINT(longitude latitude) — not GeoJSON [lat, lon].
     latitude: float | None = None
     longitude: float | None = None
+    # Per-row duplicate strategies; omit on first attempt, supply on retry after 409.
+    row_strategies: list[AforRowStrategy] | None = None
 
 
 class AforCommitResponse(BaseModel):
@@ -79,6 +90,20 @@ class AforCommitResponse(BaseModel):
     batch_id: int
     incident_ids: list[int]
     total_committed: int
+    # Populated only when the server detects duplicates and no strategies were supplied.
+    duplicate_rows: list[dict[str, Any]] | None = None
+
+
+class SubmitForReviewRequest(BaseModel):
+    """Optional body for PATCH /incidents/{id}/submit.
+
+    On first call omit the body entirely — the server runs duplicate detection.
+    If duplicates are found (HTTP 409), re-call with a chosen strategy.
+    """
+
+    duplicate_strategy: Literal["SUBMIT_AS_NEW", "UPDATE_EXISTING"] | None = None
+    # Required when duplicate_strategy == "UPDATE_EXISTING".
+    duplicate_incident_id: int | None = None
 
 
 class RegionalStatsResponse(BaseModel):
@@ -218,6 +243,156 @@ def _insert_incident_verification_history(
 
 
 # ---------------------------------------------------------------------------
+# Duplicate Detection + Diff Snapshot Helpers
+# ---------------------------------------------------------------------------
+
+_DIFF_NONSENSITIVE_FIELDS = (
+    "distance_from_station_km",
+    "notification_dt",
+    "alarm_level",
+    "general_category",
+    "sub_category",
+    "specific_type",
+    "occupancy_type",
+    "estimated_damage_php",
+    "civilian_injured",
+    "civilian_deaths",
+    "firefighter_injured",
+    "firefighter_deaths",
+    "families_affected",
+    "water_tankers_used",
+    "foam_liters_used",
+    "breathing_apparatus_used",
+    "responder_type",
+    "fire_origin",
+    "extent_of_damage",
+    "structures_affected",
+    "households_affected",
+    "individuals_affected",
+    "fire_station_name",
+    "total_response_time_minutes",
+    "total_gas_consumed_liters",
+    "stage_of_fire",
+    "extent_total_floor_area_sqm",
+    "extent_total_land_area_hectares",
+    "vehicles_affected",
+    "recommendations",
+)
+
+
+def _detect_duplicate_incidents(
+    db: Session,
+    *,
+    region_id: int,
+    lat: float,
+    lon: float,
+    alarm_level: str | None,
+    general_category: str | None,
+    notification_dt: str | None,
+    exclude_incident_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """Return PENDING or VERIFIED incidents that match the composite duplicate key.
+
+    Composite key: same region, same alarm_level, same general_category,
+    same calendar day (UTC), within 1 km radius via ST_DWithin.
+    Returns at most 5 matches.
+    """
+    if not notification_dt or not alarm_level or not general_category:
+        return []
+
+    rows = db.execute(
+        text("""
+            SELECT fi.incident_id, fi.verification_status
+            FROM wims.fire_incidents fi
+            LEFT JOIN wims.incident_nonsensitive_details ind
+                   ON fi.incident_id = ind.incident_id
+            WHERE fi.is_archived = FALSE
+              AND fi.verification_status IN ('PENDING', 'VERIFIED')
+              AND fi.region_id = :region_id
+              AND LOWER(ind.alarm_level) = LOWER(:alarm_level)
+              AND LOWER(REPLACE(REPLACE(ind.general_category, '-', '_'), ' ', '_'))
+                    = LOWER(REPLACE(REPLACE(:general_category, '-', '_'), ' ', '_'))
+              AND DATE(ind.notification_dt AT TIME ZONE 'UTC')
+                    = DATE(CAST(:notif_dt AS TIMESTAMPTZ) AT TIME ZONE 'UTC')
+              AND ST_DWithin(
+                  fi.location,
+                  ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
+                  1000
+              )
+              AND (:exclude_id IS NULL OR fi.incident_id != :exclude_id)
+            LIMIT 5
+        """),
+        {
+            "region_id": region_id,
+            "alarm_level": alarm_level,
+            "general_category": general_category,
+            "notif_dt": notification_dt,
+            "lon": lon,
+            "lat": lat,
+            "exclude_id": exclude_incident_id,
+        },
+    ).fetchall()
+
+    return [{"incident_id": r[0], "verification_status": r[1]} for r in rows]
+
+
+def _snapshot_incident_for_diff(db: Session, incident_id: int) -> dict[str, Any]:
+    """Read nonsensitive_details + location for an incident and return as a plain dict.
+
+    Used to capture a 'before' state for the diff view. Excludes internal keys
+    (detail_id, incident_id). JSONB fields are returned as parsed objects.
+    Notification datetime is serialised to an ISO string for JSON storage.
+    """
+    row = db.execute(
+        text(f"""
+            SELECT
+                {", ".join(f"ind.{f}" for f in _DIFF_NONSENSITIVE_FIELDS)},
+                ST_X(fi.location::geometry) AS longitude,
+                ST_Y(fi.location::geometry) AS latitude
+            FROM wims.incident_nonsensitive_details ind
+            JOIN wims.fire_incidents fi ON fi.incident_id = ind.incident_id
+            WHERE ind.incident_id = :iid
+        """),
+        {"iid": incident_id},
+    ).fetchone()
+
+    if row is None:
+        return {}
+
+    keys = list(_DIFF_NONSENSITIVE_FIELDS) + ["longitude", "latitude"]
+    result: dict[str, Any] = {}
+    for k, v in zip(keys, row):
+        if hasattr(v, "isoformat"):
+            result[k] = v.isoformat()
+        elif isinstance(v, Decimal):
+            result[k] = float(v)
+        else:
+            result[k] = v
+    return result
+
+
+def _write_diff_snapshot(
+    db: Session,
+    incident_id: int,
+    snapshot: dict[str, Any],
+    reason: str,
+) -> None:
+    """Upsert a diff snapshot for the given incident."""
+    db.execute(
+        text("""
+            INSERT INTO wims.incident_diff_snapshots
+                (incident_id, original_snapshot, snapshot_reason)
+            VALUES (:iid, CAST(:snap AS jsonb), :reason)
+            ON CONFLICT (incident_id) DO UPDATE
+                SET original_snapshot = EXCLUDED.original_snapshot,
+                    snapshot_reason   = EXCLUDED.snapshot_reason,
+                    created_at        = now()
+        """),
+        {"iid": incident_id, "snap": json.dumps(snapshot), "reason": reason},
+    )
+
+
+# ---------------------------------------------------------------------------
 # AFOR Parsing Utilities (Official BFP XLSX Refactor)
 # ---------------------------------------------------------------------------
 
@@ -255,18 +430,18 @@ ALARM_LEVEL_MAP = {
 }
 
 _CATEGORY_CANONICAL: dict[str, str] = {
-    "STRUCTURAL": "STRUCTURAL",
-    "NON_STRUCTURAL": "NON_STRUCTURAL",
-    "NON-STRUCTURAL": "NON_STRUCTURAL",
-    "VEHICULAR": "VEHICULAR",
-    "TRANSPORTATION": "VEHICULAR",
+    "STRUCTURAL": "Structural",
+    "NON_STRUCTURAL": "Non-structural",
+    "NON-STRUCTURAL": "Non-structural",
+    "VEHICULAR": "Vehicular",
+    "TRANSPORTATION": "Vehicular",
 }
 
 # All known DB values for each canonical category (covers legacy form submissions)
 _CATEGORY_DB_VARIANTS: dict[str, list[str]] = {
-    "STRUCTURAL": ["STRUCTURAL", "Structural"],
-    "NON_STRUCTURAL": ["NON_STRUCTURAL", "Non-Structural", "NON-STRUCTURAL"],
-    "VEHICULAR": ["VEHICULAR", "Transportation", "TRANSPORTATION", "Vehicular"],
+    "STRUCTURAL": ["Structural", "STRUCTURAL"],
+    "NON_STRUCTURAL": ["Non-structural", "NON_STRUCTURAL", "Non-Structural", "NON-STRUCTURAL"],
+    "VEHICULAR": ["Vehicular", "VEHICULAR", "Transportation", "TRANSPORTATION"],
 }
 
 
@@ -1635,6 +1810,42 @@ async def commit_afor_import(
         if wildland_errors:
             raise HTTPException(status_code=400, detail=" ".join(wildland_errors))
 
+    # Build strategy lookup for this commit (keyed by row_index)
+    strategy_map: dict[int, AforRowStrategy] = {}
+    for rs in (body.row_strategies or []):
+        strategy_map[rs.row_index] = rs
+
+    # --- Structural AFOR duplicate detection (wildland rows exempt) ---
+    if body.form_kind == "STRUCTURAL_AFOR":
+        duplicate_rows_found: list[dict[str, Any]] = []
+        for idx, row_data in enumerate(body.rows):
+            if idx in strategy_map:
+                continue  # Already has a strategy; skip detection for this row
+            ns = row_data.get("incident_nonsensitive_details", {})
+            matches = _detect_duplicate_incidents(
+                db,
+                region_id=region_id,
+                lat=lat,
+                lon=lon,
+                alarm_level=ns.get("alarm_level"),
+                general_category=_normalize_general_category(ns.get("general_category", "") or ""),
+                notification_dt=ns.get("notification_dt"),
+            )
+            if matches:
+                duplicate_rows_found.append({
+                    "row_index": idx,
+                    "matches": matches,
+                })
+
+        if duplicate_rows_found:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "DUPLICATE_DETECTED",
+                    "duplicate_rows": duplicate_rows_found,
+                },
+            )
+
     # Create import batch
     batch_row = db.execute(
         text("""
@@ -1674,6 +1885,72 @@ async def commit_afor_import(
                 source=wildland_source,
             )
             continue
+
+        row_strategy = strategy_map.get(idx)
+
+        # UPDATE_EXISTING + PENDING: overwrite the existing PENDING incident in-place
+        if (
+            row_strategy is not None
+            and row_strategy.strategy == "UPDATE_EXISTING"
+            and row_strategy.duplicate_incident_id is not None
+        ):
+            dup_id = row_strategy.duplicate_incident_id
+            dup_check = db.execute(
+                text("SELECT verification_status FROM wims.fire_incidents WHERE incident_id = :did AND is_archived = FALSE"),
+                {"did": dup_id},
+            ).fetchone()
+            if dup_check and str(dup_check[0]) == "PENDING":
+                snap = _snapshot_incident_for_diff(db, dup_id)
+                _write_diff_snapshot(db, dup_id, snap, "UPDATE_EXISTING_PENDING")
+                ns_afor = row_data.get("incident_nonsensitive_details", {})
+                db.execute(
+                    text("""
+                        UPDATE wims.incident_nonsensitive_details
+                        SET notification_dt = CAST(:notification_dt AS timestamptz),
+                            alarm_level = :alarm_level,
+                            general_category = :general_category,
+                            sub_category = :sub_category,
+                            fire_station_name = :fire_station_name,
+                            responder_type = :responder_type,
+                            fire_origin = :fire_origin,
+                            extent_of_damage = :extent_of_damage,
+                            structures_affected = :structures_affected,
+                            households_affected = :households_affected,
+                            families_affected = :families_affected,
+                            individuals_affected = :individuals_affected
+                        WHERE incident_id = :dup_id
+                    """),
+                    {
+                        "dup_id": dup_id,
+                        "notification_dt": ns_afor.get("notification_dt"),
+                        "alarm_level": ns_afor.get("alarm_level", ""),
+                        "general_category": _normalize_general_category(ns_afor.get("general_category", "") or ""),
+                        "sub_category": ns_afor.get("sub_category", ""),
+                        "fire_station_name": ns_afor.get("fire_station_name", ""),
+                        "responder_type": ns_afor.get("responder_type", ""),
+                        "fire_origin": ns_afor.get("fire_origin", ""),
+                        "extent_of_damage": ns_afor.get("extent_of_damage", ""),
+                        "structures_affected": ns_afor.get("structures_affected", 0),
+                        "households_affected": ns_afor.get("households_affected", 0),
+                        "families_affected": ns_afor.get("families_affected", 0),
+                        "individuals_affected": ns_afor.get("individuals_affected", 0),
+                    },
+                )
+                _insert_incident_verification_history(
+                    db,
+                    incident_id=dup_id,
+                    actor_user_id=str(user_id),
+                    previous_status="PENDING",
+                    new_status="PENDING",
+                    notes=f"Encoder updated via AFOR import duplicate resolution (batch {batch_id})",
+                )
+                logger.info("AFOR UPDATE_EXISTING: updated PENDING incident %s from row %s", dup_id, idx)
+                continue  # No new incident created for this row
+
+            elif dup_check and str(dup_check[0]) == "VERIFIED":
+                # Will create a new DRAFT with supersedes_incident_id; fall through to normal creation
+                # but capture dup_id for post-insert processing
+                pass  # handled after incident INSERT below
 
         ns = row_data.get("incident_nonsensitive_details", {})
         sens = row_data.get("incident_sensitive_details", {})
@@ -1717,6 +1994,26 @@ async def commit_afor_import(
 
         incident_id = inc_row[0]
         incident_ids.append(incident_id)
+
+        # UPDATE_EXISTING + VERIFIED: set supersedes link and write diff snapshot
+        if (
+            row_strategy is not None
+            and row_strategy.strategy == "UPDATE_EXISTING"
+            and row_strategy.duplicate_incident_id is not None
+        ):
+            verified_dup_id = row_strategy.duplicate_incident_id
+            verified_check = db.execute(
+                text("SELECT verification_status FROM wims.fire_incidents WHERE incident_id = :did AND is_archived = FALSE"),
+                {"did": verified_dup_id},
+            ).fetchone()
+            if verified_check and str(verified_check[0]) == "VERIFIED":
+                snap = _snapshot_incident_for_diff(db, verified_dup_id)
+                _write_diff_snapshot(db, incident_id, snap, "SUPERSEDES_VERIFIED")
+                db.execute(
+                    text("UPDATE wims.fire_incidents SET supersedes_incident_id = :dup_id WHERE incident_id = :iid"),
+                    {"dup_id": verified_dup_id, "iid": incident_id},
+                )
+                logger.info("AFOR UPDATE_EXISTING: incident %s supersedes verified %s", incident_id, verified_dup_id)
 
         city_text = row_data.get("_city_text", "")
         geo_ids = db.execute(
@@ -2769,17 +3066,42 @@ def submit_incident_for_review(
     incident_id: int,
     user: Annotated[dict, Depends(get_regional_encoder)],
     db: Annotated[Session, Depends(get_db_with_rls)],
+    body: SubmitForReviewRequest | None = None,
 ):
-    """Submit a DRAFT or REJECTED incident for validator review (DRAFT/REJECTED → PENDING)."""
+    """Submit a DRAFT or REJECTED incident for validator review (DRAFT/REJECTED → PENDING).
+
+    Duplicate detection
+    -------------------
+    On the first call (body omitted or duplicate_strategy=None), the server runs
+    duplicate detection. If matches are found, returns HTTP 409 with:
+        {"code": "DUPLICATE_DETECTED", "matches": [...]}
+    The client then re-calls with a chosen strategy:
+
+    duplicate_strategy values
+    -------------------------
+    SUBMIT_AS_NEW   — proceed normally; creates a new independent PENDING incident.
+    KEEP_BOTH       — same as SUBMIT_AS_NEW (both incidents coexist independently).
+    UPDATE_EXISTING — requires duplicate_incident_id:
+        • If duplicate is PENDING: overwrite its data with this draft's data, write
+          diff snapshot, archive this draft.
+        • If duplicate is VERIFIED: link this draft to it via supersedes_incident_id,
+          write diff snapshot, transition this draft to PENDING.
+    """
     encoder_id = user["user_id"]
 
     incident = db.execute(
         text("""
-            SELECT incident_id, verification_status, encoder_id
-            FROM wims.fire_incidents
-            WHERE incident_id = :iid
-              AND encoder_id = CAST(:eid AS uuid)
-              AND is_archived = FALSE
+            SELECT fi.incident_id, fi.verification_status, fi.encoder_id,
+                   fi.region_id,
+                   ST_X(fi.location::geometry) AS lon,
+                   ST_Y(fi.location::geometry) AS lat,
+                   ind.alarm_level, ind.general_category, ind.notification_dt
+            FROM wims.fire_incidents fi
+            LEFT JOIN wims.incident_nonsensitive_details ind
+                   ON fi.incident_id = ind.incident_id
+            WHERE fi.incident_id = :iid
+              AND fi.encoder_id = CAST(:eid AS uuid)
+              AND fi.is_archived = FALSE
         """),
         {"iid": incident_id, "eid": str(encoder_id)},
     ).fetchone()
@@ -2787,11 +3109,7 @@ def submit_incident_for_review(
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found or not owned by you")
 
-    current_status = incident[1]
-    inc_encoder_id = str(incident[2]) if incident[2] else None
-
-    if inc_encoder_id != str(encoder_id):
-        raise HTTPException(status_code=403, detail="You can only submit your own incidents")
+    current_status = str(incident[1])
 
     if current_status not in ("DRAFT", "REJECTED"):
         raise HTTPException(
@@ -2799,6 +3117,198 @@ def submit_incident_for_review(
             detail=f"Cannot submit incident with status '{current_status}'. Only DRAFT or REJECTED incidents can be submitted.",
         )
 
+    region_id = incident[3]
+    lon = float(incident[4]) if incident[4] is not None else None
+    lat = float(incident[5]) if incident[5] is not None else None
+    alarm_level = incident[6]
+    general_category = incident[7]
+    notification_dt = incident[8].isoformat() if incident[8] is not None else None
+
+    strategy = (body.duplicate_strategy if body else None)
+
+    # --- Duplicate detection (only on first-call or explicit SUBMIT_AS_NEW/KEEP_BOTH) ---
+    if strategy is None and lon is not None and lat is not None:
+        matches = _detect_duplicate_incidents(
+            db,
+            region_id=region_id,
+            lat=lat,
+            lon=lon,
+            alarm_level=alarm_level,
+            general_category=general_category,
+            notification_dt=notification_dt,
+            exclude_incident_id=incident_id,
+        )
+        if matches:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "DUPLICATE_DETECTED",
+                    "matches": matches,
+                },
+            )
+
+    # --- Strategy: UPDATE_EXISTING ---
+    if strategy == "UPDATE_EXISTING":
+        dup_id = body.duplicate_incident_id if body else None
+        if not dup_id:
+            raise HTTPException(
+                status_code=422,
+                detail="duplicate_incident_id is required when duplicate_strategy is UPDATE_EXISTING",
+            )
+
+        dup_row = db.execute(
+            text("""
+                SELECT incident_id, verification_status
+                FROM wims.fire_incidents
+                WHERE incident_id = :dup_id AND is_archived = FALSE
+            """),
+            {"dup_id": dup_id},
+        ).fetchone()
+
+        if not dup_row:
+            raise HTTPException(status_code=404, detail="Duplicate incident not found")
+
+        dup_status = str(dup_row[1])
+        if dup_status not in ("PENDING", "VERIFIED"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Referenced duplicate has status '{dup_status}'; expected PENDING or VERIFIED",
+            )
+
+        try:
+            if dup_status == "PENDING":
+                # Snapshot original PENDING data before overwriting
+                snap = _snapshot_incident_for_diff(db, dup_id)
+                _write_diff_snapshot(db, dup_id, snap, "UPDATE_EXISTING_PENDING")
+
+                # Copy nonsensitive details from this draft onto the existing PENDING
+                db.execute(
+                    text("""
+                        UPDATE wims.incident_nonsensitive_details dst
+                        SET
+                            city_id                     = src.city_id,
+                            barangay_id                 = src.barangay_id,
+                            distance_from_station_km    = src.distance_from_station_km,
+                            notification_dt             = src.notification_dt,
+                            alarm_level                 = src.alarm_level,
+                            general_category            = src.general_category,
+                            sub_category                = src.sub_category,
+                            specific_type               = src.specific_type,
+                            occupancy_type              = src.occupancy_type,
+                            estimated_damage_php        = src.estimated_damage_php,
+                            civilian_injured            = src.civilian_injured,
+                            civilian_deaths             = src.civilian_deaths,
+                            firefighter_injured         = src.firefighter_injured,
+                            firefighter_deaths          = src.firefighter_deaths,
+                            families_affected           = src.families_affected,
+                            water_tankers_used          = src.water_tankers_used,
+                            foam_liters_used            = src.foam_liters_used,
+                            breathing_apparatus_used    = src.breathing_apparatus_used,
+                            responder_type              = src.responder_type,
+                            fire_origin                 = src.fire_origin,
+                            extent_of_damage            = src.extent_of_damage,
+                            structures_affected         = src.structures_affected,
+                            households_affected         = src.households_affected,
+                            individuals_affected        = src.individuals_affected,
+                            resources_deployed          = src.resources_deployed,
+                            alarm_timeline              = src.alarm_timeline,
+                            problems_encountered        = src.problems_encountered,
+                            recommendations             = src.recommendations,
+                            fire_station_name           = src.fire_station_name,
+                            total_response_time_minutes = src.total_response_time_minutes,
+                            total_gas_consumed_liters   = src.total_gas_consumed_liters,
+                            stage_of_fire               = src.stage_of_fire,
+                            extent_total_floor_area_sqm = src.extent_total_floor_area_sqm,
+                            extent_total_land_area_hectares = src.extent_total_land_area_hectares,
+                            vehicles_affected           = src.vehicles_affected
+                        FROM wims.incident_nonsensitive_details src
+                        WHERE src.incident_id = :draft_id
+                          AND dst.incident_id = :dup_id
+                    """),
+                    {"draft_id": incident_id, "dup_id": dup_id},
+                )
+
+                # Copy location from draft to the existing PENDING incident
+                db.execute(
+                    text("""
+                        UPDATE wims.fire_incidents
+                        SET location = (
+                            SELECT location FROM wims.fire_incidents WHERE incident_id = :draft_id
+                        ),
+                        updated_at = now()
+                        WHERE incident_id = :dup_id
+                    """),
+                    {"draft_id": incident_id, "dup_id": dup_id},
+                )
+
+                _insert_incident_verification_history(
+                    db,
+                    incident_id=dup_id,
+                    actor_user_id=str(encoder_id),
+                    previous_status="PENDING",
+                    new_status="PENDING",
+                    notes=f"Encoder updated data via duplicate resolution (replaced by draft incident_id={incident_id})",
+                )
+
+                # Soft-delete the draft
+                db.execute(
+                    text("UPDATE wims.fire_incidents SET is_archived = TRUE, updated_at = now() WHERE incident_id = :iid"),
+                    {"iid": incident_id},
+                )
+
+                db.commit()
+                logger.info(
+                    "Encoder %s merged draft %s into PENDING incident %s",
+                    encoder_id, incident_id, dup_id,
+                )
+                return {"status": "merged", "incident_id": dup_id, "verification_status": "PENDING"}
+
+            else:  # dup_status == "VERIFIED"
+                # Snapshot the verified incident data
+                snap = _snapshot_incident_for_diff(db, dup_id)
+                _write_diff_snapshot(db, incident_id, snap, "SUPERSEDES_VERIFIED")
+
+                # Link this draft to the verified incident and transition to PENDING
+                db.execute(
+                    text("""
+                        UPDATE wims.fire_incidents
+                        SET verification_status = 'PENDING',
+                            supersedes_incident_id = :dup_id,
+                            updated_at = now()
+                        WHERE incident_id = :iid
+                    """),
+                    {"iid": incident_id, "dup_id": dup_id},
+                )
+
+                _insert_incident_verification_history(
+                    db,
+                    incident_id=incident_id,
+                    actor_user_id=str(encoder_id),
+                    previous_status=current_status,
+                    new_status="PENDING",
+                    notes=f"Submitted as superseding verified incident {dup_id}",
+                )
+
+                db.commit()
+                logger.info(
+                    "Encoder %s submitted incident %s superseding verified incident %s",
+                    encoder_id, incident_id, dup_id,
+                )
+                return {"status": "submitted", "incident_id": incident_id, "verification_status": "PENDING"}
+
+        except HTTPException:
+            db.rollback()
+            raise
+        except Exception:
+            db.rollback()
+            logger.exception(
+                "Failed UPDATE_EXISTING strategy for incident_id=%s dup_id=%s",
+                incident_id, dup_id,
+            )
+            raise HTTPException(status_code=500, detail="Failed to apply duplicate resolution — transaction rolled back")
+
+    # --- Default path: SUBMIT_AS_NEW, KEEP_BOTH, or no duplicates found ---
+    is_resubmit = current_status == "REJECTED"
     try:
         update_result = db.execute(
             text("UPDATE wims.fire_incidents SET verification_status = 'PENDING', updated_at = now() WHERE incident_id = :iid"),
@@ -2806,14 +3316,16 @@ def submit_incident_for_review(
         )
         if update_result.rowcount != 1:
             raise HTTPException(status_code=409, detail="Incident status update failed")
+
         _insert_incident_verification_history(
             db,
             incident_id=incident_id,
             actor_user_id=str(encoder_id),
             previous_status=current_status,
             new_status="PENDING",
-            notes="Submitted for review",
+            notes="Submitted for review" if not is_resubmit else "Resubmitted after rejection",
         )
+
         db.commit()
     except HTTPException:
         db.rollback()
@@ -2823,7 +3335,10 @@ def submit_incident_for_review(
         logger.exception("Failed to submit incident_id=%s for review", incident_id)
         raise HTTPException(status_code=500, detail="Failed to submit incident — transaction rolled back")
 
-    logger.info("Encoder user_id=%s submitted incident_id=%s for review (%s → PENDING)", encoder_id, incident_id, current_status)
+    logger.info(
+        "Encoder user_id=%s submitted incident_id=%s for review (%s → PENDING, strategy=%s)",
+        encoder_id, incident_id, current_status, strategy,
+    )
     return {"status": "submitted", "incident_id": incident_id, "verification_status": "PENDING"}
 
 
@@ -2832,9 +3347,9 @@ def submit_incident_for_review(
 # ---------------------------------------------------------------------------
 
 # Allowed actions a NATIONAL_VALIDATOR can submit and their target DB status.
+# "pending" is intentionally absent — validators may only accept or reject.
 _VALIDATOR_ACTION_MAP: dict[str, str] = {
     "accept": "VERIFIED",
-    "pending": "PENDING",
     "reject": "REJECTED",
 }
 
@@ -2848,8 +3363,8 @@ _VALIDATOR_DEFAULT_QUEUE_STATUSES = ("PENDING", "PENDING_VALIDATION")
 class VerificationActionRequest(BaseModel):
     """Body for PATCH /api/regional/incidents/{incident_id}/verification."""
 
-    action: str  # "accept" | "pending" | "reject"
-    notes: str | None = None  # Optional reason / validator notes
+    action: str  # "accept" | "reject"
+    notes: str | None = None  # Required for "reject"; optional for "accept"
 
 
 @router.get("/validator/incidents")
@@ -2983,13 +3498,14 @@ def verify_incident(
     Allowed actions
     ---------------
     accept  → VERIFIED
-    pending → PENDING
-    reject  → REJECTED
+    reject  → REJECTED  (notes required)
 
     Audit trail
     -----------
     Every call inserts one row into wims.incident_verification_history in the
     same transaction as the status update — if either write fails, both roll back.
+    Reject also writes a diff snapshot so the encoder's next resubmission can
+    surface a side-by-side diff for the validator.
 
     Error responses
     ---------------
@@ -2997,6 +3513,7 @@ def verify_incident(
     403 — incident has no encoder_id (public DMZ row)
     404 — incident not found or is archived
     409 — incident already has the requested target status (idempotency guard)
+    422 — reject action with empty notes
     """
     validator_user_id = user["user_id"]
 
@@ -3011,6 +3528,13 @@ def verify_incident(
             ),
         )
     target_status = _VALIDATOR_ACTION_MAP[action]
+
+    # --- 1b. Reject requires a non-empty reason ---
+    if action == "reject" and not (body.notes or "").strip():
+        raise HTTPException(
+            status_code=422,
+            detail="Rejection requires a non-empty reason in 'notes'",
+        )
 
     # --- 2. Fetch the incident (existence + archive check) ---
     incident_row = db.execute(
@@ -3043,7 +3567,7 @@ def verify_incident(
             detail=f"Incident is already in status '{current_status}'",
         )
 
-    # --- 5. Apply update + audit in one transaction ---
+    # --- 5. Apply update + audit + optional diff snapshot in one transaction ---
     try:
         db.execute(
             text("""
@@ -3063,6 +3587,10 @@ def verify_incident(
             new_status=target_status,
             notes=body.notes or "Validator action",
         )
+
+        if action == "reject":
+            snap = _snapshot_incident_for_diff(db, incident_id)
+            _write_diff_snapshot(db, incident_id, snap, "REJECTED")
 
         db.commit()
     except Exception:
@@ -3093,4 +3621,63 @@ def verify_incident(
         "action": action,
         "encoder_id": str(inc_encoder_id),
         "region_id": inc_region_id,
+    }
+
+
+# ---------------------------------------------------------------------------
+# M4-G: Diff View
+# ---------------------------------------------------------------------------
+
+
+@router.get("/incidents/{incident_id}/diff")
+def get_incident_diff(
+    incident_id: int,
+    user: Annotated[dict, Depends(get_national_validator)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Return the diff snapshot for a given incident (NATIONAL_VALIDATOR only).
+
+    Only applicable to incidents that have a diff snapshot:
+    - Incidents rejected and then resubmitted by the encoder
+    - Incidents where the encoder chose 'Update Existing' on a duplicate
+
+    Response shapes
+    ---------------
+    When no snapshot exists:
+        {"diff_available": false}
+    When a snapshot exists:
+        {
+            "diff_available": true,
+            "snapshot_reason": "REJECTED" | "UPDATE_EXISTING_PENDING" | "SUPERSEDES_VERIFIED",
+            "original": {...},
+            "current": {...},
+            "changed_fields": [...]
+        }
+    """
+    snap_row = db.execute(
+        text("""
+            SELECT original_snapshot, snapshot_reason
+            FROM wims.incident_diff_snapshots
+            WHERE incident_id = :iid
+        """),
+        {"iid": incident_id},
+    ).fetchone()
+
+    if snap_row is None:
+        return {"diff_available": False}
+
+    original: dict[str, Any] = snap_row[0] if snap_row[0] else {}
+    snapshot_reason: str = snap_row[1]
+
+    current = _snapshot_incident_for_diff(db, incident_id)
+
+    all_keys = set(original) | set(current)
+    changed_fields = [k for k in all_keys if str(original.get(k)) != str(current.get(k))]
+
+    return {
+        "diff_available": True,
+        "snapshot_reason": snapshot_reason,
+        "original": original,
+        "current": current,
+        "changed_fields": changed_fields,
     }

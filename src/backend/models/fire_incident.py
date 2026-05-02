@@ -71,6 +71,11 @@ class FireIncident(Base):
         nullable=True,
     )
     is_archived: Mapped[bool] = mapped_column(default=False)
+    supersedes_incident_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("wims.fire_incidents.incident_id"),
+        nullable=True,
+    )
 
     @validates("location")
     def _validate_location(self, _key: str, value: object) -> object:

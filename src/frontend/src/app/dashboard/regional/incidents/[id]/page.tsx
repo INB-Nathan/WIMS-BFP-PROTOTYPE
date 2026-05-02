@@ -7,11 +7,17 @@ import { ArrowLeft, Pencil, Send } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import {
   fetchRegionalIncident,
+  fetchIncidentDiff,
   submitIncidentForReview,
   unpendIncident,
   apiFetch,
+  ApiRequestError,
   type RegionalIncidentDetailResponse,
+  type IncidentDiffResponse,
+  type DuplicateMatch,
+  type DuplicateStrategy,
 } from '@/lib/api';
+import IncidentDiffPanel from '@/components/IncidentDiffPanel';
 import dynamic from 'next/dynamic';
 import type { Incident } from '@/lib/edgeFunctions';
 
@@ -233,8 +239,18 @@ export default function RegionalIncidentDetailPage() {
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
   const isValidator = role === 'NATIONAL_VALIDATOR' || role === 'VALIDATOR';
 
+  // Diff panel (M4-G)
+  const [diffData, setDiffData] = useState<IncidentDiffResponse | null>(null);
+
+  // Duplicate resolution modal (M4-D)
+  const [duplicateMatches, setDuplicateMatches] = useState<DuplicateMatch[] | null>(null);
+  const [duplicateResolution, setDuplicateResolution] = useState<{
+    strategy: DuplicateStrategy;
+    incidentId: number | null;
+  } | null>(null);
+
   // Validator action state
-  const [validatorAction, setValidatorAction] = useState<'accept' | 'pending' | 'reject' | null>(null);
+  const [validatorAction, setValidatorAction] = useState<'accept' | 'reject' | null>(null);
   const [validatorNotes, setValidatorNotes] = useState('');
   const [validatorLoading, setValidatorLoading] = useState(false);
   const [validatorError, setValidatorError] = useState<string | null>(null);
@@ -257,6 +273,17 @@ export default function RegionalIncidentDetailPage() {
       const data = await fetchRegionalIncident(incidentId);
       setDetail(data);
       setIsEditing(false);
+      // Fetch diff data when incident is PENDING (visible to both encoder and validator)
+      if (data.verification_status === 'PENDING') {
+        try {
+          const diff = await fetchIncidentDiff(incidentId);
+          setDiffData(diff);
+        } catch {
+          setDiffData(null);
+        }
+      } else {
+        setDiffData(null);
+      }
     } catch (e) {
       setDetail(null);
       setError(e instanceof Error ? e.message : 'Failed to load incident.');
@@ -283,17 +310,37 @@ export default function RegionalIncidentDetailPage() {
     };
   }, [detail]);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (strategy?: DuplicateStrategy, dupIncidentId?: number) => {
     setActionLoading(true);
     setActionError(null);
     try {
-      await submitIncidentForReview(incidentId);
+      await submitIncidentForReview(incidentId, {
+        duplicateStrategy: strategy,
+        duplicateIncidentId: dupIncidentId,
+      });
+      setDuplicateMatches(null);
+      setDuplicateResolution(null);
       await load();
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : 'Failed to submit incident.');
+    } catch (e: unknown) {
+      const detail = e instanceof ApiRequestError
+        ? (e.detail as { code?: string; matches?: DuplicateMatch[] } | undefined)
+        : undefined;
+      if (detail?.code === 'DUPLICATE_DETECTED' && detail.matches) {
+        setDuplicateMatches(detail.matches);
+      } else {
+        setActionError(e instanceof Error ? e.message : 'Failed to submit incident.');
+      }
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const handleDuplicateConfirm = async () => {
+    if (!duplicateResolution) return;
+    await handleSubmit(
+      duplicateResolution.strategy,
+      duplicateResolution.incidentId ?? undefined,
+    );
   };
 
   const handleUnpend = async () => {
@@ -400,7 +447,7 @@ export default function RegionalIncidentDetailPage() {
                   </button>
                 ) : (
                   <button
-                    onClick={handleSubmit}
+                    onClick={() => handleSubmit()}
                     disabled={actionLoading}
                     className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium bg-red-800 text-white hover:bg-red-700 disabled:opacity-50"
                   >
@@ -426,6 +473,11 @@ export default function RegionalIncidentDetailPage() {
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
           {actionError}
         </div>
+      )}
+
+      {/* M4-G: Diff panel — shown when PENDING and a diff snapshot exists */}
+      {detail && detail.verification_status === 'PENDING' && diffData?.diff_available && (
+        <IncidentDiffPanel diff={diffData} />
       )}
 
       {detail && detail.verification_status === 'REJECTED' && (
@@ -739,13 +791,6 @@ export default function RegionalIncidentDetailPage() {
                     Accept
                   </button>
                   <button
-                    onClick={() => setValidatorAction('pending')}
-                    disabled={validatorLoading || detail?.verification_status === 'PENDING'}
-                    className="px-4 py-2 text-sm rounded bg-yellow-500 text-white hover:bg-yellow-600 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    Return to Pending
-                  </button>
-                  <button
                     onClick={() => setValidatorAction('reject')}
                     disabled={validatorLoading || detail?.verification_status === 'REJECTED'}
                     className="px-4 py-2 text-sm rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -764,7 +809,7 @@ export default function RegionalIncidentDetailPage() {
                     <span className="text-sm text-gray-600">
                       Confirm:{' '}
                       <strong>
-                        {validatorAction === 'accept' ? 'Accept' : validatorAction === 'reject' ? 'Reject' : 'Return to Pending'}
+                        {validatorAction === 'accept' ? 'Accept' : 'Reject'}
                       </strong>
                       {' '}this incident?
                     </span>
@@ -774,9 +819,7 @@ export default function RegionalIncidentDetailPage() {
                       className={`px-4 py-1.5 text-sm rounded text-white disabled:opacity-50 ${
                         validatorAction === 'accept'
                           ? 'bg-green-600 hover:bg-green-700'
-                          : validatorAction === 'reject'
-                          ? 'bg-red-600 hover:bg-red-700'
-                          : 'bg-yellow-500 hover:bg-yellow-600'
+                          : 'bg-red-600 hover:bg-red-700'
                       }`}
                     >
                       {validatorLoading ? 'Saving…' : 'Confirm'}
@@ -794,6 +837,91 @@ export default function RegionalIncidentDetailPage() {
             </section>
           )}
         </>
+      )}
+
+      {/* M4-D: Duplicate resolution modal */}
+      {duplicateMatches && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
+            <h2 className="text-lg font-semibold mb-1">Duplicate Incident Detected</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              One or more existing incidents match this submission. Choose how to proceed.
+            </p>
+
+            <div className="rounded border border-gray-200 divide-y mb-4 text-sm">
+              {duplicateMatches.map((m) => (
+                <div key={m.incident_id} className="px-3 py-2 flex items-center gap-3">
+                  <span className="font-mono text-xs text-gray-500">#{m.incident_id}</span>
+                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                    m.verification_status === 'VERIFIED'
+                      ? 'bg-green-100 text-green-800'
+                      : 'bg-yellow-100 text-yellow-800'
+                  }`}>
+                    {m.verification_status}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-2 mb-5">
+              {(['SUBMIT_AS_NEW', 'UPDATE_EXISTING'] as DuplicateStrategy[]).map((s) => {
+                const label =
+                  s === 'SUBMIT_AS_NEW' ? 'Submit as New — create an independent new submission' :
+                  'Update Existing — overwrite or supersede the matched incident';
+                const isSelected = duplicateResolution?.strategy === s;
+                return (
+                  <label key={s} className={`flex items-start gap-2 rounded border p-3 cursor-pointer ${isSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                    <input
+                      type="radio"
+                      name="dup-strategy"
+                      value={s}
+                      checked={isSelected}
+                      onChange={() => setDuplicateResolution({
+                        strategy: s,
+                        incidentId: s === 'UPDATE_EXISTING' ? (duplicateMatches[0]?.incident_id ?? null) : null,
+                      })}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <p className="text-sm font-medium">{s.replace(/_/g, ' ')}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+                      {s === 'UPDATE_EXISTING' && duplicateMatches.length > 1 && (
+                        <select
+                          className="mt-1 border rounded px-2 py-1 text-xs"
+                          value={duplicateResolution?.incidentId ?? duplicateMatches[0]?.incident_id}
+                          onChange={(e) => setDuplicateResolution({ strategy: s, incidentId: parseInt(e.target.value, 10) })}
+                        >
+                          {duplicateMatches.map((m) => (
+                            <option key={m.incident_id} value={m.incident_id}>
+                              #{m.incident_id} ({m.verification_status})
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => { setDuplicateMatches(null); setDuplicateResolution(null); }}
+                disabled={actionLoading}
+                className="px-4 py-2 text-sm border rounded hover:bg-gray-50 disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDuplicateConfirm}
+                disabled={actionLoading || !duplicateResolution}
+                className="px-4 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {actionLoading ? 'Submitting…' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

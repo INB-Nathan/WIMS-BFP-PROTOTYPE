@@ -474,10 +474,42 @@ export async function updateRegionalIncident(
   return apiFetch(`/regional/incidents/${incidentId}`, { method: 'PUT', body: JSON.stringify(body) });
 }
 
+export type DuplicateStrategy = 'SUBMIT_AS_NEW' | 'UPDATE_EXISTING';
+
+export interface DuplicateMatch {
+  incident_id: number;
+  verification_status: string;
+}
+
 export async function submitIncidentForReview(
-  incidentId: number
+  incidentId: number,
+  options?: {
+    duplicateStrategy?: DuplicateStrategy;
+    duplicateIncidentId?: number;
+  }
 ): Promise<{ status: string; incident_id: number; verification_status: string }> {
-  return apiFetch(`/regional/incidents/${incidentId}/submit`, { method: 'PATCH' });
+  const body = options?.duplicateStrategy != null
+    ? JSON.stringify({
+        duplicate_strategy: options.duplicateStrategy,
+        duplicate_incident_id: options.duplicateIncidentId ?? null,
+      })
+    : undefined;
+  return apiFetch(`/regional/incidents/${incidentId}/submit`, {
+    method: 'PATCH',
+    body,
+  });
+}
+
+export interface IncidentDiffResponse {
+  diff_available: boolean;
+  snapshot_reason?: 'REJECTED' | 'UPDATE_EXISTING_PENDING' | 'SUPERSEDES_VERIFIED';
+  original?: Record<string, unknown>;
+  current?: Record<string, unknown>;
+  changed_fields?: string[];
+}
+
+export async function fetchIncidentDiff(incidentId: number): Promise<IncidentDiffResponse> {
+  return apiFetch(`/regional/incidents/${incidentId}/diff`);
 }
 
 export async function unpendIncident(
@@ -534,23 +566,44 @@ export async function importAforFile(file: File): Promise<AforImportPreviewRespo
 
 export type WildlandRowSource = 'AFOR_IMPORT' | 'MANUAL';
 
+export interface AforRowStrategy {
+  rowIndex: number;
+  strategy: DuplicateStrategy;
+  duplicateIncidentId?: number;
+}
+
+export interface AforCommitResult {
+  status: string;
+  batch_id: number;
+  incident_ids: number[];
+  total_committed: number;
+  duplicate_rows?: Array<{
+    row_index: number;
+    matches: DuplicateMatch[];
+  }>;
+}
+
 export async function commitAforImport(
   rows: Record<string, unknown>[],
   formKind: AforFormKind,
   options?: {
     wildlandRowSource?: WildlandRowSource;
-    duplicateStrategy?: 'REPLACE_ORIGINAL' | 'KEEP_ORIGINAL';
+    rowStrategies?: AforRowStrategy[];
     /** WGS84 decimal degrees. PostGIS stores POINT(longitude latitude); not GeoJSON [lat, lon]. */
     latitude?: number;
     longitude?: number;
   }
-): Promise<{ status: string; batch_id: number; incident_ids: number[]; total_committed: number }> {
+): Promise<AforCommitResult> {
   const body: Record<string, unknown> = { form_kind: formKind, rows };
   if (options?.wildlandRowSource != null) {
     body.wildland_row_source = options.wildlandRowSource;
   }
-  if (options?.duplicateStrategy != null) {
-    body.duplicate_strategy = options.duplicateStrategy;
+  if (options?.rowStrategies != null && options.rowStrategies.length > 0) {
+    body.row_strategies = options.rowStrategies.map((s) => ({
+      row_index: s.rowIndex,
+      strategy: s.strategy,
+      duplicate_incident_id: s.duplicateIncidentId ?? null,
+    }));
   }
   if (typeof options?.latitude === 'number' && typeof options?.longitude === 'number') {
     body.latitude = options.latitude;

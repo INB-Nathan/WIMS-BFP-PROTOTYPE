@@ -8,6 +8,7 @@ from .user import User, UserRole
 from .fire_incident import FireIncident, VerificationStatus
 from .citizen_report import CitizenReport, CitizenReportStatus
 from .incident_verification_history import IncidentVerificationHistory, TargetType
+from .incident_diff_snapshot import IncidentDiffSnapshot
 from .security_threat_log import SecurityThreatLog, SeverityLevel
 
 __all__ = [
@@ -20,6 +21,7 @@ __all__ = [
     "CitizenReportStatus",
     "IncidentVerificationHistory",
     "TargetType",
+    "IncidentDiffSnapshot",
     "SecurityThreatLog",
     "SeverityLevel",
 ]
