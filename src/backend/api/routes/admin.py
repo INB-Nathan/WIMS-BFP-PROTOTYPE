@@ -266,7 +266,9 @@ def update_user(
 
     # Fetch keycloak_id and current role BEFORE the update so we can synchronise Keycloak
     kc_row = db.execute(
-        text("SELECT keycloak_id, role FROM wims.users WHERE user_id = CAST(:uid AS uuid)"),
+        text(
+            "SELECT keycloak_id, role FROM wims.users WHERE user_id = CAST(:uid AS uuid)"
+        ),
         {"uid": user_id},
     ).fetchone()
     if kc_row is None:
