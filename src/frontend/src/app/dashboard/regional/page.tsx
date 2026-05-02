@@ -18,6 +18,7 @@ import {
 interface RegionalStatsPayload {
   total_incidents?: number;
   by_category?: Array<{ category: string | null; count: number }>;
+  by_status?: Array<{ status: string; count: number }>;
   wildland_total?: number;
   by_wildland_type?: Array<{ fire_type: string | null; count: number }>;
 }
@@ -26,7 +27,6 @@ export default function RegionalDashboardPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
   const role = (user as { role?: string })?.role ?? null;
-  const assignedRegionId = (user as { assignedRegionId?: number | null })?.assignedRegionId ?? null;
   const canAccessRegional =
     role === 'REGIONAL_ENCODER' ||
     role === 'NATIONAL_VALIDATOR' ||
@@ -34,10 +34,10 @@ export default function RegionalDashboardPage() {
     role === 'VALIDATOR';
 
   useEffect(() => {
-    if (!loading && (!canAccessRegional || !assignedRegionId)) {
+    if (!loading && !canAccessRegional) {
       router.replace('/dashboard');
     }
-  }, [loading, canAccessRegional, assignedRegionId, router]);
+  }, [loading, canAccessRegional, router]);
 
   const [stats, setStats] = useState<RegionalStatsPayload | null>(null);
   const [incidents, setIncidents] = useState<RegionalIncidentListItem[]>([]);
@@ -80,18 +80,18 @@ export default function RegionalDashboardPage() {
   }, [pageIndex, pageSize, categoryFilter, statusFilter]);
 
   useEffect(() => {
-    if (canAccessRegional && assignedRegionId) {
+    if (canAccessRegional) {
       loadStats().catch(() => {
         /* stats errors surface via empty cards */
       });
     }
-  }, [canAccessRegional, assignedRegionId, loadStats]);
+  }, [canAccessRegional, loadStats]);
 
   useEffect(() => {
-    if (canAccessRegional && assignedRegionId) {
+    if (canAccessRegional) {
       loadIncidents();
     }
-  }, [canAccessRegional, assignedRegionId, loadIncidents]);
+  }, [canAccessRegional, loadIncidents]);
 
   const refreshAll = async () => {
     setStatsRefreshing(true);
@@ -102,7 +102,7 @@ export default function RegionalDashboardPage() {
     }
   };
 
-  if (loading || !canAccessRegional || !assignedRegionId) {
+  if (loading || !canAccessRegional) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-gray-500">
         Loading Regional Dashboard...
@@ -117,6 +117,8 @@ export default function RegionalDashboardPage() {
   const toRow = Math.min(offset + incidents.length, incidentsTotal);
   const canPrev = pageIndex > 0 && !incidentsLoading;
   const canNext = incidentsTotal > 0 && offset + size < incidentsTotal && !incidentsLoading;
+
+  const rejectedCount = stats?.by_status?.find((s) => s.status === 'REJECTED')?.count ?? 0;
 
   const summaryCards = [
     { key: 'total', title: 'Total Incidents', icon: Flame, value: stats?.total_incidents?.toLocaleString() ?? '0', borderColor: '#dc2626' },
@@ -134,7 +136,7 @@ export default function RegionalDashboardPage() {
             Regional Dashboard
           </h1>
           <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            Overview for Region {assignedRegionId}
+            Overview of your incident workload
           </p>
         </div>
         <div className="flex gap-2">
@@ -156,6 +158,22 @@ export default function RegionalDashboardPage() {
           </Link>
         </div>
       </div>
+
+      {rejectedCount > 0 && (
+        <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900" role="alert">
+          <span className="font-semibold">
+            {rejectedCount} incident{rejectedCount > 1 ? 's were' : ' was'} rejected by a validator.
+          </span>{' '}
+          Review the rejection reasons and resubmit.{' '}
+          <button
+            type="button"
+            className="ml-1 underline font-medium hover:text-red-700"
+            onClick={() => { setStatusFilter('REJECTED'); setPageIndex(0); }}
+          >
+            Show rejected
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
         {summaryCards.map((card) => {
@@ -191,16 +209,16 @@ export default function RegionalDashboardPage() {
         <div className="card-header flex flex-col gap-3">
           <div>
             <h2 id="region-incidents-heading" className="font-bold">
-              Region incidents
+              Your incidents
             </h2>
             <p className="mt-1 text-xs text-gray-500">
-              All incidents in your region with server-driven total count, filters, and pagination.
+              All incidents you encoded with server-driven total count, filters, and pagination.
             </p>
           </div>
 
           <div className="flex flex-wrap items-end gap-3">
             <label className="flex flex-col gap-1 text-xs font-medium text-gray-700">
-              Category
+              Classification
               <select
                 className="card min-w-[10rem] rounded border border-gray-200 px-2 py-1.5 text-sm"
                 value={categoryFilter}
@@ -210,10 +228,10 @@ export default function RegionalDashboardPage() {
                 }}
                 disabled={incidentsLoading}
               >
-                <option value="">All categories</option>
+                <option value="">All classifications</option>
                 {REGIONAL_INCIDENT_GENERAL_CATEGORIES.map((c) => (
                   <option key={c} value={c}>
-                    {c.replace(/_/g, ' ')}
+                    {c === 'NON_STRUCTURAL' ? 'Non-Structural' : c.charAt(0) + c.slice(1).toLowerCase()}
                   </option>
                 ))}
               </select>
@@ -287,7 +305,7 @@ export default function RegionalDashboardPage() {
             <thead className="bg-gray-50 text-xs uppercase text-gray-700">
               <tr>
                 <th className="px-6 py-3">Date</th>
-                <th className="px-6 py-3">Type</th>
+                <th className="px-6 py-3">Classification</th>
                 <th className="px-6 py-3">Station</th>
                 <th className="px-6 py-3">Status</th>
                 <th className="px-6 py-3 text-right">Actions</th>

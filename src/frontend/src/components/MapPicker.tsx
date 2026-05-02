@@ -11,6 +11,7 @@ export interface MapPickerProps {
     zoom?: number;
     value?: { lat: number; lng: number } | null;
     onChange?: (lat: number, lng: number) => void;
+    mapHeight?: string;
 }
 
 export function MapPicker(props: MapPickerProps) {

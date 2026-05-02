@@ -68,7 +68,7 @@ def _mock_analyst_db():
     mock_db.execute.return_value = mock_result
     mock_db.execute.return_value.scalar.return_value = 0
 
-    def mock_get_db():
+    def mock_get_db(request=None):
         try:
             yield mock_db
         finally:

@@ -61,10 +61,14 @@ class KeycloakAuthenticator:
                 status_code=503, detail="Identity Provider configuration unreachable"
             )
 
-    async def _fetch_jwks(self):
+    async def _fetch_jwks(self, force_refresh: bool = False):
         """Fetch JWKS (Public Keys) from Keycloak. Cached for JWKS_CACHE_TTL_SECONDS."""
         now = time.time()
-        if self.jwks and (now - self.jwks_fetched_at) < JWKS_CACHE_TTL_SECONDS:
+        if (
+            not force_refresh
+            and self.jwks
+            and (now - self.jwks_fetched_at) < JWKS_CACHE_TTL_SECONDS
+        ):
             return
 
         if not self.oidc_config:
@@ -188,11 +192,49 @@ class KeycloakAuthenticator:
                     last_error = e
                     continue  # try next key
 
-            # All keys exhausted
+            # All keys exhausted. Force-refresh JWKS once to handle key rotation.
             if last_error:
                 logger.warning(
-                    f"JWT Validation failed after trying all keys: {last_error}"
+                    "JWT validation failed with cached JWKS, refreshing keys and retrying once: %s",
+                    last_error,
                 )
+
+            await self._fetch_jwks(force_refresh=True)
+
+            refreshed_keys = [
+                k
+                for k in self.jwks.get("keys", [])
+                if k.get("kty") == "RSA"
+                and k.get("use") in (None, "sig")
+                and k.get("alg") in (None, "RS256")
+            ]
+            for key_data in refreshed_keys:
+                try:
+                    public_key = jwk.construct(key_data)
+                    payload = jwt.decode(
+                        token,
+                        public_key.to_pem().decode()
+                        if hasattr(public_key, "to_pem")
+                        else public_key,
+                        algorithms=["RS256"],
+                        audience=AUDIENCE,
+                        issuer=KEYCLOAK_ISSUER,
+                        options={
+                            "verify_at_hash": False,
+                            "require": ["exp", "iat", "iss", "aud"],
+                        },
+                    )
+                    azp = payload.get("azp")
+                    if azp != CLIENT_ID:
+                        raise HTTPException(
+                            status_code=401, detail="Invalid token: client mismatch"
+                        )
+                    return payload
+                except HTTPException:
+                    raise
+                except JWTError:
+                    continue
+
             raise HTTPException(
                 status_code=401, detail="Invalid token: JWT validation failed"
             )
@@ -330,10 +372,10 @@ async def get_regional_encoder(
     db: Annotated[Session, Depends(get_db)],
 ) -> dict:
     """
-    Require REGIONAL_ENCODER role with an assigned region.
-    Returns user dict augmented with assigned_region_id.
+    Require REGIONAL_ENCODER role.
+    Returns user dict and includes assigned_region_id when present.
     """
-    if current_user.get("role") != "REGIONAL_ENCODER":
+    if current_user.get("role") not in ("REGIONAL_ENCODER", "ENCODER"):
         raise HTTPException(
             status_code=403, detail="REGIONAL_ENCODER privileges required"
         )
@@ -344,15 +386,8 @@ async def get_regional_encoder(
             {"uid": current_user["user_id"]},
         ).fetchone()
         if row is None:
-            raise HTTPException(
-                status_code=403, detail="User not found or region assignment missing"
-            )
-        region_id = row[0]
-        if region_id is None:
-            raise HTTPException(
-                status_code=403, detail="No region assigned to this user"
-            )
-        current_user["assigned_region_id"] = region_id
+            raise HTTPException(status_code=403, detail="User not found")
+        current_user["assigned_region_id"] = row[0]
         return current_user
     except DataError as e:
         logger.error(
@@ -366,15 +401,13 @@ async def get_national_validator(
     db: Annotated[Session, Depends(get_db)],
 ) -> dict:
     """
-    Require NATIONAL_VALIDATOR role with an assigned region.
+    Require NATIONAL_VALIDATOR role.
 
-    Returns user dict augmented with assigned_region_id so every
-    validator endpoint can enforce region-scoped visibility without
-    repeating the DB lookup.
+    Returns user dict augmented with assigned_region_id when available.
 
     Raises:
         403  — role is not NATIONAL_VALIDATOR
-        403  — user row missing or has no assigned_region_id
+        403  — user row missing
         500  — unexpected DB error
     """
     if current_user.get("role") != "NATIONAL_VALIDATOR":
@@ -388,16 +421,8 @@ async def get_national_validator(
             {"uid": current_user["user_id"]},
         ).fetchone()
         if row is None:
-            raise HTTPException(
-                status_code=403, detail="User not found or region assignment missing"
-            )
-        region_id = row[0]
-        if region_id is None:
-            raise HTTPException(
-                status_code=403,
-                detail="No region assigned to this validator — contact SYSTEM_ADMIN",
-            )
-        current_user["assigned_region_id"] = region_id
+            raise HTTPException(status_code=403, detail="User not found")
+        current_user["assigned_region_id"] = row[0]
         return current_user
     except DataError as e:
         logger.error(

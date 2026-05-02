@@ -15,7 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import auth
-from database import get_db, get_db_with_rls
+from database import get_db_with_rls
 from main import app
 
 
@@ -74,7 +74,7 @@ def test_analytics_heatmap_accepts_national_analyst(client: TestClient):
             pass
 
     app.dependency_overrides[auth.get_current_wims_user] = mock_national_analyst
-    app.dependency_overrides[get_db] = mock_get_db
+    app.dependency_overrides[get_db_with_rls] = mock_get_db
 
     response = client.get("/api/analytics/heatmap")
     assert response.status_code == 200
@@ -100,7 +100,7 @@ def test_analytics_heatmap_accepts_system_admin(client: TestClient):
             pass
 
     app.dependency_overrides[auth.get_current_wims_user] = mock_system_admin
-    app.dependency_overrides[get_db] = mock_get_db
+    app.dependency_overrides[get_db_with_rls] = mock_get_db
 
     response = client.get("/api/analytics/heatmap")
     assert response.status_code == 200
@@ -188,7 +188,7 @@ def test_analytics_heatmap_uses_read_model(client: TestClient):
     mock_result.fetchall.return_value = []
     mock_db.execute.return_value = mock_result
 
-    def mock_get_db():
+    def mock_get_db(request=None):
         try:
             yield mock_db
         finally:
@@ -212,7 +212,7 @@ def _mock_analyst_db():
     mock_result.fetchall.return_value = []
     mock_db.execute.return_value = mock_result
 
-    def mock_get_db():
+    def mock_get_db(request=None):
         try:
             yield mock_db
         finally:
@@ -236,7 +236,7 @@ def test_analytics_comparative_passes_alarm_level_and_incident_type_to_count_in_
     mock_db, mock_get_db = _mock_analyst_db()
 
     app.dependency_overrides[auth.get_current_wims_user] = mock_national_analyst
-    app.dependency_overrides[get_db] = mock_get_db
+    app.dependency_overrides[get_db_with_rls] = mock_get_db
 
     with patch("api.routes.analytics.count_in_range", side_effect=[3, 7]) as mock_count:
         response = client.get(
@@ -276,7 +276,7 @@ def test_analytics_comparative_counts_differ_when_incident_type_filter_changes(
     mock_db, mock_get_db = _mock_analyst_db()
 
     app.dependency_overrides[auth.get_current_wims_user] = mock_national_analyst
-    app.dependency_overrides[get_db] = mock_get_db
+    app.dependency_overrides[get_db_with_rls] = mock_get_db
 
     params_base = {
         "range_a_start": "2024-01-01",
@@ -326,7 +326,7 @@ def test_analytics_comparative_counts_differ_when_alarm_level_filter_changes(
     mock_db, mock_get_db = _mock_analyst_db()
 
     app.dependency_overrides[auth.get_current_wims_user] = mock_national_analyst
-    app.dependency_overrides[get_db] = mock_get_db
+    app.dependency_overrides[get_db_with_rls] = mock_get_db
 
     params_base = {
         "range_a_start": "2024-01-01",
@@ -365,7 +365,7 @@ def test_analytics_trends_passes_alarm_level_to_get_trends(client: TestClient):
     mock_db, mock_get_db = _mock_analyst_db()
 
     app.dependency_overrides[auth.get_current_wims_user] = mock_national_analyst
-    app.dependency_overrides[get_db] = mock_get_db
+    app.dependency_overrides[get_db_with_rls] = mock_get_db
 
     with patch("api.routes.analytics.get_trends", return_value=[]) as mock_gt:
         response = client.get(

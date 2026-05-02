@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Upload, FileDown, CheckCircle, AlertCircle, RefreshCw, X, MapPin, ChevronDown, ChevronUp
 } from 'lucide-react';
-import { importAforFile, commitAforImport, type AforImportPreviewResponse } from '@/lib/api';
+import { importAforFile, commitAforImport, submitIncidentForReview, type AforImportPreviewResponse } from '@/lib/api';
 import { MapPicker } from '@/components/MapPicker';
 import {
   FIELD_LABELS,
@@ -106,7 +106,9 @@ function ProblemsGrid({ selected }: { selected: string[] }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
       {ALL_PROBLEM_OPTIONS.map((label) => {
-        const checked = selectedSet.has(label);
+        // Normalize both the label and check against the selected set
+        const normalizedLabel = normalizeProblemLabel(label);
+        const checked = selectedSet.has(normalizedLabel);
         return (
           <div key={label} className="flex items-center gap-2 py-1">
             {checked
@@ -129,6 +131,34 @@ function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown
   if (formKind === 'WILDLAND_AFOR') {
     const wl = rowData.wildland as Record<string, unknown> | undefined;
     if (!wl) return null;
+    const fireBehavior = (wl.fire_behavior ?? {}) as Record<string, unknown>;
+    const problems = Array.isArray(wl.problems_encountered)
+      ? wl.problems_encountered.map((v) => String(v)).filter(Boolean)
+      : typeof wl.problems_encountered === 'string'
+        ? String(wl.problems_encountered).split('\n').map((v) => v.trim()).filter(Boolean)
+        : [];
+    const recommendationsRaw = wl.recommendations_list ?? wl.recommendations;
+    const recommendations = Array.isArray(recommendationsRaw)
+      ? recommendationsRaw.map((v) => String(v)).filter(Boolean)
+      : typeof recommendationsRaw === 'string'
+        ? recommendationsRaw.split('\n').map((v) => v.trim()).filter(Boolean)
+        : [];
+    const alarmRows = Array.isArray(wl.wildland_alarm_statuses)
+      ? (wl.wildland_alarm_statuses as Record<string, unknown>[])
+      : [];
+    const assistRows = Array.isArray(wl.wildland_assistance_rows)
+      ? (wl.wildland_assistance_rows as Record<string, unknown>[])
+      : [];
+
+    const sections: Array<{ title: string; keys: string[] }> = [
+      { title: 'A. Dates and Times', keys: ['call_received_at', 'fire_started_at', 'fire_arrival_at', 'fire_controlled_at'] },
+      { title: 'B. Caller / Report', keys: ['caller_transmitted_by', 'caller_office_address', 'call_received_by_personnel'] },
+      { title: 'C. Location of Incident', keys: ['incident_location_description', 'distance_to_fire_station_km'] },
+      { title: 'D. Response', keys: ['engine_dispatched', 'primary_action_taken', 'assistance_combined_summary'] },
+      { title: 'Property & Area', keys: ['buildings_involved', 'buildings_threatened', 'ownership_and_property_notes', 'total_area_burned_display', 'wildland_fire_type'] },
+      { title: 'Prepared / Noted', keys: ['prepared_by', 'prepared_by_title', 'noted_by', 'noted_by_title'] },
+    ];
+
     return (
       <div className="px-4 pb-4 whitespace-normal break-words">
         <button onClick={() => setOpen(!open)} className="text-xs text-blue-600 flex items-center gap-1">
@@ -136,15 +166,110 @@ function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown
           {open ? 'Hide' : 'Show'} wildland details
         </button>
         {open && (
-          <div className="mt-3 space-y-2 text-sm whitespace-normal break-words">
-            {Object.entries(wl).map(([k, v]) => (
-              <div key={k} className="grid grid-cols-1 gap-1 border-b border-gray-100 pb-1 md:grid-cols-3 md:gap-2">
-                <span className="font-medium text-gray-600 md:min-w-0">{fieldLabel(k)}</span>
-                <span className="text-gray-900 break-words whitespace-pre-wrap md:col-span-2 md:min-w-0">
-                  {displayValue(typeof v === 'object' ? JSON.stringify(v) : v)}
-                </span>
+          <div className="mt-4 space-y-6 text-sm whitespace-normal break-words">
+            {sections.map((section) => (
+              <div key={section.title}>
+                <h4 className="text-xs font-bold uppercase text-gray-500 mb-2">{section.title}</h4>
+                <div className="grid grid-cols-1 gap-y-2">
+                  {section.keys.map((k) => (
+                    <div key={k} className="grid grid-cols-1 gap-1 border-b border-gray-100 pb-1 md:grid-cols-3 md:gap-2">
+                      <span className="font-medium text-gray-600 md:min-w-0">{fieldLabel(k)}</span>
+                      <span className="text-gray-900 break-words whitespace-pre-wrap md:col-span-2 md:min-w-0">
+                        {displayValue(wl[k])}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
+
+            <div>
+              <h4 className="text-xs font-bold uppercase text-gray-500 mb-2">Narrative &amp; Notes</h4>
+              <div className="grid grid-cols-1 gap-y-2">
+                <div className="grid grid-cols-1 gap-1 border-b border-gray-100 pb-1 md:grid-cols-3 md:gap-2">
+                  <span className="font-medium text-gray-600 md:min-w-0">{fieldLabel('narration')}</span>
+                  <span className="text-gray-900 break-words whitespace-pre-wrap md:col-span-2 md:min-w-0">
+                    {displayValue(wl.narration)}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 gap-1 border-b border-gray-100 pb-1 md:grid-cols-3 md:gap-2">
+                  <span className="font-medium text-gray-600 md:min-w-0">{fieldLabel('problems_encountered')}</span>
+                  <span className="text-gray-900 break-words whitespace-pre-wrap md:col-span-2 md:min-w-0">
+                    {problems.length > 0 ? problems.join('\n') : 'N/A'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 gap-1 border-b border-gray-100 pb-1 md:grid-cols-3 md:gap-2">
+                  <span className="font-medium text-gray-600 md:min-w-0">{fieldLabel('recommendations_list')}</span>
+                  <span className="text-gray-900 break-words whitespace-pre-wrap md:col-span-2 md:min-w-0">
+                    {recommendations.length > 0 ? recommendations.join('\n') : 'N/A'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-xs font-bold uppercase text-gray-500 mb-2">Fire Behavior</h4>
+              <div className="grid grid-cols-1 gap-y-2">
+                {(['elevation_ft', 'flame_length_ft', 'rate_of_spread_chains_per_hour'] as const).map((k) => (
+                  <div key={k} className="grid grid-cols-1 gap-1 border-b border-gray-100 pb-1 md:grid-cols-3 md:gap-2">
+                    <span className="font-medium text-gray-600 md:min-w-0">{fieldLabel(k)}</span>
+                    <span className="text-gray-900 break-words whitespace-pre-wrap md:col-span-2 md:min-w-0">
+                      {displayValue(fireBehavior[k])}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-xs font-bold uppercase text-gray-500 mb-2">Alarm Status Timeline</h4>
+              {alarmRows.length === 0 ? (
+                <p className="text-gray-400 text-sm">N/A</p>
+              ) : (
+                <table className="w-full text-sm border border-gray-200 rounded-md overflow-hidden">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-700">{fieldLabel('alarm_status')}</th>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-700">{fieldLabel('time_declared')}</th>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-700">{fieldLabel('ground_commander')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {alarmRows.map((row, i) => (
+                      <tr key={i} className="border-t border-gray-100">
+                        <td className="px-3 py-2">{displayValue(row.alarm_status)}</td>
+                        <td className="px-3 py-2">{displayValue(row.time_declared)}</td>
+                        <td className="px-3 py-2">{displayValue(row.ground_commander)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div>
+              <h4 className="text-xs font-bold uppercase text-gray-500 mb-2">Assistance</h4>
+              {assistRows.length === 0 ? (
+                <p className="text-gray-400 text-sm">N/A</p>
+              ) : (
+                <table className="w-full text-sm border border-gray-200 rounded-md overflow-hidden">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-700">{fieldLabel('organization_or_unit')}</th>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-700">{fieldLabel('detail')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {assistRows.map((row, i) => (
+                      <tr key={i} className="border-t border-gray-100">
+                        <td className="px-3 py-2">{displayValue(row.organization_or_unit ?? row.organization)}</td>
+                        <td className="px-3 py-2">{displayValue(row.detail)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -276,6 +401,8 @@ export default function AforImportPage() {
   const [previewSearch, setPreviewSearch] = useState('');
   const [commitLatStr, setCommitLatStr] = useState('');
   const [commitLngStr, setCommitLngStr] = useState('');
+  const [committedIds, setCommittedIds] = useState<number[]>([]);
+  const [isSubmittingAll, setIsSubmittingAll] = useState(false);
   const geocodeTriggered = useRef(false);
 
   const filteredPreviewRows = useMemo(() => {
@@ -401,7 +528,9 @@ export default function AforImportPage() {
         longitude: commitLng,
       });
       if (res.status === 'ok') {
-        router.push('/dashboard/regional');
+        setCommittedIds(res.incident_ids ?? []);
+        setIsCommitting(false);
+        return;
       }
     } catch (err: unknown) {
       const errMsg = (err as { message?: string }).message || 'Failed to commit the imported data.';
@@ -421,7 +550,8 @@ export default function AforImportPage() {
               setIsCommitting(false);
               return;
             }
-            router.push('/dashboard/regional');
+            setCommittedIds(retry.incident_ids ?? []);
+            setIsCommitting(false);
             return;
           }
         } catch (retryErr: unknown) {
@@ -437,6 +567,18 @@ export default function AforImportPage() {
     }
   };
 
+  const handleSubmitAll = async () => {
+    setIsSubmittingAll(true);
+    setError(null);
+    try {
+      await Promise.all(committedIds.map((id) => submitIncidentForReview(id)));
+      router.push('/dashboard/regional');
+    } catch (err: unknown) {
+      setError((err as { message?: string }).message || 'Failed to submit incidents for review.');
+      setIsSubmittingAll(false);
+    }
+  };
+
   const reset = () => {
     setFile(null);
     setPreviewData(null);
@@ -445,6 +587,7 @@ export default function AforImportPage() {
     setPreviewSearch('');
     setCommitLatStr('');
     setCommitLngStr('');
+    setCommittedIds([]);
     geocodeTriggered.current = false;
   };
 
@@ -470,6 +613,37 @@ export default function AforImportPage() {
           </div>
         )}
       </div>
+
+      {committedIds.length > 0 && (
+        <div className="card p-6 border-green-300 bg-green-50 space-y-4">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
+            <div>
+              <p className="font-semibold text-green-900">
+                {committedIds.length} incident{committedIds.length !== 1 ? 's' : ''} saved as Draft.
+              </p>
+              <p className="text-sm text-green-700 mt-0.5">Choose to keep as draft or submit all for validator review.</p>
+            </div>
+          </div>
+          {error && <p className="text-sm text-red-700">{error}</p>}
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => router.push('/dashboard/regional')}
+              className="px-5 py-2 text-sm font-medium border border-gray-300 rounded-md bg-white hover:bg-gray-50"
+            >
+              Keep as Draft
+            </button>
+            <button
+              onClick={handleSubmitAll}
+              disabled={isSubmittingAll}
+              className="px-5 py-2 text-sm font-bold text-white rounded-md disabled:opacity-50"
+              style={{ backgroundColor: 'var(--bfp-maroon)' }}
+            >
+              {isSubmittingAll ? 'Submitting…' : 'Submit All for Review'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {isOffline && (
         <div className="card overflow-hidden">
@@ -637,7 +811,9 @@ export default function AforImportPage() {
                   className="px-6 py-2 text-sm font-bold text-white rounded-md flex items-center gap-2 transition-colors disabled:opacity-50"
                   style={{ backgroundColor: 'var(--bfp-maroon)' }}
                 >
-                  {isCommitting ? <><RefreshCw className="w-4 h-4 animate-spin" /> Committing...</> : `Commit ${previewData.valid_rows} Valid Rows`}
+                  {isCommitting
+                    ? <><RefreshCw className="w-4 h-4 animate-spin" /> Committing...</>
+                    : `Commit ${previewData.valid_rows} Valid ${previewData.valid_rows === 1 ? 'Row' : 'Rows'}`}
                 </button>
               </div>
             </div>

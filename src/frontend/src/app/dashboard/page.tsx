@@ -6,7 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { fetchRegions, fetchProvinces, fetchCities } from '@/lib/api';
 import type { Region, Province, City } from '@/types/api';
 import { edgeFunctions, AnalyticsSummaryResponse } from '@/lib/edgeFunctions';
-import { RefreshCw, Download, HelpCircle, X, Info, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Flame, Building2, TreePine, Car, Clock } from 'lucide-react';
+import { RefreshCw, Download, HelpCircle, X, Info, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Flame, Building2, TreePine, Car, Clock, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 
 // Subcategory data
@@ -36,20 +36,31 @@ export default function DashboardPage() {
     const router = useRouter();
     const { user, loading } = useAuth();
     const role = (user as { role?: string })?.role ?? null;
+    const assignedRegionId = (user as { assignedRegionId?: number | null })?.assignedRegionId ?? null;
+
+    const [redirectError, setRedirectError] = useState<string | null>(null);
 
     useEffect(() => {
         if (!loading && role === 'SYSTEM_ADMIN') {
             router.replace('/admin/system');
         } else if (!loading && role === 'REGIONAL_ENCODER') {
-            router.replace('/dashboard/regional');
+            // REGIONAL_ENCODER requires assigned region; if missing, show error instead of redirecting
+            if (assignedRegionId) {
+                router.replace('/dashboard/regional');
+            } else {
+                setRedirectError('No region assigned to your account. Contact your administrator.');
+            }
         } else if (!loading && (role === 'NATIONAL_VALIDATOR' || role === 'VALIDATOR')) {
-            router.replace('/dashboard/validator');
+            // NATIONAL_VALIDATOR requires assigned region; if missing, show error instead of redirecting
+            if (assignedRegionId) {
+                router.replace('/dashboard/validator');
+            } else {
+                setRedirectError('No region assigned to your account. Contact your administrator.');
+            }
         } else if (!loading && role === 'NATIONAL_ANALYST') {
             router.replace('/dashboard/analyst');
         }
-    }, [loading, role, router]);
-
-    const assignedRegionId = (user as { assignedRegionId?: number | null })?.assignedRegionId ?? null;
+    }, [loading, role, assignedRegionId, router]);
 
     const [analytics, setAnalytics] = useState<AnalyticsSummaryResponse | null>(null);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -205,6 +216,21 @@ export default function DashboardPage() {
 
     return (
         <div className="space-y-6">
+            {/* Error Banner - Region Assignment Required */}
+            {redirectError && (
+                <div className="card border-l-4 border-red-500 bg-red-50 p-4">
+                    <div className="flex items-start gap-3">
+                        <div className="flex-shrink-0 mt-0.5">
+                            <AlertCircle className="h-5 w-5 text-red-600" />
+                        </div>
+                        <div>
+                            <h3 className="text-sm font-semibold text-red-900">Configuration Required</h3>
+                            <p className="text-sm text-red-700 mt-1">{redirectError}</p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>

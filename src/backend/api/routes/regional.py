@@ -1,8 +1,4 @@
-"""Regional Office API — AFOR Import, Region-Scoped Incidents, Stats.
-
-All endpoints protected by get_regional_encoder (REGIONAL_ENCODER role + assigned_region_id).
-Data isolation: every query filters by the user's assigned_region_id.
-"""
+"""Regional Office API — AFOR Import, Regional Incidents, Stats."""
 
 from __future__ import annotations
 
@@ -20,7 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from auth import get_national_validator, get_regional_encoder
+from auth import get_current_wims_user, get_national_validator, get_regional_encoder
 from database import get_db_with_rls
 from services.analytics_read_model import sync_incidents_batch
 from utils.crypto import SecurityProvider, SecurityProviderError
@@ -149,6 +145,80 @@ def _wgs84_pair_from_raw(latitude: Any, longitude: Any) -> tuple[float, float]:
     return lon, lat
 
 
+def _incident_verification_history_uses_target_columns(db: Session) -> bool:
+    """Return True when IVH table already has target_type/target_id columns."""
+    return _incident_verification_history_has_column(db, "target_type")
+
+
+def _incident_verification_history_has_column(db: Session, column_name: str) -> bool:
+    """Return True when IVH table has the given column."""
+    return bool(
+        db.execute(
+            text("""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = 'wims'
+                      AND table_name = 'incident_verification_history'
+                      AND column_name = :column_name
+                )
+            """),
+            {"column_name": column_name},
+        ).scalar()
+    )
+
+
+def _insert_incident_verification_history(
+    db: Session,
+    *,
+    incident_id: int,
+    actor_user_id: str,
+    previous_status: str,
+    new_status: str,
+    notes: str,
+) -> None:
+    """Insert IVH row with compatibility for both legacy and migrated schemas."""
+    if _incident_verification_history_uses_target_columns(db):
+        db.execute(
+            text("""
+                INSERT INTO wims.incident_verification_history (
+                    target_type, target_id, action_by_user_id,
+                    previous_status, new_status, notes
+                ) VALUES (
+                    'OFFICIAL', :iid, CAST(:uid AS uuid),
+                    :prev_status, :new_status, :notes
+                )
+            """),
+            {
+                "iid": incident_id,
+                "uid": actor_user_id,
+                "prev_status": previous_status,
+                "new_status": new_status,
+                "notes": notes,
+            },
+        )
+        return
+
+    db.execute(
+        text("""
+            INSERT INTO wims.incident_verification_history (
+                incident_id, action_by_user_id,
+                previous_status, new_status, comments
+            ) VALUES (
+                :iid, CAST(:uid AS uuid),
+                :prev_status, :new_status, :comments
+            )
+        """),
+        {
+            "iid": incident_id,
+            "uid": actor_user_id,
+            "prev_status": previous_status,
+            "new_status": new_status,
+            "comments": notes,
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # AFOR Parsing Utilities (Official BFP XLSX Refactor)
 # ---------------------------------------------------------------------------
@@ -185,6 +255,26 @@ ALARM_LEVEL_MAP = {
     "GENERAL": "General Alarm",
     "GENERAL ALARM": "General Alarm",
 }
+
+_CATEGORY_CANONICAL: dict[str, str] = {
+    "STRUCTURAL": "STRUCTURAL",
+    "NON_STRUCTURAL": "NON_STRUCTURAL",
+    "NON-STRUCTURAL": "NON_STRUCTURAL",
+    "VEHICULAR": "VEHICULAR",
+    "TRANSPORTATION": "VEHICULAR",
+}
+
+# All known DB values for each canonical category (covers legacy form submissions)
+_CATEGORY_DB_VARIANTS: dict[str, list[str]] = {
+    "STRUCTURAL": ["STRUCTURAL", "Structural"],
+    "NON_STRUCTURAL": ["NON_STRUCTURAL", "Non-Structural", "NON-STRUCTURAL"],
+    "VEHICULAR": ["VEHICULAR", "Transportation", "TRANSPORTATION", "Vehicular"],
+}
+
+
+def _normalize_general_category(val: str) -> str:
+    key = val.strip().upper().replace("-", "_").replace(" ", "_")
+    return _CATEGORY_CANONICAL.get(key, val)
 
 
 def _safe_int(val: Any, default: int = 0) -> int:
@@ -1679,7 +1769,9 @@ async def commit_afor_import(
                 "distance_from_station_km": ns.get("distance_from_station_km"),
                 "notification_dt": ns.get("notification_dt"),
                 "alarm_level": ns.get("alarm_level", ""),
-                "general_category": ns.get("general_category", ""),
+                "general_category": _normalize_general_category(
+                    ns.get("general_category", "") or ""
+                ),
                 "sub_category": ns.get("sub_category", ""),
                 "civ_inj": _group_total(injured_groups, "civilian"),
                 "civ_fat": _group_total(fatal_groups, "civilian"),
@@ -1738,9 +1830,18 @@ async def commit_afor_import(
         if not pii_for_blob:
             pii_for_blob = {}
 
-        sp = _get_security_provider()
         aad = f"incident_id:{incident_id}".encode("utf-8")
-        nonce_b64, ct_b64 = sp.encrypt_json(pii_for_blob, aad)
+        nonce_b64: str | None = None
+        ct_b64: str | None = None
+        try:
+            sp = _get_security_provider()
+            nonce_b64, ct_b64 = sp.encrypt_json(pii_for_blob, aad)
+        except SecurityProviderError as exc:
+            logger.warning(
+                "PII encryption unavailable for incident_id=%s during AFOR commit; proceeding without encrypted blob (%s)",
+                incident_id,
+                exc,
+            )
 
         db.execute(
             text("""
@@ -1850,17 +1951,28 @@ def get_regional_incidents(
     status: Optional[str] = None,
 ):
     """
-    Fetch fire incidents scoped to the user's assigned region.
+    Fetch fire incidents scoped to the current encoder.
     Joins nonsensitive details for summary view.
     """
-    region_id = user["assigned_region_id"]
+    encoder_id = user["user_id"]
 
-    where_clauses = ["fi.region_id = :region_id", "fi.is_archived = FALSE"]
-    params: dict[str, Any] = {"region_id": region_id, "limit": limit, "offset": offset}
+    where_clauses = [
+        "fi.encoder_id = CAST(:encoder_id AS uuid)",
+        "fi.is_archived = FALSE",
+    ]
+    params: dict[str, Any] = {
+        "encoder_id": str(encoder_id),
+        "limit": limit,
+        "offset": offset,
+    }
 
     if category:
-        where_clauses.append("nd.general_category = :category")
-        params["category"] = category
+        cat_key = category.strip().upper().replace("-", "_").replace(" ", "_")
+        if cat_key == "TRANSPORTATION":
+            cat_key = "VEHICULAR"
+        variants = _CATEGORY_DB_VARIANTS.get(cat_key, [category])
+        where_clauses.append("nd.general_category = ANY(:categories)")
+        params["categories"] = variants
     if status:
         where_clauses.append("fi.verification_status = :status")
         params["status"] = status
@@ -1931,32 +2043,63 @@ def get_regional_incidents(
 @router.get("/incidents/{incident_id}")
 def get_regional_incident_detail(
     incident_id: int,
-    user: Annotated[dict, Depends(get_regional_encoder)],
+    user: Annotated[dict, Depends(get_current_wims_user)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
-    """Fetch a single incident detail, scoped to user's region."""
-    region_id = user["assigned_region_id"]
+    """Fetch a single incident detail. Encoders see only their own; validators see any."""
+    role = user.get("role", "")
+    is_validator = role in ("NATIONAL_VALIDATOR", "SYSTEM_ADMIN", "NATIONAL_ANALYST")
 
-    row = db.execute(
-        text("""
-            SELECT fi.incident_id, fi.verification_status, fi.created_at,
-                   fi.region_id, fi.encoder_id,
-                   ST_Y(fi.location::geometry) AS latitude,
-                   ST_X(fi.location::geometry) AS longitude
-            FROM wims.fire_incidents fi
-            WHERE fi.incident_id = :iid AND fi.region_id = :rid AND fi.is_archived = FALSE
-        """),
-        {"iid": incident_id, "rid": region_id},
-    ).fetchone()
+    if is_validator:
+        row = db.execute(
+            text("""
+                SELECT fi.incident_id, fi.verification_status, fi.created_at,
+                       fi.region_id, fi.encoder_id,
+                       ST_Y(fi.location::geometry) AS latitude,
+                       ST_X(fi.location::geometry) AS longitude
+                FROM wims.fire_incidents fi
+                WHERE fi.incident_id = :iid
+                  AND fi.is_archived = FALSE
+            """),
+            {"iid": incident_id},
+        ).fetchone()
+    else:
+        encoder_id = user["user_id"]
+        row = db.execute(
+            text("""
+                SELECT fi.incident_id, fi.verification_status, fi.created_at,
+                       fi.region_id, fi.encoder_id,
+                       ST_Y(fi.location::geometry) AS latitude,
+                       ST_X(fi.location::geometry) AS longitude
+                FROM wims.fire_incidents fi
+                WHERE fi.incident_id = :iid
+                  AND fi.encoder_id = CAST(:encoder_id AS uuid)
+                  AND fi.is_archived = FALSE
+            """),
+            {"iid": incident_id, "encoder_id": str(encoder_id)},
+        ).fetchone()
 
     if not row:
-        raise HTTPException(status_code=404, detail="Incident not found in your region")
+        raise HTTPException(
+            status_code=404, detail="Incident not found or access denied"
+        )
 
     # Fetch nonsensitive
     ns = db.execute(
         text(
             "SELECT * FROM wims.incident_nonsensitive_details WHERE incident_id = :iid"
         ),
+        {"iid": incident_id},
+    ).fetchone()
+
+    loc_row = db.execute(
+        text("""
+            SELECT c.city_name, p.province_name
+            FROM wims.incident_nonsensitive_details nd
+            LEFT JOIN wims.ref_cities c ON c.city_id = nd.city_id
+            LEFT JOIN wims.ref_provinces p ON p.province_id = c.province_id
+            WHERE nd.incident_id = :iid
+        """),
         {"iid": incident_id},
     ).fetchone()
 
@@ -2004,6 +2147,59 @@ def get_regional_incident_detail(
     sd_dict.pop("pii_blob_enc", None)
     sd_dict.pop("encryption_iv", None)
 
+    nonsensitive = row_to_dict(ns)
+    if loc_row:
+        if loc_row[0]:
+            nonsensitive["city_municipality"] = loc_row[0]
+            nonsensitive["_city_text"] = loc_row[0]
+        if loc_row[1]:
+            nonsensitive["province_district"] = loc_row[1]
+            nonsensitive["_province_text"] = loc_row[1]
+
+    # Fetch the most recent rejection reason with compatibility across IVH schemas.
+    ivh_has_notes = _incident_verification_history_has_column(db, "notes")
+    ivh_has_comments = _incident_verification_history_has_column(db, "comments")
+    ivh_has_action_timestamp = _incident_verification_history_has_column(
+        db, "action_timestamp"
+    )
+    ivh_has_created_at = _incident_verification_history_has_column(db, "created_at")
+    ivh_uses_target_columns = _incident_verification_history_uses_target_columns(db)
+
+    rejection_reason = None
+    rejection_at = None
+
+    if (ivh_has_notes or ivh_has_comments) and (
+        ivh_has_action_timestamp or ivh_has_created_at
+    ):
+        notes_column = "notes" if ivh_has_notes else "comments"
+        timestamp_column = (
+            "action_timestamp" if ivh_has_action_timestamp else "created_at"
+        )
+        incident_filter = (
+            "target_type = 'OFFICIAL' AND target_id = :iid"
+            if ivh_uses_target_columns
+            else "incident_id = :iid"
+        )
+        rejection_row = db.execute(
+            text(f"""
+                SELECT {notes_column}, {timestamp_column}
+                FROM wims.incident_verification_history
+                WHERE {incident_filter}
+                  AND new_status = 'REJECTED'
+                ORDER BY {timestamp_column} DESC
+                LIMIT 1
+            """),
+            {"iid": incident_id},
+        ).fetchone()
+        rejection_reason = rejection_row[0] if rejection_row else None
+        rejection_at = (
+            rejection_row[1].isoformat() if rejection_row and rejection_row[1] else None
+        )
+    else:
+        logger.warning(
+            "IVH schema missing notes/comments or timestamp columns; skipping rejection history lookup."
+        )
+
     # Check if incident has a wildland AFOR record (separate form from structural AFOR)
     wildland_row = db.execute(
         text("""
@@ -2031,8 +2227,45 @@ def get_regional_incident_detail(
         "wildland_fire_type": wildland_fire_type,
         "wildland_area_hectares": wildland_area_hectares,
         "wildland_area_display": wildland_area_display,
-        "nonsensitive": row_to_dict(ns),
+        "nonsensitive": nonsensitive,
         "sensitive": sd_dict,
+        "rejection_reason": rejection_reason,
+        "rejection_at": rejection_at,
+    }
+
+
+@router.get("/validator/stats")
+def get_validator_stats(
+    user: Annotated[dict, Depends(get_national_validator)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Counts of VERIFIED incidents by category visible to this validator."""
+    by_cat_rows = db.execute(
+        text("""
+            SELECT nd.general_category, COUNT(*) as cnt
+            FROM wims.fire_incidents fi
+            JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+            WHERE fi.verification_status = 'VERIFIED' AND fi.is_archived = FALSE
+            GROUP BY nd.general_category
+            ORDER BY cnt DESC
+        """),
+    ).fetchall()
+
+    pending_count = (
+        db.execute(
+            text("""
+            SELECT COUNT(*) FROM wims.fire_incidents
+            WHERE verification_status = 'PENDING_VALIDATION' AND is_archived = FALSE
+        """),
+        ).scalar()
+        or 0
+    )
+
+    total_verified = sum(r[1] for r in by_cat_rows)
+    return {
+        "total_verified": total_verified,
+        "pending_validation": pending_count,
+        "by_category": [{"category": r[0], "count": r[1]} for r in by_cat_rows],
     }
 
 
@@ -2041,15 +2274,15 @@ def get_regional_stats(
     user: Annotated[dict, Depends(get_regional_encoder)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
-    """Quick summary stats scoped to the user's region."""
-    region_id = user["assigned_region_id"]
+    """Quick summary stats scoped to the current encoder."""
+    encoder_id = user["user_id"]
 
     total = (
         db.execute(
             text(
-                "SELECT COUNT(*) FROM wims.fire_incidents WHERE region_id = :rid AND is_archived = FALSE"
+                "SELECT COUNT(*) FROM wims.fire_incidents WHERE encoder_id = CAST(:eid AS uuid) AND is_archived = FALSE"
             ),
-            {"rid": region_id},
+            {"eid": str(encoder_id)},
         ).scalar()
         or 0
     )
@@ -2059,11 +2292,11 @@ def get_regional_stats(
             SELECT nd.general_category, COUNT(*) as cnt
             FROM wims.fire_incidents fi
             JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
-            WHERE fi.region_id = :rid AND fi.is_archived = FALSE
+            WHERE fi.encoder_id = CAST(:eid AS uuid) AND fi.is_archived = FALSE
             GROUP BY nd.general_category
             ORDER BY cnt DESC
         """),
-        {"rid": region_id},
+        {"eid": str(encoder_id)},
     ).fetchall()
 
     by_alarm_rows = db.execute(
@@ -2071,22 +2304,22 @@ def get_regional_stats(
             SELECT nd.alarm_level, COUNT(*) as cnt
             FROM wims.fire_incidents fi
             JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
-            WHERE fi.region_id = :rid AND fi.is_archived = FALSE
+            WHERE fi.encoder_id = CAST(:eid AS uuid) AND fi.is_archived = FALSE
             GROUP BY nd.alarm_level
             ORDER BY cnt DESC
         """),
-        {"rid": region_id},
+        {"eid": str(encoder_id)},
     ).fetchall()
 
     by_status_rows = db.execute(
         text("""
             SELECT verification_status, COUNT(*) as cnt
             FROM wims.fire_incidents
-            WHERE region_id = :rid AND is_archived = FALSE
+            WHERE encoder_id = CAST(:eid AS uuid) AND is_archived = FALSE
             GROUP BY verification_status
             ORDER BY cnt DESC
         """),
-        {"rid": region_id},
+        {"eid": str(encoder_id)},
     ).fetchall()
 
     # Wildland fire stats (separate AFOR form)
@@ -2096,9 +2329,9 @@ def get_regional_stats(
                 SELECT COUNT(*)
                 FROM wims.incident_wildland_afor iwa
                 JOIN wims.fire_incidents fi ON fi.incident_id = iwa.incident_id
-                WHERE fi.region_id = :rid AND fi.is_archived = FALSE
+                WHERE fi.encoder_id = CAST(:eid AS uuid) AND fi.is_archived = FALSE
             """),
-            {"rid": region_id},
+            {"eid": str(encoder_id)},
         ).scalar()
         or 0
     )
@@ -2108,11 +2341,11 @@ def get_regional_stats(
             SELECT iwa.wildland_fire_type, COUNT(*) as cnt
             FROM wims.incident_wildland_afor iwa
             JOIN wims.fire_incidents fi ON fi.incident_id = iwa.incident_id
-            WHERE fi.region_id = :rid AND fi.is_archived = FALSE
+            WHERE fi.encoder_id = CAST(:eid AS uuid) AND fi.is_archived = FALSE
             GROUP BY iwa.wildland_fire_type
             ORDER BY cnt DESC
         """),
-        {"rid": region_id},
+        {"eid": str(encoder_id)},
     ).fetchall()
 
     return RegionalStatsResponse(
@@ -2137,6 +2370,7 @@ class IncidentCreateRequest(BaseModel):
 
     latitude: float
     longitude: float
+    region_id: int | None = None
     # Nonsensitive details
     notification_dt: str | None = None
     alarm_level: str | None = None
@@ -2220,6 +2454,16 @@ class IncidentUpdateRequest(BaseModel):
     prepared_by_officer: str | None = None
     noted_by_officer: str | None = None
     remarks: str | None = None
+    # JSONB fields for full-form edit
+    alarm_timeline: dict | None = None
+    resources_deployed: dict | None = None
+    problems_encountered: list | None = None
+    other_personnel: list | None = None
+    personnel_on_duty: dict | None = None
+    casualty_details: dict | None = None
+    disposition: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 @router.post("/incidents", status_code=201)
@@ -2229,7 +2473,12 @@ def create_incident(
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """Create a new fire incident (DRAFT) with nonsensitive + optional sensitive details."""
-    region_id = user["assigned_region_id"]
+    region_id = body.region_id or user.get("assigned_region_id")
+    if region_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="region_id is required when no assigned region is set",
+        )
     encoder_id = user["user_id"]
 
     # Insert fire_incidents core row
@@ -2282,6 +2531,10 @@ def create_incident(
     for field in ns_fields:
         val = getattr(body, field, None)
         if val is not None:
+            if field == "alarm_level" and isinstance(val, str):
+                val = ALARM_LEVEL_MAP.get(val.upper().strip(), val)
+            elif field == "general_category" and isinstance(val, str):
+                val = _normalize_general_category(val)
             ns_cols.append(field)
             ns_vals.append(f":{field}")
             ns_params[field] = val
@@ -2365,27 +2618,58 @@ def update_incident(
     user: Annotated[dict, Depends(get_regional_encoder)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
-    """Update a DRAFT or PENDING incident. Encoder can only edit their own region's incidents."""
-    region_id = user["assigned_region_id"]
+    """Update a DRAFT/PENDING/REJECTED incident owned by the current encoder."""
+    encoder_id = user["user_id"]
 
     # Verify ownership + editable status
     incident = db.execute(
         text("""
             SELECT incident_id, verification_status
             FROM wims.fire_incidents
-            WHERE incident_id = :iid AND region_id = :rid AND is_archived = FALSE
+            WHERE incident_id = :iid
+              AND encoder_id = CAST(:eid AS uuid)
+              AND is_archived = FALSE
         """),
-        {"iid": incident_id, "rid": region_id},
+        {"iid": incident_id, "eid": str(encoder_id)},
     ).fetchone()
 
     if not incident:
-        raise HTTPException(status_code=404, detail="Incident not found in your region")
+        raise HTTPException(
+            status_code=404, detail="Incident not found or not owned by you"
+        )
 
     if incident[1] not in ("DRAFT", "PENDING", "REJECTED"):
         raise HTTPException(
             status_code=403,
             detail=f"Cannot edit incident with status '{incident[1]}'. Only DRAFT, PENDING, or REJECTED incidents can be edited.",
         )
+
+    # Ensure child rows exist so UPDATE statements never silently affect 0 rows.
+    # incident_nonsensitive_details and incident_sensitive_details have no UNIQUE
+    # constraint on incident_id (PK is a separate SERIAL detail_id / sensitive_id),
+    # so ON CONFLICT cannot be used. The WHERE NOT EXISTS guard is correct: RLS
+    # SELECT on these tables passes for the owning encoder, so existing rows are
+    # visible and the INSERT is correctly skipped when a row already exists.
+    db.execute(
+        text("""
+            INSERT INTO wims.incident_nonsensitive_details (incident_id)
+            SELECT :iid
+            WHERE NOT EXISTS (
+                SELECT 1 FROM wims.incident_nonsensitive_details WHERE incident_id = :iid
+            )
+        """),
+        {"iid": incident_id},
+    )
+    db.execute(
+        text("""
+            INSERT INTO wims.incident_sensitive_details (incident_id)
+            SELECT :iid
+            WHERE NOT EXISTS (
+                SELECT 1 FROM wims.incident_sensitive_details WHERE incident_id = :iid
+            )
+        """),
+        {"iid": incident_id},
+    )
 
     # Update nonsensitive details
     ns_fields = {
@@ -2420,6 +2704,10 @@ def update_incident(
     for field in ns_fields:
         val = getattr(body, field, None)
         if val is not None:
+            if field == "alarm_level" and isinstance(val, str):
+                val = ALARM_LEVEL_MAP.get(val.upper().strip(), val)
+            elif field == "general_category" and isinstance(val, str):
+                val = _normalize_general_category(val)
             ns_updates.append(f"{field} = :{field}")
             ns_params[field] = val
 
@@ -2505,17 +2793,120 @@ def update_incident(
             sd_params,
         )
 
-    # Update timestamp
+    # Update JSONB nonsensitive fields
+    jsonb_ns = {
+        "alarm_timeline": body.alarm_timeline,
+        "resources_deployed": body.resources_deployed,
+        "problems_encountered": body.problems_encountered,
+    }
+    jsonb_ns_updates = []
+    jsonb_ns_params = {"iid": incident_id}
+    for field, val in jsonb_ns.items():
+        if val is not None:
+            jsonb_ns_updates.append(f"{field} = CAST(:{field} AS jsonb)")
+            jsonb_ns_params[field] = json.dumps(val)
+    if jsonb_ns_updates:
+        db.execute(
+            text(
+                f"UPDATE wims.incident_nonsensitive_details SET {', '.join(jsonb_ns_updates)} WHERE incident_id = :iid"
+            ),
+            jsonb_ns_params,
+        )
+
+    # Update JSONB sensitive fields
+    jsonb_sd = {
+        "personnel_on_duty": body.personnel_on_duty,
+        "other_personnel": body.other_personnel,
+        "casualty_details": body.casualty_details,
+        "disposition": body.disposition,
+    }
+    jsonb_sd_updates = []
+    jsonb_sd_params = {"iid": incident_id}
+    for field, val in jsonb_sd.items():
+        if val is not None:
+            if field == "disposition":
+                jsonb_sd_updates.append(f"{field} = :{field}")
+            else:
+                jsonb_sd_updates.append(f"{field} = CAST(:{field} AS jsonb)")
+            jsonb_sd_params[field] = json.dumps(val) if field != "disposition" else val
+    if jsonb_sd_updates:
+        db.execute(
+            text(
+                f"UPDATE wims.incident_sensitive_details SET {', '.join(jsonb_sd_updates)} WHERE incident_id = :iid"
+            ),
+            jsonb_sd_params,
+        )
+
+    # Update timestamp (and optionally coordinates)
+    if body.latitude is not None and body.longitude is not None:
+        db.execute(
+            text("""
+                UPDATE wims.fire_incidents
+                SET updated_at = now(),
+                    location = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)
+                WHERE incident_id = :iid
+            """),
+            {"lon": body.longitude, "lat": body.latitude, "iid": incident_id},
+        )
+    else:
+        db.execute(
+            text(
+                "UPDATE wims.fire_incidents SET updated_at = now() WHERE incident_id = :iid"
+            ),
+            {"iid": incident_id},
+        )
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to update incident_id=%s", incident_id)
+        raise HTTPException(
+            status_code=500, detail="Failed to save incident draft update"
+        )
+    logger.info("Updated incident %s by encoder %s", incident_id, encoder_id)
+    return {"status": "updated", "incident_id": incident_id}
+
+
+@router.patch("/incidents/{incident_id}/unpend")
+def unpend_incident(
+    incident_id: int,
+    user: Annotated[dict, Depends(get_regional_encoder)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Allow encoder to withdraw a PENDING submission back to DRAFT."""
+    encoder_id = user["user_id"]
+
+    row = db.execute(
+        text("""
+            SELECT incident_id, verification_status
+            FROM wims.fire_incidents
+            WHERE incident_id = :iid
+              AND encoder_id = CAST(:eid AS uuid)
+              AND is_archived = FALSE
+        """),
+        {"iid": incident_id, "eid": str(encoder_id)},
+    ).fetchone()
+
+    if not row:
+        raise HTTPException(
+            status_code=404, detail="Incident not found or not owned by you"
+        )
+
+    if row[1] != "PENDING":
+        raise HTTPException(
+            status_code=400, detail=f"Incident is {row[1]}, not PENDING"
+        )
+
     db.execute(
         text(
-            "UPDATE wims.fire_incidents SET updated_at = now() WHERE incident_id = :iid"
+            "UPDATE wims.fire_incidents SET verification_status = 'DRAFT', updated_at = now() WHERE incident_id = :iid"
         ),
         {"iid": incident_id},
     )
-
     db.commit()
-    logger.info("Updated incident %s in region %s", incident_id, region_id)
-    return {"status": "updated", "incident_id": incident_id}
+    logger.info("Unpended incident %s by encoder %s", incident_id, encoder_id)
+    return {"status": "unpended", "incident_id": incident_id}
 
 
 @router.delete("/incidents/{incident_id}")
@@ -2525,19 +2916,23 @@ def delete_incident(
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """Soft-delete a DRAFT incident. Sets is_archived = TRUE."""
-    region_id = user["assigned_region_id"]
+    encoder_id = user["user_id"]
 
     incident = db.execute(
         text("""
             SELECT incident_id, verification_status
             FROM wims.fire_incidents
-            WHERE incident_id = :iid AND region_id = :rid AND is_archived = FALSE
+            WHERE incident_id = :iid
+              AND encoder_id = CAST(:eid AS uuid)
+              AND is_archived = FALSE
         """),
-        {"iid": incident_id, "rid": region_id},
+        {"iid": incident_id, "eid": str(encoder_id)},
     ).fetchone()
 
     if not incident:
-        raise HTTPException(status_code=404, detail="Incident not found in your region")
+        raise HTTPException(
+            status_code=404, detail="Incident not found or not owned by you"
+        )
 
     if incident[1] != "DRAFT":
         raise HTTPException(
@@ -2552,8 +2947,89 @@ def delete_incident(
         {"iid": incident_id},
     )
     db.commit()
-    logger.info("Soft-deleted incident %s in region %s", incident_id, region_id)
+    logger.info("Soft-deleted incident %s by encoder %s", incident_id, encoder_id)
     return {"status": "deleted", "incident_id": incident_id}
+
+
+@router.patch("/incidents/{incident_id}/submit", status_code=200)
+def submit_incident_for_review(
+    incident_id: int,
+    user: Annotated[dict, Depends(get_regional_encoder)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Submit a DRAFT or REJECTED incident for validator review (DRAFT/REJECTED → PENDING)."""
+    encoder_id = user["user_id"]
+
+    incident = db.execute(
+        text("""
+            SELECT incident_id, verification_status, encoder_id
+            FROM wims.fire_incidents
+            WHERE incident_id = :iid
+              AND encoder_id = CAST(:eid AS uuid)
+              AND is_archived = FALSE
+        """),
+        {"iid": incident_id, "eid": str(encoder_id)},
+    ).fetchone()
+
+    if not incident:
+        raise HTTPException(
+            status_code=404, detail="Incident not found or not owned by you"
+        )
+
+    current_status = incident[1]
+    inc_encoder_id = str(incident[2]) if incident[2] else None
+
+    if inc_encoder_id != str(encoder_id):
+        raise HTTPException(
+            status_code=403, detail="You can only submit your own incidents"
+        )
+
+    if current_status not in ("DRAFT", "REJECTED"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot submit incident with status '{current_status}'. Only DRAFT or REJECTED incidents can be submitted.",
+        )
+
+    try:
+        update_result = db.execute(
+            text(
+                "UPDATE wims.fire_incidents SET verification_status = 'PENDING', updated_at = now() WHERE incident_id = :iid"
+            ),
+            {"iid": incident_id},
+        )
+        if update_result.rowcount != 1:
+            raise HTTPException(status_code=409, detail="Incident status update failed")
+        _insert_incident_verification_history(
+            db,
+            incident_id=incident_id,
+            actor_user_id=str(encoder_id),
+            previous_status=current_status,
+            new_status="PENDING",
+            notes="Submitted for review",
+        )
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to submit incident_id=%s for review", incident_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to submit incident — transaction rolled back",
+        )
+
+    logger.info(
+        "Encoder user_id=%s submitted incident_id=%s for review (%s → PENDING)",
+        encoder_id,
+        incident_id,
+        current_status,
+    )
+    return {
+        "status": "submitted",
+        "incident_id": incident_id,
+        "verification_status": "PENDING",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -2593,9 +3069,9 @@ def get_validator_incident_queue(
 ):
     """Validator incident queue — NATIONAL_VALIDATOR only.
 
-    Returns encoder-submitted fire incidents that belong to the validator's
-    assigned region.  encoder_id IS NOT NULL is always enforced so public/DMZ
-    submissions (encoder_id = NULL) are never surfaced here.
+    Returns encoder-submitted fire incidents across all regions.
+    encoder_id IS NOT NULL is always enforced so public/DMZ submissions
+    (encoder_id = NULL) are never surfaced here.
 
     Query params
     ------------
@@ -2603,22 +3079,16 @@ def get_validator_incident_queue(
                   Defaults to PENDING and PENDING_VALIDATION when omitted.
     show_all    — when true and status is omitted, include all statuses
                   (DRAFT/PENDING/PENDING_VALIDATION/VERIFIED/REJECTED)
-                  for encoder-submitted incidents in the validator's region.
+                  for encoder-submitted incidents across all regions.
     encoder_id  — filter to incidents submitted by one specific encoder UUID.
     limit/offset — pagination.
 
-    Region isolation: every row is guaranteed to have
-    fire_incidents.region_id = validator.assigned_region_id.
     """
-    region_id = user["assigned_region_id"]
-
     where_clauses = [
-        "fi.region_id = :region_id",
         "fi.is_archived = FALSE",
         "fi.encoder_id IS NOT NULL",  # encoder-submitted only — never public DMZ rows
     ]
     params: dict[str, Any] = {
-        "region_id": region_id,
         "limit": limit,
         "offset": offset,
     }
@@ -2711,8 +3181,7 @@ def verify_incident(
 ):
     """Apply a validator decision to one encoder-submitted incident.
 
-    NATIONAL_VALIDATOR only.  Enforces strict region isolation and encoder
-    linkage before writing anything to the database.
+    NATIONAL_VALIDATOR only. Enforces encoder linkage before writing.
 
     Allowed actions
     ---------------
@@ -2728,11 +3197,10 @@ def verify_incident(
     Error responses
     ---------------
     400 — unknown action value
-    403 — incident belongs to a different region, or has no encoder_id (public DMZ row)
+    403 — incident has no encoder_id (public DMZ row)
     404 — incident not found or is archived
     409 — incident already has the requested target status (idempotency guard)
     """
-    region_id = user["assigned_region_id"]
     validator_user_id = user["user_id"]
 
     # --- 1. Validate action value before touching the DB ---
@@ -2764,30 +3232,21 @@ def verify_incident(
     inc_encoder_id = incident_row[3]
     current_status = incident_row[1]
 
-    # --- 3. Region isolation — strict, no fall-through ---
-    if inc_region_id != region_id:
-        # Return 403, not 404, so the caller knows this is a permission boundary
-        # and not a missing record.  Do NOT leak the actual region in the message.
-        raise HTTPException(
-            status_code=403,
-            detail="You do not have permission to act on incidents outside your assigned region",
-        )
-
-    # --- 4. Encoder linkage — reject public/DMZ rows ---
+    # --- 3. Encoder linkage — reject public/DMZ rows ---
     if inc_encoder_id is None:
         raise HTTPException(
             status_code=403,
             detail="This incident was submitted via public DMZ (no encoder) and cannot be processed through the validator workflow",
         )
 
-    # --- 5. Idempotency guard — avoid pointless writes ---
+    # --- 4. Idempotency guard — avoid pointless writes ---
     if current_status == target_status:
         raise HTTPException(
             status_code=409,
             detail=f"Incident is already in status '{current_status}'",
         )
 
-    # --- 6. Apply update + audit in one transaction ---
+    # --- 5. Apply update + audit in one transaction ---
     try:
         db.execute(
             text("""
@@ -2799,31 +3258,13 @@ def verify_incident(
             {"new_status": target_status, "iid": incident_id},
         )
 
-        db.execute(
-            text("""
-                INSERT INTO wims.incident_verification_history (
-                    target_type,
-                    target_id,
-                    action_by_user_id,
-                    previous_status,
-                    new_status,
-                    notes
-                ) VALUES (
-                    'OFFICIAL',
-                    :iid,
-                    CAST(:uid AS uuid),
-                    :prev_status,
-                    :new_status,
-                    :notes
-                )
-            """),
-            {
-                "iid": incident_id,
-                "uid": str(validator_user_id),
-                "prev_status": current_status,
-                "new_status": target_status,
-                "notes": body.notes or None,
-            },
+        _insert_incident_verification_history(
+            db,
+            incident_id=incident_id,
+            actor_user_id=str(validator_user_id),
+            previous_status=current_status,
+            new_status=target_status,
+            notes=body.notes or "Validator action",
         )
 
         db.commit()
@@ -2843,7 +3284,7 @@ def verify_incident(
         validator_user_id,
         action,
         incident_id,
-        region_id,
+        inc_region_id,
         current_status,
         target_status,
     )

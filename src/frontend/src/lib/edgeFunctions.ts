@@ -4,6 +4,8 @@ import { apiFetch } from './api';
 export interface Incident {
     incident_id?: number;
     region_id: number;
+    latitude?: number | null;
+    longitude?: number | null;
     _city_text?: string;
     incident_type?: string; 
     narrative_report?: string;

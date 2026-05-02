@@ -13,11 +13,15 @@ export default function LoginPage() {
     useEffect(() => {
         if (!loading && user) {
             const role = (user as { role?: string })?.role;
-            if (role === 'REGIONAL_ENCODER') {
+            const assignedRegionId = (user as { assignedRegionId?: number | null })?.assignedRegionId ?? null;
+            
+            // REGIONAL_ENCODER and NATIONAL_VALIDATOR require assigned region
+            if (role === 'REGIONAL_ENCODER' && assignedRegionId) {
                 router.push('/dashboard/regional');
-            } else if (role === 'NATIONAL_VALIDATOR' || role === 'VALIDATOR') {
+            } else if ((role === 'NATIONAL_VALIDATOR' || role === 'VALIDATOR') && assignedRegionId) {
                 router.push('/dashboard/validator');
             } else {
+                // For other roles or if region not assigned, go to main dashboard
                 router.push('/dashboard');
             }
         }

@@ -14,7 +14,8 @@
  */
 
 import { useEffect, useState, useCallback } from "react";
-import { apiFetch } from "@/lib/api";
+import Link from "next/link";
+import { apiFetch, fetchValidatorStats } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,11 +76,14 @@ export default function ValidatorDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Filters
+  // Filters — default to pending queue
   const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_QUEUE);
   const [encoderFilter, setEncoderFilter] = useState<string>("");
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
+
+  // Stats
+  const [stats, setStats] = useState<{ total_verified: number; pending_validation: number; by_category: { category: string; count: number }[] } | null>(null);
 
   // Action modal state
   const [actionTarget, setActionTarget] = useState<ValidatorIncident | null>(null);
@@ -123,6 +127,10 @@ export default function ValidatorDashboard() {
   useEffect(() => {
     fetchQueue();
   }, [fetchQueue]);
+
+  useEffect(() => {
+    fetchValidatorStats().then(setStats).catch(() => {/* non-critical */});
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Submit validator decision
@@ -204,6 +212,30 @@ export default function ValidatorDashboard() {
         Encoder-submitted incidents in your assigned region awaiting review.
       </p>
 
+      {/* ── Summary cards ── */}
+      {stats && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+          <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
+            <p className="text-xs text-gray-500">Awaiting Validation</p>
+            <p className="text-2xl font-bold text-blue-700">{stats.pending_validation}</p>
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
+            <p className="text-xs text-gray-500">Total Verified</p>
+            <p className="text-2xl font-bold text-green-700">{stats.total_verified}</p>
+          </div>
+          {(['STRUCTURAL', 'NON_STRUCTURAL', 'VEHICULAR'] as const).map((cat) => {
+            const entry = stats.by_category.find((c) => c.category === cat);
+            const label = cat === 'NON_STRUCTURAL' ? 'Non-Structural' : cat.charAt(0) + cat.slice(1).toLowerCase();
+            return (
+              <div key={cat} className="rounded-lg border border-gray-200 bg-white px-4 py-3">
+                <p className="text-xs text-gray-500">{label}</p>
+                <p className="text-2xl font-bold text-gray-800">{entry?.count ?? 0}</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* ── Filters ── */}
       <div className="flex flex-wrap gap-4 mb-6">
         <select
@@ -211,13 +243,9 @@ export default function ValidatorDashboard() {
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}
         >
-          <option value={STATUS_FILTER_QUEUE}>Queue only (Pending + Awaiting Validation)</option>
-          <option value={STATUS_FILTER_ALL}>All statuses</option>
-          <option value="PENDING">Pending Review</option>
-          <option value="PENDING_VALIDATION">Awaiting Validation</option>
-          <option value="VERIFIED">Verified</option>
+          <option value={STATUS_FILTER_QUEUE}>Pending</option>
           <option value="REJECTED">Rejected</option>
-          <option value="DRAFT">Draft</option>
+          <option value="VERIFIED">Accepted</option>
         </select>
 
         <input
@@ -264,7 +292,8 @@ export default function ValidatorDashboard() {
                 <th className="text-left px-4 py-3 font-medium">Alarm</th>
                 <th className="text-left px-4 py-3 font-medium">Structures</th>
                 <th className="text-left px-4 py-3 font-medium">Notification</th>
-                <th className="text-left px-4 py-3 font-medium">Encoder</th>
+                <th className="text-left px-4 py-3 font-medium">Region</th>
+                <th className="text-left px-4 py-3 font-medium">Details</th>
                 <th className="text-left px-4 py-3 font-medium">Actions</th>
               </tr>
             </thead>
@@ -290,8 +319,16 @@ export default function ValidatorDashboard() {
                       ? new Date(inc.notification_dt).toLocaleString()
                       : "—"}
                   </td>
-                  <td className="px-4 py-3 font-mono text-xs text-gray-400 truncate max-w-[120px]">
-                    {inc.encoder_id ? inc.encoder_id.slice(0, 8) + "…" : "—"}
+                  <td className="px-4 py-3 text-xs text-gray-600">
+                    {inc.region_id ? `Region ${inc.region_id}` : "—"}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/dashboard/regional/incidents/${inc.incident_id}`}
+                      className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                    >
+                      View
+                    </Link>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex gap-1">
@@ -364,17 +401,20 @@ export default function ValidatorDashboard() {
               {actionTarget.fire_station_name ?? "Unknown station"}
             </p>
 
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Notes{" "}
-              <span className="font-normal text-gray-400">(optional)</span>
-            </label>
-            <textarea
-              className="w-full border rounded px-3 py-2 text-sm h-24 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Reason for this decision…"
-              value={actionNotes}
-              onChange={(e) => setActionNotes(e.target.value)}
-              disabled={actionLoading}
-            />
+            {actionType === "reject" && (
+              <>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Reason for rejection <span className="text-red-600">*</span>
+                </label>
+                <textarea
+                  className="w-full border rounded px-3 py-2 text-sm h-24 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Required for rejection…"
+                  value={actionNotes}
+                  onChange={(e) => setActionNotes(e.target.value)}
+                  disabled={actionLoading}
+                />
+              </>
+            )}
 
             {actionError && (
               <p className="mt-2 text-sm text-red-600">{actionError}</p>
@@ -390,7 +430,7 @@ export default function ValidatorDashboard() {
               </button>
               <button
                 onClick={submitAction}
-                disabled={actionLoading}
+                disabled={actionLoading || (actionType === "reject" && !actionNotes.trim())}
                 className={`px-4 py-2 text-sm rounded text-white disabled:opacity-50 ${
                   actionType === "accept"
                     ? "bg-green-600 hover:bg-green-700"

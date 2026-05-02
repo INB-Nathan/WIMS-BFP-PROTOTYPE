@@ -65,7 +65,7 @@ function errorMessageFromJson(json: unknown, fallback: string): string {
 
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit & { _retried?: boolean } = {}
 ): Promise<T> {
   const normalizedPath =
     path === '/api' ? '/' : path.startsWith('/api/') ? path.slice(4) : path;
@@ -77,11 +77,24 @@ export async function apiFetch<T>(
   if (!isFormDataBody && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
+  const { _retried, ...fetchOptions } = options;
   const res = await fetch(url, {
-    ...options,
+    ...fetchOptions,
     credentials: 'include',
     headers,
   });
+  if (res.status === 401 && !_retried) {
+    try {
+      const refreshRes = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
+      if (refreshRes.ok) {
+        return apiFetch<T>(path, { ...options, _retried: true });
+      }
+    } catch { /* ignore, fall through to throw */ }
+    if (typeof window !== 'undefined') {
+      window.location.href = '/login';
+    }
+    throw new ApiRequestError('Session expired. Please log in again.', 401);
+  }
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new ApiRequestError(
@@ -431,6 +444,8 @@ export interface RegionalIncidentDetailResponse {
   wildland_area_display: string | null;
   nonsensitive: Record<string, unknown>;
   sensitive: Record<string, unknown>;
+  rejection_reason: string | null;
+  rejection_at: string | null;
   attachments?: Array<{
     attachment_id: number;
     file_name: string;
@@ -452,9 +467,42 @@ export async function fetchRegionalIncident(
   return apiFetch<RegionalIncidentDetailResponse>(`/regional/incidents/${incidentId}`);
 }
 
+export async function createRegionalIncident(
+  body: Record<string, unknown>
+): Promise<{ status: string; incident_id: number; verification_status: string }> {
+  return apiFetch('/regional/incidents', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export async function updateRegionalIncident(
+  incidentId: number,
+  body: Record<string, unknown>
+): Promise<{ status: string; incident_id: number }> {
+  return apiFetch(`/regional/incidents/${incidentId}`, { method: 'PUT', body: JSON.stringify(body) });
+}
+
+export async function submitIncidentForReview(
+  incidentId: number
+): Promise<{ status: string; incident_id: number; verification_status: string }> {
+  return apiFetch(`/regional/incidents/${incidentId}/submit`, { method: 'PATCH' });
+}
+
+export async function unpendIncident(
+  incidentId: number
+): Promise<{ status: string; incident_id: number }> {
+  return apiFetch(`/regional/incidents/${incidentId}/unpend`, { method: 'PATCH' });
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function fetchRegionalStats(): Promise<any> {
   return apiFetch<Record<string, unknown>>('/regional/stats');
+}
+
+export async function fetchValidatorStats(): Promise<{
+  total_verified: number;
+  pending_validation: number;
+  by_category: { category: string; count: number }[];
+}> {
+  return apiFetch('/regional/validator/stats');
 }
 
 export type AforFormKind = 'STRUCTURAL_AFOR' | 'WILDLAND_AFOR';
