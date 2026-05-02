@@ -19,7 +19,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import auth
-from database import get_db
+from database import get_db, get_db_with_rls
 from main import app
 
 COMPARATIVE_PARAMS = {
@@ -68,7 +68,7 @@ def _mock_analyst_db():
     mock_db.execute.return_value = mock_result
     mock_db.execute.return_value.scalar.return_value = 0
 
-    def mock_get_db():
+    def mock_get_db(request=None):
         try:
             yield mock_db
         finally:
@@ -190,7 +190,7 @@ def test_analytics_heatmap_allows_all_privileged_roles(client: TestClient, role:
     """NATIONAL_ANALYST, ANALYST alias, and SYSTEM_ADMIN must access heatmap."""
     mock_db, mock_get_db = _mock_analyst_db()
     app.dependency_overrides[auth.get_current_wims_user] = _mock_user(role)
-    app.dependency_overrides[get_db] = mock_get_db
+    app.dependency_overrides[get_db_with_rls] = mock_get_db
 
     response = client.get("/api/analytics/heatmap")
     assert response.status_code == 200
@@ -205,7 +205,7 @@ def test_analytics_comparative_missing_required_range_params_returns_422(
     app.dependency_overrides[auth.get_current_wims_user] = _mock_user(
         "NATIONAL_ANALYST"
     )
-    app.dependency_overrides[get_db] = mock_get_db
+    app.dependency_overrides[get_db_with_rls] = mock_get_db
 
     response = client.get(
         "/api/analytics/comparative",
@@ -223,7 +223,7 @@ def test_analytics_trends_invalid_interval_rejected(client: TestClient):
     app.dependency_overrides[auth.get_current_wims_user] = _mock_user(
         "NATIONAL_ANALYST"
     )
-    app.dependency_overrides[get_db] = mock_get_db
+    app.dependency_overrides[get_db_with_rls] = mock_get_db
 
     response = client.get("/api/analytics/trends", params={"interval": "yearly"})
     assert response.status_code == 422
@@ -235,7 +235,7 @@ def test_analytics_region_id_non_integer_rejected(client: TestClient):
     app.dependency_overrides[auth.get_current_wims_user] = _mock_user(
         "NATIONAL_ANALYST"
     )
-    app.dependency_overrides[get_db] = mock_get_db
+    app.dependency_overrides[get_db_with_rls] = mock_get_db
 
     response = client.get("/api/analytics/heatmap", params={"region_id": "not-an-int"})
     assert response.status_code == 422
@@ -252,7 +252,7 @@ def test_heatmap_incident_type_and_alarm_level_passed_as_bound_parameters_not_sq
     app.dependency_overrides[auth.get_current_wims_user] = _mock_user(
         "NATIONAL_ANALYST"
     )
-    app.dependency_overrides[get_db] = mock_get_db
+    app.dependency_overrides[get_db_with_rls] = mock_get_db
 
     malicious = "'; DELETE FROM wims.analytics_incident_facts WHERE '1'='1"
     client.get(
@@ -283,7 +283,7 @@ def test_comparative_count_in_range_receives_bound_range_strings(client: TestCli
     app.dependency_overrides[auth.get_current_wims_user] = _mock_user(
         "NATIONAL_ANALYST"
     )
-    app.dependency_overrides[get_db] = mock_get_db
+    app.dependency_overrides[get_db_with_rls] = mock_get_db
 
     with patch("api.routes.analytics.count_in_range", return_value=0) as mock_count:
         client.get(
@@ -355,7 +355,7 @@ def test_execution_plans_requires_same_rbac_as_heatmap(client: TestClient):
     mock_db, mock_get_db = _mock_analyst_db()
     app.dependency_overrides.clear()
     app.dependency_overrides[auth.get_current_wims_user] = _mock_user("SYSTEM_ADMIN")
-    app.dependency_overrides[get_db] = mock_get_db
+    app.dependency_overrides[get_db_with_rls] = mock_get_db
 
     with patch(
         "api.routes.analytics.verify_indexed_access", return_value={"heatmap": "Seq"}
