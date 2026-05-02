@@ -34,7 +34,6 @@ import os
 import re
 import time
 import uuid
-from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
@@ -43,9 +42,7 @@ import pytest
 # Configuration (env-driven, Docker-friendly defaults)
 # ---------------------------------------------------------------------------
 
-KEYCLOAK_ADMIN_URL = os.environ.get(
-    "KEYCLOAK_ADMIN_URL", "http://localhost:8080"
-)
+KEYCLOAK_ADMIN_URL = os.environ.get("KEYCLOAK_ADMIN_URL", "http://localhost:8080")
 KEYCLOAK_ADMIN_USER = os.environ.get("KEYCLOAK_ADMIN_USER", "admin")
 KEYCLOAK_ADMIN_PASSWORD = os.environ.get("KEYCLOAK_ADMIN_PASSWORD", "admin")
 KEYCLOAK_REALM = os.environ.get("KEYCLOAK_REALM", "bfp")
@@ -64,6 +61,7 @@ TEST_USER_NEW_PASSWORD = "ResetPass456!"
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _skip_if_keycloak_unreachable():
     """Skip tests if Keycloak is not running."""
@@ -233,6 +231,7 @@ def _get_flow_executions(flow_alias: str) -> list[dict]:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _check_prerequisites():
     """Skip all tests if Keycloak or MailHog are unreachable."""
@@ -272,8 +271,7 @@ class TestForgotPasswordConfiguration:
         """
         flow_id = _get_reset_credentials_flow_id()
         assert flow_id is not None, (
-            "reset credentials flow not found. "
-            "Keycloak 26 should have this built-in."
+            "reset credentials flow not found. Keycloak 26 should have this built-in."
         )
 
     def test_reset_credentials_has_correct_executions(self):
@@ -309,8 +307,8 @@ class TestForgotPasswordConfiguration:
         assert smtp, (
             "smtpServer is empty. Configure SMTP via Admin Console or API:\n"
             "  PUT /auth/admin/realms/bfp\n"
-            "  {\"smtpServer\": {\"host\": \"mailhog\", \"port\": \"1025\", "
-            "\"from\": \"noreply@wims-bfp.local\"}}"
+            '  {"smtpServer": {"host": "mailhog", "port": "1025", '
+            '"from": "noreply@wims-bfp.local"}}'
         )
 
     def test_reset_password_allowed_in_realm(self):
@@ -422,9 +420,7 @@ class TestForgotPasswordFlow:
 
             # Extract the form action URL
             html = r.text
-            action_match = re.search(
-                r'<form[^>]+action="([^"]+)"', html, re.IGNORECASE
-            )
+            action_match = re.search(r'<form[^>]+action="([^"]+)"', html, re.IGNORECASE)
             if not action_match:
                 # Keycloak 26 may use different form structure
                 # Try to find the login action URL from the page
@@ -468,7 +464,9 @@ class TestForgotPasswordFlow:
             for msg in messages:
                 to_addresses = msg.get("To", [])
                 for addr in to_addresses:
-                    if TEST_USER_EMAIL in addr.get("Mailbox", "") + "@" + addr.get("Domain", ""):
+                    if TEST_USER_EMAIL in addr.get("Mailbox", "") + "@" + addr.get(
+                        "Domain", ""
+                    ):
                         reset_email = msg
                         break
                 if reset_email:
@@ -480,9 +478,7 @@ class TestForgotPasswordFlow:
             )
 
             # Step 4: Extract the reset link from the email body
-            email_body = (
-                reset_email.get("Content", {}).get("Body", "")
-            )
+            email_body = reset_email.get("Content", {}).get("Body", "")
             reset_link = _extract_reset_link_from_email(email_body)
             assert reset_link is not None, (
                 "Could not extract password reset link from email body. "
@@ -564,9 +560,7 @@ class TestForgotPasswordFlow:
 
             # Extract the form action for the password reset form
             html = r.text
-            action_match = re.search(
-                r'action="([^"]*)"', html, re.IGNORECASE
-            )
+            action_match = re.search(r'action="([^"]*)"', html, re.IGNORECASE)
             assert action_match, "Could not find password reset form action"
 
             reset_form_action = action_match.group(1).replace("&amp;", "&")
@@ -672,9 +666,7 @@ class TestForgotPasswordFlow:
             assert r.status_code == 200
 
             html = r.text
-            action_match = re.search(
-                r'action="([^"]*)"', html, re.IGNORECASE
-            )
+            action_match = re.search(r'action="([^"]*)"', html, re.IGNORECASE)
             reset_form_action = action_match.group(1).replace("&amp;", "&")
             if reset_form_action.startswith("/"):
                 reset_form_action = f"{KEYCLOAK_ADMIN_URL}{reset_form_action}"

@@ -275,8 +275,7 @@ def test_bfp_xlsx_parser_shifted_rows_reads_required_fields():
     assert result.status == "VALID"
     assert result.data["_city_text"] == "Manila"
     assert (
-        result.data["incident_nonsensitive_details"]["fire_station_name"]
-        == "Station A"
+        result.data["incident_nonsensitive_details"]["fire_station_name"] == "Station A"
     )
 
 

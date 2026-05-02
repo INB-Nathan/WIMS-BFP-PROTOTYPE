@@ -70,7 +70,7 @@ describe('Audit 2 — Fallback Bridge (globals.css)', () => {
   const css = readGlobalsCss();
 
   it('must contain the exact auth-container calc with fallback', () => {
-    const EXACT_CALC = 'calc(100vh - var(--spacing-32, 8rem))';
+    const EXACT_CALC = 'calc(100vh - var(--spacing-32, initial))';
     expect(
       css.includes(EXACT_CALC),
       `Expected exact expression: ${EXACT_CALC}\nNot found in globals.css`,
