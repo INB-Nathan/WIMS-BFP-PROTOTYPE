@@ -6,20 +6,21 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger("wims.audit")
 
+
 def log_system_audit(
     db: Session,
     user_id: uuid.UUID | str | None,
     action_type: str,
     table_affected: str,
     record_id: int | None,
-    request: Request | None = None
+    request: Request | None = None,
 ):
     """
     Log a system-level audit event.
     """
     ip_address = None
     user_agent = None
-    
+
     if request:
         # FastAPI request object might have client info
         if request.client:
@@ -44,10 +45,10 @@ def log_system_audit(
                 "rec": record_id,
                 "ip": ip_address,
                 "ua": user_agent,
-            }
+            },
         )
         # Note: Caller is responsible for committing the transaction
     except Exception as e:
         logger.error(f"Failed to log system audit: {e}")
-        # We don't want audit failures to block the main action, 
+        # We don't want audit failures to block the main action,
         # but we do want to know about it.

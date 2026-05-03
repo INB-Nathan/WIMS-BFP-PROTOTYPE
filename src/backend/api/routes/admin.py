@@ -292,24 +292,24 @@ def update_user(
 
     sql = f"UPDATE wims.users SET {', '.join(updates)}, updated_at = now() WHERE user_id = CAST(:uid AS uuid)"
     result = db.execute(text(sql), params)
-    
+
     # Log audit for update
     actions = []
     if body.role:
         actions.append(f"ROLE_CHANGE_TO_{body.role}")
     if body.is_active is not None:
         actions.append("DEACTIVATE" if not body.is_active else "ACTIVATE")
-    
+
     for action_name in actions:
         log_system_audit(
             db=db,
             user_id=_admin["user_id"],
             action_type=action_name,
             table_affected="users",
-            record_id=None, # user_id is uuid in db, but table expects int. We skip for users table or just pass 0.
-            request=request
+            record_id=None,  # user_id is uuid in db, but table expects int. We skip for users table or just pass 0.
+            request=request,
         )
-    
+
     db.commit()
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="User not found")
@@ -317,11 +317,13 @@ def update_user(
     # --- Synchronise is_active state with Keycloak ---
     if body.is_active is not None and keycloak_id:
         from utils.session import session_manager
+
         try:
             set_user_enabled(keycloak_id, enabled=body.is_active)
             if body.is_active is False:
                 # Also revoke all active sessions if we are disabling the user
                 from services.keycloak_admin import _get_admin_client
+
                 adm = _get_admin_client()
                 adm.user_logout(keycloak_id)
                 session_manager.revoke_all_sessions(keycloak_id)
@@ -349,11 +351,16 @@ def get_active_sessions(
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """Fetch all active sessions for all users."""
-    users = db.execute(text("SELECT user_id, keycloak_id, username, role FROM wims.users WHERE is_active = TRUE")).fetchall()
-    
+    users = db.execute(
+        text(
+            "SELECT user_id, keycloak_id, username, role FROM wims.users WHERE is_active = TRUE"
+        )
+    ).fetchall()
+
     from services.keycloak_admin import _get_admin_client
+
     adm = _get_admin_client()
-    
+
     active_sessions = []
     for u in users:
         if not u.keycloak_id:
@@ -361,22 +368,25 @@ def get_active_sessions(
         try:
             sessions = adm.get_sessions(str(u.keycloak_id))
             for s in sessions:
-                active_sessions.append({
-                    "session_id": s.get("id"),
-                    "user_id": str(u.user_id),
-                    "username": u.username,
-                    "role": u.role,
-                    "ip_address": s.get("ipAddress"),
-                    "start": s.get("start"),
-                    "last_access": s.get("lastAccess"),
-                    "clients": s.get("clients", {})
-                })
+                active_sessions.append(
+                    {
+                        "session_id": s.get("id"),
+                        "user_id": str(u.user_id),
+                        "username": u.username,
+                        "role": u.role,
+                        "ip_address": s.get("ipAddress"),
+                        "start": s.get("start"),
+                        "last_access": s.get("lastAccess"),
+                        "clients": s.get("clients", {}),
+                    }
+                )
         except Exception as e:
             logger.warning(f"Failed to fetch sessions for {u.keycloak_id}: {e}")
-            
+
     # sort by last_access desc
     active_sessions.sort(key=lambda x: x.get("last_access", 0), reverse=True)
     return active_sessions
+
 
 @router.post("/users/{user_id}/logout")
 def force_logout_user(
@@ -385,13 +395,16 @@ def force_logout_user(
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """Force logout all sessions for a user."""
-    row = db.execute(text("SELECT keycloak_id FROM wims.users WHERE user_id = CAST(:uid AS uuid)"), {"uid": user_id}).fetchone()
+    row = db.execute(
+        text("SELECT keycloak_id FROM wims.users WHERE user_id = CAST(:uid AS uuid)"),
+        {"uid": user_id},
+    ).fetchone()
     if not row or not row[0]:
         raise HTTPException(status_code=404, detail="User not found")
-        
+
     from services.keycloak_admin import _get_admin_client
     from utils.session import session_manager
-    
+
     adm = _get_admin_client()
     kid = str(row[0])
     try:
@@ -401,7 +414,7 @@ def force_logout_user(
     except Exception as e:
         logger.warning(f"Failed to logout user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to revoke sessions")
-        
+
     return {"status": "ok"}
 
 
@@ -417,43 +430,68 @@ def get_system_health(
             "database": {"status": "UNKNOWN", "latency_ms": 0},
             "redis": {"status": "UNKNOWN", "latency_ms": 0},
             "keycloak": {"status": "UNKNOWN", "latency_ms": 0},
-        }
+        },
     }
-    
+
     import time
+
     # Check DB
     try:
         t0 = time.time()
         db.execute(text("SELECT 1"))
-        health["components"]["database"] = {"status": "HEALTHY", "latency_ms": round((time.time()-t0)*1000)}
+        health["components"]["database"] = {
+            "status": "HEALTHY",
+            "latency_ms": round((time.time() - t0) * 1000),
+        }
     except Exception as e:
-        health["components"]["database"] = {"status": "UNHEALTHY", "error": str(e), "latency_ms": 0}
+        health["components"]["database"] = {
+            "status": "UNHEALTHY",
+            "error": str(e),
+            "latency_ms": 0,
+        }
         health["status"] = "DEGRADED"
 
     # Check Redis
     try:
         import redis
         import os
+
         r = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
         t0 = time.time()
         r.ping()
-        health["components"]["redis"] = {"status": "HEALTHY", "latency_ms": round((time.time()-t0)*1000)}
+        health["components"]["redis"] = {
+            "status": "HEALTHY",
+            "latency_ms": round((time.time() - t0) * 1000),
+        }
     except Exception as e:
-        health["components"]["redis"] = {"status": "UNHEALTHY", "error": str(e), "latency_ms": 0}
+        health["components"]["redis"] = {
+            "status": "UNHEALTHY",
+            "error": str(e),
+            "latency_ms": 0,
+        }
         health["status"] = "DEGRADED"
 
     # Check Keycloak
     try:
         from services.keycloak_admin import _get_admin_client
+
         t0 = time.time()
         adm = _get_admin_client()
         adm.users_count()
-        health["components"]["keycloak"] = {"status": "HEALTHY", "latency_ms": round((time.time()-t0)*1000)}
+        health["components"]["keycloak"] = {
+            "status": "HEALTHY",
+            "latency_ms": round((time.time() - t0) * 1000),
+        }
     except Exception as e:
-        health["components"]["keycloak"] = {"status": "UNHEALTHY", "error": str(e), "latency_ms": 0}
+        health["components"]["keycloak"] = {
+            "status": "UNHEALTHY",
+            "error": str(e),
+            "latency_ms": 0,
+        }
         health["status"] = "DEGRADED"
 
     return health
+
 
 # ---------------------------------------------------------------------------
 # Security Telemetry

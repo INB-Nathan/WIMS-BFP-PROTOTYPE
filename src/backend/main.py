@@ -432,7 +432,9 @@ async def get_analytics_summary(
         where_clauses.append("fi.created_at >= CAST(:from_date AS timestamptz)")
         params["from_date"] = body.from_date
     if body.to_date:
-        where_clauses.append("fi.created_at <= CAST(:to_date AS timestamptz) + interval '1 day'")
+        where_clauses.append(
+            "fi.created_at <= CAST(:to_date AS timestamptz) + interval '1 day'"
+        )
         params["to_date"] = body.to_date
     if body.region_id is not None:
         where_clauses.append("fi.region_id = :region_id")
@@ -448,10 +450,15 @@ async def get_analytics_summary(
         join_sql = "JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id"
 
     # Total
-    total = db.execute(
-        _text(f"SELECT COUNT(*) FROM wims.fire_incidents fi {join_sql} WHERE {where_sql}"),
-        params,
-    ).scalar() or 0
+    total = (
+        db.execute(
+            _text(
+                f"SELECT COUNT(*) FROM wims.fire_incidents fi {join_sql} WHERE {where_sql}"
+            ),
+            params,
+        ).scalar()
+        or 0
+    )
 
     # By region
     by_region_rows = db.execute(
@@ -493,8 +500,11 @@ async def get_analytics_summary(
     return {
         "status": "ok",
         "total_incidents": total,
-        "by_region": [{"region_name": r[0] or "Unknown", "count": r[1]} for r in by_region_rows],
+        "by_region": [
+            {"region_name": r[0] or "Unknown", "count": r[1]} for r in by_region_rows
+        ],
         "by_alarm_level": [{"alarm_level": r[0], "count": r[1]} for r in by_alarm_rows],
-        "by_general_category": [{"general_category": r[0], "count": r[1]} for r in by_category_rows],
+        "by_general_category": [
+            {"general_category": r[0], "count": r[1]} for r in by_category_rows
+        ],
     }
-

@@ -192,9 +192,10 @@ class KeycloakAuthenticator:
                     if sub and iat and session_manager.is_token_revoked(sub, iat):
                         logger.warning(f"Rejecting revoked token for user sub={sub}")
                         raise HTTPException(
-                            status_code=401, detail="Session revoked. Please log in again."
+                            status_code=401,
+                            detail="Session revoked. Please log in again.",
                         )
-                        
+
                     return payload
                 except HTTPException:
                     raise

@@ -3291,7 +3291,7 @@ def verify_incident(
             action_type=f"VERIFY_{action.upper()}",
             table_affected="fire_incidents",
             record_id=incident_id,
-            request=request
+            request=request,
         )
 
         db.commit()

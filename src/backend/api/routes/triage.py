@@ -13,8 +13,10 @@ from utils.audit import log_system_audit
 
 from pydantic import BaseModel
 
+
 class BulkPromoteRequest(BaseModel):
     report_ids: list[int]
+
 
 router = APIRouter(prefix="/api/triage", tags=["triage"])
 
@@ -140,7 +142,7 @@ def promote_report(
             action_type="PROMOTE_REPORT",
             table_affected="fire_incidents",
             record_id=incident_id,
-            request=request
+            request=request,
         )
 
         db.commit()
@@ -156,6 +158,7 @@ def promote_report(
 
     return {"report_id": report_id, "incident_id": incident_id}
 
+
 @router.post("/bulk-promote", status_code=201)
 def bulk_promote_reports(
     body: BulkPromoteRequest,
@@ -167,8 +170,10 @@ def bulk_promote_reports(
     Promote multiple PENDING citizen_reports to official fire_incidents.
     """
     user_id = user["user_id"]
-    
-    region_row = db.execute(text("SELECT region_id FROM wims.ref_regions LIMIT 1")).fetchone()
+
+    region_row = db.execute(
+        text("SELECT region_id FROM wims.ref_regions LIMIT 1")
+    ).fetchone()
     if not region_row:
         raise HTTPException(status_code=500, detail="No ref_regions seed data")
     region_id = region_row[0]
@@ -180,9 +185,9 @@ def bulk_promote_reports(
         try:
             report = db.execute(
                 text("SELECT status FROM wims.citizen_reports WHERE report_id = :rid"),
-                {"rid": rid}
+                {"rid": rid},
             ).fetchone()
-            
+
             if not report or report[0] != "PENDING":
                 failed.append(rid)
                 continue
@@ -207,13 +212,13 @@ def bulk_promote_reports(
                 """),
                 {"uid": user_id, "iid": incident_id, "rid": rid},
             )
-            
+
             promoted.append({"report_id": rid, "incident_id": incident_id})
         except Exception:
             failed.append(rid)
-            
+
     db.commit()
-    
+
     for item in promoted:
         sync_incident_to_analytics(db, item["incident_id"])
     db.commit()

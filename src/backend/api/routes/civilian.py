@@ -61,6 +61,7 @@ def submit_civilian_report(
         created_at=row[4],
     )
 
+
 @router.get("/reports/{report_id}", response_model=CivilianReportResponse)
 def get_civilian_report(
     report_id: int,
@@ -78,6 +79,7 @@ def get_civilian_report(
 
     if not row:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail="Report not found")
 
     return CivilianReportResponse(

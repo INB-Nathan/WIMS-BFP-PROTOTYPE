@@ -1,7 +1,7 @@
 import sys
 
 # Add backend to path
-sys.path.append('e:\\WIMS-GIT\\WIMS-BFP-PROTOTYPE\\src\\backend')
+sys.path.append("e:\\WIMS-GIT\\WIMS-BFP-PROTOTYPE\\src\\backend")
 
 from services.keycloak_admin import _get_admin_client, _KC_REALM
 
