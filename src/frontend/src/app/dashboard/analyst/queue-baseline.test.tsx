@@ -575,7 +575,7 @@ describe('Analyst dashboard — AQ-14: Top-N configurable analysis', () => {
     });
 
     mockFetchTopN.mockClear();
-    await user.selectOptions(await screen.findByLabelText(/metric/i), 'casualties');
+    await user.selectOptions(screen.getByLabelText(/metric/i), 'casualties');
     await user.click(screen.getByRole('button', { name: /^apply$/i }));
 
     await waitFor(() => {
