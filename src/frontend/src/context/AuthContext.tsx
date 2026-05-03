@@ -33,6 +33,7 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const PROACTIVE_REFRESH_INTERVAL_MS = 4 * 60 * 1000; // refresh before 5-minute access token expiry
+const REFRESH_LOCK_NAME = 'wims:auth:refresh_lock';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -43,39 +44,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (loading) {
-      console.log('[AuthContext] loading=true - session check in progress. If stuck, verify authority URL is reachable: http://localhost/auth/realms/bfp');
+      console.log(
+        '[AuthContext] loading=true - session check in progress. If stuck, verify authority URL is reachable: http://localhost/auth/realms/bfp'
+      );
     }
   }, [loading]);
 
+  // ─── Token refresh ────────────────────────────────────────────────────────────
+  // Uses navigator.locks to ensure only ONE tab refreshes at a time, preventing
+  // the refreshTokenMaxReuse:0 race condition across tabs.
   const refreshAccessToken = useCallback(async (): Promise<boolean> => {
     if (refreshInFlightRef.current) {
       return refreshInFlightRef.current;
     }
 
     const refreshPromise = (async () => {
-      try {
-        const res = await fetch('/api/auth/refresh', {
-          method: 'POST',
-          credentials: 'include',
-        });
-        if (!res.ok) {
-          console.log('[AuthContext] refreshAccessToken: refresh failed', res.status);
+      // Acquire a named lock so other tabs block here while this one refreshes.
+      // If the lock is already held, this tab waits until the holder releases it.
+      const lock = await navigator.locks.request(REFRESH_LOCK_NAME, async () => {
+        try {
+          const res = await fetch('/api/auth/refresh', {
+            method: 'POST',
+            credentials: 'include',
+          });
+          if (!res.ok) {
+            console.log(
+              '[AuthContext] refreshAccessToken: refresh failed',
+              res.status
+            );
+            return false;
+          }
+          console.log('[AuthContext] refreshAccessToken: token refreshed');
+          return true;
+        } catch (err) {
+          console.error(
+            '[AuthContext] refreshAccessToken: request failed',
+            err
+          );
           return false;
         }
-        console.log('[AuthContext] refreshAccessToken: token refreshed');
-        return true;
-      } catch (err) {
-        console.error('[AuthContext] refreshAccessToken: request failed', err);
-        return false;
-      } finally {
-        refreshInFlightRef.current = null;
-      }
+      });
+      return lock ?? false;
     })();
 
     refreshInFlightRef.current = refreshPromise;
     return refreshPromise;
   }, []);
 
+  // ─── Session re-hydration ──────────────────────────────────────────────────
+  // fetchSession re-loads user state from /api/auth/session.
+  // IMPORTANT: on visibility/focus we NO LONGER call fetchSession — doing so
+  // causes a full user=null flush followed by a /api/auth/session call, which
+  // races against concurrent tab refreshes (refreshTokenMaxReuse:0) and often
+  // results in 401 → session kill → logged out.  Proactive interval refresh is
+  // sufficient; the cookie stays valid across tab switches without re-fetching.
   const fetchSession = useCallback(async () => {
     console.log('[AuthContext] fetchSession: starting');
     try {
@@ -93,14 +115,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await res.json();
         if (data.user) {
           setUser(data.user);
-          console.log('[AuthContext] fetchSession: user loaded', data.user?.email ?? data.user?.id);
+          console.log(
+            '[AuthContext] fetchSession: user loaded',
+            data.user?.email ?? data.user?.id
+          );
         } else {
           setUser(null);
           console.log('[AuthContext] fetchSession: no user in session');
         }
       } else {
         setUser(null);
-        console.log('[AuthContext] fetchSession: session fetch not ok', res.status);
+        console.log(
+          '[AuthContext] fetchSession: session fetch not ok',
+          res.status
+        );
       }
     } catch (err) {
       setUser(null);
@@ -111,21 +139,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshAccessToken]);
 
+  // ─── Initial session load ────────────────────────────────────────────────────
   useEffect(() => {
     console.log('[AuthContext] useEffect: initializing auth');
     fetchSession();
   }, [fetchSession]);
 
+  // ─── Proactive token refresh + visibility handling ───────────────────────────
+  // Uses document.visibilityState (NOT window focus) to trigger refresh.
+  // - visibilitychange: fires when tab becomes visible (tab switch, window restore).
+  //   Only calls refreshAccessToken (cookie rotation), NOT fetchSession, so no
+  //   user state is disturbed.
+  // - window.setInterval: fires every 4 min to proactively rotate the token
+  //   before the 5-min access token expires.
+  //
+  // Why NOT focus event? The focus event fires on every click inside the window
+  // (tabs, buttons, inputs), triggering unnecessary refresh races. visibilityState
+  // is a cleaner signal for "user has returned to this tab".
   useEffect(() => {
     if (!user || loggingOut) {
       return;
     }
 
     const proactivelyRefreshJwtOnly = async () => {
-      const refreshed = await refreshAccessToken();
-      if (!refreshed) {
-        setUser(null);
-      }
+      // Silent refresh — only rotates the cookie, does NOT touch user state.
+      // This is safe to call concurrently from multiple tabs because of the
+      // navigator.locks gate inside refreshAccessToken().
+      await refreshAccessToken();
     };
 
     const intervalId = window.setInterval(
@@ -133,19 +173,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       PROACTIVE_REFRESH_INTERVAL_MS
     );
 
-    const refreshWhenVisible = () => {
+    const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
+        // Tab became visible — refresh token silently.
+        // Do NOT call fetchSession() here; doing so re-fetches user from
+        // /api/auth/session which can race with other tabs and result in a
+        // full session kill (401) when refreshTokenMaxReuse:0.
         void proactivelyRefreshJwtOnly();
       }
     };
 
-    window.addEventListener('focus', refreshWhenVisible);
-    document.addEventListener('visibilitychange', refreshWhenVisible);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.clearInterval(intervalId);
-      window.removeEventListener('focus', refreshWhenVisible);
-      document.removeEventListener('visibilitychange', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [loggingOut, refreshAccessToken, user]);
 
