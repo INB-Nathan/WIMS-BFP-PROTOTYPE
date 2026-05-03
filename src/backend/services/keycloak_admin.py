@@ -11,7 +11,7 @@ import logging
 import secrets
 import string
 
-from keycloak import KeycloakAdmin, KeycloakOpenIDConnection
+from keycloak import KeycloakAdmin, KeycloakOpenID
 from keycloak.exceptions import KeycloakError
 
 logger = logging.getLogger("wims.keycloak_admin")
@@ -49,16 +49,21 @@ def _get_admin_client() -> KeycloakAdmin:
     Return a KeycloakAdmin instance authenticated via the Keycloak master admin
     user. This avoids service-account permission issues and works reliably across
     all Keycloak versions.
+
+    Uses KeycloakOpenID.token() for direct access grant against the master realm,
+    then passes the token to KeycloakAdmin targeting the bfp realm.
     """
-    connection = KeycloakOpenIDConnection(
+    oidc = KeycloakOpenID(
         server_url=_KC_BASE_URL,
-        username=_KC_ADMIN_USER,
-        password=_KC_ADMIN_PASSWORD,
-        realm_name=_KC_REALM,
-        user_realm_name="master",
-        verify=True,
+        realm_name="master",
+        client_id="admin-cli",
     )
-    return KeycloakAdmin(connection=connection)
+    token = oidc.token(_KC_ADMIN_USER, _KC_ADMIN_PASSWORD)
+    return KeycloakAdmin(
+        server_url=_KC_BASE_URL,
+        realm_name=_KC_REALM,
+        token=token,
+    )
 
 
 # ---------------------------------------------------------------------------

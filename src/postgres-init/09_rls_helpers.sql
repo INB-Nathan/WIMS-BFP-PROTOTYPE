@@ -51,4 +51,33 @@ AS $$
   SELECT wims.current_user_region_id()
 $$;
 
+-- set_current_user_uuid: sets the wims.current_user_id GUC directly in the session.
+-- Used by admin-write routes (e.g. create_user) where the route authenticates via
+-- Keycloak JWT / get_system_admin, but the postgres service-account session has no
+-- GUC — causing current_user_role() to return 'ANONYMOUS' and RLS to block the write.
+-- SECURITY DEFINER so it bypasses FORCE ROW LEVEL SECURITY on wims.users.
+CREATE OR REPLACE FUNCTION wims.set_current_user_uuid(uid uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  PERFORM set_config('wims.current_user_id', uid::text, true);
+END;
+$$;
+
+-- exec_as_system_admin: convenience wrapper that sets GUC + role cache for a given
+-- user_id so RLS policies (which use wims.current_user_uuid() and
+-- wims.current_user_role()) evaluate correctly under the postgres service account.
+-- The session's transaction will use this context for all RLS checks.
+CREATE OR REPLACE FUNCTION wims.exec_as_system_admin(uid uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  PERFORM set_config('wims.current_user_id', uid::text, true);
+END;
+$$;
+
 COMMIT;
