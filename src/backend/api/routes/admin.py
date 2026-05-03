@@ -92,7 +92,7 @@ def create_user(
     body: UserCreate,
     request: Request,
     _admin: Annotated[dict, Depends(get_system_admin)],
-    db: Annotated[Session, Depends(get_db_with_rls)],
+    db: Annotated[Session, Depends(get_db)],
 ):
     """
     Onboard a new user.
@@ -143,6 +143,15 @@ def create_user(
                 status_code=422,
                 detail=f"Region ID {body.assigned_region_id} does not exist. Please select a valid region.",
             )
+
+    # --- Set RLS context so wims.current_user_role() returns SYSTEM_ADMIN during INSERT ---
+    # get_db() (not get_db_with_rls) is used above because the postgres service-account
+    # session has no Keycloak JWT — wims.current_user_id would be NULL and RLS would block
+    # the insert with 'ANONYMOUS' role.  We explicitly set it here using a SECURITY DEFINER
+    # helper so the INSERT policy (wims.current_user_role() IN ('SYSTEM_ADMIN')) passes.
+    db.execute(
+        text("SELECT wims.exec_as_system_admin(:uid)"), {"uid": _admin["user_id"]}
+    )
 
     # --- Insert into wims.users ---
     try:

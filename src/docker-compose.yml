@@ -103,7 +103,7 @@ services:
       - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID}
       - KEYCLOAK_ADMIN_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET}
       - KEYCLOAK_ADMIN_USER=admin
-      - KEYCLOAK_ADMIN_PASSWORD=***
+      - KEYCLOAK_ADMIN_PASSWORD=admin
       - OLLAMA_URL=http://ollama:11434
     volumes:
       - incident_attachments_data:/app/storage

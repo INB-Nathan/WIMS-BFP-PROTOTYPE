@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS wims.users (
   username VARCHAR NOT NULL UNIQUE,
   role VARCHAR NOT NULL,
   assigned_region_id INTEGER REFERENCES wims.ref_regions(region_id),
+  contact_number    VARCHAR(20),
   is_active BOOLEAN DEFAULT TRUE,
   mfa_enabled BOOLEAN DEFAULT FALSE,
   last_login TIMESTAMPTZ,
