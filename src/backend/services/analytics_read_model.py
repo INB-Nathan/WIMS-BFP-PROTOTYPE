@@ -6,12 +6,15 @@ instead of scanning fire_incidents + incident_nonsensitive_details.
 
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any, Optional
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 EXPORT_LOG_TABLE = "analytics_export_log"
+logger = logging.getLogger(__name__)
 
 
 def sync_incident_to_analytics(db: Session, incident_id: int) -> None:
@@ -21,22 +24,29 @@ def sync_incident_to_analytics(db: Session, incident_id: int) -> None:
     - If VERIFIED and not archived: upsert into facts.
     - Else: remove from facts.
     """
-    row = db.execute(
-        text("""
-            SELECT fi.incident_id, fi.region_id, fi.location, fi.verification_status, fi.is_archived,
-                   nd.notification_dt, nd.alarm_level, nd.general_category,
-                   nd.civilian_injured, nd.civilian_deaths,
-                   nd.firefighter_injured, nd.firefighter_deaths,
-                   nd.total_response_time_minutes, nd.estimated_damage_php,
-                   nd.fire_station_name,
-                   rb.barangay_name
-            FROM wims.fire_incidents fi
-            LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
-            LEFT JOIN wims.ref_barangays rb ON rb.barangay_id = nd.barangay_id
-            WHERE fi.incident_id = :iid
-        """),
-        {"iid": incident_id},
-    ).fetchone()
+    try:
+        row = db.execute(
+            text("""
+                SELECT fi.incident_id, fi.region_id, fi.location, fi.verification_status, fi.is_archived,
+                       nd.notification_dt, nd.alarm_level, nd.general_category,
+                       nd.civilian_injured, nd.civilian_deaths,
+                       nd.firefighter_injured, nd.firefighter_deaths,
+                       nd.total_response_time_minutes, nd.estimated_damage_php,
+                       nd.fire_station_name,
+                       rb.barangay_name
+                FROM wims.fire_incidents fi
+                LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+                LEFT JOIN wims.ref_barangays rb ON rb.barangay_id = nd.barangay_id
+                WHERE fi.incident_id = :iid
+            """),
+            {"iid": incident_id},
+        ).fetchone()
+    except Exception as e:
+        logger.warning(
+            "Analytics sync: failed to fetch incident %s from fire_incidents: %s",
+            incident_id, e,
+        )
+        return
 
     if row is None:
         return
@@ -44,10 +54,16 @@ def sync_incident_to_analytics(db: Session, incident_id: int) -> None:
     verification_status = row[3]
     is_archived = row[4]
     if verification_status != "VERIFIED" or is_archived:
-        db.execute(
-            text("DELETE FROM wims.analytics_incident_facts WHERE incident_id = :iid"),
-            {"iid": incident_id},
-        )
+        try:
+            db.execute(
+                text("DELETE FROM wims.analytics_incident_facts WHERE incident_id = :iid"),
+                {"iid": incident_id},
+            )
+        except Exception as e:
+            logger.warning(
+                "Analytics sync: failed to delete stale facts for incident %s: %s",
+                incident_id, e,
+            )
         return
 
     notification_dt = row[5]
@@ -63,60 +79,200 @@ def sync_incident_to_analytics(db: Session, incident_id: int) -> None:
     fire_station_name = row[14]
     barangay_name = row[15]
 
-    db.execute(
-        text("""
-            INSERT INTO wims.analytics_incident_facts
-                (incident_id, region_id, location, notification_dt, notification_date,
-                 alarm_level, general_category,
-                 civilian_injured, civilian_deaths, firefighter_injured, firefighter_deaths,
-                 total_response_time_minutes, estimated_damage_php,
-                 fire_station_name, barangay_name)
-            SELECT :iid, :region_id, location, :notification_dt, :notification_date,
-                   :alarm_level, :general_category,
-                   :civilian_injured, :civilian_deaths, :firefighter_injured, :firefighter_deaths,
-                   :total_response_time_minutes, :estimated_damage_php,
-                   :fire_station_name, :barangay_name
-            FROM wims.fire_incidents WHERE incident_id = :iid
-            ON CONFLICT (incident_id) DO UPDATE SET
-                region_id = EXCLUDED.region_id,
-                location = EXCLUDED.location,
-                notification_dt = EXCLUDED.notification_dt,
-                notification_date = EXCLUDED.notification_date,
-                alarm_level = EXCLUDED.alarm_level,
-                general_category = EXCLUDED.general_category,
-                civilian_injured = EXCLUDED.civilian_injured,
-                civilian_deaths = EXCLUDED.civilian_deaths,
-                firefighter_injured = EXCLUDED.firefighter_injured,
-                firefighter_deaths = EXCLUDED.firefighter_deaths,
-                total_response_time_minutes = EXCLUDED.total_response_time_minutes,
-                estimated_damage_php = EXCLUDED.estimated_damage_php,
-                fire_station_name = EXCLUDED.fire_station_name,
-                barangay_name = EXCLUDED.barangay_name,
-                synced_at = now()
-        """),
-        {
-            "iid": incident_id,
-            "region_id": row[1],
-            "notification_dt": notification_dt,
-            "notification_date": notification_date,
-            "alarm_level": alarm_level,
-            "general_category": general_category,
-            "civilian_injured": civilian_injured,
-            "civilian_deaths": civilian_deaths,
-            "firefighter_injured": firefighter_injured,
-            "firefighter_deaths": firefighter_deaths,
-            "total_response_time_minutes": total_response_time_minutes,
-            "estimated_damage_php": estimated_damage_php,
-            "fire_station_name": fire_station_name,
-            "barangay_name": barangay_name,
-        },
-    )
+    try:
+        db.execute(
+            text("""
+                INSERT INTO wims.analytics_incident_facts
+                    (incident_id, region_id, location, notification_dt, notification_date,
+                     alarm_level, general_category,
+                     civilian_injured, civilian_deaths, firefighter_injured, firefighter_deaths,
+                     total_response_time_minutes, estimated_damage_php,
+                     fire_station_name, barangay_name)
+                SELECT :iid, :region_id, location, :notification_dt, :notification_date,
+                       :alarm_level, :general_category,
+                       :civilian_injured, :civilian_deaths, :firefighter_injured, :firefighter_deaths,
+                       :total_response_time_minutes, :estimated_damage_php,
+                       :fire_station_name, :barangay_name
+                FROM wims.fire_incidents WHERE incident_id = :iid
+                ON CONFLICT (incident_id) DO UPDATE SET
+                    region_id = EXCLUDED.region_id,
+                    location = EXCLUDED.location,
+                    notification_dt = EXCLUDED.notification_dt,
+                    notification_date = EXCLUDED.notification_date,
+                    alarm_level = EXCLUDED.alarm_level,
+                    general_category = EXCLUDED.general_category,
+                    civilian_injured = EXCLUDED.civilian_injured,
+                    civilian_deaths = EXCLUDED.civilian_deaths,
+                    firefighter_injured = EXCLUDED.firefighter_injured,
+                    firefighter_deaths = EXCLUDED.firefighter_deaths,
+                    total_response_time_minutes = EXCLUDED.total_response_time_minutes,
+                    estimated_damage_php = EXCLUDED.estimated_damage_php,
+                    fire_station_name = EXCLUDED.fire_station_name,
+                    barangay_name = EXCLUDED.barangay_name,
+                    synced_at = now()
+            """),
+            {
+                "iid": incident_id,
+                "region_id": row[1],
+                "notification_dt": notification_dt,
+                "notification_date": notification_date,
+                "alarm_level": alarm_level,
+                "general_category": general_category,
+                "civilian_injured": civilian_injured,
+                "civilian_deaths": civilian_deaths,
+                "firefighter_injured": firefighter_injured,
+                "firefighter_deaths": firefighter_deaths,
+                "total_response_time_minutes": total_response_time_minutes,
+                "estimated_damage_php": estimated_damage_php,
+                "fire_station_name": fire_station_name,
+                "barangay_name": barangay_name,
+            },
+        )
+    except Exception as e:
+        logger.warning(
+            "Analytics sync: failed to upsert incident %s into facts: %s",
+            incident_id, e,
+        )
 
 
 def sync_incidents_batch(db: Session, incident_ids: list[int]) -> None:
-    """Sync multiple incidents. Call after bulk import."""
-    for iid in incident_ids:
-        sync_incident_to_analytics(db, iid)
+    """Sync multiple incidents in a single round-trip. Call after bulk import."""
+    if not incident_ids:
+        return
+
+    # Bulk fetch: join fire_incidents + incident_nonsensitive_details + ref_barangays
+    # Partition into delete-candidates vs upsert-candidates in SQL
+    rows = db.execute(
+        text("""
+            SELECT
+                fi.incident_id,
+                fi.region_id,
+                fi.location,
+                fi.verification_status,
+                fi.is_archived,
+                nd.notification_dt,
+                nd.alarm_level,
+                nd.general_category,
+                nd.civilian_injured,
+                nd.civilian_deaths,
+                nd.firefighter_injured,
+                nd.firefighter_deaths,
+                nd.total_response_time_minutes,
+                nd.estimated_damage_php,
+                nd.fire_station_name,
+                rb.barangay_name
+            FROM wims.fire_incidents fi
+            LEFT JOIN wims.incident_nonsensitive_details nd
+                ON nd.incident_id = fi.incident_id
+            LEFT JOIN wims.ref_barangays rb
+                ON rb.barangay_id = nd.barangay_id
+            WHERE fi.incident_id = ANY(:iids)
+        """),
+        {"iids": incident_ids},
+    ).fetchall()
+
+    if not rows:
+        return
+
+    # Partition: delete if not VERIFIED or is_archived
+    to_delete = [r[0] for r in rows if r[3] != "VERIFIED" or r[4]]
+    to_upsert = [r for r in rows if r[3] == "VERIFIED" and not r[4]]
+
+    if to_delete:
+        try:
+            db.execute(
+                text("""
+                    DELETE FROM wims.analytics_incident_facts
+                    WHERE incident_id = ANY(:iids)
+                """),
+                {"iids": to_delete},
+            )
+        except Exception as e:
+            logger.warning(
+                "Analytics sync batch: failed to delete %d stale records: %s",
+                len(to_delete), e,
+            )
+
+    if to_upsert:
+        try:
+            upsert_rows = [
+                {
+                    "iid": r[0],
+                    "region_id": r[1],
+                    "location": r[2],
+                    "notification_dt": r[5],
+                    "notification_date": r[5].date() if r[5] else None,
+                    "alarm_level": r[6],
+                    "general_category": r[7],
+                    "civilian_injured": r[8] or 0,
+                    "civilian_deaths": r[9] or 0,
+                    "firefighter_injured": r[10] or 0,
+                    "firefighter_deaths": r[11] or 0,
+                    "total_response_time_minutes": r[12],
+                    "estimated_damage_php": r[13],
+                    "fire_station_name": r[14],
+                    "barangay_name": r[15],
+                }
+                for r in to_upsert
+            ]
+            db.execute(
+                text("""
+                    INSERT INTO wims.analytics_incident_facts
+                        (incident_id, region_id, location, notification_dt, notification_date,
+                         alarm_level, general_category,
+                         civilian_injured, civilian_deaths, firefighter_injured, firefighter_deaths,
+                         total_response_time_minutes, estimated_damage_php,
+                         fire_station_name, barangay_name)
+                    SELECT
+                        data.iid, data.region_id, fi.location,
+                        data.notification_dt, data.notification_date,
+                        data.alarm_level, data.general_category,
+                        data.civilian_injured, data.civilian_deaths,
+                        data.firefighter_injured, data.firefighter_deaths,
+                        data.total_response_time_minutes, data.estimated_damage_php,
+                        data.fire_station_name, data.barangay_name
+                    FROM jsonb_to_recordset(:rows::jsonb) AS data(
+                        iid INTEGER,
+                        region_id INTEGER,
+                        location GEOMETRY,
+                        notification_dt TIMESTAMPTZ,
+                        notification_date DATE,
+                        alarm_level TEXT,
+                        general_category TEXT,
+                        civilian_injured INTEGER,
+                        civilian_deaths INTEGER,
+                        firefighter_injured INTEGER,
+                        firefighter_deaths INTEGER,
+                        total_response_time_minutes NUMERIC,
+                        estimated_damage_php NUMERIC,
+                        fire_station_name TEXT,
+                        barangay_name TEXT
+                    )
+                    JOIN wims.fire_incidents fi ON fi.incident_id = data.iid
+                    ON CONFLICT (incident_id) DO UPDATE SET
+                        region_id = EXCLUDED.region_id,
+                        location = EXCLUDED.location,
+                        notification_dt = EXCLUDED.notification_dt,
+                        notification_date = EXCLUDED.notification_date,
+                        alarm_level = EXCLUDED.alarm_level,
+                        general_category = EXCLUDED.general_category,
+                        civilian_injured = EXCLUDED.civilian_injured,
+                        civilian_deaths = EXCLUDED.civilian_deaths,
+                        firefighter_injured = EXCLUDED.firefighter_injured,
+                        firefighter_deaths = EXCLUDED.firefighter_deaths,
+                        total_response_time_minutes = EXCLUDED.total_response_time_minutes,
+                        estimated_damage_php = EXCLUDED.estimated_damage_php,
+                        fire_station_name = EXCLUDED.fire_station_name,
+                        barangay_name = EXCLUDED.barangay_name,
+                        synced_at = now()
+                """),
+                {"rows": json.dumps(upsert_rows)},
+            )
+        except Exception as e:
+            logger.warning(
+                "Analytics sync batch: failed to upsert %d records: %s",
+                len(to_upsert), e,
+            )
 
 
 def backfill_analytics_facts(db: Session) -> int:
@@ -127,15 +283,114 @@ def backfill_analytics_facts(db: Session) -> int:
     """
     rows = db.execute(
         text("""
-            SELECT fi.incident_id FROM wims.fire_incidents fi
+            SELECT
+                fi.incident_id,
+                fi.region_id,
+                fi.location,
+                nd.notification_dt,
+                nd.alarm_level,
+                nd.general_category,
+                nd.civilian_injured,
+                nd.civilian_deaths,
+                nd.firefighter_injured,
+                nd.firefighter_deaths,
+                nd.total_response_time_minutes,
+                nd.estimated_damage_php,
+                nd.fire_station_name,
+                rb.barangay_name
+            FROM wims.fire_incidents fi
+            LEFT JOIN wims.incident_nonsensitive_details nd
+                ON nd.incident_id = fi.incident_id
+            LEFT JOIN wims.ref_barangays rb
+                ON rb.barangay_id = nd.barangay_id
             WHERE fi.verification_status = 'VERIFIED' AND fi.is_archived = FALSE
         """)
     ).fetchall()
-    incident_ids = [r[0] for r in rows]
-    for iid in incident_ids:
-        sync_incident_to_analytics(db, iid)
-    db.commit()
-    return len(incident_ids)
+
+    if not rows:
+        return 0
+
+    upsert_rows = [
+        {
+            "iid": r[0],
+            "region_id": r[1],
+            "location": r[2],
+            "notification_dt": r[3],
+            "notification_date": r[3].date() if r[3] else None,
+            "alarm_level": r[4],
+            "general_category": r[5],
+            "civilian_injured": r[6] or 0,
+            "civilian_deaths": r[7] or 0,
+            "firefighter_injured": r[8] or 0,
+            "firefighter_deaths": r[9] or 0,
+            "total_response_time_minutes": r[10],
+            "estimated_damage_php": r[11],
+            "fire_station_name": r[12],
+            "barangay_name": r[13],
+        }
+        for r in rows
+    ]
+
+    try:
+        db.execute(
+            text("""
+                INSERT INTO wims.analytics_incident_facts
+                    (incident_id, region_id, location, notification_dt, notification_date,
+                     alarm_level, general_category,
+                     civilian_injured, civilian_deaths, firefighter_injured, firefighter_deaths,
+                     total_response_time_minutes, estimated_damage_php,
+                     fire_station_name, barangay_name)
+                SELECT
+                    data.iid, data.region_id, fi.location,
+                    data.notification_dt, data.notification_date,
+                    data.alarm_level, data.general_category,
+                    data.civilian_injured, data.civilian_deaths,
+                    data.firefighter_injured, data.firefighter_deaths,
+                    data.total_response_time_minutes, data.estimated_damage_php,
+                    data.fire_station_name, data.barangay_name
+                FROM jsonb_to_recordset(:rows::jsonb) AS data(
+                    iid INTEGER,
+                    region_id INTEGER,
+                    location GEOMETRY,
+                    notification_dt TIMESTAMPTZ,
+                    notification_date DATE,
+                    alarm_level TEXT,
+                    general_category TEXT,
+                    civilian_injured INTEGER,
+                    civilian_deaths INTEGER,
+                    firefighter_injured INTEGER,
+                    firefighter_deaths INTEGER,
+                    total_response_time_minutes NUMERIC,
+                    estimated_damage_php NUMERIC,
+                    fire_station_name TEXT,
+                    barangay_name TEXT
+                )
+                JOIN wims.fire_incidents fi ON fi.incident_id = data.iid
+                ON CONFLICT (incident_id) DO UPDATE SET
+                    region_id = EXCLUDED.region_id,
+                    location = EXCLUDED.location,
+                    notification_dt = EXCLUDED.notification_dt,
+                    notification_date = EXCLUDED.notification_date,
+                    alarm_level = EXCLUDED.alarm_level,
+                    general_category = EXCLUDED.general_category,
+                    civilian_injured = EXCLUDED.civilian_injured,
+                    civilian_deaths = EXCLUDED.civilian_deaths,
+                    firefighter_injured = EXCLUDED.firefighter_injured,
+                    firefighter_deaths = EXCLUDED.firefighter_deaths,
+                    total_response_time_minutes = EXCLUDED.total_response_time_minutes,
+                    estimated_damage_php = EXCLUDED.estimated_damage_php,
+                    fire_station_name = EXCLUDED.fire_station_name,
+                    barangay_name = EXCLUDED.barangay_name,
+                    synced_at = now()
+            """),
+            {"rows": json.dumps(upsert_rows)},
+        )
+        db.commit()
+        return len(upsert_rows)
+    except Exception as e:
+        logger.warning("Analytics backfill: bulk upsert failed: %s", e)
+        db.rollback()
+        return 0
 
 
 def get_heatmap_points(
