@@ -24,7 +24,13 @@ export interface MapPickerInnerProps {
 }
 
 const DEFAULT_CENTER: [number, number] = [14.5995, 120.9842]; // Manila area
-const DEFAULT_ZOOM = 6;
+// M4 Bug 8-B: city-level zoom for incident input; detail view uses DETAIL_INCIDENT_MAP_ZOOM
+export const DEFAULT_INCIDENT_MAP_ZOOM = 12;
+export const DETAIL_INCIDENT_MAP_ZOOM = 13;
+const DEFAULT_ZOOM = DEFAULT_INCIDENT_MAP_ZOOM;
+// M4 Bug 8-C: landscape rectangle ratio for input maps; detail view passes 320px explicitly
+export const DEFAULT_INCIDENT_MAP_HEIGHT = '400px';
+export const DETAIL_INCIDENT_MAP_HEIGHT = '320px';
 
 type GeoSuggestion = {
     lat: string;
@@ -86,7 +92,7 @@ export function MapPickerInner({
     zoom = DEFAULT_ZOOM,
     value,
     onChange,
-    mapHeight = '320px',
+    mapHeight = DEFAULT_INCIDENT_MAP_HEIGHT,
 }: MapPickerInnerProps) {
     const readOnly = !onChange;
     const [position, setPosition] = useState<{ lat: number; lng: number } | null>(value ?? null);

@@ -65,7 +65,7 @@ function errorMessageFromJson(json: unknown, fallback: string): string {
 
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit & { _retried?: boolean } = {}
+  options: RequestInit & { _retried?: boolean; skipAuthRedirect?: boolean } = {}
 ): Promise<T> {
   const normalizedPath =
     path === '/api' ? '/' : path.startsWith('/api/') ? path.slice(4) : path;
@@ -77,7 +77,7 @@ export async function apiFetch<T>(
   if (!isFormDataBody && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
-  const { _retried, ...fetchOptions } = options;
+  const { _retried, skipAuthRedirect, ...fetchOptions } = options;
   const res = await fetch(url, {
     ...fetchOptions,
     credentials: 'include',
@@ -90,7 +90,10 @@ export async function apiFetch<T>(
         return apiFetch<T>(path, { ...options, _retried: true });
       }
     } catch { /* ignore, fall through to throw */ }
-    if (typeof window !== 'undefined') {
+    // M4 Bug 8-A: callers like AFOR commit can opt out of the global redirect
+    // so that a 401 from a single endpoint does not yank the user to /login
+    // mid-flow. The caller is then responsible for surfacing the error.
+    if (!skipAuthRedirect && typeof window !== 'undefined') {
       window.location.href = '/login';
     }
     throw new ApiRequestError('Session expired. Please log in again.', 401);
@@ -535,6 +538,43 @@ export async function unpendIncident(
   return apiFetch(`/regional/incidents/${incidentId}/unpend`, { method: 'PATCH' });
 }
 
+// ── M4-E: Dedicated draft endpoints ─────────────────────────────────────────
+
+export interface DraftSummary {
+  incident_id: number;
+  region_id: number;
+  created_at: string | null;
+  updated_at: string | null;
+  notification_dt: string | null;
+  general_category: string | null;
+  alarm_level: string | null;
+  fire_station_name: string | null;
+}
+
+export async function listEncoderDrafts(
+  limit = 20,
+  offset = 0
+): Promise<{ items: DraftSummary[]; total: number; limit: number; offset: number }> {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  return apiFetch(`/regional/incidents/drafts?${params.toString()}`);
+}
+
+export async function updateDraft(
+  incidentId: number,
+  body: Record<string, unknown>
+): Promise<{ status: string; incident_id: number }> {
+  return apiFetch(`/regional/incidents/draft/${incidentId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteDraft(
+  incidentId: number
+): Promise<{ status: string; incident_id: number }> {
+  return apiFetch(`/regional/incidents/draft/${incidentId}`, { method: 'DELETE' });
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function fetchRegionalStats(): Promise<any> {
   return apiFetch<Record<string, unknown>>('/regional/stats');
@@ -583,23 +623,49 @@ export async function importAforFile(file: File): Promise<AforImportPreviewRespo
 
 export type WildlandRowSource = 'AFOR_IMPORT' | 'MANUAL';
 
+export type DuplicateAction = 'skip' | 'merge' | 'force';
+
+export interface RowResolution {
+  row_index: number;
+  action: DuplicateAction;
+  existing_incident_id?: number | null;
+}
+
+export interface DuplicateInfo {
+  row_index: number;
+  existing_incident_id: number;
+  distance_m: number;
+  matched_fields: string[];
+  incoming_values: Record<string, string | null>;
+  existing_values: Record<string, string | null>;
+}
+
+export type AforCommitResult =
+  | { status: 'ok'; batch_id: number; incident_ids: number[]; total_committed: number }
+  | {
+      status: 'DUPLICATE_CHECK_REQUIRED';
+      duplicates: DuplicateInfo[];
+      radius_meters: number;
+      min_matching_fields: number;
+    };
+
 export async function commitAforImport(
   rows: Record<string, unknown>[],
   formKind: AforFormKind,
   options?: {
     wildlandRowSource?: WildlandRowSource;
-    duplicateStrategy?: 'REPLACE_ORIGINAL' | 'KEEP_ORIGINAL';
+    resolutions?: RowResolution[];
     /** WGS84 decimal degrees. PostGIS stores POINT(longitude latitude); not GeoJSON [lat, lon]. */
     latitude?: number;
     longitude?: number;
   }
-): Promise<{ status: string; batch_id: number; incident_ids: number[]; total_committed: number }> {
+): Promise<AforCommitResult> {
   const body: Record<string, unknown> = { form_kind: formKind, rows };
   if (options?.wildlandRowSource != null) {
     body.wildland_row_source = options.wildlandRowSource;
   }
-  if (options?.duplicateStrategy != null) {
-    body.duplicate_strategy = options.duplicateStrategy;
+  if (options?.resolutions != null) {
+    body.resolutions = options.resolutions;
   }
   if (typeof options?.latitude === 'number' && typeof options?.longitude === 'number') {
     body.latitude = options.latitude;
@@ -608,6 +674,8 @@ export async function commitAforImport(
   return apiFetch('/regional/afor/commit', {
     method: 'POST',
     body: JSON.stringify(body),
+    // M4 Bug 8-A: handle errors locally on the import page; do not force /login
+    skipAuthRedirect: true,
   });
 }
 

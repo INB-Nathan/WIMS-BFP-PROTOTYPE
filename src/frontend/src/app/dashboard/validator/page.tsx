@@ -9,13 +9,14 @@
  *  - Uses the same apiFetch helper from src/lib/api.ts
  *  - Owns its own loading / error / empty states
  *
- * Region isolation is enforced server-side; this page never leaks
- * incidents from other regions.
+ * NATIONAL_VALIDATOR has cross-region authority — this page surfaces
+ * encoder-submitted incidents from all regions awaiting verification.
  */
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { apiFetch, fetchValidatorStats } from "@/lib/api";
+import { IncidentDiffPanel } from "@/components/IncidentDiffPanel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -91,6 +92,61 @@ export default function ValidatorDashboard() {
   const [actionNotes, setActionNotes] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [showDiff, setShowDiff] = useState(false);
+
+  // M4-H: bulk approve selection state
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+
+  const togglePending = (inc: ValidatorIncident, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(inc.incident_id);
+      else next.delete(inc.incident_id);
+      return next;
+    });
+  };
+
+  const allPendingSelected =
+    incidents.filter((i) => i.verification_status === "PENDING").length > 0 &&
+    incidents
+      .filter((i) => i.verification_status === "PENDING")
+      .every((i) => selectedIds.has(i.incident_id));
+
+  const toggleSelectAllPending = (checked: boolean) => {
+    if (checked) {
+      setSelectedIds(
+        new Set(
+          incidents
+            .filter((i) => i.verification_status === "PENDING")
+            .map((i) => i.incident_id),
+        ),
+      );
+    } else {
+      setSelectedIds(new Set());
+    }
+  };
+
+  const submitBulkApprove = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Approve ${selectedIds.size} incident${selectedIds.size !== 1 ? 's' : ''}?`)) return;
+    setBulkLoading(true);
+    setBulkError(null);
+    try {
+      await apiFetch('/regional/validator/incidents/bulk-approve', {
+        method: 'POST',
+        body: JSON.stringify({ incident_ids: Array.from(selectedIds) }),
+      });
+      setSelectedIds(new Set());
+      await fetchQueue();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Bulk approve failed';
+      setBulkError(msg);
+    } finally {
+      setBulkLoading(false);
+    }
+  };
 
   // ---------------------------------------------------------------------------
   // Fetch queue
@@ -189,6 +245,7 @@ export default function ValidatorDashboard() {
     setActionType(type);
     setActionNotes("");
     setActionError(null);
+    setShowDiff(false);
   };
 
   const closeModal = () => {
@@ -197,6 +254,7 @@ export default function ValidatorDashboard() {
     setActionType(null);
     setActionNotes("");
     setActionError(null);
+    setShowDiff(false);
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -207,9 +265,17 @@ export default function ValidatorDashboard() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <h1 className="text-2xl font-bold mb-1">Validator Queue</h1>
+      <div className="flex items-baseline justify-between mb-1">
+        <h1 className="text-2xl font-bold">Validator Queue</h1>
+        <Link
+          href="/dashboard/validator/audit"
+          className="text-sm font-medium text-blue-700 hover:text-blue-900"
+        >
+          Audit Trail →
+        </Link>
+      </div>
       <p className="text-gray-500 text-sm mb-6">
-        Encoder-submitted incidents in your assigned region awaiting review.
+        Encoder-submitted incidents from all regions awaiting review.
       </p>
 
       {/* ── Summary cards ── */}
@@ -262,7 +328,25 @@ export default function ValidatorDashboard() {
         >
           ↺ Refresh
         </button>
+
+        {/* M4-H: Bulk approve action */}
+        {selectedIds.size > 0 && (
+          <button
+            onClick={submitBulkApprove}
+            disabled={bulkLoading}
+            className="ml-auto bg-green-600 hover:bg-green-700 text-white rounded px-4 py-2 text-sm font-medium disabled:opacity-50"
+          >
+            {bulkLoading
+              ? 'Approving…'
+              : `Bulk Approve (${selectedIds.size})`}
+          </button>
+        )}
       </div>
+      {bulkError && (
+        <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-700 mb-4">
+          {bulkError}
+        </div>
+      )}
 
       {/* ── States ── */}
       {loading && (
@@ -285,6 +369,14 @@ export default function ValidatorDashboard() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
+                <th className="text-left px-3 py-3 font-medium w-8">
+                  <input
+                    type="checkbox"
+                    checked={allPendingSelected}
+                    onChange={(e) => toggleSelectAllPending(e.target.checked)}
+                    title="Select all PENDING"
+                  />
+                </th>
                 <th className="text-left px-4 py-3 font-medium">ID</th>
                 <th className="text-left px-4 py-3 font-medium">Status</th>
                 <th className="text-left px-4 py-3 font-medium">Station</th>
@@ -300,6 +392,15 @@ export default function ValidatorDashboard() {
             <tbody className="divide-y">
               {incidents.map((inc) => (
                 <tr key={inc.incident_id} className="hover:bg-gray-50">
+                  <td className="px-3 py-3">
+                    {inc.verification_status === "PENDING" ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(inc.incident_id)}
+                        onChange={(e) => togglePending(inc, e.target.checked)}
+                      />
+                    ) : null}
+                  </td>
                   <td className="px-4 py-3 font-mono text-xs">{inc.incident_id}</td>
                   <td className="px-4 py-3">
                     <span
@@ -387,8 +488,8 @@ export default function ValidatorDashboard() {
 
       {/* ── Action confirmation modal ── */}
       {actionTarget && actionType && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-semibold mb-1">
               {actionType === "accept"
                 ? "Accept Incident"
@@ -400,6 +501,21 @@ export default function ValidatorDashboard() {
               Incident #{actionTarget.incident_id} ·{" "}
               {actionTarget.fire_station_name ?? "Unknown station"}
             </p>
+
+            <div className="mb-4">
+              <button
+                type="button"
+                onClick={() => setShowDiff((s) => !s)}
+                className="text-xs font-medium text-blue-700 hover:text-blue-900 underline"
+              >
+                {showDiff ? "Hide" : "View"} changes since submission
+              </button>
+              {showDiff && (
+                <div className="mt-2">
+                  <IncidentDiffPanel incidentId={actionTarget.incident_id} />
+                </div>
+              )}
+            </div>
 
             {actionType === "reject" && (
               <>

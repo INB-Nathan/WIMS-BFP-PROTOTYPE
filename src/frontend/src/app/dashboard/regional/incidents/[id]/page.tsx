@@ -15,23 +15,23 @@ import {
 import dynamic from 'next/dynamic';
 import type { Incident } from '@/lib/edgeFunctions';
 
-// Read-only map zoomed in on the pinned coordinates
+// Read-only map zoomed in on the pinned coordinates (M4 Bug 8-B/8-C)
 const IncidentLocationMap = dynamic(
   () => import('@/components/MapPickerInner').then((mod) => {
     const ReadOnlyMap = (props: { latitude: number; longitude: number }) => (
-      <div style={{ height: '300px', width: '100%', overflow: 'hidden' }}>
+      <div style={{ height: '320px', width: '100%', overflow: 'hidden' }}>
         <mod.MapPickerInner
           value={{ lat: props.latitude, lng: props.longitude }}
           center={[props.latitude, props.longitude]}
-          zoom={16}
-          mapHeight="300px"
+          zoom={mod.DETAIL_INCIDENT_MAP_ZOOM}
+          mapHeight={mod.DETAIL_INCIDENT_MAP_HEIGHT}
         />
       </div>
     );
     ReadOnlyMap.displayName = 'ReadOnlyIncidentMap';
     return ReadOnlyMap;
   }),
-  { ssr: false, loading: () => <div className="h-[300px] bg-gray-100 animate-pulse rounded" /> },
+  { ssr: false, loading: () => <div className="h-[320px] bg-gray-100 animate-pulse rounded" /> },
 );
 
 // Full AFOR form used for editing
@@ -383,30 +383,33 @@ export default function RegionalIncidentDetailPage() {
           <div className="flex items-center gap-2">
             {!isEditing && (
               <>
-                <button
-                  onClick={() => { setIsEditing(true); setActionError(null); }}
-                  className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium border border-gray-300 bg-white hover:bg-gray-50 text-gray-700"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                  Edit
-                </button>
                 {detail.verification_status === 'PENDING' ? (
                   <button
                     onClick={handleUnpend}
                     disabled={actionLoading}
+                    title="To edit a PENDING incident, withdraw it first"
                     className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium bg-yellow-600 text-white hover:bg-yellow-700 disabled:opacity-50"
                   >
-                    Withdraw from Review
+                    Withdraw for Editing
                   </button>
                 ) : (
-                  <button
-                    onClick={handleSubmit}
-                    disabled={actionLoading}
-                    className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium bg-red-800 text-white hover:bg-red-700 disabled:opacity-50"
-                  >
-                    <Send className="h-3.5 w-3.5" />
-                    {detail.verification_status === 'REJECTED' ? 'Resubmit for Review' : 'Submit for Review'}
-                  </button>
+                  <>
+                    <button
+                      onClick={() => { setIsEditing(true); setActionError(null); }}
+                      className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium border border-gray-300 bg-white hover:bg-gray-50 text-gray-700"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      Edit
+                    </button>
+                    <button
+                      onClick={handleSubmit}
+                      disabled={actionLoading}
+                      className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium bg-red-800 text-white hover:bg-red-700 disabled:opacity-50"
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                      {detail.verification_status === 'REJECTED' ? 'Resubmit for Review' : 'Submit for Review'}
+                    </button>
+                  </>
                 )}
               </>
             )}

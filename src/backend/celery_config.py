@@ -3,6 +3,7 @@
 import os
 
 from celery import Celery
+from celery.schedules import crontab
 
 MV_REFRESH_INTERVAL = int(os.environ.get("CELERY_MV_REFRESH_INTERVAL", 3600 * 6))
 
@@ -28,6 +29,11 @@ celery_app.conf.update(
         "ingest-suricata-eve": {
             "task": "tasks.suricata.ingest_suricata_eve",
             "schedule": 10.0,  # every 10 seconds
+        },
+        # M4-E: Auto-archive DRAFT incidents older than 30 days. Runs daily at 02:00 UTC.
+        "expire-stale-drafts-daily": {
+            "task": "tasks.drafts.expire_old_drafts",
+            "schedule": crontab(hour=2, minute=0),
         },
     },
 )

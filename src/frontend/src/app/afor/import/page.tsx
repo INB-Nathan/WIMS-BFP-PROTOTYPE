@@ -5,8 +5,16 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Upload, FileDown, CheckCircle, AlertCircle, RefreshCw, X, MapPin, ChevronDown, ChevronUp
 } from 'lucide-react';
-import { importAforFile, commitAforImport, submitIncidentForReview, type AforImportPreviewResponse } from '@/lib/api';
+import {
+  importAforFile,
+  commitAforImport,
+  submitIncidentForReview,
+  type AforImportPreviewResponse,
+  type DuplicateInfo,
+  type RowResolution,
+} from '@/lib/api';
 import { MapPicker } from '@/components/MapPicker';
+import { DuplicateResolutionModal } from '@/components/DuplicateResolutionModal';
 import {
   FIELD_LABELS,
   fieldLabel,
@@ -405,6 +413,17 @@ export default function AforImportPage() {
   const [isSubmittingAll, setIsSubmittingAll] = useState(false);
   const geocodeTriggered = useRef(false);
 
+  // M4-D: per-row duplicate resolution state
+  const [pendingDuplicates, setPendingDuplicates] = useState<{
+    duplicates: DuplicateInfo[];
+    radiusMeters: number;
+    minMatchingFields: number;
+    validRows: Record<string, unknown>[];
+    formKind: AforImportPreviewResponse['form_kind'];
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+
   const filteredPreviewRows = useMemo(() => {
     if (!previewData) return [];
 
@@ -527,6 +546,19 @@ export default function AforImportPage() {
         latitude: commitLat,
         longitude: commitLng,
       });
+      if (res.status === 'DUPLICATE_CHECK_REQUIRED') {
+        setPendingDuplicates({
+          duplicates: res.duplicates,
+          radiusMeters: res.radius_meters,
+          minMatchingFields: res.min_matching_fields,
+          validRows,
+          formKind: previewData.form_kind,
+          latitude: commitLat,
+          longitude: commitLng,
+        });
+        setIsCommitting(false);
+        return;
+      }
       if (res.status === 'ok') {
         setCommittedIds(res.incident_ids ?? []);
         setIsCommitting(false);
@@ -534,35 +566,37 @@ export default function AforImportPage() {
       }
     } catch (err: unknown) {
       const errMsg = (err as { message?: string }).message || 'Failed to commit the imported data.';
-      if (errMsg.includes('DUPLICATE_INCIDENT')) {
-        try {
-          const replaceOriginal = window.confirm(
-            'Duplicate incident detected. Press OK to Replace Original, or Cancel to Keep Original and skip duplicate rows.',
-          );
-          const retry = await commitAforImport(validRows, previewData.form_kind, {
-            latitude: commitLat,
-            longitude: commitLng,
-            duplicateStrategy: replaceOriginal ? 'REPLACE_ORIGINAL' : 'KEEP_ORIGINAL',
-          });
-          if (retry.status === 'ok') {
-            if (retry.total_committed === 0) {
-              setError('No rows were committed because all valid rows were duplicates and were kept as original.');
-              setIsCommitting(false);
-              return;
-            }
-            setCommittedIds(retry.incident_ids ?? []);
-            setIsCommitting(false);
-            return;
-          }
-        } catch (retryErr: unknown) {
-          const retryMsg = (retryErr as { message?: string }).message || 'Failed while resolving duplicate incidents.';
-          setError(retryMsg);
-          setIsCommitting(false);
-          return;
+      setError(errMsg);
+      setIsCommitting(false);
+    }
+  };
+
+  const handleDuplicateResolve = async (resolutions: RowResolution[]) => {
+    if (!pendingDuplicates) return;
+    setIsCommitting(true);
+    setError(null);
+    try {
+      const res = await commitAforImport(
+        pendingDuplicates.validRows,
+        pendingDuplicates.formKind,
+        {
+          latitude: pendingDuplicates.latitude,
+          longitude: pendingDuplicates.longitude,
+          resolutions,
+        },
+      );
+      if (res.status === 'ok') {
+        if (res.total_committed === 0) {
+          setError('No rows were committed — all duplicates were skipped.');
+        } else {
+          setCommittedIds(res.incident_ids ?? []);
         }
-      } else {
-        setError(errMsg);
       }
+    } catch (err: unknown) {
+      const errMsg = (err as { message?: string }).message || 'Failed while resolving duplicate incidents.';
+      setError(errMsg);
+    } finally {
+      setPendingDuplicates(null);
       setIsCommitting(false);
     }
   };
@@ -941,6 +975,16 @@ export default function AforImportPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {pendingDuplicates && (
+        <DuplicateResolutionModal
+          duplicates={pendingDuplicates.duplicates}
+          radiusMeters={pendingDuplicates.radiusMeters}
+          minMatchingFields={pendingDuplicates.minMatchingFields}
+          onResolve={handleDuplicateResolve}
+          onCancel={() => setPendingDuplicates(null)}
+        />
       )}
     </div>
   );

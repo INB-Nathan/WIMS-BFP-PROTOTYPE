@@ -517,6 +517,30 @@ export function IncidentForm({
     }
   }, [initialData]);
 
+  // M4 Bug 8-D: Sync the free-text "Others" field to the "Others" checkbox.
+  // Non-empty text → ensure "Others" is in problems_encountered.
+  // Empty text  → remove "Others" from problems_encountered.
+  useEffect(() => {
+    const othersText = String(formState.problems_others || '').trim();
+    const hasText = othersText.length > 0;
+    const list = formState.problems_encountered || [];
+    const othersNorm = normalizeProblemLabel('Others');
+    const othersInList = list.some((p) => normalizeProblemLabel(p) === othersNorm);
+    if (hasText && !othersInList) {
+      setFormState((prev) => ({
+        ...prev,
+        problems_encountered: [...(prev.problems_encountered || []), 'Others'],
+      }));
+    } else if (!hasText && othersInList) {
+      setFormState((prev) => ({
+        ...prev,
+        problems_encountered: (prev.problems_encountered || []).filter(
+          (p) => normalizeProblemLabel(p) !== othersNorm,
+        ),
+      }));
+    }
+  }, [formState.problems_others, formState.problems_encountered]);
+
   useEffect(() => {
     if (!initialData || locationHydratedRef.current) return;
     const ns = (initialData.incident_nonsensitive_details || {}) as Record<string, unknown>;
@@ -1567,11 +1591,12 @@ export function IncidentForm({
         <section className="space-y-4 border-b pb-6">
           <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">J. Problems Encountered</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-            {ALL_PROBLEM_OPTIONS.filter((o) => o !== 'Others').map((prob, idx) => {
+            {ALL_PROBLEM_OPTIONS.map((prob, idx) => {
               // Normalize the label to ensure consistent comparison
               const normalizedProb = normalizeProblemLabel(prob);
               const isChecked = (formState.problems_encountered || []).some((p) => normalizeProblemLabel(p) === normalizedProb);
               const checkboxId = `problem-checkbox-${idx}`;
+              const isOthers = normalizedProb === normalizeProblemLabel('Others');
 
               return (
                 <label key={`${idx}-${prob}`} htmlFor={checkboxId} className="flex items-start gap-2 cursor-pointer">
@@ -1598,6 +1623,10 @@ export function IncidentForm({
                           updated = current.filter((p) => normalizeProblemLabel(p) !== normalizedProb);
                         }
 
+                        // M4 Bug 8-D: unchecking Others also clears the free-text input
+                        if (!checked && isOthers) {
+                          return { ...prev, problems_encountered: updated, problems_others: '' };
+                        }
                         return { ...prev, problems_encountered: updated };
                       });
                     }}

@@ -22,13 +22,14 @@ class VerificationStatus(str, enum.Enum):
 
     PENDING_VALIDATION  — public/civilian submission awaiting NATIONAL_VALIDATOR review.
     PENDING             — encoder-submitted, awaiting validator decision.
+                          Spec calls this PENDING_REVIEW — semantically equivalent.
     DRAFT               — encoder working draft, not yet submitted.
     VERIFIED            — validator accepted.
     REJECTED            — validator rejected.
     """
 
     DRAFT = "DRAFT"
-    PENDING = "PENDING"
+    PENDING = "PENDING"  # Spec: PENDING_REVIEW
     PENDING_VALIDATION = "PENDING_VALIDATION"
     VERIFIED = "VERIFIED"
     REJECTED = "REJECTED"
