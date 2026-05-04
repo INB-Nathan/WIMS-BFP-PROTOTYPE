@@ -44,7 +44,8 @@ def sync_incident_to_analytics(db: Session, incident_id: int) -> None:
     except Exception as e:
         logger.warning(
             "Analytics sync: failed to fetch incident %s from fire_incidents: %s",
-            incident_id, e,
+            incident_id,
+            e,
         )
         return
 
@@ -56,13 +57,16 @@ def sync_incident_to_analytics(db: Session, incident_id: int) -> None:
     if verification_status != "VERIFIED" or is_archived:
         try:
             db.execute(
-                text("DELETE FROM wims.analytics_incident_facts WHERE incident_id = :iid"),
+                text(
+                    "DELETE FROM wims.analytics_incident_facts WHERE incident_id = :iid"
+                ),
                 {"iid": incident_id},
             )
         except Exception as e:
             logger.warning(
                 "Analytics sync: failed to delete stale facts for incident %s: %s",
-                incident_id, e,
+                incident_id,
+                e,
             )
         return
 
@@ -131,7 +135,8 @@ def sync_incident_to_analytics(db: Session, incident_id: int) -> None:
     except Exception as e:
         logger.warning(
             "Analytics sync: failed to upsert incident %s into facts: %s",
-            incident_id, e,
+            incident_id,
+            e,
         )
 
 
@@ -190,7 +195,8 @@ def sync_incidents_batch(db: Session, incident_ids: list[int]) -> None:
         except Exception as e:
             logger.warning(
                 "Analytics sync batch: failed to delete %d stale records: %s",
-                len(to_delete), e,
+                len(to_delete),
+                e,
             )
 
     if to_upsert:
@@ -271,7 +277,8 @@ def sync_incidents_batch(db: Session, incident_ids: list[int]) -> None:
         except Exception as e:
             logger.warning(
                 "Analytics sync batch: failed to upsert %d records: %s",
-                len(to_upsert), e,
+                len(to_upsert),
+                e,
             )
 
 
