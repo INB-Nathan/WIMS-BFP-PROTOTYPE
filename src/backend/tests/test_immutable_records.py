@@ -31,11 +31,15 @@ from main import app
 _ENCODER_UID = uuid.UUID("11111111-1111-4111-8111-111111111111")
 _VALIDATOR_UID = uuid.UUID("22222222-2222-4222-8222-222222222222")
 
-_DB_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:password@postgres:5432/wims")
+_DB_URL = os.environ.get(
+    "DATABASE_URL", "postgresql://postgres:password@postgres:5432/wims"
+)
 _MIGRATION_PATH = os.path.abspath(
     os.path.join(
         os.path.dirname(__file__),
-        "..", "postgres-init", "17_immutable_records.sql",
+        "..",
+        "postgres-init",
+        "17_immutable_records.sql",
     )
 )
 
@@ -105,6 +109,7 @@ def verified_incident(encoder_region, validator_region):
     Returns incident_id. Does not delete the incident (VERIFIED rows are
     immutable after migration — deletion is intentionally blocked by DB rule).
     """
+
     # Step 1: create and submit as encoder
     async def _enc():
         return {
@@ -191,9 +196,7 @@ def test_66_verified_incident_has_data_hash(verified_incident):
     engine = _autocommit_engine()
     with engine.connect() as conn:
         row = conn.execute(
-            text(
-                "SELECT data_hash FROM wims.fire_incidents WHERE incident_id = :iid"
-            ),
+            text("SELECT data_hash FROM wims.fire_incidents WHERE incident_id = :iid"),
             {"iid": verified_incident},
         ).fetchone()
 
@@ -269,8 +272,7 @@ def test_66_db_blocks_delete_on_ivh(verified_incident, db):
     with engine.connect() as conn:
         conn.execute(
             text(
-                "DELETE FROM wims.incident_verification_history "
-                "WHERE history_id = :hid"
+                "DELETE FROM wims.incident_verification_history WHERE history_id = :hid"
             ),
             {"hid": history_id},
         )
@@ -278,8 +280,7 @@ def test_66_db_blocks_delete_on_ivh(verified_incident, db):
     # Row must still exist (DO INSTEAD NOTHING)
     remaining = db.execute(
         text(
-            "SELECT 1 FROM wims.incident_verification_history "
-            "WHERE history_id = :hid"
+            "SELECT 1 FROM wims.incident_verification_history WHERE history_id = :hid"
         ),
         {"hid": history_id},
     ).fetchone()

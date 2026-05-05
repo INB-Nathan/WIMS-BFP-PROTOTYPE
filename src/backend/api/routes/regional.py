@@ -19,7 +19,10 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user, get_national_validator, get_regional_encoder
 from database import get_db_with_rls
-from services.analytics_read_model import sync_incident_to_analytics, sync_incidents_batch
+from services.analytics_read_model import (
+    sync_incident_to_analytics,
+    sync_incidents_batch,
+)
 from utils.crypto import SecurityProvider, SecurityProviderError
 from utils.audit import log_system_audit
 
