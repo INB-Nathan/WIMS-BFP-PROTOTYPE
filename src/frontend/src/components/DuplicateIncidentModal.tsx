@@ -20,6 +20,7 @@ interface DuplicateIncidentModalProps {
   currentForm: CurrentFormSummary;
   onKeepBoth: () => void;
   onReplace: (existingIncidentId: number) => void;
+  onRequestUpdate: (existingIncidentId: number) => void;
   onEditCurrent: () => void;
 }
 
@@ -56,9 +57,13 @@ export function DuplicateIncidentModal({
   currentForm,
   onKeepBoth,
   onReplace,
+  onRequestUpdate,
   onEditCurrent,
 }: DuplicateIncidentModalProps) {
   const first = duplicates[0];
+  const isVerified = first.verification_status === 'VERIFIED' || first.verification_status === 'PENDING_VALIDATION';
+  const isPending = first.verification_status === 'PENDING';
+  const isDraft = first.verification_status === 'DRAFT';
 
   return (
     <div
@@ -135,39 +140,65 @@ export function DuplicateIncidentModal({
           </div>
         </div>
 
-        {/* Action buttons */}
+        {/* Action buttons — differ by existing incident status */}
         <div className="border-t border-gray-200 px-5 py-4 flex flex-col sm:flex-row gap-3 justify-end">
+          {/* Always present: cancel / go back to editing */}
           <button
             type="button"
             onClick={onEditCurrent}
             className="order-3 sm:order-1 px-4 py-2 rounded-lg border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-50"
           >
-            Edit Current Form
+            Cancel / Keep Editing
           </button>
-          <button
-            type="button"
-            onClick={onKeepBoth}
-            className="order-2 px-4 py-2 rounded-lg border border-blue-500 text-sm font-semibold text-blue-700 hover:bg-blue-50"
-          >
-            Create Anyway (Keep Both)
-          </button>
-          {first.verification_status === 'DRAFT' || first.verification_status === 'PENDING' ? (
-            <button
-              type="button"
-              onClick={() => onReplace(first.incident_id)}
-              className="order-1 sm:order-3 px-4 py-2 rounded-lg bg-amber-700 text-white text-sm font-semibold hover:bg-amber-800"
-              title="Overwrite the existing incident with the data from this form"
-            >
-              Replace Existing (#{first.incident_id})
-            </button>
+
+          {isVerified ? (
+            <>
+              {/* VERIFIED or PENDING_VALIDATION: offer update-request OR new copy */}
+              <button
+                type="button"
+                onClick={onKeepBoth}
+                className="order-2 px-4 py-2 rounded-lg border border-blue-500 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+                title="Create this as a separate new incident record"
+              >
+                Submit as New Copy
+              </button>
+              <button
+                type="button"
+                onClick={() => onRequestUpdate(first.incident_id)}
+                className="order-1 sm:order-3 px-4 py-2 rounded-lg bg-amber-700 text-white text-sm font-semibold hover:bg-amber-800"
+                title="Submit as an update request — validator will review side-by-side with the existing verified record"
+              >
+                Submit as Update to #{first.incident_id}
+              </button>
+            </>
+          ) : (isPending || isDraft) ? (
+            <>
+              {/* PENDING / DRAFT: offer replace OR submit as new */}
+              <button
+                type="button"
+                onClick={onKeepBoth}
+                className="order-2 px-4 py-2 rounded-lg border border-blue-500 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+                title="Create this as a separate new incident, leaving the existing one unchanged"
+              >
+                Submit as New
+              </button>
+              <button
+                type="button"
+                onClick={() => onReplace(first.incident_id)}
+                className="order-1 sm:order-3 px-4 py-2 rounded-lg bg-amber-700 text-white text-sm font-semibold hover:bg-amber-800"
+                title={`Overwrite the existing ${isPending ? 'pending' : 'draft'} incident with the data from this form`}
+              >
+                Replace {isPending ? 'Pending' : 'Draft'} (#{first.incident_id})
+              </button>
+            </>
           ) : (
+            /* Fallback for any other status */
             <button
               type="button"
-              disabled
-              className="order-1 sm:order-3 px-4 py-2 rounded-lg bg-gray-300 text-gray-500 text-sm font-semibold cursor-not-allowed"
-              title="Cannot replace an incident that has already been verified or is under validation"
+              onClick={onKeepBoth}
+              className="order-2 px-4 py-2 rounded-lg border border-blue-500 text-sm font-semibold text-blue-700 hover:bg-blue-50"
             >
-              Replace Existing (locked — {STATUS_LABELS[first.verification_status] ?? first.verification_status})
+              Create Anyway (Keep Both)
             </button>
           )}
         </div>

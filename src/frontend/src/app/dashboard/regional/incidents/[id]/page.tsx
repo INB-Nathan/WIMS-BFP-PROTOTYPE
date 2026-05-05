@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Pencil, Send } from 'lucide-react';
+import { ArrowLeft, Pencil, Send, Trash2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import {
   fetchRegionalIncident,
   submitIncidentForReview,
   unpendIncident,
+  deleteIncident,
   apiFetch,
   type RegionalIncidentDetailResponse,
 } from '@/lib/api';
@@ -229,6 +230,8 @@ export default function RegionalIncidentDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [showWithdrawPopup, setShowWithdrawPopup] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
   const isValidator = role === 'NATIONAL_VALIDATOR' || role === 'VALIDATOR';
@@ -309,6 +312,47 @@ export default function RegionalIncidentDetailPage() {
     }
   };
 
+  const handleUnpendAndEdit = async () => {
+    setShowWithdrawPopup(false);
+    setActionLoading(true);
+    setActionError(null);
+    try {
+      await unpendIncident(incidentId);
+      await load();
+      setIsEditing(true);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to withdraw submission.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setShowDeleteConfirm(false);
+    setActionLoading(true);
+    setActionError(null);
+    try {
+      await deleteIncident(incidentId);
+      router.push('/dashboard/regional');
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to delete incident.');
+      setActionLoading(false);
+    }
+  };
+
+  const handleEditClick = () => {
+    if (!detail) return;
+    const status = detail.verification_status;
+    if (status === 'PENDING') {
+      setShowWithdrawPopup(true);
+    } else if (status === 'DRAFT' || status === 'REJECTED') {
+      setIsEditing(true);
+      setActionError(null);
+    } else {
+      setActionError(`Cannot edit an incident with status "${status}".`);
+    }
+  };
+
   const submitValidatorAction = async () => {
     if (!validatorAction) return;
     setValidatorLoading(true);
@@ -356,7 +400,7 @@ export default function RegionalIncidentDetailPage() {
   const timeArrivedAtScene = String(ns?.time_arrived_at_scene ?? responseFields.time_arrived_at_scene ?? '').trim() || null;
   const timeReturnedToBase = String(ns?.time_returned_to_base ?? responseFields.time_returned_to_base ?? '').trim() || null;
 
-  const canEditOrSubmit = isEncoder && detail &&
+  const canSubmitOrDelete = isEncoder && detail &&
     (detail.verification_status === 'DRAFT' ||
      detail.verification_status === 'PENDING' ||
      detail.verification_status === 'REJECTED');
@@ -371,6 +415,62 @@ export default function RegionalIncidentDetailPage() {
 
   return (
     <div className="space-y-6">
+      {/* Withdraw-to-edit confirmation popup */}
+      {showWithdrawPopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4">
+            <h2 className="text-lg font-bold text-gray-900">Withdraw to Edit?</h2>
+            <p className="text-sm text-gray-600">
+              This incident is currently <strong>Pending Review</strong>. You can only edit incidents in Draft status.
+              Would you like to withdraw it from review so you can make changes? It will be set back to Draft.
+            </p>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setShowWithdrawPopup(false)}
+                className="px-4 py-2 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUnpendAndEdit}
+                disabled={actionLoading}
+                className="px-4 py-2 text-sm font-semibold text-white bg-yellow-600 rounded-lg hover:bg-yellow-700 disabled:opacity-50"
+              >
+                Withdraw &amp; Edit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation popup */}
+      {showDeleteConfirm && detail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4">
+            <h2 className="text-lg font-bold text-red-900">Delete Incident?</h2>
+            <p className="text-sm text-gray-600">
+              This will permanently remove incident <strong>#{incidentId}</strong> ({detail.verification_status}).
+              This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-4 py-2 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={actionLoading}
+                className="px-4 py-2 text-sm font-semibold text-white bg-red-700 rounded-lg hover:bg-red-800 disabled:opacity-50"
+              >
+                Delete Incident
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <Link
           href={isValidator ? '/dashboard/validator' : '/dashboard/regional'}
@@ -379,37 +479,42 @@ export default function RegionalIncidentDetailPage() {
           <ArrowLeft className="h-4 w-4" aria-hidden />
           {isValidator ? 'Back to validator dashboard' : 'Back to regional dashboard'}
         </Link>
-        {detail && canEditOrSubmit && (
-          <div className="flex items-center gap-2">
+        {detail && isEncoder && (
+          <div className="flex items-center gap-2 flex-wrap">
             {!isEditing && (
               <>
-                {detail.verification_status === 'PENDING' ? (
+                {/* Delete button — always visible for DRAFT/PENDING/REJECTED */}
+                {canSubmitOrDelete && (
                   <button
-                    onClick={handleUnpend}
+                    onClick={() => setShowDeleteConfirm(true)}
                     disabled={actionLoading}
-                    title="To edit a PENDING incident, withdraw it first"
-                    className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium bg-yellow-600 text-white hover:bg-yellow-700 disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50"
                   >
-                    Withdraw for Editing
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
                   </button>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => { setIsEditing(true); setActionError(null); }}
-                      className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium border border-gray-300 bg-white hover:bg-gray-50 text-gray-700"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                      Edit
-                    </button>
-                    <button
-                      onClick={handleSubmit}
-                      disabled={actionLoading}
-                      className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium bg-red-800 text-white hover:bg-red-700 disabled:opacity-50"
-                    >
-                      <Send className="h-3.5 w-3.5" />
-                      {detail.verification_status === 'REJECTED' ? 'Resubmit for Review' : 'Submit for Review'}
-                    </button>
-                  </>
+                )}
+
+                {/* Edit button — always visible; clicking on PENDING shows popup */}
+                <button
+                  onClick={handleEditClick}
+                  disabled={actionLoading}
+                  className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 disabled:opacity-50"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit
+                </button>
+
+                {/* Submit / Resubmit — only for DRAFT or REJECTED */}
+                {(detail.verification_status === 'DRAFT' || detail.verification_status === 'REJECTED') && (
+                  <button
+                    onClick={handleSubmit}
+                    disabled={actionLoading}
+                    className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium bg-red-800 text-white hover:bg-red-700 disabled:opacity-50"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    {detail.verification_status === 'REJECTED' ? 'Resubmit for Review' : 'Submit for Review'}
+                  </button>
                 )}
               </>
             )}

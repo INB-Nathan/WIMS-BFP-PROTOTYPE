@@ -2309,15 +2309,74 @@ def list_encoder_drafts(
 @router.get("/incidents/check-duplicate")
 def check_incident_duplicate(
     region_id: int,
-    incident_type_code: str,
     fire_date: str,
-    user: Annotated[dict, Depends(get_regional_encoder)],
-    db: Annotated[Session, Depends(get_db_with_rls)],
+    incident_type_code: Optional[str] = None,
+    general_category: Optional[str] = None,
+    user: Annotated[dict, Depends(get_regional_encoder)] = None,
+    db: Annotated[Session, Depends(get_db_with_rls)] = None,
 ):
-    """Return existing non-archived incidents for the same region + incident_type_code + fire date.
-    Used by the encoder form to surface potential duplicates before saving."""
+    """Return existing non-archived incidents that could be duplicates.
+
+    Detection criteria (OR logic — any match triggers a warning):
+      1. Same region + type_code + same calendar month + year (reference number space collision)
+      2. Same region + type_code + exact fire date
+      3. Same region + general_category + exact fire date (when no type_code available)
+    """
+    try:
+        fire_dt = datetime.fromisoformat(str(fire_date))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="fire_date must be a valid YYYY-MM-DD date")
+
+    fire_month = fire_dt.month
+    fire_year = fire_dt.year
+
+    # Build WHERE conditions with explicit Python-side checks to avoid NULL pitfalls
+    where_conditions = [
+        "fi.region_id = :rid",
+        "fi.is_archived = FALSE",
+        "fi.verification_status != 'REJECTED'",
+    ]
+
+    # Build OR sub-conditions
+    or_parts: list[str] = []
+    params: dict[str, Any] = {
+        "rid": region_id,
+        "fire_date": fire_date,
+        "fire_month": fire_month,
+        "fire_year": fire_year,
+    }
+
+    if incident_type_code:
+        params["type_code"] = incident_type_code
+        # Same reference number space (same type + same month + year)
+        or_parts.append(
+            "(fi.incident_type_code = :type_code"
+            " AND EXTRACT(MONTH FROM nd.notification_dt AT TIME ZONE 'Asia/Manila') = :fire_month"
+            " AND EXTRACT(YEAR FROM nd.notification_dt AT TIME ZONE 'Asia/Manila') = :fire_year)"
+        )
+        # Exact date + type (catches same day, different month edge case from above)
+        or_parts.append(
+            "(fi.incident_type_code = :type_code"
+            " AND DATE(nd.notification_dt AT TIME ZONE 'Asia/Manila') = CAST(:fire_date AS DATE))"
+        )
+
+    if general_category:
+        params["general_category"] = general_category
+        # Same category + exact date (fallback when no type code)
+        or_parts.append(
+            "(nd.general_category = :general_category"
+            " AND DATE(nd.notification_dt AT TIME ZONE 'Asia/Manila') = CAST(:fire_date AS DATE))"
+        )
+
+    if not or_parts:
+        # Nothing to match on — can't run a useful check
+        return {"duplicates": []}
+
+    where_conditions.append(f"({' OR '.join(or_parts)})")
+    where_sql = " AND ".join(where_conditions)
+
     rows = db.execute(
-        text("""
+        text(f"""
             SELECT
                 fi.incident_id,
                 fi.reference_number,
@@ -2332,15 +2391,13 @@ def check_incident_duplicate(
             FROM wims.fire_incidents fi
             LEFT JOIN wims.incident_nonsensitive_details nd
                 ON nd.incident_id = fi.incident_id
-            WHERE fi.region_id = :rid
-              AND fi.incident_type_code = :type_code
-              AND DATE(nd.notification_dt AT TIME ZONE 'Asia/Manila') = CAST(:fire_date AS DATE)
-              AND fi.is_archived = FALSE
-              AND fi.verification_status != 'REJECTED'
-            ORDER BY fi.created_at DESC
-            LIMIT 5
+            WHERE {where_sql}
+            ORDER BY
+                fi.verification_status DESC,  -- VERIFIED first, then PENDING
+                fi.created_at DESC
+            LIMIT 10
         """),
-        {"rid": region_id, "type_code": incident_type_code, "fire_date": fire_date},
+        params,
     ).fetchall()
 
     return {
@@ -3422,10 +3479,10 @@ def delete_incident(
             status_code=404, detail="Incident not found or not owned by you"
         )
 
-    if incident[1] != "DRAFT":
+    if incident[1] not in ("DRAFT", "PENDING", "REJECTED"):
         raise HTTPException(
             status_code=403,
-            detail=f"Cannot delete incident with status '{incident[1]}'. Only DRAFT incidents can be deleted.",
+            detail=f"Cannot delete incident with status '{incident[1]}'. Only DRAFT, PENDING, or REJECTED incidents can be deleted.",
         )
 
     db.execute(

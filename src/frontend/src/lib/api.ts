@@ -554,20 +554,20 @@ export interface RefDuplicateIncident {
 }
 
 /**
- * Check whether an incident with the same region + type + fire date already exists.
+ * Check whether an incident with the same region + type/category + fire date already exists.
+ * Checks reference number space (same month+year+type) and exact-date matches.
  * Returns [] if none found or on error.
  */
 export async function checkIncidentDuplicate(params: {
   regionId: number;
-  incidentTypeCode: string;
   fireDate: string; // YYYY-MM-DD
+  incidentTypeCode?: string;
+  generalCategory?: string;
 }): Promise<RefDuplicateIncident[]> {
   try {
-    const qs = new URLSearchParams({
-      region_id: String(params.regionId),
-      incident_type_code: params.incidentTypeCode,
-      fire_date: params.fireDate,
-    });
+    const qs = new URLSearchParams({ region_id: String(params.regionId), fire_date: params.fireDate });
+    if (params.incidentTypeCode) qs.set('incident_type_code', params.incidentTypeCode);
+    if (params.generalCategory) qs.set('general_category', params.generalCategory);
     const result = await apiFetch<{ duplicates: RefDuplicateIncident[] }>(
       `/regional/incidents/check-duplicate?${qs.toString()}`
     );
@@ -575,6 +575,11 @@ export async function checkIncidentDuplicate(params: {
   } catch {
     return [];
   }
+}
+
+/** Soft-delete a DRAFT, PENDING, or REJECTED incident (sets is_archived = TRUE). */
+export async function deleteIncident(incidentId: number): Promise<{ status: string; incident_id: number }> {
+  return apiFetch(`/regional/incidents/${incidentId}`, { method: 'DELETE' });
 }
 
 // ── M4-E: Dedicated draft endpoints ─────────────────────────────────────────

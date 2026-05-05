@@ -441,10 +441,38 @@ export function IncidentForm({
 
       classification_of_involved: (() => {
         const raw = ns.classification_of_involved || ns.general_category || '';
-        const legacyMap: Record<string, string> = { 'Structural': 'STRUCTURAL', 'Non-Structural': 'NON_STRUCTURAL', 'Transportation': 'VEHICULAR' };
+        const legacyMap: Record<string, string> = {
+          'Structural': 'STRUCTURAL', 'Non-Structural': 'NON_STRUCTURAL',
+          'Transportation': 'VEHICULAR', 'Vehicular': 'VEHICULAR',
+          'Wildland': 'WILDLAND',
+        };
         return legacyMap[raw] ?? raw;
       })(),
-      type_of_involved_general_category: ns.type_of_involved_general_category || (ns as Record<string, unknown>).sub_category as string || '',
+      type_of_involved_general_category: (() => {
+        const rawType = String(
+          ns.type_of_involved_general_category ||
+          (ns as Record<string, unknown>).sub_category ||
+          (ns as Record<string, unknown>).incident_type ||
+          ''
+        );
+        if (!rawType) return '';
+        // Resolve classification first so we can look up valid options
+        const rawClass = ns.classification_of_involved || ns.general_category || '';
+        const legacyCM: Record<string, string> = {
+          'Structural': 'STRUCTURAL', 'Non-Structural': 'NON_STRUCTURAL',
+          'Transportation': 'VEHICULAR', 'Vehicular': 'VEHICULAR', 'Wildland': 'WILDLAND',
+        };
+        const classification = legacyCM[rawClass] ?? rawClass;
+        const opts = getTypeOptionsForClassification(classification);
+        const exact = opts.find((o) => o.name === rawType);
+        if (exact) return exact.name;
+        const ci = opts.find((o) => o.name.toLowerCase() === rawType.toLowerCase());
+        if (ci) return ci.name;
+        // Try code match (e.g. "INF" → "Informal Settlement")
+        const byCode = opts.find((o) => o.code.toLowerCase() === rawType.toLowerCase());
+        if (byCode) return byCode.name;
+        return rawType; // fall back to raw value; user can correct
+      })(),
       station_code: (ns as Record<string, unknown>).station_code as string || 'TBA',
       owner_name: sen.owner_name || ns.owner_name || '',
       establishment_name: sen.establishment_name || ns.establishment_name || '',
@@ -718,6 +746,10 @@ export function IncidentForm({
     if (!formState.classification_of_involved) errors.add('classification_of_involved');
     if (!resolveRegionId()) errors.add('region');
     if (!existingIncidentId && (latitude === null || longitude === null)) errors.add('map_location');
+    // Reference number dependency: type is required when classification is selected
+    if (formState.classification_of_involved && !formState.type_of_involved_general_category) {
+      errors.add('type_of_involved_general_category');
+    }
     if (errors.size > 0) {
       setFieldErrors(errors);
       const FIELD_NAMES: Record<string, string> = {
@@ -728,6 +760,7 @@ export function IncidentForm({
         incident_address: 'Incident Address',
         alarm_level: 'Highest Alarm Level',
         classification_of_involved: 'Classification of Involved',
+        type_of_involved_general_category: 'Type of Involved (required for reference number)',
         region: 'Region',
         map_location: 'Fire Scene Location on Map',
       };
@@ -744,22 +777,23 @@ export function IncidentForm({
     const effectiveRegionId = resolveRegionId()!;
 
     // ── Duplicate detection ────────────────────────────────────────────────
-    // Only check on create mode and when we have the minimum fields to build a key.
-    if (!existingIncidentId && incidentTypeCode && formState.notification_dt_date) {
+    // Trigger when we have at minimum: region + date + (type code OR classification).
+    if (!existingIncidentId && formState.notification_dt_date &&
+        (incidentTypeCode || formState.classification_of_involved)) {
       const dupes = await checkIncidentDuplicate({
         regionId: effectiveRegionId,
-        incidentTypeCode,
         fireDate: formState.notification_dt_date,
+        incidentTypeCode: incidentTypeCode || undefined,
+        generalCategory: formState.classification_of_involved || undefined,
       });
       if (dupes.length > 0) {
-        // Build the actual submit callback so the modal can trigger it.
         const doProceed = async () => {
           setDuplicateModalData(null);
           await doCreateIncident(effectiveRegionId);
         };
         setDuplicateModalData({ duplicates: dupes, proceedCallback: doProceed });
         setLoading(false);
-        return; // pause — wait for modal response
+        return;
       }
     }
 
@@ -1395,13 +1429,13 @@ export function IncidentForm({
               </select>
             </div>
 
-            <div>
-              <label className={labelCls}>Type of Involved</label>
+            <div data-field-error={fieldErrors.has('type_of_involved_general_category') ? 'true' : undefined}>
+              <label className={labelCls}>Type of Involved{reqMark}</label>
               {formState.classification_of_involved ? (
                 <>
                   <select
                     name="type_of_involved_general_category"
-                    className={inputCls}
+                    className={errCls('type_of_involved_general_category')}
                     value={formState.type_of_involved_general_category}
                     onChange={handleChange}
                   >
@@ -1868,6 +1902,49 @@ export function IncidentForm({
               } catch (err: unknown) {
                 showToast(`Replace failed: ${(err as Error).message}`);
               } finally {
+                setLoading(false);
+              }
+            })();
+          }}
+          onRequestUpdate={(existingId) => {
+            // "Request Update" on a VERIFIED incident: creates a new incident with a narrative note
+            // referencing the existing verified record, so validators can see it's an update request.
+            setDuplicateModalData(null);
+            const effectiveRegionId = resolveRegionId();
+            if (!effectiveRegionId) { showToast('Region not set — cannot submit.'); return; }
+            const updateNote = `[UPDATE REQUEST for incident #${existingId}]\n`;
+            const currentNarrative = formState.narrative_report || '';
+            const narrativeWithNote = currentNarrative.startsWith('[UPDATE REQUEST')
+              ? currentNarrative
+              : updateNote + currentNarrative;
+            // Pass the modified narrative directly into the create call via a temp override
+            void (async () => {
+              setLoading(true);
+              try {
+                // Build the payload with the update note pre-injected
+                const fs = { ...formState, narrative_report: narrativeWithNote } as Record<string, unknown>;
+                const incident = {
+                  latitude, longitude, region_id: effectiveRegionId,
+                  incident_nonsensitive_details: {
+                    notification_dt: fs.notification_dt_date && fs.notification_dt_time
+                      ? `${fs.notification_dt_date}T${fs.notification_dt_time}:00`
+                      : new Date().toISOString(),
+                    alarm_level: fs.alarm_level,
+                    general_category: fs.classification_of_involved,
+                    incident_type_code: incidentTypeCode || undefined,
+                    station_code: (fs.station_code as string) || 'TBA',
+                    fire_station_name: fs.fire_station_name,
+                    responder_type: fs.responder_type,
+                    incident_type: fs.type_of_involved_general_category,
+                    barangay: '', city_id: 0, district_id: 0, province_id: 0,
+                  },
+                  incident_sensitive_details: { narrative_report: narrativeWithNote },
+                } as unknown as Incident;
+                await edgeFunctions.uploadBundle({ region_id: effectiveRegionId, incidents: [incident] });
+                showToast(`Update request submitted. Validator will review against incident #${existingId}.`);
+                router.push('/dashboard/regional');
+              } catch (err: unknown) {
+                showToast(`Submit failed: ${(err as Error).message}`);
                 setLoading(false);
               }
             })();

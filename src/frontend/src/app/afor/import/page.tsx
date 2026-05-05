@@ -512,6 +512,21 @@ export default function AforImportPage() {
     geocodeTriggered.current = false;
     try {
       const data = await importAforFile(file);
+
+      // If there are valid rows, redirect to the manual encoding form immediately.
+      // The encoder reviews / corrects the pre-filled data there before saving.
+      const firstValid = data.rows.find((r) => r.status === 'VALID');
+      if (firstValid) {
+        sessionStorage.setItem('temp_afor_review', JSON.stringify({
+          ...firstValid.data,
+          _form_kind: data.form_kind,
+        }));
+        sessionStorage.setItem('temp_afor_form_kind', data.form_kind);
+        router.push('/afor/create?from=import');
+        return;
+      }
+
+      // No valid rows — show preview so encoder can see all errors
       setPreviewData(data);
       setCommitLatStr('');
       setCommitLngStr('');
