@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import hashlib
 import json
 import logging
 import math
@@ -18,7 +19,10 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user, get_national_validator, get_regional_encoder
 from database import get_db_with_rls
-from services.analytics_read_model import sync_incidents_batch
+from services.analytics_read_model import (
+    sync_incident_to_analytics,
+    sync_incidents_batch,
+)
 from utils.crypto import SecurityProvider, SecurityProviderError
 from utils.audit import log_system_audit
 
@@ -3227,9 +3231,16 @@ def verify_incident(
     # --- 2. Fetch the incident (existence + archive check) ---
     incident_row = db.execute(
         text("""
-            SELECT incident_id, verification_status, region_id, encoder_id
-            FROM wims.fire_incidents
-            WHERE incident_id = :iid AND is_archived = FALSE
+            SELECT
+                fi.incident_id,
+                fi.verification_status,
+                fi.region_id,
+                fi.encoder_id,
+                u.keycloak_id,
+                fi.created_at
+            FROM wims.fire_incidents fi
+            JOIN wims.users u ON u.user_id = fi.encoder_id
+            WHERE fi.incident_id = :iid AND fi.is_archived = FALSE
         """),
         {"iid": incident_id},
     ).fetchone()
@@ -3239,6 +3250,8 @@ def verify_incident(
 
     inc_region_id = incident_row[2]
     inc_encoder_id = incident_row[3]
+    inc_keycloak_id = incident_row[4]
+    inc_created_at = incident_row[5]
     current_status = incident_row[1]
 
     # --- 3. Region isolation — strict, no fall-through ---
@@ -3265,15 +3278,31 @@ def verify_incident(
         )
 
     # --- 5. Apply update + audit in one transaction ---
+    # M6-D: compute SHA-256 hash of canonical incident data at VERIFIED transition
+    data_hash = None
+    if target_status == "VERIFIED":
+        canonical = {
+            "encoder_id": str(inc_encoder_id),
+            "keycloak_id": str(inc_keycloak_id),
+            "incident_id": str(incident_id),
+            "region_id": str(inc_region_id),
+            "verification_status": "VERIFIED",
+            "created_at": inc_created_at.isoformat(),
+        }
+        data_hash = hashlib.sha256(
+            json.dumps(canonical, sort_keys=True).encode()
+        ).hexdigest()
+
     try:
         db.execute(
             text("""
                 UPDATE wims.fire_incidents
                 SET verification_status = :new_status,
+                    data_hash = COALESCE(:data_hash, data_hash),
                     updated_at = now()
                 WHERE incident_id = :iid
             """),
-            {"new_status": target_status, "iid": incident_id},
+            {"new_status": target_status, "iid": incident_id, "data_hash": data_hash},
         )
 
         _insert_incident_verification_history(
@@ -3304,6 +3333,10 @@ def verify_incident(
             status_code=500,
             detail="Failed to apply verification action — transaction rolled back",
         )
+
+    # ADR-009: sync verified incident to analytics facts (#84 fix)
+    sync_incident_to_analytics(db, incident_id)
+    db.commit()
 
     logger.info(
         "Validator user_id=%s applied action='%s' to incident_id=%s "

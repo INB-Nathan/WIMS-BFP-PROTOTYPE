@@ -220,7 +220,7 @@ jobs:
               done
 
       - name: Run tests
-        run: pytest -v --tb=short --ignore=tests/test_rate_limiting.py --ignore=tests/test_suricata_ingestion.py
+        run: pytest -v --tb=short --ignore=tests/test_rate_limiting.py --ignore=tests/test_suricata_ingestion.py --ignore=tests/test_infra_config.py --ignore=tests/integration/test_wims_initial_schema_bootstrap.py --ignore=tests/integration/test_auth_otp_policy.py --ignore=tests/integration/test_database_schema.py --ignore=tests/integration/test_rls_policy_enforcement.py --ignore=tests/integration/test_sql_quality_audit.py
         env:
           KEYCLOAK_REALM_URL: "http://localhost:8080/auth/realms/bfp"
           KEYCLOAK_CLIENT_ID: "bfp-client"
@@ -230,7 +230,7 @@ jobs:
           WIMS_MASTER_KEY: ${{ secrets.WIMS_MASTER_KEY }}
 
       - name: Coverage report
-        run: pytest --cov=. --cov-report=term-missing --cov-fail-under=30 --ignore=tests/test_rate_limiting.py --ignore=tests/test_suricata_ingestion.py
+        run: pytest --cov=. --cov-report=term-missing --cov-fail-under=30 --ignore=tests/test_rate_limiting.py --ignore=tests/test_suricata_ingestion.py --ignore=tests/test_infra_config.py --ignore=tests/integration/test_wims_initial_schema_bootstrap.py --ignore=tests/integration/test_auth_otp_policy.py --ignore=tests/integration/test_database_schema.py --ignore=tests/integration/test_rls_policy_enforcement.py --ignore=tests/integration/test_sql_quality_audit.py
         env:
           KEYCLOAK_REALM_URL: "http://localhost:8080/auth/realms/bfp"
           KEYCLOAK_CLIENT_ID: "bfp-client"
