@@ -14,7 +14,7 @@ from auth import get_current_wims_user
 from database import get_db_with_rls
 from schemas.incident import IncidentCreate, IncidentResponse
 from services.analytics_read_model import sync_incident_to_analytics
-from api.routes.regional import _normalize_general_category
+from api.routes.regional import _normalize_general_category, _generate_reference_number
 
 router = APIRouter(prefix="/api", tags=["incidents"])
 logger = logging.getLogger("wims.incidents")
@@ -113,6 +113,15 @@ def upload_incident_bundle(
         lon = _safe_float(item.get("longitude"), 0.0)
         lat = _safe_float(item.get("latitude"), 0.0)
 
+        incident_type_code_val = (ns.get("incident_type_code") or "").strip().upper() or None
+        station_code_val = (ns.get("station_code") or "TBA").strip() or "TBA"
+        ref_num: str | None = None
+        if incident_type_code_val:
+            ref_num = _generate_reference_number(
+                db, region_id, incident_type_code_val, station_code_val,
+                ns.get("notification_dt"),
+            )
+
         city_id: int | None = None
         city_id_raw = ns.get("city_id")
         try:
@@ -130,11 +139,12 @@ def upload_incident_bundle(
             text(
                 """
                 INSERT INTO wims.fire_incidents
-                    (import_batch_id, encoder_id, region_id, location, verification_status)
+                    (import_batch_id, encoder_id, region_id, location, verification_status,
+                     incident_type_code, reference_number)
                 VALUES
                     (:batch_id, CAST(:uid AS uuid), :region_id,
                      ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
-                     'DRAFT')
+                     'DRAFT', :incident_type_code, :reference_number)
                 RETURNING incident_id
                 """
             ),
@@ -144,6 +154,8 @@ def upload_incident_bundle(
                 "region_id": region_id,
                 "lon": lon,
                 "lat": lat,
+                "incident_type_code": incident_type_code_val,
+                "reference_number": ref_num,
             },
         ).fetchone()
 
@@ -166,7 +178,7 @@ def upload_incident_bundle(
                     resources_deployed, alarm_timeline, problems_encountered,
                     recommendations, fire_station_name, stage_of_fire,
                     extent_total_floor_area_sqm, extent_total_land_area_hectares,
-                    distance_from_station_km
+                    distance_from_station_km, station_code
                 ) VALUES (
                     :incident_id, :city_id,
                     CAST(:notification_dt AS timestamptz), :alarm_level, :general_category, :sub_category,
@@ -177,7 +189,7 @@ def upload_incident_bundle(
                     CAST(:resources_deployed AS jsonb), CAST(:alarm_timeline AS jsonb), CAST(:problems_encountered AS jsonb),
                     :recommendations, :fire_station_name, :stage_of_fire,
                     :floor_area, :land_area,
-                    :distance_from_station_km
+                    :distance_from_station_km, :station_code
                 )
                 """
             ),
@@ -216,6 +228,7 @@ def upload_incident_bundle(
                     ns.get("distance_to_fire_scene_km")
                     or ns.get("distance_from_station_km")
                 ),
+                "station_code": station_code_val,
             },
         )
 

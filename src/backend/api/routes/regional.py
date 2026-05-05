@@ -2306,6 +2306,62 @@ def list_encoder_drafts(
     }
 
 
+@router.get("/incidents/check-duplicate")
+def check_incident_duplicate(
+    region_id: int,
+    incident_type_code: str,
+    fire_date: str,
+    user: Annotated[dict, Depends(get_regional_encoder)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Return existing non-archived incidents for the same region + incident_type_code + fire date.
+    Used by the encoder form to surface potential duplicates before saving."""
+    rows = db.execute(
+        text("""
+            SELECT
+                fi.incident_id,
+                fi.reference_number,
+                fi.verification_status,
+                fi.incident_type_code,
+                nd.notification_dt,
+                nd.alarm_level,
+                nd.general_category,
+                nd.sub_category,
+                nd.fire_station_name,
+                nd.station_code
+            FROM wims.fire_incidents fi
+            LEFT JOIN wims.incident_nonsensitive_details nd
+                ON nd.incident_id = fi.incident_id
+            WHERE fi.region_id = :rid
+              AND fi.incident_type_code = :type_code
+              AND DATE(nd.notification_dt AT TIME ZONE 'Asia/Manila') = CAST(:fire_date AS DATE)
+              AND fi.is_archived = FALSE
+              AND fi.verification_status != 'REJECTED'
+            ORDER BY fi.created_at DESC
+            LIMIT 5
+        """),
+        {"rid": region_id, "type_code": incident_type_code, "fire_date": fire_date},
+    ).fetchall()
+
+    return {
+        "duplicates": [
+            {
+                "incident_id": r[0],
+                "reference_number": r[1],
+                "verification_status": r[2],
+                "incident_type_code": r[3],
+                "notification_dt": str(r[4]) if r[4] else None,
+                "alarm_level": r[5],
+                "general_category": r[6],
+                "type_of_involved": r[7],
+                "fire_station_name": r[8],
+                "station_code": r[9],
+            }
+            for r in rows
+        ]
+    }
+
+
 @router.get("/incidents/{incident_id}")
 def get_regional_incident_detail(
     incident_id: int,
@@ -2322,7 +2378,8 @@ def get_regional_incident_detail(
                 SELECT fi.incident_id, fi.verification_status, fi.created_at,
                        fi.region_id, fi.encoder_id,
                        ST_Y(fi.location::geometry) AS latitude,
-                       ST_X(fi.location::geometry) AS longitude
+                       ST_X(fi.location::geometry) AS longitude,
+                       fi.reference_number, fi.incident_type_code
                 FROM wims.fire_incidents fi
                 WHERE fi.incident_id = :iid
                   AND fi.is_archived = FALSE
@@ -2336,7 +2393,8 @@ def get_regional_incident_detail(
                 SELECT fi.incident_id, fi.verification_status, fi.created_at,
                        fi.region_id, fi.encoder_id,
                        ST_Y(fi.location::geometry) AS latitude,
-                       ST_X(fi.location::geometry) AS longitude
+                       ST_X(fi.location::geometry) AS longitude,
+                       fi.reference_number, fi.incident_type_code
                 FROM wims.fire_incidents fi
                 WHERE fi.incident_id = :iid
                   AND fi.encoder_id = CAST(:encoder_id AS uuid)
@@ -2630,6 +2688,49 @@ def get_regional_stats(
 # CRUD — Direct Incident Create / Update / Delete
 # ---------------------------------------------------------------------------
 
+_AFOR_MONTH_CODES = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                     "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+
+
+def _generate_reference_number(
+    db: Session,
+    region_id: int,
+    incident_type_code: str,
+    station_code: str,
+    notification_dt: str | None,
+) -> str:
+    """Generate AFOR-RGN-{code}-{station}-{type}-{MMM}-{YYYY}-{NNNN}."""
+    region_row = db.execute(
+        text("SELECT region_code FROM wims.ref_regions WHERE region_id = :rid"),
+        {"rid": region_id},
+    ).fetchone()
+    region_code = region_row[0] if region_row else "UNK"
+
+    try:
+        dt = datetime.fromisoformat(str(notification_dt).replace("Z", "+00:00")) if notification_dt else datetime.now()
+    except (ValueError, TypeError):
+        dt = datetime.now()
+
+    month = _AFOR_MONTH_CODES[dt.month - 1]
+    year = dt.year
+    station = (station_code or "TBA").strip() or "TBA"
+
+    count = db.execute(
+        text("""
+            SELECT COUNT(*) FROM wims.fire_incidents fi
+            LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+            WHERE fi.region_id = :rid
+              AND fi.incident_type_code = :type_code
+              AND EXTRACT(MONTH FROM nd.notification_dt) = :month_num
+              AND EXTRACT(YEAR FROM nd.notification_dt) = :year
+              AND fi.is_archived = FALSE
+        """),
+        {"rid": region_id, "type_code": incident_type_code, "month_num": dt.month, "year": year},
+    ).scalar() or 0
+
+    seq = int(count) + 1
+    return f"AFOR-RGN-{region_code}-{station}-{incident_type_code}-{month}-{year}-{seq:04d}"
+
 
 class IncidentCreateRequest(BaseModel):
     """Create a new fire incident with nonsensitive + optional sensitive details."""
@@ -2663,6 +2764,9 @@ class IncidentCreateRequest(BaseModel):
     fire_station_name: str | None = None
     total_response_time_minutes: int | None = None
     recommendations: str | None = None
+    # Reference number fields
+    station_code: str | None = "TBA"
+    incident_type_code: str | None = None
     # Sensitive details (optional — PII fields)
     street_address: str | None = None
     landmark: str | None = None
@@ -2707,6 +2811,9 @@ class IncidentUpdateRequest(BaseModel):
     fire_station_name: str | None = None
     total_response_time_minutes: int | None = None
     recommendations: str | None = None
+    # Reference number fields
+    station_code: str | None = None
+    incident_type_code: str | None = None
     # Sensitive fields
     street_address: str | None = None
     landmark: str | None = None
@@ -2747,11 +2854,21 @@ def create_incident(
         )
     encoder_id = user["user_id"]
 
+    # Generate reference number before inserting (needs region_id and notification_dt)
+    type_code = (body.incident_type_code or "").strip().upper() or None
+    station_code = (body.station_code or "TBA").strip() or "TBA"
+    ref_num: str | None = None
+    if type_code:
+        ref_num = _generate_reference_number(
+            db, region_id, type_code, station_code, body.notification_dt
+        )
+
     # Insert fire_incidents core row
     incident_row = db.execute(
         text("""
-            INSERT INTO wims.fire_incidents (encoder_id, region_id, location, verification_status)
-            VALUES (:eid, :rid, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 'DRAFT')
+            INSERT INTO wims.fire_incidents
+                (encoder_id, region_id, location, verification_status, incident_type_code, reference_number)
+            VALUES (:eid, :rid, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 'DRAFT', :type_code, :ref_num)
             RETURNING incident_id
         """),
         {
@@ -2759,6 +2876,8 @@ def create_incident(
             "rid": region_id,
             "lon": body.longitude,
             "lat": body.latitude,
+            "type_code": type_code,
+            "ref_num": ref_num,
         },
     ).fetchone()
     incident_id = incident_row[0]
@@ -2790,6 +2909,7 @@ def create_incident(
         "fire_station_name",
         "total_response_time_minutes",
         "recommendations",
+        "station_code",
     }
     ns_params = {"iid": incident_id}
     ns_cols = ["incident_id"]
@@ -2874,6 +2994,8 @@ def create_incident(
         "status": "created",
         "incident_id": incident_id,
         "verification_status": "DRAFT",
+        "reference_number": ref_num,
+        "incident_type_code": type_code,
     }
 
 
@@ -2918,6 +3040,7 @@ def _apply_incident_field_updates(
         "families_affected", "structures_affected", "households_affected", "individuals_affected",
         "responder_type", "fire_origin", "extent_of_damage", "stage_of_fire",
         "fire_station_name", "total_response_time_minutes", "recommendations",
+        "station_code",
     }
     ns_updates: list[str] = []
     ns_params: dict[str, Any] = {"iid": incident_id}
@@ -2936,6 +3059,14 @@ def _apply_incident_field_updates(
                 f"UPDATE wims.incident_nonsensitive_details SET {', '.join(ns_updates)} WHERE incident_id = :iid"
             ),
             ns_params,
+        )
+
+    # Update incident_type_code on the fire_incidents core row if provided
+    new_type_code = (getattr(body, "incident_type_code", None) or "").strip().upper() or None
+    if new_type_code:
+        db.execute(
+            text("UPDATE wims.fire_incidents SET incident_type_code = :tc WHERE incident_id = :iid"),
+            {"tc": new_type_code, "iid": incident_id},
         )
 
     sd_fields = {

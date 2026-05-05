@@ -3,6 +3,138 @@
  * Used by both the import preview page and the incident detail view.
  */
 
+// ── AFOR Incident Type Codes ─────────────────────────────────────────────────
+
+export interface IncidentTypeOption {
+  name: string;
+  code: string;
+}
+
+export const STRUCTURAL_TYPE_OPTIONS: IncidentTypeOption[] = [
+  { name: 'Apartment Building', code: 'APT' },
+  { name: 'Condominiums', code: 'CON' },
+  { name: 'Dormitory', code: 'DOR' },
+  { name: 'Hotel', code: 'HOT' },
+  { name: 'Lodging and Rooming Houses', code: 'LRH' },
+  { name: 'Single and Two Family Dwelling', code: 'SFD' },
+  { name: 'Informal Settlement', code: 'INF' },
+  { name: 'Assembly', code: 'ASM' },
+  { name: 'Business', code: 'BUS' },
+  { name: 'Detention and Correctional', code: 'DET' },
+  { name: 'Educational', code: 'EDU' },
+  { name: 'Health Care', code: 'HLC' },
+  { name: 'Residential Board and Care', code: 'RBC' },
+  { name: 'Industrial', code: 'IND' },
+  { name: 'Mercantile', code: 'MER' },
+  { name: 'Mixed Occupancies', code: 'MIX' },
+  { name: 'Storage', code: 'STO' },
+  { name: 'Day Care', code: 'DAY' },
+];
+
+export const NON_STRUCTURAL_TYPE_OPTIONS: IncidentTypeOption[] = [
+  { name: 'Miscellaneous', code: 'MSC' },
+  { name: 'Electrical / Pole', code: 'ELE' },
+  { name: 'Rubbish', code: 'RUB' },
+  { name: 'Mobile Shop', code: 'MOB' },
+  { name: 'Appliance / Equipment', code: 'APP' },
+  { name: 'Gas Cylinder', code: 'GCR' },
+];
+
+export const WILDLAND_TYPE_OPTIONS: IncidentTypeOption[] = [
+  { name: 'Brush', code: 'BRU' },
+  { name: 'Agricultural Land', code: 'AGR' },
+  { name: 'Forest', code: 'FOR' },
+  { name: 'Grass', code: 'GRS' },
+  { name: 'Peatland', code: 'PEA' },
+];
+
+export const TRANSPORTATION_TYPE_OPTIONS: IncidentTypeOption[] = [
+  { name: 'E-Bike', code: 'EBK' },
+  { name: 'Motorcycle', code: 'MOT' },
+  { name: 'Automobile', code: 'AUT' },
+  { name: 'Public Utility Vehicle', code: 'PUV' },
+  { name: 'Truck', code: 'TRK' },
+  { name: 'Bus', code: 'BUSV' },
+  { name: 'Heavy Equipment', code: 'HVY' },
+  { name: 'Locomotive', code: 'LOC' },
+  { name: 'Non-Motorized', code: 'NMT' },
+  { name: 'Customized Vehicle', code: 'CUS' },
+  { name: 'Vessel', code: 'VES' },
+  { name: 'Ship', code: 'SHP' },
+  { name: 'Aircraft', code: 'AIR' },
+  { name: 'Recreational Vehicle', code: 'REC' },
+];
+
+/** Returns the dropdown options for a given classification value. */
+export function getTypeOptionsForClassification(classification: string): IncidentTypeOption[] {
+  switch (classification) {
+    case 'STRUCTURAL': return STRUCTURAL_TYPE_OPTIONS;
+    case 'NON_STRUCTURAL': return NON_STRUCTURAL_TYPE_OPTIONS;
+    case 'WILDLAND': return WILDLAND_TYPE_OPTIONS;
+    case 'VEHICULAR': return TRANSPORTATION_TYPE_OPTIONS;
+    default: return [];
+  }
+}
+
+/** Returns the 3-4 letter AFOR code for a given classification + type name combo. */
+export function getTypeCode(classification: string, typeName: string): string {
+  const options = getTypeOptionsForClassification(classification);
+  return options.find((o) => o.name === typeName)?.code ?? '';
+}
+
+/** Returns the full type name from a code + classification (for display). */
+export function getTypeNameFromCode(classification: string, code: string): string {
+  const options = getTypeOptionsForClassification(classification);
+  return options.find((o) => o.code === code)?.name ?? code;
+}
+
+// ── Reference Number Utilities ────────────────────────────────────────────────
+
+const MONTH_CODES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'] as const;
+
+/**
+ * Converts a DB region_code (e.g. 'NCR', '4A') to the AFOR reference format ('RGN-NCR', 'RGN-4A').
+ */
+export function formatAforRegionCode(regionCode: string): string {
+  if (!regionCode) return '';
+  return `RGN-${regionCode.trim().toUpperCase()}`;
+}
+
+/**
+ * Generates a preview reference number with XXXX as the sequence placeholder.
+ * The real sequence is generated server-side on save.
+ */
+export function generateReferenceNumberPreview(params: {
+  regionCode: string;
+  stationCode: string;
+  typeCode: string;
+  notificationDate: string; // YYYY-MM-DD
+}): string {
+  const { regionCode, stationCode, typeCode, notificationDate } = params;
+  if (!regionCode || !typeCode || !notificationDate) return '';
+  const d = new Date(`${notificationDate}T00:00:00`);
+  if (isNaN(d.getTime())) return '';
+  const month = MONTH_CODES[d.getMonth()];
+  const year = d.getFullYear();
+  const aforRegion = formatAforRegionCode(regionCode);
+  const station = (stationCode || 'TBA').trim() || 'TBA';
+  return `AFOR-${aforRegion}-${station}-${typeCode}-${month}-${year}-XXXX`;
+}
+
+/**
+ * Extracts the duplicate-detection key from a reference number or its components.
+ * Key = region_code + type_code + year + month (day is checked separately via notification_dt).
+ */
+export function buildDuplicateKey(regionCode: string, typeCode: string, notificationDate: string): string {
+  if (!regionCode || !typeCode || !notificationDate) return '';
+  const d = new Date(`${notificationDate}T00:00:00`);
+  if (isNaN(d.getTime())) return '';
+  const month = MONTH_CODES[d.getMonth()];
+  const year = d.getFullYear();
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${regionCode}-${typeCode}-${year}-${month}-${day}`;
+}
+
 // ── FIX 2: Canonical label map ───────────────────────────────────────────────
 export const FIELD_LABELS: Record<string, string> = {
   // Core incident fields

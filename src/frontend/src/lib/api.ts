@@ -538,6 +538,45 @@ export async function unpendIncident(
   return apiFetch(`/regional/incidents/${incidentId}/unpend`, { method: 'PATCH' });
 }
 
+// ── Reference-number based duplicate detection ─────────────────────────────
+
+export interface RefDuplicateIncident {
+  incident_id: number;
+  reference_number: string | null;
+  verification_status: string;
+  notification_dt: string | null;
+  alarm_level: string | null;
+  general_category: string | null;
+  incident_type_code: string | null;
+  type_of_involved: string | null;
+  fire_station_name: string | null;
+  station_code: string | null;
+}
+
+/**
+ * Check whether an incident with the same region + type + fire date already exists.
+ * Returns [] if none found or on error.
+ */
+export async function checkIncidentDuplicate(params: {
+  regionId: number;
+  incidentTypeCode: string;
+  fireDate: string; // YYYY-MM-DD
+}): Promise<RefDuplicateIncident[]> {
+  try {
+    const qs = new URLSearchParams({
+      region_id: String(params.regionId),
+      incident_type_code: params.incidentTypeCode,
+      fire_date: params.fireDate,
+    });
+    const result = await apiFetch<{ duplicates: RefDuplicateIncident[] }>(
+      `/regional/incidents/check-duplicate?${qs.toString()}`
+    );
+    return result.duplicates ?? [];
+  } catch {
+    return [];
+  }
+}
+
 // ── M4-E: Dedicated draft endpoints ─────────────────────────────────────────
 
 export interface DraftSummary {

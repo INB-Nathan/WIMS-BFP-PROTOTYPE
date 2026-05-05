@@ -1,15 +1,24 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { edgeFunctions, Incident } from '@/lib/edgeFunctions';
-import { fetchRegions, fetchProvinces, fetchCities, fetchCitiesByProvinces, updateRegionalIncident } from '@/lib/api';
+import {
+  fetchRegions, fetchProvinces, fetchCities, fetchCitiesByProvinces,
+  updateRegionalIncident, checkIncidentDuplicate,
+  type RefDuplicateIncident,
+} from '@/lib/api';
 import { queueIncident, getPendingIncidents, markSynced } from '@/lib/offlineStore';
 import { useUserProfile } from '@/lib/auth';
 import { Loader2, Save, Shuffle } from 'lucide-react';
 import type { Region, Province, City } from '@/types/api';
 import dynamic from 'next/dynamic';
-import { ALL_PROBLEM_OPTIONS, normalizeProblemLabel } from '@/lib/afor-utils';
+import {
+  ALL_PROBLEM_OPTIONS, normalizeProblemLabel,
+  getTypeOptionsForClassification, getTypeCode,
+  generateReferenceNumberPreview, formatAforRegionCode,
+} from '@/lib/afor-utils';
+import { DuplicateIncidentModal } from './DuplicateIncidentModal';
 
 const MapPicker = dynamic(
   () => import('./MapPicker').then((m) => m.MapPicker),
@@ -229,6 +238,9 @@ export function IncidentForm({
     disposition: '',
     disposition_prepared_by: '',
     disposition_noted_by: '',
+
+    // Reference Number fields
+    station_code: 'TBA',
   });
 
   const [otherPersonnel, setOtherPersonnel] = useState<{ name: string; designation: string; remarks: string }[]>([
@@ -236,6 +248,30 @@ export function IncidentForm({
     { name: '', designation: '', remarks: '' },
     { name: '', designation: '', remarks: '' },
   ]);
+
+  // Duplicate detection modal state
+  const [duplicateModalData, setDuplicateModalData] = useState<{
+    duplicates: RefDuplicateIncident[];
+    proceedCallback: () => Promise<void>;
+  } | null>(null);
+
+  // ── Derived reference number values ───────────────────────────────────────
+
+  const incidentTypeCode = useMemo(
+    () => getTypeCode(formState.classification_of_involved, formState.type_of_involved_general_category),
+    [formState.classification_of_involved, formState.type_of_involved_general_category],
+  );
+
+  const referenceNumberPreview = useMemo(() => {
+    const region = regions.find((r) => r.region_id === selectedRegionId);
+    const regionCode: string = (region as unknown as Record<string, unknown>)?.region_code as string || '';
+    return generateReferenceNumberPreview({
+      regionCode,
+      stationCode: formState.station_code || 'TBA',
+      typeCode: incidentTypeCode,
+      notificationDate: formState.notification_dt_date,
+    });
+  }, [selectedRegionId, regions, formState.station_code, incidentTypeCode, formState.notification_dt_date]);
 
   // ── Utility helpers ────────────────────────────────────────────────────────
 
@@ -409,6 +445,7 @@ export function IncidentForm({
         return legacyMap[raw] ?? raw;
       })(),
       type_of_involved_general_category: ns.type_of_involved_general_category || (ns as Record<string, unknown>).sub_category as string || '',
+      station_code: (ns as Record<string, unknown>).station_code as string || 'TBA',
       owner_name: sen.owner_name || ns.owner_name || '',
       establishment_name: sen.establishment_name || ns.establishment_name || '',
       general_description_of_involved: ns.general_description_of_involved || responseFields.general_description_of_involved || '',
@@ -606,6 +643,14 @@ export function IncidentForm({
     setFormState((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleClassificationChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setFormState((prev) => ({
+      ...prev,
+      classification_of_involved: e.target.value,
+      type_of_involved_general_category: '', // reset type when classification changes
+    }));
+  };
+
   const handleRadioChange = (name: string, value: string) => {
     setFormState((prev) => ({ ...prev, [name]: value }));
   };
@@ -697,8 +742,32 @@ export function IncidentForm({
     setFieldErrors(new Set());
 
     const effectiveRegionId = resolveRegionId()!;
-    setLoading(true);
 
+    // ── Duplicate detection ────────────────────────────────────────────────
+    // Only check on create mode and when we have the minimum fields to build a key.
+    if (!existingIncidentId && incidentTypeCode && formState.notification_dt_date) {
+      const dupes = await checkIncidentDuplicate({
+        regionId: effectiveRegionId,
+        incidentTypeCode,
+        fireDate: formState.notification_dt_date,
+      });
+      if (dupes.length > 0) {
+        // Build the actual submit callback so the modal can trigger it.
+        const doProceed = async () => {
+          setDuplicateModalData(null);
+          await doCreateIncident(effectiveRegionId);
+        };
+        setDuplicateModalData({ duplicates: dupes, proceedCallback: doProceed });
+        setLoading(false);
+        return; // pause — wait for modal response
+      }
+    }
+
+    await doCreateIncident(effectiveRegionId);
+  };
+
+  const doCreateIncident = async (effectiveRegionId: number) => {
+    setLoading(true);
     const fs = formState as Record<string, unknown>;
     const alarmEntry = (key: string) => {
       const dt = fs[key] as string | undefined;
@@ -739,6 +808,8 @@ export function IncidentForm({
         incident_type: formState.type_of_involved_general_category,
         classification_of_involved: formState.classification_of_involved,
         type_of_involved_general_category: formState.type_of_involved_general_category,
+        incident_type_code: incidentTypeCode || undefined,
+        station_code: formState.station_code || 'TBA',
         owner_name: formState.owner_name || 'N/A',
         establishment_name: formState.establishment_name || 'N/A',
         general_description_of_involved: formState.general_description_of_involved || 'N/A',
@@ -895,6 +966,8 @@ export function IncidentForm({
         disposition: incident.incident_sensitive_details.disposition,
         latitude: latitude ?? undefined,
         longitude: longitude ?? undefined,
+        station_code: formState.station_code || 'TBA',
+        incident_type_code: incidentTypeCode || undefined,
       };
       try {
         await updateRegionalIncident(existingIncidentId, updatePayload);
@@ -1132,6 +1205,19 @@ export function IncidentForm({
               <input name="fire_station_name" type="text" className={errCls('fire_station_name')} value={formState.fire_station_name} onChange={handleChange} />
             </div>
 
+            <div>
+              <label className={labelCls}>Station Code</label>
+              <input
+                name="station_code"
+                type="text"
+                className={inputCls}
+                placeholder="e.g. QC01 (leave as TBA if unknown)"
+                value={formState.station_code}
+                onChange={handleChange}
+              />
+              <p className="text-xs text-gray-500 mt-1">Used in the AFOR Reference Number. Defaults to TBA.</p>
+            </div>
+
             <div data-field-error={fieldErrors.has('notification_dt_date') ? 'true' : undefined}>
               <label className={labelCls}>Date Fire Notification Received{reqMark}</label>
               <input name="notification_dt_date" type="date" className={errCls('notification_dt_date')} value={formState.notification_dt_date} onChange={handleChange} />
@@ -1274,6 +1360,17 @@ export function IncidentForm({
               <input name="total_gas_consumed_liters" type="number" min="0" step="0.1" className={inputCls} value={formState.total_gas_consumed_liters} onChange={handleChange} />
             </div>
 
+            {referenceNumberPreview && (
+              <div className="md:col-span-2">
+                <label className={labelCls}>Reference Number Preview</label>
+                <div className="flex items-center gap-2 bg-gray-50 border border-gray-300 rounded px-3 py-2">
+                  <span className="font-mono text-sm text-gray-800 tracking-wide">{referenceNumberPreview}</span>
+                  <span className="ml-2 text-xs text-gray-400 italic">(sequence XXXX assigned on save)</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Format: AFOR-[Region]-[Station]-[Type]-[Month]-[Year]-[Sequence]</p>
+              </div>
+            )}
+
           </div>
         </section>
 
@@ -1284,17 +1381,48 @@ export function IncidentForm({
 
             <div data-field-error={fieldErrors.has('classification_of_involved') ? 'true' : undefined}>
               <label className={labelCls}>Classification of Involved{reqMark}</label>
-              <select name="classification_of_involved" className={errCls('classification_of_involved')} value={formState.classification_of_involved} onChange={handleChange}>
+              <select
+                name="classification_of_involved"
+                className={errCls('classification_of_involved')}
+                value={formState.classification_of_involved}
+                onChange={handleClassificationChange}
+              >
                 <option value="">Select Classification</option>
-                <option value="STRUCTURAL">Structural</option>
-                <option value="NON_STRUCTURAL">Non-Structural</option>
-                <option value="VEHICULAR">Vehicular / Transportation</option>
+                <option value="STRUCTURAL">Structural Fire</option>
+                <option value="NON_STRUCTURAL">Non-Structural Fire</option>
+                <option value="WILDLAND">Wildland Fire</option>
+                <option value="VEHICULAR">Transportation / Vehicular Fire</option>
               </select>
             </div>
 
             <div>
-              <label className={labelCls}>Specific Type (e.g. Commercial/Restaurant)</label>
-              <input name="type_of_involved_general_category" type="text" className={inputCls} placeholder="e.g. Residential, Commercial (Restaurant)" value={formState.type_of_involved_general_category} onChange={handleChange} />
+              <label className={labelCls}>Type of Involved</label>
+              {formState.classification_of_involved ? (
+                <>
+                  <select
+                    name="type_of_involved_general_category"
+                    className={inputCls}
+                    value={formState.type_of_involved_general_category}
+                    onChange={handleChange}
+                  >
+                    <option value="">Select Type</option>
+                    {getTypeOptionsForClassification(formState.classification_of_involved).map((opt) => (
+                      <option key={opt.code} value={opt.name}>
+                        {opt.name} ({opt.code})
+                      </option>
+                    ))}
+                  </select>
+                  {incidentTypeCode && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      AFOR code: <span className="font-mono font-semibold text-gray-700">{incidentTypeCode}</span>
+                    </p>
+                  )}
+                </>
+              ) : (
+                <select className={inputCls} disabled>
+                  <option>Select a classification first</option>
+                </select>
+              )}
             </div>
 
             <div>
@@ -1670,6 +1798,83 @@ export function IncidentForm({
         </button>
 
       </form>
+
+      {/* ── Duplicate Incident Modal ── */}
+      {duplicateModalData && (
+        <DuplicateIncidentModal
+          duplicates={duplicateModalData.duplicates}
+          currentForm={{
+            region: formState.region || (regions.find((r) => r.region_id === selectedRegionId)?.region_name ?? ''),
+            classification: {
+              STRUCTURAL: 'Structural Fire',
+              NON_STRUCTURAL: 'Non-Structural Fire',
+              WILDLAND: 'Wildland Fire',
+              VEHICULAR: 'Transportation / Vehicular Fire',
+            }[formState.classification_of_involved] ?? formState.classification_of_involved,
+            typeOfInvolved: formState.type_of_involved_general_category,
+            incidentTypeCode,
+            stationCode: formState.station_code || 'TBA',
+            fireDate: formState.notification_dt_date,
+            fireTime: formState.notification_dt_time,
+            alarmLevel: formState.alarm_level,
+            address: formState.incident_address,
+            referencePreview: referenceNumberPreview || '(incomplete — fill region, type, and date)',
+          }}
+          onKeepBoth={() => {
+            void duplicateModalData.proceedCallback();
+          }}
+          onReplace={(existingId) => {
+            setDuplicateModalData(null);
+            // Replace: build payload and PUT to existing incident
+            const region = regions.find((r) => r.region_id === selectedRegionId);
+            const regionCode: string = (region as unknown as Record<string, unknown>)?.region_code as string || '';
+            const replacePayload: Record<string, unknown> = {
+              notification_dt: formState.notification_dt_date && formState.notification_dt_time
+                ? `${formState.notification_dt_date}T${formState.notification_dt_time}:00`
+                : undefined,
+              alarm_level: formState.alarm_level,
+              general_category: formState.classification_of_involved,
+              sub_category: formState.type_of_involved_general_category,
+              responder_type: formState.responder_type,
+              fire_station_name: formState.fire_station_name,
+              station_code: formState.station_code || 'TBA',
+              incident_type_code: incidentTypeCode || undefined,
+              region_label: formState.region,
+              city_municipality: formState.city_municipality,
+              province_district: formState.province_district,
+              fire_origin: formState.area_of_origin,
+              extent_of_damage: formState.extent_of_damage,
+              stage_of_fire: formState.stage_of_fire_upon_arrival,
+              structures_affected: parseInt(formState.structures_affected) || 0,
+              households_affected: parseInt(formState.households_affected) || 0,
+              families_affected: parseInt(formState.families_affected) || 0,
+              individuals_affected: parseInt(formState.individuals_affected) || 0,
+              recommendations: formState.recommendations || 'N/A',
+              street_address: formState.incident_address,
+              landmark: formState.nearest_landmark,
+              narrative_report: formState.narrative_report,
+              caller_name: formState.caller_name,
+              caller_number: formState.caller_number,
+              receiver_name: formState.receiver_name,
+              latitude: latitude ?? undefined,
+              longitude: longitude ?? undefined,
+            };
+            void (async () => {
+              setLoading(true);
+              try {
+                await updateRegionalIncident(existingId, replacePayload);
+                showToast(`Existing incident #${existingId} updated with this data.`);
+                router.push(`/dashboard/regional/incidents/${existingId}`);
+              } catch (err: unknown) {
+                showToast(`Replace failed: ${(err as Error).message}`);
+              } finally {
+                setLoading(false);
+              }
+            })();
+          }}
+          onEditCurrent={() => setDuplicateModalData(null)}
+        />
+      )}
     </div>
   );
 }
