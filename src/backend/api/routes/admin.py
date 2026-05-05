@@ -2,10 +2,15 @@
 All endpoints protected by get_system_admin. No DELETE endpoints (Immutability Law)."""
 
 import logging
+import os
 import re
+import subprocess
+from datetime import datetime
+from pathlib import Path
 from typing import Annotated, Literal, Optional, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, EmailStr, field_validator
 from keycloak.exceptions import KeycloakError
 from sqlalchemy import text
@@ -26,6 +31,8 @@ from utils.audit import log_system_audit
 
 logger = logging.getLogger("wims.admin")
 router = APIRouter(tags=["admin"])
+
+BACKUP_DIR = Path(os.environ.get("BACKUP_DIR", "/app/storage/backups"))
 
 
 # ---------------------------------------------------------------------------
@@ -730,3 +737,123 @@ def list_scheduled_reports(
         }
         for r in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Backup Management
+# ---------------------------------------------------------------------------
+
+
+@router.post("/backup", status_code=202)
+async def trigger_backup(
+    request: Request,
+    current_user: dict = Depends(get_system_admin),
+    db: Session = Depends(get_db_with_rls),
+):
+    """Trigger a pg_dump backup of the wims database."""
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    filename = f"wims_{timestamp}.sql"
+    output_path = BACKUP_DIR / filename
+
+    db_url = os.environ.get("DATABASE_URL", "")
+    match = re.match(
+        r"postgresql://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)", db_url
+    )
+    if not match:
+        raise HTTPException(status_code=500, detail="Invalid DATABASE_URL format")
+
+    db_user, db_pass, db_host, db_port, db_name = match.groups()
+
+    env = os.environ.copy()
+    env["PGPASSWORD"] = db_pass
+
+    try:
+        result = subprocess.run(
+            [
+                "pg_dump",
+                "-h", db_host,
+                "-p", db_port,
+                "-U", db_user,
+                "-d", db_name,
+                "-f", str(output_path),
+                "--no-password",
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Backup timed out after 120s")
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="pg_dump not found in PATH")
+
+    if result.returncode != 0:
+        raise HTTPException(
+            status_code=500,
+            detail=f"pg_dump failed: {result.stderr[:500]}",
+        )
+
+    size_bytes = output_path.stat().st_size
+    created_at = datetime.utcnow().isoformat()
+
+    log_system_audit(
+        db=db,
+        user_id=current_user["user_id"],
+        action_type="BACKUP_TRIGGERED",
+        table_affected="wims",
+        record_id=None,
+        request=request,
+    )
+    db.commit()
+
+    return {
+        "filename": filename,
+        "size_bytes": size_bytes,
+        "created_at": created_at,
+    }
+
+
+@router.get("/backups")
+async def list_backups(
+    current_user: dict = Depends(get_system_admin),
+):
+    """List all available backup files sorted newest first."""
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+
+    files = []
+    for f in BACKUP_DIR.glob("wims_*.sql"):
+        stat = f.stat()
+        files.append({
+            "filename": f.name,
+            "size_bytes": stat.st_size,
+            "created_at": datetime.utcfromtimestamp(stat.st_mtime).isoformat(),
+        })
+
+    files.sort(key=lambda x: x["created_at"], reverse=True)
+    return files
+
+
+@router.get("/backup/{filename}")
+async def download_backup(
+    filename: str,
+    current_user: dict = Depends(get_system_admin),
+):
+    """Download a specific backup file."""
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    if not re.match(r"^wims_\d{8}_\d{6}\.sql$", filename):
+        raise HTTPException(status_code=400, detail="Invalid backup filename format")
+
+    file_path = BACKUP_DIR / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Backup file not found")
+
+    return FileResponse(
+        path=str(file_path),
+        filename=filename,
+        media_type="application/octet-stream",
+    )
