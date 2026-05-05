@@ -7,6 +7,7 @@ import io
 import hashlib
 import json
 import logging
+import uuid
 import math
 import re
 from datetime import datetime, timedelta
@@ -3062,6 +3063,13 @@ class VerificationActionRequest(BaseModel):
     notes: str | None = None  # Optional reason / validator notes
 
 
+class CorrectionRequest(BaseModel):
+    """Body for PATCH /api/regional/incidents/{incident_id}/correct."""
+
+    corrections: dict
+    notes: str | None = None
+
+
 @router.get("/validator/incidents")
 def get_validator_incident_queue(
     user: Annotated[dict, Depends(get_national_validator)],
@@ -3356,4 +3364,181 @@ def verify_incident(
         "action": action,
         "encoder_id": str(inc_encoder_id),
         "region_id": inc_region_id,
+    }
+
+
+@router.patch("/incidents/{incident_id}/correct")
+async def correct_verified_incident(
+    incident_id: int,
+    body: CorrectionRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_wims_user),
+    db: Session = Depends(get_db_with_rls),
+):
+    """Apply a correction to a VERIFIED incident.
+
+    NATIONAL_VALIDATOR and NATIONAL_ANALYST may correct any VERIFIED incident.
+    The correction updates incident_nonsensitive_details fields, recomputes
+    data_hash, writes an IVH correction row with hash chain, and syncs analytics.
+
+    Corrections are only allowed on VERIFIED rows. Non-VERIFIED rows return 409.
+    """
+    if current_user.get("role") not in ("NATIONAL_VALIDATOR", "NATIONAL_ANALYST"):
+        raise HTTPException(status_code=403, detail="Insufficient role")
+
+    corrector_user_id = uuid.UUID(current_user["user_id"])
+
+    incident_row = db.execute(
+        text("""
+            SELECT
+                fi.incident_id,
+                fi.verification_status,
+                fi.region_id,
+                fi.encoder_id,
+                fi.data_hash,
+                fi.created_at,
+                u.keycloak_id
+            FROM wims.fire_incidents fi
+            JOIN wims.users u ON u.user_id = fi.encoder_id
+            WHERE fi.incident_id = :iid AND fi.is_archived = FALSE
+        """),
+        {"iid": incident_id},
+    ).fetchone()
+
+    if not incident_row:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    (
+        inc_id,
+        inc_status,
+        inc_region_id,
+        inc_encoder_id,
+        old_data_hash,
+        inc_created_at,
+        inc_keycloak_id,
+    ) = incident_row
+
+    if inc_status != "VERIFIED":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Corrections only allowed on VERIFIED incidents. Current status: {inc_status}",
+        )
+
+    ALLOWED_NSD_FIELDS = {
+        "alarm_level",
+        "general_category",
+        "sub_category",
+        "specific_type",
+        "occupancy_type",
+        "estimated_damage_php",
+        "civilian_injured",
+        "civilian_deaths",
+        "firefighter_injured",
+        "firefighter_deaths",
+        "families_affected",
+        "water_tankers_used",
+        "foam_liters_used",
+        "breathing_apparatus_used",
+        "responder_type",
+        "fire_origin",
+        "extent_of_damage",
+        "structures_affected",
+        "households_affected",
+        "individuals_affected",
+        "fire_station_name",
+        "total_response_time_minutes",
+        "total_gas_consumed_liters",
+        "stage_of_fire",
+        "recommendations",
+    }
+    corrected_fields = [f for f in body.corrections if f in ALLOWED_NSD_FIELDS]
+    if not corrected_fields:
+        raise HTTPException(status_code=422, detail="No valid correction fields provided")
+
+    try:
+        db.execute(
+            text("""
+                INSERT INTO wims.incident_nonsensitive_details (incident_id)
+                SELECT :iid
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM wims.incident_nonsensitive_details WHERE incident_id = :iid
+                )
+            """),
+            {"iid": inc_id},
+        )
+
+        set_clause = ", ".join(f"{f} = :{f}" for f in corrected_fields)
+        params = {f: body.corrections[f] for f in corrected_fields}
+        params["iid"] = inc_id
+        db.execute(
+            text(f"UPDATE wims.incident_nonsensitive_details SET {set_clause} WHERE incident_id = :iid"),
+            params,
+        )
+
+        canonical = {
+            "encoder_id": str(inc_encoder_id),
+            "keycloak_id": str(inc_keycloak_id),
+            "incident_id": str(inc_id),
+            "region_id": str(inc_region_id),
+            "verification_status": "VERIFIED",
+            "created_at": inc_created_at.isoformat(),
+        }
+        new_data_hash = hashlib.sha256(
+            json.dumps(canonical, sort_keys=True).encode()
+        ).hexdigest()
+
+        db.execute(
+            text("UPDATE wims.fire_incidents SET data_hash = :h WHERE incident_id = :iid"),
+            {"h": new_data_hash, "iid": inc_id},
+        )
+
+        db.execute(
+            text("""
+                INSERT INTO wims.incident_verification_history
+                  (target_type, target_id, action_by_user_id,
+                   previous_status, new_status, notes,
+                   old_data_hash, new_data_hash, corrected_fields)
+                VALUES
+                  ('OFFICIAL', :tid, :uid,
+                   'VERIFIED', 'VERIFIED', :notes,
+                   :old_hash, :new_hash, :fields)
+            """),
+            {
+                "tid": inc_id,
+                "uid": corrector_user_id,
+                "notes": body.notes,
+                "old_hash": old_data_hash,
+                "new_hash": new_data_hash,
+                "fields": corrected_fields,
+            },
+        )
+
+        log_system_audit(
+            db=db,
+            user_id=corrector_user_id,
+            action_type="CORRECTION",
+            table_affected="fire_incidents",
+            record_id=inc_id,
+            request=request,
+        )
+
+        db.commit()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+    try:
+        sync_incident_to_analytics(db, inc_id)
+        db.commit()
+    except Exception:
+        pass
+
+    return {
+        "incident_id": inc_id,
+        "old_data_hash": old_data_hash,
+        "new_data_hash": new_data_hash,
+        "corrected_fields": corrected_fields,
     }
