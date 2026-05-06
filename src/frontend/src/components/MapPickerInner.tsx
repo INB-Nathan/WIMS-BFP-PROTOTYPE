@@ -116,6 +116,7 @@ export function MapPickerInner({
         (lat: number, lng: number) => {
             setPosition({ lat, lng });
             setMapCenter([lat, lng]);
+            setSuggestions([]);
             onChange?.(lat, lng);
         },
         [onChange]

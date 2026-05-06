@@ -10,7 +10,7 @@ import {
 } from '@/lib/api';
 import { queueIncident, getPendingIncidents, markSynced } from '@/lib/offlineStore';
 import { useUserProfile } from '@/lib/auth';
-import { PH_REGIONS, getProvincesForRegion, getRegionCode } from '@/lib/ph-regions';
+import { PH_REGIONS, getProvincesForRegion, getCitiesForProvince, getRegionCode } from '@/lib/ph-regions';
 import { Loader2, Save, Shuffle } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import {
@@ -692,6 +692,7 @@ export function IncidentForm({
     if (!formState.incident_address) errors.add('incident_address');
     if (!formState.alarm_level) errors.add('alarm_level');
     if (!formState.classification_of_involved) errors.add('classification_of_involved');
+    if (!formState.extent_of_damage) errors.add('extent_of_damage');
     if (!resolveRegionId()) errors.add('region');
     if (!existingIncidentId && (latitude === null || longitude === null)) errors.add('map_location');
     // Reference number dependency: type is required when classification is selected
@@ -708,6 +709,7 @@ export function IncidentForm({
         incident_address: 'Incident Address',
         alarm_level: 'Highest Alarm Level',
         classification_of_involved: 'Classification of Involved',
+        extent_of_damage: 'Extent of Damage',
         type_of_involved_general_category: 'Type of Involved (required for reference number)',
         region: 'Region',
         map_location: 'Fire Scene Location on Map',
@@ -723,27 +725,6 @@ export function IncidentForm({
     setFieldErrors(new Set());
 
     const effectiveRegionId = resolveRegionId()!;
-
-    // ── Duplicate detection ────────────────────────────────────────────────
-    // Trigger when we have at minimum: region + date + (type code OR classification).
-    if (!existingIncidentId && formState.notification_dt_date &&
-        (incidentTypeCode || formState.classification_of_involved)) {
-      const dupes = await checkIncidentDuplicate({
-        regionId: effectiveRegionId,
-        fireDate: formState.notification_dt_date,
-        incidentTypeCode: incidentTypeCode || undefined,
-        generalCategory: formState.classification_of_involved || undefined,
-      });
-      if (dupes.length > 0) {
-        const doProceed = async () => {
-          setDuplicateModalData(null);
-          await doCreateIncident(effectiveRegionId);
-        };
-        setDuplicateModalData({ duplicates: dupes, proceedCallback: doProceed });
-        setLoading(false);
-        return;
-      }
-    }
 
     await doCreateIncident(effectiveRegionId);
   };
@@ -1254,13 +1235,26 @@ export function IncidentForm({
 
             <div>
               <label className={labelCls}>City / Municipality</label>
-              <input
-                type="text"
-                className={inputCls}
-                placeholder="Type city or municipality name"
-                value={formState.city_municipality}
-                onChange={(e) => setFormState((prev) => ({ ...prev, city_municipality: e.target.value }))}
-              />
+              {getCitiesForProvince(selectedRegionId ?? 0, formState.province_district).length > 0 ? (
+                <select
+                  className={inputCls}
+                  value={formState.city_municipality}
+                  onChange={(e) => setFormState((prev) => ({ ...prev, city_municipality: e.target.value }))}
+                >
+                  <option value="">Select City / Municipality</option>
+                  {getCitiesForProvince(selectedRegionId ?? 0, formState.province_district).map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  className={inputCls}
+                  placeholder="Type city or municipality name"
+                  value={formState.city_municipality}
+                  onChange={(e) => setFormState((prev) => ({ ...prev, city_municipality: e.target.value }))}
+                />
+              )}
             </div>
 
             <div className="md:col-span-2" data-field-error={fieldErrors.has('incident_address') ? 'true' : undefined}>
@@ -1431,9 +1425,10 @@ export function IncidentForm({
               </select>
             </div>
 
-            <div className="md:col-span-2 space-y-2">
-              <label className={labelCls}>Extent of Damage (select one)</label>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+            <div className="md:col-span-2 space-y-2" data-field-error={fieldErrors.has('extent_of_damage') ? 'true' : undefined}>
+              <label className={labelCls}>Extent of Damage (select one){reqMark}</label>
+              {fieldErrors.has('extent_of_damage') && <p className="text-xs font-semibold text-red-600">Please select the extent of damage.</p>}
+              <div className={`grid grid-cols-1 md:grid-cols-3 gap-2 text-sm rounded p-2 ${fieldErrors.has('extent_of_damage') ? 'border-2 border-red-500 bg-red-50' : ''}`}>
                 {['None / Minor Damage', 'Confined to Object/Vehicle', 'Confined to Room', 'Confined to Structure or Property', 'Total Loss', 'Extended Beyond Structure or Property'].map((opt) => (
                   <label key={opt} className="flex items-center gap-2">
                     <input type="radio" name="extent_of_damage" value={opt} checked={formState.extent_of_damage === opt} onChange={() => handleRadioChange('extent_of_damage', opt)} className="h-4 w-4" />
@@ -1850,11 +1845,11 @@ export function IncidentForm({
           }}
           onRequestUpdate={(existingId) => {
             // Creates a new DRAFT incident with parent_incident_id pointing to the VERIFIED original.
-            // Validator approval of this new incident will inherit the original's reference number
-            // and archive the original.
+            // The encoder submits it for review from the detail page; the validator will then
+            // inherit the original's reference number and archive it on approval.
             setDuplicateModalData(null);
             const effectiveRegionId = resolveRegionId();
-            if (!effectiveRegionId) { showToast('Region not set — cannot submit.'); return; }
+            if (!effectiveRegionId) { showToast('Region not set — cannot save.'); return; }
             const updateNote = `[UPDATE REQUEST for incident #${existingId}]\n`;
             const currentNarrative = formState.narrative_report || '';
             const narrativeWithNote = currentNarrative.startsWith('[UPDATE REQUEST')
@@ -1895,17 +1890,17 @@ export function IncidentForm({
                   recommendations: formState.recommendations || 'N/A',
                   parent_incident_id: existingId,
                 }, { skipAuthRedirect: true });
-                // Immediately submit for review so it enters the validator queue
-                await submitIncidentForReview(result.incident_id, { skipAuthRedirect: true });
-                showToast(`Update request #${result.incident_id} submitted. Validator will review against incident #${existingId}.`);
+                // Navigate to detail page — encoder submits for review from there
+                showToast(`Update draft #${result.incident_id} saved. Open it to submit for review.`);
                 router.push(`/dashboard/regional/incidents/${result.incident_id}`);
               } catch (err: unknown) {
                 const msg = (err as Error).message ?? 'Unknown error';
                 if (msg.toLowerCase().includes('session') || msg.includes('401')) {
                   showToast('Session expired — please log in again. Your form data is still here.');
                 } else {
-                  showToast(`Submit failed: ${msg}`);
+                  showToast(`Save failed: ${msg}`);
                 }
+              } finally {
                 setLoading(false);
               }
             })();

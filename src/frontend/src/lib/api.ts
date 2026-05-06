@@ -536,9 +536,10 @@ export async function updateRegionalIncident(
 
 export async function submitIncidentForReview(
   incidentId: number,
-  options?: { skipAuthRedirect?: boolean }
-): Promise<{ status: string; incident_id: number; verification_status: string }> {
-  return apiFetch(`/regional/incidents/${incidentId}/submit`, {
+  options?: { skipAuthRedirect?: boolean; ackDuplicate?: boolean }
+): Promise<{ status: string; incident_id: number; verification_status: string; matched_incident_id?: number }> {
+  const url = `/regional/incidents/${incidentId}/submit${options?.ackDuplicate ? '?ack_duplicate=true' : ''}`;
+  return apiFetch(url, {
     method: 'PATCH',
     skipAuthRedirect: options?.skipAuthRedirect,
   });

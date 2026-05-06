@@ -233,6 +233,7 @@ export default function RegionalIncidentDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [showWithdrawPopup, setShowWithdrawPopup] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [duplicateFound, setDuplicateFound] = useState<{ matchedIncidentId: number } | null>(null);
 
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
   const isValidator = role === 'NATIONAL_VALIDATOR' || role === 'VALIDATOR';
@@ -287,11 +288,15 @@ export default function RegionalIncidentDetailPage() {
     };
   }, [detail]);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (ackDuplicate = false) => {
     setActionLoading(true);
     setActionError(null);
     try {
-      await submitIncidentForReview(incidentId);
+      const res = await submitIncidentForReview(incidentId, { ackDuplicate });
+      if (res.status === 'DUPLICATE_FOUND' && res.matched_incident_id) {
+        setDuplicateFound({ matchedIncidentId: res.matched_incident_id });
+        return;
+      }
       await load();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Failed to submit incident.');
@@ -416,6 +421,40 @@ export default function RegionalIncidentDetailPage() {
 
   return (
     <div className="space-y-6">
+      {/* Duplicate detected — 3-option modal (Phase 1.2) */}
+      {duplicateFound && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4">
+            <h2 className="text-lg font-bold text-amber-800">Possible Duplicate Detected</h2>
+            <p className="text-sm text-gray-700">
+              A verified incident (#{duplicateFound.matchedIncidentId}) already exists with the same
+              region, type, and fire date. How would you like to proceed?
+            </p>
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                onClick={() => { setDuplicateFound(null); void handleSubmit(true); }}
+                disabled={actionLoading}
+                className="px-4 py-2 text-sm font-semibold text-white bg-red-800 rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                Confirm Submission Anyway
+              </button>
+              <button
+                onClick={() => { setDuplicateFound(null); setIsEditing(true); }}
+                className="px-4 py-2 text-sm font-semibold text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Edit Incident
+              </button>
+              <button
+                onClick={() => setDuplicateFound(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Withdraw-to-edit confirmation popup */}
       {showWithdrawPopup && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -520,7 +559,7 @@ export default function RegionalIncidentDetailPage() {
                 {/* Submit / Resubmit — only for DRAFT or REJECTED */}
                 {(detail.verification_status === 'DRAFT' || detail.verification_status === 'REJECTED') && (
                   <button
-                    onClick={handleSubmit}
+                    onClick={() => void handleSubmit()}
                     disabled={actionLoading}
                     className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium bg-red-800 text-white hover:bg-red-700 disabled:opacity-50"
                   >

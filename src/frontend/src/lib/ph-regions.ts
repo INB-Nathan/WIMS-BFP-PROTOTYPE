@@ -34,8 +34,12 @@ export const PH_REGIONS: PhRegion[] = [
 ];
 
 export const PH_PROVINCES: PhProvince[] = [
-  // NCR
-  { regionId: 1,  provinceName: 'Metro Manila' },
+  // NCR — Fire Districts (used as Province / District for BFP)
+  { regionId: 1, provinceName: 'Fire District 1' },
+  { regionId: 1, provinceName: 'Fire District 2' },
+  { regionId: 1, provinceName: 'Fire District 3' },
+  { regionId: 1, provinceName: 'Fire District 4' },
+  { regionId: 1, provinceName: 'Fire District 5' },
 
   // CAR
   { regionId: 2,  provinceName: 'Abra' },
@@ -157,9 +161,25 @@ export const PH_PROVINCES: PhProvince[] = [
   { regionId: 18, provinceName: 'Negros Oriental' },
 ];
 
+/** NCR city/municipality options per Fire District. */
+const NCR_CITIES: Record<string, string[]> = {
+  'Fire District 1': ['City of Manila'],
+  'Fire District 2': ['Caloocan City', 'Malabon City', 'Navotas City', 'Valenzuela City'],
+  'Fire District 3': ['Pasay City', 'Makati City', 'Parañaque City', 'Las Piñas City', 'Muntinlupa City'],
+  'Fire District 4': ['Marikina City', 'Pasig City', 'Pateros', 'Taguig City', 'Mandaluyong City', 'San Juan City'],
+  'Fire District 5': ['Quezon City'],
+};
+
 /** Returns provinces for a given regionId. */
 export function getProvincesForRegion(regionId: number): PhProvince[] {
   return PH_PROVINCES.filter((p) => p.regionId === regionId);
+}
+
+/** Returns city/municipality options for the given region + province.
+ *  Returns an empty array for non-NCR regions (use free-text input instead). */
+export function getCitiesForProvince(regionId: number, province: string): string[] {
+  if (regionId !== 1) return [];
+  return NCR_CITIES[province] ?? [];
 }
 
 /** Returns the region_code string for a given regionId, or '' if not found. */

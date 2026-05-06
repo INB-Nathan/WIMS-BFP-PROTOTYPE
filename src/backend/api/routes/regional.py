@@ -2334,7 +2334,7 @@ def check_incident_duplicate(
     where_conditions = [
         "fi.region_id = :rid",
         "fi.is_archived = FALSE",
-        "fi.verification_status != 'REJECTED'",
+        "fi.verification_status = 'VERIFIED'",
     ]
 
     # Build OR sub-conditions
@@ -3583,8 +3583,17 @@ def submit_incident_for_review(
     incident_id: int,
     user: Annotated[dict, Depends(get_regional_encoder)],
     db: Annotated[Session, Depends(get_db_with_rls)],
+    ack_duplicate: bool = False,
 ):
-    """Submit a DRAFT or REJECTED incident for validator review (DRAFT/REJECTED → PENDING)."""
+    """Submit a DRAFT or REJECTED incident for validator review (DRAFT/REJECTED → PENDING).
+
+    Duplicate check
+    ---------------
+    On first call (ack_duplicate=False), if a VERIFIED incident with the same region +
+    type/category + fire date exists, returns {status: "DUPLICATE_FOUND", matched_incident_id}
+    without submitting.  The caller must re-call with ack_duplicate=True to confirm; the
+    incident then gets is_duplicate=TRUE and duplicate_of set before transitioning to PENDING.
+    """
     encoder_id = user["user_id"]
 
     incident = db.execute(
@@ -3617,7 +3626,120 @@ def submit_incident_for_review(
             detail=f"Cannot submit incident with status '{current_status}'. Only DRAFT or REJECTED incidents can be submitted.",
         )
 
+    # Duplicate check against VERIFIED incidents only (Phase 1.2).
+    # Skip check if already flagged (re-submission after rejection) or if encoder acknowledged.
+    matched_duplicate_id: int | None = None
+    already_flagged = db.execute(
+        text("SELECT is_duplicate FROM wims.fire_incidents WHERE incident_id = :iid"),
+        {"iid": incident_id},
+    ).scalar()
+
+    if not already_flagged and not ack_duplicate:
+        ns_meta = db.execute(
+            text("""
+                SELECT nd.notification_dt, nd.general_category, fi.incident_type_code, fi.region_id
+                FROM wims.fire_incidents fi
+                LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+                WHERE fi.incident_id = :iid
+            """),
+            {"iid": incident_id},
+        ).fetchone()
+
+        if ns_meta and ns_meta[0]:
+            notif_dt = ns_meta[0]
+            gen_cat = ns_meta[1]
+            type_code_check = ns_meta[2]
+            region_id_check = ns_meta[3]
+
+            dup_row = db.execute(
+                text("""
+                    SELECT fi.incident_id
+                    FROM wims.fire_incidents fi
+                    LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+                    WHERE fi.region_id = :rid
+                      AND fi.is_archived = FALSE
+                      AND fi.verification_status = 'VERIFIED'
+                      AND fi.incident_id != :cur_id
+                      AND (
+                        (:type_code IS NOT NULL AND fi.incident_type_code = :type_code
+                          AND DATE(nd.notification_dt AT TIME ZONE 'Asia/Manila') = DATE(:notif_dt AT TIME ZONE 'Asia/Manila'))
+                        OR
+                        (:gen_cat IS NOT NULL AND nd.general_category = :gen_cat
+                          AND DATE(nd.notification_dt AT TIME ZONE 'Asia/Manila') = DATE(:notif_dt AT TIME ZONE 'Asia/Manila'))
+                      )
+                    LIMIT 1
+                """),
+                {
+                    "rid": region_id_check,
+                    "cur_id": incident_id,
+                    "type_code": type_code_check,
+                    "gen_cat": gen_cat,
+                    "notif_dt": str(notif_dt),
+                },
+            ).fetchone()
+
+            if dup_row:
+                return {
+                    "status": "DUPLICATE_FOUND",
+                    "incident_id": incident_id,
+                    "matched_incident_id": dup_row[0],
+                }
+
     try:
+        # If acknowledged duplicate: flag the incident before submitting
+        if ack_duplicate and not already_flagged:
+            # Re-run check to get matched_id for storing duplicate_of
+            ns_meta = db.execute(
+                text("""
+                    SELECT nd.notification_dt, nd.general_category, fi.incident_type_code, fi.region_id
+                    FROM wims.fire_incidents fi
+                    LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+                    WHERE fi.incident_id = :iid
+                """),
+                {"iid": incident_id},
+            ).fetchone()
+            if ns_meta and ns_meta[0]:
+                notif_dt = ns_meta[0]
+                gen_cat = ns_meta[1]
+                type_code_check = ns_meta[2]
+                region_id_check = ns_meta[3]
+                dup_row = db.execute(
+                    text("""
+                        SELECT fi.incident_id
+                        FROM wims.fire_incidents fi
+                        LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+                        WHERE fi.region_id = :rid
+                          AND fi.is_archived = FALSE
+                          AND fi.verification_status = 'VERIFIED'
+                          AND fi.incident_id != :cur_id
+                          AND (
+                            (:type_code IS NOT NULL AND fi.incident_type_code = :type_code
+                              AND DATE(nd.notification_dt AT TIME ZONE 'Asia/Manila') = DATE(:notif_dt AT TIME ZONE 'Asia/Manila'))
+                            OR
+                            (:gen_cat IS NOT NULL AND nd.general_category = :gen_cat
+                              AND DATE(nd.notification_dt AT TIME ZONE 'Asia/Manila') = DATE(:notif_dt AT TIME ZONE 'Asia/Manila'))
+                          )
+                        LIMIT 1
+                    """),
+                    {
+                        "rid": region_id_check,
+                        "cur_id": incident_id,
+                        "type_code": type_code_check,
+                        "gen_cat": gen_cat,
+                        "notif_dt": str(notif_dt),
+                    },
+                ).fetchone()
+                if dup_row:
+                    matched_duplicate_id = dup_row[0]
+                    db.execute(
+                        text("""
+                            UPDATE wims.fire_incidents
+                            SET is_duplicate = TRUE, duplicate_of = :did
+                            WHERE incident_id = :iid
+                        """),
+                        {"did": matched_duplicate_id, "iid": incident_id},
+                    )
+
         update_result = db.execute(
             text(
                 "UPDATE wims.fire_incidents SET verification_status = 'PENDING', updated_at = now() WHERE incident_id = :iid"
@@ -3674,6 +3796,8 @@ def submit_incident_for_review(
         "status": "submitted",
         "incident_id": incident_id,
         "verification_status": "PENDING",
+        "is_duplicate": ack_duplicate and matched_duplicate_id is not None,
+        "duplicate_of": matched_duplicate_id,
     }
 
 
@@ -3682,8 +3806,10 @@ def submit_incident_for_review(
 # ---------------------------------------------------------------------------
 
 # Allowed actions a NATIONAL_VALIDATOR can submit and their target DB status.
+# accept_replace: approve a duplicate by inheriting the matched incident's ref_num and archiving it.
 _VALIDATOR_ACTION_MAP: dict[str, str] = {
     "accept": "VERIFIED",
+    "accept_replace": "VERIFIED",
     "pending": "PENDING",
     "reject": "REJECTED",
 }
@@ -3772,7 +3898,9 @@ def get_validator_incident_queue(
                 nd.responder_type,
                 nd.fire_origin,
                 nd.extent_of_damage,
-                fi.parent_incident_id
+                fi.parent_incident_id,
+                fi.is_duplicate,
+                fi.duplicate_of
             FROM wims.fire_incidents fi
             LEFT JOIN wims.incident_nonsensitive_details nd
                    ON nd.incident_id = fi.incident_id
@@ -3813,6 +3941,8 @@ def get_validator_incident_queue(
                 "fire_origin": r[12],
                 "extent_of_damage": r[13],
                 "parent_incident_id": r[14],
+                "is_duplicate": bool(r[15]) if r[15] is not None else False,
+                "duplicate_of": r[16],
             }
             for r in rows
         ],
@@ -3904,7 +4034,7 @@ def verify_incident(
     if target_status == "VERIFIED":
         meta_row = db.execute(
             text("""
-                SELECT fi.incident_type_code, fi.parent_incident_id
+                SELECT fi.incident_type_code, fi.parent_incident_id, fi.duplicate_of
                 FROM wims.fire_incidents fi
                 WHERE fi.incident_id = :iid
             """),
@@ -3912,9 +4042,18 @@ def verify_incident(
         ).fetchone()
         type_code = meta_row[0] if meta_row else None
         parent_incident_id_val = meta_row[1] if meta_row else None
+        duplicate_of_val = meta_row[2] if meta_row else None
 
-        if parent_incident_id_val:
-            # Replacement approval: inherit the original incident's reference number
+        # accept_replace: validator chooses to replace the matched duplicate original
+        if action == "accept_replace" and duplicate_of_val:
+            orig_ref_row = db.execute(
+                text("SELECT reference_number FROM wims.fire_incidents WHERE incident_id = :pid"),
+                {"pid": duplicate_of_val},
+            ).fetchone()
+            ref_num = orig_ref_row[0] if orig_ref_row else None
+            parent_to_archive = duplicate_of_val
+        elif parent_incident_id_val:
+            # Replacement approval (update request): inherit the original's reference number
             orig_ref_row = db.execute(
                 text("SELECT reference_number FROM wims.fire_incidents WHERE incident_id = :pid"),
                 {"pid": parent_incident_id_val},
@@ -3948,21 +4087,13 @@ def verify_incident(
             {"new_status": target_status, "iid": incident_id},
         )
 
-        if ref_num:
-            db.execute(
-                text("""
-                    UPDATE wims.fire_incidents
-                    SET reference_number = :ref
-                    WHERE incident_id = :iid
-                """),
-                {"ref": ref_num, "iid": incident_id},
-            )
-
         if parent_to_archive:
+            # Archive original first AND clear its reference_number so the unique
+            # constraint is released before we assign that ref_num to the update incident.
             db.execute(
                 text("""
                     UPDATE wims.fire_incidents
-                    SET is_archived = TRUE, updated_at = now()
+                    SET is_archived = TRUE, reference_number = NULL, updated_at = now()
                     WHERE incident_id = :pid
                 """),
                 {"pid": parent_to_archive},
@@ -3976,6 +4107,16 @@ def verify_incident(
                 notes=f"Archived — superseded by replacement incident #{incident_id}",
             )
 
+        if ref_num:
+            db.execute(
+                text("""
+                    UPDATE wims.fire_incidents
+                    SET reference_number = :ref
+                    WHERE incident_id = :iid
+                """),
+                {"ref": ref_num, "iid": incident_id},
+            )
+
         _insert_incident_verification_history(
             db,
             incident_id=incident_id,
@@ -3983,15 +4124,6 @@ def verify_incident(
             previous_status=current_status,
             new_status=target_status,
             notes=body.notes or "Validator action",
-        )
-
-        log_system_audit(
-            db=db,
-            user_id=validator_user_id,
-            action_type=f"VERIFY_{action.upper()}",
-            table_affected="fire_incidents",
-            record_id=incident_id,
-            request=request,
         )
 
         db.commit()
@@ -4004,6 +4136,20 @@ def verify_incident(
             status_code=500,
             detail="Failed to apply verification action — transaction rolled back",
         )
+
+    # Audit log is non-critical; run after commit so a log failure cannot poison the transaction.
+    log_system_audit(
+        db=db,
+        user_id=validator_user_id,
+        action_type=f"VERIFY_{action.upper()}",
+        table_affected="fire_incidents",
+        record_id=incident_id,
+        request=request,
+    )
+    try:
+        db.commit()
+    except Exception:
+        pass  # audit log failure is non-fatal
 
     logger.info(
         "Validator user_id=%s applied action='%s' to incident_id=%s "
