@@ -17,6 +17,8 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { apiFetch, fetchValidatorStats } from "@/lib/api";
 import { IncidentDiffPanel } from "@/components/IncidentDiffPanel";
+import { UpdateRequestDiffPanel } from "@/components/UpdateRequestDiffPanel";
+import { formatClassification } from "@/lib/afor-utils";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,6 +39,7 @@ interface ValidatorIncident {
   responder_type: string | null;
   fire_origin: string | null;
   extent_of_damage: string | null;
+  parent_incident_id: number | null;
 }
 
 interface QueueResponse {
@@ -291,10 +294,9 @@ export default function ValidatorDashboard() {
           </div>
           {(['STRUCTURAL', 'NON_STRUCTURAL', 'VEHICULAR'] as const).map((cat) => {
             const entry = stats.by_category.find((c) => c.category === cat);
-            const label = cat === 'NON_STRUCTURAL' ? 'Non-Structural' : cat.charAt(0) + cat.slice(1).toLowerCase();
             return (
               <div key={cat} className="rounded-lg border border-gray-200 bg-white px-4 py-3">
-                <p className="text-xs text-gray-500">{label}</p>
+                <p className="text-xs text-gray-500">{formatClassification(cat)}</p>
                 <p className="text-2xl font-bold text-gray-800">{entry?.count ?? 0}</p>
               </div>
             );
@@ -403,16 +405,23 @@ export default function ValidatorDashboard() {
                   </td>
                   <td className="px-4 py-3 font-mono text-xs">{inc.incident_id}</td>
                   <td className="px-4 py-3">
-                    <span
-                      className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
-                        STATUS_COLORS[inc.verification_status] ?? "bg-gray-100 text-gray-600"
-                      }`}
-                    >
-                      {STATUS_LABELS[inc.verification_status] ?? inc.verification_status}
-                    </span>
+                    <div className="flex flex-col gap-1">
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                          STATUS_COLORS[inc.verification_status] ?? "bg-gray-100 text-gray-600"
+                        }`}
+                      >
+                        {STATUS_LABELS[inc.verification_status] ?? inc.verification_status}
+                      </span>
+                      {inc.parent_incident_id && (
+                        <span className="inline-block px-1.5 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                          UPDATE #{inc.parent_incident_id}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3">{inc.fire_station_name ?? "—"}</td>
-                  <td className="px-4 py-3">{inc.general_category ?? "—"}</td>
+                  <td className="px-4 py-3">{formatClassification(inc.general_category)}</td>
                   <td className="px-4 py-3">{inc.alarm_level ?? "—"}</td>
                   <td className="px-4 py-3">{inc.structures_affected ?? "—"}</td>
                   <td className="px-4 py-3 text-xs text-gray-500">
@@ -502,18 +511,38 @@ export default function ValidatorDashboard() {
               {actionTarget.fire_station_name ?? "Unknown station"}
             </p>
 
+            {/* Diff view — update requests show side-by-side vs original; regular incidents show snapshot diff */}
             <div className="mb-4">
-              <button
-                type="button"
-                onClick={() => setShowDiff((s) => !s)}
-                className="text-xs font-medium text-blue-700 hover:text-blue-900 underline"
-              >
-                {showDiff ? "Hide" : "View"} changes since submission
-              </button>
-              {showDiff && (
-                <div className="mt-2">
-                  <IncidentDiffPanel incidentId={actionTarget.incident_id} />
+              {actionTarget.parent_incident_id ? (
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="inline-block px-2 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                      UPDATE REQUEST
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      Encoder submitted this as an update to incident #{actionTarget.parent_incident_id}
+                    </span>
+                  </div>
+                  <UpdateRequestDiffPanel
+                    updateIncidentId={actionTarget.incident_id}
+                    originalIncidentId={actionTarget.parent_incident_id}
+                  />
                 </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowDiff((s) => !s)}
+                    className="text-xs font-medium text-blue-700 hover:text-blue-900 underline"
+                  >
+                    {showDiff ? "Hide" : "View"} changes since submission
+                  </button>
+                  {showDiff && (
+                    <div className="mt-2">
+                      <IncidentDiffPanel incidentId={actionTarget.incident_id} />
+                    </div>
+                  )}
+                </>
               )}
             </div>
 

@@ -4,19 +4,19 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation';
 import { edgeFunctions, Incident } from '@/lib/edgeFunctions';
 import {
-  fetchRegions, fetchProvinces, fetchCities, fetchCitiesByProvinces,
-  updateRegionalIncident, checkIncidentDuplicate,
+  updateRegionalIncident, forceReplaceIncident, createRegionalIncident,
+  checkIncidentDuplicate, submitIncidentForReview,
   type RefDuplicateIncident,
 } from '@/lib/api';
 import { queueIncident, getPendingIncidents, markSynced } from '@/lib/offlineStore';
 import { useUserProfile } from '@/lib/auth';
+import { PH_REGIONS, getProvincesForRegion, getRegionCode } from '@/lib/ph-regions';
 import { Loader2, Save, Shuffle } from 'lucide-react';
-import type { Region, Province, City } from '@/types/api';
 import dynamic from 'next/dynamic';
 import {
   ALL_PROBLEM_OPTIONS, normalizeProblemLabel,
   getTypeOptionsForClassification, getTypeCode,
-  generateReferenceNumberPreview, formatAforRegionCode,
+  generateReferenceNumberPreview, formatAforRegionCode, formatClassification,
 } from '@/lib/afor-utils';
 import { DuplicateIncidentModal } from './DuplicateIncidentModal';
 
@@ -104,15 +104,11 @@ export function IncidentForm({
   onSaved?: () => void;
 }) {
   const router = useRouter();
-  const { assignedRegionId } = useUserProfile();
+  const { assignedRegionId, role } = useUserProfile();
+  const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
   const [loading, setLoading] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
-  const [regions, setRegions] = useState<Region[]>([]);
-  const [provinces, setProvinces] = useState<Province[]>([]);
-  const [cities, setCities] = useState<City[]>([]);
   const [selectedRegionId, setSelectedRegionId] = useState<number | null>(null);
-  const [selectedProvinceId, setSelectedProvinceId] = useState<number | null>(null);
-  const [selectedCityId, setSelectedCityId] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Set<string>>(new Set());
@@ -263,15 +259,14 @@ export function IncidentForm({
   );
 
   const referenceNumberPreview = useMemo(() => {
-    const region = regions.find((r) => r.region_id === selectedRegionId);
-    const regionCode: string = (region as unknown as Record<string, unknown>)?.region_code as string || '';
+    const regionCode = selectedRegionId ? getRegionCode(selectedRegionId) : '';
     return generateReferenceNumberPreview({
       regionCode,
       stationCode: formState.station_code || 'TBA',
       typeCode: incidentTypeCode,
       notificationDate: formState.notification_dt_date,
     });
-  }, [selectedRegionId, regions, formState.station_code, incidentTypeCode, formState.notification_dt_date]);
+  }, [selectedRegionId, formState.station_code, incidentTypeCode, formState.notification_dt_date]);
 
   // ── Utility helpers ────────────────────────────────────────────────────────
 
@@ -315,14 +310,15 @@ export function IncidentForm({
 
   const resolveRegionId = (): number | null => {
     if (selectedRegionId) return selectedRegionId;
+    if (assignedRegionId) return assignedRegionId;
     if (typeof initialData?.region_id === 'number' && initialData.region_id > 0) return initialData.region_id;
     const raw = formState.region?.trim();
     if (!raw) return null;
     const numeric = Number(raw);
     if (Number.isInteger(numeric) && numeric > 0) return numeric;
     const norm = normalizeRegionLabel(raw);
-    const match = regions.find((r) => normalizeRegionLabel(r.region_name) === norm);
-    return match?.region_id ?? null;
+    const match = PH_REGIONS.find((r) => normalizeRegionLabel(r.regionName) === norm);
+    return match?.regionId ?? null;
   };
 
   const fileToBase64 = (file: File): Promise<string> =>
@@ -344,25 +340,14 @@ export function IncidentForm({
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
+  // Lock encoder to their assigned region on mount
   useEffect(() => {
-    let active = true;
-    void fetchRegions()
-      .then((items) => { if (active) setRegions(items); })
-      .catch(() => { if (active) setRegions([]); });
-    return () => { active = false; };
-  }, []);
-
-  // Cascade: fetch provinces when a region is selected
-  useEffect(() => {
-    if (!selectedRegionId) { setProvinces([]); setSelectedProvinceId(null); setCities([]); setSelectedCityId(null); return; }
-    fetchProvinces(selectedRegionId).then(setProvinces).catch(() => setProvinces([]));
-  }, [selectedRegionId]);
-
-  // Cascade: fetch cities when a province is selected
-  useEffect(() => {
-    if (!selectedProvinceId) { setCities([]); setSelectedCityId(null); return; }
-    fetchCities(selectedProvinceId).then(setCities).catch(() => setCities([]));
-  }, [selectedProvinceId]);
+    if (assignedRegionId && !selectedRegionId && !initialData) {
+      setSelectedRegionId(assignedRegionId);
+      const r = PH_REGIONS.find((r) => r.regionId === assignedRegionId);
+      setFormState((prev) => ({ ...prev, region: r?.regionName ?? '' }));
+    }
+  }, [assignedRegionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!initialData || formHydratedRef.current) return;
@@ -608,15 +593,6 @@ export function IncidentForm({
 
   useEffect(() => {
     if (!initialData || locationHydratedRef.current) return;
-    const ns = (initialData.incident_nonsensitive_details || {}) as Record<string, unknown>;
-    const regionId = typeof initialData.region_id === 'number' ? initialData.region_id : null;
-    if (regionId && regionId > 0) {
-      setSelectedRegionId(regionId);
-    }
-    const cityId = Number(ns.city_id || 0) || null;
-    if (cityId) {
-      setSelectedCityId(cityId);
-    }
     // Restore coordinates from initialData (top-level fields from API response)
     const lat = typeof initialData.latitude === 'number' ? initialData.latitude : null;
     const lng = typeof initialData.longitude === 'number' ? initialData.longitude : null;
@@ -625,44 +601,16 @@ export function IncidentForm({
     locationHydratedRef.current = true;
   }, [initialData]);
 
+  // Hydrate region selection from initialData (edit mode)
   useEffect(() => {
-    if (!initialData || !selectedRegionId || selectedProvinceId) return;
-    const ns = (initialData.incident_nonsensitive_details || {}) as Record<string, unknown>;
-    const provinceId = Number((ns as Record<string, unknown>).province_id || 0) || null;
-    if (provinceId) {
-      setSelectedProvinceId(provinceId);
-      return;
+    if (!initialData || selectedRegionId) return;
+    const regionId = initialData.region_id;
+    if (regionId && regionId > 0) {
+      setSelectedRegionId(regionId);
+      const r = PH_REGIONS.find((r) => r.regionId === regionId);
+      if (r) setFormState((prev) => ({ ...prev, region: r.regionName }));
     }
-    const cityId = Number(ns.city_id || 0) || null;
-    if (!cityId || provinces.length === 0) return;
-
-    let active = true;
-    void fetchCitiesByProvinces(provinces.map((p) => p.province_id))
-      .then((allCities) => {
-        if (!active) return;
-        const matched = allCities.find((c) => c.city_id === cityId);
-        if (matched) {
-          setSelectedProvinceId(matched.province_id);
-        }
-      })
-      .catch(() => {
-        if (!active) return;
-      });
-    return () => {
-      active = false;
-    };
-  }, [initialData, selectedRegionId, selectedProvinceId, provinces]);
-
-  useEffect(() => {
-    if (!initialData || !selectedProvinceId || !cities.length) return;
-    const ns = (initialData.incident_nonsensitive_details || {}) as Record<string, unknown>;
-    const cityId = Number(ns.city_id || 0) || null;
-    if (!cityId) return;
-    const matched = cities.find((c) => c.city_id === cityId);
-    if (!matched) return;
-    setSelectedCityId(matched.city_id);
-    setFormState((prev) => ({ ...prev, city_municipality: matched.city_name }));
-  }, [initialData, selectedProvinceId, cities]);
+  }, [initialData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Event handlers ─────────────────────────────────────────────────────────
 
@@ -967,7 +915,6 @@ export function IncidentForm({
         sub_category: (incident.incident_nonsensitive_details as Record<string, unknown>).sub_category ?? incident.incident_nonsensitive_details.incident_type,
         responder_type: incident.incident_nonsensitive_details.responder_type,
         fire_station_name: incident.incident_nonsensitive_details.fire_station_name,
-        city_id: selectedCityId ?? undefined,
         city_municipality: formState.city_municipality,
         province_district: formState.province_district,
         region_label: formState.region,
@@ -1267,56 +1214,53 @@ export function IncidentForm({
               <select
                 className={fieldErrors.has('region') ? errCls('region') : inputCls}
                 value={selectedRegionId ?? ''}
+                disabled={isEncoder && !!assignedRegionId}
                 onChange={(e) => {
                   const rid = Number(e.target.value);
                   setSelectedRegionId(rid || null);
-                  setSelectedProvinceId(null);
-                  setSelectedCityId(null);
-                  const r = regions.find((r) => r.region_id === rid);
-                  setFormState((prev) => ({ ...prev, region: r?.region_name ?? '', province_district: '', city_municipality: '' }));
+                  const r = PH_REGIONS.find((r) => r.regionId === rid);
+                  setFormState((prev) => ({ ...prev, region: r?.regionName ?? '', province_district: '', city_municipality: '' }));
                 }}
               >
                 <option value="">Select Region</option>
-                {regions.map((r) => <option key={r.region_id} value={r.region_id}>{r.region_name}</option>)}
+                {(isEncoder && assignedRegionId
+                  ? PH_REGIONS.filter((r) => r.regionId === assignedRegionId)
+                  : PH_REGIONS
+                ).map((r) => (
+                  <option key={r.regionId} value={r.regionId}>{r.regionName}</option>
+                ))}
               </select>
+              {isEncoder && assignedRegionId && (
+                <p className="mt-1 text-xs text-gray-400">Region is set to your assigned area.</p>
+              )}
             </div>
 
             <div>
               <label className={labelCls}>Province / District</label>
               <select
                 className={inputCls}
-                value={selectedProvinceId ?? ''}
+                value={formState.province_district}
                 disabled={!selectedRegionId}
                 onChange={(e) => {
-                  const pid = Number(e.target.value);
-                  setSelectedProvinceId(pid || null);
-                  setSelectedCityId(null);
-                  const p = provinces.find((p) => p.province_id === pid);
-                  setFormState((prev) => ({ ...prev, province_district: p?.province_name ?? '', city_municipality: '' }));
+                  setFormState((prev) => ({ ...prev, province_district: e.target.value, city_municipality: '' }));
                 }}
               >
                 <option value="">{selectedRegionId ? 'Select Province' : 'Select region first'}</option>
-                {provinces.map((p) => <option key={p.province_id} value={p.province_id}>{p.province_name}</option>)}
+                {getProvincesForRegion(selectedRegionId ?? 0).map((p) => (
+                  <option key={p.provinceName} value={p.provinceName}>{p.provinceName}</option>
+                ))}
               </select>
             </div>
 
             <div>
               <label className={labelCls}>City / Municipality</label>
               <input
-                list="city-municipality-options"
+                type="text"
                 className={inputCls}
-                placeholder={selectedProvinceId ? 'Select or type City / Municipality' : 'Select province first or type manually'}
+                placeholder="Type city or municipality name"
                 value={formState.city_municipality}
-                onChange={(e) => {
-                  const cityName = e.target.value;
-                  const matchedCity = cities.find((c) => c.city_name.toLowerCase() === cityName.trim().toLowerCase());
-                  setSelectedCityId(matchedCity?.city_id ?? null);
-                  setFormState((prev) => ({ ...prev, city_municipality: cityName }));
-                }}
+                onChange={(e) => setFormState((prev) => ({ ...prev, city_municipality: e.target.value }))}
               />
-              <datalist id="city-municipality-options">
-                {cities.map((c) => <option key={c.city_id} value={c.city_name} />)}
-              </datalist>
             </div>
 
             <div className="md:col-span-2" data-field-error={fieldErrors.has('incident_address') ? 'true' : undefined}>
@@ -1838,16 +1782,12 @@ export function IncidentForm({
         <DuplicateIncidentModal
           duplicates={duplicateModalData.duplicates}
           currentForm={{
-            region: formState.region || (regions.find((r) => r.region_id === selectedRegionId)?.region_name ?? ''),
-            classification: {
-              STRUCTURAL: 'Structural Fire',
-              NON_STRUCTURAL: 'Non-Structural Fire',
-              WILDLAND: 'Wildland Fire',
-              VEHICULAR: 'Transportation / Vehicular Fire',
-            }[formState.classification_of_involved] ?? formState.classification_of_involved,
+            region: formState.region || (PH_REGIONS.find((r) => r.regionId === selectedRegionId)?.regionName ?? ''),
+            classification: formatClassification(formState.classification_of_involved),
             typeOfInvolved: formState.type_of_involved_general_category,
             incidentTypeCode,
             stationCode: formState.station_code || 'TBA',
+            stationName: formState.fire_station_name || formState.station_code || 'TBA',
             fireDate: formState.notification_dt_date,
             fireTime: formState.notification_dt_time,
             alarmLevel: formState.alarm_level,
@@ -1858,10 +1798,8 @@ export function IncidentForm({
             void duplicateModalData.proceedCallback();
           }}
           onReplace={(existingId) => {
+            const existingStatus = duplicateModalData?.duplicates.find((d) => d.incident_id === existingId)?.verification_status;
             setDuplicateModalData(null);
-            // Replace: build payload and PUT to existing incident
-            const region = regions.find((r) => r.region_id === selectedRegionId);
-            const regionCode: string = (region as unknown as Record<string, unknown>)?.region_code as string || '';
             const replacePayload: Record<string, unknown> = {
               notification_dt: formState.notification_dt_date && formState.notification_dt_time
                 ? `${formState.notification_dt_date}T${formState.notification_dt_time}:00`
@@ -1873,7 +1811,6 @@ export function IncidentForm({
               fire_station_name: formState.fire_station_name,
               station_code: formState.station_code || 'TBA',
               incident_type_code: incidentTypeCode || undefined,
-              region_label: formState.region,
               city_municipality: formState.city_municipality,
               province_district: formState.province_district,
               fire_origin: formState.area_of_origin,
@@ -1896,8 +1833,13 @@ export function IncidentForm({
             void (async () => {
               setLoading(true);
               try {
-                await updateRegionalIncident(existingId, replacePayload);
-                showToast(`Existing incident #${existingId} updated with this data.`);
+                // PENDING incidents use force-replace (bypasses withdraw requirement, audited)
+                if (existingStatus === 'PENDING') {
+                  await forceReplaceIncident(existingId, replacePayload);
+                } else {
+                  await updateRegionalIncident(existingId, replacePayload);
+                }
+                showToast(`Incident #${existingId} updated with your data.`);
                 router.push(`/dashboard/regional/incidents/${existingId}`);
               } catch (err: unknown) {
                 showToast(`Replace failed: ${(err as Error).message}`);
@@ -1907,8 +1849,9 @@ export function IncidentForm({
             })();
           }}
           onRequestUpdate={(existingId) => {
-            // "Request Update" on a VERIFIED incident: creates a new incident with a narrative note
-            // referencing the existing verified record, so validators can see it's an update request.
+            // Creates a new DRAFT incident with parent_incident_id pointing to the VERIFIED original.
+            // Validator approval of this new incident will inherit the original's reference number
+            // and archive the original.
             setDuplicateModalData(null);
             const effectiveRegionId = resolveRegionId();
             if (!effectiveRegionId) { showToast('Region not set — cannot submit.'); return; }
@@ -1917,34 +1860,52 @@ export function IncidentForm({
             const narrativeWithNote = currentNarrative.startsWith('[UPDATE REQUEST')
               ? currentNarrative
               : updateNote + currentNarrative;
-            // Pass the modified narrative directly into the create call via a temp override
             void (async () => {
               setLoading(true);
               try {
-                // Build the payload with the update note pre-injected
-                const fs = { ...formState, narrative_report: narrativeWithNote } as Record<string, unknown>;
-                const incident = {
-                  latitude, longitude, region_id: effectiveRegionId,
-                  incident_nonsensitive_details: {
-                    notification_dt: fs.notification_dt_date && fs.notification_dt_time
-                      ? `${fs.notification_dt_date}T${fs.notification_dt_time}:00`
-                      : new Date().toISOString(),
-                    alarm_level: fs.alarm_level,
-                    general_category: fs.classification_of_involved,
-                    incident_type_code: incidentTypeCode || undefined,
-                    station_code: (fs.station_code as string) || 'TBA',
-                    fire_station_name: fs.fire_station_name,
-                    responder_type: fs.responder_type,
-                    incident_type: fs.type_of_involved_general_category,
-                    barangay: '', city_id: 0, district_id: 0, province_id: 0,
-                  },
-                  incident_sensitive_details: { narrative_report: narrativeWithNote },
-                } as unknown as Incident;
-                await edgeFunctions.uploadBundle({ region_id: effectiveRegionId, incidents: [incident] });
-                showToast(`Update request submitted. Validator will review against incident #${existingId}.`);
-                router.push('/dashboard/regional');
+                const result = await createRegionalIncident({
+                  latitude: latitude ?? 0,
+                  longitude: longitude ?? 0,
+                  region_id: effectiveRegionId,
+                  notification_dt: formState.notification_dt_date && formState.notification_dt_time
+                    ? `${formState.notification_dt_date}T${formState.notification_dt_time}:00`
+                    : undefined,
+                  alarm_level: formState.alarm_level,
+                  general_category: formState.classification_of_involved,
+                  sub_category: formState.type_of_involved_general_category,
+                  incident_type_code: incidentTypeCode || undefined,
+                  station_code: formState.station_code || 'TBA',
+                  fire_station_name: formState.fire_station_name,
+                  responder_type: formState.responder_type,
+                  structures_affected: parseInt(formState.structures_affected) || 0,
+                  households_affected: parseInt(formState.households_affected) || 0,
+                  families_affected: parseInt(formState.families_affected) || 0,
+                  individuals_affected: parseInt(formState.individuals_affected) || 0,
+                  province_district: formState.province_district,
+                  city_municipality: formState.city_municipality,
+                  fire_origin: formState.area_of_origin,
+                  extent_of_damage: formState.extent_of_damage,
+                  stage_of_fire: formState.stage_of_fire_upon_arrival,
+                  street_address: formState.incident_address,
+                  landmark: formState.nearest_landmark,
+                  narrative_report: narrativeWithNote,
+                  caller_name: formState.caller_name,
+                  caller_number: formState.caller_number,
+                  receiver_name: formState.receiver_name,
+                  recommendations: formState.recommendations || 'N/A',
+                  parent_incident_id: existingId,
+                }, { skipAuthRedirect: true });
+                // Immediately submit for review so it enters the validator queue
+                await submitIncidentForReview(result.incident_id, { skipAuthRedirect: true });
+                showToast(`Update request #${result.incident_id} submitted. Validator will review against incident #${existingId}.`);
+                router.push(`/dashboard/regional/incidents/${result.incident_id}`);
               } catch (err: unknown) {
-                showToast(`Submit failed: ${(err as Error).message}`);
+                const msg = (err as Error).message ?? 'Unknown error';
+                if (msg.toLowerCase().includes('session') || msg.includes('401')) {
+                  showToast('Session expired — please log in again. Your form data is still here.');
+                } else {
+                  showToast(`Submit failed: ${msg}`);
+                }
                 setLoading(false);
               }
             })();

@@ -14,6 +14,7 @@ import {
   offsetFromPage,
   totalRegionalPages,
 } from '@/lib/regional-incidents';
+import { formatClassification } from '@/lib/afor-utils';
 
 interface RegionalStatsPayload {
   total_incidents?: number;
@@ -231,7 +232,7 @@ export default function RegionalDashboardPage() {
                 <option value="">All classifications</option>
                 {REGIONAL_INCIDENT_GENERAL_CATEGORIES.map((c) => (
                   <option key={c} value={c}>
-                    {c === 'NON_STRUCTURAL' ? 'Non-Structural' : c.charAt(0) + c.slice(1).toLowerCase()}
+                    {formatClassification(c)}
                   </option>
                 ))}
               </select>
@@ -337,7 +338,7 @@ export default function RegionalDashboardPage() {
                     </td>
                     <td className="px-6 py-4 font-medium">
                       <div className="flex items-center gap-2">
-                        {inc.general_category ?? '—'}
+                        {formatClassification(inc.general_category)}
                         {inc.is_wildland && (
                           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
                             Wildland

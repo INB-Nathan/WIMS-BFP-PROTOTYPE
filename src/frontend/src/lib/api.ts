@@ -484,6 +484,9 @@ export interface RegionalIncidentDetailResponse {
   region_id: number;
   latitude: number | null;
   longitude: number | null;
+  reference_number: string | null;
+  incident_type_code: string | null;
+  parent_incident_id: number | null;
   is_wildland: boolean;
   wildland_fire_type: string | null;
   wildland_area_hectares: number | null;
@@ -514,9 +517,14 @@ export async function fetchRegionalIncident(
 }
 
 export async function createRegionalIncident(
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  options?: { skipAuthRedirect?: boolean }
 ): Promise<{ status: string; incident_id: number; verification_status: string }> {
-  return apiFetch('/regional/incidents', { method: 'POST', body: JSON.stringify(body) });
+  return apiFetch('/regional/incidents', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    skipAuthRedirect: options?.skipAuthRedirect,
+  });
 }
 
 export async function updateRegionalIncident(
@@ -527,9 +535,13 @@ export async function updateRegionalIncident(
 }
 
 export async function submitIncidentForReview(
-  incidentId: number
+  incidentId: number,
+  options?: { skipAuthRedirect?: boolean }
 ): Promise<{ status: string; incident_id: number; verification_status: string }> {
-  return apiFetch(`/regional/incidents/${incidentId}/submit`, { method: 'PATCH' });
+  return apiFetch(`/regional/incidents/${incidentId}/submit`, {
+    method: 'PATCH',
+    skipAuthRedirect: options?.skipAuthRedirect,
+  });
 }
 
 export async function unpendIncident(
@@ -551,6 +563,10 @@ export interface RefDuplicateIncident {
   type_of_involved: string | null;
   fire_station_name: string | null;
   station_code: string | null;
+  city_municipality: string | null;
+  province_district: string | null;
+  region_name: string | null;
+  street_address: string | null;
 }
 
 /**
@@ -580,6 +596,21 @@ export async function checkIncidentDuplicate(params: {
 /** Soft-delete a DRAFT, PENDING, or REJECTED incident (sets is_archived = TRUE). */
 export async function deleteIncident(incidentId: number): Promise<{ status: string; incident_id: number }> {
   return apiFetch(`/regional/incidents/${incidentId}`, { method: 'DELETE' });
+}
+
+/**
+ * Replace a PENDING incident's data without withdrawing it first.
+ * Used when duplicate detection identifies a PENDING incident that the encoder
+ * wants to overwrite directly from the duplicate resolution modal.
+ */
+export async function forceReplaceIncident(
+  incidentId: number,
+  payload: Record<string, unknown>,
+): Promise<{ status: string; incident_id: number }> {
+  return apiFetch(`/regional/incidents/${incidentId}/force-replace`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 // ── M4-E: Dedicated draft endpoints ─────────────────────────────────────────

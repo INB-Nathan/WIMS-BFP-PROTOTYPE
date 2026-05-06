@@ -2387,10 +2387,18 @@ def check_incident_duplicate(
                 nd.general_category,
                 nd.sub_category,
                 nd.fire_station_name,
-                nd.station_code
+                nd.station_code,
+                c.city_name,
+                p.province_name,
+                rr.region_name,
+                sd.street_address
             FROM wims.fire_incidents fi
             LEFT JOIN wims.incident_nonsensitive_details nd
                 ON nd.incident_id = fi.incident_id
+            LEFT JOIN wims.ref_cities c ON c.city_id = nd.city_id
+            LEFT JOIN wims.ref_provinces p ON p.province_id = c.province_id
+            LEFT JOIN wims.ref_regions rr ON rr.region_id = fi.region_id
+            LEFT JOIN wims.incident_sensitive_details sd ON sd.incident_id = fi.incident_id
             WHERE {where_sql}
             ORDER BY
                 fi.verification_status DESC,  -- VERIFIED first, then PENDING
@@ -2413,6 +2421,10 @@ def check_incident_duplicate(
                 "type_of_involved": r[7],
                 "fire_station_name": r[8],
                 "station_code": r[9],
+                "city_municipality": r[10],
+                "province_district": r[11],
+                "region_name": r[12],
+                "street_address": r[13],
             }
             for r in rows
         ]
@@ -2436,7 +2448,8 @@ def get_regional_incident_detail(
                        fi.region_id, fi.encoder_id,
                        ST_Y(fi.location::geometry) AS latitude,
                        ST_X(fi.location::geometry) AS longitude,
-                       fi.reference_number, fi.incident_type_code
+                       fi.reference_number, fi.incident_type_code,
+                       fi.parent_incident_id
                 FROM wims.fire_incidents fi
                 WHERE fi.incident_id = :iid
                   AND fi.is_archived = FALSE
@@ -2451,7 +2464,8 @@ def get_regional_incident_detail(
                        fi.region_id, fi.encoder_id,
                        ST_Y(fi.location::geometry) AS latitude,
                        ST_X(fi.location::geometry) AS longitude,
-                       fi.reference_number, fi.incident_type_code
+                       fi.reference_number, fi.incident_type_code,
+                       fi.parent_incident_id
                 FROM wims.fire_incidents fi
                 WHERE fi.incident_id = :iid
                   AND fi.encoder_id = CAST(:encoder_id AS uuid)
@@ -2529,13 +2543,14 @@ def get_regional_incident_detail(
     sd_dict.pop("encryption_iv", None)
 
     nonsensitive = row_to_dict(ns)
+    # Prefer the stored text columns; fall back to the ref-table JOIN for old rows
     if loc_row:
-        if loc_row[0]:
+        if not nonsensitive.get("city_municipality") and loc_row[0]:
             nonsensitive["city_municipality"] = loc_row[0]
-            nonsensitive["_city_text"] = loc_row[0]
-        if loc_row[1]:
+        if not nonsensitive.get("province_district") and loc_row[1]:
             nonsensitive["province_district"] = loc_row[1]
-            nonsensitive["_province_text"] = loc_row[1]
+    nonsensitive["_city_text"] = nonsensitive.get("city_municipality") or ""
+    nonsensitive["_province_text"] = nonsensitive.get("province_district") or ""
 
     # Fetch the most recent rejection reason with compatibility across IVH schemas.
     ivh_has_notes = _incident_verification_history_has_column(db, "notes")
@@ -2604,6 +2619,9 @@ def get_regional_incident_detail(
         "region_id": row[3],
         "latitude": float(row[5]) if row[5] is not None else None,
         "longitude": float(row[6]) if row[6] is not None else None,
+        "reference_number": row[7],
+        "incident_type_code": row[8],
+        "parent_incident_id": row[9],
         "is_wildland": is_wildland,
         "wildland_fire_type": wildland_fire_type,
         "wildland_area_hectares": wildland_area_hectares,
@@ -2772,6 +2790,7 @@ def _generate_reference_number(
     year = dt.year
     station = (station_code or "TBA").strip() or "TBA"
 
+    # Count only VERIFIED incidents — reference numbers are assigned at approval time
     count = db.execute(
         text("""
             SELECT COUNT(*) FROM wims.fire_incidents fi
@@ -2781,6 +2800,7 @@ def _generate_reference_number(
               AND EXTRACT(MONTH FROM nd.notification_dt) = :month_num
               AND EXTRACT(YEAR FROM nd.notification_dt) = :year
               AND fi.is_archived = FALSE
+              AND fi.verification_status = 'VERIFIED'
         """),
         {"rid": region_id, "type_code": incident_type_code, "month_num": dt.month, "year": year},
     ).scalar() or 0
@@ -2821,9 +2841,14 @@ class IncidentCreateRequest(BaseModel):
     fire_station_name: str | None = None
     total_response_time_minutes: int | None = None
     recommendations: str | None = None
+    # Location text (free-text, replaces city_id/province join for display)
+    province_district: str | None = None
+    city_municipality: str | None = None
     # Reference number fields
     station_code: str | None = "TBA"
     incident_type_code: str | None = None
+    # Update-request tracking
+    parent_incident_id: int | None = None
     # Sensitive details (optional — PII fields)
     street_address: str | None = None
     landmark: str | None = None
@@ -2868,6 +2893,9 @@ class IncidentUpdateRequest(BaseModel):
     fire_station_name: str | None = None
     total_response_time_minutes: int | None = None
     recommendations: str | None = None
+    # Location text (free-text, replaces city_id/province join for display)
+    province_district: str | None = None
+    city_municipality: str | None = None
     # Reference number fields
     station_code: str | None = None
     incident_type_code: str | None = None
@@ -2911,21 +2939,16 @@ def create_incident(
         )
     encoder_id = user["user_id"]
 
-    # Generate reference number before inserting (needs region_id and notification_dt)
+    # Reference number is assigned only at validator approval — not at create time
     type_code = (body.incident_type_code or "").strip().upper() or None
     station_code = (body.station_code or "TBA").strip() or "TBA"
-    ref_num: str | None = None
-    if type_code:
-        ref_num = _generate_reference_number(
-            db, region_id, type_code, station_code, body.notification_dt
-        )
 
     # Insert fire_incidents core row
     incident_row = db.execute(
         text("""
             INSERT INTO wims.fire_incidents
-                (encoder_id, region_id, location, verification_status, incident_type_code, reference_number)
-            VALUES (:eid, :rid, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 'DRAFT', :type_code, :ref_num)
+                (encoder_id, region_id, location, verification_status, incident_type_code, parent_incident_id)
+            VALUES (:eid, :rid, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 'DRAFT', :type_code, :parent_id)
             RETURNING incident_id
         """),
         {
@@ -2934,7 +2957,7 @@ def create_incident(
             "lon": body.longitude,
             "lat": body.latitude,
             "type_code": type_code,
-            "ref_num": ref_num,
+            "parent_id": body.parent_incident_id,
         },
     ).fetchone()
     incident_id = incident_row[0]
@@ -2949,6 +2972,8 @@ def create_incident(
         "occupancy_type",
         "city_id",
         "barangay_id",
+        "province_district",
+        "city_municipality",
         "distance_from_station_km",
         "estimated_damage_php",
         "civilian_injured",
@@ -3051,8 +3076,8 @@ def create_incident(
         "status": "created",
         "incident_id": incident_id,
         "verification_status": "DRAFT",
-        "reference_number": ref_num,
         "incident_type_code": type_code,
+        "parent_incident_id": body.parent_incident_id,
     }
 
 
@@ -3092,6 +3117,7 @@ def _apply_incident_field_updates(
     ns_fields = {
         "notification_dt", "alarm_level", "general_category", "sub_category",
         "specific_type", "occupancy_type", "city_id", "barangay_id",
+        "province_district", "city_municipality",
         "distance_from_station_km", "estimated_damage_php",
         "civilian_injured", "civilian_deaths", "firefighter_injured", "firefighter_deaths",
         "families_affected", "structures_affected", "households_affected", "individuals_affected",
@@ -3310,6 +3336,62 @@ def update_incident(
         )
     logger.info("Updated incident %s by encoder %s", incident_id, encoder_id)
     return {"status": "updated", "incident_id": incident_id}
+
+
+@router.post("/incidents/{incident_id}/force-replace")
+def force_replace_incident(
+    incident_id: int,
+    body: IncidentUpdateRequest,
+    user: Annotated[dict, Depends(get_regional_encoder)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Replace a PENDING incident's data without requiring withdraw first.
+
+    Used when duplicate detection identifies a PENDING incident that the encoder
+    wants to overwrite with the current form data.  The PENDING incident remains
+    in PENDING status so the validator sees the updated data.  Every call is
+    audited in incident_verification_history.
+    """
+    encoder_id = user["user_id"]
+
+    incident = db.execute(
+        text("""
+            SELECT incident_id, verification_status
+            FROM wims.fire_incidents
+            WHERE incident_id = :iid
+              AND encoder_id = CAST(:eid AS uuid)
+              AND is_archived = FALSE
+        """),
+        {"iid": incident_id, "eid": str(encoder_id)},
+    ).fetchone()
+
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found or not owned by you")
+    if incident[1] != "PENDING":
+        raise HTTPException(
+            status_code=403,
+            detail=f"Force-replace only applies to PENDING incidents. Current status: {incident[1]}",
+        )
+
+    _apply_incident_field_updates(db, incident_id, body)
+
+    try:
+        _insert_incident_verification_history(
+            db,
+            incident_id=incident_id,
+            actor_user_id=str(encoder_id),
+            previous_status="PENDING",
+            new_status="PENDING",
+            notes="Encoder force-replaced PENDING incident data (duplicate resolution)",
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to force-replace incident_id=%s", incident_id)
+        raise HTTPException(status_code=500, detail="Failed to replace incident data")
+
+    logger.info("Force-replaced PENDING incident %s by encoder %s", incident_id, encoder_id)
+    return {"status": "replaced", "incident_id": incident_id}
 
 
 # ---------------------------------------------------------------------------
@@ -3689,7 +3771,8 @@ def get_validator_incident_queue(
                 nd.households_affected,
                 nd.responder_type,
                 nd.fire_origin,
-                nd.extent_of_damage
+                nd.extent_of_damage,
+                fi.parent_incident_id
             FROM wims.fire_incidents fi
             LEFT JOIN wims.incident_nonsensitive_details nd
                    ON nd.incident_id = fi.incident_id
@@ -3729,6 +3812,7 @@ def get_validator_incident_queue(
                 "responder_type": r[11],
                 "fire_origin": r[12],
                 "extent_of_damage": r[13],
+                "parent_incident_id": r[14],
             }
             for r in rows
         ],
@@ -3814,7 +3898,45 @@ def verify_incident(
             detail=f"Incident is already in status '{current_status}'",
         )
 
-    # --- 5. Apply update + audit in one transaction ---
+    # --- 5. Prepare reference number if approving ---
+    ref_num: str | None = None
+    parent_to_archive: int | None = None
+    if target_status == "VERIFIED":
+        meta_row = db.execute(
+            text("""
+                SELECT fi.incident_type_code, fi.parent_incident_id
+                FROM wims.fire_incidents fi
+                WHERE fi.incident_id = :iid
+            """),
+            {"iid": incident_id},
+        ).fetchone()
+        type_code = meta_row[0] if meta_row else None
+        parent_incident_id_val = meta_row[1] if meta_row else None
+
+        if parent_incident_id_val:
+            # Replacement approval: inherit the original incident's reference number
+            orig_ref_row = db.execute(
+                text("SELECT reference_number FROM wims.fire_incidents WHERE incident_id = :pid"),
+                {"pid": parent_incident_id_val},
+            ).fetchone()
+            ref_num = orig_ref_row[0] if orig_ref_row else None
+            parent_to_archive = parent_incident_id_val
+        elif type_code:
+            ns_meta = db.execute(
+                text("""
+                    SELECT notification_dt, station_code
+                    FROM wims.incident_nonsensitive_details
+                    WHERE incident_id = :iid
+                """),
+                {"iid": incident_id},
+            ).fetchone()
+            notification_dt = str(ns_meta[0]) if ns_meta and ns_meta[0] else None
+            station_code = (ns_meta[1] if ns_meta else None) or "TBA"
+            ref_num = _generate_reference_number(
+                db, inc_region_id, type_code, station_code, notification_dt
+            )
+
+    # --- 6. Apply update + audit in one transaction ---
     try:
         db.execute(
             text("""
@@ -3825,6 +3947,34 @@ def verify_incident(
             """),
             {"new_status": target_status, "iid": incident_id},
         )
+
+        if ref_num:
+            db.execute(
+                text("""
+                    UPDATE wims.fire_incidents
+                    SET reference_number = :ref
+                    WHERE incident_id = :iid
+                """),
+                {"ref": ref_num, "iid": incident_id},
+            )
+
+        if parent_to_archive:
+            db.execute(
+                text("""
+                    UPDATE wims.fire_incidents
+                    SET is_archived = TRUE, updated_at = now()
+                    WHERE incident_id = :pid
+                """),
+                {"pid": parent_to_archive},
+            )
+            _insert_incident_verification_history(
+                db,
+                incident_id=parent_to_archive,
+                actor_user_id=str(validator_user_id),
+                previous_status="VERIFIED",
+                new_status="ARCHIVED",
+                notes=f"Archived — superseded by replacement incident #{incident_id}",
+            )
 
         _insert_incident_verification_history(
             db,
@@ -3873,6 +4023,8 @@ def verify_incident(
         "action": action,
         "encoder_id": str(inc_encoder_id),
         "region_id": inc_region_id,
+        "reference_number": ref_num,
+        "parent_archived": parent_to_archive,
     }
 
 

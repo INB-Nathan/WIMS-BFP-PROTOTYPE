@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { listEncoderDrafts, deleteDraft, type DraftSummary } from '@/lib/api';
+import { formatClassification } from '@/lib/afor-utils';
 
 export default function EncoderDraftsPage() {
   const router = useRouter();
@@ -103,7 +104,7 @@ export default function EncoderDraftsPage() {
                 <tr key={d.incident_id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-mono text-xs">{d.incident_id}</td>
                   <td className="px-4 py-3">{d.fire_station_name ?? '—'}</td>
-                  <td className="px-4 py-3">{d.general_category ?? '—'}</td>
+                  <td className="px-4 py-3">{formatClassification(d.general_category)}</td>
                   <td className="px-4 py-3">{d.alarm_level ?? '—'}</td>
                   <td className="px-4 py-3 text-xs text-gray-500">
                     {d.notification_dt ? new Date(d.notification_dt).toLocaleString() : '—'}

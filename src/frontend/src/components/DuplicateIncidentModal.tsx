@@ -1,6 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import type { RefDuplicateIncident } from '@/lib/api';
+import { formatClassification } from '@/lib/afor-utils';
 
 interface CurrentFormSummary {
   region: string;
@@ -8,6 +10,7 @@ interface CurrentFormSummary {
   typeOfInvolved: string;
   incidentTypeCode: string;
   stationCode: string;
+  stationName: string;
   fireDate: string;
   fireTime: string;
   alarmLevel: string;
@@ -40,16 +43,25 @@ const STATUS_COLORS: Record<string, string> = {
   REJECTED: 'bg-red-100 text-red-700',
 };
 
-function formatDt(raw: string | null): string {
-  if (!raw) return 'N/A';
+function formatDt(raw: string | null | undefined): string {
+  if (!raw) return '—';
   try {
-    return new Date(raw).toLocaleString('en-PH', {
-      year: 'numeric', month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit',
+    const dt = new Date(raw);
+    const datePart = dt.toLocaleDateString('en-PH', {
+      year: 'numeric', month: 'long', day: 'numeric',
     });
+    const timePart = dt.toLocaleTimeString('en-PH', {
+      hour: '2-digit', minute: '2-digit', hour12: true,
+    });
+    return `${datePart} | ${timePart}`;
   } catch {
     return raw;
   }
+}
+
+function formatCurrentDate(date: string, time: string): string {
+  if (!date) return '—';
+  return formatDt(`${date}T${time || '00:00'}:00`);
 }
 
 export function DuplicateIncidentModal({
@@ -65,6 +77,11 @@ export function DuplicateIncidentModal({
   const isPending = first.verification_status === 'PENDING';
   const isDraft = first.verification_status === 'DRAFT';
 
+  const existingAddress = first.street_address || [
+    first.city_municipality,
+    first.province_district,
+  ].filter(Boolean).join(', ') || '—';
+
   return (
     <div
       role="dialog"
@@ -72,7 +89,7 @@ export function DuplicateIncidentModal({
       aria-labelledby="dup-modal-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
     >
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center gap-3 bg-amber-700 text-white px-5 py-4 rounded-t-xl">
           <span className="text-2xl">⚠️</span>
@@ -89,42 +106,64 @@ export function DuplicateIncidentModal({
         {/* Side-by-side comparison */}
         <div className="flex-1 overflow-y-auto p-5">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Left: Current form */}
-            <div className="border-2 border-blue-500 rounded-lg p-4 space-y-3">
-              <p className="text-xs font-bold uppercase text-blue-700 tracking-wide mb-2">Current (about to submit)</p>
-              <Row label="Reference No." value={currentForm.referencePreview} highlight />
-              <Row label="Region" value={currentForm.region} />
-              <Row label="Fire Date" value={`${currentForm.fireDate} ${currentForm.fireTime}`} />
-              <Row label="Classification" value={currentForm.classification} />
+
+            {/* Left: Current form — NO Reference No. */}
+            <div className="border-2 border-blue-500 rounded-lg p-4 space-y-2">
+              <p className="text-xs font-bold uppercase text-blue-700 tracking-wide mb-3">
+                Current (about to submit)
+              </p>
+              <Row label="Region"           value={currentForm.region || '—'} />
+              <Row label="Station"          value={currentForm.stationName || currentForm.stationCode || '—'} />
+              <Row label="Fire Date"        value={formatCurrentDate(currentForm.fireDate, currentForm.fireTime)} />
+              <Row label="Classification"   value={currentForm.classification || '—'} />
               <Row label="Type of Involved" value={currentForm.typeOfInvolved || '—'} />
-              <Row label="Type Code" value={currentForm.incidentTypeCode || '—'} />
-              <Row label="Station Code" value={currentForm.stationCode} />
-              <Row label="Alarm Level" value={currentForm.alarmLevel || '—'} />
-              <Row label="Address" value={currentForm.address || '—'} />
+              <Row label="Alarm Level"      value={currentForm.alarmLevel || '—'} />
+              <Row label="Address"          value={currentForm.address || '—'} />
             </div>
 
-            {/* Right: Existing incident */}
-            <div className="border-2 border-amber-500 rounded-lg p-4 space-y-3">
-              <p className="text-xs font-bold uppercase text-amber-700 tracking-wide mb-2">
-                Existing Incident #{first.incident_id}
-              </p>
+            {/* Right: Existing incident — WITH Reference No. and Status */}
+            <div className="border-2 border-amber-500 rounded-lg p-4 space-y-2">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-bold uppercase text-amber-700 tracking-wide">
+                  Existing Incident #{first.incident_id}
+                </p>
+                <Link
+                  href={`/dashboard/regional/incidents/${first.incident_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-600 hover:underline font-medium"
+                >
+                  View Full ↗
+                </Link>
+              </div>
+
+              {first.reference_number && (
+                <Row
+                  label="Reference No."
+                  value={
+                    <span className="font-mono text-xs text-amber-800 bg-amber-50 px-1 rounded">
+                      {first.reference_number}
+                    </span>
+                  }
+                />
+              )}
+
               <Row
-                label="Reference No."
-                value={first.reference_number ?? 'N/A'}
-                highlight={!!first.reference_number}
+                label="Status"
+                value={
+                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${STATUS_COLORS[first.verification_status] ?? 'bg-gray-100 text-gray-700'}`}>
+                    {STATUS_LABELS[first.verification_status] ?? first.verification_status}
+                  </span>
+                }
               />
-              <Row label="Status" value={
-                <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${STATUS_COLORS[first.verification_status] ?? 'bg-gray-100 text-gray-700'}`}>
-                  {STATUS_LABELS[first.verification_status] ?? first.verification_status}
-                </span>
-              } />
-              <Row label="Fire Date" value={formatDt(first.notification_dt)} />
-              <Row label="Classification" value={first.general_category ?? '—'} />
+
+              <Row label="Region"           value={first.region_name || '—'} />
+              <Row label="Station"          value={first.fire_station_name || first.station_code || '—'} />
+              <Row label="Fire Date"        value={formatDt(first.notification_dt)} />
+              <Row label="Classification"   value={formatClassification(first.general_category)} />
               <Row label="Type of Involved" value={first.type_of_involved ?? '—'} />
-              <Row label="Type Code" value={first.incident_type_code ?? '—'} />
-              <Row label="Station Code" value={first.station_code ?? 'TBA'} />
-              <Row label="Alarm Level" value={first.alarm_level ?? '—'} />
-              <Row label="Fire Station" value={first.fire_station_name ?? '—'} />
+              <Row label="Alarm Level"      value={first.alarm_level ?? '—'} />
+              <Row label="Address"          value={existingAddress} />
             </div>
           </div>
 
@@ -140,9 +179,8 @@ export function DuplicateIncidentModal({
           </div>
         </div>
 
-        {/* Action buttons — differ by existing incident status */}
+        {/* Action buttons */}
         <div className="border-t border-gray-200 px-5 py-4 flex flex-col sm:flex-row gap-3 justify-end">
-          {/* Always present: cancel / go back to editing */}
           <button
             type="button"
             onClick={onEditCurrent}
@@ -151,9 +189,9 @@ export function DuplicateIncidentModal({
             Cancel / Keep Editing
           </button>
 
+          {/* VERIFIED / PENDING_VALIDATION */}
           {isVerified ? (
             <>
-              {/* VERIFIED or PENDING_VALIDATION: offer update-request OR new copy */}
               <button
                 type="button"
                 onClick={onKeepBoth}
@@ -171,14 +209,32 @@ export function DuplicateIncidentModal({
                 Submit as Update to #{first.incident_id}
               </button>
             </>
-          ) : (isPending || isDraft) ? (
+          ) : isPending ? (
+            /* PENDING: offer update request (links to pending original) or new */
             <>
-              {/* PENDING / DRAFT: offer replace OR submit as new */}
               <button
                 type="button"
                 onClick={onKeepBoth}
                 className="order-2 px-4 py-2 rounded-lg border border-blue-500 text-sm font-semibold text-blue-700 hover:bg-blue-50"
-                title="Create this as a separate new incident, leaving the existing one unchanged"
+                title="Create this as a separate new incident"
+              >
+                Submit as New
+              </button>
+              <button
+                type="button"
+                onClick={() => onRequestUpdate(first.incident_id)}
+                className="order-1 sm:order-3 px-4 py-2 rounded-lg bg-amber-700 text-white text-sm font-semibold hover:bg-amber-800"
+                title="Submit as an update request linked to the existing pending incident"
+              >
+                Submit as Update to #{first.incident_id}
+              </button>
+            </>
+          ) : isDraft ? (
+            <>
+              <button
+                type="button"
+                onClick={onKeepBoth}
+                className="order-2 px-4 py-2 rounded-lg border border-blue-500 text-sm font-semibold text-blue-700 hover:bg-blue-50"
               >
                 Submit as New
               </button>
@@ -186,13 +242,12 @@ export function DuplicateIncidentModal({
                 type="button"
                 onClick={() => onReplace(first.incident_id)}
                 className="order-1 sm:order-3 px-4 py-2 rounded-lg bg-amber-700 text-white text-sm font-semibold hover:bg-amber-800"
-                title={`Overwrite the existing ${isPending ? 'pending' : 'draft'} incident with the data from this form`}
+                title="Overwrite the existing draft with the data from this form"
               >
-                Replace {isPending ? 'Pending' : 'Draft'} (#{first.incident_id})
+                Replace Draft (#{first.incident_id})
               </button>
             </>
           ) : (
-            /* Fallback for any other status */
             <button
               type="button"
               onClick={onKeepBoth}
@@ -210,18 +265,14 @@ export function DuplicateIncidentModal({
 function Row({
   label,
   value,
-  highlight = false,
 }: {
   label: string;
   value: React.ReactNode;
-  highlight?: boolean;
 }) {
   return (
     <div className="flex gap-2 text-sm">
       <span className="text-gray-500 w-32 shrink-0 text-right">{label}:</span>
-      <span className={`font-medium ${highlight ? 'text-blue-800 font-mono text-xs bg-blue-50 px-1 rounded' : 'text-gray-900'}`}>
-        {value}
-      </span>
+      <span className="font-medium text-gray-900 flex-1">{value}</span>
     </div>
   );
 }

@@ -65,6 +65,23 @@ export const TRANSPORTATION_TYPE_OPTIONS: IncidentTypeOption[] = [
   { name: 'Recreational Vehicle', code: 'REC' },
 ];
 
+const CLASSIFICATION_LABELS: Record<string, string> = {
+  STRUCTURAL: 'Structural Fire',
+  NON_STRUCTURAL: 'Non-Structural Fire',
+  VEHICULAR: 'Transportation / Vehicular Fire',
+  WILDLAND: 'Wildland Fire',
+};
+
+/**
+ * Returns a human-readable classification label from a raw DB value.
+ * Handles underscore variants and casing inconsistencies from the database.
+ */
+export function formatClassification(raw: string | null | undefined): string {
+  if (!raw) return '—';
+  const upper = raw.replace(/-/g, '_').toUpperCase();
+  return CLASSIFICATION_LABELS[upper] ?? raw;
+}
+
 /** Returns the dropdown options for a given classification value. */
 export function getTypeOptionsForClassification(classification: string): IncidentTypeOption[] {
   switch (classification) {

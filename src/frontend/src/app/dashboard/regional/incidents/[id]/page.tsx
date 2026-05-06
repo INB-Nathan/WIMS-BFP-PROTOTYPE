@@ -46,6 +46,7 @@ import {
   displayValue,
   ALL_PROBLEM_OPTIONS,
   normalizeProblemLabel,
+  formatClassification,
 } from '@/lib/afor-utils';
 
 // ── FIX 4: Narrative as ordered bullets ──────────────────────────────────────
@@ -495,7 +496,18 @@ export default function RegionalIncidentDetailPage() {
                   </button>
                 )}
 
-                {/* Edit button — always visible; clicking on PENDING shows popup */}
+                {/* Withdraw button — standalone action for PENDING, no edit required */}
+                {detail.verification_status === 'PENDING' && (
+                  <button
+                    onClick={handleUnpend}
+                    disabled={actionLoading}
+                    className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium border border-yellow-400 text-yellow-800 bg-yellow-50 hover:bg-yellow-100 disabled:opacity-50"
+                  >
+                    Withdraw
+                  </button>
+                )}
+
+                {/* Edit button — DRAFT/REJECTED: opens edit directly; PENDING: shows withdraw-first popup */}
                 <button
                   onClick={handleEditClick}
                   disabled={actionLoading}
@@ -601,6 +613,17 @@ export default function RegionalIncidentDetailPage() {
             </span>
           </div>
 
+          {/* Reference Number — shown prominently when verified */}
+          {detail.verification_status === 'VERIFIED' && detail.reference_number && (
+            <div className="rounded-lg border-2 border-green-500 bg-green-50 px-5 py-3 flex items-center gap-3">
+              <span className="text-green-700 text-lg">✅</span>
+              <div>
+                <p className="text-xs font-semibold uppercase text-green-700 tracking-wide">Reference Number</p>
+                <p className="text-base font-bold font-mono text-green-900">{detail.reference_number}</p>
+              </div>
+            </div>
+          )}
+
           {/* A. Response Details */}
           <Section title="A. Response Details" sectionId="sec-response">
             <FieldRow label={FIELD_LABELS.notification_dt} value={ns?.notification_dt ? new Date(String(ns.notification_dt)).toLocaleString() : null} />
@@ -624,7 +647,7 @@ export default function RegionalIncidentDetailPage() {
 
           {/* B. Nature & Classification */}
           <Section title="B. Nature and Classification of Involved" sectionId="sec-class">
-            <FieldRow label={FIELD_LABELS.general_category} value={ns?.general_category ?? ns?.classification_of_involved} />
+            <FieldRow label={FIELD_LABELS.general_category} value={formatClassification(String(ns?.general_category ?? ns?.classification_of_involved ?? ''))} />
             <FieldRow label={FIELD_LABELS.sub_category} value={ns?.sub_category ?? ns?.type_of_involved_general_category} />
             <FieldRow label="Owner / Occupant Name" value={sens?.owner_name ?? ns?.owner_name} />
             <FieldRow label="Establishment Name" value={sens?.establishment_name ?? ns?.establishment_name} />
