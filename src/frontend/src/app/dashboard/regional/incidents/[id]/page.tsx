@@ -10,6 +10,7 @@ import {
   submitIncidentForReview,
   unpendIncident,
   deleteIncident,
+  forceReplaceIncident,
   apiFetch,
   type RegionalIncidentDetailResponse,
 } from '@/lib/api';
@@ -231,9 +232,11 @@ export default function RegionalIncidentDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [saveNotification, setSaveNotification] = useState<string | null>(null);
   const [showWithdrawPopup, setShowWithdrawPopup] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [duplicateFound, setDuplicateFound] = useState<{ matchedIncidentId: number } | null>(null);
+  const [pendingDuplicateFound, setPendingDuplicateFound] = useState<{ matchedIncidentId: number } | null>(null);
 
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
   const isValidator = role === 'NATIONAL_VALIDATOR' || role === 'VALIDATOR';
@@ -297,6 +300,13 @@ export default function RegionalIncidentDetailPage() {
         setDuplicateFound({ matchedIncidentId: res.matched_incident_id });
         return;
       }
+      if (res.status === 'PENDING_DUPLICATE_FOUND' && res.matched_incident_id) {
+        setPendingDuplicateFound({ matchedIncidentId: res.matched_incident_id });
+        return;
+      }
+      // Clear duplicate modals on successful submission
+      setDuplicateFound(null);
+      setPendingDuplicateFound(null);
       await load();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Failed to submit incident.');
@@ -388,6 +398,51 @@ export default function RegionalIncidentDetailPage() {
   const others = (sens?.other_personnel ?? []) as OtherPerson[];
   const alarmTimeline = (ns?.alarm_timeline ?? {}) as AlarmTimeline;
 
+  const buildPendingReplacePayload = (): Record<string, unknown> => ({
+    notification_dt: ns?.notification_dt ?? null,
+    alarm_level: ns?.alarm_level ?? null,
+    general_category: ns?.general_category ?? ns?.classification_of_involved ?? null,
+    sub_category: ns?.sub_category ?? ns?.type_of_involved_general_category ?? null,
+    specific_type: ns?.specific_type ?? null,
+    occupancy_type: ns?.occupancy_type ?? null,
+    city_id: ns?.city_id ?? null,
+    barangay_id: ns?.barangay_id ?? null,
+    distance_from_station_km: ns?.distance_from_station_km ?? ns?.distance_to_fire_scene_km ?? null,
+    estimated_damage_php: ns?.estimated_damage_php ?? null,
+    civilian_injured: ns?.civilian_injured ?? null,
+    civilian_deaths: ns?.civilian_deaths ?? null,
+    firefighter_injured: ns?.firefighter_injured ?? null,
+    firefighter_deaths: ns?.firefighter_deaths ?? null,
+    families_affected: ns?.families_affected ?? null,
+    structures_affected: ns?.structures_affected ?? null,
+    households_affected: ns?.households_affected ?? null,
+    individuals_affected: ns?.individuals_affected ?? null,
+    responder_type: ns?.responder_type ?? null,
+    fire_origin: ns?.fire_origin ?? ns?.area_of_origin ?? null,
+    extent_of_damage: ns?.extent_of_damage ?? null,
+    stage_of_fire: ns?.stage_of_fire ?? ns?.stage_of_fire_upon_arrival ?? null,
+    fire_station_name: ns?.fire_station_name ?? null,
+    total_response_time_minutes: ns?.total_response_time_minutes ?? null,
+    recommendations: ns?.recommendations ?? null,
+    province_district: ns?.province_district ?? null,
+    city_municipality: ns?.city_municipality ?? null,
+    station_code: ns?.station_code ?? null,
+    street_address: sens?.street_address ?? ns?.incident_address ?? null,
+    landmark: sens?.landmark ?? ns?.nearest_landmark ?? null,
+    caller_name: sens?.caller_name ?? null,
+    caller_number: sens?.caller_number ?? null,
+    narrative_report: sens?.narrative_report ?? null,
+    owner_name: sens?.owner_name ?? null,
+    occupant_name: sens?.occupant_name ?? null,
+    establishment_name: sens?.establishment_name ?? null,
+    receiver_name: sens?.receiver_name ?? ns?.receiver_name ?? null,
+    prepared_by_officer: sens?.prepared_by_officer ?? null,
+    noted_by_officer: sens?.noted_by_officer ?? null,
+    remarks: sens?.remarks ?? null,
+    latitude: detail?.latitude ?? null,
+    longitude: detail?.longitude ?? null,
+  });
+
   // Defensive: problems_encountered may come back as a JSON array or (rarely) a string
   const rawProblems = ns?.problems_encountered;
   const problems: string[] = Array.isArray(rawProblems)
@@ -446,6 +501,69 @@ export default function RegionalIncidentDetailPage() {
               </button>
               <button
                 onClick={() => setDuplicateFound(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pending duplicate detected */}
+      {pendingDuplicateFound && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4">
+            <h2 className="text-lg font-bold text-blue-800">Incident Matches a Currently Pending Record</h2>
+            <p className="text-sm text-gray-700">
+              The incident is identical to currently pending incident #{pendingDuplicateFound.matchedIncidentId}.
+              Choose whether to view the first submission, replace it with this incident data, edit this incident,
+              or cancel.
+            </p>
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                onClick={() => {
+                  setPendingDuplicateFound(null);
+                  router.push(`/dashboard/regional/incidents/${pendingDuplicateFound.matchedIncidentId}`);
+                }}
+                disabled={actionLoading}
+                className="px-4 py-2 text-sm font-semibold text-blue-700 border border-blue-300 rounded-lg hover:bg-blue-50 disabled:opacity-50"
+              >
+                View First Submitted Incident
+              </button>
+              <button
+                onClick={() => {
+                  if (!detail) return;
+                  void (async () => {
+                    setActionLoading(true);
+                    setActionError(null);
+                    try {
+                      await forceReplaceIncident(
+                        pendingDuplicateFound.matchedIncidentId,
+                        buildPendingReplacePayload(),
+                      );
+                      setPendingDuplicateFound(null);
+                      router.push(`/dashboard/regional/incidents/${pendingDuplicateFound.matchedIncidentId}`);
+                    } catch (e) {
+                      setActionError(e instanceof Error ? e.message : 'Failed to replace pending incident.');
+                    } finally {
+                      setActionLoading(false);
+                    }
+                  })();
+                }}
+                disabled={actionLoading}
+                className="px-4 py-2 text-sm font-semibold text-white bg-amber-700 rounded-lg hover:bg-amber-800 disabled:opacity-50"
+              >
+                Replace Pending Incident
+              </button>
+              <button
+                onClick={() => { setPendingDuplicateFound(null); setIsEditing(true); }}
+                className="px-4 py-2 text-sm font-semibold text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Edit This Incident
+              </button>
+              <button
+                onClick={() => setPendingDuplicateFound(null)}
                 className="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700"
               >
                 Cancel
@@ -587,6 +705,12 @@ export default function RegionalIncidentDetailPage() {
         </div>
       )}
 
+      {saveNotification && (
+        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800" role="status">
+          ✅ {saveNotification}
+        </div>
+      )}
+
       {detail && detail.verification_status === 'REJECTED' && (
         <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900" role="alert">
           <p className="font-semibold">This incident was rejected by a validator.</p>
@@ -610,7 +734,12 @@ export default function RegionalIncidentDetailPage() {
         <IncidentForm
           initialData={incidentFormData}
           existingIncidentId={detail.incident_id}
-          onSaved={() => { setIsEditing(false); void load(); }}
+          onSaved={() => {
+            setSaveNotification('Incident saved successfully!');
+            setTimeout(() => setSaveNotification(null), 5000);
+            setIsEditing(false);
+            void load();
+          }}
         />
       )}
 
@@ -925,21 +1054,14 @@ export default function RegionalIncidentDetailPage() {
                 <div className="flex flex-wrap gap-2 items-center">
                   <button
                     onClick={() => setValidatorAction('accept')}
-                    disabled={validatorLoading || detail?.verification_status === 'VERIFIED'}
+                    disabled={validatorLoading || detail?.verification_status === 'VERIFIED' || detail?.verification_status === 'REJECTED'}
                     className="px-4 py-2 text-sm rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     Accept
                   </button>
                   <button
-                    onClick={() => setValidatorAction('pending')}
-                    disabled={validatorLoading || detail?.verification_status === 'PENDING'}
-                    className="px-4 py-2 text-sm rounded bg-yellow-500 text-white hover:bg-yellow-600 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    Return to Pending
-                  </button>
-                  <button
                     onClick={() => setValidatorAction('reject')}
-                    disabled={validatorLoading || detail?.verification_status === 'REJECTED'}
+                    disabled={validatorLoading || detail?.verification_status === 'REJECTED' || detail?.verification_status === 'VERIFIED'}
                     className="px-4 py-2 text-sm rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     Reject

@@ -105,7 +105,20 @@ export function DuplicateIncidentModal({
 
         {/* Side-by-side comparison */}
         <div className="flex-1 overflow-y-auto p-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {isVerified ? (
+            /* Verified incidents: no comparison needed */
+            <div className="rounded-lg bg-green-50 border border-green-300 p-4 space-y-3">
+              <p className="font-semibold text-green-900">
+                This duplicate is already verified with reference number: <span className="font-mono text-sm bg-white px-2 py-1 rounded">{first.reference_number}</span>
+              </p>
+              <p className="text-sm text-green-800">
+                A verified incident cannot be modified. You can submit this as a new separate incident, or go back and edit your form.
+              </p>
+            </div>
+          ) : (
+            /* Non-verified: show comparison */
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
             {/* Left: Current form — NO Reference No. */}
             <div className="border-2 border-blue-500 rounded-lg p-4 space-y-2">
@@ -177,6 +190,8 @@ export function DuplicateIncidentModal({
             <p className="font-semibold text-gray-800">Duplicate key fields:</p>
             <p>Region + Incident Type Code + Year + Month + Day of fire notification</p>
           </div>
+            </>
+          )}
         </div>
 
         {/* Action buttons */}

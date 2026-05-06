@@ -103,8 +103,8 @@ export default function ValidatorDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Filters — default to pending queue
-  const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_QUEUE);
+  // Filters — default to all incidents so validators can see the full workflow
+  const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_ALL);
   const [encoderFilter, setEncoderFilter] = useState<string>("");
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
@@ -327,18 +327,7 @@ export default function ValidatorDashboard() {
         }
       );
 
-      const nextStatus =
-        actionType === "accept" || actionType === "accept_replace"
-          ? "VERIFIED"
-          : "REJECTED";
-
-      setIncidents((prev) =>
-        prev.map((inc) =>
-          inc.incident_id === actionTarget.incident_id
-            ? { ...inc, verification_status: nextStatus }
-            : inc
-        )
-      );
+      await fetchQueue();
 
       setActionTarget(null);
       setActionType(null);
@@ -570,22 +559,12 @@ export default function ValidatorDashboard() {
                   <td className="px-4 py-3">{inc.alarm_level ?? "—"}</td>
                   <td className="px-4 py-3">
                     <div className="flex gap-1">
-                      {/* View: for update/duplicate incidents opens the modal; others navigate */}
-                      {inc.parent_incident_id || inc.is_duplicate ? (
-                        <button
-                          onClick={() => openAction(inc, "accept")}
-                          className="px-2 py-1 text-xs rounded border border-blue-400 text-blue-700 hover:bg-blue-50"
-                        >
-                          View
-                        </button>
-                      ) : (
-                        <Link
-                          href={`/dashboard/regional/incidents/${inc.incident_id}`}
-                          className="px-2 py-1 text-xs rounded border border-blue-400 text-blue-700 hover:bg-blue-50"
-                        >
-                          View
-                        </Link>
-                      )}
+                      <Link
+                        href={`/dashboard/regional/incidents/${inc.incident_id}`}
+                        className="px-2 py-1 text-xs rounded border border-blue-400 text-blue-700 hover:bg-blue-50"
+                      >
+                        View
+                      </Link>
                       <button
                         onClick={() => openAction(inc, "accept")}
                         disabled={inc.verification_status === "VERIFIED"}

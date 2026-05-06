@@ -251,6 +251,13 @@ export function IncidentForm({
     proceedCallback: () => Promise<void>;
   } | null>(null);
 
+  // Region mismatch modal state
+  const [regionMismatchData, setRegionMismatchData] = useState<{
+    selectedRegionId: number;
+    assignedRegionId: number;
+    continueCallback: () => Promise<void>;
+  } | null>(null);
+
   // ── Derived reference number values ───────────────────────────────────────
 
   const incidentTypeCode = useMemo(
@@ -273,16 +280,24 @@ export function IncidentForm({
   const toDateTimeLocalValue = (raw: unknown): string => {
     if (!raw) return '';
     const value = String(raw).trim();
-    const match = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
-    if (match) return `${match[1]}T${match[2]}`;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return `${value}T00:00`;
     const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return '';
+    if (Number.isNaN(date.getTime())) {
+      const match = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+      return match ? `${match[1]}T${match[2]}` : '';
+    }
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     const dd = String(date.getDate()).padStart(2, '0');
     const hh = String(date.getHours()).padStart(2, '0');
     const min = String(date.getMinutes()).padStart(2, '0');
     return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+  };
+
+  const buildNotificationDateTime = (dateValue: string, timeValue: string): string | undefined => {
+    if (!dateValue) return undefined;
+    const time = timeValue || '00:00';
+    return `${dateValue}T${time}:00+08:00`;
   };
 
   const alarmEntryToDateTimeLocal = (entry: unknown): string => {
@@ -405,8 +420,8 @@ export function IncidentForm({
       ...prev,
       responder_type: ns.responder_type || '',
       fire_station_name: ns.fire_station_name || '',
-      notification_dt_date: ns.notification_dt ? String(ns.notification_dt).split('T')[0] : '',
-      notification_dt_time: ns.notification_dt ? String(ns.notification_dt).split('T')[1]?.substring(0, 5) : '',
+      notification_dt_date: toDateTimeLocalValue(ns.notification_dt).split('T')[0] || '',
+      notification_dt_time: toDateTimeLocalValue(ns.notification_dt).split('T')[1] || '',
       region: ns.region || '',
       province_district: ns.province_district || (initialData as unknown as Record<string, unknown>)._province_text as string || '',
       city_municipality: initialData._city_text || ns.city_municipality || '',
@@ -612,6 +627,16 @@ export function IncidentForm({
     }
   }, [initialData]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Derive effective region ID from selectedRegionId or by looking up formState.region
+  const getEffectiveRegionId = (): number => {
+    if (selectedRegionId && selectedRegionId > 0) return selectedRegionId;
+    if (formState.region) {
+      const found = PH_REGIONS.find((r) => r.regionName === formState.region);
+      return found?.regionId ?? 0;
+    }
+    return 0;
+  };
+
   // ── Event handlers ─────────────────────────────────────────────────────────
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -726,6 +751,19 @@ export function IncidentForm({
 
     const effectiveRegionId = resolveRegionId()!;
 
+    // Check region mismatch for encoders
+    if (isEncoder && assignedRegionId && effectiveRegionId !== assignedRegionId) {
+      setRegionMismatchData({
+        selectedRegionId: effectiveRegionId,
+        assignedRegionId,
+        continueCallback: async () => {
+          setRegionMismatchData(null);
+          await doCreateIncident(effectiveRegionId);
+        },
+      });
+      return;
+    }
+
     await doCreateIncident(effectiveRegionId);
   };
 
@@ -744,9 +782,7 @@ export function IncidentForm({
       longitude,
       region_id: effectiveRegionId,
       incident_nonsensitive_details: {
-        notification_dt: formState.notification_dt_date && formState.notification_dt_time
-          ? `${formState.notification_dt_date}T${formState.notification_dt_time}:00`
-          : new Date().toISOString(),
+        notification_dt: buildNotificationDateTime(formState.notification_dt_date, formState.notification_dt_time),
         region: formState.region,
         province_district: formState.province_district,
         city_municipality: formState.city_municipality,
@@ -1235,26 +1271,30 @@ export function IncidentForm({
 
             <div>
               <label className={labelCls}>City / Municipality</label>
-              {getCitiesForProvince(selectedRegionId ?? 0, formState.province_district).length > 0 ? (
-                <select
-                  className={inputCls}
-                  value={formState.city_municipality}
-                  onChange={(e) => setFormState((prev) => ({ ...prev, city_municipality: e.target.value }))}
-                >
-                  <option value="">Select City / Municipality</option>
-                  {getCitiesForProvince(selectedRegionId ?? 0, formState.province_district).map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  className={inputCls}
-                  placeholder="Type city or municipality name"
-                  value={formState.city_municipality}
-                  onChange={(e) => setFormState((prev) => ({ ...prev, city_municipality: e.target.value }))}
-                />
-              )}
+              {(() => {
+                const effectiveRegionId = getEffectiveRegionId();
+                const cities = getCitiesForProvince(effectiveRegionId, formState.province_district);
+                return cities.length > 0 ? (
+                  <select
+                    className={inputCls}
+                    value={formState.city_municipality}
+                    onChange={(e) => setFormState((prev) => ({ ...prev, city_municipality: e.target.value }))}
+                  >
+                    <option value="">Select City / Municipality</option>
+                    {cities.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    className={inputCls}
+                    placeholder="Type city or municipality name"
+                    value={formState.city_municipality}
+                    onChange={(e) => setFormState((prev) => ({ ...prev, city_municipality: e.target.value }))}
+                  />
+                );
+              })()}
             </div>
 
             <div className="md:col-span-2" data-field-error={fieldErrors.has('incident_address') ? 'true' : undefined}>
@@ -1739,7 +1779,15 @@ export function IncidentForm({
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-900 mb-1">Others (specify, separate by comma)</label>
-            <input type="text" name="problems_others" className={inputCls} placeholder="e.g. Flooding in access road, Low visibility due to fog" value={formState.problems_others || ''} onChange={handleChange} />
+            <input 
+              type="text" 
+              name="problems_others" 
+              className={inputCls} 
+              placeholder="e.g. Flooding in access road, Low visibility due to fog" 
+              value={formState.problems_others || ''} 
+              onChange={handleChange}
+              disabled={(formState.problems_encountered || []).every((p) => normalizeProblemLabel(p) !== 'Others')}
+            />
           </div>
         </section>
 
@@ -1796,9 +1844,7 @@ export function IncidentForm({
             const existingStatus = duplicateModalData?.duplicates.find((d) => d.incident_id === existingId)?.verification_status;
             setDuplicateModalData(null);
             const replacePayload: Record<string, unknown> = {
-              notification_dt: formState.notification_dt_date && formState.notification_dt_time
-                ? `${formState.notification_dt_date}T${formState.notification_dt_time}:00`
-                : undefined,
+              notification_dt: buildNotificationDateTime(formState.notification_dt_date, formState.notification_dt_time),
               alarm_level: formState.alarm_level,
               general_category: formState.classification_of_involved,
               sub_category: formState.type_of_involved_general_category,
@@ -1862,9 +1908,7 @@ export function IncidentForm({
                   latitude: latitude ?? 0,
                   longitude: longitude ?? 0,
                   region_id: effectiveRegionId,
-                  notification_dt: formState.notification_dt_date && formState.notification_dt_time
-                    ? `${formState.notification_dt_date}T${formState.notification_dt_time}:00`
-                    : undefined,
+                  notification_dt: buildNotificationDateTime(formState.notification_dt_date, formState.notification_dt_time),
                   alarm_level: formState.alarm_level,
                   general_category: formState.classification_of_involved,
                   sub_category: formState.type_of_involved_general_category,
@@ -1907,6 +1951,38 @@ export function IncidentForm({
           }}
           onEditCurrent={() => setDuplicateModalData(null)}
         />
+      )}
+
+      {/* ── Region Mismatch Modal ── */}
+      {regionMismatchData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg shadow-2xl p-6 max-w-sm">
+            <h2 className="text-xl font-bold text-red-900 mb-4">Region Mismatch</h2>
+            <p className="text-gray-700 mb-6">
+              Your assigned region does not match the incident&apos;s location.
+            </p>
+            <p className="text-sm text-gray-600 mb-6">
+              Assigned Region: <span className="font-semibold">{PH_REGIONS.find((r) => r.regionId === regionMismatchData.assignedRegionId)?.regionName}</span>
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setRegionMismatchData(null)}
+                className="flex-1 px-4 py-2 bg-gray-300 text-gray-900 rounded font-semibold hover:bg-gray-400"
+              >
+                Continue Editing
+              </button>
+              <button
+                onClick={() => {
+                  setRegionMismatchData(null);
+                  router.push('/dashboard/regional');
+                }}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded font-semibold hover:bg-red-700"
+              >
+                Back to Regional
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

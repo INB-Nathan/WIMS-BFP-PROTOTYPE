@@ -3626,9 +3626,10 @@ def submit_incident_for_review(
             detail=f"Cannot submit incident with status '{current_status}'. Only DRAFT or REJECTED incidents can be submitted.",
         )
 
-    # Duplicate check against VERIFIED incidents only (Phase 1.2).
+    # Duplicate check against VERIFIED and PENDING incidents.
     # Skip check if already flagged (re-submission after rejection) or if encoder acknowledged.
     matched_duplicate_id: int | None = None
+    matched_pending_duplicate_id: int | None = None
     already_flagged = db.execute(
         text("SELECT is_duplicate FROM wims.fire_incidents WHERE incident_id = :iid"),
         {"iid": incident_id},
@@ -3683,6 +3684,47 @@ def submit_incident_for_review(
                     "status": "DUPLICATE_FOUND",
                     "incident_id": incident_id,
                     "matched_incident_id": dup_row[0],
+                }
+
+        # Also check for PENDING duplicates (same criteria)
+        if ns_meta and ns_meta[0]:
+            notif_dt = ns_meta[0]
+            gen_cat = ns_meta[1]
+            type_code_check = ns_meta[2]
+            region_id_check = ns_meta[3]
+
+            pending_dup_row = db.execute(
+                text("""
+                    SELECT fi.incident_id
+                    FROM wims.fire_incidents fi
+                    LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+                    WHERE fi.region_id = :rid
+                      AND fi.is_archived = FALSE
+                      AND fi.verification_status = 'PENDING'
+                      AND fi.incident_id != :cur_id
+                      AND (
+                        (:type_code IS NOT NULL AND fi.incident_type_code = :type_code
+                          AND DATE(nd.notification_dt AT TIME ZONE 'Asia/Manila') = DATE(:notif_dt AT TIME ZONE 'Asia/Manila'))
+                        OR
+                        (:gen_cat IS NOT NULL AND nd.general_category = :gen_cat
+                          AND DATE(nd.notification_dt AT TIME ZONE 'Asia/Manila') = DATE(:notif_dt AT TIME ZONE 'Asia/Manila'))
+                      )
+                    LIMIT 1
+                """),
+                {
+                    "rid": region_id_check,
+                    "cur_id": incident_id,
+                    "type_code": type_code_check,
+                    "gen_cat": gen_cat,
+                    "notif_dt": str(notif_dt),
+                },
+            ).fetchone()
+
+            if pending_dup_row:
+                return {
+                    "status": "PENDING_DUPLICATE_FOUND",
+                    "incident_id": incident_id,
+                    "matched_incident_id": pending_dup_row[0],
                 }
 
     try:
@@ -4028,6 +4070,20 @@ def verify_incident(
             detail=f"Incident is already in status '{current_status}'",
         )
 
+    # --- 4a. Prevent invalid state transitions ---
+    # Cannot reject a verified incident
+    if current_status == "VERIFIED" and action == "reject":
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot reject an incident that is already verified",
+        )
+    # Cannot accept a rejected incident
+    if current_status == "REJECTED" and action == "accept":
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot accept an incident that has been rejected. It must be resubmitted by the encoder.",
+        )
+
     # --- 5. Prepare reference number if approving ---
     ref_num: str | None = None
     parent_to_archive: int | None = None
@@ -4105,6 +4161,18 @@ def verify_incident(
                 previous_status="VERIFIED",
                 new_status="ARCHIVED",
                 notes=f"Archived — superseded by replacement incident #{incident_id}",
+            )
+
+        if action == "accept_replace" and duplicate_of_val:
+            db.execute(
+                text("""
+                    UPDATE wims.fire_incidents
+                    SET is_duplicate = FALSE,
+                        duplicate_of = NULL,
+                        updated_at = now()
+                    WHERE incident_id = :iid
+                """),
+                {"iid": incident_id},
             )
 
         if ref_num:
