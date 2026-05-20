@@ -25,17 +25,21 @@ ALTER TABLE wims.analytics_incident_facts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE wims.analytics_incident_facts FORCE ROW LEVEL SECURITY;
 
 -- NATIONAL_ANALYST: read-only global access
+DROP POLICY IF EXISTS aif_national_analyst_read ON wims.analytics_incident_facts;
 CREATE POLICY aif_national_analyst_read ON wims.analytics_incident_facts
     FOR SELECT TO NATIONAL_ANALYST USING (true);
 
 -- REGIONAL_ENCODER / NATIONAL_VALIDATOR: filtered to their region
+DROP POLICY IF EXISTS aif_regional_read ON wims.analytics_incident_facts;
 CREATE POLICY aif_regional_read ON wims.analytics_incident_facts
     FOR SELECT TO REGIONAL_ENCODER USING (region_id = wims.current_user_region_id());
 
+DROP POLICY IF EXISTS aif_validator_read ON wims.analytics_incident_facts;
 CREATE POLICY aif_validator_read ON wims.analytics_incident_facts
     FOR SELECT TO NATIONAL_VALIDATOR USING (region_id = wims.current_user_region_id());
 
 -- SYSTEM_ADMIN: full CRUD for maintenance
+DROP POLICY IF EXISTS aif_system_admin_all ON wims.analytics_incident_facts;
 CREATE POLICY aif_system_admin_all ON wims.analytics_incident_facts
     FOR ALL TO SYSTEM_ADMIN USING (true);
 

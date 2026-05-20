@@ -1,7 +1,7 @@
 ---
 title: UI/UX Gap Register
 created: 2026-05-14
-updated: 2026-05-15
+updated: 2026-05-19
 type: gap
 tags: [wims-bfp, gap, ui-ux, needs-verification]
 sources: [raw/ui-ux, ui-ux/evaluation-loginpage-keycloaksso.md, ui-ux/evaluation-system-admin-hub.md, ui-ux/evaluation-national-analyst.md]
@@ -64,8 +64,31 @@ Source: [[ui-ux/evaluation-system-admin-hub]]
 
 Source: [[ui-ux/evaluation-national-analyst]]
 
+## National Analyst UX — Iteration 2 Review (2026-05-19)
+
+Code-level HCI/UX issues confirmed by source inspection during a National Analyst perspective walkthrough. See GitHub issues [#111](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/111)–[#120](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/120).
+
+| # | GitHub | Severity | Issue | Detail |
+|---|---|---|---|---|
+| 1 | [#111](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/111) | Critical | Phantom `barangay_name` column | `barangay_name` in `ALL_COLUMNS` (export picker) and `COLUMNS` (table) — always empty/N/A since barangay purge; trust-destroying for analysts |
+| 2 | [#112](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/112) | Critical | `region_id` raw integer in exports | Every export row shows `4`, `5`, `17` instead of `Region IV-B (CALABARZON)`; `region_name` missing from `ALLOWED_EXPORT_COLUMNS` backend |
+| 3 | [#113](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/113) | High | Export default columns low-signal | Default `slice(0, 6)` includes `barangay_name` and `region_id`; misses `alarm_level`, `general_category`, `estimated_damage_php` |
+| 4 | [#114](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/114) | High | "Analyze selected" ignored by workflows | `selectedIncidentIds` passed to URL but receiving workflow re-queries by filter scope only; selection meaningless for heatmap/trends/top-N |
+| 5 | [#115](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/115) | Medium | No copy incident ID affordance | Incident ID displayed as plain text in drawer and detail page; no clipboard copy button for cross-referencing |
+| 6 | [#116](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/116) | Medium | Export filename opaque | All exports named `wims-bfp-analyst-export.csv` regardless of date range or format |
+| 7 | [#117](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/117) | Medium | "Unselect page" label confuses | Button describes current state, not the action; leads to accidental mass-deselection |
+| 8 | [#118](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/118) | Medium | Top-N missing `damage_cost` metric | Cannot rank municipalities by economic impact; only `incidents`, `response_time`, `casualties` |
+| 9 | [#119](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/119) | High | Export picker missing 13 fields | `verification_status`, `created_at`, `fire_origin`, `extent_of_damage`, `structures_affected`, `households_affected`, `families_affected`, `individuals_affected`, `vehicles_affected`, `total_gas_consumed_liters`, `extent_total_floor_area_sqm`, `extent_total_land_area_hectares`, `fire_station_name` absent from frontend `ALL_COLUMNS` and `COLUMN_LABELS` |
+| 10 | [#120](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/120) | Medium | No rows-per-page selector | Incident list hardcoded to 25/100 rows; no user-control at national scale |
+
+**Also noted (no GitHub issue yet):**
+- `barangay_name` in `AnalystIncidentList` drawer `SummaryRow` — always shows "N/A"
+- Sort state not persisted to URL — resets on navigation back to incident list
+- Filter section labeled "Workflow Filters" in `[workflow]/page.tsx` vs "Analysis Filters" in dashboard — inconsistent naming
+
 ## Related
 - [[ui-ux/evaluation-loginpage-keycloaksso]]
 - [[ui-ux/evaluation-system-admin-hub]]
+- [[ui-ux/evaluation-national-analyst]]
 - [[concepts/frs-module-map]]
 - [[gaps/functional-bug-register]]

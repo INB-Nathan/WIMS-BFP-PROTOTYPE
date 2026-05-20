@@ -3,6 +3,41 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-05-19] update | Civilian Reporting Architecture — ADR-0001 accepted
+
+**Session context:** Grill-with-docs session. Complete HCI overhaul of civilian emergency reporting flow and triage queue.
+
+**Decisions recorded in:** `system-wiki/decisions/0001-civilian-reporting-overhaul.md`
+
+**Key decisions:**
+- `citizen_reports` (staging, 14 cols) separate from `fire_incidents` (AFOR canonical) — prevents flooding
+- `GET /api/triage/queue` unifies both tables at read time via PostGIS `ST_DWithin` clustering
+- Category = STRUCTURAL / NON_STRUCTURAL / TRANSPORTATION / UNSURE + icon sub-category grids
+- Severity derived at read time from spatial/temporal clustering (link_count)
+- Append creates new `citizen_reports` row with `linked_to_report_id` — NOT in-place update
+- Rate limits: 5 new reports/IP/hr, 1 append/device_id/5min
+- "What to do while waiting" = deterministic static content per category, no risk encouragement
+- Triage: validator dashboard overview widget + dedicated `/incidents/triage` page
+- Fire station auto-assigned from `nearest_station_id` at promotion; validator can override
+
+## [2026-05-19] update | National Analyst HCI/UX review — 10 issues filed to GitHub
+
+**Session context:** National Analyst perspective walkthrough (Iteration 1 + 2 + 3). Keycloak auth blocked runtime browser testing; all findings confirmed via source inspection.
+
+**Findings:**
+- 2 Critical (P0): Phantom `barangay_name` column in export picker + incident table; raw `region_id` integer with no `region_name` in exports
+- 3 High (P1): Export default columns low-signal; "Analyze selected" ignores selected IDs; export picker missing 13 fields
+- 5 Medium (P2/P3): No copy incident ID; opaque export filename; "Unselect page" label confusion; Top-N missing `damage_cost`; no rows-per-page selector
+
+**Actions taken:**
+- Partial patch applied to `ExportPreviewModal.tsx`: `barangay_name` removed from `ALL_COLUMNS`, `region_name` added, full 24-column list synced with backend `ALLOWED_EXPORT_COLUMNS` — **NOT yet committed**
+- Created 10 GitHub issues: [#111](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/111)–[#120](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/120)
+- Updated `gaps/ui-ux-gap-register.md`: added new "National Analyst UX — Iteration 2 Review (2026-05-19)" section, added missing `[[ui-ux/evaluation-national-analyst]]` cross-reference
+
+**Blocked on:**
+- Keycloak auth to `wims-web` realm (dev mode) — needs `wims-bfp` realm credentials for local browser testing
+- `region_name` export requires backend JOIN in `analytics_read_model.py` / `exports.py`
+
 ## [2026-05-19] update | Consolidate gap-register and functional-bug-register
 - gap-register: condensed verbose multi-line entries into tight bullet points; M9 marked NOT-yet-implemented; barangay TOP-N marked OPTIONAL; Phase 2 analyst export confirmed pending; all other items confirmed/shortened.
 - functional-bug-register: F-01 to F-07 consolidated; verbose Keycloak token timeout names removed; F-06 (analyst 500) marked Fixed; removed stale "smoke-checked" qualifiers.
@@ -269,6 +304,73 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Added to `ui-ux-gap-register.md` (National Analyst Dashboard section) and `index.md` (UI/UX Evaluations section).
 - SCHEMA.md authority model: "Empty or incomplete FRS source files" rule preserved (applies if future sources are empty).
 
+## [2026-05-20] implement | Civilian Reporting Phase 2 — Issue 1: schema/bootstrap
+
+**Session context:** Issue 1 of 12 vertical slices. Schema and bootstrap only; no API/frontend/validator work.
+
+**Decisions implemented:**
+- `05_citizen_reports.sql`: Phase 2 schema with all ADR columns: `category`/`sub_category`/`reporting_context`/`safety_status`/`witness_name`/`witness_phone`/`trust_score`/`status_explanation`/`internal_note`/`linked_to_report_id`/`link_count`/`previous_report_id`/`source_url`; CHECK constraints for all status values (PENDING/UNDER_REVIEW/LINKED/ACTIONED/REJECTED_BOGUS/REJECTED_DUPLICATE/REJECTED_INSUFFICIENT/REJECTED_TIMEOUT); status_explanation CHECK constraint COMMENTED OUT for bootstrap compatibility (re-enable via migration after seed backfill); `nearest_station_id` FK deferred to `32b_citizen_reports_station_fk.sql`; `report_notification_tokens` folded into this file.
+- `citizen_report_clusters` and `citizen_report_cluster_members`: folded into `05_citizen_reports.sql` (Phase 2 cluster workflow state with anchor/claim/merge tracking).
+- `ref_fire_stations.phone`: added to table definition in `32_ref_fire_stations.sql`; `32b_citizen_reports_station_fk.sql` defers FK constraint for `nearest_station_id`.
+- `01_extensions_roles.sql`: made idempotent with `DO $$ EXCEPTION WHEN duplicate_object $$` blocks for all roles and wims_app.
+- `10_rls_policies.sql`: Phase 2 citizen_reports RLS policies — public signal records, ANONYMOUS insert/select allowed, validator/admin write access.
+- `11_analytics_facts.sql`: added `DROP POLICY IF EXISTS` for idempotent bootstrap re-runs.
+- Bootstrap test (`test_wims_initial_schema_bootstrap.py`): updated to apply all numbered SQL files in sequence, added Phase 2 column/constraint/index assertions, updated `test_database_schema.py` TestForensicConstraint to test ACTIONED instead of deprecated VERIFIED.
+
+**Tests run:**
+- `test_database_schema.py` (7/7 pass against live DB): all constraint tests including Phase 2 status values.
+- `test_wims_initial_schema_bootstrap.py`: bootstrap test has idempotency gaps in multiple pre-existing SQL files (13_export_reports.sql, 15_validator_workflow.sql, 17_cross_region_validator.sql, 17_immutable_records.sql) that use `CREATE POLICY` without `DROP POLICY IF EXISTS`. These are pre-existing issues outside Issue 1 scope. On first fresh-DB run (from template0) the bootstrap test passes.
+
+**Verification against live running DB (test_database_schema.py — 7/7 pass):**
+- `citizen_reports` has all Phase 2 columns including `source_url`, `previous_report_id`, `link_count`, `status_explanation`.
+- `citizen_report_clusters` table exists with all ADR columns (anchor_report_id, status, status_note, internal_note, acted_by, assigned_to, review_started_at, created_at, updated_at, closed_at, merged_into_cluster_id).
+- `citizen_report_cluster_members` table exists with all ADR columns (cluster_id, report_id, linked_by, created_at).
+- `ref_fire_stations.phone` column exists.
+- `citizen_reports.status` accepts all 8 Phase 2 values.
+- ACTIONED status requires validated_by (TestForensicConstraint updated from deprecated VERIFIED).
+
+**Known gaps (out of Issue 1 scope):**
+- `05_citizen_reports.sql` comment says status_explanation CHECK is commented — re-enable in Issue 2 API phase.
+- Bootstrap test idempotency: many pre-existing SQL files not idempotent; test passes on first fresh run but fails on re-run from same Docker session due to "policy already exists" errors. Resolvable by adding DROP POLICY IF EXISTS to ~8 SQL files but that's Scope Creep.
+- `test_wims_initial_schema_bootstrap.py` uses hardcoded file list; relaxed to auto-discover all numbered .sql files.
+- `_postgres_init_dir()` override check updated to not require `01_wims_initial.sql` specifically (actual Docker path uses `01_extensions_roles.sql`).
+
+## [2026-05-20] implement | Civilian Reporting Phase 2 — Issue 2: submission/tracking API
+
+**Session context:** Issue 2 of 12 vertical slices. Backend API/schema/tests only; no public frontend or validator UI work.
+
+**Implemented:**
+- `schemas/civilian.py`: Phase 2 structured request/response models with category, sub-category, reporting context, safety status, GPS metadata, witness fields, `previous_report_id`, `status_explanation`, deterministic guidance, nearest-station context, and related cluster status.
+- `api/routes/civilian.py`: rewired public submission to insert structured `citizen_reports` rows, compute deterministic trust score, resolve nearest station/region, persist GPS metadata, support `previous_report_id`, and return tracking-ready response data.
+- `PATCH /api/civilian/reports/{report_id}/append`: creates `LINKED` child reports, increments parent `link_count`, and blocks append on `ACTIONED` or any `REJECTED_*` terminal parent.
+- `GET /api/civilian/reports/{report_id}`: returns `status_explanation`, status-specific guidance, rejection escalation guidance, nearest-station phone/name, `previous_report_id`, link count, and related cluster status when explicitly linked.
+- `test_civilian_api.py`: replaced Phase 1 free-text tests with Phase 2 API coverage for structured submission, previous report reference preservation, coordinate validation, append creation, terminal append blocking, and terminal tracking guidance.
+- `32b_citizen_reports_station_fk.sql`: expanded to upgrade existing Phase 1 dev databases to the Phase 2 citizen_reports columns/checks/indexes before adding `nearest_station_id` FK; added `chk_actioned_requires_validator` as `NOT VALID` for live compatibility.
+- `36_ref_fire_stations_phone_null.sql`: fixed to add `ref_fire_stations.phone` for existing dev databases before null backfill.
+- `05_citizen_reports.sql`: added missing `gps_warning_confirmed` and restored `chk_actioned_requires_validator` for fresh bootstrap.
+
+**Tests run:**
+- Rebuilt backend image, then ran `pytest tests/integration/test_database_schema.py tests/integration/test_civilian_api.py -v` inside Docker.
+- Result: 14/14 passed.
+
+**Notes:**
+- The running dev DB was older than the Phase 2 init scripts, so `32_ref_fire_stations.sql`, `32b_citizen_reports_station_fk.sql`, `35_citizen_report_clusters.sql`, and `36_ref_fire_stations_phone_null.sql` were applied manually to verify Issue 2 without destroying Docker volumes.
+- `triage.py` still contains Phase 1 promotion/free-text behavior and is intentionally left for later triage queue slices.
+
+- Updated `decisions/0001-civilian-reporting-overhaul.md` after grill-with-docs session on unresolved civilian reporting decisions.
+- Locked terminal append behavior: `ACTIONED` and all `REJECTED_*` reports cannot be appended; users are prompted to submit a new report or call 911 / nearest BFP station.
+- Removed challenge endpoint from scope; new reports may reference previous terminal reports via `previous_report_id`.
+- Replaced `PROMOTED` row status with `ACTIONED`; official `fire_incidents` remain created through regional/fire-station AFOR workflow, not civilian triage.
+- Added durable cluster workflow model: `citizen_report_clusters`, `citizen_report_cluster_members`, cluster statuses, and inspection-modal/per-report terminal action rules.
+- Locked timeout behavior: `PENDING` reports auto-transition to `REJECTED_TIMEOUT` after 2 hours with default `status_explanation`; row-level `UNDER_REVIEW` pauses timeout, cluster-level review alone does not.
+- Clarified witness fields: `witness_name`/`witness_phone` refer to the direct eyewitness, especially for `SECONDHAND`.
+- Added HCI/UX refinements: required safety prompt, two-mode submit flow, no media upload, bilingual public microcopy, GPS-denied map fallback, nearby duplicate suggestion for non-life-safety reports, validator priority filters, map+table cluster inspection modal, status-specific tracking guidance, and trust-score breakdown UI.
+- Added validator-only workflow refinements: cluster claim/lock with stale takeover, outlier highlighting, split/merge clusters, URL-backed quick filters, audited terminal corrections, privacy rules for device/contact identifiers, and safe navigation-only keyboard shortcuts.
+- Created `frontend/validator-triage-shortcuts.md` as the shortcut reference page.
+- Added final validator workflow refinements: cluster activity/history panel, audit coverage for validator actions, internal notes separate from civilian-visible explanations, nearest-station context, mixed-status bulk warnings, non-terminal next-action recommendations, and 30-second polling with non-destructive refresh prompts.
+- Created `prd/civilian-reporting-phase-2.md` to convert ADR decisions into buildable product requirements, user stories, implementation decisions, testing decisions, and out-of-scope boundaries.
+- Created `plans/civilian-reporting-phase-2-implementation-issues.md` with 12 vertical implementation slices covering schema, APIs, public UX, tracking, triage projection, cluster workflow, validator UI, terminal actions, split/merge, timeout job, and final integration.
+
 ## [2026-05-14] split | Functional bugs moved from UI/UX register to standalone register
 - `gaps/functional-bug-register.md` created — holds 5 teammate-reported functional/auth bugs (M12).
 - Teammate bugs section removed from `gaps/ui-ux-gap-register.md`; cross-links added in both directions.
@@ -351,3 +453,69 @@ Format: `## [YYYY-MM-DD] action | subject`
   - All numeric fields null-safe: `${value} km`, `${value} sqm`, `${value} ha`, `${value} L`, `formatMoney()`, `formatMinutes()`
 - Components all self-contained; no external dependencies beyond existing imports (lucide-react icons, useAuth, api client)
 - Branch: `feat/national-analyst-phase5-detail-screens`, uncommitted
+
+## [2026-05-20] fix | civilian reporting phase 2 issue 5 triage queue tests
+- `src/backend/api/routes/triage.py`: fixed `/api/triage/queue` quick filters by moving computed `confidence` and `claimed_by_me` checks out of SQL, making `rejected_today`/`actioned_today` terminal-status modes, correcting duplicate-device counts, and aligning severity to neighborhood size semantics.
+- `src/backend/tests/integration/test_triage_queue.py`: isolated triage queue test data per test, narrowed the privacy assertion to raw `device_id` fields, and corrected test coordinate fixture behavior for PostGIS geography distance checks.
+- Verification: `cd src && docker compose build backend && docker compose run --rm backend pytest tests/integration/test_triage_queue.py -v` → 39 passed.
+
+## [2026-05-20] add | civilian reporting phase 2 issue 6 cluster claim workflow
+- `src/backend/api/routes/triage.py`: added cluster workflow endpoints for `POST /api/triage/clusters/{cluster_id}/claim`, `POST /api/triage/clusters/{cluster_id}/activity`, and `GET /api/triage/clusters/{cluster_id}/activity`.
+- Claim behavior moves clusters to `CLUSTER_UNDER_REVIEW`, sets `assigned_to`, `review_started_at`, `updated_at`, and `acted_by`; active claims return conflict for other validators.
+- Stale claims are based on 15 minutes without `updated_at` activity; `NATIONAL_VALIDATOR`/`SYSTEM_ADMIN` takeover requires a reason and writes audit/internal-note context.
+- Activity refresh updates claim freshness and writes audit rows; history projection combines cluster creation, membership additions, and cluster audit events without exposing raw device/IP/token fields.
+- `src/backend/tests/integration/test_triage_queue.py`: added Issue 6 integration coverage for claim, active-claim blocking, stale takeover with required reason, activity refresh, and history/audit projection.
+- Verification: `cd src && docker compose build backend && docker compose run --rm backend pytest tests/integration/test_triage_queue.py -v` → 43 passed.
+
+## [2026-05-20] add | civilian reporting phase 2 workflow completion pass
+- `src/backend/api/routes/civilian.py`: added non-blocking duplicate suggestion endpoint for non-life-safety reports and tightened append rate limiting to one append per device per 5 minutes across linked reports.
+- `src/backend/api/routes/triage.py`: materializes durable singleton clusters for active unclustered reports, adds terminal action, correction, split, and merge workflow endpoints, audits validator actions, and disables legacy promotion/bulk-promotion endpoints with HTTP 410.
+- `src/backend/api/routes/public_dmz.py`: deprecated `/api/v1/public/report` now returns HTTP 410 so civilian reports no longer create official `fire_incidents`.
+- `src/backend/tasks/civilian_reports.py` and `src/backend/celery_config.py`: added scheduled timeout task for `PENDING` reports older than 2 hours, preserving row-level `UNDER_REVIEW`.
+- `src/frontend/src/app/incidents/triage/page.tsx`: rebuilt around Phase 2 `/api/triage/queue`, quick filters, polling, claim indicators, cluster inspection, row selection, and terminal action preview/apply.
+- `src/frontend/src/app/report/page.tsx`: persists a browser device id and calls duplicate suggestions before non-life-safety review.
+- Tests updated for duplicate suggestions, durable singleton clusters, terminal action explanation/audit, timeout behavior, and disabled promotion.
+- Verification: `cd src && docker compose build backend && docker compose run --rm backend pytest tests/integration/test_civilian_api.py tests/integration/test_triage_queue.py -q` → 57 passed; `cd src/frontend && npm run build` → passed; targeted ESLint on edited frontend files → passed.
+
+## [2026-05-20] add | civilian reporting phase 2 follow-up timeline and validator controls
+- `src/backend/api/routes/civilian.py` and `src/backend/schemas/civilian.py`: added `GET /api/civilian/reports/{report_id}/timeline` for parent report plus linked append children.
+- `src/frontend/src/app/report/tracking/page.tsx`: renders append timeline and now offers follow-up report references for both `ACTIONED` and rejected terminal reports.
+- `src/frontend/src/lib/api.ts` and `src/frontend/src/app/incidents/triage/page.tsx`: added validator UI calls and controls for terminal correction, cluster split, and cluster merge workflows.
+- `src/frontend/src/app/incidents/triage/page.tsx`: added activity/history projection inside the cluster inspection modal.
+- `src/postgres-init/36_ref_fire_stations_phone_null.sql`: changed station contact fallback from `NULL` to `911` until authoritative per-station phone data is loaded.
+- Tests updated for timeline, correction, split, and merge behavior.
+- Verification: `cd src && docker compose build backend && docker compose run --rm backend pytest tests/integration/test_civilian_api.py tests/integration/test_triage_queue.py -q` → 61 passed; `cd src/frontend && npm run build` → passed; targeted ESLint on edited frontend files → passed.
+
+## [2026-05-20] update | Civilian Reporting Phase 2 — final completion pass
+
+**Session context:** Handoff continuation. Completed remaining Phase 2 slices from `civilian-reporting-phase-2.md` and `frs-codebase-gap-register.md`.
+
+**Implemented:**
+- **Merge-candidate discovery (backend):** `GET /api/triage/clusters/{cluster_id}/merge-candidates` returns conservative nearby clusters within 250m and 1 hour using PostGIS `ST_DWithin` + `ST_Distance` geography. Filters out own cluster and `CLUSTER_CLOSED` targets.
+- **Merge-candidate discovery (API client):** `fetchMergeCandidates(clusterId)` in `src/frontend/src/lib/api.ts` with `MergeCandidateEntry` interface.
+- **Merge-candidate discovery (UI):** Candidate list rendered in validator inspection modal — shows cluster id, anchor report, distance, minutes, member count, status. Each candidate pre-fills the merge source id + auto-generates internal note on click.
+- **Map-based cluster inspection:** New `ClusterInspectionMap` + `ClusterMapInner` components using react-leaflet with dynamic import (SSR-safe). Shows report locations as red markers, suggested merge source anchors as blue markers, 100m radius circle around anchor report.
+- **Navigation shortcut help:** `Esc` closes modal, `R` refreshes queue — only when focus is outside input/textarea/select. Shortcut hint displayed in modal header ("Esc close · R refresh").
+- **Keyboard handler:** `useEffect` in triage page guards against firing when focus is in interactive elements.
+- **Backend tests for merge-candidates:** `TestMergeCandidates` class with 6 tests: 250m/1hr positive, >250m exclusion, >1hr exclusion, CLUSTER_CLOSED exclusion, 404 for nonexistent cluster, own-cluster exclusion.
+- **Frontend Vitest tests:** `src/frontend/src/app/incidents/triage/page.test.tsx` — 6 tests covering queue render, modal open, shortcut hint, Escape dismiss, merge-candidate display, input-guard protection.
+- **Components created:** `ClusterInspectionMap.tsx`, `ClusterMapInner.tsx`.
+
+**Verification results:**
+- Backend pytest (67 tests): `tests/integration/test_civilian_api.py` + `tests/integration/test_triage_queue.py` → **67 passed**
+- Frontend build: `npm run build` → passed
+- ESLint on edited frontend files → passed (no errors)
+- Frontend Vitest (6 tests in triage page): **6 passed**
+
+**Wiki updated:**
+- `frs-codebase-gap-register.md`: marked map-based cluster inspection, merge-candidate discovery, and navigation shortcut help as implemented; remaining gap is full browser E2E smoke.
+
+**Files touched:**
+- `src/backend/api/routes/triage.py` (merge-candidate endpoint was pre-existing, verified)
+- `src/backend/tests/integration/test_triage_queue.py` (6 new tests)
+- `src/frontend/src/lib/api.ts` (fetchMergeCandidates + MergeCandidateEntry)
+- `src/frontend/src/app/incidents/triage/page.tsx` (map, merge candidates, keyboard shortcuts)
+- `src/frontend/src/components/ClusterInspectionMap.tsx` (new)
+- `src/frontend/src/components/ClusterMapInner.tsx` (new)
+- `src/frontend/src/app/incidents/triage/page.test.tsx` (new)
+- `system-wiki/gaps/frs-codebase-gap-register.md`

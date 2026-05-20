@@ -95,9 +95,9 @@ def _postgres_init_dir():
     for parent in here.parents:
         for rel in ("src/postgres-init", "postgres-init"):
             candidate = parent / rel
-            if (candidate / "01_wims_initial.sql").is_file():
+            if (candidate / "01_extensions_roles.sql").is_file() or list(candidate.glob("[0-9]*.sql")):
                 return candidate
-    pytest.fail("Cannot find postgres-init/01_wims_initial.sql (set WIMS_POSTGRES_INIT_DIR)")
+    pytest.fail("Cannot find postgres-init/ directory with numbered SQL files (set WIMS_POSTGRES_INIT_DIR)")
 
 
 @pytest.fixture(scope="module")

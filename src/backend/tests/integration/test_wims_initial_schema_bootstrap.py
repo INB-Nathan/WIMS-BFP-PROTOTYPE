@@ -30,17 +30,18 @@ def _postgres_init_dir() -> Path:
     override = os.environ.get("WIMS_POSTGRES_INIT_DIR")
     if override:
         p = Path(override)
-        if (p / "01_wims_initial.sql").is_file():
+        numbered = [f for f in p.glob("*.sql") if f.name and f.name[0].isdigit()]
+        if numbered:
             return p.resolve()
-        pytest.fail(f"WIMS_POSTGRES_INIT_DIR does not contain 01_wims_initial.sql: {p}")
+        pytest.fail(f"WIMS_POSTGRES_INIT_DIR has no numbered SQL files in {p}: found {[f.name for f in p.glob('*.sql')]}")
 
     here = Path(__file__).resolve()
     for parent in here.parents:
         for rel in ("src/postgres-init", "postgres-init"):
             candidate = parent / rel
-            if (candidate / "01_wims_initial.sql").is_file():
+            if (candidate / "01_extensions_roles.sql").is_file() or list(candidate.glob("[0-9]*.sql")):
                 return candidate
-    pytest.fail("Cannot find postgres-init/01_wims_initial.sql (set WIMS_POSTGRES_INIT_DIR).")
+    pytest.fail("Cannot find postgres-init/ directory with numbered SQL files (set WIMS_POSTGRES_INIT_DIR).")
 
 
 def _parse_admin_urls() -> tuple[str, str]:
@@ -108,9 +109,14 @@ def bootstrap_engine():
         pytest.skip(f"PostgreSQL admin unreachable ({admin_url}): {e}")
 
     init_dir = _postgres_init_dir()
-    sql_01 = init_dir / "01_wims_initial.sql"
-    sql_03 = init_dir / "03_seed_reference.sql"
-    for f in (sql_01, sql_03):
+    # Ordered bootstrap sequence; include all numbered .sql files (00-36+)
+    import re
+    bootstrap_files = sorted(init_dir.glob("*.sql"))
+    sql_files = [
+        f for f in bootstrap_files
+        if re.match(r'^\d', f.name)
+    ]
+    for f in sql_files:
         if not f.is_file():
             pytest.fail(f"Missing bootstrap SQL file: {f}")
 
@@ -122,11 +128,7 @@ def bootstrap_engine():
     test_url = u.render_as_string(hide_password=False)
 
     try:
-        _psql_files(
-            test_url,
-            sql_01,
-            sql_03,
-        )
+        _psql_files(test_url, *sql_files)
     except subprocess.CalledProcessError as e:
         pytest.fail(
             f"psql bootstrap failed:\nstdout={e.stdout!r}\nstderr={e.stderr!r}\nargs={e.cmd!r}"
@@ -152,6 +154,8 @@ def test_bootstrap_creates_v2_and_afor_objects(bootstrap_engine):
         "users",
         "fire_incidents",
         "citizen_reports",
+        "citizen_report_clusters",
+        "citizen_report_cluster_members",
         "incident_nonsensitive_details",
         "incident_sensitive_details",
         "incident_wildland_afor",
@@ -211,7 +215,13 @@ def test_bootstrap_creates_v2_and_afor_objects(bootstrap_engine):
             )
         }
         assert "trust_score" in cols
-        assert "description" in cols
+        assert "source_url" in cols
+        assert "category" in cols
+        assert "safety_status" in cols
+        assert "status_explanation" in cols
+        assert "previous_report_id" in cols
+        assert "linked_to_report_id" in cols
+        assert "link_count" in cols
 
         src = conn.execute(
             text(
@@ -270,3 +280,86 @@ def test_bootstrap_creates_v2_and_afor_objects(bootstrap_engine):
             text("SELECT region_id FROM wims.ref_regions WHERE region_code = 'NCR' LIMIT 1")
         ).fetchone()
         assert ncr is not None
+
+        # ── citizen_report_clusters ──────────────────────────────────────────────
+        cluster_cols = {
+            r[0] for r in conn.execute(
+                text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'wims' AND table_name = 'citizen_report_clusters'
+        """)
+            )
+        }
+        for col in ("anchor_report_id", "status", "status_note", "internal_note",
+                    "acted_by", "assigned_to", "review_started_at",
+                    "created_at", "updated_at", "closed_at", "merged_into_cluster_id"):
+            assert col in cluster_cols, f"missing cluster col {col}"
+
+        cluster_statuses = {
+            r[0] for r in conn.execute(
+                text("""
+            SELECT DISTINCT status FROM wims.citizen_report_clusters
+        """)
+            )
+        }
+        assert cluster_statuses <= {
+            "CLUSTER_MONITORING", "CLUSTER_UNDER_REVIEW",
+            "CLUSTER_ACTIONED", "CLUSTER_CLOSED"
+        }
+
+        # ── citizen_report_cluster_members ──────────────────────────────────────
+        member_cols = {
+            r[0] for r in conn.execute(
+                text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'wims' AND table_name = 'citizen_report_cluster_members'
+        """)
+            )
+        }
+        for col in ("cluster_id", "report_id", "linked_by", "created_at"):
+            assert col in member_cols, f"missing member col {col}"
+
+        # ── ref_fire_stations.phone ─────────────────────────────────────────────
+        station_cols = {
+            r[0] for r in conn.execute(
+                text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'wims' AND table_name = 'ref_fire_stations'
+        """)
+            )
+        }
+        assert "phone" in station_cols, "ref_fire_stations missing phone column"
+
+        # ── Phase 2 indexes ─────────────────────────────────────────────────────
+        for idx in (
+            "idx_citizen_reports_location",
+            "idx_citizen_reports_status",
+            "idx_citizen_reports_device",
+            "idx_citizen_reports_linked_to",
+            "idx_citizen_reports_previous",
+            "idx_citizen_reports_created",
+            "idx_citizen_reports_nearest_station",
+            "idx_citizen_reports_region",
+            "idx_clusters_anchor",
+            "idx_clusters_status",
+            "idx_clusters_assigned",
+            "idx_clusters_merged",
+            "idx_clusters_created",
+            "idx_cluster_members_report",
+        ):
+            assert idx in idx_names, f"missing index {idx}"
+
+        # ── Phase 2 check constraints on citizen_reports.status ────────────────
+        status_values = {
+            r[0] for r in conn.execute(
+                text("""
+            SELECT DISTINCT status FROM wims.citizen_reports
+        """)
+            )
+        }
+        allowed = {
+            "PENDING", "UNDER_REVIEW", "LINKED", "ACTIONED",
+            "REJECTED_BOGUS", "REJECTED_DUPLICATE",
+            "REJECTED_INSUFFICIENT", "REJECTED_TIMEOUT"
+        }
+        assert status_values <= allowed, f"unexpected status values: {status_values - allowed}"

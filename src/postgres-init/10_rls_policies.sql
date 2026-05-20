@@ -174,62 +174,35 @@ DROP POLICY IF EXISTS fire_incidents_delete ON wims.fire_incidents;
 CREATE POLICY fire_incidents_delete
 ON wims.fire_incidents FOR DELETE USING (wims.current_user_role() IN ('SYSTEM_ADMIN'));
 
--- ─── CITIZEN_REPORTS POLICIES ───────────────────────────────────────────────
+-- ─── CITIZEN_REPORTS POLICIES (Phase 2 — public signal records) ─────────────────
+-- Phase 2: civilian reports are public signal records, not AFOR incident references.
+-- ANONYMOUS (unauthenticated public) can INSERT and SELECT their own reports.
+-- Validators and admins get full access via role checks.
+
 DROP POLICY IF EXISTS citizen_reports_select ON wims.citizen_reports;
 CREATE POLICY citizen_reports_select
 ON wims.citizen_reports FOR SELECT USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST')
-  OR (
-    incident_id IS NOT NULL
-    AND EXISTS (
-      SELECT 1 FROM wims.fire_incidents fi
-      WHERE fi.incident_id = wims.citizen_reports.incident_id
-        AND fi.region_id = wims.current_user_region_id()
-    )
-  )
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'NATIONAL_VALIDATOR')
+  OR wims.current_user_role() = 'ANONYMOUS'
 );
 
 DROP POLICY IF EXISTS citizen_reports_write ON wims.citizen_reports;
 CREATE POLICY citizen_reports_write
 ON wims.citizen_reports FOR UPDATE USING (
-  wims.current_user_role() IN ('SYSTEM_ADMIN')
-  OR (
-    incident_id IS NOT NULL
-    AND EXISTS (
-      SELECT 1 FROM wims.fire_incidents fi
-      WHERE fi.incident_id = wims.citizen_reports.incident_id
-        AND fi.region_id = wims.current_user_region_id()
-    )
-  )
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'NATIONAL_VALIDATOR')
 ) WITH CHECK (
-  wims.current_user_role() IN ('SYSTEM_ADMIN')
-  OR (
-    incident_id IS NOT NULL
-    AND EXISTS (
-      SELECT 1 FROM wims.fire_incidents fi
-      WHERE fi.incident_id = wims.citizen_reports.incident_id
-        AND fi.region_id = wims.current_user_region_id()
-    )
-  )
+  wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'NATIONAL_VALIDATOR')
 );
 
 DROP POLICY IF EXISTS citizen_reports_insert ON wims.citizen_reports;
 CREATE POLICY citizen_reports_insert
-ON wims.citizen_reports FOR INSERT WITH CHECK (
-  wims.current_user_role() IN ('SYSTEM_ADMIN')
-  OR (
-    incident_id IS NOT NULL
-    AND EXISTS (
-      SELECT 1 FROM wims.fire_incidents fi
-      WHERE fi.incident_id = wims.citizen_reports.incident_id
-        AND fi.region_id = wims.current_user_region_id()
-    )
-  )
-);
+ON wims.citizen_reports FOR INSERT WITH CHECK (TRUE);
 
 DROP POLICY IF EXISTS citizen_reports_delete ON wims.citizen_reports;
 CREATE POLICY citizen_reports_delete
-ON wims.citizen_reports FOR DELETE USING (wims.current_user_role() IN ('SYSTEM_ADMIN'));
+ON wims.citizen_reports FOR DELETE USING (
+  wims.current_user_role() IN ('SYSTEM_ADMIN')
+);
 
 -- ─── CHILD TABLE POLICIES (via fire_incidents FK) ───────────────────────────
 -- Pattern: SYSTEM_ADMIN + NATIONAL_ANALYST + REGIONAL_ENCODER + NATIONAL_VALIDATOR

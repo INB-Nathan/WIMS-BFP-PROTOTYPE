@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS wims.ref_fire_stations (
     station_name TEXT    NOT NULL,
     address      TEXT,
     location     GEOGRAPHY(POINT, 4326) NOT NULL,
-    region_id    INTEGER REFERENCES wims.ref_regions(region_id)
+    region_id    INTEGER REFERENCES wims.ref_regions(region_id),
+    phone        TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_ref_fire_stations_location

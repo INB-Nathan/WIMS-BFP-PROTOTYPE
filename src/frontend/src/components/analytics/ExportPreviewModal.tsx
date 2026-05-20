@@ -9,10 +9,10 @@ export type ExportFormat = 'csv' | 'pdf' | 'excel';
 const ALL_COLUMNS = [
   'incident_id',
   'notification_dt',
+  'region_name',
   'region_id',
   'province_name',
   'municipality_name',
-  'barangay_name',
   'general_category',
   'sub_category',
   'alarm_level',
@@ -22,6 +22,19 @@ const ALL_COLUMNS = [
   'civilian_deaths',
   'firefighter_injured',
   'firefighter_deaths',
+  'verification_status',
+  'created_at',
+  'fire_origin',
+  'extent_of_damage',
+  'structures_affected',
+  'households_affected',
+  'families_affected',
+  'individuals_affected',
+  'vehicles_affected',
+  'total_gas_consumed_liters',
+  'extent_total_floor_area_sqm',
+  'extent_total_land_area_hectares',
+  'fire_station_name',
 ];
 
 const COLUMN_LABELS: Record<string, string> = {

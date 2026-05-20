@@ -151,14 +151,13 @@ class TestDoSPayloadConstraint:
 
 
 # ---------------------------------------------------------------------------
-# 4. Forensic Constraint: VERIFIED status requires validated_by
+# 4. Forensic Constraint: ACTIONED status requires validated_by
 # ---------------------------------------------------------------------------
 class TestForensicConstraint:
-    """citizen_reports: status=VERIFIED requires validated_by IS NOT NULL."""
+    """citizen_reports: status=ACTIONED requires validated_by IS NOT NULL."""
 
-    def test_insert_citizen_report_verified_without_validated_by_fails(self, engine):
-        """Set status=VERIFIED while validated_by=NULL must fail."""
-        # Valid PostGIS point for location
+    def test_insert_citizen_report_actioned_without_validated_by_fails(self, engine):
+        """Set status=ACTIONED while validated_by=NULL must fail."""
         location_wkt = "SRID=4326;POINT(121.0 14.6)"
 
         with engine.connect() as conn:
@@ -168,8 +167,8 @@ class TestForensicConstraint:
                 conn.execute(
                     text("""
                         INSERT INTO wims.citizen_reports
-                        (location, status, validated_by)
-                        VALUES (ST_GeogFromText(:loc), 'VERIFIED', NULL)
+                        (location, status, validated_by, category)
+                        VALUES (ST_GeogFromText(:loc), 'ACTIONED', NULL, 'STRUCTURAL')
                     """),
                     {"loc": location_wkt},
                 )
