@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-05-19
-Total synthesis pages: 31
-Last changes: gap-register consolidated (M9 deferred, barangay optional), functional-bug-register F-01 to F-07 consolidated, F-06 fixed, analyst workflow Phase 1 status confirmed.
+Last updated: 2026-05-20
+Total synthesis pages: 32
+Last changes: civilian reporting ADR Phase 2 decisions and validator triage shortcut reference added.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
@@ -18,6 +18,8 @@ Purpose: project-local knowledgebase for agents routing themselves to relevant W
 
 ## Concepts
 - [[concepts/frs-module-map]] — 15-module FRS map with current source availability and code anchors.
+- [[prd/civilian-reporting-phase-2]] — PRD for the structured civilian reporting and validator triage Phase 2 workflow.
+- [[plans/civilian-reporting-phase-2-implementation-issues]] — vertical implementation issue breakdown for the Phase 2 PRD.
 
 ## Backend
 - [[backend/api-route-map]] — FastAPI route files, endpoints, and likely module ownership.
@@ -30,14 +32,16 @@ Purpose: project-local knowledgebase for agents routing themselves to relevant W
 - [[frontend/route-map]] — Next.js App Router pages and UI surface mapping.
 - [[frontend/frontend-infrastructure]] — Auth context, 47 API client functions, utility libraries, component tree documentation.
 - [[frontend/components-deep]] — Deep docs for all 12 analytics/modal/layout components (props, state, effects, behavior).
+- [[frontend/validator-triage-shortcuts]] — safe keyboard shortcut reference for civilian report validator triage.
 
 ## Subsystems (Dashboard Deep-Dives)
 - [[subsystems/admin-hub]] — System admin hub: identity, security telemetry, audit, backups, health.
   - [[subsystems/references/admin-api-ref]] — full function-level API reference for admin.py.
 - [[subsystems/regional-dashboard]] — Regional encoder dashboard: AFOR import, incident CRUD, stats, drafts.
   - [[subsystems/references/regional-api-ref]] — full function-level API reference for regional.py.
-  - [[subsystems/references/triage-api-ref]] — full function-level API reference for triage.py.
+  - [[subsystems/references/triage-api-ref]] — full function-level API reference for triage.py (pre-Phase 2 baseline).
 - [[subsystems/validator-hub]] — National validator dashboard: verification queue, duplicate resolution, audit trail.
+- [[subsystems/civilian-reporting-phase2]] — Civilian Reporting Phase 2 full subsystem record: public API, triage queue, merge-candidate discovery, cluster map, keyboard shortcuts, timeout job, test coverage.
 
 ## Database
 - [[database/schema-overview]] — PostgreSQL/PostGIS tables and migration source files.

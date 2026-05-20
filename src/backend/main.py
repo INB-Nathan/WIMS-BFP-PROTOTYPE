@@ -17,6 +17,7 @@ from typing import Annotated
 import tasks.suricata  # noqa: F401, E402
 import tasks.exports  # noqa: F401, E402
 import tasks.drafts  # noqa: F401, E402  # M4-E: registers expire_old_drafts task for beat
+import tasks.civilian_reports  # noqa: F401, E402  # Phase 2 report timeout task
 import httpx
 import redis.asyncio as aioredis
 from fastapi import Depends, FastAPI, HTTPException, Request

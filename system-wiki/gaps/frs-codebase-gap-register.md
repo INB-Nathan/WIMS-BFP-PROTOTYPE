@@ -1,7 +1,7 @@
 ---
 title: FRS Codebase Gap Register
 created: 2026-05-14
-updated: 2026-05-19
+updated: 2026-05-20
 type: gap
 tags: [wims-bfp, gap, frs, needs-verification]
 sources: [raw/frs, raw/codebase/codebase-snapshot-2026-05-14.md]
@@ -20,7 +20,7 @@ This register prevents agents from hallucinating completion. A module is not com
 - Export pipeline: CSV/PDF/XLSX writers + `GET /api/analytics/export/{task_id}` done; verify Celery result retention and file cleanup before prod.
 - Analyst drill-down: `/api/incidents/analyst-list|/{id}|/{id}/wildland` done; verify seeded wildland data and browser flows before prod.
 - RLS enforcement: verify role-region scoping through helpers and policies.
-- Public DMZ: verify unauthenticated route has rate limiting/input validation.
+- Civilian Reporting Phase 2: duplicate suggestion, durable singleton cluster materialization, validator claim/activity, terminal actions, correction, split/merge APIs and UI controls, timeout task, append timeline endpoint/UI, station hotline fallback, disabled legacy promotion/public DMZ, validator activity/history panel, map-based cluster inspection, merge-candidate discovery (backend + API client + UI), navigation shortcut help (Esc close, R refresh), and Phase 2 validator queue UI are implemented. Remaining verification target: full browser E2E smoke test for /report, /report/tracking, /incidents/triage.
 - Notifications: PR #106 FCM opt-in + status dispatch done; verify SSE/Redis/email end-to-end behavior against M13. Rotate any committed service-account key before prod.
 - Offline-first: verify IndexedDB encryption/sync semantics against M2.
 - M9 System Monitoring: NOT yet implemented as a complete module — PR #103 adds backend monitoring pieces, but dashboard UI, 60s refresh, and full-text log search remain gaps.

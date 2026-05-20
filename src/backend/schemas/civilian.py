@@ -1,8 +1,14 @@
 """Civilian report API schemas — Zero-Trust Public Portal."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+
+CitizenCategory = Literal["STRUCTURAL", "NON_STRUCTURAL", "TRANSPORTATION", "UNSURE"]
+ReportingContext = Literal["WITNESS", "NEARBY", "SECONDHAND"]
+SafetyStatus = Literal["I_AM_SAFE", "I_NEED_HELP", "SOMEONE_ELSE_NEEDS_HELP", "UNKNOWN"]
 
 
 class CivilianReportCreate(BaseModel):
@@ -10,7 +16,39 @@ class CivilianReportCreate(BaseModel):
 
     latitude: float = Field(..., ge=-90, le=90)
     longitude: float = Field(..., ge=-180, le=180)
-    description: str = Field(..., min_length=1)
+    category: CitizenCategory
+    sub_category: str | None = Field(default=None, max_length=120)
+    reported_at: datetime | None = None
+    device_id: str | None = Field(default=None, max_length=128)
+    reporting_context: ReportingContext = "WITNESS"
+    safety_status: SafetyStatus = "UNKNOWN"
+    phone_latitude: float | None = Field(default=None, ge=-90, le=90)
+    phone_longitude: float | None = Field(default=None, ge=-180, le=180)
+    gps_distance_m: float | None = Field(default=None, ge=0)
+    gps_warning_confirmed: bool = False
+    witness_name: str | None = Field(default=None, max_length=160)
+    witness_phone: str | None = Field(default=None, max_length=80)
+    previous_report_id: int | None = Field(default=None, gt=0)
+    source_url: str | None = Field(default=None, max_length=2048)
+
+
+class CivilianReportAppend(BaseModel):
+    """Request body for PATCH /api/civilian/reports/{report_id}/append."""
+
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    category: CitizenCategory
+    sub_category: str | None = Field(default=None, max_length=120)
+    reported_at: datetime | None = None
+    device_id: str = Field(..., min_length=1, max_length=128)
+    reporting_context: ReportingContext
+    safety_status: SafetyStatus = "UNKNOWN"
+    phone_latitude: float | None = Field(default=None, ge=-90, le=90)
+    phone_longitude: float | None = Field(default=None, ge=-180, le=180)
+    gps_distance_m: float | None = Field(default=None, ge=0)
+    gps_warning_confirmed: bool = False
+    witness_name: str | None = Field(default=None, max_length=160)
+    witness_phone: str | None = Field(default=None, max_length=80)
 
 
 class CivilianReportResponse(BaseModel):
@@ -19,10 +57,54 @@ class CivilianReportResponse(BaseModel):
     report_id: int
     latitude: float
     longitude: float
-    description: str
+    category: str | None = None
+    sub_category: str | None = None
+    reporting_context: str | None = None
+    safety_status: str | None = None
+    witness_name: str | None = None
+    witness_phone: str | None = None
     trust_score: int
     status: str
+    status_explanation: str | None = None
+    guidance: str | None = None
+    escalation_guidance: str | None = None
+    related_cluster_status: str | None = None
+    previous_report_id: int | None = None
+    nearest_station_name: str | None = None
+    nearest_station_phone: str | None = None
+    link_count: int = 0
     created_at: datetime
+
+
+class CivilianReportTimelineItem(BaseModel):
+    report_id: int
+    status: str
+    category: str | None = None
+    sub_category: str | None = None
+    safety_status: str | None = None
+    reporting_context: str | None = None
+    status_explanation: str | None = None
+    created_at: datetime
+
+
+class CivilianReportTimelineResponse(BaseModel):
+    report_id: int
+    timeline: list[CivilianReportTimelineItem]
+
+
+class DuplicateSuggestionItem(BaseModel):
+    report_id: int
+    distance_m: float
+    category: str | None = None
+    sub_category: str | None = None
+    safety_status: str | None = None
+    status: str
+    created_at: datetime
+    nearest_station_name: str | None = None
+
+
+class DuplicateSuggestionResponse(BaseModel):
+    suggestions: list[DuplicateSuggestionItem]
 
 
 class NotifyRegisterRequest(BaseModel):

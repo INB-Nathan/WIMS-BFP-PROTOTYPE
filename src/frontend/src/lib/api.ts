@@ -373,41 +373,193 @@ export async function createIncident(payload: {
 // Triage API (ENCODER/VALIDATOR only)
 // ---------------------------------------------------------------------------
 
-/** Fetch pending citizen reports for triage queue — returns [] on error */
-export async function fetchPendingReports(): Promise<{
+export type TriageSeverity = 'HIGH' | 'MEDIUM' | 'LOW';
+export type TerminalCitizenStatus = 'ACTIONED' | 'REJECTED_BOGUS' | 'REJECTED_DUPLICATE' | 'REJECTED_INSUFFICIENT';
+
+export interface TriageReportEntry {
   report_id: number;
   latitude: number;
   longitude: number;
-  description: string;
-  created_at: string | null;
+  category: string | null;
+  sub_category: string | null;
+  reporting_context: string | null;
+  safety_status: string | null;
   status: string;
-}[]> {
-  try {
-    const data = await apiFetch<{
-      report_id: number;
-      latitude: number;
-      longitude: number;
-      description: string;
-      created_at: string | null;
-      status: string;
-    }[]>('/triage/pending');
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
+  status_explanation: string | null;
+  trust_breakdown: {
+    score: number;
+    included_signals: string[];
+    missing_signals: string[];
+    gps_mismatch: boolean;
+    duplicate_device_count_30m: number;
+  };
+  severity: TriageSeverity;
+  related_count: number;
+  linked_count: number;
+  created_at: string;
+  reported_at: string | null;
+  is_aging: boolean;
+  is_timeout_risk: boolean;
+  previous_report_id: number | null;
+  station: { name: string | null; distance_m: number | null; phone_available: boolean };
 }
 
-/** Promote a citizen report to official fire incident. Returns { report_id, incident_id }. */
-export async function promoteReport(reportId: number): Promise<{ report_id: number; incident_id: number }> {
-  return apiFetch(`/triage/${reportId}/promote`, { method: 'POST' });
+export interface TriageClusterEntry {
+  cluster_id: number | null;
+  anchor_report_id: number | null;
+  cluster_status: string | null;
+  assigned_to: string | null;
+  review_started_at: string | null;
+  member_count: number;
+  has_life_safety: boolean;
+  severity: TriageSeverity;
+  avg_trust: number;
+  oldest_report_at: string;
+  is_aging: boolean;
+  is_timeout_risk: boolean;
+  related_count: number;
+  reports: TriageReportEntry[];
+  station: { name: string | null; distance_m: number | null; phone_available: boolean };
 }
 
-/** Bulk promote multiple pending citizen reports. Returns { promoted: {report_id, incident_id}[], failed: number[] } */
-export async function bulkPromoteReports(reportIds: number[]): Promise<{ promoted: Array<{ report_id: number; incident_id: number }>; failed: number[] }> {
-  return apiFetch('/triage/bulk-promote', {
-    method: 'POST',
-    body: JSON.stringify({ report_ids: reportIds }),
+export interface TriageQueueResponse {
+  clusters: TriageClusterEntry[];
+  polled_at: string;
+  total_reports: number;
+}
+
+export async function fetchTriageQueue(params?: Record<string, string | boolean | undefined>): Promise<TriageQueueResponse> {
+  const search = new URLSearchParams();
+  Object.entries(params ?? {}).forEach(([key, value]) => {
+    if (value === undefined || value === false || value === '') return;
+    search.set(key, String(value));
   });
+  return apiFetch(`/triage/queue${search.toString() ? `?${search.toString()}` : ''}`);
+}
+
+export async function claimTriageCluster(clusterId: number, reason?: string) {
+  return apiFetch(`/triage/clusters/${clusterId}/claim`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function applyTriageTerminalAction(
+  clusterId: number,
+  payload: { report_ids: number[]; status: TerminalCitizenStatus; status_explanation: string; internal_note?: string },
+) {
+  return apiFetch(`/triage/clusters/${clusterId}/terminal-action`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function correctTriageReport(
+  reportId: number,
+  payload: { status: TerminalCitizenStatus; status_explanation: string; correction_reason: string },
+) {
+  return apiFetch(`/triage/reports/${reportId}/correct`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function splitTriageCluster(
+  clusterId: number,
+  payload: { report_ids: number[]; internal_note: string },
+) {
+  return apiFetch(`/triage/clusters/${clusterId}/split`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function mergeTriageClusters(
+  targetClusterId: number,
+  payload: { source_cluster_id: number; internal_note: string },
+) {
+  return apiFetch(`/triage/clusters/${targetClusterId}/merge`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export interface TriageClusterActivityEntry {
+  event_type: string;
+  occurred_at: string | null;
+  actor_user_id: string | null;
+  actor_username: string | null;
+  report_id: number | null;
+  previous_status: string | null;
+  new_status: string | null;
+  note: string | null;
+}
+
+export async function fetchTriageClusterActivity(clusterId: number): Promise<TriageClusterActivityEntry[]> {
+  const result = await apiFetch<{ events: TriageClusterActivityEntry[] }>(`/triage/clusters/${clusterId}/activity`);
+  return result.events ?? [];
+}
+
+export interface MergeCandidateEntry {
+  cluster_id: number;
+  anchor_report_id: number;
+  distance_m: number;
+  minutes_apart: number;
+  status: string;
+  member_count: number;
+}
+
+export async function fetchMergeCandidates(clusterId: number): Promise<MergeCandidateEntry[]> {
+  const result = await apiFetch<{ cluster_id: number; candidates: MergeCandidateEntry[] }>(
+    `/triage/clusters/${clusterId}/merge-candidates`,
+  );
+  return result.candidates ?? [];
+}
+
+export type CivilianCategory = 'STRUCTURAL' | 'NON_STRUCTURAL' | 'TRANSPORTATION' | 'UNSURE';
+export type ReportingContext = 'WITNESS' | 'NEARBY' | 'SECONDHAND';
+export type SafetyStatus = 'I_AM_SAFE' | 'I_NEED_HELP' | 'SOMEONE_ELSE_NEEDS_HELP' | 'UNKNOWN';
+
+export interface CivilianReportV2Payload {
+  latitude: number;
+  longitude: number;
+  category: CivilianCategory;
+  sub_category?: string;
+  reported_at?: string;
+  device_id?: string;
+  reporting_context: ReportingContext;
+  safety_status: SafetyStatus;
+  phone_latitude?: number;
+  phone_longitude?: number;
+  gps_distance_m?: number;
+  gps_warning_confirmed: boolean;
+  witness_name?: string;
+  witness_phone?: string;
+  previous_report_id?: number;
+  source_url?: string;
+}
+
+export interface CivilianReportV2Response {
+  report_id: number;
+  latitude: number;
+  longitude: number;
+  category: string | null;
+  sub_category: string | null;
+  reporting_context: string | null;
+  safety_status: string | null;
+  witness_name: string | null;
+  witness_phone: string | null;
+  trust_score: number;
+  status: string;
+  status_explanation: string | null;
+  guidance: string | null;
+  escalation_guidance: string | null;
+  related_cluster_status: string | null;
+  previous_report_id: number | null;
+  nearest_station_name: string | null;
+  nearest_station_phone: string | null;
+  link_count: number;
+  created_at: string;
 }
 
 /** Submit civilian emergency report — Zero-Trust, NO auth. POST /api/civilian/reports */
@@ -430,8 +582,91 @@ export async function submitCivilianReport(payload: {
   return json as { report_id: number; latitude: number; longitude: number; description: string; trust_score: number; status: string; created_at: string };
 }
 
+/** Submit Phase 2 structured civilian report — Zero-Trust, NO auth. POST /api/civilian/reports */
+export async function submitCivilianReportV2(payload: CivilianReportV2Payload): Promise<CivilianReportV2Response> {
+  const url = `${(typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '/api') : process.env.NEXT_PUBLIC_API_URL || 'http://localhost/api').replace(/\/$/, '')}/civilian/reports`;
+  const res = await fetch(url, {
+    method: 'POST',
+    credentials: 'omit',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((json as { message?: string; detail?: string }).message ?? (json as { detail?: string }).detail ?? `Request failed: ${res.status}`);
+  }
+  return json as CivilianReportV2Response;
+}
+
+export interface CivilianDuplicateSuggestion {
+  report_id: number;
+  distance_m: number;
+  category: string | null;
+  sub_category: string | null;
+  safety_status: string | null;
+  status: string;
+  created_at: string;
+  nearest_station_name: string | null;
+}
+
+export async function fetchCivilianDuplicateSuggestions(
+  payload: CivilianReportV2Payload,
+): Promise<CivilianDuplicateSuggestion[]> {
+  const url = `${(typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '/api') : process.env.NEXT_PUBLIC_API_URL || 'http://localhost/api').replace(/\/$/, '')}/civilian/reports/duplicate-suggestions`;
+  const res = await fetch(url, {
+    method: 'POST',
+    credentials: 'omit',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((json as { message?: string; detail?: string }).message ?? (json as { detail?: string }).detail ?? `Request failed: ${res.status}`);
+  }
+  return ((json as { suggestions?: CivilianDuplicateSuggestion[] }).suggestions ?? []);
+}
+
+// ─── Civilian Reporting Phase 2 ─────────────────────────────────────────────
+
+/** Full Phase 2 tracking response — mirrors backend CivilianReportResponse. */
+export interface CivilianReportTrackingResponse {
+  report_id: number;
+  latitude: number;
+  longitude: number;
+  category: string | null;
+  sub_category: string | null;
+  reporting_context: string | null;
+  safety_status: string | null;
+  witness_name: string | null;
+  witness_phone: string | null;
+  trust_score: number;
+  status: string;
+  status_explanation: string | null;
+  guidance: string | null;
+  escalation_guidance: string | null;
+  related_cluster_status: string | null;
+  previous_report_id: number | null;
+  nearest_station_name: string | null;
+  nearest_station_phone: string | null;
+  link_count: number;
+  created_at: string;
+}
+
+export interface CivilianReportTimelineItem {
+  report_id: number;
+  status: string;
+  category: string | null;
+  sub_category: string | null;
+  safety_status: string | null;
+  reporting_context: string | null;
+  status_explanation: string | null;
+  created_at: string;
+}
+
 /** Track civilian emergency report status — Zero-Trust, NO auth. GET /api/civilian/reports/{id} */
-export async function fetchReportStatus(reportId: string | number): Promise<{ report_id: number; latitude: number; longitude: number; description: string; trust_score: number; status: string; created_at: string }> {
+export async function fetchReportStatus(
+  reportId: string | number,
+): Promise<CivilianReportTrackingResponse> {
   const url = `${(typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '/api') : process.env.NEXT_PUBLIC_API_URL || 'http://localhost/api').replace(/\/$/, '')}/civilian/reports/${reportId}`;
   const res = await fetch(url, {
     method: 'GET',
@@ -441,7 +676,22 @@ export async function fetchReportStatus(reportId: string | number): Promise<{ re
   if (!res.ok) {
     throw new Error((json as { message?: string; detail?: string }).message ?? (json as { detail?: string }).detail ?? `Request failed: ${res.status}`);
   }
-  return json as { report_id: number; latitude: number; longitude: number; description: string; trust_score: number; status: string; created_at: string };
+  return json as CivilianReportTrackingResponse;
+}
+
+export async function fetchReportTimeline(
+  reportId: string | number,
+): Promise<CivilianReportTimelineItem[]> {
+  const url = `${(typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '/api') : process.env.NEXT_PUBLIC_API_URL || 'http://localhost/api').replace(/\/$/, '')}/civilian/reports/${reportId}/timeline`;
+  const res = await fetch(url, {
+    method: 'GET',
+    credentials: 'omit',
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((json as { message?: string; detail?: string }).message ?? (json as { detail?: string }).detail ?? `Request failed: ${res.status}`);
+  }
+  return ((json as { timeline?: CivilianReportTimelineItem[] }).timeline ?? []);
 }
 
 export interface FireStation {

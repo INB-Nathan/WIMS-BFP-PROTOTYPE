@@ -44,5 +44,9 @@ celery_app.conf.update(
             "task": "tasks.monitoring.worker_heartbeat",
             "schedule": 30.0,
         },
+        "timeout-pending-civilian-reports": {
+            "task": "tasks.civilian_reports.timeout_pending_reports",
+            "schedule": 300.0,
+        },
     },
 )

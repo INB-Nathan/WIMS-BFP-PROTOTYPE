@@ -130,6 +130,10 @@ def submit_public_incident(
     - region_id resolved from coordinates (nearest ref_region centroid)
     - import_batch_id = NULL (no batch association)
     """
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Deprecated public incident endpoint is disabled. Use /api/civilian/reports.",
+    )
     wkt = f"SRID=4326;POINT({body.longitude} {body.latitude})"
 
     # ---------------------------------------------------------------------------

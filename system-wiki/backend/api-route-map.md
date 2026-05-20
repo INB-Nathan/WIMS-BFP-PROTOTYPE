@@ -1,7 +1,7 @@
 ---
 title: Backend API Route Map
 created: 2026-05-14
-updated: 2026-05-14
+updated: 2026-05-20
 type: backend
 tags: [wims-bfp, backend, api, implementation-map]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/backend/api/routes]
@@ -15,7 +15,11 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | File | Method | Path | Function |
 |---|---:|---|---|
 | `civilian.py` | `POST` | `/reports` | `submit_civilian_report` |
+| `civilian.py` | `POST` | `/reports/duplicate-suggestions` | `suggest_duplicate_reports` |
+| `civilian.py` | `PATCH` | `/reports/{report_id}/append` | `append_civilian_report` |
 | `civilian.py` | `GET` | `/reports/{report_id}` | `get_civilian_report` |
+| `civilian.py` | `GET` | `/reports/{report_id}/timeline` | `get_civilian_report_timeline` |
+| `civilian.py` | `POST` | `/reports/{report_id}/notify` | `register_notification` |
 | `sessions.py` | `GET` | `/sessions/{user_id}` | `list_user_sessions` |
 | `sessions.py` | `DELETE` | `/sessions/{user_id}/{session_id}` | `terminate_user_session` |
 | `user.py` | `GET` | `/me/profile` | `get_my_profile` |
@@ -57,8 +61,17 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `regional.py` | `GET` | `/validator/audit-logs` | `get_validator_audit_logs` |
 | `regional.py` | `GET` | `/validator/audit-logs/export` | `export_validator_audit_logs` |
 | `triage.py` | `GET` | `/pending` | `get_pending_reports` |
-| `triage.py` | `POST` | `/{report_id}/promote` | `promote_report` |
-| `triage.py` | `POST` | `/bulk-promote` | `bulk_promote_reports` |
+| `triage.py` | `GET` | `/queue` | `get_triage_queue` |
+| `triage.py` | `POST` | `/clusters/{cluster_id}/claim` | `claim_cluster` |
+| `triage.py` | `POST` | `/clusters/{cluster_id}/activity` | `refresh_cluster_activity` |
+| `triage.py` | `GET` | `/clusters/{cluster_id}/activity` | `get_cluster_activity` |
+| `triage.py` | `POST` | `/clusters/{cluster_id}/terminal-action` | `apply_cluster_terminal_action` |
+| `triage.py` | `POST` | `/reports/{report_id}/correct` | `correct_terminal_report` |
+| `triage.py` | `POST` | `/clusters/{cluster_id}/split` | `split_cluster` |
+| `triage.py` | `POST` | `/clusters/{target_cluster_id}/merge` | `merge_clusters` |
+| `triage.py` | `GET` | `/clusters/{cluster_id}/merge-candidates` | `get_merge_candidates` | Phase 2 merge-candidate discovery (250m/1hr) |
+| `triage.py` | `POST` | `/{report_id}/promote` | `promote_report` (disabled, 410) |
+| `triage.py` | `POST` | `/bulk-promote` | `bulk_promote_reports` (disabled, 410) |
 | `admin.py` | `POST` | `/users` | `create_user` |
 | `admin.py` | `GET` | `/users` | `get_users` |
 | `admin.py` | `PATCH` | `/users/{user_id}` | `update_user` |
