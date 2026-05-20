@@ -16,6 +16,7 @@ import {
   buildRegionalIncidentsQueryString,
   type RegionalIncidentsQueryParams,
 } from './regional-incidents';
+import { refreshToken } from './auth-refresh';
 
 const API_BASE = typeof window !== 'undefined'
   ? (process.env.NEXT_PUBLIC_API_URL || '/api')
@@ -85,8 +86,8 @@ export async function apiFetch<T>(
   });
   if (res.status === 401 && !_retried) {
     try {
-      const refreshRes = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
-      if (refreshRes.ok) {
+      const refreshed = await refreshToken();
+      if (refreshed) {
         return apiFetch<T>(path, { ...options, _retried: true });
       }
     } catch { /* ignore, fall through to throw */ }
@@ -95,6 +96,10 @@ export async function apiFetch<T>(
     // mid-flow. The caller is then responsible for surfacing the error.
     if (!skipAuthRedirect && typeof window !== 'undefined') {
       window.location.href = '/login';
+    } else if (typeof window !== 'undefined') {
+      // Signal auth.tsx to re-check the OIDC session (mirrors what F5 does),
+      // so the page recovers without a manual refresh.
+      window.dispatchEvent(new Event('wims:auth-failed'));
     }
     throw new ApiRequestError('Session expired. Please log in again.', 401);
   }
