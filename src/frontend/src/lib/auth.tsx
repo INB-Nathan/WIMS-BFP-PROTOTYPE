@@ -10,6 +10,7 @@ import {
   ReactNode,
 } from 'react';
 import { useRouter } from 'next/navigation';
+import { refreshToken } from './auth-refresh';
 
 export interface User {
     id: string;
@@ -27,7 +28,6 @@ interface UserProfile {
 
 const AuthContext = createContext<UserProfile | undefined>(undefined);
 const PROACTIVE_REFRESH_INTERVAL_MS = 4 * 60 * 1000; // refresh before 5-minute access token expiry
-const REFRESH_LOCK_NAME = 'wims:auth:refresh_lock';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
@@ -38,37 +38,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const refreshInFlightRef = useRef<Promise<boolean> | null>(null);
 
     // ─── Silent token refresh ─────────────────────────────────────────────────
-    // Uses navigator.locks so only ONE tab refreshes at a time.
-    // refreshTokenMaxReuse:0 means concurrent refresh attempts race — first wins,
-    // others get 401 and session dies. The lock serializes them.
+    // Delegates to auth-refresh.ts which uses navigator.locks when available
+    // and falls back to a direct fetch when Web Locks API is unavailable.
     const refreshAccessToken = useCallback(async (): Promise<boolean> => {
         if (refreshInFlightRef.current) {
             return refreshInFlightRef.current;
         }
-
-        const refreshPromise = (async () => {
-            const lock = await navigator.locks.request(REFRESH_LOCK_NAME, async () => {
-                try {
-                    const res = await fetch('/api/auth/refresh', {
-                        method: 'POST',
-                        credentials: 'include',
-                    });
-                    if (!res.ok) {
-                        console.log('[AuthContext] refreshAccessToken: refresh failed', res.status);
-                        return false;
-                    }
-                    console.log('[AuthContext] refreshAccessToken: token refreshed');
-                    return true;
-                } catch (err) {
-                    console.error('[AuthContext] refreshAccessToken: request failed', err);
-                    return false;
-                }
-            });
-            return lock ?? false;
-        })();
-
-        refreshInFlightRef.current = refreshPromise;
-        return refreshPromise;
+        const promise = refreshToken();
+        refreshInFlightRef.current = promise;
+        const result = await promise;
+        refreshInFlightRef.current = null;
+        return result;
     }, []);
 
     // ─── Session re-hydration ─────────────────────────────────────────────────
