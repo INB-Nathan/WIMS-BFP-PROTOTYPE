@@ -990,4 +990,3 @@ def _write_pdf(path: str, rows: list[dict[str, Any]], columns: list[str]) -> Non
     )
     story.append(table)
     doc.build(story)
-

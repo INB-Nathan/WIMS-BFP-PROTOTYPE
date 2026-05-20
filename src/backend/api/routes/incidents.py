@@ -1037,7 +1037,9 @@ def get_analyst_incident_sensitive_detail(
         "owner_name": sd_row[9] if sd_row else None,
         "establishment_name": sd_row[10] if sd_row else None,
         "occupant_name": sd_row[11] if sd_row else None,
-        "alarm_timeline": _analyst_json_value(sd_row[12]) if sd_row and sd_row[12] is not None else [],
+        "alarm_timeline": _analyst_json_value(sd_row[12])
+        if sd_row and sd_row[12] is not None
+        else [],
     }
 
 
