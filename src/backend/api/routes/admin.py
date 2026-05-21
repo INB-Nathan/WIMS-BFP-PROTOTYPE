@@ -1005,9 +1005,12 @@ def restore_backup(
 
     try:
         from utils.backup_crypto import decrypt_backup
+
         decrypted_path = decrypt_backup(encrypted_path)
     except Exception as e:
-        raise HTTPException(status_code=422, detail=f"Decryption failed — invalid key or corrupted backup: {e}")
+        raise HTTPException(
+            status_code=422, detail=f"Decryption failed — invalid key or corrupted backup: {e}"
+        )
 
     db_url = os.environ.get("DATABASE_URL", "")
     try:
@@ -1229,6 +1232,7 @@ def get_user_sessions(
     keycloak_id = str(row[0])
 
     from services.keycloak_admin import _get_admin_client
+
     adm = _get_admin_client()
     try:
         sessions = adm.get_sessions(keycloak_id)
@@ -1265,6 +1269,7 @@ def revoke_user_session(
         raise HTTPException(status_code=404, detail="User not found")
 
     from services.keycloak_admin import _get_admin_client
+
     adm = _get_admin_client()
     try:
         adm.delete_user_session(session_id=session_id)

@@ -177,9 +177,7 @@ class TestGetUserSessions:
 
         app.dependency_overrides[get_db_with_rls] = mock_get_db
 
-        response = client.get(
-            "/api/admin/sessions/00000000-0000-0000-0000-000000000000"
-        )
+        response = client.get("/api/admin/sessions/00000000-0000-0000-0000-000000000000")
         assert response.status_code == 404
 
     def test_returns_sessions_list(self, client: TestClient):
@@ -211,9 +209,7 @@ class TestGetUserSessions:
             mock_adm.get_sessions.return_value = fake_sessions
             mock_get_adm.return_value = mock_adm
 
-            response = client.get(
-                "/api/admin/sessions/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
-            )
+            response = client.get("/api/admin/sessions/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11")
 
         assert response.status_code == 200
         data = response.json()
