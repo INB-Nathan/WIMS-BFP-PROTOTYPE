@@ -39,5 +39,10 @@ celery_app.conf.update(
             "task": "tasks.drafts.expire_old_drafts",
             "schedule": crontab(hour=2, minute=0),
         },
+        # M6-H: Worker heartbeat — every 30 seconds
+        "worker-heartbeat": {
+            "task": "tasks.monitoring.worker_heartbeat",
+            "schedule": 30.0,
+        },
     },
 )

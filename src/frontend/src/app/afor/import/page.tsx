@@ -22,6 +22,8 @@ import {
   ALL_PROBLEM_OPTIONS,
   normalizeProblemLabel,
 } from '@/lib/afor-utils';
+import { useUserProfile } from '@/lib/auth';
+import { PH_REGIONS } from '@/lib/ph-regions';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type PersonnelOnDuty = Record<string, string | { name?: string; contact?: string }>;
@@ -364,21 +366,38 @@ function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown
   );
 }
 
-// ── FIX 9: Geocoding hook ─────────────────────────────────────────────────────
-function useGeocoding(address: string, city: string) {
+// ── Geocoding hook ─────────────────────────────────────────────────────────────
+// Tries the full D27 address first; falls back to city+province if no result.
+// Both queries are scoped to the Philippines via countrycodes=ph.
+function useGeocoding(address: string, city: string, province: string) {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [autoDetected, setAutoDetected] = useState(false);
 
   useEffect(() => {
-    if (!address && !city) return;
-    const query = [address, city, 'Philippines'].filter(Boolean).join(', ');
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+    if (!address && !city && !province) return;
 
-    fetch(url, {
-      headers: { 'User-Agent': 'WIMS-BFP/1.0' },
-    })
-      .then((r) => r.json())
-      .then((results: Array<{ lat: string; lon: string }>) => {
+    const isPlaceholder = !address || address.startsWith('(');
+    // Primary: full D27 address + province. Fallback: city + province.
+    const primaryQuery = isPlaceholder
+      ? [city, province, 'Philippines'].filter(Boolean).join(', ')
+      : [address, province, 'Philippines'].filter(Boolean).join(', ');
+    const fallbackQuery = [city, province, 'Philippines'].filter(Boolean).join(', ');
+
+    const nominatim = (q: string) =>
+      fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&countrycodes=ph`,
+        { headers: { Accept: 'application/json' } },
+      ).then((r) => r.json() as Promise<Array<{ lat: string; lon: string }>>);
+
+    nominatim(primaryQuery)
+      .then(async (results) => {
+        // If primary query returned nothing and we have a city fallback, try it.
+        if (results.length === 0 && fallbackQuery !== primaryQuery && fallbackQuery.trim()) {
+          return nominatim(fallbackQuery);
+        }
+        return results;
+      })
+      .then((results) => {
         if (results.length > 0) {
           const lat = parseFloat(results[0].lat);
           const lng = parseFloat(results[0].lon);
@@ -391,7 +410,7 @@ function useGeocoding(address: string, city: string) {
       .catch(() => {
         // Geocoding failed silently — user can set manually
       });
-  }, [address, city]);
+  }, [address, city, province]);
 
   return { coords, autoDetected };
 }
@@ -400,6 +419,7 @@ function useGeocoding(address: string, city: string) {
 export default function AforImportPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { assignedRegionId } = useUserProfile();
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
@@ -412,6 +432,7 @@ export default function AforImportPage() {
   const [committedIds, setCommittedIds] = useState<number[]>([]);
   const [isSubmittingAll, setIsSubmittingAll] = useState(false);
   const geocodeTriggered = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // M4-D: per-row duplicate resolution state
   const [pendingDuplicates, setPendingDuplicates] = useState<{
@@ -450,12 +471,13 @@ export default function AforImportPage() {
     });
   }, [previewData, previewStatusFilter, previewSearch]);
 
-  // FIX 9: extract address + city from first valid row for geocoding
+  // FIX 9: extract address + city + province from first valid row for geocoding
   const firstRow = previewData?.rows.find((r) => r.status === 'VALID');
   const sensData = (firstRow?.data?.incident_sensitive_details ?? {}) as Record<string, unknown>;
-  const geocodeAddress = String(sensData.street_address ?? '');
+  const geocodeAddress = String(sensData.street_address ?? '');  // D27 complete address
   const geocodeCity = String(firstRow?.data?._city_text ?? '');
-  const { coords: geoCoords, autoDetected } = useGeocoding(geocodeAddress, geocodeCity);
+  const geocodeProvince = String(firstRow?.data?._province_text ?? '');
+  const { coords: geoCoords, autoDetected } = useGeocoding(geocodeAddress, geocodeCity, geocodeProvince);
 
   // Pre-fill coordinates once geocoding resolves
   useEffect(() => {
@@ -517,6 +539,14 @@ export default function AforImportPage() {
       // The encoder reviews / corrects the pre-filled data there before saving.
       const firstValid = data.rows.find((r) => r.status === 'VALID');
       if (firstValid) {
+        // Block import if AFOR region doesn't match encoder's assigned region
+        const aforRegionId = (firstValid.data as Record<string, unknown>).region_id as number | undefined;
+        if (assignedRegionId && aforRegionId && aforRegionId !== assignedRegionId) {
+          const assignedName = PH_REGIONS.find((r) => r.regionId === assignedRegionId)?.regionName ?? `Region ${assignedRegionId}`;
+          const aforName = PH_REGIONS.find((r) => r.regionId === aforRegionId)?.regionName ?? `Region ${aforRegionId}`;
+          setError(`This AFOR is for ${aforName}, but you are assigned to ${assignedName}. You can only import AFORs within your assigned region.`);
+          return;
+        }
         sessionStorage.setItem('temp_afor_review', JSON.stringify({
           ...firstValid.data,
           _form_kind: data.form_kind,
@@ -531,7 +561,12 @@ export default function AforImportPage() {
       setCommitLatStr('');
       setCommitLngStr('');
     } catch (err: unknown) {
-      setError((err as { message?: string }).message || 'Failed to upload and parse the file.');
+      const msg = (err as { message?: string }).message || 'Failed to upload and parse the file.';
+      setError(msg);
+      // On any import error (including region mismatch) clear the file so the user
+      // can pick a new one without the HTML input blocking re-selection.
+      setFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     } finally {
       setIsUploading(false);
     }
@@ -638,6 +673,8 @@ export default function AforImportPage() {
     setCommitLngStr('');
     setCommittedIds([]);
     geocodeTriggered.current = false;
+    // Reset the DOM file input so the same file can be re-selected after an error/cancel
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   return (
@@ -729,7 +766,7 @@ export default function AforImportPage() {
             style={{ borderColor: 'var(--border-color)' }}
             onClick={() => !isOffline && document.getElementById('file-upload')?.click()}
           >
-            <input type="file" id="file-upload" className="hidden" accept=".csv, .xlsx, .xls" onChange={handleFileInput} disabled={isOffline || isUploading} />
+            <input ref={fileInputRef} type="file" id="file-upload" className="hidden" accept=".csv, .xlsx, .xls" onChange={handleFileInput} disabled={isOffline || isUploading} />
             <div className="flex justify-center mb-4">
               <div className="p-4 rounded-full bg-blue-50 text-blue-600">
                 <Upload className="w-8 h-8" />
@@ -816,6 +853,11 @@ export default function AforImportPage() {
                 <MapPicker
                   value={isValidWgs84(commitLat, commitLng) ? { lat: commitLat, lng: commitLng } : null}
                   onChange={onMapPick}
+                  searchQuery={
+                    geocodeAddress && !geocodeAddress.startsWith('(')
+                      ? [geocodeAddress, geocodeProvince, 'Philippines'].filter(Boolean).join(', ')
+                      : [geocodeCity, geocodeProvince, 'Philippines'].filter(Boolean).join(', ')
+                  }
                 />
               </div>
             </div>

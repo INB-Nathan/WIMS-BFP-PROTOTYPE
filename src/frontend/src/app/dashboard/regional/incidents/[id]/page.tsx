@@ -10,7 +10,6 @@ import {
   submitIncidentForReview,
   unpendIncident,
   deleteIncident,
-  forceReplaceIncident,
   apiFetch,
   ApiRequestError,
   type RegionalIncidentDetailResponse,
@@ -161,6 +160,30 @@ function FieldRow({ label, value }: { label: string; value: unknown }) {
   );
 }
 
+// ── 24h datetime formatter ───────────────────────────────────────────────────
+function fmt24h(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const d = new Date(String(raw));
+  if (isNaN(d.getTime())) return String(raw);
+  return d.toLocaleString('en-PH', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  });
+}
+
+function splitAlarmDateTime(raw: string | null | undefined): { date: string; time: string } | null {
+  if (!raw) return null;
+  const d = new Date(String(raw));
+  if (isNaN(d.getTime())) return null;
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return { date: `${mm}-${dd}-${yyyy}`, time: `${hh}:${min}` };
+}
+
 // ── Section card ─────────────────────────────────────────────────────────────
 function Section({
   title,
@@ -186,7 +209,7 @@ type AlarmTimelineEntry = { time?: string | null; commander?: string };
 type AlarmTimeline = Record<string, AlarmTimelineEntry | string | null>;
 
 function AlarmTimelineSection({ timeline }: { timeline: AlarmTimeline }) {
-  const keys = Object.keys(timeline);
+  const keys = Object.keys(timeline).filter((k) => !k.startsWith('_'));
   const hasData = keys.some((k) => {
     const v = timeline[k];
     return v && (typeof v === 'string' ? v : (v as AlarmTimelineEntry).time);
@@ -195,18 +218,24 @@ function AlarmTimelineSection({ timeline }: { timeline: AlarmTimeline }) {
 
   return (
     <div className="space-y-1">
+      <div className="grid grid-cols-4 gap-4 text-xs font-semibold text-gray-500 border-b border-gray-200 pb-1">
+        <span>Stage</span>
+        <span>Date</span>
+        <span>Time</span>
+        <span>Commander</span>
+      </div>
       {keys.map((k) => {
         const entry = timeline[k];
-        const timeStr = entry ? (typeof entry === 'string' ? entry : (entry as AlarmTimelineEntry).time ?? '') : '';
+        const rawTime = entry ? (typeof entry === 'string' ? entry : (entry as AlarmTimelineEntry).time ?? '') : '';
         const commander = entry && typeof entry !== 'string' ? (entry as AlarmTimelineEntry).commander ?? '' : '';
-        if (!timeStr) return null;
+        if (!rawTime && !commander) return null;
+        const split = splitAlarmDateTime(rawTime);
         return (
-          <div key={k} className="grid grid-cols-3 gap-4 text-sm border-b border-gray-100 pb-1 last:border-0">
+          <div key={k} className="grid grid-cols-4 gap-4 text-sm border-b border-gray-100 pb-1 last:border-0">
             <span className="font-medium text-gray-600">{FIELD_LABELS[k] ?? fieldLabel(k)}</span>
-            <span className="col-span-2 text-gray-900">
-              {timeStr}
-              {commander ? <span className="ml-2 text-gray-500 text-xs">— {commander}</span> : null}
-            </span>
+            <span className="text-gray-900">{split?.date ?? rawTime}</span>
+            <span className="text-gray-900">{split?.time ?? ''}</span>
+            <span className="text-gray-700 text-xs">{commander}</span>
           </div>
         );
       })}
@@ -223,6 +252,7 @@ export default function RegionalIncidentDetailPage() {
 
   const { user, loading: authLoading } = useAuth();
   const role = (user as { role?: string })?.role ?? null;
+  const encoderAssignedRegionId = (user as { assignedRegionId?: number | null })?.assignedRegionId ?? null;
   const canAccessRegional =
     role === 'REGIONAL_ENCODER' ||
     role === 'NATIONAL_VALIDATOR' ||
@@ -243,6 +273,7 @@ export default function RegionalIncidentDetailPage() {
   const [staleAlert, setStaleAlert] = useState(false);
   const [showMissingFieldsModal, setShowMissingFieldsModal] = useState(false);
   const [missingFieldsList, setMissingFieldsList] = useState<string[]>([]);
+  const [missingFieldKeys, setMissingFieldKeys] = useState<string[]>([]);
 
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
   const isValidator = role === 'NATIONAL_VALIDATOR' || role === 'VALIDATOR';
@@ -254,6 +285,7 @@ export default function RegionalIncidentDetailPage() {
   const [validatorError, setValidatorError] = useState<string | null>(null);
   const [validatorDupMatchedId, setValidatorDupMatchedId] = useState<number | null>(null);
   const dupAutoShownRef = useRef(false);
+  const pendingSubmitDone = useRef(false);
 
   useEffect(() => {
     if (!authLoading && !canAccessRegional) {
@@ -286,13 +318,30 @@ export default function RegionalIncidentDetailPage() {
     load();
   }, [authLoading, canAccessRegional, load]);
 
+  // When the create form navigates here with ?pending_submit=1, auto-trigger the
+  // submit flow once the incident detail has loaded (only for DRAFT incidents).
+  // This gives the encoder the same duplicate-detection modal as the detail page
+  // without duplicating the modal code in IncidentForm.
+  useEffect(() => {
+    if (!detail || pendingSubmitDone.current) return;
+    if (detail.verification_status !== 'DRAFT') return;
+    if (typeof window === 'undefined') return;
+    if (new URLSearchParams(window.location.search).get('pending_submit') !== '1') return;
+    pendingSubmitDone.current = true;
+    router.replace(`/dashboard/regional/incidents/${incidentId}`);
+    handleSubmitClick();
+  }, [detail]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Poll every 30 s while the incident is PENDING — alert the encoder if the validator acts.
   useEffect(() => {
     if (!isEncoder || !detail || detail.verification_status !== 'PENDING') return;
     const trackedUpdatedAt = detail.updated_at;
     const interval = setInterval(async () => {
       try {
-        const fresh = await fetchRegionalIncident(incidentId);
+        const fresh = await apiFetch<RegionalIncidentDetailResponse>(
+          `/regional/incidents/${incidentId}`,
+          { skipAuthRedirect: true },
+        );
         if (fresh.verification_status !== 'PENDING' || fresh.updated_at !== trackedUpdatedAt) {
           setStaleAlert(true);
           clearInterval(interval);
@@ -352,22 +401,52 @@ export default function RegionalIncidentDetailPage() {
     }
   };
 
+  const MISSING_FIELD_KEY_MAP: Record<string, string> = {
+    'Type of Responder': 'responder_type',
+    'Name of Fire Station/Team': 'fire_station_name',
+    'Date and Time of Fire Notification Received': 'notification_dt_date',
+    'Region': 'region',
+    'Province / District': 'province_district',
+    'City / Municipality': 'city_municipality',
+    'Highest Alarm Level': 'alarm_level',
+    'Classification of Involved': 'classification_of_involved',
+    'Type of Involved': 'type_of_involved_general_category',
+    'Extent of Damage': 'extent_of_damage',
+    'Location Coordinates (set via map pin)': 'map_location',
+    'Prepared by (Officer)': 'disposition_prepared_by',
+    'Noted by (Officer)': 'disposition_noted_by',
+  };
+
   const handleSubmitClick = () => {
     if (!detail) return;
+
+    // Region constraint: encoder must only submit incidents in their assigned region
+    if (isEncoder && encoderAssignedRegionId && detail.region_id !== encoderAssignedRegionId) {
+      const assignedName = getShortRegionName(encoderAssignedRegionId) ?? `Region ${encoderAssignedRegionId}`;
+      setActionError(`You can only submit incidents for your assigned region (${assignedName}). This incident belongs to a different region.`);
+      return;
+    }
+
     const ns = (detail.nonsensitive as Record<string, unknown>) ?? {};
     const sen = (detail.sensitive as Record<string, unknown>) ?? {};
+    const isEmpty = (v: unknown) => !v || String(v).trim() === '' || String(v).trim().toUpperCase() === 'N/A';
     const missing: string[] = [];
+    if (!ns.responder_type) missing.push('Type of Responder');
+    if (!ns.fire_station_name) missing.push('Name of Fire Station/Team');
     if (!ns.notification_dt) missing.push('Date and Time of Fire Notification Received');
-    if (!ns.general_category) missing.push('Classification of Involved');
-    if (ns.general_category && !detail.incident_type_code) missing.push('Type of Involved (e.g. APT, Daycare)');
     if (!detail.region_id) missing.push('Region');
-    if (!ns.province_district) missing.push('Province / District');
-    if (!ns.city_municipality) missing.push('City / Municipality');
+    if (isEmpty(ns.province_district)) missing.push('Province / District');
+    if (isEmpty(ns.city_municipality)) missing.push('City / Municipality');
+    if (!ns.alarm_level) missing.push('Highest Alarm Level');
+    if (!ns.general_category) missing.push('Classification of Involved');
+    if (ns.general_category && !(ns.type_of_involved_general_category || (ns as Record<string, unknown>).sub_category)) missing.push('Type of Involved');
     if (!ns.extent_of_damage) missing.push('Extent of Damage');
-    if (!sen.prepared_by_officer && !sen.disposition_prepared_by) missing.push('Prepared by (Officer)');
-    if (!sen.noted_by_officer && !sen.disposition_noted_by) missing.push('Noted by (Officer)');
+    if (!detail.latitude || !detail.longitude) missing.push('Location Coordinates (set via map pin)');
+    if (isEmpty(sen.prepared_by_officer) && isEmpty(sen.disposition_prepared_by)) missing.push('Prepared by (Officer)');
+    if (isEmpty(sen.noted_by_officer) && isEmpty(sen.disposition_noted_by)) missing.push('Noted by (Officer)');
     if (missing.length > 0) {
       setMissingFieldsList(missing);
+      setMissingFieldKeys(missing.map((f) => MISSING_FIELD_KEY_MAP[f]).filter(Boolean));
       setShowMissingFieldsModal(true);
       return;
     }
@@ -474,50 +553,6 @@ export default function RegionalIncidentDetailPage() {
   const others = (sens?.other_personnel ?? []) as OtherPerson[];
   const alarmTimeline = (ns?.alarm_timeline ?? {}) as AlarmTimeline;
 
-  const buildPendingReplacePayload = (): Record<string, unknown> => ({
-    notification_dt: ns?.notification_dt ?? null,
-    alarm_level: ns?.alarm_level ?? null,
-    general_category: ns?.general_category ?? ns?.classification_of_involved ?? null,
-    sub_category: ns?.sub_category ?? ns?.type_of_involved_general_category ?? null,
-    specific_type: ns?.specific_type ?? null,
-    occupancy_type: ns?.occupancy_type ?? null,
-    city_id: ns?.city_id ?? null,
-    barangay_id: ns?.barangay_id ?? null,
-    distance_from_station_km: ns?.distance_from_station_km ?? ns?.distance_to_fire_scene_km ?? null,
-    estimated_damage_php: ns?.estimated_damage_php ?? null,
-    civilian_injured: ns?.civilian_injured ?? null,
-    civilian_deaths: ns?.civilian_deaths ?? null,
-    firefighter_injured: ns?.firefighter_injured ?? null,
-    firefighter_deaths: ns?.firefighter_deaths ?? null,
-    families_affected: ns?.families_affected ?? null,
-    structures_affected: ns?.structures_affected ?? null,
-    households_affected: ns?.households_affected ?? null,
-    individuals_affected: ns?.individuals_affected ?? null,
-    responder_type: ns?.responder_type ?? null,
-    fire_origin: ns?.fire_origin ?? ns?.area_of_origin ?? null,
-    extent_of_damage: ns?.extent_of_damage ?? null,
-    stage_of_fire: ns?.stage_of_fire ?? ns?.stage_of_fire_upon_arrival ?? null,
-    fire_station_name: ns?.fire_station_name ?? null,
-    total_response_time_minutes: ns?.total_response_time_minutes ?? null,
-    recommendations: ns?.recommendations ?? null,
-    province_district: ns?.province_district ?? null,
-    city_municipality: ns?.city_municipality ?? null,
-    station_code: ns?.station_code ?? null,
-    street_address: sens?.street_address ?? ns?.incident_address ?? null,
-    landmark: sens?.landmark ?? ns?.nearest_landmark ?? null,
-    caller_name: sens?.caller_name ?? null,
-    caller_number: sens?.caller_number ?? null,
-    narrative_report: sens?.narrative_report ?? null,
-    owner_name: sens?.owner_name ?? null,
-    occupant_name: sens?.occupant_name ?? null,
-    establishment_name: sens?.establishment_name ?? null,
-    receiver_name: sens?.receiver_name ?? ns?.receiver_name ?? null,
-    prepared_by_officer: sens?.prepared_by_officer ?? null,
-    noted_by_officer: sens?.noted_by_officer ?? null,
-    remarks: sens?.remarks ?? null,
-    latitude: detail?.latitude ?? null,
-    longitude: detail?.longitude ?? null,
-  });
 
   // Defensive: problems_encountered may come back as a JSON array or (rarely) a string
   const rawProblems = ns?.problems_encountered;
@@ -760,7 +795,7 @@ export default function RegionalIncidentDetailPage() {
             </ul>
             <div className="flex justify-end gap-3 pt-2">
               <button
-                onClick={() => setShowMissingFieldsModal(false)}
+                onClick={() => { setShowMissingFieldsModal(false); setMissingFieldKeys([]); }}
                 className="px-4 py-2 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50"
               >
                 Dismiss
@@ -782,10 +817,10 @@ export default function RegionalIncidentDetailPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <Link
           href={isValidator ? '/dashboard/validator' : '/dashboard/regional'}
-          className="inline-flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+          className="inline-flex items-center gap-2 rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 hover:text-gray-900 transition-colors"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden />
-          {isValidator ? 'Back to validator dashboard' : 'Back to regional dashboard'}
+          {isValidator ? 'Back to Validator Dashboard' : 'Back to Regional Dashboard'}
         </Link>
         {detail && isEncoder && (
           <div className="flex items-center gap-2 flex-wrap">
@@ -814,15 +849,17 @@ export default function RegionalIncidentDetailPage() {
                   </button>
                 )}
 
-                {/* Edit button — DRAFT/REJECTED: opens edit directly; PENDING: shows withdraw-first popup */}
-                <button
-                  onClick={handleEditClick}
-                  disabled={actionLoading}
-                  className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 disabled:opacity-50"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                  Edit
-                </button>
+                {/* Edit button — only for DRAFT/PENDING/REJECTED; hidden for VERIFIED */}
+                {canSubmitOrDelete && (
+                  <button
+                    onClick={handleEditClick}
+                    disabled={actionLoading}
+                    className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 disabled:opacity-50"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Edit
+                  </button>
+                )}
 
                 {/* Submit / Resubmit — only for DRAFT or REJECTED */}
                 {(detail.verification_status === 'DRAFT' || detail.verification_status === 'REJECTED') && (
@@ -839,7 +876,7 @@ export default function RegionalIncidentDetailPage() {
             )}
             {isEditing && (
               <button
-                onClick={() => { setIsEditing(false); setActionError(null); }}
+                onClick={() => { setIsEditing(false); setActionError(null); setMissingFieldKeys([]); }}
                 className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium border border-gray-300 bg-white hover:bg-gray-50 text-gray-700"
               >
                 ← Back to View
@@ -884,10 +921,12 @@ export default function RegionalIncidentDetailPage() {
         <IncidentForm
           initialData={incidentFormData}
           existingIncidentId={detail.incident_id}
+          initialErrors={missingFieldKeys.length > 0 ? missingFieldKeys : undefined}
           onSaved={() => {
             setSaveNotification('Incident saved successfully!');
             setTimeout(() => setSaveNotification(null), 5000);
             setIsEditing(false);
+            setMissingFieldKeys([]);
             void load();
           }}
         />
@@ -953,18 +992,56 @@ export default function RegionalIncidentDetailPage() {
 
           {/* A. Response Details */}
           <Section title="A. Response Details" sectionId="sec-response">
-            <FieldRow label={FIELD_LABELS.notification_dt} value={ns?.notification_dt ? new Date(String(ns.notification_dt)).toLocaleString() : null} />
+            <FieldRow label={FIELD_LABELS.notification_dt} value={fmt24h(ns?.notification_dt as string | null)} />
             <FieldRow label={FIELD_LABELS.fire_station_name} value={ns?.fire_station_name} />
             <FieldRow label={FIELD_LABELS.responder_type} value={ns?.responder_type} />
             <FieldRow label={FIELD_LABELS.alarm_level} value={ns?.alarm_level} />
-            <FieldRow label="Engine / Unit Dispatched" value={engineDispatched} />
-            <FieldRow label="Time Engine Dispatched" value={timeEngineDispatched} />
-            <FieldRow label="Time Arrived at Fire Scene" value={timeArrivedAtScene} />
+            {(() => {
+              type EngineRow = { name?: string; time_dispatched?: string; time_arrived?: string };
+              const engines = ((alarmTimeline as Record<string, unknown>)._engines as EngineRow[] | undefined) ?? [];
+              const hasEngines = engines.some((e) => e.name || e.time_dispatched || e.time_arrived);
+              if (hasEngines) {
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-b border-gray-100 pb-3 text-sm">
+                    <div className="font-medium text-gray-600">Engine / Unit Dispatched</div>
+                    <div className="md:col-span-2">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-xs text-gray-500 border-b border-gray-200">
+                            <th className="text-left pb-1 pr-4 font-medium">Engine / Unit</th>
+                            <th className="text-left pb-1 pr-4 font-medium">Time Dispatched</th>
+                            <th className="text-left pb-1 font-medium">Time Arrived at Scene</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {engines.map((eng, i) =>
+                            eng.name || eng.time_dispatched || eng.time_arrived ? (
+                              <tr key={i} className="border-b border-gray-50 last:border-0">
+                                <td className="py-1 pr-4">{displayValue(eng.name)}</td>
+                                <td className="py-1 pr-4">{displayValue(eng.time_dispatched)}</td>
+                                <td className="py-1">{displayValue(eng.time_arrived)}</td>
+                              </tr>
+                            ) : null
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <>
+                  <FieldRow label="Engine / Unit Dispatched" value={engineDispatched} />
+                  <FieldRow label="Time Engine Dispatched" value={timeEngineDispatched} />
+                  <FieldRow label="Time Arrived at Fire Scene" value={timeArrivedAtScene} />
+                </>
+              );
+            })()}
             <FieldRow label="Time Returned to Base" value={timeReturnedToBase} />
-            <FieldRow label={FIELD_LABELS.distance_from_station_km} value={ns?.distance_from_station_km} />
+            <FieldRow label={FIELD_LABELS.distance_from_station_km} value={ns?.distance_from_station_km ?? ns?.distance_to_fire_scene_km} />
             <FieldRow label={FIELD_LABELS.total_response_time_minutes} value={ns?.total_response_time_minutes} />
             <FieldRow label={FIELD_LABELS.total_gas_consumed_liters} value={ns?.total_gas_consumed_liters} />
-            <FieldRow label="Location" value={[ns?.city_municipality, ns?.province_district, ns?.region].filter(Boolean).join(', ') || null} />
+            <FieldRow label="Location" value={[ns?.region, ns?.province_district, ns?.city_municipality].filter(Boolean).join(', ') || null} />
             <FieldRow label={FIELD_LABELS.street_address} value={sens?.street_address ?? ns?.incident_address} />
             <FieldRow label={FIELD_LABELS.landmark} value={sens?.landmark ?? ns?.nearest_landmark} />
             <FieldRow label={FIELD_LABELS.caller_name} value={sens?.caller_name} />
@@ -976,14 +1053,15 @@ export default function RegionalIncidentDetailPage() {
           <Section title="B. Nature and Classification of Involved" sectionId="sec-class">
             <FieldRow label={FIELD_LABELS.general_category} value={formatClassification(String(ns?.general_category ?? ns?.classification_of_involved ?? ''))} />
             <FieldRow label={FIELD_LABELS.sub_category} value={ns?.sub_category ?? ns?.type_of_involved_general_category} />
-            <FieldRow label="Owner / Occupant Name" value={sens?.owner_name ?? ns?.owner_name} />
-            <FieldRow label="Establishment Name" value={sens?.establishment_name ?? ns?.establishment_name} />
+            <FieldRow label="Name of Owner/Establishment" value={sens?.owner_name ?? ns?.owner_name} />
             <FieldRow label="General Description" value={ns?.general_description_of_involved} />
             <FieldRow label={FIELD_LABELS.fire_origin} value={ns?.fire_origin ?? ns?.area_of_origin} />
             <FieldRow label="Stage of Fire Upon Arrival" value={ns?.stage_of_fire_upon_arrival ?? ns?.stage_of_fire} />
             <FieldRow label={FIELD_LABELS.extent_of_damage} value={ns?.extent_of_damage} />
-            <FieldRow label={FIELD_LABELS.extent_total_floor_area_sqm} value={ns?.extent_total_floor_area_sqm} />
-            <FieldRow label={FIELD_LABELS.extent_total_land_area_hectares} value={ns?.extent_total_land_area_hectares} />
+            {ns?.extent_description ? <FieldRow label="Description" value={ns.extent_description} /> : null}
+            {ns?.extent_total_floor_area_sqm ? <FieldRow label={FIELD_LABELS.extent_total_floor_area_sqm} value={ns.extent_total_floor_area_sqm} /> : null}
+            {ns?.extent_total_land_area_hectares ? <FieldRow label={FIELD_LABELS.extent_total_land_area_hectares} value={ns.extent_total_land_area_hectares} /> : null}
+            {ns?.extent_objects_count ? <FieldRow label="No. of Objects/Properties Affected" value={ns.extent_objects_count} /> : null}
             {detail.is_wildland && (
               <>
                 <FieldRow label="Wildland Fire Type" value={detail.wildland_fire_type} />
@@ -1013,10 +1091,10 @@ export default function RegionalIncidentDetailPage() {
               const medical = resources?.medical as Record<string, unknown> | undefined;
               const special = resources?.special_assets as Record<string, unknown> | undefined;
               const tools = resources?.tools as Record<string, unknown> | undefined;
-              const TRUCK_LABELS: Record<string, string> = { bfp: 'BFP Fire Trucks', lgu: 'BFP-Manned (LGU Owned)', non_bfp: 'Non-BFP Fire Trucks', volunteer: 'Non-BFP Fire Trucks' };
+              const TRUCK_LABELS: Record<string, string> = { bfp: 'BFP Fire Trucks', lgu: 'BFP-Manned (LGU)', non_bfp: 'Non-BFP Fire Trucks', volunteer: 'Non-BFP Fire Trucks' };
               const MEDICAL_LABELS: Record<string, string> = { bfp: 'BFP Ambulance', non_bfp: 'Non-BFP Ambulance' };
               const SPECIAL_LABELS: Record<string, string> = { rescue_bfp: 'BFP Rescue Trucks', rescue_non_bfp: 'Non-BFP Rescue Trucks', others: 'Other Vehicles / Assets' };
-              const TOOL_LABELS: Record<string, string> = { scba: 'SCBA', rope: 'Rope', ladder: 'Ladder', hoseline: 'Hoseline', hydraulic: 'Hydraulic Tools & Equipment', others: 'Other Tools' };
+              const TOOL_LABELS: Record<string, string> = { scba: 'SCBA', rope: 'Rope', ladder: 'Ladder', hoseline: 'Hoseline', hydraulic: 'Hydraulic Tools', others: 'Other Tools' };
               const rows: { label: string; value: unknown }[] = [];
               if (trucks) Object.entries(trucks).forEach(([k, v]) => rows.push({ label: TRUCK_LABELS[k] ?? k, value: v }));
               if (medical) Object.entries(medical).forEach(([k, v]) => rows.push({ label: MEDICAL_LABELS[k] ?? k, value: v }));
@@ -1213,23 +1291,27 @@ export default function RegionalIncidentDetailPage() {
                   </div>
                 )}
                 <div className="flex flex-wrap gap-2 items-center">
-                  <button
-                    onClick={() => void submitValidatorAction({ action: 'accept' })}
-                    disabled={validatorLoading || detail?.verification_status === 'VERIFIED' || detail?.verification_status === 'REJECTED'}
-                    className="px-4 py-2 text-sm rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {validatorLoading && validatorAction === null ? 'Checking…' : 'Accept'}
-                  </button>
-                  <button
-                    onClick={() => setValidatorAction('reject')}
-                    disabled={validatorLoading || detail?.verification_status === 'REJECTED' || detail?.verification_status === 'VERIFIED'}
-                    className="px-4 py-2 text-sm rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    Reject
-                  </button>
+                  {validatorAction !== 'reject' && (
+                    <>
+                      <button
+                        onClick={() => void submitValidatorAction({ action: 'accept' })}
+                        disabled={validatorLoading || detail?.verification_status === 'VERIFIED' || detail?.verification_status === 'REJECTED'}
+                        className="px-4 py-2 text-sm rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {validatorLoading && validatorAction === null ? 'Checking…' : 'Accept'}
+                      </button>
+                      <button
+                        onClick={() => setValidatorAction('reject')}
+                        disabled={validatorLoading || detail?.verification_status === 'REJECTED' || detail?.verification_status === 'VERIFIED'}
+                        className="px-4 py-2 text-sm rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Reject
+                      </button>
+                    </>
+                  )}
                   <Link
                     href="/dashboard/validator"
-                    className="ml-auto px-4 py-2 text-sm rounded border border-gray-300 bg-white hover:bg-gray-50 text-gray-700"
+                    className="ml-auto px-4 py-2 text-sm rounded bg-yellow-400 text-gray-900 hover:bg-yellow-500 font-medium"
                   >
                     Back to Dashboard
                   </Link>

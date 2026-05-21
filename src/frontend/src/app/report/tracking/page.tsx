@@ -1,21 +1,27 @@
 'use client';
 
-import { useState } from 'react';
-import { fetchReportStatus } from '@/lib/api';
+import { useCallback, useEffect, useState } from 'react';
+import { fetchReportStatus, registerNotification } from '@/lib/api';
+import { getMessagingToken } from '@/lib/firebase';
 import Image from 'next/image';
 import { AlertTriangle, Search, CheckCircle, Clock } from 'lucide-react';
 import Link from 'next/link';
+
+type NotifyStatus = 'idle' | 'enabling' | 'enabled' | 'denied' | 'error';
+
+const notifyKey = (id: string | number) => `bfp_notify_registered_${id}`;
 
 export default function ReportTrackerPage() {
     const [reportId, setReportId] = useState('');
     const [statusData, setStatusData] = useState<{ report_id: number; status: string; description: string; created_at: string } | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [notifyStatus, setNotifyStatus] = useState<NotifyStatus>('idle');
 
-    const handleSearch = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const searchReport = useCallback(async (id: string) => {
         setError(null);
-        if (!reportId.trim()) {
+        setNotifyStatus('idle');
+        if (!id.trim()) {
             setError('Please enter a Report ID.');
             return;
         }
@@ -23,12 +29,42 @@ export default function ReportTrackerPage() {
         setLoading(true);
         setStatusData(null);
         try {
-            const data = await fetchReportStatus(reportId.trim());
+            const data = await fetchReportStatus(id.trim());
             setStatusData(data);
+            if (localStorage.getItem(notifyKey(data.report_id)) === 'true') {
+                setNotifyStatus('enabled');
+            }
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : 'Failed to fetch report status.');
         } finally {
             setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        const id = new URLSearchParams(window.location.search).get('id');
+        if (!id?.trim()) return;
+
+        setReportId(id.trim());
+        void searchReport(id);
+    }, [searchReport]);
+
+    const handleSearch = async (e: React.FormEvent) => {
+        e.preventDefault();
+        await searchReport(reportId);
+    };
+
+    const handleEnableNotifications = async () => {
+        if (!statusData) return;
+        setNotifyStatus('enabling');
+        try {
+            const token = await getMessagingToken();
+            if (!token) { setNotifyStatus('denied'); return; }
+            await registerNotification(statusData.report_id, token);
+            localStorage.setItem(notifyKey(statusData.report_id), 'true');
+            setNotifyStatus('enabled');
+        } catch {
+            setNotifyStatus('error');
         }
     };
 
@@ -106,6 +142,30 @@ export default function ReportTrackerPage() {
                                     <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                                     <p>Your report has been verified by the Regional Operations center and responders have been dispatched.</p>
                                 </div>
+                            )}
+
+                            {statusData.status === 'PENDING' && notifyStatus !== 'enabled' && (
+                                <div className="mt-4 p-3 border rounded-lg flex items-center justify-between" style={{ borderColor: 'var(--border-color)' }}>
+                                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Get notified when this report is verified</p>
+                                    <button
+                                        onClick={handleEnableNotifications}
+                                        disabled={notifyStatus === 'enabling'}
+                                        className="ml-4 px-4 py-1.5 rounded-lg text-white text-xs font-semibold disabled:opacity-50"
+                                        style={{ background: 'var(--bfp-gradient)' }}>
+                                        {notifyStatus === 'enabling' ? 'Enabling…' : 'Enable'}
+                                    </button>
+                                </div>
+                            )}
+                            {notifyStatus === 'enabled' && statusData.status === 'PENDING' && (
+                                <div className="mt-4 p-3 bg-green-50 text-green-700 text-sm rounded-lg border border-green-200">
+                                    Notifications enabled. You&apos;ll be alerted when this report is verified.
+                                </div>
+                            )}
+                            {notifyStatus === 'denied' && (
+                                <p className="mt-2 text-xs text-orange-500">Notification permission denied. Enable it in your browser settings.</p>
+                            )}
+                            {notifyStatus === 'error' && (
+                                <p className="mt-2 text-xs text-red-500">Failed to enable notifications. Please try again.</p>
                             )}
                         </div>
                     )}

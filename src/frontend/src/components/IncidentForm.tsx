@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation';
 import { edgeFunctions, Incident } from '@/lib/edgeFunctions';
 import {
   updateRegionalIncident, forceReplaceIncident, createRegionalIncident,
+  submitIncidentForReview,
   type RefDuplicateIncident,
   ApiRequestError,
 } from '@/lib/api';
 import { queueIncident, getPendingIncidents, markSynced } from '@/lib/offlineStore';
 import { useUserProfile } from '@/lib/auth';
-import { PH_REGIONS, getProvincesForRegion, getCitiesForProvince, getAforRegionIdentifier } from '@/lib/ph-regions';
-import { Loader2, Save, Shuffle } from 'lucide-react';
+import { PH_REGIONS, getProvincesForRegion, getCitiesForProvince, getAforRegionIdentifier, getShortRegionName } from '@/lib/ph-regions';
+import { Loader2, Save, Shuffle, Send } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import {
   ALL_PROBLEM_OPTIONS, normalizeProblemLabel,
@@ -25,13 +26,41 @@ const MapPicker = dynamic(
   { ssr: false, loading: () => <div className="h-64 bg-gray-100 animate-pulse rounded border" /> },
 );
 
+async function reverseGeocode(lat: number, lng: number): Promise<{ barangay: string; city: string; province: string; state: string } | null> {
+  try {
+    // zoom=18 → house-level detail; addressdetails=1 → full address breakdown
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1&zoom=18`,
+      { headers: { 'Accept-Language': 'en' } },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const addr = data.address || {};
+
+    // Philippine address hierarchy in Nominatim:
+    //   barangay  → quarter > suburb > village > neighbourhood > hamlet
+    //   city/muni → city_district (most precise in NCR) > town > municipality > city
+    //               (addr.city is often the region-level name in Metro Manila, so deprioritise it)
+    //   province  → county (province outside NCR) or state (region name, last resort)
+    const barangay =
+      addr.quarter || addr.suburb || addr.village || addr.neighbourhood || addr.hamlet || '';
+    const city =
+      addr.city_district || addr.town || addr.municipality ||
+      (addr.city && addr.city !== addr.state ? addr.city : '') || '';
+    const province = addr.county || '';
+    const state = addr.state || '';
+
+    return { barangay, city, province, state };
+  } catch {
+    return null;
+  }
+}
+
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const STAGE_OF_FIRE_OPTIONS = [
   'Incipient',
-  'Free-burning',
-  'Smoldering',
-  'Flashover',
+  'Growth',
   'Fully Developed',
   'Decay',
 ];
@@ -54,7 +83,7 @@ const ALARM_ROWS = [
 
 const VEHICLE_ROWS = [
   { key: 'resources_bfp_trucks', label: 'BFP Fire Trucks' },
-  { key: 'resources_lgu_trucks', label: 'BFP Manned Fire Trucks (LGU Owned)' },
+  { key: 'resources_lgu_trucks', label: 'BFP Manned Fire Trucks (LGU)' },
   { key: 'resources_non_bfp_trucks', label: 'Non-BFP Fire Trucks' },
   { key: 'resources_bfp_ambulance', label: 'BFP Ambulance' },
   { key: 'resources_non_bfp_ambulance', label: 'Non-BFP Ambulance' },
@@ -63,11 +92,11 @@ const VEHICLE_ROWS = [
 ] as const;
 
 const TOOL_ROWS: { key: string; label: string; type: 'number' | 'text' }[] = [
-  { key: 'tools_scba', label: 'Self-Contained Breathing Apparatus (SCBA)', type: 'number' },
+  { key: 'tools_scba', label: 'SCBA', type: 'number' },
   { key: 'tools_rope', label: 'Rope', type: 'text' },
   { key: 'tools_ladder', label: 'Ladder', type: 'number' },
   { key: 'tools_hoseline', label: 'Hoseline', type: 'text' },
-  { key: 'tools_hydraulic', label: 'Hydraulic Tools & Equipment', type: 'number' },
+  { key: 'tools_hydraulic', label: 'Hydraulic Tools', type: 'number' },
 ];
 
 const POD_ROLES: { key: string; label: string; contactKey?: string }[] = [
@@ -98,22 +127,27 @@ export function IncidentForm({
   initialData,
   existingIncidentId,
   onSaved,
+  initialErrors,
 }: {
   initialData?: Incident;
   existingIncidentId?: number;
   onSaved?: () => void;
+  initialErrors?: string[];
 }) {
   const router = useRouter();
   const { assignedRegionId, role } = useUserProfile();
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
   const [loading, setLoading] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
-  const [selectedRegionId, setSelectedRegionId] = useState<number | null>(null);
+  const [selectedRegionId, setSelectedRegionId] = useState<number | null>(
+    initialData?.region_id && initialData.region_id > 0 ? initialData.region_id : null
+  );
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<Set<string>>(new Set());
+  const [fieldErrors, setFieldErrors] = useState<Set<string>>(new Set(initialErrors ?? []));
   const locationHydratedRef = useRef(false);
   const formHydratedRef = useRef(false);
+  const submitAfterSaveRef = useRef(false);
 
   const showToast = (message: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -124,6 +158,7 @@ export function IncidentForm({
   // H. Fire location from MapPicker
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
+  const [mapSearchQuery, setMapSearchQuery] = useState<string | undefined>(undefined);
 
   const [formState, setFormState] = useState({
     // A. Response Details
@@ -134,6 +169,7 @@ export function IncidentForm({
     region: '',
     province_district: '',
     city_municipality: '',
+    barangay: '',
     incident_address: '',
     nearest_landmark: '',
     caller_name: '',
@@ -142,6 +178,11 @@ export function IncidentForm({
     engine_dispatched: '',
     time_engine_dispatched: '',
     time_arrived_at_scene: '',
+    engines: [
+      { name: '', time_dispatched: '', time_arrived: '' },
+      { name: '', time_dispatched: '', time_arrived: '' },
+      { name: '', time_dispatched: '', time_arrived: '' },
+    ] as { name: string; time_dispatched: string; time_arrived: string }[],
     total_response_time_minutes: '',
     distance_to_fire_scene_km: '',
     alarm_level: '',
@@ -152,11 +193,12 @@ export function IncidentForm({
     classification_of_involved: '',
     type_of_involved_general_category: '',
     owner_name: '',
-    establishment_name: '',
     general_description_of_involved: '',
     area_of_origin: '',
     stage_of_fire_upon_arrival: '',
     extent_of_damage: '',
+    extent_description: '',
+    extent_objects_count: '',
     extent_total_floor_area_sqm: '',
     extent_total_land_area_hectares: '',
     structures_affected: '',
@@ -227,10 +269,10 @@ export function IncidentForm({
     problems_encountered: [] as string[],
     problems_others: '',
 
-    // K. Recommendations
+    // J. Recommendations
     recommendations: '',
 
-    // L. Disposition
+    // K. Disposition
     disposition: '',
     disposition_prepared_by: '',
     disposition_noted_by: '',
@@ -239,10 +281,10 @@ export function IncidentForm({
     station_code: 'TBA',
   });
 
-  const [otherPersonnel, setOtherPersonnel] = useState<{ name: string; designation: string; remarks: string }[]>([
-    { name: '', designation: '', remarks: '' },
-    { name: '', designation: '', remarks: '' },
-    { name: '', designation: '', remarks: '' },
+  const [otherPersonnel, setOtherPersonnel] = useState<{ name: string; designation: string }[]>([
+    { name: '', designation: '' },
+    { name: '', designation: '' },
+    { name: '', designation: '' },
   ]);
 
   // Duplicate detection modal state
@@ -260,14 +302,15 @@ export function IncidentForm({
   );
 
   const referenceNumberPreview = useMemo(() => {
-    const regionCode = selectedRegionId ? getAforRegionIdentifier(selectedRegionId) : '';
+    const effectiveId = (isEncoder && assignedRegionId) ? assignedRegionId : selectedRegionId;
+    const regionCode = effectiveId ? getAforRegionIdentifier(effectiveId) : '';
     return generateReferenceNumberPreview({
       regionCode,
       stationCode: formState.station_code || 'TBA',
       typeCode: incidentTypeCode,
       notificationDate: formState.notification_dt_date,
     });
-  }, [selectedRegionId, formState.station_code, incidentTypeCode, formState.notification_dt_date]);
+  }, [isEncoder, assignedRegionId, selectedRegionId, formState.station_code, incidentTypeCode, formState.notification_dt_date]);
 
   // ── Utility helpers ────────────────────────────────────────────────────────
 
@@ -343,14 +386,28 @@ export function IncidentForm({
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
-  // Lock encoder to their assigned region on mount
+  // Lock encoder to their assigned region always — also clears province/city if import brought wrong-region data
   useEffect(() => {
-    if (assignedRegionId && !selectedRegionId && !initialData) {
+    if (!assignedRegionId) return;
+    if (isEncoder) {
+      setSelectedRegionId(assignedRegionId);
+      const r = PH_REGIONS.find((r) => r.regionId === assignedRegionId);
+      setFormState((prev) => {
+        const validProvinces = getProvincesForRegion(assignedRegionId).map((p) => p.provinceName);
+        const provinceOk = validProvinces.includes(prev.province_district);
+        return {
+          ...prev,
+          region: r?.regionName ?? '',
+          province_district: provinceOk ? prev.province_district : '',
+          city_municipality: provinceOk ? prev.city_municipality : '',
+        };
+      });
+    } else if (!selectedRegionId && !initialData) {
       setSelectedRegionId(assignedRegionId);
       const r = PH_REGIONS.find((r) => r.regionId === assignedRegionId);
       setFormState((prev) => ({ ...prev, region: r?.regionName ?? '' }));
     }
-  }, [assignedRegionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [assignedRegionId, isEncoder]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!initialData || formHydratedRef.current) return;
@@ -404,6 +461,16 @@ export function IncidentForm({
       return String(v);
     };
 
+    // Resolve province/city from initial data
+    const hydratedProvince = ns.province_district || (initialData as unknown as Record<string, unknown>)._province_text as string || '';
+    const hydratedCity = initialData._city_text || ns.city_municipality || '';
+    // Guard: if encoder's assigned region is known, discard province/city from a
+    // different region (prevents the hydration effect from overwriting the lock effect).
+    const encoderValidProvinces = (isEncoder && assignedRegionId)
+      ? getProvincesForRegion(assignedRegionId).map((p) => p.provinceName)
+      : null;
+    const hydratedProvinceOk = !encoderValidProvinces || encoderValidProvinces.includes(hydratedProvince);
+
     setFormState((prev) => ({
       ...prev,
       responder_type: ns.responder_type || '',
@@ -411,8 +478,9 @@ export function IncidentForm({
       notification_dt_date: toDateTimeLocalValue(ns.notification_dt).split('T')[0] || '',
       notification_dt_time: toDateTimeLocalValue(ns.notification_dt).split('T')[1] || '',
       region: ns.region || '',
-      province_district: ns.province_district || (initialData as unknown as Record<string, unknown>)._province_text as string || '',
-      city_municipality: initialData._city_text || ns.city_municipality || '',
+      province_district: hydratedProvinceOk ? hydratedProvince : '',
+      city_municipality: hydratedProvinceOk ? hydratedCity : '',
+      barangay: ns.barangay || '',
       incident_address: ns.incident_address || (sen as Record<string, unknown>).street_address as string || '',
       nearest_landmark: ns.nearest_landmark || (sen as Record<string, unknown>).landmark as string || '',
       caller_name: sen.caller_name || '',
@@ -421,6 +489,22 @@ export function IncidentForm({
       engine_dispatched: ns.engine_dispatched || responseFields.engine_dispatched || '',
       time_engine_dispatched: ns.time_engine_dispatched || responseFields.time_engine_dispatched || '',
       time_arrived_at_scene: ns.time_arrived_at_scene || responseFields.time_arrived_at_scene || '',
+      engines: (() => {
+        const stored = (timeline as Record<string, unknown>)._engines as { name: string; time_dispatched: string; time_arrived: string }[] | undefined;
+        if (stored && stored.length > 0) {
+          const rows = stored.map((e) => ({ name: e.name || '', time_dispatched: e.time_dispatched || '', time_arrived: e.time_arrived || '' }));
+          while (rows.length < 3) rows.push({ name: '', time_dispatched: '', time_arrived: '' });
+          return rows.slice(0, 3);
+        }
+        const legacyName = ns.engine_dispatched || responseFields.engine_dispatched || '';
+        const legacyDisp = ns.time_engine_dispatched || responseFields.time_engine_dispatched || '';
+        const legacyArr = ns.time_arrived_at_scene || responseFields.time_arrived_at_scene || '';
+        return [
+          { name: legacyName, time_dispatched: legacyDisp, time_arrived: legacyArr },
+          { name: '', time_dispatched: '', time_arrived: '' },
+          { name: '', time_dispatched: '', time_arrived: '' },
+        ];
+      })(),
       total_response_time_minutes: ns.total_response_time_minutes?.toString() || '',
       distance_to_fire_scene_km: (ns.distance_to_fire_scene_km ?? (ns as Record<string, unknown>).distance_from_station_km)?.toString() || '',
       alarm_level: ns.alarm_level || '',
@@ -433,6 +517,8 @@ export function IncidentForm({
           'Structural': 'STRUCTURAL', 'Non-Structural': 'NON_STRUCTURAL',
           'Transportation': 'TRANSPORTATION', 'Vehicular': 'TRANSPORTATION',
           'Wildland': 'WILDLAND',
+          // Backend normalizes TRANSPORTATION → VEHICULAR; map it back for the form dropdown
+          'VEHICULAR': 'TRANSPORTATION',
         };
         return legacyMap[raw] ?? raw;
       })(),
@@ -449,6 +535,7 @@ export function IncidentForm({
         const legacyCM: Record<string, string> = {
           'Structural': 'STRUCTURAL', 'Non-Structural': 'NON_STRUCTURAL',
           'Transportation': 'TRANSPORTATION', 'Vehicular': 'TRANSPORTATION', 'Wildland': 'WILDLAND',
+          'VEHICULAR': 'TRANSPORTATION',
         };
         const classification = legacyCM[rawClass] ?? rawClass;
         const opts = getTypeOptionsForClassification(classification);
@@ -465,12 +552,13 @@ export function IncidentForm({
         return rawType; // fall back to raw value; user can correct
       })(),
       station_code: (ns as Record<string, unknown>).station_code as string || 'TBA',
-      owner_name: sen.owner_name || ns.owner_name || '',
-      establishment_name: sen.establishment_name || ns.establishment_name || '',
+      owner_name: sen.owner_name || ns.owner_name || sen.establishment_name || ns.establishment_name || '',
       general_description_of_involved: ns.general_description_of_involved || responseFields.general_description_of_involved || '',
       area_of_origin: ns.area_of_origin || (ns as Record<string, unknown>).fire_origin as string || '',
       stage_of_fire_upon_arrival: ns.stage_of_fire_upon_arrival || (ns as Record<string, unknown>).stage_of_fire as string || '',
       extent_of_damage: ns.extent_of_damage || '',
+      extent_description: (ns as Record<string, unknown>).extent_description as string || '',
+      extent_objects_count: (ns as Record<string, unknown>).extent_objects_count?.toString() || '',
       extent_total_floor_area_sqm: ns.extent_total_floor_area_sqm?.toString() || '',
       extent_total_land_area_hectares: ns.extent_total_land_area_hectares?.toString() || '',
       structures_affected: ns.structures_affected?.toString() || '',
@@ -561,17 +649,24 @@ export function IncidentForm({
         || sen.disposition_noted_by || '',
     }));
 
+    // Auto-geocode using only the complete address field — no city/province appended.
+    // Only fires when no coordinates are pre-supplied (import without a prior map pin).
+    const hydratedAddress = ns.incident_address || (sen as Record<string, unknown>).street_address as string || '';
+    const hasCoords = typeof initialData.latitude === 'number' && typeof initialData.longitude === 'number';
+    if (hydratedAddress && !hasCoords) {
+      setMapSearchQuery(`${hydratedAddress}, Philippines`);
+    }
+
     const people = (sen.other_personnel || ns.other_personnel) as Record<string, unknown>[] | undefined;
     if (people && Array.isArray(people)) {
       setOtherPersonnel(
         people.map((p: Record<string, unknown>) => ({
           name: String(p.name ?? ''),
           designation: String(p.designation ?? ''),
-          remarks: String(p.remarks ?? ''),
         }))
       );
     }
-  }, [alarmEntryToDateTimeLocal, initialData]);
+  }, [alarmEntryToDateTimeLocal, initialData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // M4 Bug 8-D: Sync the free-text "Others" field to the "Others" checkbox.
   // Non-empty text → ensure "Others" is in problems_encountered.
@@ -618,8 +713,9 @@ export function IncidentForm({
     }
   }, [initialData]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Derive effective region ID from selectedRegionId or by looking up formState.region
+  // Derive effective region ID — encoder's assigned region always wins
   const getEffectiveRegionId = (): number => {
+    if (isEncoder && assignedRegionId) return assignedRegionId;
     if (selectedRegionId && selectedRegionId > 0) return selectedRegionId;
     if (formState.region) {
       const found = PH_REGIONS.find((r) => r.regionName === formState.region);
@@ -627,6 +723,16 @@ export function IncidentForm({
     }
     return 0;
   };
+
+  // Scroll to first highlighted error field when initialErrors are provided (edit→submit flow)
+  useEffect(() => {
+    if (!initialErrors?.length) return;
+    const timer = setTimeout(() => {
+      const el = document.querySelector('[data-field-error="true"]');
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Event handlers ─────────────────────────────────────────────────────────
 
@@ -644,7 +750,18 @@ export function IncidentForm({
   };
 
   const handleRadioChange = (name: string, value: string) => {
-    setFormState((prev) => ({ ...prev, [name]: value }));
+    if (name === 'extent_of_damage') {
+      setFormState((prev) => ({
+        ...prev,
+        [name]: value,
+        extent_description: '',
+        extent_total_floor_area_sqm: '',
+        extent_total_land_area_hectares: '',
+        extent_objects_count: '',
+      }));
+    } else {
+      setFormState((prev) => ({ ...prev, [name]: value }));
+    }
   };
 
   const handleOtherPersonnelChange = (index: number, field: string, value: string) => {
@@ -698,62 +815,82 @@ export function IncidentForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setToast(null);
+    setFieldErrors(new Set());
+    submitAfterSaveRef.current = false;
+    const effectiveRegionId = resolveRegionId() ?? 0;
+    await doCreateIncident(effectiveRegionId);
+  };
 
-    // Field-level validation with highlights
-    const errors = new Set<string>();
-    if (!formState.responder_type) errors.add('responder_type');
-    if (!formState.fire_station_name) errors.add('fire_station_name');
-    if (!formState.notification_dt_date) errors.add('notification_dt_date');
-    if (!formState.notification_dt_time) errors.add('notification_dt_time');
-    if (!formState.incident_address) errors.add('incident_address');
-    if (!formState.alarm_level) errors.add('alarm_level');
-    if (!formState.classification_of_involved) errors.add('classification_of_involved');
-    if (!formState.extent_of_damage) errors.add('extent_of_damage');
-    if (!formState.province_district) errors.add('province_district');
-    if (!formState.city_municipality) errors.add('city_municipality');
-    if (!formState.disposition_prepared_by) errors.add('disposition_prepared_by');
-    if (!formState.disposition_noted_by) errors.add('disposition_noted_by');
-    if (!resolveRegionId()) errors.add('region');
-    if (!existingIncidentId && (latitude === null || longitude === null)) errors.add('map_location');
-    // Reference number dependency: type is required when classification is selected
-    if (formState.classification_of_involved && !formState.type_of_involved_general_category) {
-      errors.add('type_of_involved_general_category');
+  const handleSubmitForReview = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    setToast(null);
+    setFieldErrors(new Set());
+
+    // Region constraint: encoder can only submit for their assigned region
+    if (isEncoder && assignedRegionId) {
+      const effectiveId = resolveRegionId();
+      if (effectiveId && effectiveId !== assignedRegionId) {
+        const name = getShortRegionName(assignedRegionId);
+        showToast(`You can only submit incidents for your assigned region (${name}).`);
+        return;
+      }
     }
-    if (errors.size > 0) {
-      setFieldErrors(errors);
-      const FIELD_NAMES: Record<string, string> = {
-        responder_type: 'Type of Responder',
-        fire_station_name: 'Fire Station Name',
-        notification_dt_date: 'Date of Notification',
-        notification_dt_time: 'Time of Notification',
-        incident_address: 'Incident Address',
-        alarm_level: 'Highest Alarm Level',
-        classification_of_involved: 'Classification of Involved',
-        extent_of_damage: 'Extent of Damage',
-        type_of_involved_general_category: 'Type of Involved (required for reference number)',
-        region: 'Region',
-        province_district: 'Province / District',
-        city_municipality: 'City / Municipality',
-        disposition_prepared_by: 'Prepared by (Officer)',
-        disposition_noted_by: 'Noted by (Officer)',
-        map_location: 'Fire Scene Location on Map',
-      };
-      const firstKey = [...errors][0];
-      showToast(`Required field missing: ${FIELD_NAMES[firstKey] ?? firstKey}. Please fill in all highlighted fields.`);
+
+    // Full required-field validation — mirrors detail page handleSubmitClick
+    const isEmpty = (v: unknown) => !v || String(v).trim() === '' || String(v).trim().toUpperCase() === 'N/A';
+    const submitErrors = new Set<string>();
+    if (!formState.responder_type) submitErrors.add('responder_type');
+    if (!formState.fire_station_name) submitErrors.add('fire_station_name');
+    if (!formState.notification_dt_date) submitErrors.add('notification_dt_date');
+    if (!formState.province_district?.trim()) submitErrors.add('province_district');
+    if (!formState.city_municipality?.trim()) submitErrors.add('city_municipality');
+    if (!formState.alarm_level) submitErrors.add('alarm_level');
+    if (!formState.classification_of_involved) submitErrors.add('classification_of_involved');
+    if (formState.classification_of_involved && !formState.type_of_involved_general_category) submitErrors.add('type_of_involved_general_category');
+    if (!formState.extent_of_damage) submitErrors.add('extent_of_damage');
+    if (latitude === null || longitude === null) submitErrors.add('map_location');
+    const preparedBy = formState.disposition_prepared_by?.trim();
+    const notedBy = formState.disposition_noted_by?.trim();
+    if (isEmpty(preparedBy)) submitErrors.add('disposition_prepared_by');
+    if (isEmpty(notedBy)) submitErrors.add('disposition_noted_by');
+
+    if (submitErrors.size > 0) {
+      setFieldErrors(submitErrors);
+      showToast('Please complete all required fields before submitting for review.');
       setTimeout(() => {
-        const firstEl = document.querySelector('[data-field-error="true"]');
-        firstEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const el = document.querySelector('[data-field-error="true"]');
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 100);
       return;
     }
-    setFieldErrors(new Set());
 
-    const effectiveRegionId = resolveRegionId()!;
-
+    submitAfterSaveRef.current = true;
+    const effectiveRegionId = resolveRegionId() ?? 0;
     await doCreateIncident(effectiveRegionId);
   };
 
   const doCreateIncident = async (effectiveRegionId: number) => {
+    const locationErrors = new Set<string>();
+    if (!effectiveRegionId) locationErrors.add('region');
+    if (!formState.province_district?.trim()) locationErrors.add('province_district');
+    if (!formState.city_municipality?.trim()) locationErrors.add('city_municipality');
+    // Guard: encoder cannot submit province/city from a different region
+    if (isEncoder && effectiveRegionId && formState.province_district?.trim()) {
+      const validProvinces = getProvincesForRegion(effectiveRegionId).map((p) => p.provinceName);
+      if (validProvinces.length > 0 && !validProvinces.includes(formState.province_district)) {
+        locationErrors.add('province_district');
+        locationErrors.add('city_municipality');
+      }
+    }
+    if (locationErrors.size > 0) {
+      setFieldErrors(locationErrors);
+      showToast('Region, Province/District, and City/Municipality are required before saving.');
+      setTimeout(() => {
+        const el = document.querySelector('[data-field-error="true"]');
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+      return;
+    }
     setLoading(true);
     const fs = formState as Record<string, unknown>;
     const alarmEntry = (key: string) => {
@@ -784,11 +921,8 @@ export function IncidentForm({
         alarm_level: formState.alarm_level,
         time_returned_to_base: formState.time_returned_to_base || 'N/A',
         total_gas_consumed_liters: parseFloat(formState.total_gas_consumed_liters) || 0,
+        barangay: formState.barangay || '',
         // B
-        city_id: 1,
-        district_id: 1,
-        province_id: 1,
-        barangay: formState.incident_address.split(',')[2] || 'Unknown',
         general_category: formState.classification_of_involved,
         incident_type: formState.type_of_involved_general_category,
         classification_of_involved: formState.classification_of_involved,
@@ -796,13 +930,15 @@ export function IncidentForm({
         incident_type_code: incidentTypeCode || undefined,
         station_code: formState.station_code || 'TBA',
         owner_name: formState.owner_name || 'N/A',
-        establishment_name: formState.establishment_name || 'N/A',
+        establishment_name: formState.owner_name || 'N/A',
         general_description_of_involved: formState.general_description_of_involved || 'N/A',
         area_of_origin: formState.area_of_origin || 'N/A',
         fire_origin: formState.area_of_origin || 'N/A',
         stage_of_fire: formState.stage_of_fire_upon_arrival,
         stage_of_fire_upon_arrival: formState.stage_of_fire_upon_arrival,
         extent_of_damage: formState.extent_of_damage,
+        extent_description: formState.extent_description || null,
+        extent_objects_count: parseInt(formState.extent_objects_count) || null,
         extent_total_floor_area_sqm: parseFloat(formState.extent_total_floor_area_sqm) || 0,
         extent_total_land_area_hectares: parseFloat(formState.extent_total_land_area_hectares) || 0,
         structures_affected: parseInt(formState.structures_affected) || 0,
@@ -851,10 +987,11 @@ export function IncidentForm({
           alarm_general: alarmEntry('alarm_general'),
           alarm_fuc: alarmEntry('alarm_fuc'),
           alarm_fo: alarmEntry('alarm_fo'),
+          _engines: formState.engines.filter((e) => e.name.trim()),
           _response: {
-            engine_dispatched: formState.engine_dispatched || '',
-            time_engine_dispatched: formState.time_engine_dispatched || '',
-            time_arrived_at_scene: formState.time_arrived_at_scene || '',
+            engine_dispatched: formState.engines[0]?.name || formState.engine_dispatched || '',
+            time_engine_dispatched: formState.engines[0]?.time_dispatched || formState.time_engine_dispatched || '',
+            time_arrived_at_scene: formState.engines[0]?.time_arrived || formState.time_arrived_at_scene || '',
             time_returned_to_base: formState.time_returned_to_base || '',
             general_description_of_involved: formState.general_description_of_involved || '',
           },
@@ -867,11 +1004,13 @@ export function IncidentForm({
         other_personnel: otherPersonnel.filter((p) => p.name.trim()),
       },
       incident_sensitive_details: {
+        street_address: formState.incident_address,
+        landmark: formState.nearest_landmark,
         caller_name: formState.caller_name,
         caller_number: formState.caller_number,
         receiver_name: formState.receiver_name,
         owner_name: formState.owner_name || 'N/A',
-        establishment_name: formState.establishment_name || 'N/A',
+        establishment_name: formState.owner_name || 'N/A',
         icp_location: formState.icp_location || 'N/A',
         is_icp_present: formState.icp_present === 'with',
         personnel_on_duty: {
@@ -904,8 +1043,8 @@ export function IncidentForm({
         },
         narrative_report: formState.narrative_report,
         disposition: formState.disposition || 'N/A',
-        prepared_by_officer: formState.disposition_prepared_by || 'N/A',
-        noted_by_officer: formState.disposition_noted_by || 'N/A',
+        prepared_by_officer: formState.disposition_prepared_by,
+        noted_by_officer: formState.disposition_noted_by,
       },
     } as unknown as Incident;
 
@@ -920,10 +1059,17 @@ export function IncidentForm({
         fire_station_name: incident.incident_nonsensitive_details.fire_station_name,
         city_municipality: formState.city_municipality,
         province_district: formState.province_district,
+        barangay: formState.barangay || '',
         region_label: formState.region,
         fire_origin: incident.incident_nonsensitive_details.fire_origin,
         extent_of_damage: incident.incident_nonsensitive_details.extent_of_damage,
+        extent_description: formState.extent_description || null,
+        extent_objects_count: parseInt(formState.extent_objects_count) || null,
+        extent_total_floor_area_sqm: parseFloat(formState.extent_total_floor_area_sqm) || 0,
+        extent_total_land_area_hectares: parseFloat(formState.extent_total_land_area_hectares) || 0,
         stage_of_fire: incident.incident_nonsensitive_details.stage_of_fire,
+        general_description_of_involved: formState.general_description_of_involved || null,
+        vehicles_affected: parseInt(formState.vehicles_affected) || 0,
         structures_affected: incident.incident_nonsensitive_details.structures_affected,
         households_affected: incident.incident_nonsensitive_details.households_affected,
         families_affected: incident.incident_nonsensitive_details.families_affected,
@@ -940,7 +1086,7 @@ export function IncidentForm({
         receiver_name: incident.incident_sensitive_details.receiver_name,
         narrative_report: incident.incident_sensitive_details.narrative_report,
         owner_name: incident.incident_sensitive_details.owner_name,
-        establishment_name: incident.incident_sensitive_details.establishment_name,
+        establishment_name: incident.incident_sensitive_details.owner_name,
         street_address: formState.incident_address,
         landmark: formState.nearest_landmark,
         prepared_by_officer: (incident.incident_sensitive_details as Record<string, unknown>).prepared_by_officer as string | undefined,
@@ -955,8 +1101,27 @@ export function IncidentForm({
       };
       try {
         await updateRegionalIncident(existingIncidentId, updatePayload);
-        showToast('Incident saved successfully.');
-        onSaved?.();
+        if (submitAfterSaveRef.current) {
+          try {
+            await submitIncidentForReview(existingIncidentId);
+            showToast('Submitted for review!');
+            onSaved?.();
+          } catch (submitErr) {
+            if (submitErr instanceof ApiRequestError && submitErr.status === 409) {
+              const d = submitErr.detail as { code?: string; matched_incident_id?: number } | null;
+              if (d?.code === 'DUPLICATE_DETECTED' && d.matched_incident_id) {
+                // Hard-navigate so the detail page remounts and triggers the duplicate modal
+                window.location.href = `/dashboard/regional/incidents/${existingIncidentId}?pending_submit=1`;
+                return;
+              }
+            }
+            showToast(`Saved. Submit failed: ${(submitErr as Error).message}`);
+            onSaved?.();
+          }
+        } else {
+          showToast('Incident saved successfully.');
+          onSaved?.();
+        }
       } catch (err: unknown) {
         showToast(`Save failed: ${(err as Error).message}`);
       } finally {
@@ -973,6 +1138,25 @@ export function IncidentForm({
         const res = await edgeFunctions.uploadBundle(payload);
         const incidentId = res.incident_ids[0];
         if (!incidentId) throw new Error('Upload succeeded but no incident ID was returned.');
+        if (submitAfterSaveRef.current) {
+          try {
+            await submitIncidentForReview(incidentId);
+          } catch (submitErr) {
+            if (submitErr instanceof ApiRequestError && submitErr.status === 409) {
+              const d = submitErr.detail as { code?: string; matched_incident_id?: number } | null;
+              if (d?.code === 'DUPLICATE_DETECTED' && d.matched_incident_id) {
+                // Saved as draft; navigate to detail with flag to auto-trigger the
+                // full duplicate modal (side-by-side comparison + force/cancel options).
+                router.push(`/dashboard/regional/incidents/${incidentId}?pending_submit=1`);
+                return;
+              }
+            }
+            // Any other submit failure — go to detail so user can retry
+            showToast(`Saved as draft. Submit failed: ${(submitErr as Error).message}`);
+            router.push(`/dashboard/regional/incidents/${incidentId}`);
+            return;
+          }
+        }
         router.push(`/dashboard/regional/incidents/${incidentId}`);
       } else {
         await queueIncident(payload);
@@ -986,7 +1170,8 @@ export function IncidentForm({
         (err instanceof Error && err.message.includes('REGION_MISMATCH'));
       if (isRegionMismatch) {
         setFieldErrors((prev) => new Set([...prev, 'region']));
-        showToast('Region mismatch — this incident\'s region doesn\'t match your assigned region. Contact your administrator if you believe this is an error.');
+        const assignedRegionName = PH_REGIONS.find((r) => r.regionId === assignedRegionId)?.regionName ?? `Region ${assignedRegionId ?? ''}`;
+        showToast(`Your assigned region '${assignedRegionName}' does not match the incident's assigned region.`);
         setTimeout(() => {
           const regionEl = document.querySelector('[data-field-error="true"]');
           regionEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1054,7 +1239,6 @@ export function IncidentForm({
       classification_of_involved: pick(['STRUCTURAL', 'NON_STRUCTURAL', 'TRANSPORTATION']),
       type_of_involved_general_category: pick(['Single-Family Residential', 'Multi-Storey Residential', 'Commercial Building', 'Warehouse', 'Factory']),
       owner_name: pick(['Juan Dela Cruz', 'Maria Santos', 'ABC Corporation', 'N/A']),
-      establishment_name: pick(['Dela Cruz Residence', 'Santos Apartment', 'ABC Bodega', 'N/A']),
       general_description_of_involved: pick(['Two-storey residential structure made of mixed construction', 'Single-storey commercial building made of concrete', 'Three-storey apartment building']),
       area_of_origin: pick(FIRE_ORIGINS),
       stage_of_fire_upon_arrival: pick(STAGES),
@@ -1123,10 +1307,10 @@ export function IncidentForm({
       disposition_noted_by: pick(CMDS),
     }));
     setOtherPersonnel([
-      { name: `FO2 ${pick(['Santos', 'Reyes', 'Garcia', 'Lopez'])}`, designation: 'BFP Personnel', remarks: 'On standby at scene' },
-      { name: `FO1 ${pick(['Cruz', 'Bautista', 'Ramos', 'Mendoza'])}`, designation: 'BFP Personnel', remarks: 'Crowd control perimeter' },
-      { name: pick(['Barangay Captain Juan Dela Cruz', 'Kagawad Pedro Santos', 'Barangay Captain Maria Reyes']), designation: 'Barangay Official', remarks: 'Assisted in area clearing' },
-      { name: pick(['Dr. Maria Reyes', 'EMT Ana Lopez', 'Nurse Carlo Gomez']), designation: 'DRRMO / Medical Response', remarks: 'Standby medical support' },
+      { name: `FO2 ${pick(['Santos', 'Reyes', 'Garcia', 'Lopez'])}`, designation: 'BFP Personnel' },
+      { name: `FO1 ${pick(['Cruz', 'Bautista', 'Ramos', 'Mendoza'])}`, designation: 'BFP Personnel' },
+      { name: pick(['Barangay Captain Juan Dela Cruz', 'Kagawad Pedro Santos', 'Barangay Captain Maria Reyes']), designation: 'Barangay Official' },
+      { name: pick(['Dr. Maria Reyes', 'EMT Ana Lopez', 'Nurse Carlo Gomez']), designation: 'DRRMO / Medical Response' },
     ]);
   };
 
@@ -1180,7 +1364,15 @@ export function IncidentForm({
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-8 text-gray-900">
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-8 text-gray-900"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.target as HTMLElement).tagName !== 'TEXTAREA') {
+            e.preventDefault();
+          }
+        }}
+      >
 
         {/* ── A. RESPONSE DETAILS ── */}
         <section className="space-y-4 border-b pb-6">
@@ -1226,45 +1418,52 @@ export function IncidentForm({
 
             <div data-field-error={fieldErrors.has('region') ? 'true' : undefined}>
               <label className={labelCls}>Region{reqMark}</label>
-              <select
-                className={fieldErrors.has('region') ? errCls('region') : inputCls}
-                value={selectedRegionId ?? ''}
-                disabled={isEncoder && !!assignedRegionId}
-                onChange={(e) => {
-                  const rid = Number(e.target.value);
-                  setSelectedRegionId(rid || null);
-                  const r = PH_REGIONS.find((r) => r.regionId === rid);
-                  setFormState((prev) => ({ ...prev, region: r?.regionName ?? '', province_district: '', city_municipality: '' }));
-                }}
-              >
-                <option value="">Select Region</option>
-                {(isEncoder && assignedRegionId
-                  ? PH_REGIONS.filter((r) => r.regionId === assignedRegionId)
-                  : PH_REGIONS
-                ).map((r) => (
-                  <option key={r.regionId} value={r.regionId}>{r.regionName}</option>
-                ))}
-              </select>
-              {isEncoder && assignedRegionId && (
-                <p className="mt-1 text-xs text-gray-400">Region is set to your assigned area.</p>
+              {isEncoder && assignedRegionId ? (
+                <>
+                  <p className={`${inputCls} text-gray-700 bg-gray-50 cursor-default`}>
+                    {PH_REGIONS.find((r) => r.regionId === assignedRegionId)?.regionName ?? formState.region}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-400">Region is set to your assigned area.</p>
+                </>
+              ) : (
+                <select
+                  className={fieldErrors.has('region') ? errCls('region') : inputCls}
+                  value={selectedRegionId ?? ''}
+                  onChange={(e) => {
+                    const rid = Number(e.target.value);
+                    setSelectedRegionId(rid || null);
+                    const r = PH_REGIONS.find((r) => r.regionId === rid);
+                    setFormState((prev) => ({ ...prev, region: r?.regionName ?? '', province_district: '', city_municipality: '' }));
+                  }}
+                >
+                  <option value="">Select Region</option>
+                  {PH_REGIONS.map((r) => (
+                    <option key={r.regionId} value={r.regionId}>{r.regionName}</option>
+                  ))}
+                </select>
               )}
             </div>
 
             <div data-field-error={fieldErrors.has('province_district') ? 'true' : undefined}>
               <label className={labelCls}>Province / District{reqMark}</label>
-              <select
-                className={errCls('province_district')}
-                value={formState.province_district}
-                disabled={!selectedRegionId}
-                onChange={(e) => {
-                  setFormState((prev) => ({ ...prev, province_district: e.target.value, city_municipality: '' }));
-                }}
-              >
-                <option value="">{selectedRegionId ? 'Select Province' : 'Select region first'}</option>
-                {getProvincesForRegion(selectedRegionId ?? 0).map((p) => (
-                  <option key={p.provinceName} value={p.provinceName}>{p.provinceName}</option>
-                ))}
-              </select>
+              {(() => {
+                const dropRegionId = getEffectiveRegionId();
+                return (
+                  <select
+                    className={errCls('province_district')}
+                    value={formState.province_district}
+                    disabled={!dropRegionId}
+                    onChange={(e) => {
+                      setFormState((prev) => ({ ...prev, province_district: e.target.value, city_municipality: '' }));
+                    }}
+                  >
+                    <option value="">{dropRegionId ? 'Select Province' : 'Select region first'}</option>
+                    {getProvincesForRegion(dropRegionId).map((p) => (
+                      <option key={p.provinceName} value={p.provinceName}>{p.provinceName}</option>
+                    ))}
+                  </select>
+                );
+              })()}
             </div>
 
             <div data-field-error={fieldErrors.has('city_municipality') ? 'true' : undefined}>
@@ -1295,9 +1494,78 @@ export function IncidentForm({
               })()}
             </div>
 
+            <div>
+              <label className={labelCls}>Barangay</label>
+              <input
+                name="barangay"
+                type="text"
+                className={inputCls}
+                placeholder="e.g. Barangay San Jose"
+                value={formState.barangay}
+                onChange={handleChange}
+              />
+            </div>
+
             <div className="md:col-span-2" data-field-error={fieldErrors.has('incident_address') ? 'true' : undefined}>
               <label className={labelCls}>Complete Address of Fire Incident{reqMark}</label>
-              <input name="incident_address" type="text" className={errCls('incident_address')} placeholder="House/Building No., Street, Barangay, City/Municipality, Province" value={formState.incident_address} onChange={handleChange} />
+              <input
+                name="incident_address"
+                type="text"
+                className={errCls('incident_address')}
+                placeholder="House/Building No., Street, Barangay, City/Municipality, Province"
+                value={formState.incident_address}
+                onChange={handleChange}
+                onBlur={() => {
+                  const addr = formState.incident_address.trim();
+                  if (addr && latitude === null && longitude === null) {
+                    setMapSearchQuery(`${addr}, Philippines`);
+                  }
+                }}
+              />
+            </div>
+
+            {/* ── Map Pin (inline in Response Details) ── */}
+            <div className="md:col-span-2 space-y-2" data-field-error={fieldErrors.has('map_location') ? 'true' : undefined}>
+              <label className={`${labelCls} flex items-center gap-1`}>
+                Fire Scene Location (Map Pin){reqMark}
+              </label>
+              {fieldErrors.has('map_location') && <p className="text-xs font-semibold text-red-600">Pin the fire location on the map before saving.</p>}
+              <p className="text-xs text-gray-500">Click or search the map to pin the fire scene. The map auto-searches when you fill in the complete address above.</p>
+              {formState.incident_address && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const addr = formState.incident_address.trim();
+                    if (addr) setMapSearchQuery(`${addr}, Philippines`);
+                  }}
+                  className="text-xs text-blue-700 underline hover:text-blue-900"
+                >
+                  Re-pin from Address
+                </button>
+              )}
+              <div className={`rounded ${fieldErrors.has('map_location') ? 'border-2 border-red-500' : 'border border-gray-300'}`}>
+                <MapPicker
+                  searchQuery={mapSearchQuery}
+                  center={latitude && longitude ? [latitude, longitude] : [14.5995, 120.9842]}
+                  value={latitude && longitude ? { lat: latitude, lng: longitude } : null}
+                  onChange={async (lat, lng) => {
+                    setLatitude(lat);
+                    setLongitude(lng);
+                    const geo = await reverseGeocode(lat, lng);
+                    if (geo?.barangay) {
+                      setFormState((prev) => ({ ...prev, barangay: geo.barangay }));
+                    }
+                  }}
+                />
+              </div>
+              {latitude !== null && longitude !== null ? (
+                <p className="text-xs text-green-700 font-medium">
+                  📍 Location pinned: {latitude.toFixed(6)}, {longitude.toFixed(6)}
+                  <button type="button" onClick={() => { setLatitude(null); setLongitude(null); }} className="ml-3 text-red-600 hover:underline">Clear</button>
+                </p>
+              ) : (
+                <p className="text-xs text-amber-700 font-medium">No location pinned — click the map to mark the fire scene.</p>
+              )}
             </div>
 
             <div>
@@ -1318,19 +1586,34 @@ export function IncidentForm({
               <input name="receiver_name" type="text" className={inputCls} value={formState.receiver_name} onChange={handleChange} />
             </div>
 
-            <div>
-              <label className={labelCls}>Name of Engine Dispatched</label>
-              <input name="engine_dispatched" type="text" className={inputCls} placeholder="e.g. BFP Engine Unit 1" value={formState.engine_dispatched} onChange={handleChange} />
-            </div>
-
-            <div>
-              <label className={labelCls}>Time Engine Dispatched</label>
-              <input name="time_engine_dispatched" type="time" className={inputCls} value={formState.time_engine_dispatched} onChange={handleChange} />
-            </div>
-
-            <div>
-              <label className={labelCls}>Time Arrived at Fire Scene</label>
-              <input name="time_arrived_at_scene" type="time" className={inputCls} value={formState.time_arrived_at_scene} onChange={handleChange} />
+            <div className="md:col-span-2">
+              <label className={labelCls}>Engine(s) Dispatched</label>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-xs border border-gray-300 mt-1">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="border px-2 py-1 text-left w-1/3">Name of Engine</th>
+                      <th className="border px-2 py-1 text-left w-1/3">Time Engine Dispatched</th>
+                      <th className="border px-2 py-1 text-left w-1/3">Time Arrived at Fire Scene</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {formState.engines.map((eng, i) => (
+                      <tr key={i}>
+                        <td className="border px-1 py-1">
+                          <input type="text" placeholder="e.g. BFP Engine Unit 1" className="w-full border-0 bg-transparent text-xs p-1 focus:outline-none focus:ring-1 focus:ring-red-300 rounded" value={eng.name} onChange={(ev) => setFormState((prev) => { const engines = prev.engines.map((e, j) => j === i ? { ...e, name: ev.target.value } : e); return { ...prev, engines }; })} />
+                        </td>
+                        <td className="border px-1 py-1">
+                          <input type="time" className="w-full border-0 bg-transparent text-xs p-1 focus:outline-none focus:ring-1 focus:ring-red-300 rounded" value={eng.time_dispatched} onChange={(ev) => setFormState((prev) => { const engines = prev.engines.map((e, j) => j === i ? { ...e, time_dispatched: ev.target.value } : e); return { ...prev, engines }; })} />
+                        </td>
+                        <td className="border px-1 py-1">
+                          <input type="time" className="w-full border-0 bg-transparent text-xs p-1 focus:outline-none focus:ring-1 focus:ring-red-300 rounded" value={eng.time_arrived} onChange={(ev) => setFormState((prev) => { const engines = prev.engines.map((e, j) => j === i ? { ...e, time_arrived: ev.target.value } : e); return { ...prev, engines }; })} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             <div>
@@ -1339,7 +1622,7 @@ export function IncidentForm({
             </div>
 
             <div>
-              <label className={labelCls}>Distance to Fire Scene (km)</label>
+              <label className={labelCls}>Approximate Distance to Fire Scene (km)</label>
               <input name="distance_to_fire_scene_km" type="number" min="0" step="0.1" className={inputCls} value={formState.distance_to_fire_scene_km} onChange={handleChange} />
             </div>
 
@@ -1369,17 +1652,6 @@ export function IncidentForm({
               <label className={labelCls}>Total Gas Consumed (liters)</label>
               <input name="total_gas_consumed_liters" type="number" min="0" step="0.1" className={inputCls} value={formState.total_gas_consumed_liters} onChange={handleChange} />
             </div>
-
-            {referenceNumberPreview && (
-              <div className="md:col-span-2">
-                <label className={labelCls}>Reference Number Preview</label>
-                <div className="flex items-center gap-2 bg-gray-50 border border-gray-300 rounded px-3 py-2">
-                  <span className="font-mono text-sm text-gray-800 tracking-wide">{referenceNumberPreview}</span>
-                  <span className="ml-2 text-xs text-gray-400 italic">(sequence XXXX assigned on save)</span>
-                </div>
-                <p className="text-xs text-gray-500 mt-1">Format: AFOR-[Region]-[Station]-[Type]-[Month]-[Year]-[Sequence]</p>
-              </div>
-            )}
 
           </div>
         </section>
@@ -1435,14 +1707,9 @@ export function IncidentForm({
               )}
             </div>
 
-            <div>
-              <label className={labelCls}>Name of Owner</label>
-              <input name="owner_name" type="text" className={inputCls} value={formState.owner_name} onChange={handleChange} />
-            </div>
-
-            <div>
-              <label className={labelCls}>Name of Establishment</label>
-              <input name="establishment_name" type="text" className={inputCls} value={formState.establishment_name} onChange={handleChange} />
+            <div className="md:col-span-2">
+              <label className={labelCls}>Name of Owner/Establishment</label>
+              <input name="owner_name" type="text" className={inputCls} placeholder="e.g. Juan dela Cruz / ABC Corp" value={formState.owner_name} onChange={handleChange} />
             </div>
 
             <div className="md:col-span-2">
@@ -1474,7 +1741,19 @@ export function IncidentForm({
                   </label>
                 ))}
               </div>
-              {(formState.extent_of_damage === 'Confined to Structure or Property' || formState.extent_of_damage === 'Extended Beyond Structure or Property') && (
+              {(formState.extent_of_damage === 'None / Minor Damage' || formState.extent_of_damage === 'Confined to Object/Vehicle') && (
+                <div className="mt-2">
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Description of Object / Damage</label>
+                  <input name="extent_description" type="text" className={inputCls} placeholder="Short description" value={formState.extent_description} onChange={handleChange} />
+                </div>
+              )}
+              {formState.extent_of_damage === 'Confined to Room' && (
+                <div className="mt-2 max-w-xs">
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Total Floor Area (sqm)</label>
+                  <input name="extent_total_floor_area_sqm" type="number" min="0" step="0.1" className={inputCls} value={formState.extent_total_floor_area_sqm} onChange={handleChange} />
+                </div>
+              )}
+              {(formState.extent_of_damage === 'Confined to Structure or Property' || formState.extent_of_damage === 'Total Loss') && (
                 <div className="grid grid-cols-2 gap-4 mt-2">
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Total Floor Area (sqm)</label>
@@ -1675,47 +1954,22 @@ export function IncidentForm({
         {/* ── G. OTHER BFP PERSONNEL ── */}
         <section className="space-y-4 border-b pb-6">
           <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">G. Other BFP Personnel and Significant Personalities at the Scene</h3>
-          <p className="text-xs text-gray-500">Include designation and agency affiliated in the Remarks column.</p>
           <div className="space-y-2">
             {otherPersonnel.map((person, index) => (
-              <div key={index} className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <div key={index} className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <input type="text" placeholder="Name" className={inputCls} value={person.name} onChange={(e) => handleOtherPersonnelChange(index, 'name', e.target.value)} />
                 <input type="text" placeholder="Designation / Agency" className={inputCls} value={person.designation} onChange={(e) => handleOtherPersonnelChange(index, 'designation', e.target.value)} />
-                <input type="text" placeholder="Remarks" className={inputCls} value={person.remarks} onChange={(e) => handleOtherPersonnelChange(index, 'remarks', e.target.value)} />
               </div>
             ))}
-            <button type="button" onClick={() => setOtherPersonnel([...otherPersonnel, { name: '', designation: '', remarks: '' }])} className="text-xs text-blue-600 hover:underline">
+            <button type="button" onClick={() => setOtherPersonnel([...otherPersonnel, { name: '', designation: '' }])} className="text-xs text-blue-600 hover:underline">
               + Add Row
             </button>
           </div>
         </section>
 
-        {/* ── H. FIRE SCENE LOCATION ── */}
-        <section className="space-y-4 border-b pb-6" data-field-error={fieldErrors.has('map_location') ? 'true' : undefined}>
-          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">H. Fire Scene Location{reqMark}</h3>
-          {fieldErrors.has('map_location') && <p className="text-xs font-semibold text-red-600">Pin the fire location on the map before saving.</p>}
-          <p className="text-xs text-gray-500">Click on the map to pin the fire incident location. The coordinates will be saved with the report.</p>
-          <div className={`rounded overflow-hidden ${fieldErrors.has('map_location') ? 'border-2 border-red-500' : 'border border-gray-300'}`} style={{ height: '320px' }}>
-            <MapPicker
-              center={latitude && longitude ? [latitude, longitude] : [14.5995, 120.9842]}
-              value={latitude && longitude ? { lat: latitude, lng: longitude } : null}
-              onChange={(lat, lng) => { setLatitude(lat); setLongitude(lng); }}
-              mapHeight="320px"
-            />
-          </div>
-          {latitude !== null && longitude !== null ? (
-            <p className="text-xs text-green-700 font-medium">
-              📍 Location selected: {latitude.toFixed(6)}, {longitude.toFixed(6)}
-              <button type="button" onClick={() => { setLatitude(null); setLongitude(null); }} className="ml-3 text-red-600 hover:underline">Clear</button>
-            </p>
-          ) : (
-            <p className="text-xs text-amber-700 font-medium">No location selected — click the map to pin the fire scene.</p>
-          )}
-        </section>
-
-        {/* ── I. NARRATIVE ── */}
+        {/* ── H. NARRATIVE ── */}
         <section className="space-y-4 border-b pb-6">
-          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">I. Narrative Content (In Chronological Order)</h3>
+          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">H. Narrative Content (In Chronological Order)</h3>
           <textarea
             name="narrative_report"
             rows={6}
@@ -1726,9 +1980,9 @@ export function IncidentForm({
           />
         </section>
 
-        {/* ── J. PROBLEMS ENCOUNTERED ── */}
+        {/* ── I. PROBLEMS ENCOUNTERED ── */}
         <section className="space-y-4 border-b pb-6">
-          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">J. Problems Encountered</h3>
+          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">I. Problems Encountered</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
             {ALL_PROBLEM_OPTIONS.map((prob, idx) => {
               // Normalize the label to ensure consistent comparison
@@ -1789,15 +2043,15 @@ export function IncidentForm({
           </div>
         </section>
 
-        {/* ── K. RECOMMENDATIONS ── */}
+        {/* ── J. RECOMMENDATIONS ── */}
         <section className="space-y-4 border-b pb-6">
-          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">K. Recommendations</h3>
+          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">J. Recommendations</h3>
           <textarea name="recommendations" rows={4} className={inputCls} placeholder="Provide clear and actionable recommendations..." value={formState.recommendations} onChange={handleChange} />
         </section>
 
-        {/* ── L. DISPOSITION ── */}
+        {/* ── K. DISPOSITION ── */}
         <section className="space-y-4">
-          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">L. Disposition</h3>
+          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">K. Disposition</h3>
           <textarea name="disposition" rows={4} className={inputCls} placeholder="As of this date, no complaint has been filed..." value={formState.disposition} onChange={handleChange} />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div data-field-error={fieldErrors.has('disposition_prepared_by') ? 'true' : undefined}>
@@ -1811,10 +2065,28 @@ export function IncidentForm({
           </div>
         </section>
 
-        <button type="submit" disabled={loading} className="w-full bg-red-800 text-white py-3 rounded font-bold hover:bg-red-700 disabled:opacity-50 flex justify-center items-center gap-2 shadow-lg">
-          {loading ? <Loader2 className="animate-spin w-5 h-5" /> : <Save className="w-5 h-5" />}
-          {loading ? (isEditMode ? 'Saving Changes…' : 'Saving Draft…') : (isEditMode ? 'Save Changes' : 'Save as Draft')}
-        </button>
+        {referenceNumberPreview && (
+          <div className="border border-gray-200 rounded-lg bg-gray-50 px-4 py-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Reference Number Preview</p>
+            <span className="font-mono text-sm text-gray-800 tracking-wide">{referenceNumberPreview}</span>
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button type="submit" disabled={loading} className="flex-1 bg-gray-700 text-white py-3 rounded font-bold hover:bg-gray-600 disabled:opacity-50 flex justify-center items-center gap-2 shadow-lg">
+            {loading ? <Loader2 className="animate-spin w-5 h-5" /> : <Save className="w-5 h-5" />}
+            {loading ? (isEditMode ? 'Saving Changes…' : 'Saving Draft…') : (isEditMode ? 'Save Changes' : 'Save as Draft')}
+          </button>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={(e) => void handleSubmitForReview(e)}
+            className="flex-1 bg-red-800 text-white py-3 rounded font-bold hover:bg-red-700 disabled:opacity-50 flex justify-center items-center gap-2 shadow-lg"
+          >
+            {loading ? <Loader2 className="animate-spin w-5 h-5" /> : <Send className="w-5 h-5" />}
+            {loading ? 'Submitting…' : 'Submit for Review'}
+          </button>
+        </div>
 
       </form>
 

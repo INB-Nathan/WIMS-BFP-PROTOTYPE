@@ -23,3 +23,16 @@ class CivilianReportResponse(BaseModel):
     trust_score: int
     status: str
     created_at: datetime
+
+
+class NotifyRegisterRequest(BaseModel):
+    """Body for POST /api/civilian/reports/{report_id}/notify."""
+
+    fcm_token: str = Field(..., min_length=1, max_length=4096)
+
+
+class NotifyRegisterResponse(BaseModel):
+    """Response for notification registration."""
+
+    status: str  # "registered" | "already_registered"
+    report_id: int

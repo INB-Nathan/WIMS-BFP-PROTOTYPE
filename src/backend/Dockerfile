@@ -16,7 +16,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 COPY wait-for-db.sh /app/wait-for-db.sh
-RUN chmod +x /app/wait-for-db.sh && chown -R appuser:appuser /app
+RUN chmod +x /app/wait-for-db.sh && chown -R appuser:appuser /app && \
+    mkdir -p /app/storage/exports && chown -R appuser:appuser /app/storage
 
 USER appuser
 

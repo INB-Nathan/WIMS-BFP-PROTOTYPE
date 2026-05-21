@@ -1046,3 +1046,281 @@ def get_top_n(
         params,
     ).fetchall()
     return [{"name": r[0], "value": float(r[1]) if r[1] is not None else 0} for r in rows]
+
+
+def get_incident_export_data(
+    db: Session,
+    incident_id: int,
+) -> dict[str, Any]:
+    """
+    Fetch all data needed to fill the AFOR template for a single VERIFIED incident.
+    Used by export tasks — runs with RLS context already set by the caller.
+    Returns a flat dict matching the AFOR cell-address map.
+    """
+    row = db.execute(
+        text("""
+            SELECT
+                fi.incident_id,
+                fi.reference_number,
+                fi.verification_status,
+                fi.is_archived,
+                fi.created_at,
+                nd.notification_dt,
+                COALESCE(r.region_code, r.region_name, '') AS region,
+                COALESCE(aif.province_name, '') AS province_name,
+                COALESCE(aif.municipality_name, '') AS municipality_name,
+                COALESCE(nd.general_category, '') AS general_category,
+                COALESCE(nd.sub_category, '') AS sub_category,
+                COALESCE(nd.alarm_level, '') AS alarm_level,
+                COALESCE(nd.fire_origin, '') AS fire_origin,
+                COALESCE(nd.extent_of_damage, '') AS extent_of_damage,
+                COALESCE(aif.estimated_damage_php, nd.estimated_damage_php) AS estimated_damage_php,
+                COALESCE(aif.total_response_time_minutes, nd.total_response_time_minutes) AS total_response_time_minutes,
+                COALESCE(nd.total_gas_consumed_liters, 0) AS total_gas_consumed_liters,
+                COALESCE(nd.extent_total_floor_area_sqm, 0) AS extent_total_floor_area_sqm,
+                COALESCE(nd.extent_total_land_area_hectares, 0) AS extent_total_land_area_hectares,
+                COALESCE(nd.structures_affected, 0) AS structures_affected,
+                COALESCE(nd.households_affected, 0) AS households_affected,
+                COALESCE(nd.families_affected, 0) AS families_affected,
+                COALESCE(nd.individuals_affected, 0) AS individuals_affected,
+                COALESCE(nd.vehicles_affected, 0) AS vehicles_affected,
+                COALESCE(nd.civilian_injured, 0) AS civilian_injured,
+                COALESCE(nd.civilian_deaths, 0) AS civilian_deaths,
+                COALESCE(nd.firefighter_injured, 0) AS firefighter_injured,
+                COALESCE(nd.firefighter_deaths, 0) AS firefighter_deaths,
+                COALESCE(nd.fire_station_name, '') AS fire_station_name,
+                COALESCE(nd.distance_from_station_km, 0) AS distance_from_station_km,
+                nd.responder_type,
+                nd.stage_of_fire,
+                nd.resources_deployed,
+                nd.alarm_timeline,
+                nd.problems_encountered,
+                nd.water_tankers_used,
+                nd.breathing_apparatus_used,
+                CASE WHEN w.incident_id IS NOT NULL THEN 'WILDLAND_AFOR' ELSE 'STRUCTURAL_AFOR' END AS form_kind
+            FROM wims.fire_incidents fi
+            LEFT JOIN wims.incident_nonsensitive_details nd  ON nd.incident_id = fi.incident_id
+            LEFT JOIN wims.analytics_incident_facts aif       ON aif.incident_id = fi.incident_id
+            LEFT JOIN wims.ref_regions r                      ON r.region_id = fi.region_id
+            LEFT JOIN wims.incident_wildland_afor w           ON w.incident_id = fi.incident_id
+            WHERE fi.incident_id = :iid
+        """),
+        {"iid": incident_id},
+    ).fetchone()
+
+    if not row:
+        return {}
+
+    r = row._mapping
+
+    # Parse alarm_timeline JSON
+    alarm_timeline = []
+    if r["alarm_timeline"]:
+        try:
+            import json as _json
+
+            alarm_timeline = _json.loads(r["alarm_timeline"])
+        except Exception:
+            alarm_timeline = []
+
+    # Parse alarm levels for response section
+    alarm_levels = []
+    for entry in alarm_timeline:
+        if isinstance(entry, dict) and entry.get("alarm_level"):
+            alarm_levels.append(entry["alarm_level"])
+        elif isinstance(entry, dict) and entry.get("status"):
+            alarm_levels.append(entry["status"])
+
+    # Build resources deployed list
+    resources = []
+    if r["resources_deployed"]:
+        try:
+            import json as _json
+
+            resources = _json.loads(r["resources_deployed"])
+        except Exception:
+            resources = []
+
+    # Problems encountered
+    problems = []
+    if r["problems_encountered"]:
+        try:
+            import json as _json
+
+            problems = _json.loads(r["problems_encountered"])
+        except Exception:
+            problems = []
+
+    # Extract key alarm times from timeline
+    def extract_time(status: str) -> str:
+        for entry in alarm_timeline:
+            if isinstance(entry, dict) and entry.get("status") == status:
+                t = entry.get("time") or entry.get("time_declared") or ""
+                return t if t else "N/A"
+        return "N/A"
+
+    def extract_datetime(status: str) -> str:
+        for entry in alarm_timeline:
+            if isinstance(entry, dict) and entry.get("status") == status:
+                dt = entry.get("datetime") or entry.get("time_declared") or ""
+                return dt if dt else "N/A"
+        return "N/A"
+
+    # Notification datetime parts
+    notif_dt = r["notification_dt"]
+    if hasattr(notif_dt, "isoformat"):
+        notif_dt = notif_dt.isoformat()
+    notif_date = ""
+    notif_time = ""
+    if notif_dt:
+        if "T" in str(notif_dt):
+            parts = str(notif_dt).split("T")
+            notif_date = parts[0] if len(parts) > 1 else str(notif_dt)
+            notif_time = parts[1][:8] if len(parts) > 1 else ""
+        else:
+            notif_date = str(notif_dt)
+
+    return {
+        # Row 7-12: Header
+        "region": r["region"],
+        "address": "",  # not in DB — leave blank
+        "contact": "",  # not in DB — leave blank
+        # Row 22-23: Date/Time Notification
+        "date_notification": notif_date,
+        "time_notification": notif_time,
+        # Row 24-27: Location
+        "region_name": r["region"],
+        "province": r["province_name"],
+        "municipality": r["municipality_name"],
+        "address_fire": "",  # not stored precisely
+        "landmark": "",  # not in DB
+        # Row 28-30: Caller info
+        "caller_name": "",  # PII — not in nonsensitive
+        "caller_number": "",  # PII
+        "personnel_received": "",  # not in DB
+        # Row 31: Engine dispatched
+        "engine_dispatched": r["fire_station_name"],
+        # Row 34: Time dispatched
+        "time_dispatched": extract_time("dispatched"),
+        # Row 37: Time arrived
+        "time_arrived": extract_time("arrived"),
+        # Row 40: Total response time
+        "response_time_min": r["total_response_time_minutes"] or "",
+        # Row 41: Distance
+        "distance_km": r["distance_from_station_km"] or "",
+        # Row 42: Highest alarm level
+        "highest_alarm": r["alarm_level"],
+        # Row 43: Time returned to base
+        "time_returned": extract_time("returned") if extract_time("returned") != "N/A" else "",
+        # Row 44: Total gas consumed
+        "gas_consumed_liters": r["total_gas_consumed_liters"] or "",
+        # Row 47: Classification of involved
+        "general_category": r["general_category"],
+        "sub_category": r["sub_category"],
+        # Row 51: Owner / establishment
+        "owner_name": "",  # PII
+        "establishment_name": "",  # PII
+        # Row 52: General description
+        "general_description": r["fire_origin"] or "",
+        # Row 53: Area of origin
+        "area_of_origin": r["fire_origin"] or "",
+        # Row 54: Stage of fire
+        "stage_of_fire": r["stage_of_fire"] or "",
+        # Row 55: Extent of damage
+        "extent_of_damage": r["extent_of_damage"] or "",
+        # Row 62-66: Impact numbers
+        "structures_affected": r["structures_affected"] or "",
+        "households_affected": r["households_affected"] or "",
+        "families_affected": r["families_affected"] or "",
+        "individuals_affected": r["individuals_affected"] or "",
+        "vehicles_affected": r["vehicles_affected"] or "",
+        # Row 69-77: Response vehicles (from resources_deployed JSON)
+        "bfp_fire_trucks": _count_resource(resources, "BFP Fire Truck"),
+        "bfp_manned_trucks": _count_resource(resources, "BFP Manned Fire Truck"),
+        "non_bfp_trucks": _count_resource(resources, "Non-BFP Fire Truck"),
+        "bfp_ambulance": _count_resource(resources, "BFP Ambulance"),
+        "non_bfp_ambulance": _count_resource(resources, "Non-BFP Ambulance"),
+        "bfp_rescue_trucks": _count_resource(resources, "BFP Rescue Truck"),
+        "non_bfp_rescue_trucks": _count_resource(resources, "Non-BFP Rescue Truck"),
+        "other_vehicles": _count_resource(resources, "Other"),
+        # Row 79-84: Tools
+        "scba_used": r["breathing_apparatus_used"] or "",
+        "rope_used": "",
+        "ladder_used": "",
+        "hoseline_used": "",
+        "hydraulic_tools": "",
+        "other_tools": "",
+        # Row 85: Nearest hydrant
+        "hydrant_location": "",
+        # Row 88-100: Alarm levels (fire alarm level section)
+        "alarm_timeline": alarm_timeline,
+        "alarm_levels": alarm_levels,
+        # Row 101-103: ICP
+        "icp_status": "Without",
+        "icp_location": "",
+        # Row 105-111: Casualties (E. Profile of Casualties)
+        "civilian_injured_male": r["civilian_injured"] or 0,
+        "civilian_injured_female": 0,
+        "firefighter_injured_male": r["firefighter_injured"] or 0,
+        "firefighter_injured_female": 0,
+        "civilian_deaths_male": r["civilian_deaths"] or 0,
+        "civilian_deaths_female": 0,
+        "firefighter_deaths_male": r["firefighter_deaths"] or 0,
+        "firefighter_deaths_female": 0,
+        # Row 113-121: Personnel
+        "engine_commander": "",
+        "shift_in_charge": "",
+        "nozzleman": "",
+        "lineman": "",
+        "engine_crew": "",
+        "driver_dpo": "",
+        "safety_officer": "",
+        "investigator": "",
+        # Row 194-219: Problems encountered
+        "problems": problems,
+        # Row 238-241: Prepared by / Noted by
+        "prepared_by_rank": "",
+        "prepared_by_name": "",
+        "noted_by_rank": "",
+        "noted_by_name": "",
+        # Alarm timeline helper
+        "alarm_1st": extract_datetime("1ST ALARM"),
+        "alarm_2nd": extract_datetime("2ND ALARM"),
+        "alarm_3rd": extract_datetime("3RD ALARM"),
+        "alarm_4th": extract_datetime("4TH ALARM"),
+        "alarm_5th": extract_datetime("5TH ALARM"),
+        "alarm_tf_alpha": extract_datetime("TASK FORCE ALPHA"),
+        "alarm_tf_bravo": extract_datetime("TASK FORCE BRAVO"),
+        "alarm_tf_charlie": extract_datetime("TASK FORCE CHARLIE"),
+        "alarm_tf_delta": extract_datetime("TASK FORCE DELTA"),
+        "alarm_general": extract_datetime("GENERAL ALARM"),
+        "alarm_fuc": extract_datetime("FIRE UNDER CONTROL"),
+        "alarm_fo": extract_datetime("FIRE OUT"),
+        # Row 44 continued: time returned
+        "time_returned_base": extract_time("returned") if extract_time("returned") != "N/A" else "",
+        # Misc
+        "responder_type": r["responder_type"] or "",
+        "form_kind": r["form_kind"],
+        "estimated_damage": r["estimated_damage_php"] or "",
+        "extent_floor_area": r["extent_total_floor_area_sqm"] or "",
+        "extent_land_area": r["extent_total_land_area_hectares"] or "",
+        "water_tankers": r["water_tankers_used"] or "",
+    }
+
+
+def _count_resource(resources: list, keyword: str) -> str:
+    """Count resources matching a keyword from resources_deployed JSON."""
+    if not resources:
+        return "N/A"
+    count = 0
+    for r in resources:
+        if isinstance(r, dict):
+            name = str(r.get("name") or r.get("resource") or "").lower()
+            if keyword.lower() in name:
+                try:
+                    count += int(r.get("quantity") or r.get("number") or 1)
+                except (ValueError, TypeError):
+                    count += 1
+        elif isinstance(r, str) and keyword.lower() in r.lower():
+            count += 1
+    return str(count) if count > 0 else "N/A"

@@ -120,6 +120,7 @@ export default function AdminSystemPage() {
         first_name: '',
         last_name: '',
         email: '',
+        username: '',
         role: 'REGIONAL_ENCODER',
         assigned_region_id: '',
         contact_number: '',
@@ -279,8 +280,8 @@ export default function AdminSystemPage() {
             first_name: createForm.first_name.trim(),
             last_name: createForm.last_name.trim(),
         };
-        if (!payload.first_name || !payload.last_name || !payload.email || !payload.role) {
-            alert('First name, last name, email, and role are required.');
+        if (!payload.first_name || !payload.last_name || !payload.email || !payload.role || !payload.username?.trim()) {
+            alert('First name, last name, email, username, and role are required.');
             return;
         }
         setIsCreating(true);
@@ -290,11 +291,12 @@ export default function AdminSystemPage() {
                 first_name: payload.first_name,
                 last_name: payload.last_name,
                 role: payload.role,
+                username: payload.username.trim(),
                 contact_number: payload.contact_number || undefined,
                 assigned_region_id: payload.assigned_region_id,
             });
             setCreatedUser({ username: result.username, temporary_password: result.temporary_password });
-            setCreateForm({ first_name: '', last_name: '', email: '', role: 'REGIONAL_ENCODER', contact_number: '', assigned_region_id: '' });
+            setCreateForm({ first_name: '', last_name: '', email: '', username: '', role: 'REGIONAL_ENCODER', contact_number: '', assigned_region_id: '' });
             await loadUsers();
         } catch (e: unknown) {
             alert((e as { message?: string })?.message ?? 'Failed to create user');
@@ -834,6 +836,17 @@ export default function AdminSystemPage() {
                                             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
                                         />
                                     </div>
+                                    <div className="col-span-2">
+                                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Username <span className="text-red-500">*</span></label>
+                                        <input
+                                            type="text"
+                                            value={createForm.username}
+                                            onChange={(e) => setCreateForm(p => ({ ...p, username: e.target.value }))}
+                                            placeholder="e.g. encoder_juan"
+                                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                                        />
+                                        <p className="text-xs text-gray-400 mt-1">3–50 characters: letters, numbers, underscores, hyphens. Used to log in via Keycloak.</p>
+                                    </div>
                                     <div>
                                         <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Role <span className="text-red-500">*</span></label>
                                         <select
@@ -878,7 +891,7 @@ export default function AdminSystemPage() {
                                 <div className="flex gap-3 pt-2">
                                     <button
                                         onClick={handleCreateUser}
-                                        disabled={isCreating || !createForm.email || !createForm.first_name || !createForm.last_name}
+                                        disabled={isCreating || !createForm.email || !createForm.first_name || !createForm.last_name || !createForm.username}
                                         className="flex-1 py-2.5 rounded-lg text-white font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
                                         style={{ backgroundColor: 'var(--sidebar-bg)' }}
                                     >

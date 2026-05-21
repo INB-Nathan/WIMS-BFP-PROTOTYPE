@@ -292,7 +292,7 @@ export function displayValue(value: unknown): string {
   if (value === null || value === undefined) return "N/A";
   if (typeof value === "string" && value.trim() === "") return "N/A";
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "number" && value === 0) return "0"; // 0 is valid data
+  if (value === 0 || value === "0") return "N/A";
   return String(value);
 }
 

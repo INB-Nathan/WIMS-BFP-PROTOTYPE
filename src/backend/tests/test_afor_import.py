@@ -122,7 +122,7 @@ def test_parse_afor_report_data_maps_canonical_schema():
     assert ns["structures_affected"] == 5
     assert ns["distance_from_station_km"] == 3.5
     assert ns["resources_deployed"]["trucks"]["bfp"] == 2
-    assert "2025-11-20T14:45" in ns["alarm_timeline"]["alarm_1st"]
+    assert "2025-11-20T14:45" in ns["alarm_timeline"]["alarm_1st"]["time"]
 
     assert sens["caller_name"] == "Juan Dela Cruz"
     assert sens["caller_number"] == "09171234567"
@@ -209,8 +209,7 @@ def test_parse_xlsx_content_flow(mock_load):
             "D22": "2025-11-20",
             "D23": "14:30",
             "D26": "Manila",
-            "D56": 500,
-            "D60": 0.5,
+            "D60": 500,
         }
     )
     mock_wb = MagicMock()

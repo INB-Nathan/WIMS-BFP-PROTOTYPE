@@ -29,6 +29,8 @@ out/
 .env.*.local
 *.pem
 *.key
+*service-account*.json
+src/backend/firebase-service-account.json
 
 # Logs and runtime
 *.log
@@ -38,7 +40,6 @@ src/suricata/logs/
 # OS
 .DS_Store
 Thumbs.db
-CLAUDE.md
 
 # Cursor / agent tooling (local only)
 .cursor/
@@ -54,3 +55,5 @@ AFORs/afor_filled.xlsx
 # nathan local wiki AI tools
 .codex/
 system-wiki/.obsidian/
+.obsidian/
+.hermes/

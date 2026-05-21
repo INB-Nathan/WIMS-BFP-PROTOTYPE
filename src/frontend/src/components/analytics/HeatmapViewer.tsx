@@ -9,16 +9,16 @@ const DEFAULT_ZOOM = 6;
 
 export interface HeatmapViewerProps {
   geojson: HeatmapGeoJSON;
+  className?: string;
 }
 
-export function HeatmapViewer({ geojson }: HeatmapViewerProps) {
+export function HeatmapViewer({ geojson, className = 'h-[400px]' }: HeatmapViewerProps) {
   const { features } = geojson;
 
   if (!features || features.length === 0) {
     return (
       <div
-        className="flex items-center justify-center rounded-md border border-gray-200 bg-gray-50 text-gray-500"
-        style={{ minHeight: 300 }}
+        className={`flex items-center justify-center rounded-md border border-gray-200 bg-gray-50 text-gray-500 ${className}`}
       >
         <p className="text-sm font-medium">No incidents to display on map</p>
       </div>
@@ -29,8 +29,8 @@ export function HeatmapViewer({ geojson }: HeatmapViewerProps) {
     <MapContainer
       center={DEFAULT_CENTER}
       zoom={DEFAULT_ZOOM}
-      style={{ height: 400, width: '100%' }}
-      className="rounded-md z-0"
+      style={{ width: '100%' }}
+      className={`rounded-md z-0 ${className}`}
       scrollWheelZoom
     >
       <TileLayer

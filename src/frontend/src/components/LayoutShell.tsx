@@ -15,7 +15,11 @@ export function LayoutShell({ children }: { children: ReactNode }) {
     useEffect(() => {
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.getRegistrations()
-                .then((registrations) => Promise.all(registrations.map((r) => r.unregister())))
+                .then((registrations) => Promise.all(
+                    registrations
+                        .filter((r) => !r.active?.scriptURL?.includes('firebase-messaging-sw'))
+                        .map((r) => r.unregister())
+                ))
                 .catch((err) => console.log('SW unregister failed: ', err));
         }
 

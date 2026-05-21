@@ -1,10 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MapPicker } from '@/components/MapPicker';
-import { submitCivilianReport } from '@/lib/api';
+import { submitCivilianReport, registerNotification } from '@/lib/api';
+import { getMessagingToken } from '@/lib/firebase';
 import Image from 'next/image';
 import { AlertTriangle, CheckCircle } from 'lucide-react';
+import { NearbyStationsMap } from '@/components/NearbyStationsMap';
+
+type NotifyStatus = 'idle' | 'enabling' | 'enabled' | 'denied' | 'error';
 
 export default function ReportPage() {
     const [latitude, setLatitude] = useState<number | null>(null);
@@ -13,6 +17,8 @@ export default function ReportPage() {
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [submitted, setSubmitted] = useState<number | null>(null);
+    const [notifyOptIn, setNotifyOptIn] = useState(false);
+    const [notifyStatus, setNotifyStatus] = useState<NotifyStatus>('idle');
 
     const handleLocationSelect = (lat: number, lng: number) => {
         setLatitude(lat);
@@ -35,24 +41,52 @@ export default function ReportPage() {
         }
     };
 
+    useEffect(() => {
+        if (!submitted || !notifyOptIn) return;
+        setNotifyStatus('enabling');
+        (async () => {
+            try {
+                const token = await getMessagingToken();
+                if (!token) { setNotifyStatus('denied'); return; }
+                await registerNotification(submitted, token);
+                setNotifyStatus('enabled');
+            } catch {
+                setNotifyStatus('error');
+            }
+        })();
+    }, [submitted, notifyOptIn]);
+
     if (submitted) {
         return (
-            <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: 'var(--content-bg)' }}>
-                <div className="card max-w-lg w-full text-center p-8 space-y-4">
-                    <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
-                    <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Report Received</h1>
-                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                        Emergency responders have been notified. Please move to a safe distance.
-                    </p>
-                    <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg mt-4 border" style={{ borderColor: 'var(--border-color)' }}>
-                        <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Your Tracking ID</p>
-                        <p className="text-3xl font-mono font-bold" style={{ color: 'white' }}>{submitted}</p>
+            <div className="min-h-screen flex items-center justify-center px-4 py-8" style={{ backgroundColor: 'var(--content-bg)' }}>
+                <div className="flex flex-col gap-4 max-w-lg w-full">
+                    <div className="card w-full text-center p-8 space-y-4">
+                        <CheckCircle className="w-16 h-16 mx-auto text-green-500" />
+                        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Report Received</h1>
+                        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                            Emergency responders have been notified. Please move to a safe distance.
+                        </p>
+                        <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg mt-4 border" style={{ borderColor: 'var(--border-color)' }}>
+                            <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Your Tracking ID</p>
+                            <p className="text-3xl font-mono font-bold" style={{ color: 'white' }}>{submitted}</p>
+                        </div>
+                        <div className="pt-4">
+                            <a href="/report/tracking" className="text-red-600 hover:text-red-800 font-medium text-sm underline underline-offset-4">
+                                Track the status of your report &rarr;
+                            </a>
+                        </div>
+                        {notifyOptIn && (
+                            <div className="text-sm pt-1">
+                                {notifyStatus === 'enabling' && <p style={{ color: 'var(--text-secondary)' }}>Enabling notifications…</p>}
+                                {notifyStatus === 'enabled' && <p className="text-green-600 font-medium">Notifications enabled. You&apos;ll be alerted when your report is verified.</p>}
+                                {notifyStatus === 'denied' && <p className="text-orange-500">Notification permission denied. You can enable it from the tracking page.</p>}
+                                {notifyStatus === 'error' && <p className="text-red-500">Could not enable notifications. Try again from the tracking page.</p>}
+                            </div>
+                        )}
                     </div>
-                    <div className="pt-4">
-                        <a href="/report/track" className="text-red-600 hover:text-red-800 font-medium text-sm underline underline-offset-4">
-                            Track the status of your report &rarr;
-                        </a>
-                    </div>
+                    {latitude !== null && longitude !== null && (
+                        <NearbyStationsMap reportLat={latitude} reportLon={longitude} />
+                    )}
                 </div>
             </div>
         );
@@ -92,6 +126,19 @@ export default function ReportPage() {
                             placeholder="Describe the emergency (smoke, fire, structure)..."
                             required
                         />
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                        <input
+                            id="notify-optin"
+                            type="checkbox"
+                            checked={notifyOptIn}
+                            onChange={(e) => setNotifyOptIn(e.target.checked)}
+                            className="w-4 h-4 accent-red-600 cursor-pointer"
+                        />
+                        <label htmlFor="notify-optin" className="text-sm cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                            Notify me when my report status changes
+                        </label>
                     </div>
 
                     {error && (

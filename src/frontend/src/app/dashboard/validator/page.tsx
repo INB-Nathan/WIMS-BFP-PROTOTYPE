@@ -10,7 +10,7 @@ import { apiFetch, ApiRequestError, fetchValidatorStats } from "@/lib/api";
 import { IncidentDiffPanel } from "@/components/IncidentDiffPanel";
 import { UpdateRequestDiffPanel } from "@/components/UpdateRequestDiffPanel";
 import { formatClassification } from "@/lib/afor-utils";
-import { getShortRegionName } from "@/lib/ph-regions";
+import { PH_REGIONS, getShortRegionName } from "@/lib/ph-regions";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -103,9 +103,9 @@ export default function ValidatorDashboard() {
 
   // Filters — default to all incidents so validators can see the full workflow
   const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_ALL);
-  const [encoderFilter, setEncoderFilter] = useState<string>("");
+  const [regionFilter, setRegionFilter] = useState<string>("");
   const [page, setPage] = useState(0);
-  const PAGE_SIZE = 50;
+  const PAGE_SIZE = 10;
 
   // Stats
   const [stats, setStats] = useState<{
@@ -320,7 +320,7 @@ export default function ValidatorDashboard() {
     } else if (statusFilter && statusFilter !== STATUS_FILTER_QUEUE) {
       params.set("status", statusFilter);
     }
-    if (encoderFilter) params.set("encoder_id", encoderFilter.trim());
+    if (regionFilter) params.set("region_id", regionFilter);
 
     try {
       const data: QueueResponse = await apiFetch(
@@ -335,7 +335,7 @@ export default function ValidatorDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, encoderFilter]);
+  }, [page, statusFilter, regionFilter]);
 
   useEffect(() => {
     fetchQueue();
@@ -526,16 +526,21 @@ export default function ValidatorDashboard() {
           <option value="__ARCHIVED__">Archived</option>
         </select>
 
-        <input
-          type="text"
-          placeholder="Filter by Encoder UUID…"
-          className="border rounded px-3 py-2 text-sm w-72"
-          value={encoderFilter}
+        <select
+          className="border rounded px-3 py-2 text-sm"
+          value={regionFilter}
           onChange={(e) => {
-            setEncoderFilter(e.target.value);
+            setRegionFilter(e.target.value);
             setPage(0);
           }}
-        />
+        >
+          <option value="">All Regions</option>
+          {PH_REGIONS.map((r) => (
+            <option key={r.regionId} value={String(r.regionId)}>
+              {r.regionName}
+            </option>
+          ))}
+        </select>
 
         <button
           onClick={fetchQueue}
@@ -700,27 +705,25 @@ export default function ValidatorDashboard() {
       )}
 
       {/* ── Pagination ── */}
-      {total > PAGE_SIZE && (
-        <div className="flex items-center gap-4 mt-4 text-sm text-gray-600">
-          <button
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            disabled={page === 0}
-            className="px-3 py-1 border rounded disabled:opacity-40"
-          >
-            ← Prev
-          </button>
-          <span>
-            Page {page + 1} of {totalPages} · {total} total
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-            disabled={page >= totalPages - 1}
-            className="px-3 py-1 border rounded disabled:opacity-40"
-          >
-            Next →
-          </button>
-        </div>
-      )}
+      <div className="flex items-center gap-4 mt-4 text-sm text-gray-600">
+        <button
+          onClick={() => setPage((p) => Math.max(0, p - 1))}
+          disabled={page === 0}
+          className="px-3 py-1 border rounded disabled:opacity-40"
+        >
+          ← Prev
+        </button>
+        <span>
+          Page {page + 1} of {totalPages} · {total} total
+        </span>
+        <button
+          onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+          disabled={page >= totalPages - 1}
+          className="px-3 py-1 border rounded disabled:opacity-40"
+        >
+          Next →
+        </button>
+      </div>
 
       {/* ── Validator duplicate resolution modal ── */}
       {validatorDupTarget && validatorDupMatchedId && (

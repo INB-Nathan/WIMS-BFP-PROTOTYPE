@@ -60,6 +60,16 @@ Whitelisted 26 columns. Resolves SQL aliases (verification_status→fi., facts�
 
 Wrapper around get_export_rows that deduplicates and sorts incident_ids.
 
+#### `get_incident_export_data(db, incident_id) -> dict[str, Any]`
+
+Fetches all fields needed to fill the AFOR template for a single VERIFIED incident. Used by export tasks — called with RLS context already set. Returns a flat dict with ~70 keys matching `AFOR_CELL_MAP` in `tasks/exports.py`.
+
+**Joins:** fire_incidents + incident_nonsensitive_details + analytics_incident_facts + ref_regions + incident_wildland_afor.
+
+**JSON fields parsed:** `alarm_timeline` (extracts per-status datetimes), `resources_deployed` (counts vehicles via `_count_resource()`), `problems_encountered`.
+
+**Coverage:** Section A (response details, times, distances), Section B (classification, damage, impact counts), Section C (assets/resources), Section D (alarm timeline), Section E (casualties by gender), Section F (personnel), and Prepared/Noted by fields. PII fields (caller_name, owner_name, establishment_name) are left blank.
+
 #### `get_filter_options(db, *, field, region_id, province, start_date, end_date) -> list[str]`
 
 DISTINCT sorted values for cascading filter dropdowns. field must be "province" or "municipality". Raises ValueError otherwise.

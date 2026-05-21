@@ -10,19 +10,29 @@ Atomicity      : Lua script executed via redis.eval
 from __future__ import annotations
 
 import logging
-from typing import Annotated
 import os
+import re
 import time
+from typing import Annotated
 import tasks.suricata  # noqa: F401, E402
 import tasks.exports  # noqa: F401, E402
 import tasks.drafts  # noqa: F401, E402  # M4-E: registers expire_old_drafts task for beat
 import httpx
 import redis.asyncio as aioredis
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+import psutil
+
+from utils.metrics import (
+    API_REQUEST_DURATION,
+    SYSTEM_CPU_PERCENT,
+    SYSTEM_MEMORY_PERCENT,
+    SYSTEM_DISK_PERCENT,
+)
 
 
 import auth
@@ -212,6 +222,42 @@ async def rate_limit_middleware(request: Request, call_next):
         )
 
     return await call_next(request)
+
+
+@app.middleware("http")
+async def prometheus_metrics_middleware(request: Request, call_next):
+    """Record API request duration for Prometheus."""
+    if request.url.path == "/metrics":
+        return await call_next(request)
+
+    start = time.time()
+    response = await call_next(request)
+    duration = time.time() - start
+
+    path = request.url.path
+    path = re.sub(r"/\d+", "/{id}", path)
+    path = re.sub(
+        r"/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        "/{uuid}",
+        path,
+    )
+
+    API_REQUEST_DURATION.labels(
+        method=request.method,
+        endpoint=path,
+        status_code=str(response.status_code),
+    ).observe(duration)
+
+    return response
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics_endpoint():
+    """Prometheus metrics scrape endpoint. Updates system resource gauges before returning."""
+    SYSTEM_CPU_PERCENT.set(psutil.cpu_percent(interval=None))
+    SYSTEM_MEMORY_PERCENT.set(psutil.virtual_memory().percent)
+    SYSTEM_DISK_PERCENT.labels(mountpoint="/").set(psutil.disk_usage("/").percent)
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # ---------------------------------------------------------------------------

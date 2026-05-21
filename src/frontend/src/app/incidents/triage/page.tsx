@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useUserProfile } from '@/lib/auth';
+import { useAuth } from '@/context/AuthContext';
 import { fetchPendingReports, promoteReport, bulkPromoteReports } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { Loader2, MapPin, Clock, FileText, CheckCircle, ClipboardList } from 'lucide-react';
@@ -16,7 +16,8 @@ interface PendingReport {
 }
 
 export default function TriagePage() {
-    const { role, loading: authLoading } = useUserProfile();
+    const { user, loading: authLoading } = useAuth();
+    const role = (user as { role?: string })?.role ?? null;
     const router = useRouter();
     const [reports, setReports] = useState<PendingReport[]>([]);
     const [loading, setLoading] = useState(true);

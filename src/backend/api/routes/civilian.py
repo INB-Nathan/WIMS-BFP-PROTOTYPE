@@ -6,8 +6,14 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from fastapi import HTTPException
 from database import get_db
-from schemas.civilian import CivilianReportCreate, CivilianReportResponse
+from schemas.civilian import (
+    CivilianReportCreate,
+    CivilianReportResponse,
+    NotifyRegisterRequest,
+    NotifyRegisterResponse,
+)
 
 router = APIRouter(prefix="/api/civilian", tags=["civilian"])
 
@@ -35,8 +41,6 @@ def submit_civilian_report(
     db.commit()
 
     if row is None:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=500, detail="Failed to create report")
 
     report_id = row[0]
@@ -78,8 +82,6 @@ def get_civilian_report(
     ).fetchone()
 
     if not row:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=404, detail="Report not found")
 
     return CivilianReportResponse(
@@ -90,4 +92,40 @@ def get_civilian_report(
         trust_score=row[4],
         status=row[5],
         created_at=row[6],
+    )
+
+
+@router.post(
+    "/reports/{report_id}/notify",
+    response_model=NotifyRegisterResponse,
+    status_code=201,
+)
+def register_notification(
+    report_id: int,
+    body: NotifyRegisterRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> NotifyRegisterResponse:
+    """Register FCM token for push notifications on report status change. No auth."""
+    exists = db.execute(
+        text("SELECT 1 FROM wims.citizen_reports WHERE report_id = :rid"),
+        {"rid": report_id},
+    ).fetchone()
+    if not exists:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    result = db.execute(
+        text("""
+            INSERT INTO wims.report_notification_tokens (report_id, fcm_token)
+            VALUES (:rid, :token)
+            ON CONFLICT ON CONSTRAINT uq_report_notification_token DO NOTHING
+            RETURNING token_id
+        """),
+        {"rid": report_id, "token": body.fcm_token},
+    )
+    row = result.fetchone()
+    db.commit()
+
+    return NotifyRegisterResponse(
+        status="registered" if row else "already_registered",
+        report_id=report_id,
     )

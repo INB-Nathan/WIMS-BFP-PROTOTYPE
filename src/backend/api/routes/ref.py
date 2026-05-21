@@ -1,4 +1,4 @@
-"""Reference data endpoints (regions, provinces, cities)."""
+"""Reference data endpoints (regions, provinces, cities, fire stations)."""
 
 from typing import Annotated, Optional
 
@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user
-from database import get_db_with_rls
+from database import get_db, get_db_with_rls
 
 router = APIRouter(prefix="/api/ref", tags=["ref"])
 
@@ -91,3 +91,68 @@ def get_cities(
             text("SELECT city_id, city_name, province_id FROM wims.ref_cities ORDER BY city_name"),
         ).fetchall()
     return [{"city_id": r[0], "city_name": r[1], "province_id": r[2]} for r in rows]
+
+
+@router.get("/fire-stations")
+def get_fire_stations(
+    db: Annotated[Session, Depends(get_db)],
+    lat: Optional[float] = Query(None),
+    lon: Optional[float] = Query(None),
+):
+    """
+    Return BFP fire stations. No auth — called from the public civilian portal.
+    If lat+lon provided: nearest 5 within 5 km ordered by distance.
+    Falls back to all stations sorted by name when coords are absent or no results found.
+    """
+    if lat is not None and lon is not None:
+        rows = db.execute(
+            text("""
+                SELECT
+                    station_id, station_name, address,
+                    ST_Y(location::geometry) AS latitude,
+                    ST_X(location::geometry) AS longitude,
+                    ST_Distance(location, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography) AS distance_m
+                FROM wims.ref_fire_stations
+                WHERE ST_DWithin(location, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography, 5000)
+                ORDER BY distance_m ASC
+                LIMIT 5
+            """),
+            {"lat": lat, "lon": lon},
+        ).fetchall()
+
+        if rows:
+            return [
+                {
+                    "station_id": r[0],
+                    "station_name": r[1],
+                    "address": r[2],
+                    "latitude": float(r[3]),
+                    "longitude": float(r[4]),
+                    "distance_m": float(r[5]),
+                }
+                for r in rows
+            ]
+
+    # Fallback: all stations sorted by name (no proximity data)
+    rows = db.execute(
+        text("""
+            SELECT
+                station_id, station_name, address,
+                ST_Y(location::geometry) AS latitude,
+                ST_X(location::geometry) AS longitude
+            FROM wims.ref_fire_stations
+            ORDER BY station_name ASC
+        """),
+    ).fetchall()
+
+    return [
+        {
+            "station_id": r[0],
+            "station_name": r[1],
+            "address": r[2],
+            "latitude": float(r[3]),
+            "longitude": float(r[4]),
+            "distance_m": None,
+        }
+        for r in rows
+    ]

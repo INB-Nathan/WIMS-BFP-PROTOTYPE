@@ -62,9 +62,9 @@ export default function AforCreatePage() {
                     {(initialData || cameFromImport) && (
                         <button
                             onClick={() => router.push('/afor/import?reset=1')}
-                            className="text-sm text-blue-600 hover:text-blue-800 underline"
+                            className="inline-flex items-center gap-1.5 rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 hover:text-gray-900 transition-colors"
                         >
-                            Back to import
+                            ← Back to Import
                         </button>
                     )}
                     {initialData && (
@@ -105,13 +105,6 @@ export default function AforCreatePage() {
                             Wildland
                         </button>
                     </div>
-                    <p className="text-xs text-gray-500 mt-2">
-                        Wildland incidents use the regional wildland workbook; full import is available at{' '}
-                        <a href="/afor/import" className="text-blue-600 hover:underline">
-                            Regional AFOR Import
-                        </a>
-                        .
-                    </p>
                 </div>
             )}
 

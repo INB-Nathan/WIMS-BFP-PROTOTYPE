@@ -1,0 +1,298 @@
+-- 32_ref_fire_stations.sql
+-- BFP fire station reference data — nationwide coverage (~237 stations)
+-- No RLS — public reference table, same pattern as ref_regions.
+-- Idempotent: YES (TRUNCATE + reinsert keeps IDs stable)
+-- Dependencies: 01_extensions_roles.sql, 02_ref_geography.sql, 21_all_regions.sql
+
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS wims.ref_fire_stations (
+    station_id   SERIAL PRIMARY KEY,
+    station_name TEXT    NOT NULL,
+    address      TEXT,
+    location     GEOGRAPHY(POINT, 4326) NOT NULL,
+    region_id    INTEGER REFERENCES wims.ref_regions(region_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ref_fire_stations_location
+    ON wims.ref_fire_stations USING GIST (location);
+
+-- Full truncate + reinsert so re-running this script on an existing DB is safe.
+TRUNCATE wims.ref_fire_stations RESTART IDENTITY;
+
+INSERT INTO wims.ref_fire_stations (station_name, address, location, region_id) VALUES
+
+    -- ── NCR - National Capital Region (region_id = 1) ────────────────────────
+    ('Manila City Fire Station',              'Quirino Avenue, Ermita, Manila',                    ST_SetSRID(ST_MakePoint(120.9838, 14.5868), 4326)::geography, 1),
+    ('Manila Fire Station 2 - Tondo',         'Kagitingan Street, Tondo, Manila',                  ST_SetSRID(ST_MakePoint(120.9669, 14.6097), 4326)::geography, 1),
+    ('Quezon City Fire Station 1',            'Banawe Avenue, Quezon City',                        ST_SetSRID(ST_MakePoint(121.0157, 14.6310), 4326)::geography, 1),
+    ('Quezon City Fire Station 2 - Diliman',  'Katipunan Avenue, Diliman, Quezon City',            ST_SetSRID(ST_MakePoint(121.0773, 14.6472), 4326)::geography, 1),
+    ('Makati City Fire Station',              'Ayala Avenue, Makati City',                         ST_SetSRID(ST_MakePoint(121.0244, 14.5547), 4326)::geography, 1),
+    ('Pasig City Fire Station',               'Caruncho Avenue, Pasig City',                       ST_SetSRID(ST_MakePoint(121.0614, 14.5869), 4326)::geography, 1),
+    ('Pasay City Fire Station',               'F.B. Harrison Street, Pasay City',                  ST_SetSRID(ST_MakePoint(120.9938, 14.5375), 4326)::geography, 1),
+    ('Pateros Fire Station',                  'M. Almeda Street, Pateros',                         ST_SetSRID(ST_MakePoint(121.0675, 14.5397), 4326)::geography, 1),
+    ('Mandaluyong City Fire Station',         'Maysilo Circle, Mandaluyong City',                  ST_SetSRID(ST_MakePoint(121.0359, 14.5794), 4326)::geography, 1),
+    ('Taguig City Fire Station',              'Market Avenue, Taguig City',                        ST_SetSRID(ST_MakePoint(121.0509, 14.5176), 4326)::geography, 1),
+    ('Marikina City Fire Station',            'Shoe Avenue, Marikina City',                        ST_SetSRID(ST_MakePoint(121.1060, 14.6523), 4326)::geography, 1),
+    ('Caloocan City Fire Station',            'A. Mabini Street, Caloocan City',                   ST_SetSRID(ST_MakePoint(120.9727, 14.6495), 4326)::geography, 1),
+    ('Paranaque City Fire Station',           'Dr. A. Santos Avenue, Paranaque City',              ST_SetSRID(ST_MakePoint(120.9822, 14.4793), 4326)::geography, 1),
+    ('Las Pinas City Fire Station',           'CAA Road, Las Pinas City',                          ST_SetSRID(ST_MakePoint(120.9825, 14.4497), 4326)::geography, 1),
+    ('Valenzuela City Fire Station',          'McArthur Highway, Valenzuela City',                 ST_SetSRID(ST_MakePoint(120.9830, 14.6942), 4326)::geography, 1),
+    ('Malabon City Fire Station',             'Governor Pascual Avenue, Malabon City',             ST_SetSRID(ST_MakePoint(120.9569, 14.6623), 4326)::geography, 1),
+    ('Muntinlupa City Fire Station',          'National Road, Alabang, Muntinlupa City',           ST_SetSRID(ST_MakePoint(121.0437, 14.4081), 4326)::geography, 1),
+    ('San Juan City Fire Station',            'N. Domingo Street, San Juan City',                  ST_SetSRID(ST_MakePoint(121.0278, 14.6008), 4326)::geography, 1),
+    ('Navotas City Fire Station',             'M. Naval Street, Navotas City',                     ST_SetSRID(ST_MakePoint(120.9422, 14.6667), 4326)::geography, 1),
+
+    -- ── CAR - Cordillera Administrative Region (region_id = 2) ───────────────
+    ('Baguio City Fire Station',              'Session Road, Baguio City, Benguet',                ST_SetSRID(ST_MakePoint(120.5960, 16.4023), 4326)::geography, 2),
+    ('La Trinidad Fire Station',              'Balili Road, La Trinidad, Benguet',                 ST_SetSRID(ST_MakePoint(120.5876, 16.4605), 4326)::geography, 2),
+    ('Tabuk City Fire Station',               'Tabuk City, Kalinga',                               ST_SetSRID(ST_MakePoint(121.4438, 17.4177), 4326)::geography, 2),
+    ('Lagawe Fire Station',                   'Lagawe, Ifugao',                                    ST_SetSRID(ST_MakePoint(121.1148, 16.8280), 4326)::geography, 2),
+    ('Bangued Fire Station',                  'Bangued, Abra',                                     ST_SetSRID(ST_MakePoint(120.6186, 17.5960), 4326)::geography, 2),
+    ('Bontoc Fire Station',                   'Bontoc, Mountain Province',                         ST_SetSRID(ST_MakePoint(120.9762, 17.0891), 4326)::geography, 2),
+    ('Banaue Fire Station',                   'Banaue, Ifugao',                                    ST_SetSRID(ST_MakePoint(121.0585, 16.9155), 4326)::geography, 2),
+    ('Kabugao Fire Station',                  'Kabugao, Apayao',                                   ST_SetSRID(ST_MakePoint(121.1813, 17.7694), 4326)::geography, 2),
+    ('Sagada Fire Station',                   'Sagada, Mountain Province',                         ST_SetSRID(ST_MakePoint(120.8994, 17.0841), 4326)::geography, 2),
+
+    -- ── Region I - Ilocos Region (region_id = 3) ─────────────────────────────
+    ('Laoag City Fire Station',               'General Segundo Avenue, Laoag City',                ST_SetSRID(ST_MakePoint(120.5936, 18.1980), 4326)::geography, 3),
+    ('Batac City Fire Station',               'National Highway, Batac City, Ilocos Norte',        ST_SetSRID(ST_MakePoint(120.5648, 18.0555), 4326)::geography, 3),
+    ('Vigan City Fire Station',               'Burgos Street, Vigan City, Ilocos Sur',             ST_SetSRID(ST_MakePoint(120.3869, 17.5747), 4326)::geography, 3),
+    ('Candon City Fire Station',              'Candon City, Ilocos Sur',                           ST_SetSRID(ST_MakePoint(120.4562, 17.1957), 4326)::geography, 3),
+    ('Narvacan Fire Station',                 'Narvacan, Ilocos Sur',                              ST_SetSRID(ST_MakePoint(120.4267, 17.4180), 4326)::geography, 3),
+    ('San Fernando City Fire Station',        'Quezon Avenue, San Fernando City, La Union',        ST_SetSRID(ST_MakePoint(120.3166, 16.6159), 4326)::geography, 3),
+    ('Agoo Fire Station',                     'Agoo, La Union',                                    ST_SetSRID(ST_MakePoint(120.3627, 16.3225), 4326)::geography, 3),
+    ('Bauang Fire Station',                   'Bauang, La Union',                                  ST_SetSRID(ST_MakePoint(120.3341, 16.5288), 4326)::geography, 3),
+    ('Dagupan City Fire Station',             'A.B. Fernandez Avenue, Dagupan City',               ST_SetSRID(ST_MakePoint(120.3330, 16.0430), 4326)::geography, 3),
+    ('Urdaneta City Fire Station',            'Nancamaliran, Urdaneta City, Pangasinan',           ST_SetSRID(ST_MakePoint(120.5706, 15.9759), 4326)::geography, 3),
+    ('Alaminos City Fire Station',            'Alaminos City, Pangasinan',                         ST_SetSRID(ST_MakePoint(120.0583, 16.1560), 4326)::geography, 3),
+    ('Lingayen Fire Station',                 'Lingayen, Pangasinan',                              ST_SetSRID(ST_MakePoint(120.2333, 16.0154), 4326)::geography, 3),
+    ('San Carlos City Fire Station',          'San Carlos City, Pangasinan',                       ST_SetSRID(ST_MakePoint(120.3200, 15.9244), 4326)::geography, 3),
+    ('Pozorrubio Fire Station',               'Pozorrubio, Pangasinan',                            ST_SetSRID(ST_MakePoint(120.5445, 16.1174), 4326)::geography, 3),
+
+    -- ── Region II - Cagayan Valley (region_id = 4) ───────────────────────────
+    ('Tuguegarao City Fire Station',          'Luna Street, Tuguegarao City, Cagayan',             ST_SetSRID(ST_MakePoint(121.7269, 17.6131), 4326)::geography, 4),
+    ('Ilagan City Fire Station',              'Maharlika Highway, Ilagan City, Isabela',           ST_SetSRID(ST_MakePoint(121.8892, 17.1486), 4326)::geography, 4),
+    ('Santiago City Fire Station',            'Maharlika Highway, Santiago City, Isabela',         ST_SetSRID(ST_MakePoint(121.5492, 16.6882), 4326)::geography, 4),
+    ('Cauayan City Fire Station',             'Cauayan City, Isabela',                             ST_SetSRID(ST_MakePoint(121.7694, 16.9309), 4326)::geography, 4),
+    ('Bayombong Fire Station',                'Bayombong, Nueva Vizcaya',                          ST_SetSRID(ST_MakePoint(121.1497, 16.4836), 4326)::geography, 4),
+    ('Solano Fire Station',                   'Solano, Nueva Vizcaya',                             ST_SetSRID(ST_MakePoint(121.1803, 16.5207), 4326)::geography, 4),
+    ('Cabarroguis Fire Station',              'Cabarroguis, Quirino',                              ST_SetSRID(ST_MakePoint(121.5247, 16.5163), 4326)::geography, 4),
+    ('Maddela Fire Station',                  'Maddela, Quirino',                                  ST_SetSRID(ST_MakePoint(121.6630, 16.3393), 4326)::geography, 4),
+    ('Basco Fire Station',                    'Basco, Batanes',                                    ST_SetSRID(ST_MakePoint(121.9700, 20.4487), 4326)::geography, 4),
+
+    -- ── Region III - Central Luzon (region_id = 5) ───────────────────────────
+    ('City of San Fernando Fire Station',     'Dolores, City of San Fernando, Pampanga',           ST_SetSRID(ST_MakePoint(120.6898, 15.0294), 4326)::geography, 5),
+    ('Angeles City Fire Station',             'Balibago, Angeles City, Pampanga',                  ST_SetSRID(ST_MakePoint(120.5887, 15.1450), 4326)::geography, 5),
+    ('Clark Fire Station',                    'Clark Freeport Zone, Mabalacat City, Pampanga',     ST_SetSRID(ST_MakePoint(120.5637, 15.1600), 4326)::geography, 5),
+    ('Mabalacat City Fire Station',           'Mabalacat City, Pampanga',                          ST_SetSRID(ST_MakePoint(120.5832, 15.2139), 4326)::geography, 5),
+    ('Malolos City Fire Station',             'Mojon, Malolos City, Bulacan',                      ST_SetSRID(ST_MakePoint(120.8107, 14.8430), 4326)::geography, 5),
+    ('Meycauayan City Fire Station',          'Meycauayan City, Bulacan',                          ST_SetSRID(ST_MakePoint(120.9601, 14.7356), 4326)::geography, 5),
+    ('Marilao Fire Station',                  'Marilao, Bulacan',                                  ST_SetSRID(ST_MakePoint(120.9505, 14.7577), 4326)::geography, 5),
+    ('Bocaue Fire Station',                   'Bocaue, Bulacan',                                   ST_SetSRID(ST_MakePoint(120.9302, 14.8023), 4326)::geography, 5),
+    ('Cabanatuan City Fire Station',          'Maharlika Highway, Cabanatuan City, Nueva Ecija',   ST_SetSRID(ST_MakePoint(120.9726, 15.4900), 4326)::geography, 5),
+    ('Palayan City Fire Station',             'Palayan City, Nueva Ecija',                         ST_SetSRID(ST_MakePoint(121.0836, 15.5436), 4326)::geography, 5),
+    ('Gapan City Fire Station',               'Gapan City, Nueva Ecija',                           ST_SetSRID(ST_MakePoint(120.9469, 15.3065), 4326)::geography, 5),
+    ('Science City of Munoz Fire Station',    'Science City of Munoz, Nueva Ecija',                ST_SetSRID(ST_MakePoint(120.9046, 15.7197), 4326)::geography, 5),
+    ('Olongapo City Fire Station',            'Gordon Avenue, Olongapo City, Zambales',            ST_SetSRID(ST_MakePoint(120.2834, 14.8286), 4326)::geography, 5),
+    ('Iba Fire Station',                      'Iba, Zambales',                                     ST_SetSRID(ST_MakePoint(120.0009, 15.3254), 4326)::geography, 5),
+    ('San Antonio Fire Station',              'San Antonio, Zambales',                             ST_SetSRID(ST_MakePoint(120.0738, 14.9395), 4326)::geography, 5),
+    ('Tarlac City Fire Station',              'MacArthur Highway, Tarlac City',                    ST_SetSRID(ST_MakePoint(120.5965, 15.4756), 4326)::geography, 5),
+    ('Capas Fire Station',                    'Capas, Tarlac',                                     ST_SetSRID(ST_MakePoint(120.5892, 15.3393), 4326)::geography, 5),
+    ('Balanga City Fire Station',             'Capitol Drive, Balanga City, Bataan',               ST_SetSRID(ST_MakePoint(120.5366, 14.6762), 4326)::geography, 5),
+
+    -- ── Region IV-A - CALABARZON (region_id = 6) ─────────────────────────────
+    ('Batangas City Fire Station',            'P. Burgos Street, Batangas City',                   ST_SetSRID(ST_MakePoint(121.0583, 13.7565), 4326)::geography, 6),
+    ('Lipa City Fire Station',                'Lipa City, Batangas',                               ST_SetSRID(ST_MakePoint(121.1632, 13.9411), 4326)::geography, 6),
+    ('Tanauan City Fire Station',             'Tanauan City, Batangas',                            ST_SetSRID(ST_MakePoint(121.0050, 14.0865), 4326)::geography, 6),
+    ('San Jose Fire Station',                 'San Jose, Batangas',                                ST_SetSRID(ST_MakePoint(121.2267, 13.8764), 4326)::geography, 6),
+    ('Trece Martires City Fire Station',      'City Hall Drive, Trece Martires City, Cavite',      ST_SetSRID(ST_MakePoint(120.8660, 14.2822), 4326)::geography, 6),
+    ('Bacoor City Fire Station',              'Bacoor City, Cavite',                               ST_SetSRID(ST_MakePoint(120.9396, 14.4590), 4326)::geography, 6),
+    ('Imus City Fire Station',                'Imus City, Cavite',                                 ST_SetSRID(ST_MakePoint(120.9259, 14.4293), 4326)::geography, 6),
+    ('Tagaytay City Fire Station',            'Tagaytay City, Cavite',                             ST_SetSRID(ST_MakePoint(120.9627, 14.1006), 4326)::geography, 6),
+    ('Santa Rosa City Fire Station',          'National Road, Santa Rosa City, Laguna',            ST_SetSRID(ST_MakePoint(121.1114, 14.3122), 4326)::geography, 6),
+    ('Calamba City Fire Station',             'Calamba City, Laguna',                              ST_SetSRID(ST_MakePoint(121.1653, 14.2138), 4326)::geography, 6),
+    ('San Pablo City Fire Station',           'San Pablo City, Laguna',                            ST_SetSRID(ST_MakePoint(121.3225, 14.0692), 4326)::geography, 6),
+    ('Bitian City Fire Station',              'Bitian City, Laguna',                               ST_SetSRID(ST_MakePoint(121.0816, 14.3400), 4326)::geography, 6),
+    ('Santa Cruz Fire Station',               'Santa Cruz, Laguna',                                ST_SetSRID(ST_MakePoint(121.4175, 14.2803), 4326)::geography, 6),
+    ('Lucena City Fire Station',              'Quezon Avenue, Lucena City, Quezon',                ST_SetSRID(ST_MakePoint(121.6178, 13.9411), 4326)::geography, 6),
+    ('Tayabas City Fire Station',             'Tayabas City, Quezon',                              ST_SetSRID(ST_MakePoint(121.5899, 14.0241), 4326)::geography, 6),
+    ('Lucban Fire Station',                   'Lucban, Quezon',                                    ST_SetSRID(ST_MakePoint(121.5515, 14.1143), 4326)::geography, 6),
+    ('Antipolo City Fire Station',            'M.L. Quezon Street, Antipolo City, Rizal',          ST_SetSRID(ST_MakePoint(121.1763, 14.5860), 4326)::geography, 6),
+    ('Cainta Fire Station',                   'Cainta, Rizal',                                     ST_SetSRID(ST_MakePoint(121.1217, 14.5739), 4326)::geography, 6),
+    ('Dasmarinas City Fire Station',          'Aguinaldo Highway, Dasmarinas City, Cavite',        ST_SetSRID(ST_MakePoint(120.9367, 14.3294), 4326)::geography, 6),
+
+    -- ── Region IV-B - MIMAROPA (region_id = 7) ───────────────────────────────
+    ('Calapan City Fire Station',             'Roxas Drive, Calapan City, Oriental Mindoro',       ST_SetSRID(ST_MakePoint(121.1803, 13.4118), 4326)::geography, 7),
+    ('Mamburao Fire Station',                 'Mamburao, Occidental Mindoro',                      ST_SetSRID(ST_MakePoint(120.5924, 13.2244), 4326)::geography, 7),
+    ('San Jose Fire Station Occidental Mindoro', 'San Jose, Occidental Mindoro',                   ST_SetSRID(ST_MakePoint(121.0692, 12.3496), 4326)::geography, 7),
+    ('Puerto Princesa City Fire Station',     'Rizal Avenue, Puerto Princesa City, Palawan',       ST_SetSRID(ST_MakePoint(118.7353, 9.7392), 4326)::geography, 7),
+    ('El Nido Fire Station',                  'El Nido, Palawan',                                  ST_SetSRID(ST_MakePoint(119.4077, 11.1929), 4326)::geography, 7),
+    ('Coron Fire Station',                    'Coron, Palawan',                                    ST_SetSRID(ST_MakePoint(120.2023, 12.0033), 4326)::geography, 7),
+    ('Odiongan Fire Station',                 'Odiongan, Romblon',                                 ST_SetSRID(ST_MakePoint(122.0075, 12.3998), 4326)::geography, 7),
+    ('Romblon Fire Station',                  'Romblon, Romblon',                                  ST_SetSRID(ST_MakePoint(122.2731, 12.5771), 4326)::geography, 7),
+    ('Boac Fire Station',                     'Boac, Marinduque',                                  ST_SetSRID(ST_MakePoint(121.8412, 13.4471), 4326)::geography, 7),
+
+    -- ── Region V - Bicol Region (region_id = 8) ──────────────────────────────
+    ('Legazpi City Fire Station',             'Penaranda Street, Legazpi City, Albay',             ST_SetSRID(ST_MakePoint(123.7438, 13.1391), 4326)::geography, 8),
+    ('Tabaco City Fire Station',              'Tabaco City, Albay',                                ST_SetSRID(ST_MakePoint(123.7348, 13.3536), 4326)::geography, 8),
+    ('Ligao City Fire Station',               'Ligao City, Albay',                                 ST_SetSRID(ST_MakePoint(123.5218, 13.2267), 4326)::geography, 8),
+    ('Naga City Fire Station',                'Magsaysay Avenue, Naga City, Camarines Sur',        ST_SetSRID(ST_MakePoint(123.1814, 13.6192), 4326)::geography, 8),
+    ('Iriga City Fire Station',               'Iriga City, Camarines Sur',                         ST_SetSRID(ST_MakePoint(123.4133, 13.4225), 4326)::geography, 8),
+    ('Goa Fire Station',                      'Goa, Camarines Sur',                                ST_SetSRID(ST_MakePoint(123.4897, 13.6939), 4326)::geography, 8),
+    ('Daet Fire Station',                     'Vinzons Avenue, Daet, Camarines Norte',             ST_SetSRID(ST_MakePoint(122.9584, 14.1122), 4326)::geography, 8),
+    ('Masbate City Fire Station',             'Quezon Street, Masbate City, Masbate',              ST_SetSRID(ST_MakePoint(123.6155, 12.3668), 4326)::geography, 8),
+    ('Sorsogon City Fire Station',            'Rizal Street, Sorsogon City, Sorsogon',             ST_SetSRID(ST_MakePoint(124.0054, 12.9736), 4326)::geography, 8),
+    ('Bulan Fire Station',                    'Bulan, Sorsogon',                                   ST_SetSRID(ST_MakePoint(123.8727, 12.6694), 4326)::geography, 8),
+    ('Virac Fire Station',                    'Virac, Catanduanes',                                ST_SetSRID(ST_MakePoint(124.2354, 13.5799), 4326)::geography, 8),
+
+    -- ── Region VI - Western Visayas (region_id = 9) ──────────────────────────
+    ('Iloilo City Fire Station',              'General Luna Street, Iloilo City',                  ST_SetSRID(ST_MakePoint(122.5621, 10.7202), 4326)::geography, 9),
+    ('Passi City Fire Station',               'Passi City, Iloilo',                                ST_SetSRID(ST_MakePoint(122.6413, 11.1051), 4326)::geography, 9),
+    ('Dumangas Fire Station',                 'Dumangas, Iloilo',                                  ST_SetSRID(ST_MakePoint(122.7181, 10.8249), 4326)::geography, 9),
+    ('Pototan Fire Station',                  'Pototan, Iloilo',                                   ST_SetSRID(ST_MakePoint(122.6367, 11.0129), 4326)::geography, 9),
+    ('Roxas City Fire Station',               'Roxas Avenue, Roxas City, Capiz',                   ST_SetSRID(ST_MakePoint(122.7514, 11.5872), 4326)::geography, 9),
+    ('Kalibo Fire Station',                   'Roxas Avenue, Kalibo, Aklan',                       ST_SetSRID(ST_MakePoint(122.3637, 11.7054), 4326)::geography, 9),
+    ('Makato Fire Station',                   'Makato, Aklan',                                     ST_SetSRID(ST_MakePoint(122.0968, 11.4808), 4326)::geography, 9),
+    ('San Jose de Buenavista Fire Station',   'San Jose de Buenavista, Antique',                   ST_SetSRID(ST_MakePoint(121.9316, 10.7519), 4326)::geography, 9),
+    ('Hamtic Fire Station',                   'Hamtic, Antique',                                   ST_SetSRID(ST_MakePoint(121.9940, 10.7039), 4326)::geography, 9),
+    ('Jordan Fire Station',                   'Jordan, Guimaras',                                  ST_SetSRID(ST_MakePoint(122.5930, 10.5997), 4326)::geography, 9),
+    ('Bacolod City Fire Station',             'Lacson Street, Bacolod City, Negros Occidental',    ST_SetSRID(ST_MakePoint(122.9511, 10.6713), 4326)::geography, 9),
+    ('Bago City Fire Station',                'Bago City, Negros Occidental',                      ST_SetSRID(ST_MakePoint(122.8386, 10.5348), 4326)::geography, 9),
+    ('Hinigaran Fire Station',                'Hinigaran, Negros Occidental',                      ST_SetSRID(ST_MakePoint(122.8564, 10.2672), 4326)::geography, 9),
+
+    -- ── Region VII - Central Visayas (region_id = 10) ────────────────────────
+    ('Cebu City Fire Station',                'M.J. Cuenco Avenue, Cebu City',                     ST_SetSRID(ST_MakePoint(123.8854, 10.3157), 4326)::geography, 10),
+    ('Lapu-Lapu City Fire Station',           'Basak, Lapu-Lapu City, Cebu',                       ST_SetSRID(ST_MakePoint(123.9494, 10.3102), 4326)::geography, 10),
+    ('Mandaue City Fire Station',             'A.C. Cortes Avenue, Mandaue City, Cebu',            ST_SetSRID(ST_MakePoint(123.9223, 10.3236), 4326)::geography, 10),
+    ('Talisay City Fire Station Cebu',        'Talisay City, Cebu',                                ST_SetSRID(ST_MakePoint(123.8532, 10.2452), 4326)::geography, 10),
+    ('Carcar City Fire Station',              'Carcar City, Cebu',                                 ST_SetSRID(ST_MakePoint(123.6402, 10.1067), 4326)::geography, 10),
+    ('Toledo City Fire Station',              'Toledo City, Cebu',                                 ST_SetSRID(ST_MakePoint(123.6376, 10.3766), 4326)::geography, 10),
+    ('Danao City Fire Station',               'Danao City, Cebu',                                  ST_SetSRID(ST_MakePoint(124.0222, 10.5205), 4326)::geography, 10),
+    ('Bogo City Fire Station',                'Bogo City, Cebu',                                   ST_SetSRID(ST_MakePoint(124.0025, 11.0527), 4326)::geography, 10),
+    ('Carmen Fire Station Cebu',              'Carmen, Cebu',                                      ST_SetSRID(ST_MakePoint(124.0145, 10.5869), 4326)::geography, 10),
+    ('Argao Fire Station',                    'Argao, Cebu',                                       ST_SetSRID(ST_MakePoint(123.6108, 9.8803), 4326)::geography, 10),
+    ('Tuburan Fire Station',                  'Tuburan, Cebu',                                     ST_SetSRID(ST_MakePoint(123.8199, 10.7357), 4326)::geography, 10),
+    ('Tagbilaran City Fire Station',          'Carlos P. Garcia Avenue, Tagbilaran City, Bohol',   ST_SetSRID(ST_MakePoint(123.8500, 9.6500), 4326)::geography, 10),
+    ('Guindulman Fire Station',               'Guindulman, Bohol',                                 ST_SetSRID(ST_MakePoint(124.4783, 9.7610), 4326)::geography, 10),
+    ('Jagna Fire Station',                    'Jagna, Bohol',                                      ST_SetSRID(ST_MakePoint(124.3658, 9.6504), 4326)::geography, 10),
+    ('Clarin Fire Station',                   'Clarin, Bohol',                                     ST_SetSRID(ST_MakePoint(124.0236, 9.9693), 4326)::geography, 10),
+    ('Dumaguete City Fire Station',           'Perdices Street, Dumaguete City, Negros Oriental',  ST_SetSRID(ST_MakePoint(123.3086, 9.3077), 4326)::geography, 10),
+    ('Siquijor Fire Station',                 'Siquijor, Siquijor',                                ST_SetSRID(ST_MakePoint(123.5116, 9.2095), 4326)::geography, 10),
+
+    -- ── Region VIII - Eastern Visayas (region_id = 11) ───────────────────────
+    ('Tacloban City Fire Station',            'Justice Romualdez Street, Tacloban City, Leyte',    ST_SetSRID(ST_MakePoint(125.0007, 11.2444), 4326)::geography, 11),
+    ('Ormoc City Fire Station',               'Ormoc City, Leyte',                                 ST_SetSRID(ST_MakePoint(124.6075, 11.0070), 4326)::geography, 11),
+    ('Palo Fire Station',                     'Palo, Leyte',                                       ST_SetSRID(ST_MakePoint(125.0150, 11.1575), 4326)::geography, 11),
+    ('Baybay City Fire Station',              'Baybay City, Leyte',                                ST_SetSRID(ST_MakePoint(124.8003, 10.6786), 4326)::geography, 11),
+    ('Carigara Fire Station',                 'Carigara, Leyte',                                   ST_SetSRID(ST_MakePoint(124.6748, 11.2940), 4326)::geography, 11),
+    ('Hilongos Fire Station',                 'Hilongos, Leyte',                                   ST_SetSRID(ST_MakePoint(124.7467, 10.3733), 4326)::geography, 11),
+    ('Maasin City Fire Station',              'Maasin City, Southern Leyte',                       ST_SetSRID(ST_MakePoint(124.8461, 10.1322), 4326)::geography, 11),
+    ('Naval Fire Station',                    'Naval, Biliran',                                    ST_SetSRID(ST_MakePoint(124.4056, 11.5610), 4326)::geography, 11),
+    ('Calbayog City Fire Station',            'Nijaga Street, Calbayog City, Samar',               ST_SetSRID(ST_MakePoint(124.5967, 12.0678), 4326)::geography, 11),
+    ('Catbalogan City Fire Station',          'Catbalogan City, Western Samar',                    ST_SetSRID(ST_MakePoint(124.8869, 11.7753), 4326)::geography, 11),
+    ('Allen Fire Station',                    'Allen, Northern Samar',                             ST_SetSRID(ST_MakePoint(124.2990, 12.5003), 4326)::geography, 11),
+    ('Catarman Fire Station',                 'Catarman, Northern Samar',                          ST_SetSRID(ST_MakePoint(124.6448, 12.4583), 4326)::geography, 11),
+    ('Borongan City Fire Station',            'Borongan City, Eastern Samar',                      ST_SetSRID(ST_MakePoint(125.4309, 11.6101), 4326)::geography, 11),
+    ('Bobon Fire Station',                    'Bobon, Northern Samar',                             ST_SetSRID(ST_MakePoint(124.9733, 12.5064), 4326)::geography, 11),
+
+    -- ── Region IX - Zamboanga Peninsula (region_id = 12) ─────────────────────
+    ('Zamboanga City Fire Station',           'Valderosa Street, Zamboanga City',                  ST_SetSRID(ST_MakePoint(122.0790, 6.9214), 4326)::geography, 12),
+    ('Dipolog City Fire Station',             'Quezon Avenue, Dipolog City, Zamboanga del Norte',  ST_SetSRID(ST_MakePoint(123.3409, 8.5873), 4326)::geography, 12),
+    ('Dapitan City Fire Station',             'Dapitan City, Zamboanga del Norte',                 ST_SetSRID(ST_MakePoint(123.4181, 8.6554), 4326)::geography, 12),
+    ('Sindangan Fire Station',                'Sindangan, Zamboanga del Norte',                    ST_SetSRID(ST_MakePoint(122.9979, 8.2378), 4326)::geography, 12),
+    ('Pagadian City Fire Station',            'Rizal Avenue, Pagadian City, Zamboanga del Sur',    ST_SetSRID(ST_MakePoint(123.4367, 7.8279), 4326)::geography, 12),
+    ('Molave Fire Station',                   'Molave, Zamboanga del Sur',                         ST_SetSRID(ST_MakePoint(123.4919, 8.0756), 4326)::geography, 12),
+    ('Ipil Fire Station',                     'Ipil, Zamboanga Sibugay',                           ST_SetSRID(ST_MakePoint(122.5861, 7.7851), 4326)::geography, 12),
+    ('Buug Fire Station',                     'Buug, Zamboanga Sibugay',                           ST_SetSRID(ST_MakePoint(122.6722, 7.6981), 4326)::geography, 12),
+
+    -- ── Region X - Northern Mindanao (region_id = 13) ────────────────────────
+    ('Cagayan de Oro City Fire Station',      'Velez Street, Cagayan de Oro City',                 ST_SetSRID(ST_MakePoint(124.6319, 8.4542), 4326)::geography, 13),
+    ('Iligan City Fire Station',              'Quezon Avenue, Iligan City, Lanao del Norte',       ST_SetSRID(ST_MakePoint(124.2452, 8.2280), 4326)::geography, 13),
+    ('Ozamiz City Fire Station',              'Ozamiz City, Misamis Occidental',                   ST_SetSRID(ST_MakePoint(123.8400, 8.1467), 4326)::geography, 13),
+    ('Oroquieta City Fire Station',           'Oroquieta City, Misamis Occidental',                ST_SetSRID(ST_MakePoint(123.8055, 8.4861), 4326)::geography, 13),
+    ('Gingoog City Fire Station',             'Gingoog City, Misamis Oriental',                    ST_SetSRID(ST_MakePoint(125.0042, 8.8225), 4326)::geography, 13),
+    ('Balingasag Fire Station',               'Balingasag, Misamis Oriental',                      ST_SetSRID(ST_MakePoint(124.7780, 8.7454), 4326)::geography, 13),
+    ('Medina Fire Station',                   'Medina, Misamis Oriental',                          ST_SetSRID(ST_MakePoint(124.8927, 8.9055), 4326)::geography, 13),
+    ('Initao Fire Station',                   'Initao, Misamis Oriental',                          ST_SetSRID(ST_MakePoint(124.3201, 8.4890), 4326)::geography, 13),
+    ('Malaybalay City Fire Station',          'Sayre Highway, Malaybalay City, Bukidnon',          ST_SetSRID(ST_MakePoint(125.1277, 8.1575), 4326)::geography, 13),
+    ('Valencia City Fire Station',            'Valencia City, Bukidnon',                           ST_SetSRID(ST_MakePoint(125.0972, 7.9062), 4326)::geography, 13),
+    ('Manolo Fortich Fire Station',           'Manolo Fortich, Bukidnon',                          ST_SetSRID(ST_MakePoint(124.8631, 8.3755), 4326)::geography, 13),
+    ('Mambajao Fire Station',                 'Mambajao, Camiguin',                                ST_SetSRID(ST_MakePoint(124.7197, 9.2566), 4326)::geography, 13),
+    ('Jasaan Fire Station',                   'Jasaan, Misamis Oriental',                          ST_SetSRID(ST_MakePoint(124.7519, 8.6538), 4326)::geography, 13),
+
+    -- ── Region XI - Davao Region (region_id = 14) ────────────────────────────
+    ('Davao City Fire Station',               'San Pedro Street, Davao City',                      ST_SetSRID(ST_MakePoint(125.6128, 7.0731), 4326)::geography, 14),
+    ('Tagum City Fire Station',               'Lapu-Lapu Street, Tagum City, Davao del Norte',     ST_SetSRID(ST_MakePoint(125.8079, 7.4478), 4326)::geography, 14),
+    ('Panabo City Fire Station',              'Panabo City, Davao del Norte',                      ST_SetSRID(ST_MakePoint(125.6853, 7.3047), 4326)::geography, 14),
+    ('Carmen Fire Station Davao',             'Carmen, Davao del Norte',                           ST_SetSRID(ST_MakePoint(125.6835, 7.2003), 4326)::geography, 14),
+    ('Asuncion Fire Station',                 'Asuncion, Davao del Norte',                         ST_SetSRID(ST_MakePoint(125.8695, 7.5879), 4326)::geography, 14),
+    ('Island Garden City of Samal FS',        'Island Garden City of Samal, Davao del Norte',      ST_SetSRID(ST_MakePoint(125.7282, 7.0972), 4326)::geography, 14),
+    ('Digos City Fire Station',               'Quezon Avenue, Digos City, Davao del Sur',          ST_SetSRID(ST_MakePoint(125.3572, 6.7498), 4326)::geography, 14),
+    ('Sta. Cruz Fire Station Davao',          'Sta. Cruz, Davao del Sur',                          ST_SetSRID(ST_MakePoint(125.4064, 6.8888), 4326)::geography, 14),
+    ('Bansalan Fire Station',                 'Bansalan, Davao del Sur',                           ST_SetSRID(ST_MakePoint(125.2143, 6.7888), 4326)::geography, 14),
+    ('Don Marcelino Fire Station',            'Don Marcelino, Davao Occidental',                   ST_SetSRID(ST_MakePoint(125.6533, 6.2388), 4326)::geography, 14),
+    ('Mati City Fire Station',                'Mati City, Davao Oriental',                         ST_SetSRID(ST_MakePoint(126.2250, 6.9503), 4326)::geography, 14),
+    ('Lupon Fire Station',                    'Lupon, Davao Oriental',                             ST_SetSRID(ST_MakePoint(126.5053, 6.8917), 4326)::geography, 14),
+    ('Nabunturan Fire Station',               'Nabunturan, Davao de Oro',                          ST_SetSRID(ST_MakePoint(126.1499, 7.6032), 4326)::geography, 14),
+    ('New Bataan Fire Station',               'New Bataan, Davao de Oro',                          ST_SetSRID(ST_MakePoint(126.0786, 7.4698), 4326)::geography, 14),
+    ('Malita Fire Station',                   'Malita, Davao Occidental',                          ST_SetSRID(ST_MakePoint(125.5940, 6.3939), 4326)::geography, 14),
+
+    -- ── Region XII - SOCCSKSARGEN (region_id = 15) ───────────────────────────
+    ('Koronadal City Fire Station',           'Alunan Avenue, Koronadal City, South Cotabato',     ST_SetSRID(ST_MakePoint(124.8469, 6.5026), 4326)::geography, 15),
+    ('Surallah Fire Station',                 'Surallah, South Cotabato',                          ST_SetSRID(ST_MakePoint(124.7459, 6.3673), 4326)::geography, 15),
+    ('Tupi Fire Station',                     'Tupi, South Cotabato',                              ST_SetSRID(ST_MakePoint(124.9894, 6.3374), 4326)::geography, 15),
+    ('Polomolok Fire Station',                'Polomolok, South Cotabato',                         ST_SetSRID(ST_MakePoint(125.0867, 6.2179), 4326)::geography, 15),
+    ('Lake Sebu Fire Station',                'Lake Sebu, South Cotabato',                         ST_SetSRID(ST_MakePoint(124.6894, 6.2703), 4326)::geography, 15),
+    ('General Santos City Fire Station',      'Santiago Boulevard, General Santos City',           ST_SetSRID(ST_MakePoint(125.1716, 6.1164), 4326)::geography, 15),
+    ('Kidapawan City Fire Station',           'Quezon Boulevard, Kidapawan City, North Cotabato',  ST_SetSRID(ST_MakePoint(125.0882, 7.0083), 4326)::geography, 15),
+    ('Isulan Fire Station',                   'Isulan, Sultan Kudarat',                            ST_SetSRID(ST_MakePoint(124.6068, 6.6332), 4326)::geography, 15),
+    ('Tacurong City Fire Station',            'Tacurong City, Sultan Kudarat',                     ST_SetSRID(ST_MakePoint(124.6763, 6.6929), 4326)::geography, 15),
+    ('Lebak Fire Station',                    'Lebak, Sultan Kudarat',                             ST_SetSRID(ST_MakePoint(124.0611, 6.5239), 4326)::geography, 15),
+    ('Bagumbayan Fire Station',               'Bagumbayan, Sultan Kudarat',                        ST_SetSRID(ST_MakePoint(124.5556, 6.5408), 4326)::geography, 15),
+    ('Columbio Fire Station',                 'Columbio, Sultan Kudarat',                          ST_SetSRID(ST_MakePoint(124.3494, 6.6879), 4326)::geography, 15),
+    ('Alabel Fire Station',                   'Alabel, Sarangani',                                 ST_SetSRID(ST_MakePoint(125.1592, 6.0982), 4326)::geography, 15),
+
+    -- ── Region XIII - CARAGA (region_id = 16) ────────────────────────────────
+    ('Butuan City Fire Station',              'J.C. Aquino Avenue, Butuan City, Agusan del Norte', ST_SetSRID(ST_MakePoint(125.5442, 8.9500), 4326)::geography, 16),
+    ('Cabadbaran City Fire Station',          'Cabadbaran City, Agusan del Norte',                 ST_SetSRID(ST_MakePoint(125.5357, 9.1234), 4326)::geography, 16),
+    ('Bayugan City Fire Station',             'Bayugan City, Agusan del Sur',                      ST_SetSRID(ST_MakePoint(125.7505, 8.9496), 4326)::geography, 16),
+    ('Prosperidad Fire Station',              'Prosperidad, Agusan del Sur',                       ST_SetSRID(ST_MakePoint(125.9191, 8.6017), 4326)::geography, 16),
+    ('Surigao City Fire Station',             'Borromeo Street, Surigao City, Surigao del Norte',  ST_SetSRID(ST_MakePoint(125.4955, 9.7869), 4326)::geography, 16),
+    ('Dinagat Islands Fire Station',          'San Jose, Dinagat Islands',                         ST_SetSRID(ST_MakePoint(125.5847, 10.1522), 4326)::geography, 16),
+    ('Tandag City Fire Station',              'Tandag City, Surigao del Sur',                      ST_SetSRID(ST_MakePoint(126.1936, 9.0737), 4326)::geography, 16),
+    ('Bislig City Fire Station',              'Bislig City, Surigao del Sur',                      ST_SetSRID(ST_MakePoint(126.3202, 8.2136), 4326)::geography, 16),
+    ('Cantilan Fire Station',                 'Cantilan, Surigao del Sur',                         ST_SetSRID(ST_MakePoint(126.0035, 9.3249), 4326)::geography, 16),
+    ('Lianga Fire Station',                   'Lianga, Surigao del Sur',                           ST_SetSRID(ST_MakePoint(126.0896, 8.6270), 4326)::geography, 16),
+    ('Gigaquit Fire Station',                 'Gigaquit, Surigao del Norte',                       ST_SetSRID(ST_MakePoint(125.7050, 9.5841), 4326)::geography, 16),
+    ('Siargao Fire Station',                  'General Luna, Siargao Island, Surigao del Norte',   ST_SetSRID(ST_MakePoint(126.0600, 9.8659), 4326)::geography, 16),
+    ('Jabonga Fire Station',                  'Jabonga, Agusan del Norte',                         ST_SetSRID(ST_MakePoint(125.5215, 9.3450), 4326)::geography, 16),
+
+    -- ── BARMM - Bangsamoro (region_id = 17) ──────────────────────────────────
+    ('Cotabato City Fire Station',            'Sinsuat Avenue, Cotabato City',                     ST_SetSRID(ST_MakePoint(124.2458, 7.2236), 4326)::geography, 17),
+    ('Parang Fire Station',                   'Parang, Maguindanao',                               ST_SetSRID(ST_MakePoint(124.2743, 7.3734), 4326)::geography, 17),
+    ('Sultan Kudarat FS Maguindanao',         'Sultan Kudarat, Maguindanao',                       ST_SetSRID(ST_MakePoint(124.4158, 7.3517), 4326)::geography, 17),
+    ('Marawi City Fire Station',              'Marawi City, Lanao del Sur',                        ST_SetSRID(ST_MakePoint(124.2928, 7.9986), 4326)::geography, 17),
+    ('Wao Fire Station',                      'Wao, Lanao del Sur',                                ST_SetSRID(ST_MakePoint(124.7294, 7.6508), 4326)::geography, 17),
+    ('Isabela City Fire Station',             'Isabela City, Basilan',                             ST_SetSRID(ST_MakePoint(121.9709, 6.7058), 4326)::geography, 17),
+    ('Lamitan City Fire Station',             'Lamitan City, Basilan',                             ST_SetSRID(ST_MakePoint(122.1283, 6.6534), 4326)::geography, 17),
+    ('Maluso Fire Station',                   'Maluso, Basilan',                                   ST_SetSRID(ST_MakePoint(121.9308, 6.5594), 4326)::geography, 17),
+    ('Jolo Fire Station',                     'Jolo, Sulu',                                        ST_SetSRID(ST_MakePoint(121.0011, 6.0522), 4326)::geography, 17),
+    ('Bongao Fire Station',                   'Bongao, Tawi-Tawi',                                 ST_SetSRID(ST_MakePoint(119.7733, 5.0280), 4326)::geography, 17),
+
+    -- ── NIR - Negros Island Region (region_id = 18) ──────────────────────────
+    ('Bacolod City Main Fire Station',        'Lacson Street, Bacolod City, Negros Occidental',    ST_SetSRID(ST_MakePoint(122.9511, 10.6713), 4326)::geography, 18),
+    ('Talisay City Fire Station Negros',      'Talisay City, Negros Occidental',                   ST_SetSRID(ST_MakePoint(122.9753, 10.7318), 4326)::geography, 18),
+    ('Silay City Fire Station',               'Rizal Street, Silay City, Negros Occidental',       ST_SetSRID(ST_MakePoint(122.9745, 10.7963), 4326)::geography, 18),
+    ('Cadiz City Fire Station',               'Cadiz City, Negros Occidental',                     ST_SetSRID(ST_MakePoint(123.3048, 10.9528), 4326)::geography, 18),
+    ('Escalante City Fire Station',           'Escalante City, Negros Occidental',                 ST_SetSRID(ST_MakePoint(123.4988, 10.8467), 4326)::geography, 18),
+    ('Bago City Fire Station Negros',         'Bago City, Negros Occidental',                      ST_SetSRID(ST_MakePoint(122.8386, 10.5349), 4326)::geography, 18),
+    ('Kabankalan City Fire Station',          'Kabankalan City, Negros Occidental',                ST_SetSRID(ST_MakePoint(122.8183, 9.9936), 4326)::geography, 18),
+    ('Himamaylan City Fire Station',          'Himamaylan City, Negros Occidental',                ST_SetSRID(ST_MakePoint(122.8696, 10.0844), 4326)::geography, 18),
+    ('Dumaguete City Main Fire Station',      'Perdices Street, Dumaguete City, Negros Oriental',  ST_SetSRID(ST_MakePoint(123.3086, 9.3077), 4326)::geography, 18),
+    ('Bayawan City Fire Station',             'Bayawan City, Negros Oriental',                     ST_SetSRID(ST_MakePoint(122.8035, 9.3660), 4326)::geography, 18),
+    ('Guihulngan City Fire Station',          'Guihulngan City, Negros Oriental',                  ST_SetSRID(ST_MakePoint(123.2719, 10.1169), 4326)::geography, 18),
+    ('Canlaon City Fire Station',             'Canlaon City, Negros Oriental',                     ST_SetSRID(ST_MakePoint(123.0108, 10.3829), 4326)::geography, 18),
+    ('Bais City Fire Station',                'Bais City, Negros Oriental',                        ST_SetSRID(ST_MakePoint(123.1222, 9.5928), 4326)::geography, 18);
+
+COMMIT;

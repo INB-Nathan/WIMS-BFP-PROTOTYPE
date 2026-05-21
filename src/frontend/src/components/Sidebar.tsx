@@ -16,6 +16,7 @@ import {
     Settings,
     X,
     UserCircle,
+    History,
     BarChart3,
     Clock,
     ListChecks,
@@ -200,6 +201,7 @@ function getNavSections(role: string | null): NavSection[] {
             items: [
                 { label: 'Manual Entry', href: '/afor/create', icon: FileText },
                 { label: 'Import AFOR', href: '/afor/import', icon: Upload },
+                { label: 'Activity Log', href: '/dashboard/regional/audit', icon: History },
             ]
         });
 
@@ -221,6 +223,7 @@ function getNavSections(role: string | null): NavSection[] {
             label: 'Workflow',
             items: [
                 { label: 'Triage Queue', href: '/incidents/triage', icon: ClipboardList },
+                { label: 'Audit Trail', href: '/dashboard/validator/audit', icon: History },
             ],
         });
         sections.push({ label: 'Account', items: [{ label: 'My Profile', href: '/profile', icon: UserCircle }] });

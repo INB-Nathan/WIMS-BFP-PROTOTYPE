@@ -67,7 +67,7 @@ BEGIN
                     'AFOR-SEED-NCR-QC01-STR-JAN-2026-0001',
                     1, 'NCR', 'Metro Manila', 'Quezon City', 'Batasan Hills',
                     121.0521, 14.6869, '2026-01-08 09:12:00+08'::timestamptz,
-                    '2', 'STRUCTURAL', 'Residential', 'Electrical ignition',
+                    'Second Alarm', 'STRUCTURAL', 'Residential', 'Electrical ignition',
                     'Partial', 2, 5, 18, 0, 0, 1, 0, 42, 185000.00,
                     'Quezon City Fire Station 1', 'QC01', 'STR'
                 ),
@@ -75,7 +75,7 @@ BEGIN
                     'AFOR-SEED-NCR-MNL1-STR-JAN-2026-0002',
                     1, 'NCR', 'Metro Manila', 'Manila', 'Tondo',
                     120.9687, 14.6176, '2026-01-16 22:41:00+08'::timestamptz,
-                    '3', 'STRUCTURAL', 'Commercial', 'Open flame',
+                    'Third Alarm', 'STRUCTURAL', 'Commercial', 'Open flame',
                     'Major', 6, 19, 63, 2, 0, 0, 0, 71, 950000.00,
                     'Manila Fire Station 2', 'MNL1', 'STR'
                 ),
@@ -83,7 +83,7 @@ BEGIN
                     'AFOR-SEED-NCR-MKT1-VEH-FEB-2026-0003',
                     1, 'NCR', 'Metro Manila', 'Makati', 'Poblacion',
                     121.0299, 14.5655, '2026-02-03 18:05:00+08'::timestamptz,
-                    '1', 'VEHICULAR', 'Vehicle fire', 'Engine compartment',
+                    'First Alarm', 'VEHICULAR', 'Vehicle fire', 'Engine compartment',
                     'Contained', 0, 0, 0, 0, 0, 0, 0, 18, 75000.00,
                     'Makati Central Fire Station', 'MKT1', 'VEH'
                 ),
@@ -99,7 +99,7 @@ BEGIN
                     'AFOR-SEED-NCR-MUN1-NON-MAR-2026-0005',
                     1, 'NCR', 'Metro Manila', 'Muntinlupa', 'Alabang',
                     121.0437, 14.4231, '2026-03-04 07:55:00+08'::timestamptz,
-                    '1', 'NON_STRUCTURAL', 'Grass fire', 'Open burning',
+                    'First Alarm', 'NON_STRUCTURAL', 'Grass fire', 'Open burning',
                     'Contained', 0, 0, 0, 0, 0, 0, 0, 21, 12000.00,
                     'Muntinlupa Fire Station', 'MUN1', 'NON'
                 ),
@@ -115,7 +115,7 @@ BEGIN
                     'AFOR-SEED-IVA-LIP1-STR-JAN-2026-0007',
                     6, 'IV-A', 'Batangas', 'Lipa City', 'Sabang',
                     121.1624, 13.9411, '2026-01-22 11:33:00+08'::timestamptz,
-                    '2', 'STRUCTURAL', 'Warehouse', 'Electrical ignition',
+                    'Second Alarm', 'STRUCTURAL', 'Warehouse', 'Electrical ignition',
                     'Partial', 1, 1, 7, 0, 0, 0, 0, 53, 640000.00,
                     'Lipa City Fire Station', 'LIP1', 'STR'
                 ),
@@ -123,7 +123,7 @@ BEGIN
                     'AFOR-SEED-IVA-ANT1-NON-FEB-2026-0008',
                     6, 'IV-A', 'Rizal', 'Antipolo City', 'Cupang',
                     121.1762, 14.5840, '2026-02-12 15:49:00+08'::timestamptz,
-                    '1', 'NON_STRUCTURAL', 'Rubbish fire', 'Open burning',
+                    'First Alarm', 'NON_STRUCTURAL', 'Rubbish fire', 'Open burning',
                     'Contained', 0, 0, 0, 0, 0, 0, 0, 25, 18000.00,
                     'Antipolo Fire Station', 'ANT1', 'NON'
                 ),
@@ -131,7 +131,7 @@ BEGIN
                     'AFOR-SEED-IVA-CAB1-VEH-MAR-2026-0009',
                     6, 'IV-A', 'Laguna', 'Cabuyao', 'Banay-Banay',
                     121.1251, 14.2476, '2026-03-09 20:16:00+08'::timestamptz,
-                    '2', 'VEHICULAR', 'Truck fire', 'Fuel leak',
+                    'Second Alarm', 'VEHICULAR', 'Truck fire', 'Fuel leak',
                     'Partial', 0, 0, 0, 1, 0, 0, 0, 38, 315000.00,
                     'Cabuyao Fire Station', 'CAB1', 'VEH'
                 ),
@@ -139,7 +139,7 @@ BEGIN
                     'AFOR-SEED-V-LEG1-STR-JAN-2026-0010',
                     8, 'V', 'Albay', 'Legazpi City', 'Rawis',
                     123.7462, 13.1575, '2026-01-29 04:42:00+08'::timestamptz,
-                    '3', 'STRUCTURAL', 'Mixed occupancy', 'Cooking equipment',
+                    'Third Alarm', 'STRUCTURAL', 'Mixed occupancy', 'Cooking equipment',
                     'Major', 5, 11, 36, 1, 0, 1, 0, 67, 880000.00,
                     'Legazpi City Fire Station', 'LEG1', 'STR'
                 ),
@@ -147,7 +147,7 @@ BEGIN
                     'AFOR-SEED-V-NAG1-STR-FEB-2026-0011',
                     8, 'V', 'Camarines Sur', 'Naga City', 'Concepcion Pequena',
                     123.1948, 13.6297, '2026-02-24 13:10:00+08'::timestamptz,
-                    '2', 'STRUCTURAL', 'School', 'Electrical ignition',
+                    'Second Alarm', 'STRUCTURAL', 'School', 'Electrical ignition',
                     'Partial', 1, 0, 0, 0, 0, 0, 0, 44, 420000.00,
                     'Naga City Fire Station', 'NAG1', 'STR'
                 ),
@@ -155,7 +155,7 @@ BEGIN
                     'AFOR-SEED-V-SOR1-NON-MAR-2026-0012',
                     8, 'V', 'Sorsogon', 'Sorsogon City', 'Bitan-o',
                     124.0039, 12.9742, '2026-03-28 16:36:00+08'::timestamptz,
-                    '1', 'NON_STRUCTURAL', 'Wildland edge', 'Grass and brush',
+                    'First Alarm', 'NON_STRUCTURAL', 'Wildland edge', 'Grass and brush',
                     'Contained', 0, 0, 0, 0, 0, 0, 0, 31, 26000.00,
                     'Sorsogon City Fire Station', 'SOR1', 'NON'
                 )
@@ -442,6 +442,22 @@ BEGIN
             synced_at = now();
     END LOOP;
 END $$;
+
+-- Idempotent cleanup: fix any pre-existing seed rows that still carry numeric alarm_level
+-- values ('1','2','3') from before the seed VALUES were corrected.
+UPDATE wims.incident_nonsensitive_details AS nd
+SET alarm_level = CASE nd.alarm_level
+    WHEN '1' THEN 'First Alarm'
+    WHEN '2' THEN 'Second Alarm'
+    WHEN '3' THEN 'Third Alarm'
+    WHEN '4' THEN 'Fourth Alarm'
+    WHEN '5' THEN 'Fifth Alarm'
+    ELSE nd.alarm_level
+END
+FROM wims.fire_incidents fi
+WHERE fi.incident_id = nd.incident_id
+  AND fi.reference_number LIKE 'AFOR-SEED-%'
+  AND nd.alarm_level ~ '^[1-5]$';
 
 REFRESH MATERIALIZED VIEW wims.mv_incident_counts_daily;
 REFRESH MATERIALIZED VIEW wims.mv_incident_by_region;

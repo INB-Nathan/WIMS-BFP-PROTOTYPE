@@ -30,6 +30,7 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `incidents.py` | `GET` | `/incidents` | `get_incidents` |
 | `incidents.py` | `GET` | `/incidents/analyst-list` | `get_analyst_incident_list` |
 | `incidents.py` | `GET` | `/incidents/analyst/{incident_id}` | `get_analyst_incident_detail` |
+| `incidents.py` | `GET` | `/incidents/analyst/{incident_id}/sensitive` | `get_analyst_incident_sensitive_detail` |
 | `incidents.py` | `GET` | `/incidents/analyst/{incident_id}/wildland` | `get_analyst_incident_wildland_detail` |
 | `regional.py` | `POST` | `/afor/import` | `import_afor_file` |
 | `regional.py` | `POST` | `/afor/commit` | `commit_afor_import` |

@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/api';
+import { PH_REGIONS } from '@/lib/ph-regions';
 
 interface AuditEntry {
   history_id: number;
@@ -34,14 +35,21 @@ interface AuditResponse {
 
 const ACTION_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'Any' },
+  // Validator actions
   { value: 'APPROVED', label: 'Approved' },
   { value: 'REJECTED', label: 'Rejected' },
   { value: 'BULK_APPROVED', label: 'Bulk Approved' },
   { value: 'REPLACED_EXISTING', label: 'Replaced Existing' },
   { value: 'ACCEPTED_AS_NEW', label: 'Accepted as New' },
   { value: 'ARCHIVED', label: 'Archived' },
+  // Encoder actions
+  { value: 'CREATED_DRAFT', label: 'Created Draft' },
+  { value: 'EDITED', label: 'Edited' },
+  { value: 'SUBMITTED', label: 'Submitted for Review' },
+  { value: 'WITHDRAWN', label: 'Withdrawn' },
+  { value: 'DELETED_DRAFT', label: 'Deleted Draft' },
 ];
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 15;
 
 export default function ValidatorAuditPage() {
   const [items, setItems] = useState<AuditEntry[]>([]);
@@ -53,7 +61,8 @@ export default function ValidatorAuditPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [regionId, setRegionId] = useState('');
-  const [validatorId, setValidatorId] = useState('');
+  const [actorUsername, setActorUsername] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
   const [action, setAction] = useState('');
 
   const buildParams = useCallback(() => {
@@ -61,10 +70,11 @@ export default function ValidatorAuditPage() {
     if (dateFrom) p.set('date_from', dateFrom);
     if (dateTo) p.set('date_to', dateTo);
     if (regionId) p.set('region_id', regionId);
-    if (validatorId) p.set('validator_id', validatorId);
+    if (actorUsername.trim()) p.set('actor_username', actorUsername.trim());
+    if (roleFilter) p.set('role', roleFilter);
     if (action) p.set('action', action);
     return p;
-  }, [dateFrom, dateTo, regionId, validatorId, action]);
+  }, [dateFrom, dateTo, regionId, actorUsername, roleFilter, action]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -104,9 +114,9 @@ export default function ValidatorAuditPage() {
         <h1 className="text-2xl font-bold">Audit Trail</h1>
         <Link
           href="/dashboard/validator"
-          className="text-sm font-medium text-blue-700 hover:text-blue-900"
+          className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium bg-yellow-400 text-gray-900 hover:bg-yellow-500 transition-colors"
         >
-          ← Back to queue
+          ← Back to Queue
         </Link>
       </div>
       <p className="text-sm text-gray-500 mb-6">
@@ -114,7 +124,7 @@ export default function ValidatorAuditPage() {
       </p>
 
       {/* Filters */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-4 text-sm">
+      <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-4 text-sm">
         <label className="flex flex-col">
           <span className="text-xs text-gray-600">From</span>
           <input
@@ -140,29 +150,50 @@ export default function ValidatorAuditPage() {
           />
         </label>
         <label className="flex flex-col">
-          <span className="text-xs text-gray-600">Region ID</span>
-          <input
-            type="text"
+          <span className="text-xs text-gray-600">Region</span>
+          <select
             className="border rounded px-2 py-1.5"
             value={regionId}
             onChange={(e) => {
               setRegionId(e.target.value);
               setPage(0);
             }}
-          />
+          >
+            <option value="">All Regions</option>
+            {PH_REGIONS.map((r) => (
+              <option key={r.regionId} value={String(r.regionId)}>
+                {r.regionName}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="flex flex-col">
-          <span className="text-xs text-gray-600">Validator UUID</span>
+          <span className="text-xs text-gray-600">Username</span>
           <input
             type="text"
             className="border rounded px-2 py-1.5"
             placeholder="any"
-            value={validatorId}
+            value={actorUsername}
             onChange={(e) => {
-              setValidatorId(e.target.value);
+              setActorUsername(e.target.value);
               setPage(0);
             }}
           />
+        </label>
+        <label className="flex flex-col">
+          <span className="text-xs text-gray-600">Role</span>
+          <select
+            className="border rounded px-2 py-1.5"
+            value={roleFilter}
+            onChange={(e) => {
+              setRoleFilter(e.target.value);
+              setPage(0);
+            }}
+          >
+            <option value="">Any</option>
+            <option value="NATIONAL_VALIDATOR">Validator</option>
+            <option value="REGIONAL_ENCODER">Encoder</option>
+          </select>
         </label>
         <label className="flex flex-col">
           <span className="text-xs text-gray-600">Action</span>

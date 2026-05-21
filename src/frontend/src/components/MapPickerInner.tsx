@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -21,15 +21,22 @@ export interface MapPickerInnerProps {
     value?: { lat: number; lng: number } | null;
     onChange?: (lat: number, lng: number) => void;
     mapHeight?: string;
+    searchQuery?: string;
 }
 
 const DEFAULT_CENTER: [number, number] = [14.5995, 120.9842]; // Manila area
+
+const PH_BOUNDS = { minLat: 4.5, maxLat: 21.5, minLng: 116.0, maxLng: 127.0 };
+const isInPhilippines = (lat: number, lng: number) =>
+    lat >= PH_BOUNDS.minLat && lat <= PH_BOUNDS.maxLat &&
+    lng >= PH_BOUNDS.minLng && lng <= PH_BOUNDS.maxLng;
+
 // M4 Bug 8-B: city-level zoom for incident input; detail view uses DETAIL_INCIDENT_MAP_ZOOM
 export const DEFAULT_INCIDENT_MAP_ZOOM = 12;
 export const DETAIL_INCIDENT_MAP_ZOOM = 13;
 const DEFAULT_ZOOM = DEFAULT_INCIDENT_MAP_ZOOM;
 // M4 Bug 8-C: landscape rectangle ratio for input maps; detail view passes 320px explicitly
-export const DEFAULT_INCIDENT_MAP_HEIGHT = '400px';
+export const DEFAULT_INCIDENT_MAP_HEIGHT = '280px';
 export const DETAIL_INCIDENT_MAP_HEIGHT = '320px';
 
 type GeoSuggestion = {
@@ -93,6 +100,7 @@ export function MapPickerInner({
     value,
     onChange,
     mapHeight = DEFAULT_INCIDENT_MAP_HEIGHT,
+    searchQuery,
 }: MapPickerInnerProps) {
     const readOnly = !onChange;
     const [position, setPosition] = useState<{ lat: number; lng: number } | null>(value ?? null);
@@ -103,6 +111,8 @@ export function MapPickerInner({
     const [searching, setSearching] = useState(false);
     const [searchError, setSearchError] = useState<string | null>(null);
     const [suggestions, setSuggestions] = useState<GeoSuggestion[]>([]);
+    const [coordError, setCoordError] = useState<string | null>(null);
+    const autoSearchedRef = useRef<string | null>(null);
 
     useEffect(() => {
         setPosition(value ?? null);
@@ -113,9 +123,15 @@ export function MapPickerInner({
 
     const handleChange = useCallback(
         (lat: number, lng: number) => {
+            if (!isInPhilippines(lat, lng)) {
+                setCoordError('Coordinates must be within the Philippines. Click a location inside the Philippine archipelago.');
+                return;
+            }
+            setCoordError(null);
             setPosition({ lat, lng });
             setMapCenter([lat, lng]);
             setSuggestions([]);
+            setSearchText('');
             onChange?.(lat, lng);
         },
         [onChange]
@@ -164,6 +180,37 @@ export function MapPickerInner({
         }
     }, [handleChange, searchText]);
 
+    // Auto-pin the map when a searchQuery prop is supplied (e.g. from AFOR import).
+    // Fills the search box with the address and fires a forward geocode so the marker
+    // is placed at the nearest matching location without the user having to type.
+    useEffect(() => {
+        if (!searchQuery || searchQuery.startsWith('(') || autoSearchedRef.current === searchQuery) return;
+        autoSearchedRef.current = searchQuery;
+        setSearchText(searchQuery);
+        // Skip network call when the caller already supplied valid coordinates via `value`.
+        if (value) return;
+        const q = searchQuery;
+        setSearching(true);
+        const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=ph&limit=1&q=${encodeURIComponent(q)}`;
+        fetch(url, { headers: { Accept: 'application/json' } })
+            .then((r) => r.json())
+            .then((data: Array<{ lat: string; lon: string }>) => {
+                const first = data[0];
+                if (!first) return;
+                const lat = Number(first.lat);
+                const lng = Number(first.lon);
+                if (isInPhilippines(lat, lng)) {
+                    handleChange(lat, lng);
+                    // Restore the address in the search box after auto-pin.
+                    // handleChange clears it, but keeping the address visible
+                    // lets the user see what was searched and edit if needed.
+                    setSearchText(q);
+                }
+            })
+            .catch(() => { /* silent — user can search manually */ })
+            .finally(() => setSearching(false));
+    }, [searchQuery, value, handleChange]);
+
     useEffect(() => {
         const q = searchText.trim();
         if (q.length < 2) {
@@ -206,8 +253,8 @@ export function MapPickerInner({
     return (
         <div className="space-y-2">
             {!readOnly && (
-                <>
-                    <div className="flex flex-col md:flex-row gap-2">
+                <div>
+                    <div className="flex flex-col md:flex-row gap-2 mb-1">
                         <input
                             type="text"
                             value={searchText}
@@ -256,7 +303,8 @@ export function MapPickerInner({
                         </div>
                     )}
                     {searchError && <p className="text-xs text-red-600">{searchError}</p>}
-                </>
+                    {coordError && <p className="text-xs text-red-600">{coordError}</p>}
+                </div>
             )}
 
             <div style={{ overflow: 'hidden', borderRadius: '0.375rem', position: 'relative' }}>

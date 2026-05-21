@@ -416,6 +416,11 @@ describe('Analyst dashboard — AQ-12: Multi-region select', () => {
       expect(mockFetchHeatmapData).toHaveBeenCalled();
     });
 
+    // fetchRegions resolves asynchronously; wait for options to render before selecting
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /NCR/i })).toBeInTheDocument();
+    });
+
     await user.selectOptions(screen.getByLabelText(/^region$/i), '1');
     await user.click(screen.getByRole('button', { name: /^apply$/i }));
 
@@ -447,6 +452,11 @@ describe('Analyst dashboard — AQ-13: Cross-region comparison view', () => {
 
     await waitFor(() => {
       expect(mockFetchHeatmapData).toHaveBeenCalled();
+    });
+
+    // fetchRegions resolves asynchronously; wait for options to render before selecting
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /NCR/i })).toBeInTheDocument();
     });
 
     // Select a region to trigger compare-regions
@@ -482,6 +492,11 @@ describe('Analyst dashboard — AQ-13: Cross-region comparison view', () => {
 
     await waitFor(() => {
       expect(mockFetchHeatmapData).toHaveBeenCalled();
+    });
+
+    // fetchRegions resolves asynchronously; wait for options to render before selecting
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /NCR/i })).toBeInTheDocument();
     });
 
     await user.selectOptions(screen.getByLabelText(/^region$/i), '1');

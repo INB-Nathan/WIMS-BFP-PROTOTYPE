@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { ArrowRight, Lock, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Lock } from 'lucide-react';
 
 export default function LoginPage() {
     const router = useRouter();
@@ -38,42 +38,42 @@ export default function LoginPage() {
     return (
         <div className="login-page">
             {/* Left Panel — BFP Branding */}
-            <div className="login-left">
-                <div className="login-left-content">
-                    <div className="login-logo">
+            <div className="wims-login-branding">
+                <div className="wims-branding-content">
+                    <div className="wims-logo-wrap">
                         <Image
                             src="/bfp-logo.svg"
                             alt="Bureau of Fire Protection"
                             fill
-                            className="object-contain"
+                            className="wims-logo"
                             priority
                         />
                     </div>
 
-                    <h1 className="login-title">
+                    <h1 className="wims-brand-title">
                         Web-based Incident
                         <br />
                         Management System
                     </h1>
-                    <p className="login-subtitle">Bureau of Fire Protection</p>
+                    <p className="wims-brand-subtitle">Bureau of Fire Protection</p>
 
-                    <div className="login-tagline">
-                        <ShieldCheck className="w-4 h-4" />
+                    <div className="wims-brand-tagline">
+                        <Lock className="w-4 h-4" />
                         <span>Secured &bull; Monitored &bull; Explainable</span>
                     </div>
                 </div>
             </div>
 
             {/* Right Panel — Login Form */}
-            <div className="login-right">
-                <div className="login-form-container">
-                    <h2 className="login-form-title">Sign In</h2>
-                    <p className="login-form-subtitle">
+            <div className="wims-login-form">
+                <div className="wims-form-container">
+                    <h2 className="wims-form-title">Sign In</h2>
+                    <p className="wims-form-subtitle">
                         Access the WIMS-BFP dashboard
                     </p>
 
-                    <div className="login-form-card">
-                        <div className="login-sso-notice">
+                    <div className="wims-form-card">
+                        <div className="wims-sso-notice">
                             <Lock className="w-4 h-4 text-theme-accent-mid flex-shrink-0" />
                             <p>
                                 Secure single sign-on powered by Keycloak.
@@ -83,14 +83,14 @@ export default function LoginPage() {
 
                         <button
                             onClick={handleLogin}
-                            className="login-button"
+                            className="wims-button"
                         >
                             Login with Keycloak
-                            <ArrowRight className="w-4 h-4 login-button-arrow" />
+                            <ArrowRight className="w-4 h-4" />
                         </button>
                     </div>
 
-                    <p className="login-copyright">
+                    <p className="wims-copyright">
                         &copy; 2026 Bureau of Fire Protection &mdash; All rights reserved.
                     </p>
                 </div>

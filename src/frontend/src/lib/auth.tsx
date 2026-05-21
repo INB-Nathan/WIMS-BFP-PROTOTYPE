@@ -6,10 +6,10 @@ import {
   useEffect,
   useState,
   useCallback,
-  useRef,
   ReactNode,
 } from 'react';
 import { useRouter } from 'next/navigation';
+import { refreshToken } from '@/lib/auth-refresh';
 
 export interface User {
     id: string;
@@ -27,7 +27,6 @@ interface UserProfile {
 
 const AuthContext = createContext<UserProfile | undefined>(undefined);
 const PROACTIVE_REFRESH_INTERVAL_MS = 4 * 60 * 1000; // refresh before 5-minute access token expiry
-const REFRESH_LOCK_NAME = 'wims:auth:refresh_lock';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
@@ -35,40 +34,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [assignedRegionId, setAssignedRegionId] = useState<number | null>(null);
     const [loading, setLoading] = useState(true);
     const router = useRouter();
-    const refreshInFlightRef = useRef<Promise<boolean> | null>(null);
 
-    // ─── Silent token refresh ─────────────────────────────────────────────────
-    // Uses navigator.locks so only ONE tab refreshes at a time.
-    // refreshTokenMaxReuse:0 means concurrent refresh attempts race — first wins,
-    // others get 401 and session dies. The lock serializes them.
-    const refreshAccessToken = useCallback(async (): Promise<boolean> => {
-        if (refreshInFlightRef.current) {
-            return refreshInFlightRef.current;
-        }
-
-        const refreshPromise = (async () => {
-            const lock = await navigator.locks.request(REFRESH_LOCK_NAME, async () => {
-                try {
-                    const res = await fetch('/api/auth/refresh', {
-                        method: 'POST',
-                        credentials: 'include',
-                    });
-                    if (!res.ok) {
-                        console.log('[AuthContext] refreshAccessToken: refresh failed', res.status);
-                        return false;
-                    }
-                    console.log('[AuthContext] refreshAccessToken: token refreshed');
-                    return true;
-                } catch (err) {
-                    console.error('[AuthContext] refreshAccessToken: request failed', err);
-                    return false;
-                }
-            });
-            return lock ?? false;
-        })();
-
-        refreshInFlightRef.current = refreshPromise;
-        return refreshPromise;
+    // Delegates to the module-level singleton — deduplicates across concurrent
+    // calls within this tab and uses navigator.locks for cross-tab coordination.
+    const refreshAccessToken = useCallback((): Promise<boolean> => {
+        return refreshToken();
     }, []);
 
     // ─── Session re-hydration ─────────────────────────────────────────────────
@@ -138,11 +108,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
+        // When an API call fails with 401 and skipAuthRedirect is set, it fires this
+        // event instead of hard-redirecting. We re-check the session here — if the
+        // OIDC session is still alive, fetchProfile() will restore the token without
+        // requiring a manual page refresh. If it's truly gone, user becomes null and
+        // the auth guards redirect to /login.
+        const handleAuthFailed = () => { void fetchProfile(); };
+        window.addEventListener('wims:auth-failed', handleAuthFailed);
+
         return () => {
             window.clearInterval(intervalId);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('wims:auth-failed', handleAuthFailed);
         };
-    }, [user, refreshAccessToken]);
+    }, [user, refreshAccessToken, fetchProfile]);
 
     const signOut = async () => {
         await fetch('/api/auth/logout', { method: 'POST' });

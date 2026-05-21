@@ -71,8 +71,6 @@ def get_heatmap(
     Uses wims.analytics_incident_facts (indexed access).
     """
     if damage_min is not None and damage_max is not None and damage_max < damage_min:
-        from fastapi import HTTPException
-
         raise HTTPException(
             status_code=422,
             detail="damage_max must be greater than or equal to damage_min",
@@ -83,8 +81,6 @@ def get_heatmap(
         try:
             parsed_region_ids = [int(x.strip()) for x in region_ids.split(",") if x.strip()]
         except ValueError:
-            from fastapi import HTTPException
-
             raise HTTPException(
                 status_code=422, detail="region_ids must be comma-separated integers"
             )
@@ -145,8 +141,6 @@ def get_trends_route(
         try:
             parsed_region_ids = [int(x.strip()) for x in region_ids.split(",") if x.strip()]
         except ValueError:
-            from fastapi import HTTPException
-
             raise HTTPException(
                 status_code=422, detail="region_ids must be comma-separated integers"
             )
@@ -425,8 +419,6 @@ def compare_regions_route(
     damage_max: Optional[float] = Query(None, ge=0),
 ):
     """Cross-region comparison. Requires at least 2 region IDs."""
-    from fastapi import HTTPException
-
     try:
         parsed = [int(x.strip()) for x in region_ids.split(",") if x.strip()]
     except ValueError:
@@ -485,3 +477,33 @@ def top_n_route(
         damage_max=damage_max,
     )
     return data
+
+
+@router.post("/incidents/{incident_id}/narrative")
+async def generate_narrative(
+    incident_id: int,
+    user: Annotated[dict, Depends(get_analyst_or_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """
+    Generate an AI narrative for a verified fire incident via Qwen2.5-3B.
+    Only works on VERIFIED incidents. Stores result in fire_incidents.ai_narrative.
+    """
+    from services.ai_service import generate_incident_narrative
+
+    return await generate_incident_narrative(incident_id, db)
+
+
+@router.post("/incidents/batch-narratives", status_code=202)
+def trigger_batch_narratives(
+    user: Annotated[dict, Depends(get_analyst_or_admin)],
+    limit: int = Query(default=50, ge=1, le=500),
+):
+    """
+    Trigger batch AI narrative generation for VERIFIED incidents
+    without narratives. Dispatches to Celery task.
+    """
+    from tasks.narrative import batch_generate_narratives
+
+    task = batch_generate_narratives.delay(limit=limit)
+    return {"task_id": task.id, "limit": limit}

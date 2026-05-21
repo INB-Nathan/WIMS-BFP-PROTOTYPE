@@ -865,6 +865,13 @@ export default function AnalystDashboardPage() {
           {/* Two-column layout: main content left, heatmap portrait on right */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
             <div className="space-y-6">
+              <AnalystIncidentList
+                filters={appliedIncidentFilters}
+                prominent
+                title="Incident Analysis Set"
+                description="Select verified incidents across pages, then send that selected set to a dedicated analyst workflow."
+              />
+
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
                   <PanelHeader
@@ -954,8 +961,8 @@ export default function AnalystDashboardPage() {
                 </div>
               </div>
 
-              {/* Charts grid: pie, top barangays, response time */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Charts grid: two summary widgets without reserving an unused third column */}
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 {/* AQ-06: Type distribution donut chart */}
                 <div className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
                   <PanelHeader
@@ -1071,12 +1078,6 @@ export default function AnalystDashboardPage() {
                 </div>
               </div>
 
-              <AnalystIncidentList
-                filters={appliedIncidentFilters}
-                prominent
-                title="Incident Analysis Set"
-                description="Select verified incidents across pages, then send that selected set to a dedicated analyst workflow."
-              />
             </div>
 
             {/* Heatmap: portrait side column on desktop */}
@@ -1087,7 +1088,7 @@ export default function AnalystDashboardPage() {
                 description="Geographic clustering of verified incidents"
               />
               <div className="p-0">
-                <HeatmapViewer geojson={heatmap} />
+                <HeatmapViewer geojson={heatmap} className="h-[520px] lg:h-[calc(100vh-7rem)] lg:min-h-[600px] lg:max-h-[920px]" />
               </div>
             </div>
           </div>

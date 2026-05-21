@@ -10,8 +10,8 @@ interface EncoderAuditEntry {
   action_label: string | null;
   previous_status: string | null;
   new_status: string | null;
-  notes: string | null;
   action_timestamp: string | null;
+  city_municipality: string | null;
 }
 
 interface EncoderAuditResponse {
@@ -21,15 +21,26 @@ interface EncoderAuditResponse {
   offset: number;
 }
 
+const ACTION_OPTIONS = [
+  { value: '', label: 'Any action' },
+  { value: 'CREATED_DRAFT', label: 'Created Draft' },
+  { value: 'EDITED', label: 'Edited' },
+  { value: 'SUBMITTED', label: 'Submitted for Review' },
+  { value: 'WITHDRAWN', label: 'Withdrawn' },
+  { value: 'DELETED_DRAFT', label: 'Deleted Draft' },
+  { value: 'DELETED_PENDING', label: 'Deleted Pending' },
+];
+
 const ACTION_LABEL_MAP: Record<string, string> = {
   CREATED_DRAFT: 'Created Draft',
   EDITED: 'Edited',
   DELETED_DRAFT: 'Deleted Draft',
+  DELETED_PENDING: 'Deleted Pending Submission',
   SUBMITTED: 'Submitted for Review',
   WITHDRAWN: 'Withdrawn',
 };
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 15;
 
 export default function EncoderAuditPage() {
   const [items, setItems] = useState<EncoderAuditEntry[]>([]);
@@ -39,13 +50,22 @@ export default function EncoderAuditPage() {
   const [error, setError] = useState<string | null>(null);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [actionFilter, setActionFilter] = useState('');
+  const [cityFilter, setCityFilter] = useState('');
+
+  const buildParams = useCallback(() => {
+    const p = new URLSearchParams();
+    if (dateFrom) p.set('date_from', dateFrom);
+    if (dateTo) p.set('date_to', dateTo);
+    if (actionFilter) p.set('action', actionFilter);
+    if (cityFilter.trim()) p.set('city_municipality', cityFilter.trim());
+    return p;
+  }, [dateFrom, dateTo, actionFilter, cityFilter]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const p = new URLSearchParams();
-    if (dateFrom) p.set('date_from', dateFrom);
-    if (dateTo) p.set('date_to', dateTo);
+    const p = buildParams();
     p.set('limit', String(PAGE_SIZE));
     p.set('offset', String(page * PAGE_SIZE));
     try {
@@ -59,7 +79,12 @@ export default function EncoderAuditPage() {
     } finally {
       setLoading(false);
     }
-  }, [dateFrom, dateTo, page]);
+  }, [buildParams, page]);
+
+  const handleExport = () => {
+    const p = buildParams();
+    window.open(`/api/regional/audit-log/export?${p.toString()}`, '_blank');
+  };
 
   useEffect(() => {
     load();
@@ -73,9 +98,9 @@ export default function EncoderAuditPage() {
         <h1 className="text-2xl font-bold">My Activity Log</h1>
         <Link
           href="/dashboard/regional"
-          className="text-sm font-medium text-blue-700 hover:text-blue-900"
+          className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium bg-yellow-400 text-gray-900 hover:bg-yellow-500 transition-colors"
         >
-          ← Back to incidents
+          ← Back to Dashboard
         </Link>
       </div>
       <p className="text-sm text-gray-500 mb-6">
@@ -83,7 +108,7 @@ export default function EncoderAuditPage() {
       </p>
 
       {/* Filters */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 text-sm">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4 text-sm">
         <label className="flex flex-col">
           <span className="text-xs text-gray-600">From</span>
           <input
@@ -102,14 +127,44 @@ export default function EncoderAuditPage() {
             onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
           />
         </label>
+        <label className="flex flex-col">
+          <span className="text-xs text-gray-600">Action</span>
+          <select
+            className="border rounded px-2 py-1.5"
+            value={actionFilter}
+            onChange={(e) => { setActionFilter(e.target.value); setPage(0); }}
+          >
+            {ACTION_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col">
+          <span className="text-xs text-gray-600">City / Municipality</span>
+          <input
+            type="text"
+            className="border rounded px-2 py-1.5"
+            placeholder="partial match"
+            value={cityFilter}
+            onChange={(e) => { setCityFilter(e.target.value); setPage(0); }}
+          />
+        </label>
       </div>
 
-      <button
-        onClick={() => { setPage(0); load(); }}
-        className="bg-gray-100 hover:bg-gray-200 border rounded px-4 py-2 text-sm mb-4"
-      >
-        ↺ Refresh
-      </button>
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={() => { setPage(0); load(); }}
+          className="bg-gray-100 hover:bg-gray-200 border rounded px-4 py-2 text-sm"
+        >
+          ↺ Refresh
+        </button>
+        <button
+          onClick={handleExport}
+          className="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2 text-sm"
+        >
+          Export CSV
+        </button>
+      </div>
 
       {loading && (
         <div className="text-gray-400 text-sm py-12 text-center">Loading…</div>
@@ -133,7 +188,7 @@ export default function EncoderAuditPage() {
                 <th className="text-left px-3 py-2 font-medium">Date &amp; Time</th>
                 <th className="text-left px-3 py-2 font-medium">Incident</th>
                 <th className="text-left px-3 py-2 font-medium">Action</th>
-                <th className="text-left px-3 py-2 font-medium">Notes</th>
+                <th className="text-left px-3 py-2 font-medium">City / Municipality</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -159,7 +214,7 @@ export default function EncoderAuditPage() {
                   <td className="px-3 py-2 font-medium">
                     {ACTION_LABEL_MAP[it.action_label ?? ''] ?? it.action_label ?? '—'}
                   </td>
-                  <td className="px-3 py-2 text-gray-500">{it.notes ?? '—'}</td>
+                  <td className="px-3 py-2 text-gray-500">{it.city_municipality ?? '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -167,27 +222,25 @@ export default function EncoderAuditPage() {
         </div>
       )}
 
-      {total > PAGE_SIZE && (
-        <div className="flex items-center gap-4 mt-4 text-sm text-gray-600">
-          <button
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            disabled={page === 0}
-            className="px-3 py-1 border rounded disabled:opacity-40"
-          >
-            ← Prev
-          </button>
-          <span>
-            Page {page + 1} of {totalPages} ({total} entries)
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-            disabled={page >= totalPages - 1}
-            className="px-3 py-1 border rounded disabled:opacity-40"
-          >
-            Next →
-          </button>
-        </div>
-      )}
+      <div className="flex items-center gap-4 mt-4 text-sm text-gray-600">
+        <button
+          onClick={() => setPage((p) => Math.max(0, p - 1))}
+          disabled={page === 0}
+          className="px-3 py-1 border rounded disabled:opacity-40"
+        >
+          ← Prev
+        </button>
+        <span>
+          Page {page + 1} of {totalPages} ({total} entries)
+        </span>
+        <button
+          onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+          disabled={page >= totalPages - 1}
+          className="px-3 py-1 border rounded disabled:opacity-40"
+        >
+          Next →
+        </button>
+      </div>
     </div>
   );
 }

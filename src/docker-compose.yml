@@ -118,6 +118,7 @@ services:
       - KEYCLOAK_ADMIN_USER=admin
       - KEYCLOAK_ADMIN_PASSWORD=admin
       - OLLAMA_URL=http://ollama:11434
+      - AFOR_TEMPLATE_PATH=/app/AFOR-FORMATTED.xlsx
     volumes:
       - incident_attachments_data:/app/storage
       - ./postgres-init:/app/postgres-init:ro
@@ -147,6 +148,9 @@ services:
       - OLLAMA_URL=http://ollama:11434
       - SURICATA_EVE_PATH=/var/log/suricata/eve.json
       - EXPORT_DIR=/app/storage/exports
+      - AFOR_TEMPLATE_PATH=/app/AFOR-FORMATTED.xlsx
+      - FIREBASE_SERVICE_ACCOUNT_JSON=${FIREBASE_SERVICE_ACCOUNT_JSON:-}
+      - FIREBASE_CREDENTIALS_PATH=${FIREBASE_CREDENTIALS_PATH:-}
     volumes:
       - ./suricata/logs:/var/log/suricata:ro
       - incident_attachments_data:/app/storage
@@ -167,6 +171,13 @@ services:
         NEXT_PUBLIC_BASE_URL: http://localhost
         NEXT_PUBLIC_OIDC_REDIRECT_URI: http://localhost/callback
         NEXT_PUBLIC_OIDC_AUTHORITY: http://localhost:8080/auth/realms/bfp
+        NEXT_PUBLIC_FIREBASE_API_KEY: AIzaSyArd0EsgwC1HqK51ijF1SFM4na4ABGb6Kg
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: wims-bfp.firebaseapp.com
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID: wims-bfp
+        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: wims-bfp.firebasestorage.app
+        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "465171995576"
+        NEXT_PUBLIC_FIREBASE_APP_ID: "1:465171995576:web:9aa2403d8f6b9c4bb50d4d"
+        NEXT_PUBLIC_FIREBASE_VAPID_KEY: BLzOwjh0pc6cwguOw84zE6uyXmL-JnYUw6iMVsi1j7EN9jmKVNDn88TKBGjxU4SXK4n4kccxRRZB2UN0yMhXL0k
     container_name: wims-frontend
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost/api
@@ -177,6 +188,13 @@ services:
       - NEXT_PUBLIC_OIDC_CLIENT_ID=wims-web
       - NEXT_PUBLIC_APP_URL=http://localhost
       - BACKEND_URL=http://nginx-gateway:80
+      - NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSyArd0EsgwC1HqK51ijF1SFM4na4ABGb6Kg
+      - NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=wims-bfp.firebaseapp.com
+      - NEXT_PUBLIC_FIREBASE_PROJECT_ID=wims-bfp
+      - NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=wims-bfp.firebasestorage.app
+      - NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=465171995576
+      - NEXT_PUBLIC_FIREBASE_APP_ID=1:465171995576:web:9aa2403d8f6b9c4bb50d4d
+      - NEXT_PUBLIC_FIREBASE_VAPID_KEY=BLzOwjh0pc6cwguOw84zE6uyXmL-JnYUw6iMVsi1j7EN9jmKVNDn88TKBGjxU4SXK4n4kccxRRZB2UN0yMhXL0k
     networks:
       - wims_internal
     depends_on:

@@ -17,8 +17,8 @@ from auth import get_current_wims_user, get_analyst_or_admin
 from database import get_db_with_rls
 from schemas.incident import IncidentCreate, IncidentResponse
 from services.analytics_read_model import sync_incident_to_analytics
+from api.routes.regional import _normalize_general_category, _insert_incident_verification_history
 from tasks.exports import export_analyst_incidents_task
-from api.routes.regional import _normalize_general_category
 
 router = APIRouter(prefix="/api", tags=["incidents"])
 logger = logging.getLogger("wims.incidents")
@@ -194,7 +194,9 @@ def upload_incident_bundle(
                     recommendations, fire_station_name, stage_of_fire,
                     extent_total_floor_area_sqm, extent_total_land_area_hectares,
                     distance_from_station_km, station_code,
-                    city_municipality, province_district
+                    city_municipality, province_district, barangay,
+                    extent_description, extent_objects_count,
+                    general_description_of_involved
                 ) VALUES (
                     :incident_id, :city_id,
                     CAST(:notification_dt AS timestamptz), :alarm_level, :general_category, :sub_category,
@@ -206,7 +208,9 @@ def upload_incident_bundle(
                     :recommendations, :fire_station_name, :stage_of_fire,
                     :floor_area, :land_area,
                     :distance_from_station_km, :station_code,
-                    :city_municipality, :province_district
+                    :city_municipality, :province_district, :barangay,
+                    :extent_description, :extent_objects_count,
+                    :general_description_of_involved
                 )
                 """
             ),
@@ -243,6 +247,11 @@ def upload_incident_bundle(
                 "station_code": station_code_val,
                 "city_municipality": ns.get("city_municipality") or "",
                 "province_district": ns.get("province_district") or "",
+                "barangay": ns.get("barangay") or "",
+                "extent_description": ns.get("extent_description") or None,
+                "extent_objects_count": _safe_int(ns.get("extent_objects_count")),
+                "general_description_of_involved": ns.get("general_description_of_involved")
+                or None,
             },
         )
 
@@ -289,6 +298,16 @@ def upload_incident_bundle(
                 "is_icp_present": bool(sens.get("is_icp_present", False)),
                 "icp_location": sens.get("icp_location", ""),
             },
+        )
+
+        _insert_incident_verification_history(
+            db,
+            incident_id=incident_id,
+            actor_user_id=str(user_id),
+            previous_status="DRAFT",
+            new_status="DRAFT",
+            notes="Encoder created new draft",
+            action_label="CREATED_DRAFT",
         )
 
     try:
@@ -798,7 +817,8 @@ def get_analyst_incident_detail(
 
     Requires: NATIONAL_ANALYST or SYSTEM_ADMIN.
     Returns 404 if the incident is not VERIFIED or is archived.
-    Includes provenance fields and has_wildland_afor flag.
+    Includes provenance fields, full nonsensitive detail, form_kind, and inline wildland data.
+    Sensitive fields (narrative, PII, disposition) are NOT included — use the /sensitive endpoint.
     """
     row = db.execute(
         text("""
@@ -811,12 +831,15 @@ def get_analyst_incident_detail(
                 fi.created_at,
                 fi.data_hash,
                 nd.notification_dt,
-                COALESCE(r.region_code, r.region_name, '') AS region,
-                COALESCE(aif.province_name, '')     AS province_name,
-                COALESCE(aif.municipality_name, '')  AS municipality_name,
-                COALESCE(nd.general_category, '')    AS general_category,
-                COALESCE(nd.sub_category, '')       AS sub_category,
-                COALESCE(nd.alarm_level, '')        AS alarm_level,
+                COALESCE(r.region_code, r.region_name, '')  AS region,
+                COALESCE(aif.province_name, '')              AS province_name,
+                COALESCE(aif.municipality_name, '')          AS municipality_name,
+                -- barangay_name intentionally omitted: barangay_id is never written by the encoder
+                -- workflow; the JOIN would always return empty. Remove the JOIN if the schema
+                -- column is ever purged. See system-wiki/log.md for tracking.
+                COALESCE(nd.general_category, '')            AS general_category,
+                COALESCE(nd.sub_category, '')               AS sub_category,
+                COALESCE(nd.alarm_level, '')                 AS alarm_level,
                 COALESCE(aif.estimated_damage_php, nd.estimated_damage_php) AS estimated_damage_php,
                 COALESCE(aif.total_response_time_minutes, nd.total_response_time_minutes) AS total_response_time_minutes,
                 CASE
@@ -824,11 +847,34 @@ def get_analyst_incident_detail(
                     WHEN (COALESCE(aif.civilian_injured, nd.civilian_injured, 0) + COALESCE(aif.firefighter_injured, nd.firefighter_injured, 0)) > 0 THEN 'medium'
                     ELSE 'low'
                 END AS casualty_severity,
-                CASE WHEN aif.incident_id IS NULL THEN 'MISSING' ELSE 'SYNCED' END AS sync_status
+                CASE WHEN aif.incident_id IS NULL THEN 'MISSING' ELSE 'SYNCED' END AS sync_status,
+                -- form_kind via LEFT JOIN on incident_wildland_afor
+                CASE WHEN w.incident_id IS NOT NULL THEN 'WILDLAND_AFOR' ELSE 'STRUCTURAL_AFOR' END AS form_kind,
+                -- New structural fields from incident_nonsensitive_details
+                nd.fire_origin,
+                nd.extent_of_damage,
+                nd.structures_affected,
+                nd.households_affected,
+                nd.individuals_affected,
+                nd.vehicles_affected,
+                nd.resources_deployed,
+                nd.alarm_timeline,
+                nd.problems_encountered,
+                nd.stage_of_fire,
+                nd.extent_total_floor_area_sqm,
+                nd.extent_total_land_area_hectares,
+                nd.water_tankers_used,
+                nd.breathing_apparatus_used,
+                nd.total_gas_consumed_liters,
+                nd.families_affected,
+                nd.responder_type,
+                nd.fire_station_name,
+                nd.distance_from_station_km
             FROM wims.fire_incidents fi
             LEFT JOIN wims.incident_nonsensitive_details nd  ON nd.incident_id = fi.incident_id
             LEFT JOIN wims.analytics_incident_facts aif       ON aif.incident_id = fi.incident_id
             LEFT JOIN wims.ref_regions r                      ON r.region_id = fi.region_id
+            LEFT JOIN wims.incident_wildland_afor w           ON w.incident_id = fi.incident_id
             WHERE fi.incident_id = :iid
         """),
         {"iid": incident_id},
@@ -843,12 +889,7 @@ def get_analyst_incident_detail(
     if row[3] != "VERIFIED":  # verification_status
         raise HTTPException(status_code=404, detail="Incident not found")
 
-    # Check wildland AFOR existence
-    wildland_row = db.execute(
-        text("SELECT 1 FROM wims.incident_wildland_afor WHERE incident_id = :iid LIMIT 1"),
-        {"iid": incident_id},
-    ).fetchone()
-    has_wildland_afor = wildland_row is not None
+    has_wildland_afor = row[18] == "WILDLAND_AFOR"  # form_kind column
 
     # Encoder username (from users table)
     encoder_username = None
@@ -859,13 +900,15 @@ def get_analyst_incident_detail(
         ).fetchone()
         encoder_username = encoder_row[0] if encoder_row else None
 
-    return {
+    # Assemble response
+    result: dict[str, Any] = {
         "incident_id": row[0],
         "reference_number": row[1],
         "encoder_id": str(row[2]) if row[2] is not None else None,
         "encoder_username": encoder_username,
         "verification_status": row[3],
         "created_at": row[5].isoformat() if row[5] else None,
+        "data_hash": row[6],
         "notification_dt": row[7].isoformat() if row[7] else None,
         "region": row[8],
         "province_name": row[9],
@@ -873,12 +916,130 @@ def get_analyst_incident_detail(
         "general_category": row[11],
         "sub_category": row[12],
         "alarm_level": row[13],
-        "estimated_damage_php": float(row[14]) if row[14] is not None else None,
+        "estimated_damage_php": _analyst_json_value(row[14]),
         "total_response_time_minutes": row[15],
         "casualty_severity": row[16],
-        "data_hash": row[6],
         "sync_status": row[17],
+        "form_kind": row[18],
         "has_wildland_afor": has_wildland_afor,
+        # New structural fields
+        "fire_origin": row[19],
+        "extent_of_damage": row[20],
+        "structures_affected": row[21],
+        "households_affected": row[22],
+        "individuals_affected": row[23],
+        "vehicles_affected": row[24],
+        "resources_deployed": _analyst_json_value(row[25]),
+        "alarm_timeline": _analyst_json_value(row[26]),
+        "problems_encountered": _analyst_json_value(row[27]),
+        "stage_of_fire": row[28],
+        "extent_total_floor_area_sqm": _analyst_json_value(row[29]),
+        "extent_total_land_area_hectares": _analyst_json_value(row[30]),
+        "water_tankers_used": row[31],
+        "breathing_apparatus_used": row[32],
+        "total_gas_consumed_liters": _analyst_json_value(row[33]),
+        "families_affected": row[34],
+        "responder_type": row[35],
+        "fire_station_name": row[36],
+        "distance_from_station_km": _analyst_json_value(row[37]),
+    }
+
+    # Inline wildland data if present
+    if has_wildland_afor:
+        wildland_row = db.execute(
+            text("SELECT * FROM wims.incident_wildland_afor WHERE incident_id = :iid"),
+            {"iid": incident_id},
+        ).fetchone()
+        if wildland_row:
+            wildland_id = wildland_row._mapping["incident_wildland_afor_id"]
+            alarm_rows = db.execute(
+                text("""
+                    SELECT sort_order, alarm_status, time_declared, ground_commander
+                    FROM wims.wildland_afor_alarm_statuses
+                    WHERE incident_wildland_afor_id = :wid
+                    ORDER BY sort_order, wildland_afor_alarm_status_id
+                """),
+                {"wid": wildland_id},
+            ).fetchall()
+            assistance_rows = db.execute(
+                text("""
+                    SELECT sort_order, organization_or_unit, detail
+                    FROM wims.wildland_afor_assistance_rows
+                    WHERE incident_wildland_afor_id = :wid
+                    ORDER BY sort_order, wildland_afor_assistance_row_id
+                """),
+                {"wid": wildland_id},
+            ).fetchall()
+            result["wildland"] = _analyst_row_dict(wildland_row)
+            result["alarm_statuses"] = [_analyst_row_dict(r) for r in alarm_rows]
+            result["assistance_rows"] = [_analyst_row_dict(r) for r in assistance_rows]
+
+    return result
+
+
+@router.get("/incidents/analyst/{incident_id}/sensitive")
+def get_analyst_incident_sensitive_detail(
+    incident_id: int,
+    _user: Annotated[dict, Depends(get_analyst_or_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """
+    National Analyst — sensitive / PII fields for a single incident.
+
+    Requires: NATIONAL_ANALYST or SYSTEM_ADMIN.
+    Returns 404 if the incident does not exist or is not VERIFIED.
+    """
+    incident_row = db.execute(
+        text("""
+            SELECT incident_id, reference_number, verification_status, is_archived
+            FROM wims.fire_incidents
+            WHERE incident_id = :iid
+        """),
+        {"iid": incident_id},
+    ).fetchone()
+
+    if not incident_row or incident_row[2] != "VERIFIED" or bool(incident_row[3]):
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    sd_row = db.execute(
+        text("""
+            SELECT
+                sd.incident_id,
+                nd.fire_origin,
+                nd.extent_of_damage,
+                sd.narrative_report,
+                sd.disposition_prepared_by AS prepared_by_officer,
+                sd.disposition_noted_by    AS noted_by_officer,
+                sd.disposition,
+                sd.caller_name,
+                sd.caller_number,
+                sd.owner_name,
+                sd.establishment_name,
+                sd.occupant_name,
+                nd.alarm_timeline
+            FROM wims.incident_sensitive_details sd
+            LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = sd.incident_id
+            WHERE sd.incident_id = :iid
+        """),
+        {"iid": incident_id},
+    ).fetchone()
+
+    return {
+        "incident_id": incident_row[0],
+        "fire_origin": sd_row[1] if sd_row else None,
+        "extent_of_damage": sd_row[2] if sd_row else None,
+        "narrative_report": sd_row[3] if sd_row else None,
+        "prepared_by_officer": sd_row[4] if sd_row else None,
+        "noted_by_officer": sd_row[5] if sd_row else None,
+        "disposition": sd_row[6] if sd_row else None,
+        "caller_name": sd_row[7] if sd_row else None,
+        "caller_number": sd_row[8] if sd_row else None,
+        "owner_name": sd_row[9] if sd_row else None,
+        "establishment_name": sd_row[10] if sd_row else None,
+        "occupant_name": sd_row[11] if sd_row else None,
+        "alarm_timeline": _analyst_json_value(sd_row[12])
+        if sd_row and sd_row[12] is not None
+        else [],
     }
 
 
