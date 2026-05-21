@@ -3,13 +3,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { RefreshCw, Flame, Building2, TreePine, Car, ChevronLeft, ChevronRight, Trees } from 'lucide-react';
+import { useAutoSync } from '@/lib/useAutoSync';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import {
+  RefreshCw, Flame, Building2, TreePine, Car, ChevronLeft, ChevronRight, Trees,
+  Home, Users, Layers, Truck,
+} from 'lucide-react';
 import { fetchRegionalIncidents, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
 import Link from 'next/link';
 import {
   REGIONAL_INCIDENT_GENERAL_CATEGORIES,
   REGIONAL_PAGE_SIZE_OPTIONS,
-  REGIONAL_VERIFICATION_STATUSES,
   clampRegionalPageSize,
   offsetFromPage,
   totalRegionalPages,
@@ -22,6 +26,76 @@ interface RegionalStatsPayload {
   by_status?: Array<{ status: string; count: number }>;
   wildland_total?: number;
   by_wildland_type?: Array<{ fire_type: string | null; count: number }>;
+  structures_affected?: number;
+  households_affected?: number;
+  families_affected?: number;
+  individuals_affected?: number;
+  vehicles_affected?: number;
+}
+
+// Format date as "Mar 28 • 16:36" (no year, bullet separator)
+function formatIncidentDate(raw: string | null | undefined): string {
+  if (!raw) return '—';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return '—';
+  const month = d.toLocaleString('en-PH', { timeZone: 'Asia/Manila', month: 'short' });
+  const day = d.toLocaleString('en-PH', { timeZone: 'Asia/Manila', day: 'numeric' });
+  const time = d.toLocaleString('en-PH', {
+    timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  return `${month} ${day} • ${time}`;
+}
+
+const STATUS_CHIPS = [
+  { label: 'All', value: '' },
+  { label: 'Pending', value: 'PENDING' },
+  { label: 'Verified', value: 'VERIFIED' },
+  { label: 'Rejected', value: 'REJECTED' },
+  { label: 'Drafts', value: 'DRAFT' },
+];
+
+function SyncIndicator() {
+  const { syncing, pendingCount } = useAutoSync();
+  const { isOnline, isReconnecting } = useNetworkStatus();
+
+  if (!isOnline) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700">
+        <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+        Offline
+      </span>
+    );
+  }
+  if (isReconnecting) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600">
+        <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse flex-shrink-0" />
+        Reconnecting…
+      </span>
+    );
+  }
+  if (syncing) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600">
+        <span className="w-3 h-3 rounded-full border-2 border-blue-200 border-t-blue-600 animate-spin flex-shrink-0" />
+        Syncing {pendingCount > 0 ? `${pendingCount}` : ''}…
+      </span>
+    );
+  }
+  if (pendingCount > 0) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700">
+        <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+        {pendingCount} queued
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700">
+      <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+      Synced
+    </span>
+  );
 }
 
 export default function RegionalDashboardPage() {
@@ -82,9 +156,7 @@ export default function RegionalDashboardPage() {
 
   useEffect(() => {
     if (canAccessRegional) {
-      loadStats().catch(() => {
-        /* stats errors surface via empty cards */
-      });
+      loadStats().catch(() => { /* stats errors surface via empty cards */ });
     }
   }, [canAccessRegional, loadStats]);
 
@@ -106,7 +178,7 @@ export default function RegionalDashboardPage() {
   if (loading || !canAccessRegional) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-gray-500">
-        Loading Regional Dashboard...
+        Loading Regional Dashboard…
       </div>
     );
   }
@@ -121,53 +193,147 @@ export default function RegionalDashboardPage() {
 
   const rejectedCount = stats?.by_status?.find((s) => s.status === 'REJECTED')?.count ?? 0;
 
-  const summaryCards = [
-    { key: 'total', title: 'Total Incidents', icon: Flame, value: stats?.total_incidents?.toLocaleString() ?? '0', borderColor: '#dc2626' },
-    { key: 'STRUCTURAL', title: 'Structural', icon: Building2, value: stats?.by_category?.find((c) => c.category === 'STRUCTURAL')?.count.toLocaleString() ?? '0', borderColor: '#f97316' },
-    { key: 'NON_STRUCTURAL', title: 'Non-Structural', icon: TreePine, value: stats?.by_category?.find((c) => c.category === 'NON_STRUCTURAL')?.count.toLocaleString() ?? '0', borderColor: '#22c55e' },
-    { key: 'VEHICULAR', title: 'Vehicular', icon: Car, value: stats?.by_category?.find((c) => c.category === 'VEHICULAR')?.count.toLocaleString() ?? '0', borderColor: '#3b82f6' },
-    { key: 'WILDLAND', title: 'Wildland Fire', icon: Trees, value: stats?.wildland_total?.toLocaleString() ?? '0', borderColor: '#92400e' },
+  const incidentCards = [
+    {
+      key: 'total',
+      title: 'Total Incidents',
+      icon: Flame,
+      value: stats?.total_incidents?.toLocaleString() ?? '0',
+      iconBg: '#FEE2E2',
+      iconColor: '#C62828',
+    },
+    {
+      key: 'STRUCTURAL',
+      title: 'Structural',
+      icon: Building2,
+      value: stats?.by_category?.find((c) => c.category === 'STRUCTURAL')?.count.toLocaleString() ?? '0',
+      iconBg: '#FEF3C7',
+      iconColor: '#D97706',
+    },
+    {
+      key: 'NON_STRUCTURAL',
+      title: 'Non-Structural',
+      icon: TreePine,
+      value: stats?.by_category?.find((c) => c.category === 'NON_STRUCTURAL')?.count.toLocaleString() ?? '0',
+      iconBg: '#DCFCE7',
+      iconColor: '#16A34A',
+    },
+    {
+      key: 'VEHICULAR',
+      title: 'Vehicular',
+      icon: Car,
+      value: stats?.by_category?.find((c) => c.category === 'VEHICULAR')?.count.toLocaleString() ?? '0',
+      iconBg: '#DBEAFE',
+      iconColor: '#2563EB',
+    },
+    {
+      key: 'WILDLAND',
+      title: 'Wildland Fire',
+      icon: Trees,
+      value: stats?.wildland_total?.toLocaleString() ?? '0',
+      iconBg: '#FEF9C3',
+      iconColor: '#92400E',
+    },
+  ];
+
+  const affectedCards = [
+    {
+      key: 'structures',
+      title: 'Structures',
+      icon: Layers,
+      value: stats?.structures_affected?.toLocaleString() ?? '0',
+      iconBg: '#F3E8FF',
+      iconColor: '#7C3AED',
+    },
+    {
+      key: 'households',
+      title: 'Households',
+      icon: Home,
+      value: stats?.households_affected?.toLocaleString() ?? '0',
+      iconBg: '#FCE7F3',
+      iconColor: '#BE185D',
+    },
+    {
+      key: 'families',
+      title: 'Families',
+      icon: Users,
+      value: stats?.families_affected?.toLocaleString() ?? '0',
+      iconBg: '#E0F2FE',
+      iconColor: '#0369A1',
+    },
+    {
+      key: 'individuals',
+      title: 'Individuals',
+      icon: Users,
+      value: stats?.individuals_affected?.toLocaleString() ?? '0',
+      iconBg: '#ECFDF5',
+      iconColor: '#047857',
+    },
+    {
+      key: 'vehicles',
+      title: 'Vehicles',
+      icon: Truck,
+      value: stats?.vehicles_affected?.toLocaleString() ?? '0',
+      iconBg: '#FFF7ED',
+      iconColor: '#C2410C',
+    },
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+    <div className="space-y-6 pb-8" style={{ backgroundColor: 'var(--content-bg)' }}>
+
+      {/* ── Page header ── */}
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            Regional Dashboard
-          </h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1
+              className="font-bold leading-tight"
+              style={{ fontSize: '32px', color: 'var(--text-primary)' }}
+            >
+              Regional Dashboard
+            </h1>
+            <SyncIndicator />
+          </div>
           <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
             Overview of your incident workload
           </p>
         </div>
-        <div className="flex gap-2">
+
+        {/* Action buttons — hierarchy: Primary > Secondary > Minimal */}
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={() => refreshAll()}
             disabled={statsRefreshing || incidentsLoading}
-            className={`card flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors hover:bg-gray-50 ${statsRefreshing || incidentsLoading ? 'opacity-70' : ''}`}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={`h-4 w-4 ${statsRefreshing ? 'animate-spin' : ''}`} aria-hidden />
+            <RefreshCw className={`h-3.5 w-3.5 ${statsRefreshing ? 'animate-spin' : ''}`} aria-hidden />
             Refresh
           </button>
           <Link
-            href="/afor/create"
-            className="card flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors hover:bg-gray-50"
-          >
-            + Add New Incident
-          </Link>
-          <Link
             href="/afor/import"
-            className="card flex items-center gap-2 px-3 py-2 text-sm font-medium text-white transition-colors"
-            style={{ backgroundColor: 'var(--bfp-maroon)' }}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
+            style={{ borderColor: 'var(--bfp-red)', color: 'var(--bfp-red)' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-light)'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = ''; }}
           >
             Import AFOR
+          </Link>
+          <Link
+            href="/afor/create"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors"
+            style={{ backgroundColor: 'var(--bfp-red)' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-dark)'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red)'; }}
+          >
+            + Add New Incident
           </Link>
         </div>
       </div>
 
+      {/* ── Rejection alert ── */}
       {rejectedCount > 0 && (
-        <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900" role="alert">
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900" role="alert">
           <span className="font-semibold">
             {rejectedCount} incident{rejectedCount > 1 ? 's were' : ' was'} rejected by a validator.
           </span>{' '}
@@ -182,29 +348,28 @@ export default function RegionalDashboardPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
-        {summaryCards.map((card) => {
+      {/* ── Incident type stats ── */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        {incidentCards.map((card) => {
           const IconComp = card.icon;
           return (
             <div
               key={card.key}
-              className="card overflow-hidden transition-all duration-200 hover:shadow-md"
-              style={{ borderLeft: `4px solid ${card.borderColor}` }}
+              className="bg-white rounded-2xl p-4 flex flex-col gap-3 transition-shadow hover:shadow-md"
+              style={{ boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
             >
-              <div className="flex items-start justify-between p-4">
-                <div>
-                  <div
-                    className="mb-1 text-xs font-semibold uppercase tracking-wider"
-                    style={{ color: 'var(--text-muted)' }}
-                  >
-                    {card.title}
-                  </div>
-                  <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-                    {card.value}
-                  </div>
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ backgroundColor: card.iconBg }}
+              >
+                <IconComp className="w-5 h-5" style={{ color: card.iconColor }} />
+              </div>
+              <div>
+                <div className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-muted)' }}>
+                  {card.title}
                 </div>
-                <div className="opacity-20" style={{ color: card.borderColor }}>
-                  <IconComp className="h-8 w-8" />
+                <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+                  {card.value}
                 </div>
               </div>
             </div>
@@ -212,145 +377,180 @@ export default function RegionalDashboardPage() {
         })}
       </div>
 
-      <section className="card" aria-labelledby="region-incidents-heading">
-        <div className="card-header flex flex-col gap-3">
-          <div>
-            <h2 id="region-incidents-heading" className="font-bold">
-              Your incidents
-            </h2>
-            <p className="mt-1 text-xs text-gray-500">
-              All incidents you encoded with server-driven total count, filters, and pagination.
+      {/* ── Affected count stats ── */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        {affectedCards.map((card) => {
+          const IconComp = card.icon;
+          return (
+            <div
+              key={card.key}
+              className="bg-white rounded-2xl p-4 flex flex-col gap-3 transition-shadow hover:shadow-md"
+              style={{ boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
+            >
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ backgroundColor: card.iconBg }}
+              >
+                <IconComp className="w-5 h-5" style={{ color: card.iconColor }} />
+              </div>
+              <div>
+                <div className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-muted)' }}>
+                  {card.title}
+                </div>
+                <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+                  {card.value}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Incidents section ── */}
+      <section
+        className="rounded-2xl overflow-hidden"
+        style={{ backgroundColor: 'var(--card-bg)', boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
+        aria-labelledby="region-incidents-heading"
+      >
+        {/* Section header */}
+        <div className="px-6 py-5 border-b" style={{ borderColor: 'var(--border-color)' }}>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 id="region-incidents-heading" className="font-bold text-[20px]" style={{ color: 'var(--text-primary)' }}>
+                Your Incidents
+              </h2>
+              <p className="mt-0.5 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                Click an incident entry to view details
+              </p>
+            </div>
+            <p className="text-sm whitespace-nowrap" style={{ color: 'var(--text-secondary)' }} aria-live="polite">
+              {incidentsLoading
+                ? 'Loading…'
+                : `${fromRow}–${toRow} of ${incidentsTotal.toLocaleString()}`}
             </p>
           </div>
 
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1 text-xs font-medium text-gray-700">
-              Classification
-              <select
-                className="card min-w-[10rem] rounded border border-gray-200 px-2 py-1.5 text-sm"
-                value={categoryFilter}
-                onChange={(e) => {
-                  setCategoryFilter(e.target.value);
-                  setPageIndex(0);
-                }}
-                disabled={incidentsLoading}
-              >
-                <option value="">All classifications</option>
-                {REGIONAL_INCIDENT_GENERAL_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {formatClassification(c)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-gray-700">
-              Verification status
-              <select
-                className="card min-w-[10rem] rounded border border-gray-200 px-2 py-1.5 text-sm"
-                value={statusFilter}
-                onChange={(e) => {
-                  setStatusFilter(e.target.value);
-                  setPageIndex(0);
-                }}
-                disabled={incidentsLoading}
-              >
-                <option value="">All statuses</option>
-                {REGIONAL_VERIFICATION_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-gray-700">
-              Per page
-              <select
-                className="card min-w-[5rem] rounded border border-gray-200 px-2 py-1.5 text-sm"
-                value={String(size)}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value));
-                  setPageIndex(0);
-                }}
-                disabled={incidentsLoading}
-              >
-                {REGIONAL_PAGE_SIZE_OPTIONS.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
-              onClick={() => {
-                setCategoryFilter('');
-                setStatusFilter('');
-                setPageIndex(0);
-              }}
-              disabled={incidentsLoading || (!categoryFilter && !statusFilter)}
-            >
-              Clear filters
-            </button>
+          {/* Status filter chips */}
+          <div className="flex flex-wrap gap-2 mt-4">
+            {STATUS_CHIPS.map((chip) => {
+              const active = statusFilter === chip.value;
+              return (
+                <button
+                  key={chip.value}
+                  type="button"
+                  onClick={() => { setStatusFilter(chip.value); setPageIndex(0); }}
+                  disabled={incidentsLoading}
+                  className="px-4 py-1.5 rounded-full text-sm font-medium transition-colors disabled:opacity-50"
+                  style={active
+                    ? { backgroundColor: 'var(--bfp-red)', color: '#fff' }
+                    : { backgroundColor: '#fff', border: '1px solid #e5e7eb', color: 'var(--text-secondary)' }
+                  }
+                  onMouseEnter={(e) => {
+                    if (!active) (e.currentTarget as HTMLElement).style.borderColor = 'var(--bfp-red)';
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!active) (e.currentTarget as HTMLElement).style.borderColor = '#e5e7eb';
+                  }}
+                >
+                  {chip.label}
+                </button>
+              );
+            })}
           </div>
 
-          <p className="text-sm text-gray-600" aria-live="polite">
-            {incidentsLoading
-              ? 'Loading incidents…'
-              : `Showing ${fromRow}–${toRow} of ${incidentsTotal.toLocaleString()} (page ${pageIndex + 1} of ${pages})`}
-          </p>
+          {/* Secondary filters row */}
+          <div className="flex flex-wrap items-center gap-3 mt-3">
+            <select
+              className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm focus:outline-none focus:border-[#C62828] transition-colors"
+              style={{ color: 'var(--text-primary)' }}
+              value={categoryFilter}
+              onChange={(e) => { setCategoryFilter(e.target.value); setPageIndex(0); }}
+              disabled={incidentsLoading}
+            >
+              <option value="">Classification ▾</option>
+              {REGIONAL_INCIDENT_GENERAL_CATEGORIES.map((c) => (
+                <option key={c} value={c}>{formatClassification(c)}</option>
+              ))}
+            </select>
+
+            <select
+              className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm focus:outline-none focus:border-[#C62828] transition-colors"
+              style={{ color: 'var(--text-primary)' }}
+              value={String(size)}
+              onChange={(e) => { setPageSize(Number(e.target.value)); setPageIndex(0); }}
+              disabled={incidentsLoading}
+            >
+              {REGIONAL_PAGE_SIZE_OPTIONS.map((n) => (
+                <option key={n} value={n}>{n}/page</option>
+              ))}
+            </select>
+
+            {(categoryFilter) && (
+              <button
+                type="button"
+                className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm font-medium text-gray-600 hover:border-gray-300 transition-colors"
+                onClick={() => { setCategoryFilter(''); setPageIndex(0); }}
+                disabled={incidentsLoading}
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
         </div>
 
         {incidentsError && (
-          <div className="border-t border-red-100 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
+          <div className="border-b border-red-100 bg-red-50 px-5 py-3 text-sm text-red-800" role="alert">
             {incidentsError}
           </div>
         )}
 
-        <div className="card-body overflow-x-auto p-0">
+        {/* Table */}
+        <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-gray-50 text-xs uppercase text-gray-700">
-              <tr>
-                <th className="px-6 py-3">Date</th>
-                <th className="px-6 py-3">Classification</th>
-                <th className="px-6 py-3">Station</th>
-                <th className="px-6 py-3">Location</th>
-                <th className="px-6 py-3">Last Modified</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3 text-right">Actions</th>
+            <thead>
+              <tr style={{ backgroundColor: '#FAFAFA', borderBottom: '1px solid var(--border-color)' }}>
+                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>Date</th>
+                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Classification</th>
+                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Station</th>
+                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Location</th>
+                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>Last Modified</th>
+                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Status</th>
               </tr>
             </thead>
             <tbody>
               {incidentsLoading ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-10 text-center text-gray-500">
+                  <td colSpan={6} className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
                     Loading incidents…
                   </td>
                 </tr>
               ) : incidents.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-10 text-center text-gray-500">
+                  <td colSpan={6} className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
                     {incidentsError ? 'Could not load incidents.' : 'No incidents match the current filters.'}
                   </td>
                 </tr>
               ) : (
-                incidents.map((inc) => (
-                  <tr key={inc.incident_id} className="border-b bg-white hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      {(() => {
-                        const raw = inc.notification_dt || inc.created_at;
-                        if (!raw) return '—';
-                        const d = new Date(raw);
-                        return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('en-PH', {
-                          timeZone: 'Asia/Manila',
-                          year: 'numeric', month: '2-digit', day: '2-digit',
-                          hour: '2-digit', minute: '2-digit', hour12: false,
-                        });
-                      })()}
+                incidents.map((inc, idx) => (
+                  <tr
+                    key={inc.incident_id}
+                    onClick={() => router.push(`/dashboard/regional/incidents/${inc.incident_id}`)}
+                    className="cursor-pointer transition-colors"
+                    style={{
+                      backgroundColor: idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA',
+                      borderBottom: '1px solid var(--border-color)',
+                    }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-light)'; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA'; }}
+                  >
+                    <td className="px-5 py-4 whitespace-nowrap text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                      {formatIncidentDate(inc.notification_dt || inc.created_at)}
                     </td>
-                    <td className="px-6 py-4 font-medium">
+                    <td className="px-5 py-4">
                       <div className="flex items-center gap-2">
-                        {formatClassification(inc.general_category)}
+                        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                          {formatClassification(inc.general_category)}
+                        </span>
                         {inc.is_wildland && (
                           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
                             Wildland
@@ -358,39 +558,17 @@ export default function RegionalDashboardPage() {
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-gray-500">{inc.fire_station_name || 'N/A'}</td>
-                    <td className="px-6 py-4 text-gray-500 text-xs">{inc.location_display ?? 'Location pending'}</td>
-                    <td className="px-6 py-4 text-gray-500 text-xs">
-                      {inc.updated_at ? (() => {
-                        const d = new Date(inc.updated_at);
-                        return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('en-PH', {
-                          timeZone: 'Asia/Manila',
-                          year: 'numeric', month: '2-digit', day: '2-digit',
-                          hour: '2-digit', minute: '2-digit', hour12: false,
-                        });
-                      })() : '—'}
+                    <td className="px-5 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                      {inc.fire_station_name || '—'}
                     </td>
-                    <td className="px-6 py-4">
-                      <span
-                        className={`rounded-full px-2 py-1 text-xs font-medium ${
-                          inc.verification_status === 'VERIFIED'
-                            ? 'bg-green-100 text-green-800'
-                            : inc.verification_status === 'REJECTED'
-                              ? 'bg-red-100 text-red-800'
-                              : 'bg-yellow-100 text-yellow-800'
-                        }`}
-                      >
-                        {inc.verification_status}
-                      </span>
+                    <td className="px-5 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                      {inc.location_display ?? '—'}
                     </td>
-                    <td className="px-6 py-4 text-right">
-                      <Link
-                        href={`/dashboard/regional/incidents/${inc.incident_id}`}
-                        className="inline-flex rounded text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
-                        aria-label={`View incident ${inc.incident_id}`}
-                      >
-                        View
-                      </Link>
+                    <td className="px-5 py-4 whitespace-nowrap text-sm" style={{ color: 'var(--text-secondary)' }}>
+                      {formatIncidentDate(inc.updated_at)}
+                    </td>
+                    <td className="px-5 py-4">
+                      <StatusBadge status={inc.verification_status} />
                     </td>
                   </tr>
                 ))
@@ -399,14 +577,16 @@ export default function RegionalDashboardPage() {
           </table>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-4 py-3">
-          <span className="text-sm text-gray-600">
-            Total: <strong>{incidentsTotal.toLocaleString()}</strong>
+        {/* Pagination */}
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
+          <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Total: <strong style={{ color: 'var(--text-primary)' }}>{incidentsTotal.toLocaleString()}</strong>
           </span>
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="card inline-flex items-center gap-1 rounded px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ color: 'var(--text-primary)' }}
               onClick={() => setPageIndex((p) => Math.max(0, p - 1))}
               disabled={!canPrev}
               aria-label="Previous page"
@@ -414,12 +594,13 @@ export default function RegionalDashboardPage() {
               <ChevronLeft className="h-4 w-4" aria-hidden />
               Prev
             </button>
-            <span className="text-sm tabular-nums text-gray-700">
-              Page {pageIndex + 1} / {pages}
+            <span className="text-sm tabular-nums" style={{ color: 'var(--text-secondary)' }}>
+              {pageIndex + 1} / {pages}
             </span>
             <button
               type="button"
-              className="card inline-flex items-center gap-1 rounded px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ color: 'var(--text-primary)' }}
               onClick={() => setPageIndex((p) => p + 1)}
               disabled={!canNext}
               aria-label="Next page"
@@ -431,26 +612,30 @@ export default function RegionalDashboardPage() {
         </div>
       </section>
 
-      {/* Wildland Fire Classifications Breakdown */}
+      {/* ── Wildland Fire Breakdown ── */}
       {stats && (stats.wildland_total ?? 0) > 0 && (
-        <section className="card" aria-labelledby="wildland-breakdown-heading">
-          <div className="card-header flex items-center justify-between px-4 py-3 border-b">
+        <section
+          className="rounded-2xl overflow-hidden"
+          style={{ backgroundColor: 'var(--card-bg)', boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
+          aria-labelledby="wildland-breakdown-heading"
+        >
+          <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: 'var(--border-color)' }}>
             <div>
-              <h2 id="wildland-breakdown-heading" className="font-bold">
+              <h2 id="wildland-breakdown-heading" className="font-bold text-[20px]" style={{ color: 'var(--text-primary)' }}>
                 Wildland Fire Classifications
               </h2>
-              <p className="mt-1 text-xs text-gray-500">
-                Breakdown by wildland fire type (Wildland Fire AFOR)
+              <p className="mt-0.5 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                Breakdown by wildland fire type
               </p>
             </div>
-            <span className="text-2xl font-bold" style={{ color: '#92400e' }}>
+            <span className="text-2xl font-bold" style={{ color: '#92400E' }}>
               {stats.wildland_total?.toLocaleString() ?? '0'}
             </span>
           </div>
-          <div className="card-body p-4">
+          <div className="p-6">
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
               {[
-                { type: 'fire', label: 'Fire', color: '#dc2626' },
+                { type: 'fire', label: 'Fire', color: '#C62828' },
                 { type: 'agricultural land fire', label: 'Agricultural Fire', color: '#65a30d' },
                 { type: 'forest fire', label: 'Forest Fire', color: '#166534' },
                 { type: 'grassland fire', label: 'Grassland Fire', color: '#84cc16' },
@@ -463,16 +648,16 @@ export default function RegionalDashboardPage() {
                 return (
                   <div
                     key={type}
-                    className="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5 transition-all hover:shadow-sm"
+                    className="flex items-center gap-3 rounded-xl border border-gray-100 px-3 py-2.5 transition-shadow hover:shadow-sm"
                     style={{ borderLeft: `3px solid ${color}` }}
                   >
                     <div
-                      className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white"
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white flex-shrink-0"
                       style={{ backgroundColor: color }}
                     >
                       {count}
                     </div>
-                    <span className="text-sm font-medium text-gray-700">{label}</span>
+                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{label}</span>
                   </div>
                 );
               })}
@@ -481,5 +666,23 @@ export default function RegionalDashboardPage() {
         </section>
       )}
     </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const styles: Record<string, { bg: string; text: string }> = {
+    VERIFIED:  { bg: '#DCFCE7', text: '#15803D' },
+    REJECTED:  { bg: '#FEE2E2', text: '#B91C1C' },
+    DRAFT:     { bg: '#F3F4F6', text: '#6B7280' },
+    PENDING:   { bg: '#FEF9C3', text: '#92400E' },
+  };
+  const style = styles[status] ?? { bg: '#F3F4F6', text: '#6B7280' };
+  return (
+    <span
+      className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold"
+      style={{ backgroundColor: style.bg, color: style.text }}
+    >
+      {status}
+    </span>
   );
 }

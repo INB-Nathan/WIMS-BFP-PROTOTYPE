@@ -876,6 +876,11 @@ export async function fetchValidatorStats(): Promise<{
   total_verified: number;
   pending_validation: number;
   by_category: { category: string; count: number }[];
+  structures_affected: number;
+  households_affected: number;
+  families_affected: number;
+  individuals_affected: number;
+  vehicles_affected: number;
 }> {
   return apiFetch('/regional/validator/stats');
 }

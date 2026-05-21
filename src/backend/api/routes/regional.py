@@ -78,6 +78,11 @@ class RegionalStatsResponse(BaseModel):
     by_status: list[dict[str, Any]]
     wildland_total: int = 0
     by_wildland_type: list[dict[str, Any]] = []
+    structures_affected: int = 0
+    households_affected: int = 0
+    families_affected: int = 0
+    individuals_affected: int = 0
+    vehicles_affected: int = 0
 
 
 def _regional_lifecycle_dependencies() -> RegionalIncidentLifecycleDependencies:
@@ -469,8 +474,9 @@ def get_regional_incidents(
     )
 
     def _location_display(city: str | None, province: str | None, region: str | None) -> str | None:
-        parts = [p for p in (region, province, city) if p]
-        return ", ".join(parts) if parts else None
+        # Show "Province • City" — region is implied by dashboard context
+        parts = [p for p in (province, city) if p]
+        return " • ".join(parts) if parts else None
 
     return {
         "items": [
@@ -920,11 +926,30 @@ def get_validator_stats(
         or 0
     )
 
+    affected_row = db.execute(
+        text("""
+            SELECT
+                COALESCE(SUM(nd.structures_affected), 0),
+                COALESCE(SUM(nd.households_affected), 0),
+                COALESCE(SUM(nd.families_affected), 0),
+                COALESCE(SUM(nd.individuals_affected), 0),
+                COALESCE(SUM(nd.vehicles_affected), 0)
+            FROM wims.fire_incidents fi
+            JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+            WHERE fi.verification_status = 'VERIFIED' AND fi.is_archived = FALSE
+        """),
+    ).fetchone()
+
     total_verified = sum(r[1] for r in by_cat_rows)
     return {
         "total_verified": total_verified,
         "pending_validation": pending_count,
         "by_category": [{"category": r[0], "count": r[1]} for r in by_cat_rows],
+        "structures_affected": int(affected_row[0]) if affected_row else 0,
+        "households_affected": int(affected_row[1]) if affected_row else 0,
+        "families_affected": int(affected_row[2]) if affected_row else 0,
+        "individuals_affected": int(affected_row[3]) if affected_row else 0,
+        "vehicles_affected": int(affected_row[4]) if affected_row else 0,
     }
 
 
@@ -1007,6 +1032,21 @@ def get_regional_stats(
         {"eid": str(encoder_id)},
     ).fetchall()
 
+    affected_row = db.execute(
+        text("""
+            SELECT
+                COALESCE(SUM(nd.structures_affected), 0),
+                COALESCE(SUM(nd.households_affected), 0),
+                COALESCE(SUM(nd.families_affected), 0),
+                COALESCE(SUM(nd.individuals_affected), 0),
+                COALESCE(SUM(nd.vehicles_affected), 0)
+            FROM wims.fire_incidents fi
+            JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+            WHERE fi.encoder_id = CAST(:eid AS uuid) AND fi.is_archived = FALSE
+        """),
+        {"eid": str(encoder_id)},
+    ).fetchone()
+
     return RegionalStatsResponse(
         total_incidents=total,
         by_category=[{"category": r[0], "count": r[1]} for r in by_cat_rows],
@@ -1014,6 +1054,11 @@ def get_regional_stats(
         by_status=[{"status": r[0], "count": r[1]} for r in by_status_rows],
         wildland_total=wildland_total,
         by_wildland_type=[{"fire_type": r[0], "count": r[1]} for r in wildland_type_rows],
+        structures_affected=int(affected_row[0]) if affected_row else 0,
+        households_affected=int(affected_row[1]) if affected_row else 0,
+        families_affected=int(affected_row[2]) if affected_row else 0,
+        individuals_affected=int(affected_row[3]) if affected_row else 0,
+        vehicles_affected=int(affected_row[4]) if affected_row else 0,
     )
 
 
