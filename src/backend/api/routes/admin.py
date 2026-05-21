@@ -1263,7 +1263,6 @@ def revoke_user_session(
     ).fetchone()
     if not row or not row[0]:
         raise HTTPException(status_code=404, detail="User not found")
-    keycloak_id = str(row[0])
 
     from services.keycloak_admin import _get_admin_client
     adm = _get_admin_client()
