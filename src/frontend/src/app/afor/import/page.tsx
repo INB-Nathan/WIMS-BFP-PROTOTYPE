@@ -367,20 +367,36 @@ function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown
 }
 
 // ── FIX 9: Geocoding hook ─────────────────────────────────────────────────────
-function useGeocoding(address: string, city: string) {
+function useGeocoding(address: string, city: string, province = '') {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [autoDetected, setAutoDetected] = useState(false);
 
   useEffect(() => {
     if (!address && !city) return;
-    const query = [address, city, 'Philippines'].filter(Boolean).join(', ');
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
 
-    fetch(url, {
-      headers: { 'User-Agent': 'WIMS-BFP/1.0' },
-    })
-      .then((r) => r.json())
-      .then((results: Array<{ lat: string; lon: string }>) => {
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    const isPlaceholder = !address || address.startsWith('(');
+    const primaryQuery = isPlaceholder
+      ? [city, province, 'Philippines'].filter(Boolean).join(', ')
+      : [address, province, 'Philippines'].filter(Boolean).join(', ');
+    const fallbackQuery = [city, province, 'Philippines'].filter(Boolean).join(', ');
+
+    const nominatim = (q: string) =>
+      fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&countrycodes=ph`,
+        { signal, headers: { Accept: 'application/json' } },
+      ).then((r) => r.json() as Promise<Array<{ lat: string; lon: string }>>);
+
+    nominatim(primaryQuery)
+      .then(async (results) => {
+        if (results.length === 0 && fallbackQuery !== primaryQuery && fallbackQuery.trim()) {
+          return nominatim(fallbackQuery);
+        }
+        return results;
+      })
+      .then((results) => {
         if (results.length > 0) {
           const lat = parseFloat(results[0].lat);
           const lng = parseFloat(results[0].lon);
@@ -391,9 +407,11 @@ function useGeocoding(address: string, city: string) {
         }
       })
       .catch(() => {
-        // Geocoding failed silently — user can set manually
+        // Geocoding failed or aborted silently — user can set manually
       });
-  }, [address, city]);
+
+    return () => controller.abort();
+  }, [address, city, province]);
 
   return { coords, autoDetected };
 }
@@ -439,12 +457,17 @@ export default function AforImportPage() {
       if (!q) return true;
 
       const ns = (row.data.incident_nonsensitive_details ?? {}) as Record<string, unknown>;
+      const wl = (row.data.wildland ?? {}) as Record<string, unknown>;
       const haystack = [
         row.data._city_text,
         ns.fire_station_name,
         ns.general_category,
         ns.sub_category,
         ns.alarm_level,
+        wl.engine_dispatched,
+        wl.wildland_fire_type,
+        wl.call_received_at,
+        wl.primary_action_taken,
         row.errors.join(' '),
       ]
         .map((v) => String(v ?? '').toLowerCase())
@@ -527,6 +550,8 @@ export default function AforImportPage() {
           const assignedName = PH_REGIONS.find((r) => r.regionId === assignedRegionId)?.regionName ?? `Region ${assignedRegionId}`;
           const aforName = PH_REGIONS.find((r) => r.regionId === aforRegionId)?.regionName ?? `Region ${aforRegionId}`;
           setError(`This AFOR is for ${aforName}, but you are assigned to ${assignedName}. You can only import AFORs within your assigned region.`);
+          setFile(null);
+          if (fileInputRef.current) fileInputRef.current.value = '';
           return;
         }
         sessionStorage.setItem('temp_afor_review', JSON.stringify({

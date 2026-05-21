@@ -115,6 +115,10 @@ export function MapPickerInner({
         setPosition(value ?? null);
         if (value) {
             setMapCenter([value.lat, value.lng]);
+        } else {
+            // Clear the guard so the same searchQuery can trigger auto-geocoding again
+            // (e.g. "Re-pin from Address" reuses the same query after clearing the marker)
+            autoSearchedRef.current = null;
         }
     }, [value]);
 
