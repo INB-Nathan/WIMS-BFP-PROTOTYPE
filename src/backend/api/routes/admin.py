@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Literal, Optional, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, EmailStr, field_validator
 import redis
@@ -802,6 +802,33 @@ def list_scheduled_reports(
     ]
 
 
+class ScheduledReportUpdate(BaseModel):
+    enabled: bool
+
+
+@router.patch("/scheduled-reports/{report_id}", status_code=200)
+def update_scheduled_report(
+    report_id: int,
+    body: ScheduledReportUpdate,
+    _user: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Enable or disable a scheduled report."""
+    result = db.execute(
+        text("""
+            UPDATE wims.scheduled_reports
+            SET enabled = :enabled
+            WHERE id = :id
+            RETURNING id, name, enabled
+        """),
+        {"id": report_id, "enabled": body.enabled},
+    ).fetchone()
+    if result is None:
+        raise HTTPException(status_code=404, detail="Scheduled report not found")
+    db.commit()
+    return {"status": "ok", "id": result[0], "name": result[1], "enabled": result[2]}
+
+
 # ---------------------------------------------------------------------------
 # Backup Management
 # ---------------------------------------------------------------------------
@@ -957,6 +984,102 @@ async def download_backup(
     )
 
 
+@router.post("/restore", status_code=200)
+def restore_backup(
+    file: UploadFile = File(...),
+    request: Request = None,
+    current_user: dict = Depends(get_system_admin),
+    db: Session = Depends(get_db_with_rls),
+):
+    """Restore wims database from an encrypted backup file."""
+    filename = file.filename or ""
+    if not re.match(r"^wims_\d{8}_\d{6}\.sql\.enc$", filename):
+        raise HTTPException(status_code=400, detail="Invalid backup file format")
+
+    _ensure_backup_dir()
+    encrypted_path = BACKUP_DIR / filename
+
+    with encrypted_path.open("wb") as f:
+        content = file.file.read()
+        f.write(content)
+
+    try:
+        from utils.backup_crypto import decrypt_backup
+        decrypted_path = decrypt_backup(encrypted_path)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Decryption failed — invalid key or corrupted backup: {e}")
+
+    db_url = os.environ.get("DATABASE_URL", "")
+    try:
+        parsed = urllib.parse.urlparse(db_url)
+    except Exception as e:
+        decrypted_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Invalid DATABASE_URL: {e}")
+
+    if parsed.scheme != "postgresql":
+        decrypted_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="DATABASE_URL must use postgresql:// scheme")
+
+    db_user = parsed.username or ""
+    db_pass = parsed.password or ""
+    db_host = parsed.hostname or ""
+    db_port = str(parsed.port) if parsed.port else "5432"
+    db_name = parsed.path.lstrip("/") or ""
+
+    env = os.environ.copy()
+    env["PGPASSWORD"] = db_pass
+
+    try:
+        result = subprocess.run(
+            [
+                "psql",
+                "-h",
+                db_host,
+                "-p",
+                db_port,
+                "-U",
+                db_user,
+                "-d",
+                db_name,
+                "-f",
+                str(decrypted_path),
+                "--no-password",
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except subprocess.TimeoutExpired:
+        decrypted_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=504, detail="Restore timed out after 180s")
+    except FileNotFoundError:
+        decrypted_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="psql not found in PATH")
+
+    if result.returncode != 0:
+        decrypted_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"psql restore failed: {result.stderr[:500]}")
+
+    decrypted_path.unlink(missing_ok=True)
+
+    log_system_audit(
+        db=db,
+        user_id=current_user["user_id"],
+        action_type="BACKUP_RESTORED",
+        table_affected="wims",
+        record_id=None,
+        request=request,
+    )
+    db.commit()
+
+    return {
+        "status": "ok",
+        "filename": filename,
+        "restored_at": datetime.utcnow().isoformat(),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Dynamic Rate Limit Configuration
 # ---------------------------------------------------------------------------
@@ -1083,3 +1206,75 @@ def get_system_metrics(
             "percent": disk.percent,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Per-User Session Management
+# ---------------------------------------------------------------------------
+
+
+@router.get("/sessions/{user_id}")
+def get_user_sessions(
+    user_id: str,
+    current_user: dict = Depends(get_system_admin),
+    db: Session = Depends(get_db_with_rls),
+):
+    """Fetch all active sessions for a specific user."""
+    row = db.execute(
+        text("SELECT keycloak_id FROM wims.users WHERE user_id = CAST(:uid AS uuid)"),
+        {"uid": user_id},
+    ).fetchone()
+    if not row or not row[0]:
+        raise HTTPException(status_code=404, detail="User not found")
+    keycloak_id = str(row[0])
+
+    from services.keycloak_admin import _get_admin_client
+    adm = _get_admin_client()
+    try:
+        sessions = adm.get_sessions(keycloak_id)
+    except Exception:
+        return {"sessions": []}
+
+    return {
+        "sessions": [
+            {
+                "id": s.get("id"),
+                "ipAddress": s.get("ipAddress"),
+                "start": s.get("start"),
+                "lastAccess": s.get("lastAccess"),
+                "clients": s.get("clients", {}),
+            }
+            for s in sessions
+        ]
+    }
+
+
+@router.delete("/sessions/{user_id}/{session_id}")
+def revoke_user_session(
+    user_id: str,
+    session_id: str,
+    current_user: dict = Depends(get_system_admin),
+    db: Session = Depends(get_db_with_rls),
+):
+    """Revoke a specific session for a user."""
+    row = db.execute(
+        text("SELECT keycloak_id FROM wims.users WHERE user_id = CAST(:uid AS uuid)"),
+        {"uid": user_id},
+    ).fetchone()
+    if not row or not row[0]:
+        raise HTTPException(status_code=404, detail="User not found")
+    keycloak_id = str(row[0])
+
+    from services.keycloak_admin import _get_admin_client
+    adm = _get_admin_client()
+    try:
+        adm.delete_user_session(session_id=session_id)
+    except AttributeError:
+        try:
+            adm.connection.raw_delete(f"sessions/{session_id}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to revoke session: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to revoke session: {str(e)}")
+
+    return {"status": "ok", "session_id": session_id}
