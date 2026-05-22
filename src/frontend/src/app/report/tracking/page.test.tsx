@@ -5,6 +5,7 @@ import { fetchReportStatus } from '@/lib/api';
 vi.mock('@/lib/api', () => ({
   fetchReportStatus: vi.fn(),
   registerNotification: vi.fn(),
+  fetchReportTimeline: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('@/lib/firebase', () => ({
@@ -28,7 +29,7 @@ describe('ReportTrackerPage', () => {
   it('loads report status from the id query parameter', async () => {
     vi.mocked(fetchReportStatus).mockResolvedValue({
       report_id: 42,
-      status: 'VERIFIED',
+      status: 'ACTIONED',
       description: 'Smoke visible near the market',
       created_at: '2026-05-19T08:00:00Z',
     });
@@ -39,6 +40,6 @@ describe('ReportTrackerPage', () => {
 
     expect(screen.getByDisplayValue('42')).toBeDefined();
     await waitFor(() => expect(fetchReportStatus).toHaveBeenCalledWith('42'));
-    expect(await screen.findByText('VERIFIED')).toBeDefined();
+    expect(await screen.findByText('ACTIONED')).toBeDefined();
   });
 });

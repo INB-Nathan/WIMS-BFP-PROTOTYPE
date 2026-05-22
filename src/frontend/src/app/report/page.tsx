@@ -20,6 +20,7 @@ import {
   Info,
   CheckCircle,
 } from 'lucide-react';
+import { CalmEmergencyBlock } from './CalmEmergencyBlock';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -224,7 +225,7 @@ export default function ReportPage() {
   const searchParams = useSearchParams();
   const prevReportIdParam = searchParams.get('previous_report_id');
 
-  const [step, setStep] = useState<Step>('context');
+  const [step, setStep] = useState<Step>('safety');
   const [reportingContext, setReportingContext] = useState<ReportingContext | null>(null);
   const [safetyStatus, setSafetyStatus] = useState<SafetyStatus | null>(null);
   const [category, setCategory] = useState<CivilianCategory | null>(null);
@@ -253,7 +254,7 @@ export default function ReportPage() {
   const isLifeSafety = safetyStatus === 'I_NEED_HELP' || safetyStatus === 'SOMEONE_ELSE_NEEDS_HELP';
 
   // Step index for progress bar
-  const stepOrder: Step[] = ['context', 'safety', 'category', 'details'];
+  const stepOrder: Step[] = ['safety', 'context', 'category', 'details'];
   const currentStepIndex = stepOrder.indexOf(step as Step);
 
   // ── GPS ────────────────────────────────────────────────────────────────────
@@ -358,13 +359,13 @@ export default function ReportPage() {
       }
     }
 
-    setStep('safety');
+    setStep('category');
   }
 
   function handleGpsMismatchConfirm() {
     setGpsWarningConfirmed(true);
     setShowGpsMismatch(false);
-    setStep('safety');
+    setStep('category');
   }
 
   function handleGpsMismatchCancel() {
@@ -627,6 +628,10 @@ export default function ReportPage() {
           <h1 className="text-lg font-bold text-white">Report Emergency</h1>
         </div>
 
+        {step !== 'review' && step !== 'submitted' && (
+          <CalmEmergencyBlock />
+        )}
+
         <div className="px-6 pt-4 pb-2">
           {currentStepIndex >= 0 && <ProgressBar current={currentStepIndex} total={stepOrder.length} />}
         </div>
@@ -721,19 +726,29 @@ export default function ReportPage() {
                 </div>
               )}
 
-              <button
-                type="button"
-                onClick={() => {
-                  if (canProceedFromContext()) {
-                    tryAdvanceFromContext();
-                  }
-                }}
-                disabled={!canProceedFromContext()}
-                className="w-full py-3 rounded-lg text-white text-sm font-bold disabled:opacity-40"
-                style={{ background: 'var(--bfp-gradient)' }}
-              >
-                Continue
-              </button>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setStep('safety')}
+                  className="flex items-center gap-1 px-4 py-3 rounded-lg border text-sm font-medium"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+                >
+                  <ChevronLeft className="w-4 h-4" /> Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (canProceedFromContext()) {
+                      tryAdvanceFromContext();
+                    }
+                  }}
+                  disabled={!canProceedFromContext()}
+                  className="flex-1 py-3 rounded-lg text-white text-sm font-bold disabled:opacity-40"
+                  style={{ background: 'var(--bfp-gradient)' }}
+                >
+                  Continue
+                </button>
+              </div>
             </>
           )}
 
@@ -776,25 +791,15 @@ export default function ReportPage() {
                 </div>
               )}
 
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setStep('context')}
-                  className="flex items-center gap-1 px-4 py-3 rounded-lg border text-sm font-medium"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
-                >
-                  <ChevronLeft className="w-4 h-4" /> Back
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStep('category')}
-                  disabled={!safetyStatus}
-                  className="flex-1 py-3 rounded-lg text-white text-sm font-bold disabled:opacity-40"
-                  style={{ background: 'var(--bfp-gradient)' }}
-                >
-                  Continue
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setStep('context')}
+                disabled={!safetyStatus}
+                className="flex-1 py-3 rounded-lg text-white text-sm font-bold disabled:opacity-40"
+                style={{ background: 'var(--bfp-gradient)' }}
+              >
+                Continue
+              </button>
             </>
           )}
 
@@ -827,24 +832,60 @@ export default function ReportPage() {
                 )}
               </div>
 
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setStep('safety')}
-                  className="flex items-center gap-1 px-4 py-3 rounded-lg border text-sm font-medium"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
-                >
-                  <ChevronLeft className="w-4 h-4" /> Back
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStep('details')}
-                  disabled={!category}
-                  className="flex-1 py-3 rounded-lg text-white text-sm font-bold disabled:opacity-40"
-                  style={{ background: 'var(--bfp-gradient)' }}
-                >
-                  Continue
-                </button>
+              <div className="space-y-3">
+                {isLifeSafety && category ? (
+                  <>
+                    {/* Row 1: two CTAs side by side */}
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => void handleSubmit()}
+                        disabled={!geo.latitude || !reportingContext || !safetyStatus || !category || submitting}
+                        className="flex-1 py-3 rounded-lg text-white text-sm font-bold disabled:opacity-50"
+                        style={{ background: 'var(--bfp-red, #dc2626)' }}
+                      >
+                        {submitting ? 'Sending...' : 'Send now / Ipadala na'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setStep('details')}
+                        className="flex-1 py-3 rounded-lg border text-sm font-medium"
+                        style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                      >
+                        Add details / Magdagdag ng detalye
+                      </button>
+                    </div>
+                    {/* Row 2: full-width back button */}
+                    <button
+                      type="button"
+                      onClick={() => setStep('context')}
+                      className="w-full flex items-center justify-center gap-1 px-4 py-3 rounded-lg border text-sm font-medium"
+                      style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+                    >
+                      <ChevronLeft className="w-4 h-4" /> Back / Bumalik
+                    </button>
+                  </>
+                ) : (
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setStep('context')}
+                      className="flex items-center gap-1 px-4 py-3 rounded-lg border text-sm font-medium"
+                      style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+                    >
+                      <ChevronLeft className="w-4 h-4" /> Back
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStep('details')}
+                      disabled={!category}
+                      className="flex-1 py-3 rounded-lg text-white text-sm font-bold disabled:opacity-40"
+                      style={{ background: 'var(--bfp-gradient)' }}
+                    >
+                      Continue
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           )}

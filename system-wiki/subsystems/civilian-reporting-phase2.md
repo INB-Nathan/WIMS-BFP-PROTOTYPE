@@ -49,12 +49,12 @@ Submit a structured civilian report.
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | category | string | Yes | STRUCTURAL / NON_STRUCTURAL / TRANSPORTATION / UNSURE |
-| sub_category | string | Yes | Icon key, e.g. STRUCTURAL_ESTABLISHMENT |
+| sub_category | string | No | Optional subtype/icon key when known; may be omitted for `UNSURE` or emergency fast submit |
 | latitude | float | Yes | GPS or manual pin |
 | longitude | float | Yes | GPS or manual pin |
 | safety_status | string | Yes | I_AM_SAFE / I_NEED_HELP / SOMEONE_ELSE_NEEDS_HELP / UNKNOWN |
 | reporting_context | string | Yes | WITNESS / NEARBY / SECONDHAND |
-| observed_time | datetime | Yes | ISO 8601 |
+| observed_time | datetime | No | Optional ISO 8601 observed time; backend should tolerate omission/default for emergency fast submit |
 | description | string | No | Free text |
 | eyewitness_name | string | No | Optional follow-up contact |
 | eyewitness_contact | string | No | Optional follow-up contact |
@@ -63,7 +63,37 @@ Submit a structured civilian report.
 
 **Rate limits**: 5 new reports per IP per hour; 1 append per device per 5 minutes.
 
-**Life-safety path** (`I_NEED_HELP` / `SOMEONE_ELSE_NEEDS_HELP`): skips duplicate-suggestion review step. Non-life-safety shows duplicate suggestions before submit.
+**Safety-first public flow**: `/report` asks `safety_status` before reporting context/location so life-safety guidance appears before cognitively heavier source/location questions.
+
+**Calm emergency landing block**: `/report` starts with dominant emergency contact guidance: call 911 now if anyone is in immediate danger; move away from smoke/fire; do not get closer to take photos. This block is guidance only, does not create a separate data state, and does not require pre-submit nearest-station lookup or additional hotline numbers.
+
+**First interactive step**: after the emergency landing block, ask only one question — “Are you or anyone else in danger?” — with the four `safety_status` choices. Do not combine safety and reporting context on the same screen; reporting context/location belongs to the next step.
+
+**Life-safety path** (`I_NEED_HELP` / `SOMEONE_ELSE_NEEDS_HELP`): keeps 911 guidance visible through the flow, skips duplicate-suggestion review step, and uses fast submit. Life-safety order is safety → location → reporting context → explicit category tap → primary “Send now.” From the category step, “Send now” submits immediately once minimum required fields are present; optional fields are only behind a secondary “Add details if safe” path, and that optional details page still keeps “Send now” as the primary action. The category step must make `UNSURE` prominent rather than silently defaulting it. Minimum life-safety fields are `safety_status`, `latitude`, `longitude`, `reporting_context`, explicit `category` (including `UNSURE`), and `device_id`. Optional fields are `sub_category`, observed/reported time, witness name/contact, and `previous_report_id`. Non-life-safety shows details/review and duplicate suggestions before submit. Nearest-station escalation remains post-submit/tracking via the existing backend response.
+
+**Unknown safety status**: `UNKNOWN` remains non-life-safety for backend priority and fast-submit behavior, but the UI shows cautious guidance: if anyone may be in danger, call 911 now and stay away from smoke/fire.
+
+**Uncertain category UX**: category selection treats `UNSURE` as a safe default, not a failure. The UI shows specific fire categories first, then a prominent “I’m not sure / Hindi sigurado” action with reassuring copy that BFP can still review the report.
+
+**Location prompt UX**: after safety, `/report` asks location before reporting context. Location selection leads with one plain-language question: “Where is the fire?” The screen can offer “Use my current location” and “Place pin manually” without needing `reporting_context` first. Helper copy says to use current location if the reporter is there, otherwise place the pin on the fire location. Reporting context is captured afterward for validator interpretation and GPS trust scoring.
+
+**Reporting-context iconography**: reporting-context choices should use low-ambiguity visual icons to reduce reading load under stress: eye/direct-view icon for `WITNESS`, map/proximity icon for `NEARBY`, and message/speech icon for `SECONDHAND`. Exact icons are implementation-flexible, but context choices should not remain text-only.
+
+**Shared report order**: both life-safety and non-life-safety reports use the same core order: safety → location → reporting context → category. Life-safety then shows primary “Send now”; non-life-safety continues to details/review.
+
+**Secondhand/current-location challenge**: if a user chooses current GPS as the fire location and later selects `SECONDHAND`, the UI must challenge the combination: “Is this current location where the fire is?” with “Yes, the fire is here” and “No, let me place the pin.” A “No” answer returns to manual pin placement.
+
+**Nearby/current-location reminder**: if a user chooses current GPS as the fire location and later selects `NEARBY`, the UI shows a non-blocking reminder: “If the fire is not exactly where you are, place the pin on the fire instead.” Continue remains available.
+
+**Success screen emergency boundary**: after every submission, `/report` must show “Report submitted,” then explicitly say that if anyone is in immediate danger, call 911 now; the report helps BFP review public signals but does not replace an emergency call. This boundary appears for all `safety_status` paths, not only life-safety reports. Then show report ID, tracking, and nearest station if available.
+
+**Tracking page emergency boundary**: `/report/tracking` must show the same immediate-danger boundary across all statuses: if anyone is in immediate danger, call 911 now; the report helps BFP review public signals but does not replace an emergency call. Waiting/uncertain statuses should keep the boundary visually prominent. `ACTIONED` may place it lower or render it less urgently, but must not remove it.
+
+**Nearest-station presentation**: post-submit and tracking screens may show nearest-station details, but only as secondary follow-up/context after the 911 emergency boundary. Label it “Nearest BFP station for follow-up,” include “For immediate danger, call 911 first,” and if `nearest_station_phone` is the fallback `911`, label it as the emergency number rather than a station phone.
+
+**Bilingual stress-critical copy**: public reporting/tracking uses local English/Filipino static copy constants, not full app-wide i18n. Bilingual copy is required for stress-critical prompts only: 911/immediate danger, do not move closer or take photos, “does not replace an emergency call,” “Send now,” “Add details if safe,” `UNSURE` reassurance, location helper telling users to use current location only if they are there and otherwise pin the fire, and the 911 sentence in submit/rate-limit/network errors. English-only labels are acceptable for report IDs, technical status labels, station follow-up labels, observed time, and previous report ID.
+
+**Safety-first submit errors**: any `/report` submit failure says the report could not be sent and tells users to call 911 now if anyone is in immediate danger. Then show the practical next step: validation/location errors ask the user to check the missing field or place the pin again; rate limits say too many reports came from this network and suggest tracking/updating an existing report if they have its ID; network/server failures ask the user to retry when connected while preserving the 911 boundary.
 
 **Errors**: 429 on rate limit hit, 400 on validation failure.
 
@@ -229,6 +259,7 @@ Does NOT touch rows with status `UNDER_REVIEW` at the row level, even if they ar
 - Duplicate suggestions (`POST /api/civilian/reports/duplicate-suggestions`) shown non-blocking before non-life-safety submit
 - Previous report reference field (shown after ACTIONED/REJECTED terminal guidance)
 - Submit calls `POST /api/civilian/reports`
+- **CTA visual contract**: disabled CTAs must not use the active BFP red/gradient treatment. Disabled state uses visibly inactive/muted styling (e.g. gray background, not red/gradient). Enabled primary CTAs use high-contrast BFP red/gradient. This prevents stressed users from misreading a disabled button as active — a direct application of the stress-friendly cognitive-clarity mandate.
 
 ### `/report/tracking` — Public Tracking (`src/frontend/src/app/report/tracking/page.tsx`)
 - Reads `?id=<reportId>` from URL on first load
