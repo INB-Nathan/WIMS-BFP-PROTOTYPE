@@ -1,24 +1,33 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import { MapPicker } from '@/components/MapPicker';
 import { fetchCivilianDuplicateSuggestions, submitCivilianReportV2 } from '@/lib/api';
 import type { CivilianCategory, CivilianDuplicateSuggestion, CivilianReportV2Payload, ReportingContext, SafetyStatus } from '@/lib/api';
+import React from 'react';
+
 import {
   AlertTriangle,
-  MapPin,
-  User,
+  ArrowLeft,
+  Camera,
+  CheckCircle,
+  ChevronLeft,
+  Circle,
   Clock,
   Flame,
-  Truck,
   HelpCircle,
-  Zap,
-  PhoneCall,
-  ChevronLeft,
-  Locate,
   Info,
-  CheckCircle,
+  Locate,
+  MapPin,
+  PhoneCall,
+  RefreshCw,
+  Search,
+  Truck,
+  User,
+  XCircle,
+  Zap,
 } from 'lucide-react';
 import { CalmEmergencyBlock } from './CalmEmergencyBlock';
 
@@ -98,15 +107,46 @@ function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): num
 // ── Components ───────────────────────────────────────────────────────────────
 
 function ProgressBar({ current, total }: { current: number; total: number }) {
+  const labels = ['Safety', 'Context', 'Category', 'Details'];
   return (
-    <div className="flex gap-1 mb-4">
-      {Array.from({ length: total }).map((_, i) => (
-        <div
-          key={i}
-          className="h-1 flex-1 rounded-full transition-colors"
-          style={{ backgroundColor: i < current ? 'var(--bfp-red, #dc2626)' : 'var(--border-color, #e5e7eb)' }}
-        />
-      ))}
+    <div className="flex items-center mb-6">
+      {labels.map((label, i) => {
+        const isComplete = i < current;
+        const isActive = i === current;
+        return (
+          <div key={label} className="flex items-center flex-1">
+            <div className="flex flex-col items-center flex-1">
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all duration-200"
+                style={{
+                  backgroundColor: isComplete ? 'var(--step-complete)' : isActive ? 'var(--step-active)' : 'transparent',
+                  borderColor: isComplete ? 'var(--step-complete)' : isActive ? 'var(--step-active)' : 'var(--step-inactive)',
+                  color: isComplete || isActive ? '#ffffff' : 'var(--text-secondary)',
+                  boxShadow: isActive ? '0 0 0 3px rgba(153,27,27,0.15)' : 'none',
+                }}
+              >
+                {isComplete ? (
+                  <CheckCircle className="w-4 h-4" />
+                ) : (
+                  i + 1
+                )}
+              </div>
+              <span
+                className="text-xs mt-1.5 font-medium"
+                style={{ color: isActive ? 'var(--bfp-maroon)' : 'var(--text-muted)' }}
+              >
+                {label}
+              </span>
+            </div>
+            {i < labels.length - 1 && (
+              <div
+                className="h-0.5 flex-1 mx-1 mb-4 rounded"
+                style={{ backgroundColor: i < current ? 'var(--step-complete)' : 'var(--step-inactive)' }}
+              />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -116,15 +156,20 @@ function ContextCard({ value, selected, onSelect }: { value: (typeof REPORTING_C
     <button
       type="button"
       onClick={onSelect}
-      className="w-full text-left p-4 rounded-lg border-2 transition-all"
+      className="w-full text-left rounded-xl p-4 transition-all duration-200 relative overflow-hidden"
       style={{
-        borderColor: selected ? 'var(--bfp-red, #dc2626)' : 'var(--border-color, #e5e7eb)',
-        backgroundColor: selected ? 'rgba(220, 38, 38, 0.05)' : 'transparent',
+        border: `2px solid ${selected ? 'var(--bfp-maroon)' : 'var(--border-color)'}`,
+        backgroundColor: selected ? 'rgba(153,27,27,0.04)' : 'var(--card-bg)',
+        boxShadow: selected ? '0 0 0 3px rgba(153,27,27,0.12)' : '0 1px 3px rgba(0,0,0,0.05)',
       }}
     >
-      <p className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{value.label}</p>
-      <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{value.desc}</p>
-      <p className="text-xs mt-0.5" style={{ color: 'var(--bfp-red, #dc2626)' }}>{value.labelFil}</p>
+      <div className="flex items-start gap-3">
+        <div>
+          <p className="font-semibold text-sm" style={{ color: selected ? 'var(--bfp-maroon)' : 'var(--text-primary)' }}>{value.label}</p>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{value.desc}</p>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--bilingual-color)' }}>{value.labelFil}</p>
+        </div>
+      </div>
     </button>
   );
 }
@@ -134,17 +179,34 @@ function SafetyCard({ value, selected, onSelect }: { value: (typeof SAFETY_STATU
     <button
       type="button"
       onClick={onSelect}
-      className="w-full text-left p-4 rounded-lg border-2 transition-all"
+      className="w-full text-left rounded-xl p-4 transition-all duration-200 relative overflow-hidden"
       style={{
-        borderColor: selected ? (value.urgent ? 'var(--bfp-red, #dc2626)' : 'var(--border-color, #e5e7eb)') : 'var(--border-color, #e5e7eb)',
-        backgroundColor: selected ? (value.urgent ? 'rgba(220, 38, 38, 0.08)' : 'rgba(0,0,0,0.02)') : 'transparent',
+        border: `2px solid ${selected ? 'var(--bfp-maroon)' : 'var(--border-color)'}`,
+        backgroundColor: selected ? 'rgba(153,27,27,0.04)' : 'var(--card-bg)',
+        boxShadow: selected ? '0 0 0 3px rgba(153,27,27,0.12)' : '0 1px 3px rgba(0,0,0,0.05)',
       }}
     >
-      <p className="font-semibold text-sm" style={{ color: value.urgent ? 'var(--bfp-red, #dc2626)' : 'var(--text-primary)' }}>
-        {value.label}
-      </p>
-      <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{value.desc}</p>
-      <p className="text-xs mt-0.5" style={{ color: value.urgent ? 'var(--bfp-red, #dc2626)' : 'var(--text-secondary)' }}>{value.labelFil}</p>
+      {value.urgent && (
+        <div
+          className="absolute left-0 top-0 bottom-0 w-1 rounded-l-xl"
+          style={{ backgroundColor: selected ? 'var(--bfp-maroon)' : 'var(--border-color)' }}
+        />
+      )}
+      <div className="flex items-start gap-3 pl-3">
+        {value.urgent && (
+          <div
+            className="w-2 h-2 rounded-full mt-2 flex-shrink-0"
+            style={{ backgroundColor: selected ? 'var(--bfp-maroon)' : 'var(--text-muted)' }}
+          />
+        )}
+        <div>
+          <p className="font-semibold text-sm" style={{ color: value.urgent && selected ? 'var(--bfp-maroon)' : 'var(--text-primary)' }}>
+            {value.label}
+          </p>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{value.desc}</p>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--bilingual-color)' }}>{value.labelFil}</p>
+        </div>
+      </div>
     </button>
   );
 }
@@ -154,15 +216,23 @@ function CategoryCard({ cat, selected, onSelect }: { cat: (typeof CATEGORIES)[0]
     <button
       type="button"
       onClick={onSelect}
-      className="flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-all"
+      className="flex flex-col items-center gap-2.5 p-5 rounded-xl border-2 transition-all duration-200"
       style={{
-        borderColor: selected ? 'var(--bfp-red, #dc2626)' : 'var(--border-color, #e5e7eb)',
-        backgroundColor: selected ? 'rgba(220, 38, 38, 0.05)' : 'transparent',
+        borderColor: selected ? 'var(--bfp-maroon)' : 'var(--border-color)',
+        backgroundColor: selected ? 'rgba(153,27,27,0.04)' : 'var(--card-bg)',
+        boxShadow: selected ? '0 0 0 3px rgba(153,27,27,0.10)' : '0 1px 3px rgba(0,0,0,0.05)',
       }}
     >
-      <div style={{ color: selected ? 'var(--bfp-red, #dc2626)' : 'var(--text-secondary)' }}>{cat.icon}</div>
-      <p className="font-medium text-xs text-center" style={{ color: 'var(--text-primary)' }}>{cat.label}</p>
-      <p className="text-xs text-center" style={{ color: 'var(--bfp-red, #dc2626)' }}>{cat.labelFil}</p>
+      <div
+        className="w-12 h-12 rounded-full flex items-center justify-center transition-colors"
+        style={{ backgroundColor: selected ? 'rgba(153,27,27,0.10)' : 'var(--content-bg)' }}
+      >
+        <div style={{ color: selected ? 'var(--bfp-maroon)' : 'var(--text-secondary)' }}>
+          {React.cloneElement(cat.icon, { className: 'w-6 h-6' })}
+        </div>
+      </div>
+      <p className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{cat.label}</p>
+      <p className="text-xs" style={{ color: 'var(--bilingual-color)' }}>{cat.labelFil}</p>
     </button>
   );
 }
@@ -207,10 +277,10 @@ function GpsMismatchModal({ pinDist, onConfirm, onCancel }: { pinDist: number; o
           Ang pin mo ay <strong>{Math.round(pinDist)}m</strong> ang layo mula sa iyong kasalukuyang lokasyon. Tamang-tama ba ito?
         </p>
         <div className="flex gap-3">
-          <button type="button" onClick={onCancel} className="flex-1 py-2.5 rounded-lg border text-sm font-medium" style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}>
+          <button type="button" onClick={onCancel} className="flex-1 py-2.5 rounded-xl border text-sm font-medium transition-colors" style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)', backgroundColor: 'var(--card-bg)' }}>
             Go back
           </button>
-          <button type="button" onClick={onConfirm} className="flex-1 py-2.5 rounded-lg text-white text-sm font-bold" style={{ backgroundColor: 'var(--bfp-red, #dc2626)' }}>
+          <button type="button" onClick={onConfirm} className="flex-1 py-2.5 rounded-xl text-white text-sm font-bold transition-all" style={{ backgroundColor: 'var(--bfp-red, #dc2626)', boxShadow: '0 2px 8px rgba(220,38,38,0.3)' }}>
             Yes, this is correct
           </button>
         </div>
@@ -242,9 +312,13 @@ export default function ReportPage() {
   const [phoneGeoStatus, setPhoneGeoStatus] = useState<{ denied: boolean; timedOut: boolean }>({ denied: false, timedOut: false });
   const [showGpsMismatch, setShowGpsMismatch] = useState(false);
   const [gpsMismatchDist, setGpsMismatchDist] = useState(0);
+  const [gpsSource, setGpsSource] = useState<'acquired' | 'manual' | null>(null);
+  const [gpsChallengeOpen, setGpsChallengeOpen] = useState(false);
+  const [pinClearedFromChallenge, setPinClearedFromChallenge] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitErrorType, setSubmitErrorType] = useState<'network' | 'validation' | 'rate_limit' | 'server' | 'unknown' | null>(null);
   const [submittedReportId, setSubmittedReportId] = useState<number | null>(null);
   const [submittedResponse, setSubmittedResponse] = useState<Awaited<ReturnType<typeof submitCivilianReportV2>> | null>(null);
   const [duplicateSuggestions, setDuplicateSuggestions] = useState<CivilianDuplicateSuggestion[]>([]);
@@ -284,6 +358,7 @@ export default function ReportPage() {
             if (g.source === 'pin') return g; // never clobber a manual pin
             return { latitude: lat, longitude: lng, source: 'gps', denied: false, timedOut: false };
           });
+          setGpsSource('acquired');
         }
       },
       () => {
@@ -331,6 +406,8 @@ export default function ReportPage() {
   function handlePinChange(lat: number, lng: number) {
     setGpsWarningConfirmed(false);
     setGeo({ latitude: lat, longitude: lng, source: 'pin', denied: false, timedOut: false });
+    setGpsSource('manual');
+    setPinClearedFromChallenge(false);
   }
 
   // ── Context step ────────────────────────────────────────────────────────────
@@ -446,8 +523,16 @@ export default function ReportPage() {
       setSubmittedReportId(res.report_id);
       setStep('submitted');
     } catch (err) {
+      // Detect error type for targeted copy + 911 boundary
+      const isNetworkError = err instanceof TypeError || (err instanceof Error && err.message.includes('fetch'));
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      let type: typeof submitErrorType = 'unknown';
+      if (isNetworkError) type = 'network';
+      else if (status === 422) type = 'validation';
+      else if (status === 429) type = 'rate_limit';
+      else if (status && status >= 500) type = 'server';
+      setSubmitErrorType(type);
       setSubmitError(err instanceof Error ? err.message : 'Submission failed. Please try again.');
-    } finally {
       setSubmitting(false);
     }
   }
@@ -456,10 +541,11 @@ export default function ReportPage() {
 
   if (step === 'review') {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 py-8" style={{ backgroundColor: 'var(--content-bg)' }}>
+      <div className="min-h-screen flex items-center justify-center px-4 py-8" style={{ background: 'var(--content-bg)', backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(153,27,27,0.04) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(153,27,27,0.03) 0%, transparent 40%)' }}>
         <div className="card max-w-lg w-full overflow-hidden">
           <div className="p-4 text-center" style={{ background: 'var(--bfp-gradient)' }}>
             <h1 className="text-lg font-bold text-white">Review Your Report</h1>
+            <p className="text-xs text-white/60 mt-0.5">Suriin ang iyong report</p>
           </div>
           <div className="card-body space-y-4 p-6">
             <div className="space-y-3 text-sm">
@@ -504,6 +590,24 @@ export default function ReportPage() {
               <br />Huwag lumapit sa sunog kung hindi ka ligtas.
             </div>
 
+            {/*
+              911 emergency boundary — ALL users before final submit CTA.
+              Required: "does not replace emergency call" in EN+FIL.
+            */}
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-red-700">
+                    For immediate danger, call 911 now. This report does not replace an emergency call.
+                  </p>
+                  <p className="text-xs text-red-600 mt-0.5">
+                    Kung may agarang peligro, tumawag sa 911 ngayon. Ang report na ito ay hindi kapalit ng agarang tawag sa 911.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {duplicateSuggestions.length > 0 && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                 <p className="font-semibold">Similar nearby report found</p>
@@ -519,9 +623,27 @@ export default function ReportPage() {
               </div>
             )}
 
-            {submitError && (
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 text-red-700 text-sm">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {submitError}
+            {submitError && submitErrorType && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-red-700">
+                      {submitErrorType === 'network' && 'Network error. Check your connection.'}
+                      {submitErrorType === 'validation' && 'Missing required information.'}
+                      {submitErrorType === 'rate_limit' && 'Too many reports from this network.'}
+                      {submitErrorType === 'server' && 'Server error. Please try again later.'}
+                      {submitErrorType === 'unknown' && 'Submission failed. Please try again.'}
+                    </p>
+                    <p className="text-xs text-red-600 mt-0.5">
+                      {submitErrorType === 'network' && 'Make sure you are connected to the internet and try again.'}
+                      {submitErrorType === 'validation' && 'Please check the form and try again.'}
+                      {submitErrorType === 'rate_limit' && 'Try tracking or updating an existing report instead.'}
+                      {submitErrorType === 'server' && 'Retry in a few minutes. If this persists, contact BFP directly.'}
+                      {submitErrorType === 'unknown' && 'If this persists, call 911 for immediate danger.'}
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -529,8 +651,8 @@ export default function ReportPage() {
               <button
                 type="button"
                 onClick={() => setStep('details')}
-                className="flex-1 py-3 rounded-lg border text-sm font-medium"
-                style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                className="flex-1 py-3 rounded-xl border text-sm font-medium transition-colors"
+                style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)', backgroundColor: 'var(--card-bg)' }}
               >
                 Back
               </button>
@@ -538,8 +660,8 @@ export default function ReportPage() {
                 type="button"
                 onClick={handleSubmit}
                 disabled={submitting}
-                className="flex-1 py-3 rounded-lg text-white text-sm font-bold disabled:opacity-50"
-                style={{ background: 'var(--bfp-gradient)' }}
+                className="flex-1 py-3.5 rounded-xl text-white text-sm font-bold disabled:opacity-50 transition-all"
+                style={{ background: 'var(--bfp-gradient)', boxShadow: '0 2px 8px rgba(153,27,34,0.3)' }}
               >
                 {submitting ? 'Submitting...' : 'Submit Report'}
               </button>
@@ -554,7 +676,7 @@ export default function ReportPage() {
 
   if (step === 'submitted') {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 py-8" style={{ backgroundColor: 'var(--content-bg)' }}>
+      <div className="min-h-screen flex items-center justify-center px-4 py-8" style={{ background: 'var(--content-bg)', backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(153,27,27,0.04) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(153,27,27,0.03) 0%, transparent 40%)' }}>
         <div className="card max-w-lg w-full overflow-hidden">
           <div className="p-6 text-center">
             <div className="mx-auto w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: 'rgba(34,197,94,0.1)' }}>
@@ -570,17 +692,25 @@ export default function ReportPage() {
               Ang report #{submittedReportId} ay natanggap na.
             </p>
 
-            {isLifeSafety && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 text-left">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-semibold text-red-700">Call 911 if you have not done so.</p>
-                    <p className="text-xs text-red-600 mt-0.5">Kung kailangan mo ng tulong, tumawag na sa 911.</p>
-                  </div>
+            {/*
+              911 emergency boundary — ALL submissions, every safety status.
+              Required: "does not replace emergency call" in EN+FIL.
+            */}
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 text-left">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-red-700">Call 911 if you have not done so.</p>
+                  <p className="text-xs text-red-600 mt-0.5">Kung kailangan mo ng agarang tulong, tumawag na sa 911.</p>
+                  <p className="text-xs text-red-600 mt-1">
+                    This report helps BFP review public signals — it does not replace an emergency call.
+                  </p>
+                  <p className="text-xs text-red-600 mt-0.5">
+                    Ang report na ito ay tumutulong sa BFP na suriin ang mga signal mula sa publiko — hindi ito kapalit ng agarang tawag sa 911.
+                  </p>
                 </div>
               </div>
-            )}
+            </div>
 
             {submittedResponse?.nearest_station_name && (
               <div className="rounded-lg p-4 mb-4 text-left" style={{ backgroundColor: 'var(--content-bg)', border: '1px solid var(--border-color)' }}>
@@ -621,11 +751,17 @@ export default function ReportPage() {
   // ── Multi-step form ─────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-6" style={{ backgroundColor: 'var(--content-bg)' }}>
+    <div className="min-h-screen flex items-center justify-center px-4 py-6" style={{ background: 'var(--content-bg)', backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(153,27,27,0.04) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(153,27,27,0.03) 0%, transparent 40%)' }}>
       <div className="card max-w-lg w-full overflow-hidden">
-        <div className="p-4 text-center" style={{ background: 'var(--bfp-gradient)' }}>
-          <p className="text-xs text-white/60 uppercase tracking-wider mb-1">Bureau of Fire Protection</p>
-          <h1 className="text-lg font-bold text-white">Report Emergency</h1>
+        <div className="p-5 text-center" style={{ background: 'var(--bfp-gradient)' }}>
+          <div className="relative w-14 h-14 mx-auto mb-3">
+            <Image src="/bfp-logo.svg" alt="BFP Logo" fill className="object-contain" />
+          </div>
+          <p className="text-xs text-white/50 uppercase tracking-widest mb-2">Bureau of Fire Protection</p>
+          <h1 className="text-xl font-bold text-white leading-tight">
+            Report Emergency
+          </h1>
+          <p className="text-xs text-white/60 mt-0.5">Mag-ulat ng Emergency</p>
         </div>
 
         {step !== 'review' && step !== 'submitted' && (
@@ -641,6 +777,53 @@ export default function ReportPage() {
           {/* ── STEP 1: Context + Location ─────────────────────────────── */}
           {step === 'context' && (
             <>
+              {/* SECONDHAND challenge modal */}
+              {gpsChallengeOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
+                  <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
+                    <div className="flex items-center gap-3 mb-4">
+                      <MapPin className="w-6 h-6 text-yellow-500 flex-shrink-0" />
+                      <div>
+                        <p className="font-semibold" style={{ color: 'var(--text-primary)' }}>Is this current location where the fire is?</p>
+                        <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>Ito ba ang kasalukuyang lokasyon ng sunog?</p>
+                      </div>
+                    </div>
+                    <p className="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>
+                      You selected &quot;I saw it / Aking nakita&quot; but used current location. The pin will be set to your current location. Is that where the fire is?
+                    </p>
+                    <p className="text-xs mb-6" style={{ color: 'var(--text-secondary)' }}>
+                      Nakita mo ito ngunit ginamit ang iyong kasalukuyang lokasyon. Ang pin ay ilalagay sa iyong kasalukuyang lokasyon. doon ba ang sunog?
+                    </p>
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGpsChallengeOpen(false);
+                          tryAdvanceFromContext();
+                        }}
+                        className="flex-1 py-2.5 rounded-xl text-white text-sm font-bold transition-all"
+                        style={{ backgroundColor: 'var(--bfp-red, #dc2626)', boxShadow: '0 2px 8px rgba(220,38,38,0.3)' }}
+                      >
+                        Yes, use my location
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGpsChallengeOpen(false);
+                          setGeo({ latitude: null, longitude: null, source: null, denied: false, timedOut: false });
+                          setGpsSource(null);
+                          setPinClearedFromChallenge(true);
+                        }}
+                        className="flex-1 py-2.5 rounded-xl border text-sm font-medium transition-colors"
+                        style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)', backgroundColor: 'var(--card-bg)' }}
+                      >
+                        No, I&apos;ll place the pin
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <p className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>How did you learn about this fire?</p>
                 <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>Paano mo nalaman ang tungkol sa sunog?</p>
@@ -697,7 +880,9 @@ export default function ReportPage() {
 
                   {reportingContext !== 'WITNESS' && (
                     <div className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
-                      {geo.latitude === null && (geo.denied || geo.timedOut)
+                      {geo.latitude === null && pinClearedFromChallenge
+                        ? 'You chose to place the pin yourself. Tap the map to set the fire location. / Ikaw mismo ang maglalagay ng pin. I-tap ang mapa para ilagay ang lokasyon ng sunog.'
+                        : geo.latitude === null && (geo.denied || geo.timedOut)
                         ? 'Location access is off. Place the pin where the fire is. / Wala ang location access. Maglagay ng pin sa lokasyon ng sunog.'
                         : 'Tap the map to pin the fire location. / I-tap ang mapa para ilagay ang pin sa lokasyon ng sunog.'}
                     </div>
@@ -712,15 +897,48 @@ export default function ReportPage() {
                   </div>
 
                   {(phoneGeoStatus.denied || phoneGeoStatus.timedOut) && reportingContext !== 'WITNESS' && (
-                    <div className="flex items-center gap-2 mt-2">
-                      <button
-                        type="button"
-                        onClick={() => requestGps('phone-only')}
-                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border"
-                        style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
-                      >
-                        <Locate className="w-3.5 h-3.5" /> Try again / Subukan ulit
-                      </button>
+                    <>
+                      {/* 911 reminder — life-safety path only */}
+                      {isLifeSafety && (
+                        <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 mb-2">
+                          <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-600" />
+                          <div>
+                            <p className="text-xs font-semibold text-red-700">
+                              For immediate danger, call 911. Your report helps BFP — but for life-threatening situations, call emergency services first.
+                            </p>
+                            <p className="text-xs text-red-600 mt-0.5">
+                              Kung may agarang peligro, tumawag sa 911. Ang report mo ay tumutulong sa BFP — ngunit para sa mga Sitwasyong may banta sa buhay, tumawag muna sa emergency services.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Retry button */}
+                      <div className="flex items-center gap-2 mt-1">
+                        <button
+                          type="button"
+                          onClick={() => requestGps('phone-only')}
+                          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border"
+                          style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+                        >
+                          <Locate className="w-3.5 h-3.5" /> Try again / Subukan ulit
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {/* NEARBY reminder — non-blocking, shows above Continue */}
+                  {reportingContext === 'NEARBY' && gpsSource === 'acquired' && (
+                    <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 mb-2">
+                      <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600" />
+                      <div>
+                        <p className="text-xs font-medium text-amber-800">
+                          If the fire is not exactly where you are, place the pin on the fire instead.
+                        </p>
+                        <p className="text-xs text-amber-600 mt-0.5">
+                          Kung ang sunog ay wala sa iyong kasalukuyang lokasyon, ilagay ang pin sa lokasyon ng sunog.
+                        </p>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -730,8 +948,8 @@ export default function ReportPage() {
                 <button
                   type="button"
                   onClick={() => setStep('safety')}
-                  className="flex items-center gap-1 px-4 py-3 rounded-lg border text-sm font-medium"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+                  className="flex items-center gap-1 px-4 py-3 rounded-xl border text-sm font-medium transition-colors"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)', backgroundColor: 'var(--card-bg)' }}
                 >
                   <ChevronLeft className="w-4 h-4" /> Back
                 </button>
@@ -739,12 +957,16 @@ export default function ReportPage() {
                   type="button"
                   onClick={() => {
                     if (canProceedFromContext()) {
-                      tryAdvanceFromContext();
+                      if (reportingContext === 'SECONDHAND' && gpsSource === 'acquired') {
+                        setGpsChallengeOpen(true);
+                      } else {
+                        tryAdvanceFromContext();
+                      }
                     }
                   }}
                   disabled={!canProceedFromContext()}
-                  className="flex-1 py-3 rounded-lg text-white text-sm font-bold disabled:opacity-40"
-                  style={{ background: 'var(--bfp-gradient)' }}
+                  className="flex-1 py-3.5 rounded-xl text-white text-sm font-bold disabled:opacity-40 transition-all"
+                  style={{ background: 'var(--bfp-gradient)', boxShadow: '0 2px 8px rgba(153,27,34,0.3)' }}
                 >
                   Continue
                 </button>
@@ -771,19 +993,19 @@ export default function ReportPage() {
               </div>
 
               {isLifeSafety && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-2">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-sm font-semibold text-red-700">Call 911 immediately if you have not done so.</p>
-                      <p className="text-xs text-red-600 mt-0.5">Kung kailangan mo ng tulong, tumawag na sa 911.</p>
+                <div className="rounded-xl p-4" style={{ backgroundColor: 'rgba(220,38,38,0.06)', border: '1px solid rgba(220,38,38,0.2)' }}>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(220,38,38,0.12)' }}>
+                      <AlertTriangle className="w-5 h-5 text-red-600" />
                     </div>
+                    <p className="text-sm font-semibold text-red-700">Call 911 immediately if you have not done so.</p>
                   </div>
+                  <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>Kung kailangan mo ng tulong, tumawag na sa 911.</p>
                   {geo.latitude && geo.longitude && (
                     <a
-                      href={`tel:911`}
-                      className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-lg text-white text-sm font-bold mt-2"
-                      style={{ backgroundColor: 'var(--bfp-red, #dc2626)' }}
+                      href="tel:911"
+                      className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-bold"
+                      style={{ backgroundColor: 'var(--bfp-red, #dc2626)', boxShadow: '0 2px 8px rgba(220,38,38,0.3)' }}
                     >
                       <PhoneCall className="w-4 h-4" /> Call 911
                     </a>
@@ -795,8 +1017,8 @@ export default function ReportPage() {
                 type="button"
                 onClick={() => setStep('context')}
                 disabled={!safetyStatus}
-                className="flex-1 py-3 rounded-lg text-white text-sm font-bold disabled:opacity-40"
-                style={{ background: 'var(--bfp-gradient)' }}
+                className="w-full py-3.5 rounded-xl text-white text-sm font-bold disabled:opacity-40 transition-all"
+                style={{ background: 'var(--bfp-gradient)', boxShadow: '0 2px 8px rgba(153,27,34,0.3)' }}
               >
                 Continue
               </button>
@@ -841,16 +1063,16 @@ export default function ReportPage() {
                         type="button"
                         onClick={() => void handleSubmit()}
                         disabled={!geo.latitude || !reportingContext || !safetyStatus || !category || submitting}
-                        className="flex-1 py-3 rounded-lg text-white text-sm font-bold disabled:opacity-50"
-                        style={{ background: 'var(--bfp-red, #dc2626)' }}
+                        className="flex-1 py-3 rounded-xl text-white text-sm font-bold disabled:opacity-50 transition-all"
+                        style={{ background: 'var(--bfp-red, #dc2626)', boxShadow: '0 2px 8px rgba(220,38,38,0.3)' }}
                       >
                         {submitting ? 'Sending...' : 'Send now / Ipadala na'}
                       </button>
                       <button
                         type="button"
                         onClick={() => setStep('details')}
-                        className="flex-1 py-3 rounded-lg border text-sm font-medium"
-                        style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                        className="flex-1 py-3 rounded-xl border text-sm font-medium transition-colors"
+                        style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)', backgroundColor: 'var(--card-bg)' }}
                       >
                         Add details / Magdagdag ng detalye
                       </button>
@@ -859,8 +1081,8 @@ export default function ReportPage() {
                     <button
                       type="button"
                       onClick={() => setStep('context')}
-                      className="w-full flex items-center justify-center gap-1 px-4 py-3 rounded-lg border text-sm font-medium"
-                      style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+                      className="w-full flex items-center justify-center gap-1 px-4 py-3 rounded-xl border text-sm font-medium transition-colors"
+                      style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)', backgroundColor: 'var(--card-bg)' }}
                     >
                       <ChevronLeft className="w-4 h-4" /> Back / Bumalik
                     </button>
@@ -870,8 +1092,8 @@ export default function ReportPage() {
                     <button
                       type="button"
                       onClick={() => setStep('context')}
-                      className="flex items-center gap-1 px-4 py-3 rounded-lg border text-sm font-medium"
-                      style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+                      className="flex items-center gap-1 px-4 py-3 rounded-xl border text-sm font-medium transition-colors"
+                      style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)', backgroundColor: 'var(--card-bg)' }}
                     >
                       <ChevronLeft className="w-4 h-4" /> Back
                     </button>
@@ -879,8 +1101,8 @@ export default function ReportPage() {
                       type="button"
                       onClick={() => setStep('details')}
                       disabled={!category}
-                      className="flex-1 py-3 rounded-lg text-white text-sm font-bold disabled:opacity-40"
-                      style={{ background: 'var(--bfp-gradient)' }}
+                      className="flex-1 py-3.5 rounded-xl text-white text-sm font-bold disabled:opacity-40 transition-all"
+                      style={{ background: 'var(--bfp-gradient)', boxShadow: '0 2px 8px rgba(153,27,34,0.3)' }}
                     >
                       Continue
                     </button>
@@ -902,8 +1124,8 @@ export default function ReportPage() {
                     type="datetime-local"
                     value={observedTime}
                     onChange={(e) => setObservedTime(e.target.value)}
-                    className="w-full rounded-lg px-3 py-2.5 text-sm border focus:outline-none focus:ring-2 focus:ring-red-500"
-                    style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                    className="form-input"
+                    style={{ fontSize: '0.875rem' }}
                   />
                 </div>
 
@@ -918,16 +1140,16 @@ export default function ReportPage() {
                         placeholder="Witness name / Pangalan ng eyewitness"
                         value={witnessName}
                         onChange={(e) => setWitnessName(e.target.value)}
-                        className="w-full rounded-lg px-3 py-2.5 text-sm border focus:outline-none focus:ring-2 focus:ring-red-500"
-                        style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                        className="form-input"
+                        style={{ fontSize: '0.875rem' }}
                       />
                       <input
                         type="tel"
                         placeholder="Witness phone / Telepono ng eyewitness"
                         value={witnessPhone}
                         onChange={(e) => setWitnessPhone(e.target.value)}
-                        className="w-full rounded-lg px-3 py-2.5 text-sm border focus:outline-none focus:ring-2 focus:ring-red-500"
-                        style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                        className="form-input"
+                        style={{ fontSize: '0.875rem' }}
                       />
                     </div>
                   </div>
@@ -943,8 +1165,8 @@ export default function ReportPage() {
                       placeholder="Your name / Pangalan mo (opsyonal)"
                       value={witnessName}
                       onChange={(e) => setWitnessName(e.target.value)}
-                      className="w-full rounded-lg px-3 py-2.5 text-sm border focus:outline-none focus:ring-2 focus:ring-red-500"
-                      style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                      className="form-input"
+                      style={{ fontSize: '0.875rem' }}
                     />
                   </div>
                 )}
@@ -958,8 +1180,8 @@ export default function ReportPage() {
                     placeholder="Report ID / Numero ng dating report"
                     value={previousReportId}
                     onChange={(e) => setPreviousReportId(e.target.value)}
-                    className="w-full rounded-lg px-3 py-2.5 text-sm border focus:outline-none focus:ring-2 focus:ring-red-500"
-                    style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                    className="form-input"
+                    style={{ fontSize: '0.875rem' }}
                   />
                 </div>
 
@@ -975,8 +1197,8 @@ export default function ReportPage() {
                 <button
                   type="button"
                   onClick={() => setStep('category')}
-                  className="flex items-center gap-1 px-4 py-3 rounded-lg border text-sm font-medium"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+                  className="flex items-center gap-1 px-4 py-3 rounded-xl border text-sm font-medium transition-colors"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)', backgroundColor: 'var(--card-bg)' }}
                 >
                   <ChevronLeft className="w-4 h-4" /> Back
                 </button>
@@ -985,8 +1207,8 @@ export default function ReportPage() {
                     type="button"
                     onClick={handleSubmit}
                     disabled={!geo.latitude || !reportingContext || !safetyStatus || !category || submitting}
-                    className="flex-1 py-3 rounded-lg text-white text-sm font-bold disabled:opacity-50"
-                    style={{ background: 'var(--bfp-red, #dc2626)' }}
+                    className="flex-1 py-3.5 rounded-xl text-white text-sm font-bold disabled:opacity-50 transition-all"
+                    style={{ background: 'var(--bfp-red, #dc2626)', boxShadow: '0 2px 8px rgba(220,38,38,0.3)' }}
                   >
                     {submitting ? 'Sending...' : 'Fast Submit / Mabilis na I-submit'}
                   </button>
@@ -995,8 +1217,8 @@ export default function ReportPage() {
                     type="button"
                     onClick={() => void handleReviewBeforeSubmit()}
                     disabled={!geo.latitude || !reportingContext || !safetyStatus || !category}
-                    className="flex-1 py-3 rounded-lg text-white text-sm font-bold disabled:opacity-40"
-                    style={{ background: 'var(--bfp-gradient)' }}
+                    className="flex-1 py-3.5 rounded-xl text-white text-sm font-bold disabled:opacity-40 transition-all"
+                    style={{ background: 'var(--bfp-gradient)', boxShadow: '0 2px 8px rgba(153,27,34,0.3)' }}
                   >
                     Review & Submit
                   </button>

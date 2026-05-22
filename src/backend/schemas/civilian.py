@@ -49,6 +49,7 @@ class CivilianReportAppend(BaseModel):
     gps_warning_confirmed: bool = False
     witness_name: str | None = Field(default=None, max_length=160)
     witness_phone: str | None = Field(default=None, max_length=80)
+    description: str | None = Field(default=None, max_length=1000)
 
 
 class CivilianReportResponse(BaseModel):
@@ -85,6 +86,7 @@ class CivilianReportTimelineItem(BaseModel):
     reporting_context: str | None = None
     status_explanation: str | None = None
     created_at: datetime
+    description: str | None = None
 
 
 class CivilianReportTimelineResponse(BaseModel):

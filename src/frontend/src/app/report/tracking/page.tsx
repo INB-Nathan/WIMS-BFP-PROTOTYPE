@@ -139,7 +139,22 @@ const notifyKey = (id: number) => `bfp_notify_registered_${id}`;
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function ReportTrackerPage() {
-  const [reportIdInput, setReportIdInput] = useState('');
+  // Initialize from localStorage wims_last_report: { id: number, category: string }
+  const [lastReport, setLastReport] = useState<{ id: number; category: string } | null>(null);
+  const [reportIdInput, setReportIdInput] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      const raw = localStorage.getItem('wims_last_report');
+      if (!raw) return '';
+      const parsed = JSON.parse(raw) as { id?: unknown; category?: unknown };
+      if (typeof parsed?.id === 'number' && typeof parsed?.category === 'string') {
+        return String(parsed.id);
+      }
+      return '';
+    } catch {
+      return '';
+    }
+  });
   const [data, setData] = useState<CivilianReportTrackingResponse | null>(null);
   const [timeline, setTimeline] = useState<CivilianReportTimelineItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -170,6 +185,20 @@ export default function ReportTrackerPage() {
       );
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem('wims_last_report');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { id?: unknown; category?: unknown };
+      if (typeof parsed?.id === 'number' && typeof parsed?.category === 'string') {
+        setLastReport({ id: parsed.id, category: parsed.category });
+      }
+    } catch {
+      // ignore
     }
   }, []);
 
@@ -205,11 +234,11 @@ export default function ReportTrackerPage() {
   // ─── Render ─────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-8" style={{ backgroundColor: 'var(--content-bg)' }}>
+    <div className="min-h-screen flex items-center justify-center px-4 py-8" style={{ background: 'var(--content-bg)', backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(153,27,27,0.04) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(153,27,27,0.03) 0%, transparent 40%)' }}>
       <div className="card max-w-lg w-full overflow-hidden shadow-2xl">
 
         {/* Header */}
-        <div className="p-6 text-center" style={{ background: 'var(--bfp-gradient)' }}>
+        <div className="p-5 text-center" style={{ background: 'var(--bfp-gradient)' }}>
           <div className="relative w-16 h-16 mx-auto mb-3">
             <Image src="/bfp-logo.svg" alt="BFP Logo" fill className="object-contain" />
           </div>
@@ -230,16 +259,16 @@ export default function ReportTrackerPage() {
                   type="text"
                   value={reportIdInput}
                   onChange={(e) => setReportIdInput(e.target.value)}
-                  className="flex-1 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
-                  style={{ border: '1px solid var(--border-color)', backgroundColor: 'var(--background)', color: 'var(--text-primary)' }}
+                  className="form-input flex-1"
+                  style={{ fontSize: '0.875rem' }}
                   placeholder="e.g., 1024"
                   required
                 />
                 <button
                   type="submit"
                   disabled={loading || !reportIdInput.trim()}
-                  className="px-5 py-3 rounded-lg text-white font-bold text-sm disabled:opacity-50 transition-colors flex items-center gap-2"
-                  style={{ background: 'var(--bfp-gradient)' }}
+                  className="px-5 py-3 rounded-xl text-white font-bold text-sm disabled:opacity-50 transition-all flex items-center gap-2"
+                  style={{ background: 'var(--bfp-gradient)', boxShadow: '0 2px 8px rgba(153,27,34,0.3)' }}
                 >
                   {loading ? (
                     <RefreshCw className="w-4 h-4 animate-spin" />
@@ -302,28 +331,75 @@ export default function ReportTrackerPage() {
                   </div>
                 )}
 
-                {/* Nearest station — shown for ACTIONED and rejected states */}
+                {/* Nearest station — conditional display for 911 vs real station */}
                 {(status === 'ACTIONED' || status?.startsWith('REJECTED_')) && data.nearest_station_name && (
-                  <div className="flex items-start gap-3 p-3 rounded-lg border" style={{ borderColor: 'var(--border-color)' }}>
-                    <PhoneCall className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--bfp-red, #dc2626)' }} />
-                    <div>
-                      <p className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Nearest BFP Station</p>
-                      <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{data.nearest_station_name}</p>
-                      {data.nearest_station_phone && (
+                  data.nearest_station_phone === '911' ? (
+                    <div className="flex items-start gap-3 p-3 rounded-lg border" style={{ borderColor: 'var(--border-color)' }}>
+                      <PhoneCall className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--text-secondary)' }} />
+                      <div>
+                        <p className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Emergency Number</p>
                         <a
-                          href={`tel:${data.nearest_station_phone}`}
+                          href="tel:911"
                           className="text-sm font-medium mt-1 inline-flex items-center gap-1"
                           style={{ color: 'var(--bfp-red, #dc2626)' }}
                         >
                           <PhoneCall className="w-3.5 h-3.5" />
-                          {data.nearest_station_phone}
+                          911
                         </a>
-                      )}
+                        <p className="text-xs" style={{ color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                          For follow-up, contact your nearest BFP station. For immediate danger, call 911.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-3 p-3 rounded-lg border" style={{ borderColor: 'var(--border-color)' }}>
+                      <PhoneCall className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--bfp-red, #dc2626)' }} />
+                      <div>
+                        <p className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Nearest BFP Station</p>
+                        <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{data.nearest_station_name}</p>
+                        {data.nearest_station_phone && (
+                          <a
+                            href={`tel:${data.nearest_station_phone}`}
+                            className="text-sm font-medium mt-1 inline-flex items-center gap-1"
+                            style={{ color: 'var(--bfp-red, #dc2626)' }}
+                          >
+                            <PhoneCall className="w-3.5 h-3.5" />
+                            {data.nearest_station_phone}
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )
+                )}
+
+                {/* 911 boundary — ALL statuses, prominence varies */}
+                {(status === 'PENDING' || status === 'UNDER_REVIEW' || status === 'LINKED') && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg border border-red-200 bg-red-50">
+                    <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-600" />
+                    <div>
+                      <p className="text-sm font-semibold text-red-700">For urgent emergencies, call 911.</p>
+                      <p className="text-xs text-red-600 mt-0.5">Kung kailangan mo ng agarang tulong, tumawag sa 911.</p>
+                      <p className="text-xs text-red-600 mt-1">
+                        This report helps BFP review signals — it does not replace an emergency call.
+                      </p>
+                      <p className="text-xs text-red-600 mt-0.5">
+                        Ang report na ito ay tumutulong sa BFP na suriin ang mga signal — hindi ito kapalit ng agarang tawag sa 911.
+                      </p>
                     </div>
                   </div>
                 )}
 
-                {/* 911 guidance for rejected / timeout */}
+                {status === 'ACTIONED' && (
+                  <div className="flex items-start gap-2 p-2 rounded-lg" style={{ backgroundColor: 'var(--content-bg)', border: '1px solid var(--border-color)' }}>
+                    <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--text-secondary)' }} />
+                    <div>
+                      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        For immediate danger, call 911. Ang report na ito ay hindi kapalit ng agarang tawag sa 911.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {status?.startsWith('REJECTED_') && (
                   <div className="flex items-start gap-2 p-3 rounded-lg border border-red-200 bg-red-50">
                     <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-600" />

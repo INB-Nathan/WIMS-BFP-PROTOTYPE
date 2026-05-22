@@ -356,14 +356,16 @@ def append_civilian_report(
                 location, category, sub_category, reported_via, reported_at, device_id,
                 trust_score, region_id, nearest_station_id, status, linked_to_report_id,
                 reporting_context, safety_status, phone_latitude, phone_longitude,
-                gps_distance_m, gps_warning_confirmed, witness_name, witness_phone
+                gps_distance_m, gps_warning_confirmed, witness_name, witness_phone,
+                description
             )
             VALUES (
                 ST_GeogFromText(:wkt), :category, :sub_category, 'WEB', :reported_at,
                 :device_id, :trust_score, :region_id, :nearest_station_id, 'LINKED',
                 :linked_to_report_id, :reporting_context, :safety_status,
                 :phone_latitude, :phone_longitude, :gps_distance_m,
-                :gps_warning_confirmed, :witness_name, :witness_phone
+                :gps_warning_confirmed, :witness_name, :witness_phone,
+                :description
             )
             RETURNING report_id
         """),
@@ -385,6 +387,7 @@ def append_civilian_report(
             "gps_warning_confirmed": body.gps_warning_confirmed,
             "witness_name": body.witness_name,
             "witness_phone": body.witness_phone,
+            "description": body.description,
         },
     ).fetchone()
     db.execute(
@@ -422,7 +425,7 @@ def get_civilian_report_timeline(
     rows = db.execute(
         text("""
             SELECT report_id, status, category, sub_category, safety_status,
-                   reporting_context, status_explanation, created_at
+                   reporting_context, status_explanation, created_at, description
             FROM wims.citizen_reports
             WHERE report_id = :rid OR linked_to_report_id = :rid
             ORDER BY created_at ASC, report_id ASC
@@ -442,6 +445,7 @@ def get_civilian_report_timeline(
                 reporting_context=row.reporting_context,
                 status_explanation=row.status_explanation,
                 created_at=row.created_at,
+                description=row.description,
             )
             for row in rows
         ],

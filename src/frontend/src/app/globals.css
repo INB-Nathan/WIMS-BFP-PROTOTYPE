@@ -30,6 +30,21 @@
   --bfp-maroon-dark: #7f1d1d;
   --bfp-gradient: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%);
 
+  /* UI Refactoring tokens */
+  --card-elevated-shadow: 0 4px 16px rgba(0, 0, 0, 0.10), 0 1px 4px rgba(0, 0, 0, 0.06);
+  --card-elevated-border: #e8ebf0;
+  --step-inactive: #d1d5db;
+  --step-active: #991b1b;
+  --step-complete: #166534;
+  --focus-ring: 0 0 0 3px rgba(153, 27, 27, 0.20);
+  --bilingual-color: #6b7280;
+  --calm-amber-bg: rgba(251, 191, 36, 0.12);
+  --calm-amber-border: rgba(251, 191, 36, 0.50);
+  --calm-amber-icon: #d97706;
+  --input-border: #e5e7eb;
+  --input-height: 48px;
+  --hover-surface: #f9fafb;
+
   --header-height: 56px;
   --spacing-32: 8rem;
 }
@@ -326,8 +341,40 @@ body {
 .card {
   background: var(--card-bg, #ffffff);
   border-radius: var(--card-radius, 0.5rem);
-  box-shadow: var(--card-shadow, 0 1px 4px rgba(0, 0, 0, 0.08));
-  border: 1px solid var(--border-color, #d8dbe0);
+  box-shadow: var(--card-elevated-shadow, 0 4px 16px rgba(0, 0, 0, 0.10), 0 1px 4px rgba(0, 0, 0, 0.06));
+  border: 1px solid var(--card-elevated-border, #e8ebf0);
+  position: relative;
+}
+
+/* Subtle top highlight for lifted feel */
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.7), transparent);
+  border-radius: var(--card-radius) var(--card-radius) 0 0;
+}
+
+/* Form inputs */
+.form-input {
+  width: 100%;
+  height: var(--input-height, 48px);
+  border-radius: 0.5rem;
+  border: 1.5px solid var(--input-border, #e5e7eb);
+  background: var(--card-bg, #ffffff);
+  padding: 0 1rem;
+  font-size: 0.875rem;
+  color: var(--text-primary, #2c384a);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.form-input:hover {
+  border-color: var(--bfp-maroon, #991b1b);
+}
+.form-input:focus {
+  outline: none;
+  border-color: var(--bfp-maroon, #991b1b);
+  box-shadow: var(--focus-ring, 0 0 0 3px rgba(153, 27, 27, 0.20));
 }
 
 .card-header {
