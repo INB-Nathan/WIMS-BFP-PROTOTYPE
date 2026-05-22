@@ -211,25 +211,55 @@ class TestPhase1Foundation:
 
         assert "fire_station_name" in ALLOWED_EXPORT_COLUMNS
 
-    # -- AQ-03: Sync populates new columns -------------------------------
+    # -- AQ-03: Sync writes only the columns that exist on facts ---------
+    # wims.analytics_incident_facts has 8 physical columns:
+    # incident_id, region_id, location, notification_dt, notification_date,
+    # alarm_level, general_category, synced_at. Casualty / response /
+    # damage / station / location-name fields live on
+    # incident_nonsensitive_details and are joined at read time — they are
+    # NOT denormalized into facts. The previous tests asserted the buggy
+    # denormalization that caused UndefinedColumn errors at sync time and
+    # left the facts table permanently empty.
 
-    def test_sync_incident_populates_casualty_columns(self):
-        """sync_incident_to_analytics must insert civilian_injured/deaths etc."""
+    def test_sync_incident_does_not_write_nonexistent_columns(self):
+        """sync_incident_to_analytics must not reference columns that don't exist on facts."""
         import inspect
         from services.analytics_read_model import sync_incident_to_analytics
 
         source = inspect.getsource(sync_incident_to_analytics)
-        assert "civilian_injured" in source, "sync must populate civilian_injured"
-        assert "civilian_deaths" in source, "sync must populate civilian_deaths"
-        assert "total_response_time_minutes" in source, "sync must populate response time"
+        forbidden = (
+            "civilian_injured",
+            "civilian_deaths",
+            "firefighter_injured",
+            "firefighter_deaths",
+            "total_response_time_minutes",
+            "estimated_damage_php",
+            "fire_station_name",
+            "municipality_name",
+            "province_name",
+        )
+        for col in forbidden:
+            assert col not in source, (
+                f"sync_incident_to_analytics must not reference {col!r} — that "
+                "column does not exist on wims.analytics_incident_facts. The "
+                "data is read from incident_nonsensitive_details at query time."
+            )
 
-    def test_sync_incident_populates_station(self):
-        """sync_incident_to_analytics must populate fire_station_name."""
+    def test_sync_incident_writes_only_real_facts_columns(self):
+        """sync_incident_to_analytics must insert only the 7 columns that exist on facts."""
         import inspect
         from services.analytics_read_model import sync_incident_to_analytics
 
         source = inspect.getsource(sync_incident_to_analytics)
-        assert "fire_station_name" in source, "sync must populate fire_station_name"
+        for col in (
+            "incident_id",
+            "region_id",
+            "notification_dt",
+            "notification_date",
+            "alarm_level",
+            "general_category",
+        ):
+            assert col in source, f"sync must still populate {col!r} into facts"
 
 
 # ===========================================================================
