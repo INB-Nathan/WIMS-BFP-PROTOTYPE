@@ -47,7 +47,6 @@ const COLUMNS: Column[] = [
   { key: 'notification_dt', label: 'Notification', render: (i) => formatDateTime(i.notification_dt) },
   { key: 'region', label: 'Region', render: (i) => i.region || 'N/A' },
   { key: 'municipality_name', label: 'Municipality', render: (i) => i.municipality_name || 'N/A' },
-  { key: 'barangay_name', label: 'Barangay', render: (i) => i.barangay_name || 'N/A' },
   { key: 'general_category', label: 'Category', render: (i) => i.general_category || 'N/A' },
   { key: 'sub_category', label: 'Sub Category', render: (i) => i.sub_category || 'N/A' },
   { key: 'alarm_level', label: 'Alarm', render: (i) => i.alarm_level || 'N/A' },
@@ -449,7 +448,6 @@ export function AnalystIncidentList({
                 <SummaryRow label="Region" value={selected.region} />
                 <SummaryRow label="Province" value={selected.province_name} />
                 <SummaryRow label="Municipality" value={selected.municipality_name} />
-                <SummaryRow label="Barangay" value={selected.barangay_name} />
                 <SummaryRow label="Category" value={selected.general_category} />
                 <SummaryRow label="Sub Category" value={selected.sub_category} />
                 <SummaryRow label="Alarm Level" value={selected.alarm_level} />

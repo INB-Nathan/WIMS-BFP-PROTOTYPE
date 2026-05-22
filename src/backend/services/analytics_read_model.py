@@ -663,6 +663,7 @@ def get_export_rows(
         "firefighter_deaths",
         "fire_station_name",
         "region_id",
+        "region_name",
         "verification_status",
         "estimated_damage_php",
         "municipality_name",
@@ -672,26 +673,26 @@ def get_export_rows(
     if not valid_cols:
         valid_cols = ["incident_id", "notification_dt"]
 
+    # Columns actually present on wims.analytics_incident_facts. All other
+    # fields (damage, casualties, response time, fire_station_name, etc.) live
+    # on wims.incident_nonsensitive_details and must be selected as nd.<col>.
     fact_cols = {
         "incident_id",
         "region_id",
         "notification_dt",
         "alarm_level",
         "general_category",
-        "civilian_injured",
-        "civilian_deaths",
-        "firefighter_injured",
-        "firefighter_deaths",
-        "total_response_time_minutes",
-        "estimated_damage_php",
-        "fire_station_name",
-        "municipality_name",
-        "province_name",
     }
     select_parts = []
     for c in valid_cols:
         if c == "verification_status":
             select_parts.append("fi.verification_status")
+        elif c == "region_name":
+            select_parts.append("rr.region_name")
+        elif c == "municipality_name":
+            select_parts.append("rc.city_name AS municipality_name")
+        elif c == "province_name":
+            select_parts.append("rp.province_name")
         elif c in fact_cols:
             select_parts.append(f"a.{c}")
         else:
@@ -722,12 +723,30 @@ def get_export_rows(
 
     where_sql = " AND ".join(clauses)
     col_list = ", ".join(select_parts)
+    region_join = (
+        "LEFT JOIN wims.ref_regions rr ON rr.region_id = a.region_id"
+        if "region_name" in valid_cols
+        else ""
+    )
+    city_join = (
+        "LEFT JOIN wims.ref_cities rc ON rc.city_id = nd.city_id"
+        if ("municipality_name" in valid_cols or "province_name" in valid_cols)
+        else ""
+    )
+    province_join = (
+        "LEFT JOIN wims.ref_provinces rp ON rp.province_id = rc.province_id"
+        if "province_name" in valid_cols
+        else ""
+    )
 
     sql = f"""
         SELECT {col_list}
         FROM wims.analytics_incident_facts a
         LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = a.incident_id
         LEFT JOIN wims.fire_incidents fi ON fi.incident_id = a.incident_id
+        {region_join}
+        {city_join}
+        {province_join}
         WHERE {where_sql}
     """
 
