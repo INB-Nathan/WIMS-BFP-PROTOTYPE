@@ -595,7 +595,46 @@ export async function submitCivilianReportV2(payload: CivilianReportV2Payload): 
   if (!res.ok) {
     throw new Error((json as { message?: string; detail?: string }).message ?? (json as { detail?: string }).detail ?? `Request failed: ${res.status}`);
   }
-  return json as CivilianReportV2Response;
+  const result = json as CivilianReportV2Response;
+  try {
+    localStorage.setItem('wims_last_report', JSON.stringify({ id: result.report_id, category: payload.category }));
+  } catch {}
+  return result;
+}
+
+/** Append additional data to an existing civilian report — Zero-Trust, NO auth. PATCH /api/civilian/reports/{reportId}/append */
+export async function appendCivilianReport(
+  reportId: number,
+  payload: {
+    latitude?: number;
+    longitude?: number;
+    category?: string;
+    sub_category?: string;
+    reported_at?: string;
+    device_id?: string;
+    reporting_context?: string;
+    safety_status?: string;
+    phone_latitude?: number;
+    phone_longitude?: number;
+    gps_distance_m?: number;
+    gps_warning_confirmed?: boolean;
+    witness_name?: string;
+    witness_phone?: string;
+    description?: string;
+  },
+): Promise<CivilianReportTrackingResponse> {
+  const url = `${(typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '/api') : process.env.NEXT_PUBLIC_API_URL || 'http://localhost/api').replace(/\/$/, '')}/civilian/reports/${reportId}/append`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    credentials: 'omit',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((json as { message?: string; detail?: string }).message ?? (json as { detail?: string }).detail ?? `Request failed: ${res.status}`);
+  }
+  return json as CivilianReportTrackingResponse;
 }
 
 export interface CivilianDuplicateSuggestion {
