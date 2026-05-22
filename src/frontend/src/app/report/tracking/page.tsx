@@ -138,6 +138,17 @@ const notifyKey = (id: number) => `bfp_notify_registered_${id}`;
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
+const CATEGORY_LABELS: Record<string, string> = {
+  STRUCTURAL: 'Structural fire',
+  NON_STRUCTURAL: 'Non-structural fire',
+  TRANSPORTATION: 'Vehicle fire',
+  UNSURE: 'Unsure',
+};
+
+function getCategoryLabel(category: string): string {
+  return CATEGORY_LABELS[category] ?? category;
+}
+
 export default function ReportTrackerPage() {
   // Initialize from localStorage wims_last_report: { id: number, category: string }
   const [lastReport, setLastReport] = useState<{ id: number; category: string } | null>(null);
@@ -173,9 +184,13 @@ export default function ReportTrackerPage() {
     setTimeline([]);
     try {
       const result = await fetchReportStatus(id.trim());
-      const timelineResult = await fetchReportTimeline(id.trim()).catch(() => []);
       setData(result);
-      setTimeline(timelineResult);
+      try {
+        const timelineResult = await fetchReportTimeline(id.trim());
+        setTimeline(timelineResult);
+      } catch {
+        setTimeline([]);
+      }
       if (localStorage.getItem(notifyKey(result.report_id)) === 'true') {
         setNotifyStatus('enabled');
       }
@@ -188,6 +203,7 @@ export default function ReportTrackerPage() {
     }
   }, []);
 
+  // Load last report from localStorage on mount
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
@@ -278,6 +294,11 @@ export default function ReportTrackerPage() {
                 </button>
               </div>
             </div>
+              {lastReport && (
+                <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                  Last report: #{lastReport.id} — {getCategoryLabel(lastReport.category)}
+                </p>
+              )}
 
             {fetchError && (
               <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 text-red-700 text-sm">
@@ -410,32 +431,47 @@ export default function ReportTrackerPage() {
                   </div>
                 )}
 
-                {/* Append timeline */}
-                {timeline.length > 1 && (
-                  <div className="rounded-lg border p-3" style={{ borderColor: 'var(--border-color)' }}>
-                    <p className="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
-                      Report Timeline
+                {/* Timeline */}
+                {timeline.length > 0 && (
+                  <div className="border rounded-lg p-3 mb-2" style={{ borderColor: 'var(--border-color)' }}>
+                    <p className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
+                      Timeline
                     </p>
                     <div className="space-y-2">
-                      {timeline.map((item) => (
-                        <div key={item.report_id} className="flex items-start justify-between gap-3 rounded-md bg-slate-50 px-3 py-2 text-xs">
-                          <div>
-                            <p className="font-medium text-slate-800">
-                              #{item.report_id}{item.report_id === data.report_id ? ' Original report' : ' Follow-up update'}
-                            </p>
-                            <p className="text-slate-600">
-                              {item.category ?? 'Unspecified'}{item.sub_category ? ` / ${item.sub_category}` : ''} · {item.safety_status ?? 'UNKNOWN'}
+                      {[...timeline].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).map((item) => {
+                        const itemStatus = parseStatus(item.status);
+                        const itemMeta = STATUS_META[itemStatus];
+                        return (
+                          <div key={item.report_id} className="border rounded-lg p-3 mb-2" style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--content-bg)' }}>
+                            <div className="flex items-start justify-between gap-2 mb-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+                                  #{item.report_id}
+                                </span>
+                                {itemMeta && (
+                                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${itemMeta.badgeColor}`}>
+                                    {itemMeta.badge}
+                                  </span>
+                                )}
+                                {item.status === 'LINKED' && (
+                                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200">
+                                    Update
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                                {new Date(item.created_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                              </span>
+                            </div>
+                            <p className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>
+                              {getCategoryLabel(item.category)} {item.sub_category ? `/ ${item.sub_category}` : ''}
                             </p>
                             {item.status_explanation && (
-                              <p className="mt-1 text-slate-600">{item.status_explanation}</p>
+                              <p className="text-sm text-gray-700">{item.status_explanation}</p>
                             )}
                           </div>
-                          <div className="text-right text-slate-500">
-                            <p>{item.status}</p>
-                            <p>{new Date(item.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}</p>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
