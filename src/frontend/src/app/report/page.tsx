@@ -292,9 +292,6 @@ function GpsMismatchModal({ pinDist, onConfirm, onCancel }: { pinDist: number; o
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 export default function ReportPage() {
-  const searchParams = useSearchParams();
-  const prevReportIdParam = searchParams.get('previous_report_id');
-
   const [step, setStep] = useState<Step>('safety');
   const [reportingContext, setReportingContext] = useState<ReportingContext | null>(null);
   const [safetyStatus, setSafetyStatus] = useState<SafetyStatus | null>(null);
@@ -303,7 +300,6 @@ export default function ReportPage() {
   const [observedTime, setObservedTime] = useState<string>('');
   const [witnessName, setWitnessName] = useState('');
   const [witnessPhone, setWitnessPhone] = useState('');
-  const [previousReportId, setPreviousReportId] = useState<string>(prevReportIdParam ?? '');
   const [gpsWarningConfirmed, setGpsWarningConfirmed] = useState(false);
 
   const [geo, setGeo] = useState<GeoState>({ latitude: null, longitude: null, source: null, denied: false, timedOut: false });
@@ -496,7 +492,6 @@ export default function ReportPage() {
       gps_warning_confirmed: gpsWarningConfirmed,
       witness_name: witnessName || undefined,
       witness_phone: witnessPhone || undefined,
-      previous_report_id: previousReportId ? Number(previousReportId) : undefined,
       reported_at: observedTime ? new Date(observedTime).toISOString() : undefined,
       device_id: getDeviceId(),
     };
@@ -598,12 +593,6 @@ export default function ReportPage() {
                 <div className="flex justify-between">
                   <span style={{ color: 'var(--text-secondary)' }}>Witness</span>
                   <span style={{ color: 'var(--text-primary)' }}>{witnessName}{witnessPhone ? ` — ${witnessPhone}` : ''}</span>
-                </div>
-              )}
-              {previousReportId && (
-                <div className="flex justify-between">
-                  <span style={{ color: 'var(--text-secondary)' }}>Previous report</span>
-                  <span style={{ color: 'var(--text-primary)' }}>#{previousReportId}</span>
                 </div>
               )}
               <div className="flex justify-between">
@@ -1263,20 +1252,6 @@ export default function ReportPage() {
                     />
                   </div>
                 )}
-
-                <div>
-                  <label className="flex items-center gap-1.5 text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
-                    <Info className="w-3.5 h-3.5" /> Previous report ID (optional)
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="Report ID / Numero ng dating report"
-                    value={previousReportId}
-                    onChange={(e) => setPreviousReportId(e.target.value)}
-                    className="form-input"
-                    style={{ fontSize: '0.875rem' }}
-                  />
-                </div>
 
                 <div className="text-xs p-3 rounded-lg" style={{ backgroundColor: 'var(--content-bg)', color: 'var(--text-secondary)' }}>
                   <strong>Do not move closer</strong> or take photos if it is unsafe.
