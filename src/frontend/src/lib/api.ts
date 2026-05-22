@@ -507,6 +507,7 @@ export async function fetchScheduledReports(): Promise<{
   name: string;
   cron_expr: string;
   format: string;
+  recipients: string[];
   enabled: boolean;
   created_at: string | null;
 }[]> {

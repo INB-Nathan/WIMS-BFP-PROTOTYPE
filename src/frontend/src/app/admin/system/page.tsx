@@ -13,7 +13,6 @@ import {
     analyzeSecurityLog,
     fetchRegions,
     fetchUserSessions,
-    terminateUserSessions,
     KeycloakSession,
     fetchActiveSessions,
     revokeUserSessions,
@@ -145,6 +144,7 @@ interface ScheduledReport {
     name: string;
     cron_expr: string;
     format: string;
+    recipients: string[];
     enabled: boolean;
     created_at: string | null;
 }
@@ -337,7 +337,7 @@ export default function AdminSystemPage() {
     const handleTerminateSessions = async (u: AdminUser) => {
         setTerminatingUser(u.user_id);
         try {
-            await terminateUserSessions(u.user_id, 'all');
+            await revokeUserSessions(u.user_id);
             setSessionsByUser((prev) => ({ ...prev, [u.user_id]: [] }));
             setSelectedSessionUser(null);
         } catch (e: unknown) {
@@ -1166,7 +1166,6 @@ export default function AdminSystemPage() {
                             ) : (
                                 scheduledReports.map((r) => {
                                     const fmtBadge = getFormatBadge(r.format);
-                                    const recipientsStr = r.name; // placeholder; uses name field
                                     return (
                                         <tr key={r.id} className="hover:bg-gray-50">
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{r.name}</td>
@@ -1181,7 +1180,9 @@ export default function AdminSystemPage() {
                                                 </code>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 max-w-xs truncate">
-                                                {recipientsStr.length > 40 ? recipientsStr.slice(0, 40) + '…' : recipientsStr}
+                                                {r.recipients && r.recipients.length > 0
+                                                  ? r.recipients.join(', ').slice(0, 40) + (r.recipients.join(', ').length > 40 ? '…' : '')
+                                                  : <span className="text-gray-400 italic">None</span>}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 <button

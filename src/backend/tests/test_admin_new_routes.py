@@ -260,6 +260,15 @@ class TestRevokeUserSession:
 
         with patch("services.keycloak_admin._get_admin_client") as mock_get_adm:
             mock_adm = MagicMock()
+            mock_adm.get_sessions.return_value = [
+                {
+                    "id": "sess-abc",
+                    "ipAddress": "1.2.3.4",
+                    "start": 0,
+                    "lastAccess": 0,
+                    "clients": {},
+                }
+            ]
             mock_adm.delete_user_session.return_value = None
             mock_get_adm.return_value = mock_adm
 
@@ -271,3 +280,92 @@ class TestRevokeUserSession:
         data = response.json()
         assert data["status"] == "ok"
         assert data["session_id"] == "sess-abc"
+
+    def test_delete_session_wrong_ownership(self, client: TestClient):
+        """DELETE /sessions/{user_id}/{session_id} returns 404 when session belongs to another user."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = ("kid-abc123",)
+        mock_db = MagicMock()
+        mock_db.execute.return_value = mock_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        with patch("services.keycloak_admin._get_admin_client") as mock_get_adm:
+            mock_adm = MagicMock()
+            mock_adm.get_sessions.return_value = [
+                {
+                    "id": "other-session",
+                    "ipAddress": "1.2.3.4",
+                    "start": 0,
+                    "lastAccess": 0,
+                    "clients": {},
+                }
+            ]
+            mock_get_adm.return_value = mock_adm
+
+            response = client.delete(
+                "/api/admin/sessions/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/sess-not-mine"
+            )
+
+        assert response.status_code == 404
+
+
+# =============================================================================
+# GET /admin/security-logs
+# =============================================================================
+
+
+class TestGetSecurityLogsPagination:
+    def test_get_security_logs_pagination(self, client: TestClient):
+        """GET /admin/security-logs?limit=5&offset=0 returns correct pagination fields."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = []
+        mock_result.scalar.return_value = 0
+        mock_db = MagicMock()
+        mock_db.execute.return_value = mock_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/security-logs?limit=5&offset=0")
+        assert response.status_code == 200
+        data = response.json()
+        assert "items" in data
+        assert "total" in data
+        assert "limit" in data
+        assert "offset" in data
+        assert data["limit"] == 5
+
+
+# =============================================================================
+# GET /admin/rate-limits
+# =============================================================================
+
+
+class TestGetRateLimitsDefaults:
+    def test_get_rate_limits_returns_defaults(self, client: TestClient):
+        """GET /admin/rate-limits (with no prior set) returns defaults with integer fields."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+
+        with patch("redis.from_url") as mock_redis:
+            mock_r = MagicMock()
+            mock_r.hgetall.return_value = {}
+            mock_redis.return_value = mock_r
+
+            response = client.get("/api/admin/rate-limits")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "login_window_seconds" in data
+        assert "login_threshold" in data
+        assert isinstance(data["login_window_seconds"], int)
+        assert isinstance(data["login_threshold"], int)
