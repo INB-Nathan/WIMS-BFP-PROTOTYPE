@@ -120,3 +120,22 @@ class NotifyRegisterResponse(BaseModel):
 
     status: str  # "registered" | "already_registered"
     report_id: int
+
+
+class MyReportItem(BaseModel):
+    """A single report belonging to the requesting device."""
+
+    report_id: int
+    category: str | None = None
+    sub_category: str | None = None
+    status: str
+    safety_status: str | None = None
+    created_at: datetime
+    latitude: float
+    longitude: float
+
+
+class MyReportResponse(BaseModel):
+    """Response body for GET /api/civilian/reports — the device's own report history."""
+
+    reports: list[MyReportItem]

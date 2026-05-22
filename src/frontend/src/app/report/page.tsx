@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { MapPicker } from '@/components/MapPicker';
 import { fetchCivilianDuplicateSuggestions, submitCivilianReportV2, appendCivilianReport } from '@/lib/api';
@@ -82,7 +83,7 @@ const SAFETY_STATUSES: { value: SafetyStatus; label: string; labelFil: string; d
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type Step = 'context' | 'safety' | 'category' | 'details' | 'review' | 'submitted';
+type Step = 'context' | 'safety' | 'category' | 'details' | 'review' | 'submitted' | 'update';
 
 interface GeoState {
   latitude: number | null;
@@ -292,7 +293,11 @@ function GpsMismatchModal({ pinDist, onConfirm, onCancel }: { pinDist: number; o
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 export default function ReportPage() {
+  const searchParams = useSearchParams();
+  const updateReportIdParam = searchParams.get('update_report_id');
+
   const [step, setStep] = useState<Step>('safety');
+  const [isUpdateMode, setIsUpdateMode] = useState(!!updateReportIdParam);
   const [reportingContext, setReportingContext] = useState<ReportingContext | null>(null);
   const [safetyStatus, setSafetyStatus] = useState<SafetyStatus | null>(null);
   const [category, setCategory] = useState<CivilianCategory | null>(null);
@@ -688,6 +693,116 @@ export default function ReportPage() {
     );
   }
 
+  // ── Update Report (appending to existing) ─────────────────────────────────
+
+  if (isUpdateMode) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4 py-8" style={{ background: 'var(--content-bg)', backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(153,27,27,0.04) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(153,27,27,0.03) 0%, transparent 40%)' }}>
+        <div className="card max-w-lg w-full overflow-hidden">
+          <div className="p-5 text-center" style={{ background: 'var(--bfp-gradient)' }}>
+            <h1 className="text-lg font-bold text-white">Update Report #{updateReportIdParam}</h1>
+            <p className="text-xs text-white/60 mt-0.5">Magdagdag ng impormasyon sa iyong umiiral na report</p>
+          </div>
+
+          {appendSubmitted ? (
+            <div className="p-6 space-y-4 text-center">
+              <div className="mx-auto w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: 'rgba(34,197,94,0.1)' }}>
+                <CheckCircle className="w-8 h-8 text-green-600" />
+              </div>
+              <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Update Submitted</h2>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                Your update for Report #{updateReportIdParam} has been received.
+              </p>
+              <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>
+                Ang update mo para sa Report #{updateReportIdParam} ay natanggap na.
+              </p>
+              <div className="space-y-2">
+                <Link
+                  href={`/report/tracking?id=${updateReportIdParam}`}
+                  className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-xl text-white text-sm font-semibold transition-colors"
+                  style={{ background: 'var(--bfp-gradient)' }}
+                >
+                  Track This Report
+                </Link>
+                <Link
+                  href="/report"
+                  className="flex items-center justify-center w-full py-2.5 text-sm font-medium"
+                  style={{ color: 'var(--bfp-red, #dc2626)' }}
+                >
+                  Submit a New Report
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="card-body space-y-4 p-6">
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                Append additional information to your existing report. This will be reviewed by BFP validators.
+              </p>
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                Magdagdag ng karagdagang impormasyon sa iyong umiiral na report. Ito ay susuriin ng mga BFP validator.
+              </p>
+
+              <div>
+                <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-primary)' }}>
+                  Additional Information *
+                </label>
+                <textarea
+                  value={appendDescription}
+                  onChange={(e) => setAppendDescription(e.target.value)}
+                  placeholder="Describe any new details, changes, or additional observations…"
+                  rows={5}
+                  className="w-full rounded-xl border px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2"
+                  style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-primary)' }}>
+                  Revised / Additional Timestamp
+                </label>
+                <input
+                  type="datetime-local"
+                  value={appendTimestamp}
+                  onChange={(e) => setAppendTimestamp(e.target.value)}
+                  className="w-full rounded-xl border px-4 py-3 text-sm focus:outline-none focus:ring-2"
+                  style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                />
+                <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                  Optional — only fill this if the information you are providing has a different timestamp.
+                </p>
+              </div>
+
+              {appendError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+                  {appendError}
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <Link
+                  href="/report"
+                  className="flex-1 flex items-center justify-center py-2.5 rounded-xl border text-sm font-medium"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                >
+                  Cancel
+                </Link>
+                <button
+                  type="button"
+                  onClick={handleAppend}
+                  disabled={appending || !appendDescription.trim()}
+                  className="flex-1 flex items-center justify-center py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-50"
+                  style={{ background: 'var(--bfp-gradient)' }}
+                >
+                  {appending ? 'Submitting…' : 'Submit Update'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // ── Submitted success screen ─────────────────────────────────────────────
 
   if (step === 'submitted') {
@@ -850,11 +965,8 @@ export default function ReportPage() {
           <CalmEmergencyBlock />
         )}
 
-        <div className="px-6 pt-4 pb-2">
-          {currentStepIndex >= 0 && <ProgressBar current={currentStepIndex} total={stepOrder.length} />}
-        </div>
-
         <div className="card-body space-y-5 px-6 pb-6">
+          {currentStepIndex >= 0 && <ProgressBar current={currentStepIndex} total={stepOrder.length} />}
 
           {/* ── STEP 1: Context + Location ─────────────────────────────── */}
           {step === 'context' && (

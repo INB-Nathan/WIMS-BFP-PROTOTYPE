@@ -648,6 +648,33 @@ export interface CivilianDuplicateSuggestion {
   nearest_station_name: string | null;
 }
 
+export interface MyReportItem {
+  report_id: number;
+  category: string | null;
+  sub_category: string | null;
+  status: string;
+  safety_status: string | null;
+  created_at: string;
+  latitude: number;
+  longitude: number;
+}
+
+export interface MyReportResponse {
+  reports: MyReportItem[];
+}
+
+/** Fetch all reports submitted by this device — Zero-Trust, NO auth. GET /api/civilian/reports?device_id= */
+export async function fetchMyReports(deviceId: string): Promise<MyReportResponse> {
+  const base = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '/api') : process.env.NEXT_PUBLIC_API_URL || 'http://localhost/api';
+  const url = `${base.replace(/\/$/, '')}/civilian/reports?device_id=${encodeURIComponent(deviceId)}`;
+  const res = await fetch(url, { credentials: 'omit' });
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error((json as { message?: string }).message ?? `Request failed: ${res.status}`);
+  }
+  return res.json() as Promise<MyReportResponse>;
+}
+
 export async function fetchCivilianDuplicateSuggestions(
   payload: CivilianReportV2Payload,
 ): Promise<CivilianDuplicateSuggestion[]> {

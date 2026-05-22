@@ -16,6 +16,8 @@ from schemas.civilian import (
     CivilianReportTimelineResponse,
     DuplicateSuggestionResponse,
     DuplicateSuggestionItem,
+    MyReportItem,
+    MyReportResponse,
     NotifyRegisterRequest,
     NotifyRegisterResponse,
 )
@@ -398,6 +400,46 @@ def append_civilian_report(
     if not result:
         raise HTTPException(status_code=500, detail="Failed to append report")
     return _fetch_report_response(db, result[0])
+
+
+@router.get("/reports", response_model=MyReportResponse)
+def get_my_reports(
+    device_id: str,
+    db: Annotated[Session, Depends(get_db)],
+) -> MyReportResponse:
+    """Fetch all reports submitted by this device. No auth required.
+
+    device_id is passed as a query param — Zero-Trust, so callers must
+    supply the actual device UUID. Only returns reports for that device.
+    """
+    rows = db.execute(
+        text("""
+            SELECT report_id, category, sub_category, status, safety_status,
+                   created_at,
+                   ST_Y(location::geometry) AS latitude,
+                   ST_X(location::geometry) AS longitude
+            FROM wims.citizen_reports
+            WHERE device_id = :device_id
+            ORDER BY created_at DESC
+        """),
+        {"device_id": device_id},
+    ).fetchall()
+
+    return MyReportResponse(
+        reports=[
+            MyReportItem(
+                report_id=r.report_id,
+                category=r.category,
+                sub_category=r.sub_category,
+                status=r.status,
+                safety_status=r.safety_status,
+                created_at=r.created_at,
+                latitude=r.latitude,
+                longitude=r.longitude,
+            )
+            for r in rows
+        ]
+    )
 
 
 @router.get("/reports/{report_id}", response_model=CivilianReportResponse)

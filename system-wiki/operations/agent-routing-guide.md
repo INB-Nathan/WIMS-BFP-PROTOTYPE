@@ -22,9 +22,10 @@ Every WIMS-BFP agent touching this repo should read:
 - Incident CRUD/offline/import: read [[concepts/frs-module-map]], [[backend/api-route-map]], [[frontend/route-map]], [[frontend/frontend-infrastructure]] (api.ts + components), [[database/sql-init-files]], [[subsystems/regional-dashboard]], then `regional.py`, `incidents.py`, offline/sync frontend libs.
 - Validation/triage/duplicates: read [[backend/api-route-map]], [[backend/services]] (duplicate_detection), [[database/sql-init-files]] (RLS + IVH schemas), [[subsystems/validator-hub]], then `triage.py`, `regional.py`, duplicate detection service, and validator UI pages.
 - Immutable records/audit/corrections: read [[security/security-baseline]], [[backend/utilities-and-tasks]] (audit), [[database/sql-init-files]] (17_immutable_records), [[gaps/frs-codebase-gap-register]], then immutable SQL/tests and verification endpoints.
-- Analytics/reporting: read [[frontend/route-map]], [[frontend/frontend-infrastructure]] (analytics components), [[backend/api-route-map]], [[backend/services]] (analytics_read_model), [[database/sql-init-files]] (analytics MVs + facts), then `analytics.py`, analytics SQL, analyst dashboard, report pages.
-- Public anonymous submission: read [[security/security-baseline]], [[architecture/infrastructure-config]] (rate limiting), [[gaps/frs-codebase-gap-register]], then `public_dmz.py`, `triage.py`, and public report UI pages.
-- Reference data: read [[database/schema-overview]], [[database/sql-init-files]] (geography seeds), then `ref.py` and geography seed files.
+|- Analytics/reporting: read [[frontend/route-map]], [[frontend/frontend-infrastructure]] (analytics components), [[backend/api-route-map]], [[backend/services]] (analytics_read_model), [[database/sql-init-files]] (analytics MVs + facts), then `analytics.py`, analytics SQL, analyst dashboard, report pages.
+|- Public anonymous submission: read [[security/security-baseline]], [[architecture/infrastructure-config]] (rate limiting), [[gaps/frs-codebase-gap-register]], then `public_dmz.py`, `triage.py`, and public report UI pages.
+|- Civilian reporting (Phase 2 update flow): read [[subsystems/civilian-reporting-phase2]], [[backend/api-route-map]] (new `GET /api/civilian/reports` endpoint), then `civilian.py`, `api.ts` (fetchMyReports), tracking page, and report page update-mode UI.
+|- Reference data: read [[database/schema-overview]], [[database/sql-init-files]] (geography seeds), then `ref.py` and geography seed files.
 - Infrastructure/Docker/CI: read [[architecture/infrastructure-config]], [[architecture/pwa-tests-cicd]].
 
 ## Delegation Rules

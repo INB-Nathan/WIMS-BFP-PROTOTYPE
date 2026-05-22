@@ -16,6 +16,7 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 |---|---:|---|---|
 | `civilian.py` | `POST` | `/reports` | `submit_civilian_report` |
 | `civilian.py` | `POST` | `/reports/duplicate-suggestions` | `suggest_duplicate_reports` |
+| `civilian.py` | `GET` | `/reports` | `get_my_reports` | Returns device's full report history for ownership-checked update flow |
 | `civilian.py` | `PATCH` | `/reports/{report_id}/append` | `append_civilian_report` |
 | `civilian.py` | `GET` | `/reports/{report_id}` | `get_civilian_report` |
 | `civilian.py` | `GET` | `/reports/{report_id}/timeline` | `get_civilian_report_timeline` |

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { fetchReportStatus, fetchReportTimeline, registerNotification, type CivilianReportTimelineItem, type CivilianReportTrackingResponse } from '@/lib/api';
+import { fetchReportStatus, fetchReportTimeline, registerNotification, fetchMyReports, type CivilianReportTimelineItem, type CivilianReportTrackingResponse, type MyReportItem } from '@/lib/api';
 import { getMessagingToken } from '@/lib/firebase';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -171,6 +171,14 @@ export default function ReportTrackerPage() {
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [notifyStatus, setNotifyStatus] = useState<NotifyStatus>('idle');
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [myReports, setMyReports] = useState<MyReportItem[]>([]);
+
+  // Resolve device ID on mount — used to verify ownership
+  useEffect(() => {
+    const stored = localStorage.getItem('wims_civilian_device_id');
+    if (stored) setDeviceId(stored);
+  }, []);
 
   const searchReport = useCallback(async (id: string) => {
     setFetchError(null);
@@ -246,6 +254,18 @@ export default function ReportTrackerPage() {
 
   const status = data ? parseStatus(data.status) : null;
   const meta = status ? STATUS_META[status] : null;
+
+  // Fetch this device's report history on mount — used to determine ownership
+  useEffect(() => {
+    if (!deviceId) return;
+    fetchMyReports(deviceId!)
+      .then((res) => setMyReports(res.reports))
+      .catch(() => setMyReports([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId]);
+
+  const isOwner = data ? myReports.some((r) => r.report_id === data.report_id) : false;
+  const canUpdate = isOwner && (status === 'PENDING' || status === 'UNDER_REVIEW');
 
   // ─── Render ─────────────────────────────────────────────────────────────
 
@@ -505,6 +525,17 @@ export default function ReportTrackerPage() {
                 )}
                 {notifyStatus === 'error' && (
                   <p className="text-xs text-red-500">Failed to enable notifications. Please try again.</p>
+                )}
+
+                {/* ── Update Report (owner only, PENDING/UNDER_REVIEW) ── */}
+                {canUpdate && (
+                  <Link
+                    href={`/report?update_report_id=${data.report_id}`}
+                    className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-xl border text-sm font-semibold transition-colors"
+                    style={{ borderColor: 'var(--bfp-maroon)', color: 'var(--bfp-maroon)', backgroundColor: 'transparent' }}
+                  >
+                    Update This Report
+                  </Link>
                 )}
 
                 {/* Metadata footer */}

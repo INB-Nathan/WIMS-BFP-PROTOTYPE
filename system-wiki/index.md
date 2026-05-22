@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-05-20
+Last updated: 2026-05-23
 Total synthesis pages: 32
-Last changes: civilian reporting ADR Phase 2 decisions and validator triage shortcut reference added.
+Last changes: civilian reporting Phase 2 update flow (device history endpoint + update report UI).
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
