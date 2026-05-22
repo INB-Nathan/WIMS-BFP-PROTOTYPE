@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import { MapPicker } from '@/components/MapPicker';
-import { fetchCivilianDuplicateSuggestions, submitCivilianReportV2 } from '@/lib/api';
+import { fetchCivilianDuplicateSuggestions, submitCivilianReportV2, appendCivilianReport } from '@/lib/api';
 import type { CivilianCategory, CivilianDuplicateSuggestion, CivilianReportV2Payload, ReportingContext, SafetyStatus } from '@/lib/api';
 import React from 'react';
 
@@ -322,6 +322,11 @@ export default function ReportPage() {
   const [submittedReportId, setSubmittedReportId] = useState<number | null>(null);
   const [submittedResponse, setSubmittedResponse] = useState<Awaited<ReturnType<typeof submitCivilianReportV2>> | null>(null);
   const [duplicateSuggestions, setDuplicateSuggestions] = useState<CivilianDuplicateSuggestion[]>([]);
+  const [appendDescription, setAppendDescription] = useState('');
+  const [appendTimestamp, setAppendTimestamp] = useState('');
+  const [appending, setAppending] = useState(false);
+  const [appendError, setAppendError] = useState<string | null>(null);
+  const [appendSubmitted, setAppendSubmitted] = useState(false);
 
   const geoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -509,6 +514,28 @@ export default function ReportPage() {
       setDuplicateSuggestions([]);
     }
     setStep('review');
+  }
+
+  async function handleAppend() {
+    if (!submittedReportId || !appendDescription.trim()) return;
+    setAppending(true);
+    setAppendError(null);
+    try {
+      await appendCivilianReport(submittedReportId, {
+        latitude: geo.latitude ?? undefined,
+        longitude: geo.longitude ?? undefined,
+        category: category ?? undefined,
+        reporting_context: reportingContext,
+        safety_status: safetyStatus,
+        reported_at: appendTimestamp || undefined,
+        description: appendDescription.trim(),
+      });
+      setAppendSubmitted(true);
+    } catch (err) {
+      setAppendError(err instanceof Error ? err.message : 'Update failed. Please try again.');
+    } finally {
+      setAppending(false);
+    }
   }
 
   async function handleSubmit() {
@@ -729,16 +756,82 @@ export default function ReportPage() {
               </div>
             )}
 
-            <div className="text-xs p-3 rounded-lg mb-6" style={{ backgroundColor: 'var(--content-bg)', color: 'var(--text-secondary)' }}>
+            <div className="text-xs p-3 rounded-lg mb-4" style={{ backgroundColor: 'var(--content-bg)', color: 'var(--text-secondary)' }}>
               Track your report at <strong>/report/tracking?id={submittedReportId}</strong>
               <br />
               Subaybayan ang iyong report sa <strong>/report/tracking?id={submittedReportId}</strong>
             </div>
 
+            {/* ── Update Report ─────────────────────────────────────── */}
+            {!appendSubmitted ? (
+              <div className="rounded-xl border p-4 mb-4 text-left" style={{ borderColor: 'var(--card-elevated-border)', backgroundColor: 'var(--card-bg)' }}>
+                <p className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                  Update this report
+                </p>
+                <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
+                  Have new information? Add details without filing a new report.
+                  <br />
+                  <span lang="fil">May bagong impormasyon? Magdagdag ng detalye nang hindi nagfi-file ng bagong report.</span>
+                </p>
+
+                <textarea
+                  className="form-input w-full mb-3"
+                  style={{ minHeight: '100px', paddingTop: '0.75rem', resize: 'vertical', fontSize: '0.875rem' }}
+                  placeholder="Describe any new information... / Ilarawan ang anumang bagong impormasyon..."
+                  value={appendDescription}
+                  onChange={(e) => setAppendDescription(e.target.value)}
+                  disabled={appending}
+                />
+
+                <div className="mb-3">
+                  <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>
+                    Revised time (optional) / Na-revise na oras (opsyonal)
+                  </label>
+                  <input
+                    type="datetime-local"
+                    className="form-input"
+                    style={{ fontSize: '0.875rem' }}
+                    value={appendTimestamp}
+                    onChange={(e) => setAppendTimestamp(e.target.value)}
+                    disabled={appending}
+                  />
+                </div>
+
+                {appendError && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 text-red-700 text-sm mb-3">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                    {appendError}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => void handleAppend()}
+                  disabled={appending || !appendDescription.trim()}
+                  className="w-full py-2.5 rounded-xl border text-sm font-semibold transition-all disabled:opacity-50"
+                  style={{ borderColor: 'var(--bfp-maroon)', color: 'var(--bfp-maroon)', backgroundColor: 'transparent' }}
+                >
+                  {appending ? 'Submitting update...' : 'Submit Update / Magsumite ng Update'}
+                </button>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-green-200 bg-green-50 p-4 mb-4 text-left">
+                <div className="flex items-start gap-2">
+                  <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-green-700">Update submitted</p>
+                    <p className="text-xs text-green-600 mt-0.5">
+                      Your update has been recorded. / Ang iyong update ay naitala na.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <a
               href={`/report/tracking?id=${submittedReportId}`}
-              className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-lg text-white text-sm font-bold"
-              style={{ background: 'var(--bfp-gradient)' }}
+              className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-bold"
+              style={{ background: 'var(--bfp-gradient)', boxShadow: '0 2px 8px rgba(153,27,34,0.3)' }}
             >
               Track My Report
             </a>

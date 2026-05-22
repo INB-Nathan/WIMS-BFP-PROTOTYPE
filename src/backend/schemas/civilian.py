@@ -40,7 +40,7 @@ class CivilianReportAppend(BaseModel):
     category: CitizenCategory
     sub_category: str | None = Field(default=None, max_length=120)
     reported_at: datetime | None = None
-    device_id: str = Field(..., min_length=1, max_length=128)
+    device_id: str | None = Field(default=None, max_length=128)
     reporting_context: ReportingContext
     safety_status: SafetyStatus = "UNKNOWN"
     phone_latitude: float | None = Field(default=None, ge=-90, le=90)
