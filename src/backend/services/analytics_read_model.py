@@ -673,9 +673,23 @@ def get_export_rows(
     if not valid_cols:
         valid_cols = ["incident_id", "notification_dt"]
 
-    # Columns actually present on wims.analytics_incident_facts. All other
-    # fields (damage, casualties, response time, fire_station_name, etc.) live
-    # on wims.incident_nonsensitive_details and must be selected as nd.<col>.
+    # Routing predicate for the `elif c in fact_cols` branch below — entries
+    # here are emitted as `a.<col>` in the SELECT. Must list ONLY columns
+    # physically present on wims.analytics_incident_facts (per the live schema:
+    # incident_id, region_id, location, notification_dt, notification_date,
+    # alarm_level, general_category, synced_at).
+    #
+    # Columns not matched by the special cases above (verification_status →
+    # fi.*, region_name → rr.*, municipality_name → rc.*, province_name →
+    # rp.*) and not in this set fall through to `nd.<col>` from
+    # incident_nonsensitive_details, where the damage / casualty / response /
+    # fire_station_name fields actually live.
+    #
+    # Adding a column here that does not exist on the facts table produces
+    # `psycopg2.errors.UndefinedColumn: column "a.<col>" does not exist` at
+    # query time. The existing pytest suite mocks the data layer and will not
+    # catch this regression — verify against the live database before
+    # extending.
     fact_cols = {
         "incident_id",
         "region_id",
