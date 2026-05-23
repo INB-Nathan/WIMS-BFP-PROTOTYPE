@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 # ─── Schemas ─────────────────────────────────────────────────────────────────
 
+
 class BulkPromoteRequest(BaseModel):
     report_ids: list[int]
 
@@ -176,6 +177,7 @@ TERMINAL_REPORT_STATUSES = {
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
+
 def _require_encoder_or_validator(
     current_user: Annotated[dict, Depends(get_current_wims_user)],
 ) -> dict:
@@ -218,14 +220,10 @@ def _cluster_claim_response(row) -> ClusterClaimResponse:
         assigned_to=row[6],
         assigned_to_user_id=str(row[2]) if row[2] else None,
         review_started_at=(
-            row[3].replace(tzinfo=timezone.utc)
-            if row[3] and row[3].tzinfo is None
-            else row[3]
+            row[3].replace(tzinfo=timezone.utc) if row[3] and row[3].tzinfo is None else row[3]
         ),
         updated_at=(
-            row[4].replace(tzinfo=timezone.utc)
-            if row[4] and row[4].tzinfo is None
-            else row[4]
+            row[4].replace(tzinfo=timezone.utc) if row[4] and row[4].tzinfo is None else row[4]
         ),
         claim_is_stale=_is_cluster_claim_stale(row[4]),
     )
@@ -260,7 +258,9 @@ def _ensure_cluster_claim(db: Session, cluster_id: int, user: dict) -> object:
     if str(cluster[2]) != str(user["user_id"]):
         raise HTTPException(status_code=409, detail="Cluster must be claimed by the current user")
     if _is_cluster_claim_stale(cluster[4]):
-        raise HTTPException(status_code=409, detail="Cluster claim is stale; refresh or reclaim before acting")
+        raise HTTPException(
+            status_code=409, detail="Cluster claim is stale; refresh or reclaim before acting"
+        )
     return cluster
 
 
@@ -322,9 +322,15 @@ def _build_station_context(row) -> StationContext:
 
 
 def _build_trust_breakdown(
-    has_category, has_sub_category, has_reported_at, has_device_id,
-    has_witness_name, has_witness_phone,
-    nearest_500m, nearest_2km, nearest_5km,
+    has_category,
+    has_sub_category,
+    has_reported_at,
+    has_device_id,
+    has_witness_name,
+    has_witness_phone,
+    nearest_500m,
+    nearest_2km,
+    nearest_5km,
 ) -> TrustBreakdown:
     """Build trust breakdown from signal boolean columns."""
     included, missing = [], []
@@ -368,11 +374,11 @@ def _build_trust_breakdown(
 
 # ─── GET /api/triage/queue ────────────────────────────────────────────────────
 
+
 @router.get("/queue", response_model=TriageQueueResponse)
 def get_triage_queue(
     user: Annotated[dict, Depends(_require_encoder_or_validator)],
     db: Annotated[Session, Depends(get_db_with_rls)],
-
     # Quick filters
     needs_help: bool = Query(False),
     someone_else_needs_help: bool = Query(False),
@@ -414,7 +420,9 @@ def get_triage_queue(
         base_filters = ["cr.status LIKE 'REJECTED_%' AND cr.created_at >= :today"]
         params["today"] = now.replace(hour=0, minute=0, second=0, microsecond=0)
     else:
-        base_filters = ["cr.status NOT IN ('ACTIONED','REJECTED_BOGUS','REJECTED_DUPLICATE','REJECTED_INSUFFICIENT','REJECTED_TIMEOUT')"]
+        base_filters = [
+            "cr.status NOT IN ('ACTIONED','REJECTED_BOGUS','REJECTED_DUPLICATE','REJECTED_INSUFFICIENT','REJECTED_TIMEOUT')"
+        ]
 
     if needs_help:
         base_filters.append("cr.safety_status = 'I_NEED_HELP'")
@@ -593,7 +601,9 @@ def get_triage_queue(
     # Build report entries with cluster metadata captured in one pass
     # Row indices mapped from the SELECT clause
     entries: list[TriageReportEntry] = []
-    report_cluster_info: dict[int, tuple] = {}  # report_id → (cluster_id, cluster_status, assigned_to, review_started_at, anchor_report_id)
+    report_cluster_info: dict[
+        int, tuple
+    ] = {}  # report_id → (cluster_id, cluster_status, assigned_to, review_started_at, anchor_report_id)
 
     for row in rows:
         # Column indices:
@@ -627,9 +637,15 @@ def get_triage_queue(
         nearest_5km = row[23]
 
         tb = _build_trust_breakdown(
-            has_category, has_sub_category, has_reported_at, has_device_id,
-            has_witness_name, has_witness_phone,
-            nearest_500m, nearest_2km, nearest_5km,
+            has_category,
+            has_sub_category,
+            has_reported_at,
+            has_device_id,
+            has_witness_name,
+            has_witness_phone,
+            nearest_500m,
+            nearest_2km,
+            nearest_5km,
         )
         tb.duplicate_device_count_30m = int(row[33] or 0)
         gps_distance_m = row[10]
@@ -669,8 +685,12 @@ def get_triage_queue(
             severity=sev,
             related_count=int(row[29] or 0),
             linked_count=int(row[11] or 0),
-            created_at=created_at_val.replace(tzinfo=timezone.utc) if created_at_val.tzinfo is None else created_at_val,
-            reported_at=row[13].replace(tzinfo=timezone.utc) if row[13] and row[13].tzinfo is None else row[13],
+            created_at=created_at_val.replace(tzinfo=timezone.utc)
+            if created_at_val.tzinfo is None
+            else created_at_val,
+            reported_at=row[13].replace(tzinfo=timezone.utc)
+            if row[13] and row[13].tzinfo is None
+            else row[13],
             is_aging=is_aging,
             is_timeout_risk=is_timeout_risk,
             previous_report_id=row[14],
@@ -690,8 +710,9 @@ def get_triage_queue(
     cluster_map: dict[int | str, TriageClusterEntry] = {}
 
     for entry in entries:
-        cluster_id, cluster_status, assigned_to_uuid, review_started_at, anchor_report_id = \
+        cluster_id, cluster_status, assigned_to_uuid, review_started_at, anchor_report_id = (
             report_cluster_info.get(entry.report_id, (None, None, None, None, None))
+        )
 
         cluster_key = cluster_id if cluster_id is not None else f"singleton:{entry.report_id}"
 
@@ -751,7 +772,9 @@ def get_triage_queue(
             elif "MEDIUM" in severities:
                 cluster.severity = "MEDIUM"
             oldest = min(r.created_at for r in cluster.reports)
-            cluster.oldest_report_at = oldest.replace(tzinfo=timezone.utc) if oldest.tzinfo is None else oldest
+            cluster.oldest_report_at = (
+                oldest.replace(tzinfo=timezone.utc) if oldest.tzinfo is None else oldest
+            )
 
     # ── Sort clusters by priority ordering ────────────────────────────────────
     sorted_clusters = sorted(
@@ -775,6 +798,7 @@ def get_triage_queue(
 
 
 # ─── Cluster claim/activity workflow ──────────────────────────────────────────
+
 
 @router.post("/clusters/{cluster_id}/claim", response_model=ClusterClaimResponse)
 def claim_cluster(
@@ -813,10 +837,14 @@ def claim_cluster(
 
         if takeover:
             if role not in ("NATIONAL_VALIDATOR", "SYSTEM_ADMIN"):
-                raise HTTPException(status_code=403, detail="Only higher-privilege users can take over stale claims")
+                raise HTTPException(
+                    status_code=403, detail="Only higher-privilege users can take over stale claims"
+                )
             reason = (body.reason or "").strip()
             if not reason:
-                raise HTTPException(status_code=422, detail="Takeover reason is required for stale claims")
+                raise HTTPException(
+                    status_code=422, detail="Takeover reason is required for stale claims"
+                )
             audit_action = "CLUSTER_STALE_TAKEOVER"
             timestamp = now.isoformat()
             takeover_note = f"[{timestamp}] stale takeover by {user_id}: {reason}"
@@ -895,7 +923,9 @@ def refresh_cluster_activity(
         if cluster[1] == "CLUSTER_CLOSED":
             raise HTTPException(status_code=409, detail="Cannot refresh a closed cluster")
         if str(cluster[2]) != str(user_id):
-            raise HTTPException(status_code=409, detail="Cluster is not claimed by the current user")
+            raise HTTPException(
+                status_code=409, detail="Cluster is not claimed by the current user"
+            )
 
         internal_note = cluster[5]
         note = (body.note or "").strip()
@@ -1011,7 +1041,9 @@ def get_cluster_activity(
                 occurred_at=row[3],
                 actor_user_id=str(row[1]) if row[1] else None,
                 actor_username=row[2],
-                new_status="CLUSTER_UNDER_REVIEW" if row[0] in ("CLUSTER_CLAIM", "CLUSTER_STALE_TAKEOVER") else None,
+                new_status="CLUSTER_UNDER_REVIEW"
+                if row[0] in ("CLUSTER_CLAIM", "CLUSTER_STALE_TAKEOVER")
+                else None,
             )
         )
 
@@ -1085,6 +1117,7 @@ def get_merge_candidates(
 
 # ─── Cluster terminal/split/merge workflow ────────────────────────────────────
 
+
 @router.post("/clusters/{cluster_id}/terminal-action", response_model=WorkflowResult)
 def apply_cluster_terminal_action(
     cluster_id: int,
@@ -1121,7 +1154,9 @@ def apply_cluster_terminal_action(
             raise HTTPException(status_code=404, detail=f"Reports not in cluster: {missing}")
         terminal_rows = [row.report_id for row in members if row.status in TERMINAL_REPORT_STATUSES]
         if terminal_rows:
-            raise HTTPException(status_code=409, detail=f"Terminal rows require correction flow: {terminal_rows}")
+            raise HTTPException(
+                status_code=409, detail=f"Terminal rows require correction flow: {terminal_rows}"
+            )
 
         result = db.execute(
             text("""
@@ -1164,15 +1199,22 @@ def apply_cluster_terminal_action(
                 "cluster_status": new_cluster_status,
                 "explanation": explanation,
                 "internal_note": _append_internal_note(
-                    cluster[5], str(user_id), f"terminal {status}", body.internal_note or explanation
+                    cluster[5],
+                    str(user_id),
+                    f"terminal {status}",
+                    body.internal_note or explanation,
                 ),
                 "uid": user_id,
             },
         )
 
         for rid in updated_ids:
-            log_system_audit(db, user_id, f"CITIZEN_REPORT_{status}", "citizen_reports", rid, request)
-        log_system_audit(db, user_id, "CLUSTER_TERMINAL_ACTION", "citizen_report_clusters", cluster_id, request)
+            log_system_audit(
+                db, user_id, f"CITIZEN_REPORT_{status}", "citizen_reports", rid, request
+            )
+        log_system_audit(
+            db, user_id, "CLUSTER_TERMINAL_ACTION", "citizen_report_clusters", cluster_id, request
+        )
         db.commit()
     except HTTPException:
         db.rollback()
@@ -1182,7 +1224,9 @@ def apply_cluster_terminal_action(
         raise
 
     _notify_reports(updated_ids, status)
-    return WorkflowResult(status="applied", report_ids=updated_ids, cluster_id=cluster_id, updated=len(updated_ids))
+    return WorkflowResult(
+        status="applied", report_ids=updated_ids, cluster_id=cluster_id, updated=len(updated_ids)
+    )
 
 
 @router.post("/reports/{report_id}/correct", response_model=WorkflowResult)
@@ -1196,24 +1240,32 @@ def correct_terminal_report(
     """Correct a terminal civilian report decision with an audited reason."""
     role = user.get("role")
     if role not in ("NATIONAL_VALIDATOR", "SYSTEM_ADMIN"):
-        raise HTTPException(status_code=403, detail="Only validators/admins can correct terminal decisions")
+        raise HTTPException(
+            status_code=403, detail="Only validators/admins can correct terminal decisions"
+        )
     status = _validate_terminal_status(body.status)
     explanation = body.status_explanation.strip()
     reason = body.correction_reason.strip()
     if not explanation or not reason:
-        raise HTTPException(status_code=422, detail="Correction reason and replacement explanation are required")
+        raise HTTPException(
+            status_code=422, detail="Correction reason and replacement explanation are required"
+        )
 
     user_id = user["user_id"]
     try:
         row = db.execute(
-            text("SELECT status, internal_note FROM wims.citizen_reports WHERE report_id = :rid FOR UPDATE"),
+            text(
+                "SELECT status, internal_note FROM wims.citizen_reports WHERE report_id = :rid FOR UPDATE"
+            ),
             {"rid": report_id},
         ).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Report not found")
         if row.status not in TERMINAL_REPORT_STATUSES:
             raise HTTPException(status_code=409, detail="Only terminal reports use correction flow")
-        note = _append_internal_note(row.internal_note, str(user_id), f"correction {row.status}->{status}", reason)
+        note = _append_internal_note(
+            row.internal_note, str(user_id), f"correction {row.status}->{status}", reason
+        )
         db.execute(
             text("""
                 UPDATE wims.citizen_reports
@@ -1223,9 +1275,17 @@ def correct_terminal_report(
                     validated_by = :uid
                 WHERE report_id = :rid
             """),
-            {"rid": report_id, "status": status, "explanation": explanation, "note": note, "uid": user_id},
+            {
+                "rid": report_id,
+                "status": status,
+                "explanation": explanation,
+                "note": note,
+                "uid": user_id,
+            },
         )
-        log_system_audit(db, user_id, "CITIZEN_REPORT_CORRECTION", "citizen_reports", report_id, request)
+        log_system_audit(
+            db, user_id, "CITIZEN_REPORT_CORRECTION", "citizen_reports", report_id, request
+        )
         db.commit()
     except HTTPException:
         db.rollback()
@@ -1265,9 +1325,13 @@ def split_cluster(
         ).fetchall()
         found_ids = [row.report_id for row in members]
         if len(found_ids) != len(report_ids):
-            raise HTTPException(status_code=404, detail="All selected reports must be existing cluster members")
+            raise HTTPException(
+                status_code=404, detail="All selected reports must be existing cluster members"
+            )
         if len(found_ids) == 1:
-            raise HTTPException(status_code=422, detail="Split requires at least two selected reports")
+            raise HTTPException(
+                status_code=422, detail="Split requires at least two selected reports"
+            )
 
         new_cluster = db.execute(
             text("""
@@ -1276,7 +1340,11 @@ def split_cluster(
                 VALUES (:anchor, 'CLUSTER_UNDER_REVIEW', :uid, now(), :note, :uid)
                 RETURNING cluster_id
             """),
-            {"anchor": found_ids[0], "uid": user_id, "note": _append_internal_note(None, str(user_id), "split", note)},
+            {
+                "anchor": found_ids[0],
+                "uid": user_id,
+                "note": _append_internal_note(None, str(user_id), "split", note),
+            },
         ).fetchone()
         new_cluster_id = new_cluster.cluster_id
         db.execute(
@@ -1299,10 +1367,23 @@ def split_cluster(
                 SET internal_note = :note, updated_at = now(), acted_by = :uid
                 WHERE cluster_id = :cid
             """),
-            {"cid": cluster_id, "note": _append_internal_note(cluster[5], str(user_id), "split", note), "uid": user_id},
+            {
+                "cid": cluster_id,
+                "note": _append_internal_note(cluster[5], str(user_id), "split", note),
+                "uid": user_id,
+            },
         )
-        log_system_audit(db, user_id, "CLUSTER_SPLIT", "citizen_report_clusters", cluster_id, request)
-        log_system_audit(db, user_id, "CLUSTER_CREATED_BY_SPLIT", "citizen_report_clusters", new_cluster_id, request)
+        log_system_audit(
+            db, user_id, "CLUSTER_SPLIT", "citizen_report_clusters", cluster_id, request
+        )
+        log_system_audit(
+            db,
+            user_id,
+            "CLUSTER_CREATED_BY_SPLIT",
+            "citizen_report_clusters",
+            new_cluster_id,
+            request,
+        )
         db.commit()
     except HTTPException:
         db.rollback()
@@ -1311,7 +1392,13 @@ def split_cluster(
         db.rollback()
         raise
 
-    return WorkflowResult(status="split", cluster_id=cluster_id, new_cluster_id=new_cluster_id, report_ids=found_ids, updated=len(found_ids))
+    return WorkflowResult(
+        status="split",
+        cluster_id=cluster_id,
+        new_cluster_id=new_cluster_id,
+        report_ids=found_ids,
+        updated=len(found_ids),
+    )
 
 
 @router.post("/clusters/{target_cluster_id}/merge", response_model=WorkflowResult)
@@ -1325,7 +1412,9 @@ def merge_clusters(
     """Merge a nearby source cluster into a claimed target cluster."""
     note = body.internal_note.strip()
     if not note or body.source_cluster_id == target_cluster_id:
-        raise HTTPException(status_code=422, detail="source_cluster_id and internal_note are required")
+        raise HTTPException(
+            status_code=422, detail="source_cluster_id and internal_note are required"
+        )
     user_id = user["user_id"]
     try:
         target = _ensure_cluster_claim(db, target_cluster_id, user)
@@ -1336,7 +1425,9 @@ def merge_clusters(
             raise HTTPException(status_code=409, detail="Source cluster is already closed")
 
         source_members = db.execute(
-            text("SELECT report_id FROM wims.citizen_report_cluster_members WHERE cluster_id = :cid"),
+            text(
+                "SELECT report_id FROM wims.citizen_report_cluster_members WHERE cluster_id = :cid"
+            ),
             {"cid": body.source_cluster_id},
         ).fetchall()
         report_ids = [row.report_id for row in source_members]
@@ -1379,10 +1470,28 @@ def merge_clusters(
                 SET internal_note = :note, updated_at = now(), acted_by = :uid
                 WHERE cluster_id = :target_cid
             """),
-            {"target_cid": target_cluster_id, "note": _append_internal_note(target[5], str(user_id), "merge source", note), "uid": user_id},
+            {
+                "target_cid": target_cluster_id,
+                "note": _append_internal_note(target[5], str(user_id), "merge source", note),
+                "uid": user_id,
+            },
         )
-        log_system_audit(db, user_id, "CLUSTER_MERGE_TARGET", "citizen_report_clusters", target_cluster_id, request)
-        log_system_audit(db, user_id, "CLUSTER_MERGE_SOURCE", "citizen_report_clusters", body.source_cluster_id, request)
+        log_system_audit(
+            db,
+            user_id,
+            "CLUSTER_MERGE_TARGET",
+            "citizen_report_clusters",
+            target_cluster_id,
+            request,
+        )
+        log_system_audit(
+            db,
+            user_id,
+            "CLUSTER_MERGE_SOURCE",
+            "citizen_report_clusters",
+            body.source_cluster_id,
+            request,
+        )
         db.commit()
     except HTTPException:
         db.rollback()
@@ -1391,10 +1500,16 @@ def merge_clusters(
         db.rollback()
         raise
 
-    return WorkflowResult(status="merged", cluster_id=target_cluster_id, report_ids=report_ids, updated=len(report_ids))
+    return WorkflowResult(
+        status="merged",
+        cluster_id=target_cluster_id,
+        report_ids=report_ids,
+        updated=len(report_ids),
+    )
 
 
 # ─── Legacy endpoints ─────────────────────────────────────────────────────────
+
 
 @router.get("/pending")
 def get_pending_reports(

@@ -119,7 +119,10 @@ class TestCivilianReportPublicSubmission:
         assert data["reporting_context"] == "WITNESS"
         assert data["safety_status"] == "I_AM_SAFE"
         assert data["trust_score"] > 0
-        assert data["guidance"] == "Your report is waiting for review. Call 911 if there is immediate danger."
+        assert (
+            data["guidance"]
+            == "Your report is waiting for review. Call 911 if there is immediate danger."
+        )
         assert "report_id" in data
 
     def test_duplicate_suggestions_return_nearby_active_reports(self, client, db_session):
@@ -246,4 +249,7 @@ class TestCivilianReportPublicSubmission:
         data = response.json()
         assert data["status"] == "REJECTED_TIMEOUT"
         assert data["status_explanation"].startswith("This report was not verified")
-        assert data["escalation_guidance"] == "Submit a new report if the emergency is ongoing, or call 911."
+        assert (
+            data["escalation_guidance"]
+            == "Submit a new report if the emergency is ongoing, or call 911."
+        )

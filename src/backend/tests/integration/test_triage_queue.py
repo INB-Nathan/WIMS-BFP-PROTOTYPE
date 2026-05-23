@@ -32,10 +32,12 @@ from tasks.civilian_reports import timeout_pending_reports
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def db_session():
     """Yield a DB session for test setup/teardown."""
     from database import _SessionLocal  # noqa: SLF001
+
     db = _SessionLocal()
     try:
         yield db
@@ -100,6 +102,7 @@ def encoder_user(db_session: Session):
 def mock_validator(validator_user):
     async def _mock():
         return validator_user
+
     return _mock
 
 
@@ -107,6 +110,7 @@ def mock_validator(validator_user):
 def mock_encoder(encoder_user):
     async def _mock():
         return encoder_user
+
     return _mock
 
 
@@ -132,9 +136,11 @@ def client_with_encoder(mock_encoder):
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
+
 def make_report(
     db: Session,
-    lat: float, lon: float,
+    lat: float,
+    lon: float,
     status: str = "PENDING",
     category: str = "STRUCTURAL",
     sub_category: str | None = None,
@@ -239,6 +245,7 @@ def add_to_cluster(db: Session, cluster_id: int, report_id: int, linked_by: str 
 
 # ─── Tests ───────────────────────────────────────────────────────────────────
 
+
 class TestGetTriageQueue:
     """GET /api/triage/queue"""
 
@@ -299,8 +306,13 @@ class TestGetTriageQueue:
 
         resp = client_with_validator.get("/api/triage/queue")
         assert resp.status_code == 200
-        cluster_ids = [cid for c in resp.json()["clusters"] for r in c["reports"] for cid in [r["report_id"]]
-                       if c["reports"]]
+        cluster_ids = [
+            cid
+            for c in resp.json()["clusters"]
+            for r in c["reports"]
+            for cid in [r["report_id"]]
+            if c["reports"]
+        ]
 
         assert rid_normal in cluster_ids
         assert "ACTIONED" not in str(cluster_ids)
@@ -312,8 +324,7 @@ class TestGetTriageQueue:
         assert resp.status_code == 200
         # Find the cluster containing our report
         matching_clusters = [
-            c for c in resp.json()["clusters"]
-            if any(r["report_id"] == rid for r in c["reports"])
+            c for c in resp.json()["clusters"] if any(r["report_id"] == rid for r in c["reports"])
         ]
         assert len(matching_clusters) == 1
         assert matching_clusters[0]["cluster_id"] is not None
@@ -330,7 +341,8 @@ class TestGetTriageQueue:
         assert resp.status_code == 200
 
         matching_clusters = [
-            c for c in resp.json()["clusters"]
+            c
+            for c in resp.json()["clusters"]
             if any(r["report_id"] in (rid1, rid2) for r in c["reports"])
         ]
         assert len(matching_clusters) == 1
@@ -350,11 +362,13 @@ class TestGetTriageQueue:
 
         # Find cluster positions for each report
         help_cluster_idx = next(
-            i for i, c in enumerate(clusters)
+            i
+            for i, c in enumerate(clusters)
             if any(r["report_id"] == rid_help for r in c["reports"])
         )
         safe_cluster_idx = next(
-            i for i, c in enumerate(clusters)
+            i
+            for i, c in enumerate(clusters)
             if any(r["report_id"] == rid_safe for r in c["reports"])
         )
         assert help_cluster_idx < safe_cluster_idx
@@ -362,21 +376,21 @@ class TestGetTriageQueue:
     def test_aging_ordering(self, client_with_validator, db_session):
         """Reports older than 60 min sort before newer ones."""
         now = datetime.now(timezone.utc)
-        rid_old = make_report(db_session, 121.05, 14.60,
-                              created_at=now - timedelta(hours=2))
-        rid_new = make_report(db_session, 121.10, 14.70,
-                              created_at=now - timedelta(minutes=30))
+        rid_old = make_report(db_session, 121.05, 14.60, created_at=now - timedelta(hours=2))
+        rid_new = make_report(db_session, 121.10, 14.70, created_at=now - timedelta(minutes=30))
 
         resp = client_with_validator.get("/api/triage/queue")
         assert resp.status_code == 200
         clusters = resp.json()["clusters"]
 
         old_idx = next(
-            i for i, c in enumerate(clusters)
+            i
+            for i, c in enumerate(clusters)
             if any(r["report_id"] == rid_old for r in c["reports"])
         )
         new_idx = next(
-            i for i, c in enumerate(clusters)
+            i
+            for i, c in enumerate(clusters)
             if any(r["report_id"] == rid_new for r in c["reports"])
         )
         assert old_idx < new_idx
@@ -386,21 +400,24 @@ class TestGetTriageQueue:
         base_lat, base_lon = 121.0500, 14.6000
         now = datetime.now(timezone.utc)
         # Anchor report with trust 60
-        rid_anchor = make_report(db_session, base_lat, base_lon,
-                                 trust_score=60, created_at=now)
+        rid_anchor = make_report(db_session, base_lat, base_lon, trust_score=60, created_at=now)
         # 4 nearby reports within 100m/1hr → total 5 related = HIGH
         for i in range(4):
             offset = 0.0001 * (i + 1)  # keep all reports inside 100m
-            make_report(db_session, base_lat + offset, base_lon + offset,
-                        trust_score=60, created_at=now - timedelta(minutes=i * 10))
+            make_report(
+                db_session,
+                base_lat + offset,
+                base_lon + offset,
+                trust_score=60,
+                created_at=now - timedelta(minutes=i * 10),
+            )
 
         resp = client_with_validator.get("/api/triage/queue")
         assert resp.status_code == 200
         clusters = resp.json()["clusters"]
 
         anchor_cluster = next(
-            c for c in clusters
-            if any(r["report_id"] == rid_anchor for r in c["reports"])
+            c for c in clusters if any(r["report_id"] == rid_anchor for r in c["reports"])
         )
         assert anchor_cluster["severity"] == "HIGH"
 
@@ -408,16 +425,18 @@ class TestGetTriageQueue:
         """≥2 related within 100m/1hr AND trust ≥30 → MEDIUM."""
         base_lat, base_lon = 121.0500, 14.6000
         now = datetime.now(timezone.utc)
-        rid_anchor = make_report(db_session, base_lat, base_lon,
-                                 trust_score=40, created_at=now)
+        rid_anchor = make_report(db_session, base_lat, base_lon, trust_score=40, created_at=now)
         # 1 nearby → 2 total related = MEDIUM
-        make_report(db_session, base_lat + 0.0003, base_lon + 0.0003,
-                    trust_score=40, created_at=now)
+        make_report(
+            db_session, base_lat + 0.0003, base_lon + 0.0003, trust_score=40, created_at=now
+        )
 
         resp = client_with_validator.get("/api/triage/queue")
         assert resp.status_code == 200
         clusters = resp.json()["clusters"]
-        anchor_cluster = next(c for c in clusters if rid_anchor in [r["report_id"] for r in c["reports"]])
+        anchor_cluster = next(
+            c for c in clusters if rid_anchor in [r["report_id"] for r in c["reports"]]
+        )
         assert anchor_cluster["severity"] == "MEDIUM"
 
     def test_severity_LOW(self, client_with_validator, db_session):
@@ -437,7 +456,9 @@ class TestGetTriageQueue:
     def test_trust_breakdown_included_signals(self, client_with_validator, db_session):
         """Trust breakdown shows included signals correctly."""
         rid = make_report(
-            db_session, 121.05, 14.60,
+            db_session,
+            121.05,
+            14.60,
             category="STRUCTURAL",
             sub_category="Residential",
             trust_score=45,
@@ -446,10 +467,7 @@ class TestGetTriageQueue:
         resp = client_with_validator.get("/api/triage/queue")
         assert resp.status_code == 200
         clusters = resp.json()["clusters"]
-        entry = next(
-            r for c in clusters for r in c["reports"]
-            if r["report_id"] == rid
-        )
+        entry = next(r for c in clusters for r in c["reports"] if r["report_id"] == rid)
         breakdown = entry["trust_breakdown"]
         assert "category" in breakdown["included_signals"]
         assert "sub_category" in breakdown["included_signals"]
@@ -458,8 +476,7 @@ class TestGetTriageQueue:
 
     def test_trust_breakdown_missing_signals(self, client_with_validator, db_session):
         """Trust breakdown shows missing signals."""
-        rid = make_report(db_session, 121.05, 14.60, trust_score=10,
-                         sub_category=None)
+        rid = make_report(db_session, 121.05, 14.60, trust_score=10, sub_category=None)
         resp = client_with_validator.get("/api/triage/queue")
         assert resp.status_code == 200
         clusters = resp.json()["clusters"]
@@ -469,8 +486,7 @@ class TestGetTriageQueue:
 
     def test_trust_breakdown_gps_mismatch(self, client_with_validator, db_session):
         """GPS distance > 200m sets gps_mismatch = true."""
-        rid = make_report(db_session, 121.05, 14.60,
-                         gps_distance_m=350.0)
+        rid = make_report(db_session, 121.05, 14.60, gps_distance_m=350.0)
         resp = client_with_validator.get("/api/triage/queue")
         assert resp.status_code == 200
         clusters = resp.json()["clusters"]
@@ -479,8 +495,7 @@ class TestGetTriageQueue:
 
     def test_trust_breakdown_gps_ok(self, client_with_validator, db_session):
         """GPS distance ≤ 200m sets gps_mismatch = false."""
-        rid = make_report(db_session, 121.05, 14.60,
-                         gps_distance_m=100.0)
+        rid = make_report(db_session, 121.05, 14.60, gps_distance_m=100.0)
         resp = client_with_validator.get("/api/triage/queue")
         assert resp.status_code == 200
         clusters = resp.json()["clusters"]
@@ -491,12 +506,30 @@ class TestGetTriageQueue:
         """Duplicate device submissions within 30 min reflected in duplicate_device_count_30m."""
         device = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
-        rid1 = make_report(db_session, 121.05, 14.60, device_id=device,
-                          trust_score=50, created_at=now - timedelta(minutes=10))
-        _rid2 = make_report(db_session, 121.06, 14.61, device_id=device,
-                          trust_score=50, created_at=now - timedelta(minutes=20))
-        rid3 = make_report(db_session, 121.07, 14.62, device_id=device,
-                          trust_score=50, created_at=now - timedelta(minutes=25))
+        rid1 = make_report(
+            db_session,
+            121.05,
+            14.60,
+            device_id=device,
+            trust_score=50,
+            created_at=now - timedelta(minutes=10),
+        )
+        _rid2 = make_report(
+            db_session,
+            121.06,
+            14.61,
+            device_id=device,
+            trust_score=50,
+            created_at=now - timedelta(minutes=20),
+        )
+        rid3 = make_report(
+            db_session,
+            121.07,
+            14.62,
+            device_id=device,
+            trust_score=50,
+            created_at=now - timedelta(minutes=25),
+        )
         # Different device
         make_report(db_session, 121.08, 14.63, trust_score=50)
 
@@ -525,14 +558,14 @@ class TestGetTriageQueue:
 
     def test_privacy_no_device_id(self, client_with_validator, db_session):
         """Raw device_id never appears in response."""
-        make_report(db_session, 121.05, 14.60,
-                   device_id=str(uuid.uuid4()))
+        make_report(db_session, 121.05, 14.60, device_id=str(uuid.uuid4()))
         resp = client_with_validator.get("/api/triage/queue")
         assert resp.status_code == 200
         body = resp.text
         assert "device_id" not in body.lower() or "device" in body.lower()
         # Check specifically no raw UUID-looking device IDs
         import re
+
         uuid_pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
         _matches = re.findall(uuid_pattern, body, re.IGNORECASE)
         # All UUIDs in response should be report_id or user_id (not device_id)
@@ -559,10 +592,8 @@ class TestGetTriageQueue:
     def test_aging_filter(self, client_with_validator, db_session):
         """aging=true returns only reports > 60 min old."""
         now = datetime.now(timezone.utc)
-        rid_old = make_report(db_session, 121.05, 14.60,
-                              created_at=now - timedelta(hours=2))
-        make_report(db_session, 121.10, 14.70,
-                    created_at=now - timedelta(minutes=30))
+        rid_old = make_report(db_session, 121.05, 14.60, created_at=now - timedelta(hours=2))
+        make_report(db_session, 121.10, 14.70, created_at=now - timedelta(minutes=30))
 
         resp = client_with_validator.get("/api/triage/queue?aging=true")
         assert resp.status_code == 200
@@ -570,22 +601,33 @@ class TestGetTriageQueue:
         assert rid_old in cluster_ids
         # newer report should not appear (filtered out at cluster level but may appear)
         # aging filter is per-report, so check our specific report
-        cluster = next((c for c in resp.json()["clusters"] if rid_old in [r["report_id"] for r in c["reports"]]), None)
+        cluster = next(
+            (
+                c
+                for c in resp.json()["clusters"]
+                if rid_old in [r["report_id"] for r in c["reports"]]
+            ),
+            None,
+        )
         assert cluster is not None
         assert any(r["report_id"] == rid_old and r["is_aging"] for r in cluster["reports"])
 
     def test_timeout_risk_filter(self, client_with_validator, db_session):
         """timeout_risk=true returns only reports > 90 min old."""
         now = datetime.now(timezone.utc)
-        rid_risk = make_report(db_session, 121.05, 14.60,
-                               created_at=now - timedelta(hours=3))
-        make_report(db_session, 121.10, 14.70,
-                    created_at=now - timedelta(minutes=60))
+        rid_risk = make_report(db_session, 121.05, 14.60, created_at=now - timedelta(hours=3))
+        make_report(db_session, 121.10, 14.70, created_at=now - timedelta(minutes=60))
 
         resp = client_with_validator.get("/api/triage/queue?timeout_risk=true")
         assert resp.status_code == 200
-        cluster = next((c for c in resp.json()["clusters"]
-                       if any(r["report_id"] == rid_risk for r in c["reports"])), None)
+        cluster = next(
+            (
+                c
+                for c in resp.json()["clusters"]
+                if any(r["report_id"] == rid_risk for r in c["reports"])
+            ),
+            None,
+        )
         assert cluster is not None
         assert any(r["report_id"] == rid_risk and r["is_timeout_risk"] for r in cluster["reports"])
 
@@ -613,11 +655,15 @@ class TestGetTriageQueue:
         """confidence=HIGH returns only HIGH severity clusters."""
         base_lat, base_lon = 121.0500, 14.6000
         now = datetime.now(timezone.utc)
-        _rid_high = make_report(db_session, base_lat, base_lon,
-                               trust_score=60, created_at=now)
+        _rid_high = make_report(db_session, base_lat, base_lon, trust_score=60, created_at=now)
         for i in range(4):
-            make_report(db_session, base_lat + 0.0003 * (i+1), base_lon + 0.0003 * (i+1),
-                        trust_score=60, created_at=now - timedelta(minutes=i*5))
+            make_report(
+                db_session,
+                base_lat + 0.0003 * (i + 1),
+                base_lon + 0.0003 * (i + 1),
+                trust_score=60,
+                created_at=now - timedelta(minutes=i * 5),
+            )
 
         make_report(db_session, 122.00, 15.00, trust_score=20)  # LOW
 
@@ -633,13 +679,24 @@ class TestGetTriageQueue:
         now = datetime.now(timezone.utc)
         make_report(db_session, base_lat, base_lon, trust_score=60, created_at=now)
         for i in range(4):
-            make_report(db_session, base_lat + 0.0003 * (i+1), base_lon + 0.0003 * (i+1),
-                        trust_score=60, created_at=now - timedelta(minutes=i*5))
+            make_report(
+                db_session,
+                base_lat + 0.0003 * (i + 1),
+                base_lon + 0.0003 * (i + 1),
+                trust_score=60,
+                created_at=now - timedelta(minutes=i * 5),
+            )
 
         resp = client_with_validator.get("/api/triage/queue?confidence=LOW")
         assert resp.status_code == 200
-        cluster = next((c for c in resp.json()["clusters"]
-                       if any(r["report_id"] == rid_low for r in c["reports"])), None)
+        cluster = next(
+            (
+                c
+                for c in resp.json()["clusters"]
+                if any(r["report_id"] == rid_low for r in c["reports"])
+            ),
+            None,
+        )
         assert cluster is not None
         assert cluster["severity"] == "LOW"
 
@@ -650,8 +707,9 @@ class TestGetTriageQueue:
         ).fetchone()
         encoder_uid = str(encoder_user[0]) if encoder_user else None
 
-        rid_rejected = make_report(db_session, 121.05, 14.60,
-                                  status="REJECTED_INSUFFICIENT", validated_by=encoder_uid)
+        rid_rejected = make_report(
+            db_session, 121.05, 14.60, status="REJECTED_INSUFFICIENT", validated_by=encoder_uid
+        )
         make_report(db_session, 121.10, 14.70)  # PENDING
 
         resp = client_with_validator.get("/api/triage/queue?rejected_today=true")
@@ -662,8 +720,7 @@ class TestGetTriageQueue:
 
     def test_has_life_safety_flag(self, client_with_validator, db_session):
         """Cluster has_life_safety=True when any member has I_NEED_HELP/SOMEONE_ELSE_NEEDS_HELP."""
-        rid = make_report(db_session, 121.05, 14.60,
-                         safety_status="SOMEONE_ELSE_NEEDS_HELP")
+        rid = make_report(db_session, 121.05, 14.60, safety_status="SOMEONE_ELSE_NEEDS_HELP")
         cluster_id = make_cluster(db_session, anchor_report_id=rid)
         add_to_cluster(db_session, cluster_id, rid)
 
@@ -704,24 +761,30 @@ class TestGetTriageQueue:
         """Cluster related_count is total count of reports within 100m/1hr window."""
         base_lat, base_lon = 121.0500, 14.6000
         now = datetime.now(timezone.utc)
-        rid_anchor = make_report(db_session, base_lat, base_lon,
-                                 trust_score=60, created_at=now)
+        rid_anchor = make_report(db_session, base_lat, base_lon, trust_score=60, created_at=now)
         # 3 nearby within 100m/1hr
         for i in range(3):
-            make_report(db_session, base_lat + 0.0002 * (i+1), base_lon + 0.0002 * (i+1),
-                        trust_score=60, created_at=now - timedelta(minutes=i*10))
+            make_report(
+                db_session,
+                base_lat + 0.0002 * (i + 1),
+                base_lon + 0.0002 * (i + 1),
+                trust_score=60,
+                created_at=now - timedelta(minutes=i * 10),
+            )
 
         resp = client_with_validator.get("/api/triage/queue")
         assert resp.status_code == 200
-        cluster = next(c for c in resp.json()["clusters"]
-                      if any(r["report_id"] == rid_anchor for r in c["reports"]))
+        cluster = next(
+            c
+            for c in resp.json()["clusters"]
+            if any(r["report_id"] == rid_anchor for r in c["reports"])
+        )
         assert cluster["related_count"] >= 3
 
     def test_is_aging_cluster_flag(self, client_with_validator, db_session):
         """Cluster is_aging=True when oldest member is > 60 min old."""
         now = datetime.now(timezone.utc)
-        rid = make_report(db_session, 121.05, 14.60,
-                          created_at=now - timedelta(hours=2))
+        rid = make_report(db_session, 121.05, 14.60, created_at=now - timedelta(hours=2))
         cluster_id = make_cluster(db_session, anchor_report_id=rid)
         add_to_cluster(db_session, cluster_id, rid)
 
@@ -733,8 +796,7 @@ class TestGetTriageQueue:
     def test_is_timeout_risk_cluster_flag(self, client_with_validator, db_session):
         """Cluster is_timeout_risk=True when oldest member is > 90 min old."""
         now = datetime.now(timezone.utc)
-        rid = make_report(db_session, 121.05, 14.60,
-                          created_at=now - timedelta(hours=3))
+        rid = make_report(db_session, 121.05, 14.60, created_at=now - timedelta(hours=3))
         cluster_id = make_cluster(db_session, anchor_report_id=rid)
         add_to_cluster(db_session, cluster_id, rid)
 
@@ -751,7 +813,7 @@ class TestGetTriageQueue:
         encoder_uid = str(encoder_user[0]) if encoder_user else None
 
         for i in range(5):
-            make_report(db_session, 121.05 + i*0.001, 14.60 + i*0.001)
+            make_report(db_session, 121.05 + i * 0.001, 14.60 + i * 0.001)
         make_report(db_session, 121.50, 14.80, status="REJECTED_BOGUS", validated_by=encoder_uid)
 
         resp = client_with_validator.get("/api/triage/queue")
@@ -761,8 +823,9 @@ class TestGetTriageQueue:
     def test_claimed_by_me_filter(self, client_with_validator, db_session, validator_user):
         """claimed_by_me=true returns clusters assigned to the current user."""
         rid = make_report(db_session, 121.05, 14.60)
-        cluster_id = make_cluster(db_session, anchor_report_id=rid,
-                                 assigned_to=validator_user["user_id"])
+        cluster_id = make_cluster(
+            db_session, anchor_report_id=rid, assigned_to=validator_user["user_id"]
+        )
         add_to_cluster(db_session, cluster_id, rid)
 
         resp = client_with_validator.get("/api/triage/queue?claimed_by_me=true")
@@ -774,8 +837,9 @@ class TestGetTriageQueue:
     def test_assigned_to_display_name(self, client_with_validator, db_session, validator_user):
         """assigned_to shows user username, not raw UUID."""
         rid = make_report(db_session, 121.05, 14.60)
-        cluster_id = make_cluster(db_session, anchor_report_id=rid,
-                                 assigned_to=validator_user["user_id"])
+        cluster_id = make_cluster(
+            db_session, anchor_report_id=rid, assigned_to=validator_user["user_id"]
+        )
         add_to_cluster(db_session, cluster_id, rid)
 
         resp = client_with_validator.get("/api/triage/queue")
@@ -789,9 +853,12 @@ class TestGetTriageQueue:
     def test_review_started_at(self, client_with_validator, db_session, validator_user):
         """Cluster has review_started_at when claimed."""
         rid = make_report(db_session, 121.05, 14.60)
-        cluster_id = make_cluster(db_session, anchor_report_id=rid,
-                                 assigned_to=validator_user["user_id"],
-                                 status="CLUSTER_UNDER_REVIEW")
+        cluster_id = make_cluster(
+            db_session,
+            anchor_report_id=rid,
+            assigned_to=validator_user["user_id"],
+            status="CLUSTER_UNDER_REVIEW",
+        )
         add_to_cluster(db_session, cluster_id, rid)
 
         resp = client_with_validator.get("/api/triage/queue")
@@ -803,25 +870,28 @@ class TestGetTriageQueue:
     def test_previous_report_id_shown(self, client_with_validator, db_session):
         """Report entries include previous_report_id when set."""
         rid_prev = make_report(db_session, 121.05, 14.60)
-        rid_new = make_report(db_session, 121.10, 14.70,
-                             status="PENDING", trust_score=30)
+        rid_new = make_report(db_session, 121.10, 14.70, status="PENDING", trust_score=30)
         # Simulate update to set previous_report_id
         db_session.execute(
-            text("UPDATE wims.citizen_reports SET previous_report_id = :prev WHERE report_id = :new"),
+            text(
+                "UPDATE wims.citizen_reports SET previous_report_id = :prev WHERE report_id = :new"
+            ),
             {"prev": rid_prev, "new": rid_new},
         )
         db_session.commit()
 
         resp = client_with_validator.get("/api/triage/queue")
         assert resp.status_code == 200
-        entry = next((r for c in resp.json()["clusters"] for r in c["reports"] if r["report_id"] == rid_new), None)
+        entry = next(
+            (r for c in resp.json()["clusters"] for r in c["reports"] if r["report_id"] == rid_new),
+            None,
+        )
         assert entry is not None
         assert entry["previous_report_id"] == rid_prev
 
     def test_report_id_not_leaked_as_device_id(self, client_with_validator, db_session):
         """report_id values appear in response; no privacy fields."""
-        rid = make_report(db_session, 121.05, 14.60,
-                         device_id=str(uuid.uuid4()))
+        rid = make_report(db_session, 121.05, 14.60, device_id=str(uuid.uuid4()))
         resp = client_with_validator.get("/api/triage/queue")
         assert resp.status_code == 200
         data = resp.json()
@@ -901,7 +971,11 @@ class TestClusterClaimActivityWorkflow:
         db_session.commit()
 
         async def other_validator():
-            return {"user_id": other_user_id, "keycloak_id": str(other_keycloak_id), "role": "NATIONAL_VALIDATOR"}
+            return {
+                "user_id": other_user_id,
+                "keycloak_id": str(other_keycloak_id),
+                "role": "NATIONAL_VALIDATOR",
+            }
 
         app.dependency_overrides[get_current_wims_user] = other_validator
         try:
@@ -927,7 +1001,10 @@ class TestClusterClaimActivityWorkflow:
                 VALUES (:kid, :username, 'NATIONAL_VALIDATOR')
                 RETURNING user_id
             """),
-            {"kid": stale_owner_keycloak_id, "username": f"stale_owner_{stale_owner_keycloak_id.hex[:8]}"},
+            {
+                "kid": stale_owner_keycloak_id,
+                "username": f"stale_owner_{stale_owner_keycloak_id.hex[:8]}",
+            },
         ).scalar()
         db_session.commit()
         cluster_id = make_cluster(
@@ -947,7 +1024,9 @@ class TestClusterClaimActivityWorkflow:
         )
         db_session.commit()
 
-        missing_reason = client_with_validator.post(f"/api/triage/clusters/{cluster_id}/claim", json={})
+        missing_reason = client_with_validator.post(
+            f"/api/triage/clusters/{cluster_id}/claim", json={}
+        )
         assert missing_reason.status_code == 422
 
         resp = client_with_validator.post(
@@ -1066,7 +1145,9 @@ class TestPhase2WorkflowActions:
         assert resp.status_code == 200, resp.text
         assert resp.json()["updated"] == 1
         row = db_session.execute(
-            text("SELECT status, status_explanation FROM wims.citizen_reports WHERE report_id = :rid"),
+            text(
+                "SELECT status, status_explanation FROM wims.citizen_reports WHERE report_id = :rid"
+            ),
             {"rid": rid},
         ).fetchone()
         assert row.status == "REJECTED_INSUFFICIENT"
@@ -1126,7 +1207,9 @@ class TestPhase2WorkflowActions:
 
         assert resp.status_code == 200, resp.text
         row = db_session.execute(
-            text("SELECT status, status_explanation FROM wims.citizen_reports WHERE report_id = :rid"),
+            text(
+                "SELECT status, status_explanation FROM wims.citizen_reports WHERE report_id = :rid"
+            ),
             {"rid": rid},
         ).fetchone()
         assert row.status == "ACTIONED"
@@ -1144,7 +1227,12 @@ class TestPhase2WorkflowActions:
         add_to_cluster(db_session, cluster_id, rid1)
         add_to_cluster(db_session, cluster_id, rid2)
         add_to_cluster(db_session, cluster_id, rid3)
-        assert client_with_validator.post(f"/api/triage/clusters/{cluster_id}/claim", json={}).status_code == 200
+        assert (
+            client_with_validator.post(
+                f"/api/triage/clusters/{cluster_id}/claim", json={}
+            ).status_code
+            == 200
+        )
 
         resp = client_with_validator.post(
             f"/api/triage/clusters/{cluster_id}/split",
@@ -1156,7 +1244,9 @@ class TestPhase2WorkflowActions:
         moved = {
             row.report_id
             for row in db_session.execute(
-                text("SELECT report_id FROM wims.citizen_report_cluster_members WHERE cluster_id = :cid"),
+                text(
+                    "SELECT report_id FROM wims.citizen_report_cluster_members WHERE cluster_id = :cid"
+                ),
                 {"cid": new_cluster_id},
             ).fetchall()
         }
@@ -1173,7 +1263,12 @@ class TestPhase2WorkflowActions:
         source_cluster_id = make_cluster(db_session, anchor_report_id=source_rid)
         add_to_cluster(db_session, target_cluster_id, target_rid)
         add_to_cluster(db_session, source_cluster_id, source_rid)
-        assert client_with_validator.post(f"/api/triage/clusters/{target_cluster_id}/claim", json={}).status_code == 200
+        assert (
+            client_with_validator.post(
+                f"/api/triage/clusters/{target_cluster_id}/claim", json={}
+            ).status_code
+            == 200
+        )
 
         resp = client_with_validator.post(
             f"/api/triage/clusters/{target_cluster_id}/merge",
@@ -1182,7 +1277,9 @@ class TestPhase2WorkflowActions:
 
         assert resp.status_code == 200, resp.text
         source_status = db_session.execute(
-            text("SELECT status, merged_into_cluster_id FROM wims.citizen_report_clusters WHERE cluster_id = :cid"),
+            text(
+                "SELECT status, merged_into_cluster_id FROM wims.citizen_report_clusters WHERE cluster_id = :cid"
+            ),
             {"cid": source_cluster_id},
         ).fetchone()
         assert source_status.status == "CLUSTER_CLOSED"
@@ -1190,7 +1287,9 @@ class TestPhase2WorkflowActions:
         target_members = {
             row.report_id
             for row in db_session.execute(
-                text("SELECT report_id FROM wims.citizen_report_cluster_members WHERE cluster_id = :cid"),
+                text(
+                    "SELECT report_id FROM wims.citizen_report_cluster_members WHERE cluster_id = :cid"
+                ),
                 {"cid": target_cluster_id},
             ).fetchall()
         }
@@ -1210,7 +1309,9 @@ class TestPhase2WorkflowActions:
         rows = {
             row.report_id: row.status
             for row in db_session.execute(
-                text("SELECT report_id, status FROM wims.citizen_reports WHERE report_id IN (:pending_id, :review_id)"),
+                text(
+                    "SELECT report_id, status FROM wims.citizen_reports WHERE report_id IN (:pending_id, :review_id)"
+                ),
                 {"pending_id": pending_id, "review_id": review_id},
             ).fetchall()
         }
@@ -1286,7 +1387,12 @@ class TestMergeCandidates:
         add_to_cluster(db_session, target_cid, target_rid)
 
         # Candidate 2 hours old but close spatially (~50m)
-        old_rid = make_report(db_session, 121.0505, 14.6005, created_at=datetime.now(timezone.utc) - timedelta(hours=2))
+        old_rid = make_report(
+            db_session,
+            121.0505,
+            14.6005,
+            created_at=datetime.now(timezone.utc) - timedelta(hours=2),
+        )
         old_cid = make_cluster(db_session, anchor_report_id=old_rid)
         add_to_cluster(db_session, old_cid, old_rid)
 

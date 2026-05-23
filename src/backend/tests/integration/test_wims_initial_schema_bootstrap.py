@@ -33,15 +33,21 @@ def _postgres_init_dir() -> Path:
         numbered = [f for f in p.glob("*.sql") if f.name and f.name[0].isdigit()]
         if numbered:
             return p.resolve()
-        pytest.fail(f"WIMS_POSTGRES_INIT_DIR has no numbered SQL files in {p}: found {[f.name for f in p.glob('*.sql')]}")
+        pytest.fail(
+            f"WIMS_POSTGRES_INIT_DIR has no numbered SQL files in {p}: found {[f.name for f in p.glob('*.sql')]}"
+        )
 
     here = Path(__file__).resolve()
     for parent in here.parents:
         for rel in ("src/postgres-init", "postgres-init"):
             candidate = parent / rel
-            if (candidate / "01_extensions_roles.sql").is_file() or list(candidate.glob("[0-9]*.sql")):
+            if (candidate / "01_extensions_roles.sql").is_file() or list(
+                candidate.glob("[0-9]*.sql")
+            ):
                 return candidate
-    pytest.fail("Cannot find postgres-init/ directory with numbered SQL files (set WIMS_POSTGRES_INIT_DIR).")
+    pytest.fail(
+        "Cannot find postgres-init/ directory with numbered SQL files (set WIMS_POSTGRES_INIT_DIR)."
+    )
 
 
 def _parse_admin_urls() -> tuple[str, str]:
@@ -111,11 +117,9 @@ def bootstrap_engine():
     init_dir = _postgres_init_dir()
     # Ordered bootstrap sequence; include all numbered .sql files (00-36+)
     import re
+
     bootstrap_files = sorted(init_dir.glob("*.sql"))
-    sql_files = [
-        f for f in bootstrap_files
-        if re.match(r'^\d', f.name)
-    ]
+    sql_files = [f for f in bootstrap_files if re.match(r"^\d", f.name)]
     for f in sql_files:
         if not f.is_file():
             pytest.fail(f"Missing bootstrap SQL file: {f}")
@@ -283,33 +287,48 @@ def test_bootstrap_creates_v2_and_afor_objects(bootstrap_engine):
 
         # ── citizen_report_clusters ──────────────────────────────────────────────
         cluster_cols = {
-            r[0] for r in conn.execute(
+            r[0]
+            for r in conn.execute(
                 text("""
             SELECT column_name FROM information_schema.columns
             WHERE table_schema = 'wims' AND table_name = 'citizen_report_clusters'
         """)
             )
         }
-        for col in ("anchor_report_id", "status", "status_note", "internal_note",
-                    "acted_by", "assigned_to", "review_started_at",
-                    "created_at", "updated_at", "closed_at", "merged_into_cluster_id"):
+        for col in (
+            "anchor_report_id",
+            "status",
+            "status_note",
+            "internal_note",
+            "acted_by",
+            "assigned_to",
+            "review_started_at",
+            "created_at",
+            "updated_at",
+            "closed_at",
+            "merged_into_cluster_id",
+        ):
             assert col in cluster_cols, f"missing cluster col {col}"
 
         cluster_statuses = {
-            r[0] for r in conn.execute(
+            r[0]
+            for r in conn.execute(
                 text("""
             SELECT DISTINCT status FROM wims.citizen_report_clusters
         """)
             )
         }
         assert cluster_statuses <= {
-            "CLUSTER_MONITORING", "CLUSTER_UNDER_REVIEW",
-            "CLUSTER_ACTIONED", "CLUSTER_CLOSED"
+            "CLUSTER_MONITORING",
+            "CLUSTER_UNDER_REVIEW",
+            "CLUSTER_ACTIONED",
+            "CLUSTER_CLOSED",
         }
 
         # ── citizen_report_cluster_members ──────────────────────────────────────
         member_cols = {
-            r[0] for r in conn.execute(
+            r[0]
+            for r in conn.execute(
                 text("""
             SELECT column_name FROM information_schema.columns
             WHERE table_schema = 'wims' AND table_name = 'citizen_report_cluster_members'
@@ -321,7 +340,8 @@ def test_bootstrap_creates_v2_and_afor_objects(bootstrap_engine):
 
         # ── ref_fire_stations.phone ─────────────────────────────────────────────
         station_cols = {
-            r[0] for r in conn.execute(
+            r[0]
+            for r in conn.execute(
                 text("""
             SELECT column_name FROM information_schema.columns
             WHERE table_schema = 'wims' AND table_name = 'ref_fire_stations'
@@ -351,15 +371,21 @@ def test_bootstrap_creates_v2_and_afor_objects(bootstrap_engine):
 
         # ── Phase 2 check constraints on citizen_reports.status ────────────────
         status_values = {
-            r[0] for r in conn.execute(
+            r[0]
+            for r in conn.execute(
                 text("""
             SELECT DISTINCT status FROM wims.citizen_reports
         """)
             )
         }
         allowed = {
-            "PENDING", "UNDER_REVIEW", "LINKED", "ACTIONED",
-            "REJECTED_BOGUS", "REJECTED_DUPLICATE",
-            "REJECTED_INSUFFICIENT", "REJECTED_TIMEOUT"
+            "PENDING",
+            "UNDER_REVIEW",
+            "LINKED",
+            "ACTIONED",
+            "REJECTED_BOGUS",
+            "REJECTED_DUPLICATE",
+            "REJECTED_INSUFFICIENT",
+            "REJECTED_TIMEOUT",
         }
         assert status_values <= allowed, f"unexpected status values: {status_values - allowed}"

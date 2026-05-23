@@ -41,7 +41,11 @@ STATUS_GUIDANCE = {
 
 def _ip_hash(request: Request) -> str:
     forwarded_for = request.headers.get("x-forwarded-for")
-    ip = forwarded_for.split(",", 1)[0].strip() if forwarded_for else (request.client.host if request.client else "")
+    ip = (
+        forwarded_for.split(",", 1)[0].strip()
+        if forwarded_for
+        else (request.client.host if request.client else "")
+    )
     return hashlib.sha256(ip.encode("utf-8")).hexdigest()
 
 
@@ -58,7 +62,12 @@ def _resolve_nearest(db: Session, wkt: str):
     ).fetchone()
 
 
-def _trust_score(db: Session, body: CivilianReportCreate | CivilianReportAppend, wkt: str, nearest_distance_m: float | None) -> int:
+def _trust_score(
+    db: Session,
+    body: CivilianReportCreate | CivilianReportAppend,
+    wkt: str,
+    nearest_distance_m: float | None,
+) -> int:
     score = 0
     if body.category:
         score += 20
@@ -208,12 +217,16 @@ def submit_civilian_report(
         {"ip_hash": ip_hash},
     ).scalar()
     if rate_count is not None and int(rate_count) >= 5:
-        raise HTTPException(status_code=429, detail="Too many reports from this network. Try again later.")
+        raise HTTPException(
+            status_code=429, detail="Too many reports from this network. Try again later."
+        )
 
     nearest = _resolve_nearest(db, wkt)
     nearest_station_id = nearest.station_id if nearest else None
     region_id = nearest.region_id if nearest else None
-    nearest_distance_m = float(nearest.distance_m) if nearest and nearest.distance_m is not None else None
+    nearest_distance_m = (
+        float(nearest.distance_m) if nearest and nearest.distance_m is not None else None
+    )
     trust_score = _trust_score(db, body, wkt, nearest_distance_m)
 
     result = db.execute(
@@ -349,7 +362,9 @@ def append_civilian_report(
     nearest = _resolve_nearest(db, wkt)
     nearest_station_id = nearest.station_id if nearest else None
     region_id = nearest.region_id if nearest else None
-    nearest_distance_m = float(nearest.distance_m) if nearest and nearest.distance_m is not None else None
+    nearest_distance_m = (
+        float(nearest.distance_m) if nearest and nearest.distance_m is not None else None
+    )
     trust_score = _trust_score(db, body, wkt, nearest_distance_m)
 
     result = db.execute(
