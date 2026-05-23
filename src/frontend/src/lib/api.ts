@@ -16,7 +16,6 @@ import {
   buildRegionalIncidentsQueryString,
   type RegionalIncidentsQueryParams,
 } from './regional-incidents';
-import { refreshToken } from './auth-refresh';
 
 const API_BASE = typeof window !== 'undefined'
   ? (process.env.NEXT_PUBLIC_API_URL || '/api')
@@ -86,8 +85,8 @@ export async function apiFetch<T>(
   });
   if (res.status === 401 && !_retried) {
     try {
-      const refreshed = await refreshToken();
-      if (refreshed) {
+      const refreshRes = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
+      if (refreshRes.ok) {
         return apiFetch<T>(path, { ...options, _retried: true });
       }
     } catch { /* ignore, fall through to throw */ }
@@ -96,10 +95,6 @@ export async function apiFetch<T>(
     // mid-flow. The caller is then responsible for surfacing the error.
     if (!skipAuthRedirect && typeof window !== 'undefined') {
       window.location.href = '/login';
-    } else if (typeof window !== 'undefined') {
-      // Signal auth.tsx to re-check the OIDC session (mirrors what F5 does),
-      // so the page recovers without a manual refresh.
-      window.dispatchEvent(new Event('wims:auth-failed'));
     }
     throw new ApiRequestError('Session expired. Please log in again.', 401);
   }
@@ -356,220 +351,6 @@ export async function fetchAuditLogs(params?: {
   if (params?.offset != null) search.set('offset', String(params.offset));
   const qs = search.toString();
   return apiFetch<PaginatedResponse<AuditLogEntry>>(`/admin/audit-logs${qs ? `?${qs}` : ''}`);
-}
-
-// -- Backup Management (Issue #108) --
-
-/** Trigger a new database backup. Returns the backup filename, size, and creation timestamp. */
-export async function triggerBackup(): Promise<{
-  filename: string;
-  size_bytes: number;
-  created_at: string;
-}> {
-  return apiFetch('/admin/backup', { method: 'POST' });
-}
-
-/** List all available database backups. Returns [] on error. */
-export async function listBackups(): Promise<
-  { filename: string; size_bytes: number; created_at: string }[]
-> {
-  try {
-    const data = await apiFetch<
-      { filename: string; size_bytes: number; created_at: string }[]
-    >('/admin/backups');
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
-}
-
-/** Download a database backup file by filename. */
-export async function downloadBackup(filename: string): Promise<Blob> {
-  const path = `/admin/backup/${encodeURIComponent(filename)}`;
-  const normalizedPath = path.startsWith('/api/') ? path.slice(4) : path;
-  const url = `${API_BASE.replace(/\/$/, '')}${normalizedPath}`;
-  const response = await fetch(url, { credentials: 'include' });
-  if (!response.ok) {
-    const json = await response.json().catch(() => ({}));
-    throw new ApiRequestError(
-      errorMessageFromJson(json, `Backup download failed: ${response.status}`),
-      response.status,
-      (json as { detail?: unknown }).detail,
-    );
-  }
-  return response.blob();
-}
-
-/** Restore the database from a backup file upload. */
-export async function restoreBackup(file: File): Promise<{
-  status: string;
-  filename: string;
-  restored_at: string;
-}> {
-  const formData = new FormData();
-  formData.append('file', file);
-  const url = `${API_BASE.replace(/\/$/, '')}/admin/restore`;
-  const res = await fetch(url, {
-    method: 'POST',
-    credentials: 'include',
-    body: formData,
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(
-      (json as { message?: string; detail?: string }).message ??
-      (json as { detail?: string }).detail ??
-      `Request failed: ${res.status}`
-    );
-  }
-  return json as { status: string; filename: string; restored_at: string };
-}
-
-// -- Rate Limits (Issue #109 GAP-A03) --
-
-/** Fetch the current rate-limit tier settings. */
-export async function fetchRateLimits(): Promise<{
-  tier: string;
-  login_window_seconds: number;
-  login_threshold: number;
-  updated_at: string | null;
-}> {
-  return apiFetch('/admin/rate-limits');
-}
-
-/** Update the rate-limit tier settings. */
-export async function updateRateLimits(payload: {
-  tier: string;
-  limit: number;
-  window: number;
-}): Promise<{
-  tier: string;
-  login_window_seconds: number;
-  login_threshold: number;
-  updated_at: string;
-}> {
-  return apiFetch('/admin/rate-limits', {
-    method: 'PATCH',
-    body: JSON.stringify(payload),
-  });
-}
-
-// -- System Monitoring (Issue #109 GAP-A03) --
-
-/** Fetch status of all registered Celery workers. Returns [] on error. */
-export async function fetchWorkerStatus(): Promise<{
-  worker_id: string;
-  hostname: string;
-  last_seen: string | null;
-  active_tasks: number;
-  status: string;
-}[]> {
-  try {
-    const data = await apiFetch<Record<string, unknown>>(
-      '/admin/monitoring/workers'
-    );
-    return (Array.isArray(data) ? data : []) as {
-      worker_id: string;
-      hostname: string;
-      last_seen: string | null;
-      active_tasks: number;
-      status: string;
-    }[];
-  } catch {
-    return [];
-  }
-}
-
-/** Fetch current host-level system metrics (CPU, memory, disk). */
-export async function fetchSystemMetrics(): Promise<{
-  cpu_percent: number;
-  memory: { total_mb: number; used_mb: number; percent: number };
-  disk: { total_gb: number; used_gb: number; percent: number };
-}> {
-  return apiFetch('/admin/monitoring/system');
-}
-
-// -- Analytics Backfill (Issue #109 GAP-A03) --
-
-/** Trigger a full analytics data backfill from incident facts. */
-export async function backfillAnalytics(): Promise<{
-  status: string;
-  synced_count: number;
-}> {
-  return apiFetch('/admin/analytics/backfill', { method: 'POST' });
-}
-
-// -- Scheduled Reports (Issue #109 GAP-A03 / GAP-A10) --
-
-/** List all scheduled report configurations. Returns [] on error. */
-export async function fetchScheduledReports(): Promise<{
-  id: number;
-  name: string;
-  cron_expr: string;
-  format: string;
-  recipients: string[];
-  enabled: boolean;
-  created_at: string | null;
-}[]> {
-  try {
-    const data = await apiFetch<Record<string, unknown>>(
-      '/admin/scheduled-reports'
-    );
-    return (Array.isArray(data) ? data : []) as {
-      id: number;
-      name: string;
-      cron_expr: string;
-      format: string;
-      enabled: boolean;
-      created_at: string | null;
-    }[];
-  } catch {
-    return [];
-  }
-}
-
-/** Create a new scheduled report. */
-export async function createScheduledReport(payload: {
-  name: string;
-  cron_expr: string;
-  format: 'pdf' | 'excel' | 'csv';
-  recipients: string[];
-  enabled?: boolean;
-}): Promise<{
-  id: number;
-  name: string;
-  cron_expr: string;
-  format: string;
-  enabled: boolean;
-  created_at: string | null;
-}> {
-  return apiFetch('/admin/scheduled-reports', {
-    method: 'POST',
-    body: JSON.stringify({ ...payload, filters: {} }),
-  });
-}
-
-/** Update an existing scheduled report (e.g., enable/disable). */
-export async function updateScheduledReport(
-  reportId: number,
-  payload: { enabled: boolean }
-): Promise<{ status: string; id: number; name: string; enabled: boolean }> {
-  return apiFetch(`/admin/scheduled-reports/${reportId}`, {
-    method: 'PATCH',
-    body: JSON.stringify(payload),
-  });
-}
-
-// -- Individual Session Revocation (Issue #110 GAP-A13) --
-
-/** Revoke a single specific session for a user (Keycloak session-level revocation). */
-export async function revokeIndividualSession(
-  userId: string,
-  sessionId: string
-): Promise<{ status: string; session_id: string }> {
-  return apiFetch(`/admin/sessions/${userId}/${sessionId}`, {
-    method: 'DELETE',
-  });
 }
 
 /** Create incident (geospatial intake) - POST /api/incidents */
@@ -1595,6 +1376,7 @@ export interface AnalystIncidentListItem {
   notification_dt: string | null;
   province_name: string;
   municipality_name: string;
+  barangay_name: string;
   general_category: string;
   sub_category: string;
   alarm_level: string;
@@ -1701,6 +1483,7 @@ export type AnalystListSortField =
   | 'notification_dt'
   | 'region'
   | 'municipality_name'
+  | 'barangay_name'
   | 'general_category'
   | 'sub_category'
   | 'alarm_level'

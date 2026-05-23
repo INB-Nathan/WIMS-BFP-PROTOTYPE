@@ -494,11 +494,6 @@ describe('Analyst dashboard — AQ-13: Cross-region comparison view', () => {
       expect(mockFetchHeatmapData).toHaveBeenCalled();
     });
 
-    // fetchRegions resolves asynchronously; wait for options to render before selecting
-    await waitFor(() => {
-      expect(screen.getByRole('option', { name: /NCR/i })).toBeInTheDocument();
-    });
-
     await user.selectOptions(screen.getByLabelText(/^region$/i), '1');
     await user.click(screen.getByRole('button', { name: /^apply$/i }));
 

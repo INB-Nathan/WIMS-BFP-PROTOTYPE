@@ -194,7 +194,7 @@ def upload_incident_bundle(
                     recommendations, fire_station_name, stage_of_fire,
                     extent_total_floor_area_sqm, extent_total_land_area_hectares,
                     distance_from_station_km, station_code,
-                    city_municipality, province_district, barangay,
+                    city_municipality, province_district,
                     extent_description, extent_objects_count,
                     general_description_of_involved
                 ) VALUES (
@@ -208,7 +208,7 @@ def upload_incident_bundle(
                     :recommendations, :fire_station_name, :stage_of_fire,
                     :floor_area, :land_area,
                     :distance_from_station_km, :station_code,
-                    :city_municipality, :province_district, :barangay,
+                    :city_municipality, :province_district,
                     :extent_description, :extent_objects_count,
                     :general_description_of_involved
                 )
@@ -247,7 +247,6 @@ def upload_incident_bundle(
                 "station_code": station_code_val,
                 "city_municipality": ns.get("city_municipality") or "",
                 "province_district": ns.get("province_district") or "",
-                "barangay": ns.get("barangay") or "",
                 "extent_description": ns.get("extent_description") or None,
                 "extent_objects_count": _safe_int(ns.get("extent_objects_count")),
                 "general_description_of_involved": ns.get("general_description_of_involved")
@@ -591,13 +590,11 @@ def _append_analyst_casualty_filter(
     where_clauses: list[str],
     casualty_severity: str,
 ) -> None:
-    # Casualty fields live on incident_nonsensitive_details only; analytics_incident_facts
-    # does not have these columns (despite earlier code referencing aif.<col>).
     casualty_columns = {
-        "civilian_injured": "COALESCE(nd.civilian_injured, 0)",
-        "civilian_deaths": "COALESCE(nd.civilian_deaths, 0)",
-        "firefighter_injured": "COALESCE(nd.firefighter_injured, 0)",
-        "firefighter_deaths": "COALESCE(nd.firefighter_deaths, 0)",
+        "civilian_injured": "COALESCE(aif.civilian_injured, nd.civilian_injured, 0)",
+        "civilian_deaths": "COALESCE(aif.civilian_deaths, nd.civilian_deaths, 0)",
+        "firefighter_injured": "COALESCE(aif.firefighter_injured, nd.firefighter_injured, 0)",
+        "firefighter_deaths": "COALESCE(aif.firefighter_deaths, nd.firefighter_deaths, 0)",
     }
     deaths = f"({casualty_columns['civilian_deaths']} + {casualty_columns['firefighter_deaths']})"
     injuries = (
@@ -687,10 +684,10 @@ def get_analyst_incident_list(
         where_clauses.append("fi.region_id = :region_id")
         params["region_id"] = region_id
     if province:
-        where_clauses.append("rp.province_name = :province")
+        where_clauses.append("aif.province_name = :province")
         params["province"] = province
     if municipality:
-        where_clauses.append("rc.city_name = :municipality")
+        where_clauses.append("aif.municipality_name = :municipality")
         params["municipality"] = municipality
     if incident_type:
         where_clauses.append("nd.general_category = :incident_type")
@@ -714,10 +711,14 @@ def get_analyst_incident_list(
         _append_analyst_casualty_filter(where_clauses, casualty_severity)
 
     if damage_min is not None:
-        where_clauses.append("COALESCE(nd.estimated_damage_php, 0) >= :damage_min")
+        where_clauses.append(
+            "COALESCE(aif.estimated_damage_php, nd.estimated_damage_php, 0) >= :damage_min"
+        )
         params["damage_min"] = damage_min
     if damage_max is not None:
-        where_clauses.append("COALESCE(nd.estimated_damage_php, 0) <= :damage_max")
+        where_clauses.append(
+            "COALESCE(aif.estimated_damage_php, nd.estimated_damage_php, 0) <= :damage_max"
+        )
         params["damage_max"] = damage_max
 
     where_sql = " AND ".join(where_clauses)
@@ -732,22 +733,21 @@ def get_analyst_incident_list(
         SELECT
             fi.incident_id,
             nd.notification_dt,
-            COALESCE(rp.province_name, '')             AS province_name,
-            COALESCE(rc.city_name, '')                 AS municipality_name,
-            COALESCE(nd.general_category, '')          AS general_category,
+            COALESCE(aif.province_name, '')             AS province_name,
+            COALESCE(aif.municipality_name, '')         AS municipality_name,
+            COALESCE(nd.general_category, '')           AS general_category,
             COALESCE(nd.sub_category, '')              AS sub_category,
             COALESCE(nd.alarm_level, '')               AS alarm_level,
-            COALESCE(nd.estimated_damage_php, 0)       AS estimated_damage_php,
-            COALESCE(nd.total_response_time_minutes, 0) AS total_response_time_minutes,
+            COALESCE(aif.estimated_damage_php, nd.estimated_damage_php) AS estimated_damage_php,
+            COALESCE(aif.total_response_time_minutes, nd.total_response_time_minutes) AS total_response_time_minutes,
             COALESCE(r.region_code, r.region_name, '') AS region,
             fi.verification_status,
             fi.reference_number,
             fi.created_at
         FROM wims.fire_incidents fi
         LEFT JOIN wims.incident_nonsensitive_details nd  ON nd.incident_id = fi.incident_id
+        LEFT JOIN wims.analytics_incident_facts aif       ON aif.incident_id = fi.incident_id
         LEFT JOIN wims.ref_regions r                      ON r.region_id = fi.region_id
-        LEFT JOIN wims.ref_cities rc                      ON rc.city_id = nd.city_id
-        LEFT JOIN wims.ref_provinces rp                   ON rp.province_id = rc.province_id
         WHERE {where_sql}
         {order_sql}
         LIMIT :limit OFFSET :offset
@@ -762,8 +762,7 @@ def get_analyst_incident_list(
         SELECT COUNT(*)
         FROM wims.fire_incidents fi
         LEFT JOIN wims.incident_nonsensitive_details nd  ON nd.incident_id = fi.incident_id
-        LEFT JOIN wims.ref_cities rc                      ON rc.city_id = nd.city_id
-        LEFT JOIN wims.ref_provinces rp                   ON rp.province_id = rc.province_id
+        LEFT JOIN wims.analytics_incident_facts aif     ON aif.incident_id = fi.incident_id
         WHERE {where_sql}
     """
     total = (
@@ -832,16 +831,19 @@ def get_analyst_incident_detail(
                 fi.data_hash,
                 nd.notification_dt,
                 COALESCE(r.region_code, r.region_name, '')  AS region,
-                COALESCE(rp.province_name, '')               AS province_name,
-                COALESCE(rc.city_name, '')                   AS municipality_name,
+                COALESCE(aif.province_name, '')              AS province_name,
+                COALESCE(aif.municipality_name, '')          AS municipality_name,
+                -- barangay_name intentionally omitted: barangay_id is never written by the encoder
+                -- workflow; the JOIN would always return empty. Remove the JOIN if the schema
+                -- column is ever purged. See system-wiki/log.md for tracking.
                 COALESCE(nd.general_category, '')            AS general_category,
                 COALESCE(nd.sub_category, '')               AS sub_category,
                 COALESCE(nd.alarm_level, '')                 AS alarm_level,
-                COALESCE(nd.estimated_damage_php, 0)         AS estimated_damage_php,
-                COALESCE(nd.total_response_time_minutes, 0)  AS total_response_time_minutes,
+                COALESCE(aif.estimated_damage_php, nd.estimated_damage_php) AS estimated_damage_php,
+                COALESCE(aif.total_response_time_minutes, nd.total_response_time_minutes) AS total_response_time_minutes,
                 CASE
-                    WHEN (COALESCE(nd.civilian_deaths, 0) + COALESCE(nd.firefighter_deaths, 0)) > 0 THEN 'high'
-                    WHEN (COALESCE(nd.civilian_injured, 0) + COALESCE(nd.firefighter_injured, 0)) > 0 THEN 'medium'
+                    WHEN (COALESCE(aif.civilian_deaths, nd.civilian_deaths, 0) + COALESCE(aif.firefighter_deaths, nd.firefighter_deaths, 0)) > 0 THEN 'high'
+                    WHEN (COALESCE(aif.civilian_injured, nd.civilian_injured, 0) + COALESCE(aif.firefighter_injured, nd.firefighter_injured, 0)) > 0 THEN 'medium'
                     ELSE 'low'
                 END AS casualty_severity,
                 CASE WHEN aif.incident_id IS NULL THEN 'MISSING' ELSE 'SYNCED' END AS sync_status,
@@ -871,8 +873,6 @@ def get_analyst_incident_detail(
             LEFT JOIN wims.incident_nonsensitive_details nd  ON nd.incident_id = fi.incident_id
             LEFT JOIN wims.analytics_incident_facts aif       ON aif.incident_id = fi.incident_id
             LEFT JOIN wims.ref_regions r                      ON r.region_id = fi.region_id
-            LEFT JOIN wims.ref_cities rc                      ON rc.city_id = nd.city_id
-            LEFT JOIN wims.ref_provinces rp                   ON rp.province_id = rc.province_id
             LEFT JOIN wims.incident_wildland_afor w           ON w.incident_id = fi.incident_id
             WHERE fi.incident_id = :iid
         """),

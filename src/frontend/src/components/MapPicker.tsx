@@ -12,8 +12,6 @@ export interface MapPickerProps {
     value?: { lat: number; lng: number } | null;
     onChange?: (lat: number, lng: number) => void;
     mapHeight?: string;
-    /** Pre-fill the search box and auto-pin to this address (forward geocode). */
-    searchQuery?: string;
 }
 
 export function MapPicker(props: MapPickerProps) {

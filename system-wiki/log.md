@@ -556,6 +556,25 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Tests updated for timeline, correction, split, and merge behavior.
 - Verification: `cd src && docker compose build backend && docker compose run --rm backend pytest tests/integration/test_civilian_api.py tests/integration/test_triage_queue.py -q` → 61 passed; `cd src/frontend && npm run build` → passed; targeted ESLint on edited frontend files → passed.
 
+## [2026-05-23] merge | PR #122 + #123 to master — admin hub gaps + analytics phantom columns
+
+**Session context:** Merged two PRs to master, resolved 4 merge conflicts (auth-refresh.ts, auth.tsx, AuthContext.tsx, nginx.conf), fixed pre-existing test bug in `test_regional_afor_unified_import.py`.
+
+**Merge decisions:**
+- `auth-refresh.ts` — kept **master** (singleton ref + Web Locks API + doRefresh fallback pattern)
+- `auth.tsx` — kept **master** (`@/lib/auth-refresh` absolute import path)
+- `AuthContext.tsx` — kept **master** (refreshInFlightRef per-tab deduplication)
+- `nginx.conf` — kept **pr122-local** (full TLS + upstream{} block, master had placeholder)
+
+**Key changes landed:**
+- PR #122: `POST /admin/restore`, `GET/DELETE /admin/sessions/{user_id}[/{session_id}]`, `PATCH /admin/scheduled-reports/{id}`, Redis `decode_responses=True` fix, barangay support in MapPicker + AFOR parser
+- PR #123: trimmed 9 phantom columns from `analytics_incident_facts` sync/INSERT/UPDATE (columns existed in code but not in DB schema — caused `UndefinedColumn`, making facts table permanently empty)
+
+**Pre-existing test bug fixed:**
+- `test_commit_structural_persists_wgs84_coordinates` — seed data triggered 1000m duplicate detection, returning `DUPLICATE_CHECK_REQUIRED` instead of `incident_ids`. Fixed by re-committing with `resolutions: [{"row_index": 0, "action": "force"}]`
+
+**Tests:** 322 passed. 4 failures — all `test_keycloak_password_reset.py` requiring live Keycloak (environment limitation, not code).
+
 ## [2026-05-20] update | Civilian Reporting Phase 2 — final completion pass
 
 **Session context:** Handoff continuation. Completed remaining Phase 2 slices from `civilian-reporting-phase-2.md` and `frs-codebase-gap-register.md`.

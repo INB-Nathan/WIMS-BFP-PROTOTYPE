@@ -762,6 +762,7 @@ export default function AnalystIncidentDetailPage() {
           <FieldRow label="Region"    value={detail.region} twocol />
           <FieldRow label="Province" value={detail.province_name} twocol />
           <FieldRow label="Municipality" value={detail.municipality_name} twocol />
+          <FieldRow label="Barangay" value={detail.barangay_name} twocol />
           <FieldRow label="Responder Type" value={detail.responder_type} twocol />
           <FieldRow label="Fire Station Name" value={detail.fire_station_name} twocol />
           <FieldRow label="Distance from Station" value={detail.distance_from_station_km != null ? `${detail.distance_from_station_km} km` : "—"} twocol />

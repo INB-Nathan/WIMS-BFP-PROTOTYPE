@@ -366,38 +366,21 @@ function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown
   );
 }
 
-// ── Geocoding hook ─────────────────────────────────────────────────────────────
-// Tries the full D27 address first; falls back to city+province if no result.
-// Both queries are scoped to the Philippines via countrycodes=ph.
-function useGeocoding(address: string, city: string, province: string) {
+// ── FIX 9: Geocoding hook ─────────────────────────────────────────────────────
+function useGeocoding(address: string, city: string) {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [autoDetected, setAutoDetected] = useState(false);
 
   useEffect(() => {
-    if (!address && !city && !province) return;
+    if (!address && !city) return;
+    const query = [address, city, 'Philippines'].filter(Boolean).join(', ');
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
 
-    const isPlaceholder = !address || address.startsWith('(');
-    // Primary: full D27 address + province. Fallback: city + province.
-    const primaryQuery = isPlaceholder
-      ? [city, province, 'Philippines'].filter(Boolean).join(', ')
-      : [address, province, 'Philippines'].filter(Boolean).join(', ');
-    const fallbackQuery = [city, province, 'Philippines'].filter(Boolean).join(', ');
-
-    const nominatim = (q: string) =>
-      fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&countrycodes=ph`,
-        { headers: { Accept: 'application/json' } },
-      ).then((r) => r.json() as Promise<Array<{ lat: string; lon: string }>>);
-
-    nominatim(primaryQuery)
-      .then(async (results) => {
-        // If primary query returned nothing and we have a city fallback, try it.
-        if (results.length === 0 && fallbackQuery !== primaryQuery && fallbackQuery.trim()) {
-          return nominatim(fallbackQuery);
-        }
-        return results;
-      })
-      .then((results) => {
+    fetch(url, {
+      headers: { 'User-Agent': 'WIMS-BFP/1.0' },
+    })
+      .then((r) => r.json())
+      .then((results: Array<{ lat: string; lon: string }>) => {
         if (results.length > 0) {
           const lat = parseFloat(results[0].lat);
           const lng = parseFloat(results[0].lon);
@@ -410,7 +393,7 @@ function useGeocoding(address: string, city: string, province: string) {
       .catch(() => {
         // Geocoding failed silently — user can set manually
       });
-  }, [address, city, province]);
+  }, [address, city]);
 
   return { coords, autoDetected };
 }
@@ -471,13 +454,12 @@ export default function AforImportPage() {
     });
   }, [previewData, previewStatusFilter, previewSearch]);
 
-  // FIX 9: extract address + city + province from first valid row for geocoding
+  // FIX 9: extract address + city from first valid row for geocoding
   const firstRow = previewData?.rows.find((r) => r.status === 'VALID');
   const sensData = (firstRow?.data?.incident_sensitive_details ?? {}) as Record<string, unknown>;
-  const geocodeAddress = String(sensData.street_address ?? '');  // D27 complete address
+  const geocodeAddress = String(sensData.street_address ?? '');
   const geocodeCity = String(firstRow?.data?._city_text ?? '');
-  const geocodeProvince = String(firstRow?.data?._province_text ?? '');
-  const { coords: geoCoords, autoDetected } = useGeocoding(geocodeAddress, geocodeCity, geocodeProvince);
+  const { coords: geoCoords, autoDetected } = useGeocoding(geocodeAddress, geocodeCity);
 
   // Pre-fill coordinates once geocoding resolves
   useEffect(() => {
@@ -853,11 +835,6 @@ export default function AforImportPage() {
                 <MapPicker
                   value={isValidWgs84(commitLat, commitLng) ? { lat: commitLat, lng: commitLng } : null}
                   onChange={onMapPick}
-                  searchQuery={
-                    geocodeAddress && !geocodeAddress.startsWith('(')
-                      ? [geocodeAddress, geocodeProvince, 'Philippines'].filter(Boolean).join(', ')
-                      : [geocodeCity, geocodeProvince, 'Philippines'].filter(Boolean).join(', ')
-                  }
                 />
               </div>
             </div>

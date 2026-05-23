@@ -483,6 +483,20 @@ def test_commit_structural_persists_wgs84_coordinates(
         json={"form_kind": "STRUCTURAL_AFOR", "rows": rows, **_commit_coords_body()},
     )
     assert commit.status_code == 200, commit.text
+    # If the test DB has seed data that matches our minimal XLSX, the backend
+    # returns DUPLICATE_CHECK_REQUIRED. Re-commit with a "force" resolution so
+    # the test can verify WGS84 persistence regardless of pre-existing duplicates.
+    if commit.status_code == 200 and commit.json().get("status") == "DUPLICATE_CHECK_REQUIRED":
+        commit = client_regional_encoder.post(
+            "/api/regional/afor/commit",
+            json={
+                "form_kind": "STRUCTURAL_AFOR",
+                "rows": rows,
+                **_commit_coords_body(),
+                "resolutions": [{"row_index": 0, "action": "force"}],
+            },
+        )
+        assert commit.status_code == 200, commit.text
     iid = commit.json()["incident_ids"][0]
     lon, lat = _fetch_incident_wgs84(db_session, iid)
     assert abs(lon - SAMPLE_LON) < 1e-5
