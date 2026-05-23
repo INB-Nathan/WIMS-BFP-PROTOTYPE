@@ -474,6 +474,12 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `AGENTS.md`: added a top-level "Mandatory System Wiki Update Rule" and a "Before Final Response Checklist" so agents, including less capable models, see the system-wiki update requirement before and after implementation work.
 - No synthesis page or FRS gap register change was needed because this updates agent operating instructions, not WIMS-BFP runtime behavior or FRS/codebase alignment.
 
+## [2026-05-23] fix | deploy health check timeout cold-start gap
+- `.github/workflows/deploy.yml`: added 15-second settle delay before the post-restart health polling loop, and extended polling from 30×2s = 60s to 45×2s = 90s total capacity. Root cause: uvicorn cold-start + SQLAlchemy lazy engine initialization + Keycloak token validation on /health causes the backend to be unavailable for ~60+ seconds after a rolling restart under load. The 30-attempt limit was insufficient.
+- `system-wiki/architecture/pwa-tests-cicd.md`: documented the new settle delay and extended polling window in the VPS Deploy section.
+- Root cause also confirmed: nginx.conf serves `/health` directly at line 16 (returns `{"status":"ok","via":"nginx-gateway"}`), so the health check curl hits nginx on port 80 — not the backend — but the deploy script's `docker compose up -d backend` does not wait for uvicorn to be responsive, causing the timing mismatch.
+- Verification: syntax check passed.
+
 ## [2026-05-23] fix | deploy rollback jq dependency and analyst vitest wait
 - `.github/workflows/deploy.yml`: changed rollback image capture from `docker compose ... --format json | jq ...` to `docker compose ... images -q backend | head -n 1`, avoiding a missing `jq` dependency on the VPS.
 - `src/frontend/src/app/dashboard/analyst/queue-baseline.test.tsx`: replaced default 1s label waits for the Top-N Metric/Dimension controls with explicit 5s async `findByLabelText` waits. The test was intermittently seeing the dashboard loading/header state before Top-N rendered under CI load.

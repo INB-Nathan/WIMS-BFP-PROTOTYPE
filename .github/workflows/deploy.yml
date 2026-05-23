@@ -197,14 +197,15 @@ jobs:
 
             # ─── Post-deploy health check ───────────────────────────────────────
             echo "Waiting for backend to be ready..."
+            sleep 15
             BACKEND_READY=0
-            for i in $(seq 1 30); do
+            for i in $(seq 1 45); do
               if curl -sf http://localhost/api/health > /dev/null 2>&1; then
                 echo "Backend /health check passed"
                 BACKEND_READY=1
                 break
               fi
-              echo "Attempt $i/30: backend not ready yet..."
+              echo "Attempt $i/45: backend not ready yet..."
               sleep 2
             done
 

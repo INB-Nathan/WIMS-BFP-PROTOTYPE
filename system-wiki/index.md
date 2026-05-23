@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-23
 Total synthesis pages: 32
-Last changes: deploy rollback tagging no longer depends on jq, and analyst Top-N Vitest wait timing was hardened for CI.
+Last changes: deploy workflow health check extended to 90s total (15s settle + 45×2s polling) to cover uvicorn cold-start under load; nginx serves /health directly so uptime monitors reach gateway even if backend is still starting.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
