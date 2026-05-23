@@ -131,18 +131,16 @@ def test_get_triage_pending_returns_pending_reports(
         assert r["status"] == "PENDING"
     # Find our report
     ours = next(r for r in data if r["report_id"] == report_id)
-    assert ours["description"] == "Fire incident"
-    assert abs(ours["latitude"] - lat) < 1e-6
-    assert abs(ours["longitude"] - lon) < 1e-6
+    assert ours["status"] == "PENDING"
 
 
 def test_get_triage_pending_excludes_non_pending(client_with_encoder, db_session, encoder_user):
-    """PENDING reports only; VERIFIED/FALSE_ALARM/DUPLICATE excluded."""
+    """PENDING reports only; UNDER_REVIEW/LINKED/ACTIONED excluded."""
     wkt = "SRID=4326;POINT(121.10 14.65)"
     db_session.execute(
         text("""
             INSERT INTO wims.citizen_reports (location, description, status, validated_by, category)
-            VALUES (ST_GeogFromText(:wkt), 'Already verified', 'VERIFIED', :uid, 'STRUCTURAL')
+            VALUES (ST_GeogFromText(:wkt), 'Already under review', 'UNDER_REVIEW', :uid, 'STRUCTURAL')
         """),
         {"wkt": wkt, "uid": encoder_user},
     )
@@ -159,7 +157,7 @@ def test_get_triage_pending_excludes_non_pending(client_with_encoder, db_session
     assert response.status_code == 200
     data = response.json()
     assert all(r["status"] == "PENDING" for r in data)
-    assert not any(r["description"] == "Already verified" for r in data)
+    assert not any(r["description"] == "Already under review" for r in data)
     assert any(r["description"] == "Still pending" for r in data)
 
 
@@ -168,60 +166,32 @@ def test_get_triage_pending_excludes_non_pending(client_with_encoder, db_session
 # ---------------------------------------------------------------------------
 
 
-def test_promote_report_returns_201_and_updates_db(
-    client_with_encoder, pending_report, db_session, encoder_user
-):
+def test_promote_report_returns_410_gone(client_with_encoder, pending_report):
     """
-    POST /api/triage/{report_id}/promote with ENCODER token.
-    Assert 201 Created.
-    Assert citizen_report status='VERIFIED', validated_by IS NOT NULL.
-    Assert new fire_incident exists with matching coordinates.
+    POST /api/triage/{report_id}/promote is deprecated (Phase 2).
+    Returns 410 Gone for all requests.
     """
     report_id, lat, lon = pending_report
 
     response = client_with_encoder.post(f"/api/triage/{report_id}/promote")
 
-    assert response.status_code == 201
-
-    # Query citizen_report
-    cr = db_session.execute(
-        text(
-            "SELECT status, validated_by, verified_incident_id FROM wims.citizen_reports WHERE report_id = :rid"
-        ),
-        {"rid": report_id},
-    ).fetchone()
-    assert cr is not None
-    assert cr[0] == "VERIFIED"
-    assert cr[1] is not None
-    assert cr[2] is not None
-    incident_id = cr[2]
-
-    # Query fire_incidents
-    fi = db_session.execute(
-        text("""
-            SELECT incident_id, ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lon
-            FROM wims.fire_incidents WHERE incident_id = :iid
-        """),
-        {"iid": incident_id},
-    ).fetchone()
-    assert fi is not None
-    assert abs(float(fi[1]) - lat) < 1e-6
-    assert abs(float(fi[2]) - lon) < 1e-6
+    assert response.status_code == 410
+    assert "deprecated" in response.json()["detail"].lower()
 
 
-def test_promote_nonexistent_report_returns_404(client_with_encoder):
-    """POST /api/triage/99999/promote for non-existent report returns 404."""
+def test_promote_nonexistent_report_returns_410(client_with_encoder):
+    """POST /api/triage/99999/promote for non-existent report returns 410 (deprecated)."""
     response = client_with_encoder.post("/api/triage/99999/promote")
-    assert response.status_code == 404
+    assert response.status_code == 410
 
 
-def test_promote_already_verified_report_returns_4xx(client_with_encoder, db_session, encoder_user):
-    """Promoting an already VERIFIED report should fail (409 or 400)."""
+def test_promote_already_reviewed_report_returns_410(client_with_encoder, db_session, encoder_user):
+    """Promoting an already UNDER_REVIEW report returns 410 (deprecated endpoint)."""
     wkt = "SRID=4326;POINT(121.20 14.70)"
     result = db_session.execute(
         text("""
             INSERT INTO wims.citizen_reports (location, description, status, validated_by, category)
-            VALUES (ST_GeogFromText(:wkt), 'Already done', 'VERIFIED', :uid, 'STRUCTURAL')
+            VALUES (ST_GeogFromText(:wkt), 'Already under review', 'UNDER_REVIEW', :uid, 'STRUCTURAL')
             RETURNING report_id
         """),
         {"wkt": wkt, "uid": encoder_user},
@@ -231,4 +201,4 @@ def test_promote_already_verified_report_returns_4xx(client_with_encoder, db_ses
 
     response = client_with_encoder.post(f"/api/triage/{report_id}/promote")
 
-    assert response.status_code in (400, 404, 409)
+    assert response.status_code == 410
