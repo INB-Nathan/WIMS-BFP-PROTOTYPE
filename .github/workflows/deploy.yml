@@ -200,7 +200,7 @@ jobs:
             sleep 15
             BACKEND_READY=0
             for i in $(seq 1 45); do
-              if curl -sf http://localhost/api/health > /dev/null 2>&1; then
+              if docker exec wims-backend python -c "import httpx; httpx.get('http://localhost:8000/health', timeout=5).raise_for_status()" > /dev/null 2>&1; then
                 echo "Backend /health check passed"
                 BACKEND_READY=1
                 break

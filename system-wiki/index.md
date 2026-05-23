@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-23
 Total synthesis pages: 32
-Last changes: deploy workflow health check extended to 90s total (15s settle + 45×2s polling) to cover uvicorn cold-start under load; nginx serves /health directly so uptime monitors reach gateway even if backend is still starting.
+Last changes: deploy health check now runs inside wims-backend container using httpx against localhost:8000/health — fixes 404 from nginx proxy passing /api/health upstream when backend route is /health.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

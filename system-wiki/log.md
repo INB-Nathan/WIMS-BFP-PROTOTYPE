@@ -474,7 +474,12 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `AGENTS.md`: added a top-level "Mandatory System Wiki Update Rule" and a "Before Final Response Checklist" so agents, including less capable models, see the system-wiki update requirement before and after implementation work.
 - No synthesis page or FRS gap register change was needed because this updates agent operating instructions, not WIMS-BFP runtime behavior or FRS/codebase alignment.
 
-## [2026-05-23] fix | deploy health check timeout cold-start gap
+## [2026-05-23] fix | deploy health check routing mismatch — /health vs /api/health
+- `.github/workflows/deploy.yml`: health check was curling `http://localhost/api/health` which nginx proxies to `backend:8000/api/health` — but the backend route is `/health` (no `api` prefix), so every attempt returned 404. Fixed by running `docker exec wims-backend python -c "import httpx; httpx.get('http://localhost:8000/health', timeout=5).raise_for_status()"` instead of the host-level curl. This checks the backend directly from within its own container network namespace, bypassing nginx, and uses Python/httpx which is already installed.
+- Root cause: the FastAPI route is `GET /health` at line 255 of `main.py`, but the nginx `location /api/` proxy passes the full `/api/health` path upstream, so uvicorn never matches it.
+- `system-wiki/architecture/pwa-tests-cicd.md`: updated VPS Deploy health check description.
+- `system-wiki/log.md` and `system-wiki/index.md`: last-changes updated.
+- Verification: `docker exec wims-backend python -c "import httpx; print(httpx.get('http://localhost:8000/health').text)"` → `{"status":"ok"}` confirmed.
 - `.github/workflows/deploy.yml`: added 15-second settle delay before the post-restart health polling loop, and extended polling from 30×2s = 60s to 45×2s = 90s total capacity. Root cause: uvicorn cold-start + SQLAlchemy lazy engine initialization + Keycloak token validation on /health causes the backend to be unavailable for ~60+ seconds after a rolling restart under load. The 30-attempt limit was insufficient.
 - `system-wiki/architecture/pwa-tests-cicd.md`: documented the new settle delay and extended polling window in the VPS Deploy section.
 - Root cause also confirmed: nginx.conf serves `/health` directly at line 16 (returns `{"status":"ok","via":"nginx-gateway"}`), so the health check curl hits nginx on port 80 — not the backend — but the deploy script's `docker compose up -d backend` does not wait for uvicorn to be responsive, causing the timing mismatch.
