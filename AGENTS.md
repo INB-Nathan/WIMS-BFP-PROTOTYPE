@@ -4,6 +4,17 @@
 
 This repository is a Dockerized WIMS-BFP full-stack prototype. Primary implementation lives in `src/`: `src/backend/` contains the FastAPI API, Celery tasks, models, schemas, and pytest tests; `src/frontend/` contains the Next.js App Router application, React components, client libraries, public assets, and Vitest tests. Database bootstrap SQL is in `src/postgres-init/`. Keycloak files are in `src/keycloak/`, Nginx config is in `src/nginx/`, and Suricata rules/log mounts are in `src/suricata/`. Project notes live in `docs/`; seed and utility scripts live in `scripts/`.
 
+## Mandatory System Wiki Update Rule
+
+For any non-trivial code, workflow, schema, infrastructure, test behavior, or documentation-source change, agents MUST update the project-local system wiki before finishing:
+
+1. Update the relevant `system-wiki/` synthesis page.
+2. Append an entry to `system-wiki/log.md`.
+3. Update `system-wiki/gaps/frs-codebase-gap-register.md` only when the change creates, closes, or modifies an FRS/codebase gap.
+4. Do not edit `system-wiki/raw/` unless replacing it with a newer authoritative source batch.
+
+Before the final response, explicitly confirm whether the wiki was updated, or briefly state why no wiki update was needed.
+
 ## System Wiki & Agent Context Routing
 
 A project-local system knowledgebase lives in `system-wiki/`. This is the authoritative agent-routing wiki for the current implementation state of this repository, separate from any thesis-level wiki or external research vault.
@@ -56,3 +67,12 @@ Backend pytest discovery is configured in `src/backend/pytest.ini` with `testpat
 Recent history uses Conventional Commit-style subjects, often with issue references, such as `feat(#46): ...`, `fix(auth): ...`, and `style: ...`. Keep subjects imperative and scoped when useful.
 
 Pull requests should include a short problem/solution summary, linked issues, test results, and screenshots for visible UI changes. Call out schema, auth, environment, or data-volume impacts explicitly. Never commit real secrets; Docker Compose values are development defaults only.
+
+## Before Final Response Checklist
+
+- Relevant tests/checks were run, or skipped with a clear reason.
+- `git status` was reviewed when files were edited.
+- If non-trivial behavior changed, the relevant `system-wiki/` synthesis page was updated.
+- If non-trivial behavior changed, `system-wiki/log.md` was updated.
+- If FRS alignment changed, `system-wiki/gaps/frs-codebase-gap-register.md` was updated.
+- The final response states whether wiki updates were made or were not needed.

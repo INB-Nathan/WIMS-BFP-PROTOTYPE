@@ -521,10 +521,8 @@ describe('Analyst dashboard — AQ-14: Top-N configurable analysis', () => {
     const { default: AnalystDashboardPage } = await import('@/app/dashboard/analyst/page');
     render(<AnalystDashboardPage />);
 
-    await waitFor(() => {
-      expect(screen.getByLabelText(/metric/i)).toBeInTheDocument();
-      expect(screen.getByLabelText(/dimension|group by/i)).toBeInTheDocument();
-    });
+    expect(await screen.findByLabelText(/metric/i, undefined, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByLabelText(/dimension|group by/i, undefined, { timeout: 5000 })).toBeInTheDocument();
   });
 
   it('renders top-N chart with fetched data', async () => {
@@ -548,7 +546,7 @@ describe('Analyst dashboard — AQ-14: Top-N configurable analysis', () => {
     });
 
     mockFetchTopN.mockClear();
-    await user.selectOptions(screen.getByLabelText(/metric/i), 'casualties');
+    await user.selectOptions(await screen.findByLabelText(/metric/i, undefined, { timeout: 5000 }), 'casualties');
     await user.click(screen.getByRole('button', { name: /^apply$/i }));
 
     await waitFor(() => {

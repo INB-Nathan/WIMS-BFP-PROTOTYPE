@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-23
 Total synthesis pages: 32
-Last changes: deploy workflow backend test gate now provisions GitHub Actions PostGIS/Redis services and initializes the test DB before pytest.
+Last changes: deploy rollback tagging no longer depends on jq, and analyst Top-N Vitest wait timing was hardened for CI.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

@@ -470,6 +470,22 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Merge order: #102 → #104 → #103 → #105
 - Index updated: total pages 13 → 18
 
+## [2026-05-23] docs | prominent mandatory wiki update rule in AGENTS
+- `AGENTS.md`: added a top-level "Mandatory System Wiki Update Rule" and a "Before Final Response Checklist" so agents, including less capable models, see the system-wiki update requirement before and after implementation work.
+- No synthesis page or FRS gap register change was needed because this updates agent operating instructions, not WIMS-BFP runtime behavior or FRS/codebase alignment.
+
+## [2026-05-23] fix | deploy rollback jq dependency and analyst vitest wait
+- `.github/workflows/deploy.yml`: changed rollback image capture from `docker compose ... --format json | jq ...` to `docker compose ... images -q backend | head -n 1`, avoiding a missing `jq` dependency on the VPS.
+- `src/frontend/src/app/dashboard/analyst/queue-baseline.test.tsx`: replaced default 1s label waits for the Top-N Metric/Dimension controls with explicit 5s async `findByLabelText` waits. The test was intermittently seeing the dashboard loading/header state before Top-N rendered under CI load.
+- `system-wiki/architecture/pwa-tests-cicd.md` and `system-wiki/index.md`: updated deployment/test notes.
+- Verification: `.github/workflows/deploy.yml` parsed successfully with Ruby YAML; `git diff --check` passed; `cd src/frontend && npx vitest run` → 20 files / 130 tests passed.
+
+## [2026-05-23] fix | deploy workflow SSH step divergence and DB probe
+- `.github/workflows/deploy.yml`: changed the VPS SSH deploy script to `set -euo pipefail`, replace ambiguous `git pull origin master` with `git fetch origin master` + `git checkout -B master origin/master`, and rewrite the backend DB connectivity check as a one-line `python -c` command using `database.get_engine()`.
+- Root cause: the VPS checkout saw a force-updated/divergent `origin/master`, so `git pull` required an explicit reconciliation strategy; the script then continued into a multiline indented `python -c` block that raised `IndentationError`.
+- `system-wiki/architecture/pwa-tests-cicd.md` and `system-wiki/index.md`: updated deploy workflow documentation.
+- Verification: `.github/workflows/deploy.yml` parsed successfully with Ruby YAML.
+
 ## [2026-05-23] fix | deploy workflow backend test database setup
 - `.github/workflows/deploy.yml`: added PostGIS and Redis GitHub Actions service containers to the pre-deploy `ci` job, set localhost test `DATABASE_URL`/`REDIS_URL`, initialized `wims_test` from `src/postgres-init/*.sql`, and aligned backend pytest exclusions with `.github/workflows/ci.yml`.
 - Root cause: deploy CI ran pytest directly on the GitHub runner while backend defaults pointed at Docker Compose DNS host `postgres`, which only resolves inside the Compose network.
