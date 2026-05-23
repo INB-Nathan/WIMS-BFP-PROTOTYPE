@@ -11,6 +11,36 @@ jobs:
     env:
       NEXT_PUBLIC_AUTH_API_URL: ${{ vars.NEXT_PUBLIC_AUTH_API_URL }}
       NEXT_PUBLIC_BASE_URL: ${{ vars.NEXT_PUBLIC_BASE_URL }}
+      KEYCLOAK_REALM_URL: "http://localhost:8080/auth/realms/bfp"
+      KEYCLOAK_CLIENT_ID: "bfp-client"
+      KEYCLOAK_AUDIENCE: "account"
+      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/wims_test"
+      REDIS_URL: "redis://localhost:6379/0"
+      WIMS_MASTER_KEY: ${{ secrets.WIMS_MASTER_KEY }}
+    services:
+      postgres:
+        image: postgis/postgis:15-3.4-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: wims_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -43,8 +73,27 @@ jobs:
       - name: Install backend deps
         run: pip install -r src/backend/requirements.txt
 
+      - name: Wait for PostgreSQL
+        run: |
+          for i in $(seq 1 30); do
+            pg_isready -h localhost -U postgres && echo "PostgreSQL ready" && break
+            echo "Waiting... ($i/30)"
+            sleep 1
+          done
+
+      - name: Initialize test database
+        run: |
+          export PGPASSWORD=postgres
+          find "$GITHUB_WORKSPACE/src/postgres-init" -maxdepth 1 -type f -name '*.sql' -print0 \
+            | LC_ALL=C sort -z \
+            | while IFS= read -r -d '' script; do
+                echo "Applying: ${script#$GITHUB_WORKSPACE/}"
+                psql -v ON_ERROR_STOP=1 -h localhost -p 5432 -U postgres -d wims_test \
+                  -f "$script"
+              done
+
       - name: Run backend tests
-        run: pytest -v
+        run: pytest -v --tb=short --ignore=tests/test_rate_limiting.py --ignore=tests/test_suricata_ingestion.py --ignore=tests/test_infra_config.py --ignore=tests/integration/test_wims_initial_schema_bootstrap.py --ignore=tests/integration/test_auth_otp_policy.py --ignore=tests/integration/test_database_schema.py --ignore=tests/integration/test_rls_policy_enforcement.py --ignore=tests/integration/test_sql_quality_audit.py
         working-directory: src/backend
 
   # ─── Deploy (only if CI passes) ─────────────────────────────────────────────

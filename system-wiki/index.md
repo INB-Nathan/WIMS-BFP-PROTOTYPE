@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-23
 Total synthesis pages: 32
-Last changes: civilian reporting Phase 2 update flow (device history endpoint + update report UI).
+Last changes: deploy workflow backend test gate now provisions GitHub Actions PostGIS/Redis services and initializes the test DB before pytest.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

@@ -1,7 +1,7 @@
 ---
 title: PWA/Offline-First, Tests & CI/CD
 created: 2026-05-16
-updated: 2026-05-16
+updated: 2026-05-23
 type: architecture
 tags: [wims-bfp, pwa, offline-first, testing, ci-cd, service-worker]
 sources: [src/frontend/src/lib/, src/frontend/public/sw.js, .github/workflows/]
@@ -177,3 +177,11 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 |---|---|
 | `build-images` | Matrix over backend → `wims-backend`, frontend → `wims-frontend`. Docker Buildx with GHCR cache (`type=gha`), pushes to `ghcr.io/{owner}/wims-{backend|frontend}` with `{sha}` + `latest` tags |
 | `notify` | Writes job summary table to `$GITHUB_STEP_SUMMARY` with built images, commit SHA, branch, trigger |
+
+### VPS Deploy — `.github/workflows/deploy.yml`
+
+**Trigger:** Push to `master` only
+
+The deploy workflow has a `ci` gate before SSH deployment. The backend test step runs on the GitHub runner, so it must use GitHub Actions service containers rather than Docker Compose service DNS names. The gate now provisions PostGIS (`localhost:5432`) and Redis (`localhost:6379`), initializes `wims_test` by applying `src/postgres-init/*.sql` in lexical order, and runs the same backend pytest exclusion set used by `.github/workflows/ci.yml`.
+
+The SSH deployment step exports production secrets such as `DATABASE_URL`, `REDIS_URL`, Keycloak settings, and `WIMS_MASTER_KEY`, then performs a pre-deploy database connectivity check from the backend container before rebuilding and restarting the backend service.

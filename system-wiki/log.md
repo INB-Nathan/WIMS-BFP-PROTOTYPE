@@ -470,6 +470,12 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Merge order: #102 → #104 → #103 → #105
 - Index updated: total pages 13 → 18
 
+## [2026-05-23] fix | deploy workflow backend test database setup
+- `.github/workflows/deploy.yml`: added PostGIS and Redis GitHub Actions service containers to the pre-deploy `ci` job, set localhost test `DATABASE_URL`/`REDIS_URL`, initialized `wims_test` from `src/postgres-init/*.sql`, and aligned backend pytest exclusions with `.github/workflows/ci.yml`.
+- Root cause: deploy CI ran pytest directly on the GitHub runner while backend defaults pointed at Docker Compose DNS host `postgres`, which only resolves inside the Compose network.
+- `system-wiki/architecture/pwa-tests-cicd.md` and `system-wiki/index.md`: updated CI/CD routing documentation for the VPS deploy workflow.
+- Verification: `.github/workflows/deploy.yml` parsed successfully with Ruby YAML.
+
 ## [2026-05-19] update | analyst incident detail page full redesign (working tree)
 - `src/frontend/src/app/dashboard/analyst/incidents/[id]/page.tsx` — complete UI overhaul (+597/-617 lines, 935 total):
   - **Page header**: ref-number title, status/type/alarm icon badges, location line, styled export buttons
