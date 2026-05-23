@@ -68,7 +68,8 @@ services:
       KC_PROXY: edge
       KC_PROXY_HEADERS: xforwarded
       KC_HOSTNAME_STRICT: "false"
-      KC_HOSTNAME: localhost
+      KC_HOSTNAME_STRICT_BACKCHANNEL: "false"
+      KC_HOSTNAME_URL: https://165-22-101-73.nip.io
       KC_HTTP_ENABLED: "true"
       KC_LOG_LEVEL: INFO
       QUARKUS_TRANSACTION_MANAGER_ENABLE_RECOVERY: "true"
@@ -222,6 +223,7 @@ services:
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /opt/wims-bfp/letsencrypt:/etc/letsencrypt:ro
     networks:
       - wims_internal
     depends_on:
