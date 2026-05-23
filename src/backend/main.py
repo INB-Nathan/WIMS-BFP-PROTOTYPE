@@ -252,6 +252,12 @@ async def prometheus_metrics_middleware(request: Request, call_next):
     return response
 
 
+@app.get("/health", include_in_schema=False)
+def health():
+    """Liveness probe for container orchestration and uptime monitoring."""
+    return {"status": "ok"}
+
+
 @app.get("/metrics", include_in_schema=False)
 async def metrics_endpoint():
     """Prometheus metrics scrape endpoint. Updates system resource gauges before returning."""

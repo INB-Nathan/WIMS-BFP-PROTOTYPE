@@ -5,18 +5,134 @@ on:
     branches: [master]
 
 jobs:
-  deploy:
+  # ─── CI Gate ────────────────────────────────────────────────────────────────
+  ci:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy via SSH
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Install frontend deps
+        run: npm ci
+        working-directory: src/frontend
+
+      - name: Run frontend build
+        run: npm run build
+        working-directory: src/frontend
+
+      - name: Run frontend lint
+        run: npm run lint
+        working-directory: src/frontend
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: src/backend/requirements.txt
+
+      - name: Install backend deps
+        run: pip install -r src/backend/requirements.txt
+
+      - name: Run backend tests
+        run: pytest -v
+        working-directory: src/backend
+
+  # ─── Deploy (only if CI passes) ─────────────────────────────────────────────
+  deploy:
+    needs: [ci]
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      REDIS_URL: ${{ secrets.REDIS_URL }}
+      KEYCLOAK_REALM_URL: ${{ secrets.KEYCLOAK_REALM_URL }}
+      KEYCLOAK_CLIENT_ID: ${{ secrets.KEYCLOAK_CLIENT_ID }}
+      KEYCLOAK_AUDIENCE: ${{ secrets.KEYCLOAK_AUDIENCE }}
+      WIMS_MASTER_KEY: ${{ secrets.WIMS_MASTER_KEY }}
+      FIREBASE_CREDENTIALS_PATH: ${{ secrets.FIREBASE_CREDENTIALS_PATH }}
+      KEYCLOAK_ADMIN_PASSWORD: ${{ secrets.KEYCLOAK_ADMIN_PASSWORD }}
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${{ secrets.KEYCLOAK_ADMIN_CLIENT_SECRET }}
+      DEPLOY_COMMIT: ${{ github.sha }}
+    steps:
+      - name: Tag previous image for rollback
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: root
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            PREV_IMAGE=$(docker compose -f /opt/wims-bfp/src/docker-compose.yml images backend --format json | jq -r '.[0].id // empty')
+            if [ -n "$PREV_IMAGE" ]; then
+              echo "Tagging previous backend image for rollback: $PREV_IMAGE"
+              docker tag "$PREV_IMAGE" wims-backend-rollback:latest
+            else
+              echo "No existing backend image found — skipping rollback tag"
+            fi
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: DATABASE_URL,REDIS_URL,KEYCLOAK_REALM_URL,KEYCLOAK_CLIENT_ID,KEYCLOAK_AUDIENCE,WIMS_MASTER_KEY,FIREBASE_CREDENTIALS_PATH,KEYCLOAK_ADMIN_PASSWORD,KEYCLOAK_ADMIN_CLIENT_SECRET
+          timeout: 15m
+          script: |
+            export DATABASE_URL="$DATABASE_URL"
+            export REDIS_URL="$REDIS_URL"
+            export KEYCLOAK_REALM_URL="$KEYCLOAK_REALM_URL"
+            export KEYCLOAK_CLIENT_ID="$KEYCLOAK_CLIENT_ID"
+            export KEYCLOAK_AUDIENCE="$KEYCLOAK_AUDIENCE"
+            export WIMS_MASTER_KEY="$WIMS_MASTER_KEY"
+            export FIREBASE_CREDENTIALS_PATH="$FIREBASE_CREDENTIALS_PATH"
+            export KEYCLOAK_ADMIN_PASSWORD="$KEYCLOAK_ADMIN_PASSWORD"
+            export KEYCLOAK_ADMIN_CLIENT_SECRET="$KEYCLOAK_ADMIN_CLIENT_SECRET"
+
             cd /opt/wims-bfp
-            git pull origin main
+            git pull origin master
             cd src
-            docker compose build
-            docker compose up -d
+
+            # Pre-deploy DB connectivity check
+            echo "Checking database connectivity..."
+            docker compose run --rm -T backend python -c "
+              from database import engine
+              from sqlalchemy import text
+              with engine.begin() as conn:
+                conn.execute(text('SELECT 1'))
+              print('DB connection OK')
+            " || { echo 'DB connectivity check failed — aborting deploy'; exit 1; }
+
+            # Build and restart
+            echo "Building and restarting containers..."
+            docker compose build backend
+            docker compose up -d backend
+
+            # ─── Post-deploy health check ───────────────────────────────────────
+            echo "Waiting for backend to be ready..."
+            BACKEND_READY=0
+            for i in $(seq 1 30); do
+              if curl -sf http://localhost/api/health > /dev/null 2>&1; then
+                echo "Backend /health check passed"
+                BACKEND_READY=1
+                break
+              fi
+              echo "Attempt $i/30: backend not ready yet..."
+              sleep 2
+            done
+
+            if [ "$BACKEND_READY" = "0" ]; then
+              echo "Backend health check failed — initiating rollback"
+              docker tag wims-backend-rollback:latest wims-backend:latest 2>/dev/null || true
+              docker compose up -d backend
+              echo "Rollback complete"
+              exit 1
+            fi
+
+            echo "Deploy successful — commit $DEPLOY_COMMIT"
+            echo "DEPLOY_COMMIT=$DEPLOY_COMMIT $(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> /opt/wims-bfp/.deploy_history
