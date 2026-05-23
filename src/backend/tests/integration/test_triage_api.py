@@ -88,8 +88,8 @@ def pending_report(db_session: Session):
     wkt = "SRID=4326;POINT(121.05 14.60)"
     result = db_session.execute(
         text("""
-            INSERT INTO wims.citizen_reports (location, description, status)
-            VALUES (ST_GeogFromText(:wkt), 'Fire incident', 'PENDING')
+            INSERT INTO wims.citizen_reports (location, description, status, category)
+            VALUES (ST_GeogFromText(:wkt), 'Fire incident', 'PENDING', 'STRUCTURAL')
             RETURNING report_id
         """),
         {"wkt": wkt},
@@ -141,15 +141,15 @@ def test_get_triage_pending_excludes_non_pending(client_with_encoder, db_session
     wkt = "SRID=4326;POINT(121.10 14.65)"
     db_session.execute(
         text("""
-            INSERT INTO wims.citizen_reports (location, description, status, validated_by)
-            VALUES (ST_GeogFromText(:wkt), 'Already verified', 'VERIFIED', :uid)
+            INSERT INTO wims.citizen_reports (location, description, status, validated_by, category)
+            VALUES (ST_GeogFromText(:wkt), 'Already verified', 'VERIFIED', :uid, 'STRUCTURAL')
         """),
         {"wkt": wkt, "uid": encoder_user},
     )
     db_session.execute(
         text("""
-            INSERT INTO wims.citizen_reports (location, description, status)
-            VALUES (ST_GeogFromText('SRID=4326;POINT(121.11 14.66)'), 'Still pending', 'PENDING')
+            INSERT INTO wims.citizen_reports (location, description, status, category)
+            VALUES (ST_GeogFromText('SRID=4326;POINT(121.11 14.66)'), 'Still pending', 'PENDING', 'STRUCTURAL')
         """),
     )
     db_session.commit()
@@ -220,8 +220,8 @@ def test_promote_already_verified_report_returns_4xx(client_with_encoder, db_ses
     wkt = "SRID=4326;POINT(121.20 14.70)"
     result = db_session.execute(
         text("""
-            INSERT INTO wims.citizen_reports (location, description, status, validated_by)
-            VALUES (ST_GeogFromText(:wkt), 'Already done', 'VERIFIED', :uid)
+            INSERT INTO wims.citizen_reports (location, description, status, validated_by, category)
+            VALUES (ST_GeogFromText(:wkt), 'Already done', 'VERIFIED', :uid, 'STRUCTURAL')
             RETURNING report_id
         """),
         {"wkt": wkt, "uid": encoder_user},
