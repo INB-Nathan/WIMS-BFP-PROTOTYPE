@@ -667,10 +667,13 @@
         "http://localhost/callback",
         "http://localhost:3000/*",
         "http://localhost/*",
+        "https://165-22-101-73.nip.io/callback",
+        "https://165-22-101-73.nip.io/*",
         "https://wims.bfp.gov.ph/*"
       ],
       "webOrigins": [
         "+",
+        "https://165-22-101-73.nip.io",
         "https://wims.bfp.gov.ph",
         "http://localhost",
         "http://localhost:3000"
@@ -857,10 +860,13 @@
         "http://localhost/callback",
         "http://localhost:3000/*",
         "http://localhost/*",
+        "https://165-22-101-73.nip.io/callback",
+        "https://165-22-101-73.nip.io/*",
         "https://wims.bfp.gov.ph/*"
       ],
       "webOrigins": [
         "+",
+        "https://165-22-101-73.nip.io",
         "https://wims.bfp.gov.ph",
         "http://localhost",
         "http://localhost:3000"

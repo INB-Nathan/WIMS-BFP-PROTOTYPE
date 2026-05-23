@@ -1,0 +1,25 @@
+services:
+  keycloak:
+    environment:
+      KC_HOSTNAME_URL: ${PUBLIC_BASE_URL}/auth
+
+  backend:
+    environment:
+      - KEYCLOAK_ISSUER=${PUBLIC_BASE_URL}/auth/realms/bfp
+
+  frontend:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: /api
+        NEXT_PUBLIC_AUTH_API_URL: /auth
+        NEXT_PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+        NEXT_PUBLIC_OIDC_REDIRECT_URI: ${PUBLIC_BASE_URL}/callback
+        NEXT_PUBLIC_OIDC_AUTHORITY: ${PUBLIC_BASE_URL}/auth/realms/bfp
+    environment:
+      - NEXT_PUBLIC_API_URL=/api
+      - NEXT_PUBLIC_AUTH_API_URL=/auth
+      - NEXT_PUBLIC_BASE_URL=${PUBLIC_BASE_URL}
+      - NEXT_PUBLIC_OIDC_REDIRECT_URI=${PUBLIC_BASE_URL}/callback
+      - NEXT_PUBLIC_OIDC_AUTHORITY=${PUBLIC_BASE_URL}/auth/realms/bfp
+      - NEXT_PUBLIC_APP_URL=${PUBLIC_BASE_URL}
+      - BACKEND_URL=http://backend:8000

@@ -1,10 +1,10 @@
 ---
 title: Infrastructure Configuration
 created: 2026-05-16
-updated: 2026-05-16
+updated: 2026-05-23
 type: architecture
 tags: [wims-bfp, docker, nginx, suricata, keycloak, infrastructure]
-sources: [src/docker-compose.yml, src/nginx/, src/suricata/, src/keycloak/bfp-realm.json]
+sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/nginx/, src/suricata/, src/keycloak/bfp-realm.json]
 status: draft
 ---
 
@@ -40,7 +40,7 @@ status: draft
 | `DATABASE_URL` | `postgresql://postgres:password@postgres:5432/wims` |
 | `REDIS_URL` | `redis://redis:6379/0` |
 | `KEYCLOAK_REALM_URL` | `http://keycloak:8080/auth/realms/bfp` |
-| `KEYCLOAK_ISSUER` | `http://localhost/auth/realms/bfp` |
+| `KEYCLOAK_ISSUER` | `https://165-22-101-73.nip.io/auth/realms/bfp` |
 | `KEYCLOAK_CLIENT_ID` | `wims-web` |
 | `KEYCLOAK_ADMIN_USER` | `admin` |
 | `KEYCLOAK_ADMIN_PASSWORD` | `admin` |
@@ -55,6 +55,18 @@ status: draft
 
 **File:** `src/nginx/nginx.conf`
 
+**Compose split:** `src/docker-compose.yml` is the dev-neutral base compose file. Production/VPS deployment uses the committed `src/docker-compose.prod.yml` override plus an uncommitted `src/.env.production` file. The tracked `src/.env.production.example` documents required host values.
+
+**VPS deployment command:**
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d --build
+```
+
+**TLS mount:** `src/docker-compose.yml` parameterizes the certificate bind as `${LETSENCRYPT_DIR:-/opt/wims-bfp/letsencrypt}:/etc/letsencrypt:ro`. On the VPS, `src/.env.production` sets `LETSENCRYPT_DIR=/etc/letsencrypt`, so `wims-nginx-gateway` receives the host certificate tree directly. Do not replace this with a repo-local symlink directory; Docker bind mounts expose the directory itself, so mounting `/opt/wims-bfp/letsencrypt` when it only contains `letsencrypt -> /etc/letsencrypt` hides the expected `/etc/letsencrypt/live/<domain>/...` paths from nginx.
+
+**VPS frontend/auth env:** `docker-compose.prod.yml` sets browser-facing frontend build/runtime variables to the public HTTPS origin (`${PUBLIC_BASE_URL}`) or relative paths (`/api`, `/auth`). The Next.js server-side auth routes use `BACKEND_URL=http://backend:8000` so container-to-container calls do not pass through the nginx HTTP-to-HTTPS redirect. Keycloak advertises `KC_HOSTNAME_URL=${PUBLIC_BASE_URL}/auth` to keep OIDC discovery issuer/endpoints aligned with the nginx `/auth/` proxy path.
+
 **Route Table:**
 
 | Location | Proxy Target | Purpose |
@@ -68,8 +80,10 @@ status: draft
 - `client_max_body_size 50M`
 - OPTIONS preflight handled directly by nginx (returns 204), not proxied to backend
 - CORS: dynamic `Access-Control-Allow-Origin: $http_origin`
-- Cookie domain rewrite: `proxy_cookie_domain nginx-gateway localhost` — rewrites backend's `Domain=nginx-gateway` to `Domain=localhost` so the browser accepts it
-- **No SSL/TLS** in prototype (port 443 section commented out)
+- Cookie domain rewrite: `proxy_cookie_domain nginx-gateway $host` — rewrites backend's `Domain=nginx-gateway` to the request host so the browser accepts it
+- TLS terminates in nginx on port 443 for `165-22-101-73.nip.io` using `/etc/letsencrypt/live/165-22-101-73.nip.io/fullchain.pem` and `privkey.pem`
+- Port 80 redirects to HTTPS
+- `/health` is served directly by nginx from the HTTPS server block for gateway uptime checks
 - **No WebSocket/SSE** specific proxy settings (no `proxy_http_version 1.1`, no Upgrade header)
 - **No caching, rate limiting, or security headers** at nginx level (beyond CORS)
 

@@ -3,6 +3,22 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-05-23] fix | VPS nginx TLS certificate bind mount
+- Diagnosed `wims-nginx-gateway` exit 1 on VPS: nginx could not load `/etc/letsencrypt/live/165-22-101-73.nip.io/fullchain.pem`.
+- Host certificate tree existed under `/etc/letsencrypt/live/165-22-101-73.nip.io`, but compose mounted `/opt/wims-bfp/letsencrypt`, which only contained `letsencrypt -> /etc/letsencrypt`.
+- Updated `src/docker-compose.yml` so `nginx-gateway` bind-mounts `/etc/letsencrypt:/etc/letsencrypt:ro` directly.
+- Updated VPS frontend/auth envs: browser-facing `NEXT_PUBLIC_*` values now use the public HTTPS origin or relative `/api`/`/auth`, backend `KEYCLOAK_ISSUER` uses the public HTTPS realm issuer, Next.js server-side auth uses `BACKEND_URL=http://backend:8000` instead of nginx over HTTP, and Keycloak `KC_HOSTNAME_URL` includes `/auth` so OIDC discovery matches the nginx proxy path.
+- Added the VPS HTTPS callback/origin to the Keycloak realm export for `wims-web` and `bfp-client`, then patched the running Keycloak clients with the same redirect URI/web origin values.
+- Updated `architecture/infrastructure-config.md` to reflect current HTTPS gateway behavior, `/health`, cookie-domain rewrite, VPS public-origin envs, and the certificate mount contract.
+
+## [2026-05-23] update | GitOps-lite VPS deployment split
+- Split deployment configuration into dev-neutral `src/docker-compose.yml` and production override `src/docker-compose.prod.yml`.
+- Added tracked `src/.env.production.example` and untracked VPS-local `src/.env.production` for `PUBLIC_BASE_URL`, `LETSENCRYPT_DIR`, `APP_VERSION`, and host credential paths.
+- Parameterized the nginx certificate mount with `LETSENCRYPT_DIR` so production can mount `/etc/letsencrypt` without hardcoding the VPS path in base compose.
+- Restored base compose frontend/auth defaults to localhost-style local development values; production override supplies public HTTPS URLs, direct `BACKEND_URL=http://backend:8000`, backend `KEYCLOAK_ISSUER`, and Keycloak `KC_HOSTNAME_URL`.
+- Updated `.gitignore` and `src/.gitignore` so VPS-local artifacts (`.deploy_history`, `firebase-creds.json`, `letsencrypt/`, `.env.production`) stay out of git while `.env.production.example` remains tracked.
+- Verified deployment with `docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d --build`.
+
 ## [2026-05-19] update | Civilian Reporting Architecture — ADR-0001 accepted
 
 **Session context:** Grill-with-docs session. Complete HCI overhaul of civilian emergency reporting flow and triage queue.

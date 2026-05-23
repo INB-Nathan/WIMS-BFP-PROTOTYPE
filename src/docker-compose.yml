@@ -69,7 +69,7 @@ services:
       KC_PROXY_HEADERS: xforwarded
       KC_HOSTNAME_STRICT: "false"
       KC_HOSTNAME_STRICT_BACKCHANNEL: "false"
-      KC_HOSTNAME_URL: https://165-22-101-73.nip.io
+      KC_HOSTNAME_URL: http://localhost:8080/auth
       KC_HTTP_ENABLED: "true"
       KC_LOG_LEVEL: INFO
       QUARKUS_TRANSACTION_MANAGER_ENABLE_RECOVERY: "true"
@@ -111,7 +111,7 @@ services:
       - PYTHONPATH=/app
       - REDIS_URL=redis://redis:6379/0
       - KEYCLOAK_REALM_URL=http://keycloak:8080/auth/realms/bfp
-      - KEYCLOAK_ISSUER=http://localhost/auth/realms/bfp
+      - KEYCLOAK_ISSUER=http://localhost:8080/auth/realms/bfp
       - KEYCLOAK_CLIENT_ID=wims-web
       - KEYCLOAK_AUDIENCE=wims-web
       - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-}
@@ -223,7 +223,7 @@ services:
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - /opt/wims-bfp/letsencrypt:/etc/letsencrypt:ro
+      - ${LETSENCRYPT_DIR:-/opt/wims-bfp/letsencrypt}:/etc/letsencrypt:ro
     networks:
       - wims_internal
     depends_on:

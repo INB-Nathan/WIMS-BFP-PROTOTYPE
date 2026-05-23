@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-23
 Total synthesis pages: 32
-Last changes: deploy workflow SSH envs passthrough now includes DEPLOY_COMMIT — fixes `set -euo pipefail` exit 1 on unbound variable.
+Last changes: VPS deployment now uses `docker-compose.prod.yml` plus untracked `.env.production` for GitOps-lite environment separation.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

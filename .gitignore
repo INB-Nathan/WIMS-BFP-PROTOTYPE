@@ -27,6 +27,8 @@ out/
 .env
 .env.local
 .env.*.local
+firebase-creds.json
+letsencrypt/
 *.pem
 *.key
 *service-account*.json
@@ -35,6 +37,7 @@ src/backend/firebase-service-account.json
 # Logs and runtime
 *.log
 *.rdb
+.deploy_history
 src/suricata/logs/
 
 # OS
