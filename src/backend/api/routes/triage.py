@@ -1524,7 +1524,7 @@ def get_pending_reports(
     rows = db.execute(
         text("""
             SELECT report_id, ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lon,
-                   status, created_at
+                   status, description, created_at
             FROM wims.citizen_reports
             WHERE status = 'PENDING'
             ORDER BY created_at ASC
@@ -1537,7 +1537,8 @@ def get_pending_reports(
             "latitude": float(r[1]),
             "longitude": float(r[2]),
             "status": r[3],
-            "created_at": r[4].isoformat() if r[4] else None,
+            "description": r[4],
+            "created_at": r[5].isoformat() if r[5] else None,
         }
         for r in rows
     ]
