@@ -12,8 +12,14 @@ def test_analyst_list_query_uses_current_location_columns():
 
     assert "barangay_name" not in source
     assert "ref_barangays" not in source
-    assert "aif.province_name" in source
-    assert "aif.municipality_name" in source
+    # Province / municipality names resolve through ref_cities + ref_provinces;
+    # wims.analytics_incident_facts does not carry those columns.
+    assert "rp.province_name" in source
+    assert "rc.city_name" in source
+    assert "wims.ref_cities rc" in source
+    assert "wims.ref_provinces rp" in source
+    assert "aif.province_name" not in source
+    assert "aif.municipality_name" not in source
     assert "r.short_name" not in source
     assert "r.region_code" in source
 
@@ -23,6 +29,10 @@ def test_analyst_list_derives_casualty_severity_from_counts():
     helper_source = inspect.getsource(_append_analyst_casualty_filter)
 
     assert "aif.casualty_severity" not in source
+    # Casualty fields live on incident_nonsensitive_details only; the helper
+    # must not reference aif.<casualty-col> anywhere.
+    assert "aif.civilian" not in helper_source
+    assert "aif.firefighter" not in helper_source
     assert "civilian_deaths" in helper_source
     assert "firefighter_injured" in helper_source
 

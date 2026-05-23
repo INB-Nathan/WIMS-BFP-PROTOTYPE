@@ -1595,7 +1595,6 @@ export interface AnalystIncidentListItem {
   notification_dt: string | null;
   province_name: string;
   municipality_name: string;
-  barangay_name: string;
   general_category: string;
   sub_category: string;
   alarm_level: string;
@@ -1702,7 +1701,6 @@ export type AnalystListSortField =
   | 'notification_dt'
   | 'region'
   | 'municipality_name'
-  | 'barangay_name'
   | 'general_category'
   | 'sub_category'
   | 'alarm_level'
