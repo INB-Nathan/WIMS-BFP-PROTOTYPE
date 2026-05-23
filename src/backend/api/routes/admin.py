@@ -7,7 +7,7 @@ import re
 import subprocess
 import time
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Literal, Optional, Any
 
@@ -816,7 +816,7 @@ async def trigger_backup(
     """Trigger a pg_dump backup of the wims database."""
     _ensure_backup_dir()
 
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"wims_{timestamp}.sql"
     output_path = BACKUP_DIR / filename
 
@@ -888,9 +888,9 @@ async def trigger_backup(
     size_bytes = encrypted_path.stat().st_size
     try:
         created_ts = float(encrypted_path.stat().st_mtime)
-        created_at = datetime.utcfromtimestamp(created_ts).isoformat()
+        created_at = datetime.fromtimestamp(created_ts, timezone.utc).isoformat()
     except Exception:
-        created_at = datetime.utcnow().isoformat()
+        created_at = datetime.now(timezone.utc).isoformat()
     _apply_backup_retention()
 
     log_system_audit(
@@ -924,7 +924,7 @@ async def list_backups(
             {
                 "filename": f.name,
                 "size_bytes": stat.st_size,
-                "created_at": datetime.utcfromtimestamp(stat.st_mtime).isoformat(),
+                "created_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
             }
         )
 
