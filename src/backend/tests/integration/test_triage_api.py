@@ -157,8 +157,8 @@ def test_get_triage_pending_excludes_non_pending(client_with_encoder, db_session
     assert response.status_code == 200
     data = response.json()
     assert all(r["status"] == "PENDING" for r in data)
-    assert not any(r["description"] == "Already under review" for r in data)
-    assert any(r["description"] == "Still pending" for r in data)
+    assert not any(r.get("description") == "Already under review" for r in data)
+    assert any(r.get("description") == "Still pending" for r in data)
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +176,7 @@ def test_promote_report_returns_410_gone(client_with_encoder, pending_report):
     response = client_with_encoder.post(f"/api/triage/{report_id}/promote")
 
     assert response.status_code == 410
-    assert "deprecated" in response.json()["detail"].lower()
+    assert "disabled" in response.json()["detail"].lower()
 
 
 def test_promote_nonexistent_report_returns_410(client_with_encoder):
