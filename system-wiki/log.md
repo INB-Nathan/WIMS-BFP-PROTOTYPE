@@ -485,7 +485,13 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Root cause also confirmed: nginx.conf serves `/health` directly at line 16 (returns `{"status":"ok","via":"nginx-gateway"}`), so the health check curl hits nginx on port 80 — not the backend — but the deploy script's `docker compose up -d backend` does not wait for uvicorn to be responsive, causing the timing mismatch.
 - Verification: syntax check passed.
 
-## [2026-05-23] fix | deploy rollback jq dependency and analyst vitest wait
+## [2026-05-23] fix | deploy SSH envs passthrough — DEPLOY_COMMIT unbound variable
+
+- `.github/workflows/deploy.yml`: added `DEPLOY_COMMIT` to the `Deploy via SSH` step's `envs:` list and added the corresponding `export DEPLOY_COMMIT="$DEPLOY_COMMIT"` in the script block. The `deploy` job's `env:` block already set `DEPLOY_COMMIT: ${{ github.sha }}`, but the SSH action's `envs:` passthrough did not include it. When `set -euo pipefail` fired at line 172, `DEPLOY_COMMIT` was unbound → exit 1, before the health check could even run. The actual health check had passed (confirmed by the `Backend /health check passed` line that appeared before the error).
+
+- `system-wiki/architecture/pwa-tests-cicd.md`: documented the `envs:` passthrough requirement and the root cause.
+
+- `system-wiki/index.md`: last-changes line updated.
 - `.github/workflows/deploy.yml`: changed rollback image capture from `docker compose ... --format json | jq ...` to `docker compose ... images -q backend | head -n 1`, avoiding a missing `jq` dependency on the VPS.
 - `src/frontend/src/app/dashboard/analyst/queue-baseline.test.tsx`: replaced default 1s label waits for the Top-N Metric/Dimension controls with explicit 5s async `findByLabelText` waits. The test was intermittently seeing the dashboard loading/header state before Top-N rendered under CI load.
 - `system-wiki/architecture/pwa-tests-cicd.md` and `system-wiki/index.md`: updated deployment/test notes.
