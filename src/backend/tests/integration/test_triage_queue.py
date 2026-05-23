@@ -493,7 +493,7 @@ class TestGetTriageQueue:
         now = datetime.now(timezone.utc)
         rid1 = make_report(db_session, 121.05, 14.60, device_id=device,
                           trust_score=50, created_at=now - timedelta(minutes=10))
-        rid2 = make_report(db_session, 121.06, 14.61, device_id=device,
+        _rid2 = make_report(db_session, 121.06, 14.61, device_id=device,
                           trust_score=50, created_at=now - timedelta(minutes=20))
         rid3 = make_report(db_session, 121.07, 14.62, device_id=device,
                           trust_score=50, created_at=now - timedelta(minutes=25))
@@ -534,7 +534,7 @@ class TestGetTriageQueue:
         # Check specifically no raw UUID-looking device IDs
         import re
         uuid_pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-        matches = re.findall(uuid_pattern, body, re.IGNORECASE)
+        _matches = re.findall(uuid_pattern, body, re.IGNORECASE)
         # All UUIDs in response should be report_id or user_id (not device_id)
         # We can't easily distinguish here, but at minimum no raw device_id field.
         assert '"device_id":' not in body
@@ -613,7 +613,7 @@ class TestGetTriageQueue:
         """confidence=HIGH returns only HIGH severity clusters."""
         base_lat, base_lon = 121.0500, 14.6000
         now = datetime.now(timezone.utc)
-        rid_high = make_report(db_session, base_lat, base_lon,
+        _rid_high = make_report(db_session, base_lat, base_lon,
                                trust_score=60, created_at=now)
         for i in range(4):
             make_report(db_session, base_lat + 0.0003 * (i+1), base_lon + 0.0003 * (i+1),

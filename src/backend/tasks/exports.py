@@ -6,7 +6,6 @@ import csv
 import json
 import logging
 import os
-import shutil
 import uuid
 from typing import Any, Callable
 
@@ -244,9 +243,6 @@ def _write_afor_pdf(path: str, data: dict[str, Any]) -> None:
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
     from reportlab.platypus import (
-        Frame,
-        KeepTogether,
-        PageTemplate,
         Paragraph,
         SimpleDocTemplate,
         Spacer,
