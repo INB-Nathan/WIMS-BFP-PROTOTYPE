@@ -10,7 +10,6 @@ import {
   submitIncidentForReview,
   unpendIncident,
   deleteIncident,
-  forceReplaceIncident,
   apiFetch,
   ApiRequestError,
   type RegionalIncidentDetailResponse,
@@ -286,6 +285,7 @@ export default function RegionalIncidentDetailPage() {
   const [validatorError, setValidatorError] = useState<string | null>(null);
   const [validatorDupMatchedId, setValidatorDupMatchedId] = useState<number | null>(null);
   const dupAutoShownRef = useRef(false);
+  const pendingSubmitDone = useRef(false);
 
   useEffect(() => {
     if (!authLoading && !canAccessRegional) {
@@ -318,13 +318,30 @@ export default function RegionalIncidentDetailPage() {
     load();
   }, [authLoading, canAccessRegional, load]);
 
+  // When the create form navigates here with ?pending_submit=1, auto-trigger the
+  // submit flow once the incident detail has loaded (only for DRAFT incidents).
+  // This gives the encoder the same duplicate-detection modal as the detail page
+  // without duplicating the modal code in IncidentForm.
+  useEffect(() => {
+    if (!detail || pendingSubmitDone.current) return;
+    if (detail.verification_status !== 'DRAFT') return;
+    if (typeof window === 'undefined') return;
+    if (new URLSearchParams(window.location.search).get('pending_submit') !== '1') return;
+    pendingSubmitDone.current = true;
+    router.replace(`/dashboard/regional/incidents/${incidentId}`);
+    handleSubmitClick();
+  }, [detail]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Poll every 30 s while the incident is PENDING — alert the encoder if the validator acts.
   useEffect(() => {
     if (!isEncoder || !detail || detail.verification_status !== 'PENDING') return;
     const trackedUpdatedAt = detail.updated_at;
     const interval = setInterval(async () => {
       try {
-        const fresh = await fetchRegionalIncident(incidentId);
+        const fresh = await apiFetch<RegionalIncidentDetailResponse>(
+          `/regional/incidents/${incidentId}`,
+          { skipAuthRedirect: true },
+        );
         if (fresh.verification_status !== 'PENDING' || fresh.updated_at !== trackedUpdatedAt) {
           setStaleAlert(true);
           clearInterval(interval);
@@ -422,7 +439,7 @@ export default function RegionalIncidentDetailPage() {
     if (isEmpty(ns.city_municipality)) missing.push('City / Municipality');
     if (!ns.alarm_level) missing.push('Highest Alarm Level');
     if (!ns.general_category) missing.push('Classification of Involved');
-    if (ns.general_category && !detail.incident_type_code) missing.push('Type of Involved');
+    if (ns.general_category && !(ns.type_of_involved_general_category || (ns as Record<string, unknown>).sub_category)) missing.push('Type of Involved');
     if (!ns.extent_of_damage) missing.push('Extent of Damage');
     if (!detail.latitude || !detail.longitude) missing.push('Location Coordinates (set via map pin)');
     if (isEmpty(sen.prepared_by_officer) && isEmpty(sen.disposition_prepared_by)) missing.push('Prepared by (Officer)');
@@ -536,50 +553,6 @@ export default function RegionalIncidentDetailPage() {
   const others = (sens?.other_personnel ?? []) as OtherPerson[];
   const alarmTimeline = (ns?.alarm_timeline ?? {}) as AlarmTimeline;
 
-  const buildPendingReplacePayload = (): Record<string, unknown> => ({
-    notification_dt: ns?.notification_dt ?? null,
-    alarm_level: ns?.alarm_level ?? null,
-    general_category: ns?.general_category ?? ns?.classification_of_involved ?? null,
-    sub_category: ns?.sub_category ?? ns?.type_of_involved_general_category ?? null,
-    specific_type: ns?.specific_type ?? null,
-    occupancy_type: ns?.occupancy_type ?? null,
-    city_id: ns?.city_id ?? null,
-    barangay_id: ns?.barangay_id ?? null,
-    distance_from_station_km: ns?.distance_from_station_km ?? ns?.distance_to_fire_scene_km ?? null,
-    estimated_damage_php: ns?.estimated_damage_php ?? null,
-    civilian_injured: ns?.civilian_injured ?? null,
-    civilian_deaths: ns?.civilian_deaths ?? null,
-    firefighter_injured: ns?.firefighter_injured ?? null,
-    firefighter_deaths: ns?.firefighter_deaths ?? null,
-    families_affected: ns?.families_affected ?? null,
-    structures_affected: ns?.structures_affected ?? null,
-    households_affected: ns?.households_affected ?? null,
-    individuals_affected: ns?.individuals_affected ?? null,
-    responder_type: ns?.responder_type ?? null,
-    fire_origin: ns?.fire_origin ?? ns?.area_of_origin ?? null,
-    extent_of_damage: ns?.extent_of_damage ?? null,
-    stage_of_fire: ns?.stage_of_fire ?? ns?.stage_of_fire_upon_arrival ?? null,
-    fire_station_name: ns?.fire_station_name ?? null,
-    total_response_time_minutes: ns?.total_response_time_minutes ?? null,
-    recommendations: ns?.recommendations ?? null,
-    province_district: ns?.province_district ?? null,
-    city_municipality: ns?.city_municipality ?? null,
-    station_code: ns?.station_code ?? null,
-    street_address: sens?.street_address ?? ns?.incident_address ?? null,
-    landmark: sens?.landmark ?? ns?.nearest_landmark ?? null,
-    caller_name: sens?.caller_name ?? null,
-    caller_number: sens?.caller_number ?? null,
-    narrative_report: sens?.narrative_report ?? null,
-    owner_name: sens?.owner_name ?? null,
-    occupant_name: sens?.occupant_name ?? null,
-    establishment_name: sens?.establishment_name ?? null,
-    receiver_name: sens?.receiver_name ?? ns?.receiver_name ?? null,
-    prepared_by_officer: sens?.prepared_by_officer ?? null,
-    noted_by_officer: sens?.noted_by_officer ?? null,
-    remarks: sens?.remarks ?? null,
-    latitude: detail?.latitude ?? null,
-    longitude: detail?.longitude ?? null,
-  });
 
   // Defensive: problems_encountered may come back as a JSON array or (rarely) a string
   const rawProblems = ns?.problems_encountered;
@@ -876,15 +849,17 @@ export default function RegionalIncidentDetailPage() {
                   </button>
                 )}
 
-                {/* Edit button — DRAFT/REJECTED: opens edit directly; PENDING: shows withdraw-first popup */}
-                <button
-                  onClick={handleEditClick}
-                  disabled={actionLoading}
-                  className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 disabled:opacity-50"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                  Edit
-                </button>
+                {/* Edit button — only for DRAFT/PENDING/REJECTED; hidden for VERIFIED */}
+                {canSubmitOrDelete && (
+                  <button
+                    onClick={handleEditClick}
+                    disabled={actionLoading}
+                    className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 disabled:opacity-50"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Edit
+                  </button>
+                )}
 
                 {/* Submit / Resubmit — only for DRAFT or REJECTED */}
                 {(detail.verification_status === 'DRAFT' || detail.verification_status === 'REJECTED') && (
@@ -1066,7 +1041,7 @@ export default function RegionalIncidentDetailPage() {
             <FieldRow label={FIELD_LABELS.distance_from_station_km} value={ns?.distance_from_station_km ?? ns?.distance_to_fire_scene_km} />
             <FieldRow label={FIELD_LABELS.total_response_time_minutes} value={ns?.total_response_time_minutes} />
             <FieldRow label={FIELD_LABELS.total_gas_consumed_liters} value={ns?.total_gas_consumed_liters} />
-            <FieldRow label="Location" value={[ns?.city_municipality, ns?.province_district, ns?.region].filter(Boolean).join(', ') || null} />
+            <FieldRow label="Location" value={[ns?.region, ns?.province_district, ns?.city_municipality].filter(Boolean).join(', ') || null} />
             <FieldRow label={FIELD_LABELS.street_address} value={sens?.street_address ?? ns?.incident_address} />
             <FieldRow label={FIELD_LABELS.landmark} value={sens?.landmark ?? ns?.nearest_landmark} />
             <FieldRow label={FIELD_LABELS.caller_name} value={sens?.caller_name} />

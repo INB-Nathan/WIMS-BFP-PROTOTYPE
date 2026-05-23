@@ -4,11 +4,13 @@ import { Suspense, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createUserManager } from '@/lib/oidc';
 import { useAuth } from '@/context/AuthContext';
+import { useUserProfile } from '@/lib/auth';
 import { Loader2 } from 'lucide-react';
 
 function CallbackContent() {
     const router = useRouter();
     const { refreshSession } = useAuth();
+    const { refreshProfile } = useUserProfile();
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -42,11 +44,13 @@ function CallbackContent() {
                     router.replace('/login');
                     return;
                 }
-                // CRITICAL: Refresh the AuthProvider session state BEFORE navigating.
-                // The cookie is now set, but fetchSession() already ran on mount
-                // (before the cookie existed). Without this, user stays null and
-                // the LayoutShell auth guard redirects back to Keycloak.
-                await refreshSession();
+                // CRITICAL: Refresh BOTH auth providers before navigating.
+                // The cookie is now set, but both fetchSession() and fetchProfile()
+                // already ran on mount (before the cookie existed). Without this,
+                // AuthContext stays null → LayoutShell redirects to Keycloak, and
+                // UserProfileProvider stays null → IncidentForm has assignedRegionId=null
+                // (region not locked) until the user manually refreshes.
+                await Promise.all([refreshSession(), refreshProfile()]);
                 router.push('/dashboard');
             } catch (err) {
                 console.error('Callback error:', err);
@@ -55,7 +59,7 @@ function CallbackContent() {
             }
         };
         run();
-    }, [router, refreshSession]);
+    }, [router, refreshSession, refreshProfile]);
 
     return (
         <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--content-bg)' }}>

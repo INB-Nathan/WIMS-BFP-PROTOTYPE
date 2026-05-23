@@ -788,6 +788,21 @@ def _time_str(val: Any) -> str | None:
     return s or None
 
 
+def _extract_barangay_from_address(address: str) -> str:
+    """Extract barangay from AFOR D27 address.
+    Tries keyword detection first (handles free-form input),
+    then falls back to the AFOR template position (index 2 of comma-split)."""
+    if not address or address.startswith("("):
+        return ""
+    # Keyword-based: match "Brgy.", "Bgy.", "Barangay " followed by the name until the next comma
+    m = re.search(r"((?:Brgy|Bgy)\.?\s*[^,]+|Barangay\s+[^,]+)", address, re.IGNORECASE)
+    if m:
+        return m.group(1).strip().rstrip(".")
+    # Positional fallback: AFOR template = "HouseNo, Street, Barangay, City, Province"
+    parts = [p.strip() for p in address.split(",")]
+    return parts[2] if len(parts) >= 3 else ""
+
+
 class BfpXlsxParser:
     """Parser for the official BFP manual entry form (AFOR)."""
 
@@ -1025,6 +1040,7 @@ class BfpXlsxParser:
             "province": self.get("D25"),
             "city": self.get("D26"),
             "address": self.get("D27"),
+            "barangay": _extract_barangay_from_address(self.get("D27") or ""),
             "landmark": self.get("D28"),
             "caller_info": self.get("D29"),
             "receiver": self.get("D30"),
@@ -1484,6 +1500,7 @@ def parse_afor_report_data(data: dict, region_id: int) -> AforParsedRow:
         "_city_text": data.get("city") or "",
         "_province_text": data.get("province") or "",
         "_region_text": data.get("region") or "",
+        "_barangay_text": data.get("barangay") or "",
     }
 
     if not notif_dt:
@@ -2185,7 +2202,7 @@ async def commit_afor_import(
                     resources_deployed, alarm_timeline, problems_encountered, recommendations,
                     fire_station_name, total_response_time_minutes, total_gas_consumed_liters,
                     stage_of_fire, extent_total_floor_area_sqm, extent_total_land_area_hectares,
-                    vehicles_affected, province_district, city_municipality,
+                    vehicles_affected, province_district, city_municipality, barangay,
                     extent_description, extent_objects_count,
                     general_description_of_involved
                 ) VALUES (
@@ -2198,7 +2215,7 @@ async def commit_afor_import(
                     CAST(:problems_encountered AS jsonb), :recommendations,
                     :fire_station_name, :total_response_time_minutes, :total_gas_consumed_liters,
                     :stage_of_fire, :floor_area, :land_area, :vehicles_affected,
-                    :province_district, :city_municipality,
+                    :province_district, :city_municipality, :barangay,
                     :extent_description, :extent_objects_count,
                     :general_description_of_involved
                 )
@@ -2237,6 +2254,7 @@ async def commit_afor_import(
                 "vehicles_affected": ns.get("vehicles_affected", 0),
                 "province_district": row_data.get("_province_text", ""),
                 "city_municipality": row_data.get("_city_text", ""),
+                "barangay": row_data.get("_barangay_text", ""),
                 "extent_description": ns.get("extent_description") or None,
                 "extent_objects_count": ns.get("extent_objects_count"),
                 "general_description_of_involved": (ns.get("_response") or {}).get(
@@ -2944,7 +2962,8 @@ def get_validator_stats(
         db.execute(
             text("""
             SELECT COUNT(*) FROM wims.fire_incidents
-            WHERE verification_status = 'PENDING_VALIDATION' AND is_archived = FALSE
+            WHERE verification_status = ANY(ARRAY['PENDING', 'PENDING_VALIDATION'])
+              AND is_archived = FALSE
         """),
         ).scalar()
         or 0
@@ -3173,6 +3192,7 @@ class IncidentCreateRequest(BaseModel):
     # Location text (free-text, replaces city_id/province join for display)
     province_district: str | None = None
     city_municipality: str | None = None
+    barangay: str | None = None
     # Reference number fields
     station_code: str | None = "TBA"
     incident_type_code: str | None = None
@@ -3228,6 +3248,7 @@ class IncidentUpdateRequest(BaseModel):
     # Location text (free-text, replaces city_id/province join for display)
     province_district: str | None = None
     city_municipality: str | None = None
+    barangay: str | None = None
     # Reference number fields
     station_code: str | None = None
     incident_type_code: str | None = None
@@ -3314,6 +3335,7 @@ def create_incident(
         "barangay_id",
         "province_district",
         "city_municipality",
+        "barangay",
         "distance_from_station_km",
         "estimated_damage_php",
         "civilian_injured",
@@ -3473,6 +3495,7 @@ def _apply_incident_field_updates(
         "barangay_id",
         "province_district",
         "city_municipality",
+        "barangay",
         "distance_from_station_km",
         "estimated_damage_php",
         "civilian_injured",
@@ -5308,12 +5331,7 @@ def get_encoder_audit_log(
         params["city_municipality"] = f"%{city_municipality}%"
     where_sql = " AND ".join(where_clauses)
 
-    need_nd_join = bool(city_municipality)
-    nd_join = (
-        "LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = ivh.target_id"
-        if need_nd_join
-        else ""
-    )
+    nd_join = "LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = ivh.target_id"
 
     rows = db.execute(
         text(
@@ -5321,7 +5339,7 @@ def get_encoder_audit_log(
             SELECT
                 ivh.history_id, ivh.target_id,
                 ivh.action_label, ivh.previous_status, ivh.new_status,
-                ivh.notes, ivh.action_timestamp
+                ivh.action_timestamp, nd.city_municipality
             FROM wims.incident_verification_history ivh
             {nd_join}
             WHERE {where_sql}
@@ -5355,8 +5373,8 @@ def get_encoder_audit_log(
                 "action_label": r[2],
                 "previous_status": r[3],
                 "new_status": r[4],
-                "notes": r[5],
-                "action_timestamp": r[6].isoformat() if r[6] else None,
+                "action_timestamp": r[5].isoformat() if r[5] else None,
+                "city_municipality": r[6],
             }
             for r in rows
         ],
@@ -5364,6 +5382,114 @@ def get_encoder_audit_log(
         "limit": limit,
         "offset": offset,
     }
+
+
+_ACTION_LABEL_MAP: dict[str, str] = {
+    "CREATED_DRAFT": "Created Draft",
+    "EDITED": "Edited",
+    "DELETED_DRAFT": "Deleted Draft",
+    "DELETED_PENDING": "Deleted Pending Submission",
+    "SUBMITTED": "Submitted for Review",
+    "WITHDRAWN": "Withdrawn",
+    "APPROVED": "Approved",
+    "REJECTED": "Rejected",
+    "BULK_APPROVED": "Bulk Approved",
+    "REPLACED_EXISTING": "Replaced Existing",
+    "ACCEPTED_AS_NEW": "Accepted as New",
+    "ARCHIVED": "Archived",
+}
+_PHT = timezone(timedelta(hours=8))
+
+
+def _fmt_pht(dt: datetime | None) -> str:
+    if not dt:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(_PHT).strftime("%Y-%m-%d %H:%M:%S PHT")
+
+
+@router.get("/audit-log/export")
+def export_encoder_audit_log(
+    user: Annotated[dict, Depends(get_regional_encoder)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    action: Optional[str] = None,
+    city_municipality: Optional[str] = None,
+):
+    """Return the current encoder's activity log as a formatted CSV download."""
+    encoder_id = str(user["user_id"])
+    where_clauses = [
+        "ivh.target_type = 'OFFICIAL'",
+        "ivh.action_by_user_id = CAST(:encoder_id AS uuid)",
+    ]
+    params: dict[str, Any] = {"encoder_id": encoder_id}
+    if date_from:
+        where_clauses.append("ivh.action_timestamp >= CAST(:date_from AS timestamptz)")
+        params["date_from"] = date_from
+    if date_to:
+        where_clauses.append("ivh.action_timestamp <= CAST(:date_to AS timestamptz)")
+        params["date_to"] = date_to
+    if action:
+        where_clauses.append("ivh.action_label = :action")
+        params["action"] = action
+    if city_municipality:
+        where_clauses.append("nd.city_municipality ILIKE :city_municipality")
+        params["city_municipality"] = f"%{city_municipality}%"
+    where_sql = " AND ".join(where_clauses)
+    nd_join = "LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = ivh.target_id"
+
+    rows = db.execute(
+        text(
+            f"""
+            SELECT
+                ivh.history_id, ivh.target_id,
+                ivh.action_label, ivh.previous_status, ivh.new_status,
+                ivh.action_timestamp, nd.city_municipality
+            FROM wims.incident_verification_history ivh
+            {nd_join}
+            WHERE {where_sql}
+            ORDER BY ivh.action_timestamp DESC
+            """
+        ),
+        params,
+    ).fetchall()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        [
+            "History ID",
+            "Incident ID",
+            "Action",
+            "Previous Status",
+            "New Status",
+            "City / Municipality",
+            "Timestamp (PHT)",
+        ]
+    )
+    for r in rows:
+        writer.writerow(
+            [
+                r[0],
+                r[1],
+                _ACTION_LABEL_MAP.get(r[2] or "", r[2] or ""),
+                r[3] or "",
+                r[4] or "",
+                r[6] or "",
+                _fmt_pht(r[5]),
+            ]
+        )
+
+    export_date = datetime.now(tz=_PHT).strftime("%Y%m%d")
+    return Response(
+        content=buf.getvalue().encode("utf-8"),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename=encoder-activity-log-{export_date}.csv",
+        },
+    )
 
 
 def _build_audit_log_query(
@@ -5379,7 +5505,7 @@ def _build_audit_log_query(
 
     Returns (where_sql, params). The caller plugs where_sql into a SELECT.
     """
-    where_clauses = ["ivh.target_type = 'OFFICIAL'"]
+    where_clauses = ["ivh.target_type = 'OFFICIAL'", "ivh.action_label != 'CREATED_DRAFT'"]
     params: dict[str, Any] = {}
     if date_from:
         where_clauses.append("ivh.action_timestamp >= CAST(:date_from AS timestamptz)")
@@ -5533,17 +5659,17 @@ def export_validator_audit_logs(
     writer = csv.writer(buf)
     writer.writerow(
         [
-            "history_id",
-            "incident_id",
-            "region_id",
-            "region_display",
-            "action_by_user_id",
-            "actor_username",
-            "previous_status",
-            "new_status",
-            "action_label",
-            "notes",
-            "action_timestamp",
+            "History ID",
+            "Incident ID",
+            "Region ID",
+            "Region",
+            "Actor (User ID)",
+            "Actor (Username)",
+            "Previous Status",
+            "New Status",
+            "Action",
+            "Notes",
+            "Timestamp (PHT)",
         ]
     )
     for r in rows:
@@ -5551,23 +5677,23 @@ def export_validator_audit_logs(
             [
                 r[0],
                 r[1],
-                r[2],
+                r[2] or "",
                 r[9] or "",
                 str(r[3]) if r[3] else "",
                 r[8] or "",
-                r[4],
-                r[5],
-                r[10] or "",
+                r[4] or "",
+                r[5] or "",
+                _ACTION_LABEL_MAP.get(r[10] or "", r[10] or ""),
                 (r[6] or "").replace("\n", " "),
-                r[7].isoformat() if r[7] else "",
+                _fmt_pht(r[7]),
             ]
         )
 
-    export_date = datetime.utcnow().strftime("%Y%m%d")
+    export_date = datetime.now(tz=_PHT).strftime("%Y%m%d")
     return Response(
         content=buf.getvalue().encode("utf-8"),
         media_type="text/csv",
         headers={
-            "Content-Disposition": f"attachment; filename=audit-log-{export_date}.csv",
+            "Content-Disposition": f"attachment; filename=wims-audit-trail-{export_date}.csv",
         },
     )

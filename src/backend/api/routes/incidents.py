@@ -194,7 +194,7 @@ def upload_incident_bundle(
                     recommendations, fire_station_name, stage_of_fire,
                     extent_total_floor_area_sqm, extent_total_land_area_hectares,
                     distance_from_station_km, station_code,
-                    city_municipality, province_district,
+                    city_municipality, province_district, barangay,
                     extent_description, extent_objects_count,
                     general_description_of_involved
                 ) VALUES (
@@ -208,7 +208,7 @@ def upload_incident_bundle(
                     :recommendations, :fire_station_name, :stage_of_fire,
                     :floor_area, :land_area,
                     :distance_from_station_km, :station_code,
-                    :city_municipality, :province_district,
+                    :city_municipality, :province_district, :barangay,
                     :extent_description, :extent_objects_count,
                     :general_description_of_involved
                 )
@@ -247,6 +247,7 @@ def upload_incident_bundle(
                 "station_code": station_code_val,
                 "city_municipality": ns.get("city_municipality") or "",
                 "province_district": ns.get("province_district") or "",
+                "barangay": ns.get("barangay") or "",
                 "extent_description": ns.get("extent_description") or None,
                 "extent_objects_count": _safe_int(ns.get("extent_objects_count")),
                 "general_description_of_involved": ns.get("general_description_of_involved")

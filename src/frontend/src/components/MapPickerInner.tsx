@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -21,6 +21,7 @@ export interface MapPickerInnerProps {
     value?: { lat: number; lng: number } | null;
     onChange?: (lat: number, lng: number) => void;
     mapHeight?: string;
+    searchQuery?: string;
 }
 
 const DEFAULT_CENTER: [number, number] = [14.5995, 120.9842]; // Manila area
@@ -99,6 +100,7 @@ export function MapPickerInner({
     value,
     onChange,
     mapHeight = DEFAULT_INCIDENT_MAP_HEIGHT,
+    searchQuery,
 }: MapPickerInnerProps) {
     const readOnly = !onChange;
     const [position, setPosition] = useState<{ lat: number; lng: number } | null>(value ?? null);
@@ -110,6 +112,7 @@ export function MapPickerInner({
     const [searchError, setSearchError] = useState<string | null>(null);
     const [suggestions, setSuggestions] = useState<GeoSuggestion[]>([]);
     const [coordError, setCoordError] = useState<string | null>(null);
+    const autoSearchedRef = useRef<string | null>(null);
 
     useEffect(() => {
         setPosition(value ?? null);
@@ -176,6 +179,37 @@ export function MapPickerInner({
             setSearching(false);
         }
     }, [handleChange, searchText]);
+
+    // Auto-pin the map when a searchQuery prop is supplied (e.g. from AFOR import).
+    // Fills the search box with the address and fires a forward geocode so the marker
+    // is placed at the nearest matching location without the user having to type.
+    useEffect(() => {
+        if (!searchQuery || searchQuery.startsWith('(') || autoSearchedRef.current === searchQuery) return;
+        autoSearchedRef.current = searchQuery;
+        setSearchText(searchQuery);
+        // Skip network call when the caller already supplied valid coordinates via `value`.
+        if (value) return;
+        const q = searchQuery;
+        setSearching(true);
+        const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=ph&limit=1&q=${encodeURIComponent(q)}`;
+        fetch(url, { headers: { Accept: 'application/json' } })
+            .then((r) => r.json())
+            .then((data: Array<{ lat: string; lon: string }>) => {
+                const first = data[0];
+                if (!first) return;
+                const lat = Number(first.lat);
+                const lng = Number(first.lon);
+                if (isInPhilippines(lat, lng)) {
+                    handleChange(lat, lng);
+                    // Restore the address in the search box after auto-pin.
+                    // handleChange clears it, but keeping the address visible
+                    // lets the user see what was searched and edit if needed.
+                    setSearchText(q);
+                }
+            })
+            .catch(() => { /* silent — user can search manually */ })
+            .finally(() => setSearching(false));
+    }, [searchQuery, value, handleChange]);
 
     useEffect(() => {
         const q = searchText.trim();

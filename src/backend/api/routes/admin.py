@@ -5,13 +5,14 @@ import logging
 import os
 import re
 import subprocess
+import tempfile
 import time
 import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Literal, Optional, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, EmailStr, field_validator
 import redis
@@ -581,6 +582,8 @@ def get_system_health(
 def get_security_logs(
     _admin: Annotated[dict, Depends(get_system_admin)],
     db: Annotated[Session, Depends(get_db_with_rls)],
+    limit: int = Query(default=20, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ):
     """Fetch security threat logs ordered by timestamp descending."""
     rows = db.execute(
@@ -590,26 +593,35 @@ def get_security_logs(
                    admin_action_taken, resolved_at, reviewed_by
             FROM wims.security_threat_logs
             ORDER BY timestamp DESC
+            LIMIT :limit OFFSET :offset
         """),
+        {"limit": limit, "offset": offset},
     ).fetchall()
 
-    return [
-        {
-            "log_id": r[0],
-            "timestamp": r[1].isoformat() if r[1] else None,
-            "source_ip": r[2],
-            "destination_ip": r[3],
-            "suricata_sid": r[4],
-            "severity_level": r[5],
-            "raw_payload": r[6],
-            "xai_narrative": r[7],
-            "xai_confidence": float(r[8]) if r[8] is not None else None,
-            "admin_action_taken": r[9],
-            "resolved_at": r[10].isoformat() if r[10] else None,
-            "reviewed_by": str(r[11]) if r[11] else None,
-        }
-        for r in rows
-    ]
+    total = db.execute(text("SELECT COUNT(*) FROM wims.security_threat_logs")).scalar() or 0
+
+    return {
+        "items": [
+            {
+                "log_id": r[0],
+                "timestamp": r[1].isoformat() if r[1] else None,
+                "source_ip": r[2],
+                "destination_ip": r[3],
+                "suricata_sid": r[4],
+                "severity_level": r[5],
+                "raw_payload": r[6],
+                "xai_narrative": r[7],
+                "xai_confidence": float(r[8]) if r[8] is not None else None,
+                "admin_action_taken": r[9],
+                "resolved_at": r[10].isoformat() if r[10] else None,
+                "reviewed_by": str(r[11]) if r[11] else None,
+            }
+            for r in rows
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.post("/security-logs/{log_id}/analyze")
@@ -756,7 +768,7 @@ def create_scheduled_report(
         text("""
             INSERT INTO wims.scheduled_reports (name, cron_expr, format, filters, recipients, enabled)
             VALUES (:name, :cron_expr, :format, :filters, :recipients, :enabled)
-            RETURNING id, name, cron_expr, format, enabled, created_at
+            RETURNING id, name, cron_expr, format, recipients, enabled, created_at
         """),
         {
             "name": body.name,
@@ -773,8 +785,9 @@ def create_scheduled_report(
         "name": result[1],
         "cron_expr": result[2],
         "format": result[3],
-        "enabled": result[4],
-        "created_at": result[5].isoformat() if result[5] else None,
+        "recipients": result[4] if result[4] is not None else [],
+        "enabled": result[5],
+        "created_at": result[6].isoformat() if result[6] else None,
     }
 
 
@@ -786,7 +799,7 @@ def list_scheduled_reports(
     """List all scheduled analytics reports."""
     rows = db.execute(
         text(
-            "SELECT id, name, cron_expr, format, enabled, created_at FROM wims.scheduled_reports ORDER BY id DESC"
+            "SELECT id, name, cron_expr, format, recipients, enabled, created_at FROM wims.scheduled_reports ORDER BY id DESC"
         )
     ).fetchall()
     return [
@@ -795,11 +808,39 @@ def list_scheduled_reports(
             "name": r[1],
             "cron_expr": r[2],
             "format": r[3],
-            "enabled": r[4],
-            "created_at": r[5].isoformat() if r[5] else None,
+            "recipients": r[4] if r[4] is not None else [],
+            "enabled": r[5],
+            "created_at": r[6].isoformat() if r[6] else None,
         }
         for r in rows
     ]
+
+
+class ScheduledReportUpdate(BaseModel):
+    enabled: bool
+
+
+@router.patch("/scheduled-reports/{report_id}", status_code=200)
+def update_scheduled_report(
+    report_id: int,
+    body: ScheduledReportUpdate,
+    _user: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Enable or disable a scheduled report."""
+    result = db.execute(
+        text("""
+            UPDATE wims.scheduled_reports
+            SET enabled = :enabled
+            WHERE id = :id
+            RETURNING id, name, enabled
+        """),
+        {"id": report_id, "enabled": body.enabled},
+    ).fetchone()
+    if result is None:
+        raise HTTPException(status_code=404, detail="Scheduled report not found")
+    db.commit()
+    return {"status": "ok", "id": result[0], "name": result[1], "enabled": result[2]}
 
 
 # ---------------------------------------------------------------------------
@@ -856,6 +897,8 @@ async def trigger_backup(
                 "-f",
                 str(output_path),
                 "--no-password",
+                "--clean",
+                "--if-exists",
             ],
             env=env,
             capture_output=True,
@@ -957,6 +1000,103 @@ async def download_backup(
     )
 
 
+@router.post("/restore", status_code=200)
+async def restore_backup(
+    file: UploadFile = File(...),
+    request: Request = None,
+    current_user: dict = Depends(get_system_admin),
+    db: Session = Depends(get_db_with_rls),
+):
+    """Restore wims database from an encrypted backup file."""
+    filename = file.filename or ""
+    if not re.match(r"^wims_\d{8}_\d{6}\.sql\.enc$", filename):
+        raise HTTPException(status_code=400, detail="Invalid backup file format")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_enc = Path(tmpdir) / filename
+        content = await file.read()
+        tmp_enc.write_bytes(content)
+
+        try:
+            from utils.backup_crypto import decrypt_backup
+
+            tmp_sql = decrypt_backup(tmp_enc)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"Decryption failed: {e}")
+
+        db_url = os.environ.get("DATABASE_URL", "")
+        try:
+            parsed = urllib.parse.urlparse(db_url)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Invalid DATABASE_URL: {e}")
+
+        if parsed.scheme != "postgresql":
+            raise HTTPException(
+                status_code=500, detail="DATABASE_URL must use postgresql:// scheme"
+            )
+
+        db_user = parsed.username or ""
+        db_pass = parsed.password or ""
+        db_host = parsed.hostname or ""
+        db_port = str(parsed.port) if parsed.port else "5432"
+        db_name = parsed.path.lstrip("/") or ""
+
+        if not db_host or not db_user:
+            raise HTTPException(status_code=500, detail="Invalid DATABASE_URL format")
+
+        env = os.environ.copy()
+        env["PGPASSWORD"] = db_pass
+
+        try:
+            result = subprocess.run(
+                [
+                    "psql",
+                    "-h",
+                    db_host,
+                    "-p",
+                    db_port,
+                    "-U",
+                    db_user,
+                    "-d",
+                    db_name,
+                    "-f",
+                    str(tmp_sql),
+                    "--no-password",
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504, detail="Restore timed out after 180s")
+        except FileNotFoundError:
+            raise HTTPException(status_code=500, detail="psql not found in PATH")
+
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=500, detail=f"psql restore failed: {result.stderr[:500]}"
+            )
+
+    log_system_audit(
+        db=db,
+        user_id=current_user["user_id"],
+        action_type="BACKUP_RESTORED",
+        table_affected="wims",
+        record_id=None,
+        request=request,
+    )
+    db.commit()
+
+    return {
+        "status": "ok",
+        "filename": filename,
+        "restored_at": datetime.utcnow().isoformat(),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Dynamic Rate Limit Configuration
 # ---------------------------------------------------------------------------
@@ -967,7 +1107,7 @@ def get_rate_limits(
     current_user: dict = Depends(get_system_admin),
 ):
     """Return current rate limit config for all tiers."""
-    r = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
+    r = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
     try:
         config = r.hgetall(RATE_LIMIT_CONFIG_KEY)
         window = int(config.get("window_seconds", RATE_LIMIT_DEFAULTS["window_seconds"]))
@@ -997,7 +1137,7 @@ def update_rate_limits(
     config_key = f"rate_limit_config:{body.tier}"
     updated_at = str(time.time())
 
-    r = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
+    r = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
     try:
         r.hset(
             config_key,
@@ -1083,3 +1223,86 @@ def get_system_metrics(
             "percent": disk.percent,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Per-User Session Management
+# ---------------------------------------------------------------------------
+
+
+@router.get("/sessions/{user_id}")
+def get_user_sessions(
+    user_id: str,
+    current_user: dict = Depends(get_system_admin),
+    db: Session = Depends(get_db_with_rls),
+):
+    """Fetch all active sessions for a specific user."""
+    row = db.execute(
+        text("SELECT keycloak_id FROM wims.users WHERE user_id = CAST(:uid AS uuid)"),
+        {"uid": user_id},
+    ).fetchone()
+    if not row or not row[0]:
+        raise HTTPException(status_code=404, detail="User not found")
+    keycloak_id = str(row[0])
+
+    from services.keycloak_admin import _get_admin_client
+
+    adm = _get_admin_client()
+    try:
+        sessions = adm.get_sessions(keycloak_id)
+    except Exception:
+        return {"sessions": []}
+
+    return {
+        "sessions": [
+            {
+                "id": s.get("id"),
+                "ipAddress": s.get("ipAddress"),
+                "start": s.get("start"),
+                "lastAccess": s.get("lastAccess"),
+                "clients": s.get("clients", {}),
+            }
+            for s in sessions
+        ]
+    }
+
+
+@router.delete("/sessions/{user_id}/{session_id}")
+def revoke_user_session(
+    user_id: str,
+    session_id: str,
+    current_user: dict = Depends(get_system_admin),
+    db: Session = Depends(get_db_with_rls),
+):
+    """Revoke a specific session for a user."""
+    row = db.execute(
+        text("SELECT keycloak_id FROM wims.users WHERE user_id = CAST(:uid AS uuid)"),
+        {"uid": user_id},
+    ).fetchone()
+    if not row or not row[0]:
+        raise HTTPException(status_code=404, detail="User not found")
+    keycloak_id = str(row[0])
+
+    from services.keycloak_admin import _get_admin_client
+
+    adm = _get_admin_client()
+    try:
+        sessions = adm.get_sessions(keycloak_id)
+        session_ids = [s.get("id") for s in sessions]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Keycloak error: {str(e)}")
+
+    if session_id not in session_ids:
+        raise HTTPException(status_code=404, detail="Session not found for this user")
+
+    try:
+        adm.delete_user_session(session_id=session_id)
+    except AttributeError:
+        try:
+            adm.connection.raw_delete(f"sessions/{session_id}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to revoke session: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to revoke session: {str(e)}")
+
+    return {"status": "ok", "session_id": session_id}
