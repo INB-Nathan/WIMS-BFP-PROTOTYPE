@@ -662,7 +662,7 @@
       "surrogateAuthRequired": false,
       "enabled": true,
       "alwaysDisplayInConsole": false,
-      "clientAuthenticatorType": "client-secret",
+      "clientAuthenticatorType": null,
       "redirectUris": [
         "http://localhost/callback",
         "https://localhost/callback",
@@ -674,11 +674,10 @@
         "https://wims.bfp.gov.ph/*"
       ],
       "webOrigins": [
-        "+",
         "https://165-22-101-73.nip.io",
+        "https://localhost",
         "https://wims.bfp.gov.ph",
         "http://localhost",
-        "https://localhost",
         "http://localhost:3000"
       ],
       "notBefore": 0,
@@ -798,10 +797,16 @@
       "alwaysDisplayInConsole": false,
       "clientAuthenticatorType": "client-secret",
       "redirectUris": [
+        "https://localhost/auth/admin/master/console/*",
+        "https://165-22-101-73.nip.io/auth/admin/master/console/*",
+        "http://localhost:8080/auth/admin/master/console/*",
         "/admin/bfp/console/*"
       ],
       "webOrigins": [
-        "+"
+        "https://localhost",
+        "https://165-22-101-73.nip.io",
+        "https://wims.bfp.gov.ph",
+        "http://localhost"
       ],
       "notBefore": 0,
       "bearerOnly": false,
@@ -814,8 +819,7 @@
       "frontchannelLogout": false,
       "protocol": "openid-connect",
       "attributes": {
-        "post.logout.redirect.uris": "+",
-        "pkce.code.challenge.method": "S256"
+        "post.logout.redirect.uris": "+"
       },
       "authenticationFlowBindingOverrides": {},
       "fullScopeAllowed": false,
@@ -2513,136 +2517,272 @@
       "username": "encoder_r02",
       "email": "encoder_r02@bfp.gov.ph",
       "enabled": true,
-      "realmRoles": ["REGIONAL_ENCODER"],
-      "credentials": [{"type": "password", "value": "WimsBFP2026!", "temporary": false}]
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "ee000003-0000-4003-8003-000000000003",
       "username": "encoder_r03",
       "email": "encoder_r03@bfp.gov.ph",
       "enabled": true,
-      "realmRoles": ["REGIONAL_ENCODER"],
-      "credentials": [{"type": "password", "value": "WimsBFP2026!", "temporary": false}]
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "ee000004-0000-4004-8004-000000000004",
       "username": "encoder_r04",
       "email": "encoder_r04@bfp.gov.ph",
       "enabled": true,
-      "realmRoles": ["REGIONAL_ENCODER"],
-      "credentials": [{"type": "password", "value": "WimsBFP2026!", "temporary": false}]
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "ee000005-0000-4005-8005-000000000005",
       "username": "encoder_r05",
       "email": "encoder_r05@bfp.gov.ph",
       "enabled": true,
-      "realmRoles": ["REGIONAL_ENCODER"],
-      "credentials": [{"type": "password", "value": "WimsBFP2026!", "temporary": false}]
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "ee000006-0000-4006-8006-000000000006",
       "username": "encoder_r06",
       "email": "encoder_r06@bfp.gov.ph",
       "enabled": true,
-      "realmRoles": ["REGIONAL_ENCODER"],
-      "credentials": [{"type": "password", "value": "WimsBFP2026!", "temporary": false}]
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "ee000007-0000-4007-8007-000000000007",
       "username": "encoder_r07",
       "email": "encoder_r07@bfp.gov.ph",
       "enabled": true,
-      "realmRoles": ["REGIONAL_ENCODER"],
-      "credentials": [{"type": "password", "value": "WimsBFP2026!", "temporary": false}]
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "ee000008-0000-4008-8008-000000000008",
       "username": "encoder_r08",
       "email": "encoder_r08@bfp.gov.ph",
       "enabled": true,
-      "realmRoles": ["REGIONAL_ENCODER"],
-      "credentials": [{"type": "password", "value": "WimsBFP2026!", "temporary": false}]
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "ee000009-0000-4009-8009-000000000009",
       "username": "encoder_r09",
       "email": "encoder_r09@bfp.gov.ph",
       "enabled": true,
-      "realmRoles": ["REGIONAL_ENCODER"],
-      "credentials": [{"type": "password", "value": "WimsBFP2026!", "temporary": false}]
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "ee000010-0000-4010-8010-000000000010",
       "username": "encoder_r10",
       "email": "encoder_r10@bfp.gov.ph",
       "enabled": true,
-      "realmRoles": ["REGIONAL_ENCODER"],
-      "credentials": [{"type": "password", "value": "WimsBFP2026!", "temporary": false}]
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "ee000011-0000-4011-8011-000000000011",
       "username": "encoder_r11",
       "email": "encoder_r11@bfp.gov.ph",
       "enabled": true,
-      "realmRoles": ["REGIONAL_ENCODER"],
-      "credentials": [{"type": "password", "value": "WimsBFP2026!", "temporary": false}]
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "ee000012-0000-4012-8012-000000000012",
       "username": "encoder_r12",
       "email": "encoder_r12@bfp.gov.ph",
       "enabled": true,
-      "realmRoles": ["REGIONAL_ENCODER"],
-      "credentials": [{"type": "password", "value": "WimsBFP2026!", "temporary": false}]
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "ee000013-0000-4013-8013-000000000013",
       "username": "encoder_r13",
       "email": "encoder_r13@bfp.gov.ph",
       "enabled": true,
-      "realmRoles": ["REGIONAL_ENCODER"],
-      "credentials": [{"type": "password", "value": "WimsBFP2026!", "temporary": false}]
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "ee000014-0000-4014-8014-000000000014",
       "username": "encoder_r14",
       "email": "encoder_r14@bfp.gov.ph",
       "enabled": true,
-      "realmRoles": ["REGIONAL_ENCODER"],
-      "credentials": [{"type": "password", "value": "WimsBFP2026!", "temporary": false}]
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "ee000015-0000-4015-8015-000000000015",
       "username": "encoder_r15",
       "email": "encoder_r15@bfp.gov.ph",
       "enabled": true,
-      "realmRoles": ["REGIONAL_ENCODER"],
-      "credentials": [{"type": "password", "value": "WimsBFP2026!", "temporary": false}]
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "ee000016-0000-4016-8016-000000000016",
       "username": "encoder_r16",
       "email": "encoder_r16@bfp.gov.ph",
       "enabled": true,
-      "realmRoles": ["REGIONAL_ENCODER"],
-      "credentials": [{"type": "password", "value": "WimsBFP2026!", "temporary": false}]
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "ee000017-0000-4017-8017-000000000017",
       "username": "encoder_r17",
       "email": "encoder_r17@bfp.gov.ph",
       "enabled": true,
-      "realmRoles": ["REGIONAL_ENCODER"],
-      "credentials": [{"type": "password", "value": "WimsBFP2026!", "temporary": false}]
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "ee000018-0000-4018-8018-000000000018",
       "username": "encoder_r18",
       "email": "encoder_r18@bfp.gov.ph",
       "enabled": true,
-      "realmRoles": ["REGIONAL_ENCODER"],
-      "credentials": [{"type": "password", "value": "WimsBFP2026!", "temporary": false}]
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ]
     }
   ],
   "loginTheme": "wims-bfp",

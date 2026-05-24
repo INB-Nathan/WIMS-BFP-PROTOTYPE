@@ -169,6 +169,49 @@ docker compose restart backend           # pick up any new env vars
 
 ---
 
+### RC-5: `security-admin-console` — master realm vs application realm
+
+**Symptom:** Navigating to `https://localhost/auth/admin` redirects to Keycloak login but shows "invalid parameter: redirect_url". Going back to application presents a working login page.
+
+**Root cause:** The `security-admin-console` client exists in two separate realms:
+
+- **`master` realm** — Keycloak's internal bootstrap realm, stored in Keycloak's own PostgreSQL DB (`keycloak` database, not the `wims` app DB). Persists across `docker compose down -v`.
+- **`bfp` realm** — The application realm exported in `bfp-realm.json`. Only exists in the imported realm data.
+
+The admin console login flow uses the **`master` realm's** `security-admin-console` client. I initially patched the `bfp` realm copy (which is a different client, different UUID), never touching the master realm copy.
+
+**kcadm targeting error:** Running `kcadm.sh get clients` without `-r master` defaults to the authenticated realm (from `kcadm.sh config credentials --realm`). If credentials were made against `bfp`, the command edits the wrong realm's client.
+
+**redirect_uri mismatch:** The `master` realm's `security-admin-console` had `redirectUris: ["/admin/master/console/*"]` (relative). When nginx proxies `https://localhost/auth/admin` to Keycloak, Keycloak sees `X-Forwarded-Proto: https` and `X-Forwarded-Host: localhost`, building an absolute `redirect_uri=https://localhost/auth/admin/master/console/` — which the relative pattern did not match.
+
+**Fix (kcadm, live):**
+```bash
+# Authenticate against master realm explicitly
+kcadm.sh config credentials --server http://localhost:8080/auth --realm master --user admin --password admin
+
+# Get correct client ID from master realm
+kcadm.sh get clients -r master
+
+# Update master realm's security-admin-console with absolute redirect URIs
+kcadm.sh update clients/<master-realm-security-admin-console-id> -r master \
+  -s redirectUris='["https://localhost/auth/admin/master/console/*","https://165-22-101-73.nip.io/auth/admin/master/console/*","http://localhost:8080/auth/admin/master/console/*"]' \
+  -s webOrigins='["https://localhost","https://165-22-101-73.nip.io","http://localhost","https://wims.bfp.gov.ph"]'
+```
+
+**Key insight:** `bfp-realm.json` only exports the `bfp` realm. The `master` realm and its clients are **never** in this file. They are Keycloak's internal data and must be patched via kcadm or the Keycloak Admin UI directly.
+
+---
+
+### RC-6: `docker compose down -v` does not wipe Keycloak's master realm data
+
+**Symptom:** After `docker compose down -v` and fresh rebuild, the same Keycloak admin console error recurs.
+
+**Root cause:** The `master` realm's clients (including `security-admin-console`) are stored in Keycloak's own PostgreSQL database at `postgres:5432/keycloak` — not in a Docker named volume from the compose file. `docker compose down -v` wipes named volumes declared in the compose file, but Keycloak uses a bind mount or internal volume for its DB that survives `down -v`.
+
+**Fix:** Use kcadm to patch the master realm's clients — the fix survives across all local restarts because it lives in Keycloak's own DB, not in the import file.
+
+---
+
 ## Key Learnings
 
 1. **Next.js server-side `fetch()` respects nginx HTTPS redirects.** When `BACKEND_URL` routes through nginx from inside a Next.js API route handler, nginx redirects HTTP→HTTPS. The fetch follows the redirect but fails in the server-side context, surfacing as a 500. Always call `http://backend:8000` directly from Next.js server-side route handlers — nginx is for browser traffic only.

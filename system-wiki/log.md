@@ -23,7 +23,7 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 **Wiki updates:** `frontend/frontend-infrastructure.md`, `architecture/infrastructure-config.md`, and `operations/auth-loop-debug-guide.md` (new) created. Log entry added.
 
-**Root causes:** RC-1 (session route → nginx → HTTPS redirect), RC-2 (NEXT_PUBLIC_* baked at build), RC-3 (webOrigins "+" in Keycloak 24), RC-4 (clientAuthenticatorType on public client). See `operations/auth-loop-debug-guide.md` for full debug protocol.
+**Root causes:** RC-1 (session route → nginx → HTTPS redirect), RC-2 (NEXT_PUBLIC_* baked at build), RC-3 (webOrigins "+" in Keycloak 24), RC-4 (clientAuthenticatorType on public client), RC-5 (security-admin-console in master realm — not bfp realm — kcadm targeting error and relative redirectUri mismatch), RC-6 (master realm data survives docker compose down -v). See `operations/auth-loop-debug-guide.md` for full debug protocol.
 
 ---
 
