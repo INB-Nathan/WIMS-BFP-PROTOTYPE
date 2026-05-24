@@ -55,7 +55,7 @@ services:
     container_name: wims-keycloak
     command: start-dev --import-realm
     volumes:
-      - ./keycloak/bfp-realm.json:/opt/keycloak/data/import/bfp-realm.json:ro
+      - ./keycloak/import:/opt/keycloak/data/import:ro
       - ./keycloak/themes/wims-bfp:/opt/keycloak/themes/wims-bfp:ro
     environment:
       KC_DB: postgres

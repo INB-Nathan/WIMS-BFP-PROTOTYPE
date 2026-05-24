@@ -34,6 +34,7 @@ OIDC-based authentication wrapping Keycloak via `oidc-client-ts`. Provides sessi
 - `fetchSession` — calls `GET /api/auth/session`. On 401, attempts refresh then retries once
 - `GET /api/auth/session` is a Next.js route handler that forwards browser cookies to backend `/api/user/me`; its `BACKEND_URL` value is treated as an origin and route paths append `/api/...` explicitly.
 - Local Docker builds inline `NEXT_PUBLIC_API_URL=/api`; authenticated and public API clients therefore use same-origin requests under `https://localhost` instead of `http://localhost/api`.
+- Keycloak startup imports both `src/keycloak/import/bfp-realm.json` and `src/keycloak/import/master-realm.json` so the application realm and the master realm admin console configuration are both recreated on fresh init.
 
 ---
 

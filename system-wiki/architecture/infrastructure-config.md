@@ -14,6 +14,8 @@ status: draft
 
 **File:** `src/docker-compose.yml`
 
+**Keycloak import inputs:** `src/keycloak/import/bfp-realm.json`, `src/keycloak/import/master-realm.json`
+
 **Network:** `wims_internal` (bridge driver)
 
 **Services:**
