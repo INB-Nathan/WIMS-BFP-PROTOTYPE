@@ -3,7 +3,12 @@ import { NextRequest, NextResponse } from 'next/server';
 const BACKEND_URL =
   process.env.BACKEND_URL ||
   process.env.API_SERVER_URL ||
-  (process.env.NEXT_PUBLIC_BASE_URL?.replace(/:\d+$/, '') + '/api');
+  process.env.NEXT_PUBLIC_BASE_URL?.replace(/:\d+$/, '') ||
+  'http://localhost';
+
+function backendUrl(path: string): string {
+  return `${BACKEND_URL.replace(/\/$/, '')}${path}`;
+}
 
 const ACCESS_TOKEN_COOKIE_MAX_AGE = 5 * 60; // 5 minutes: match Keycloak accessTokenLifespan
 const REFRESH_TOKEN_COOKIE_MAX_AGE = 8 * 60 * 60; // 8 hours: match SSO session max
@@ -44,7 +49,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const res = await fetch(`${BACKEND_URL}/api/auth/callback`, {
+    const res = await fetch(backendUrl('/api/auth/callback'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code, code_verifier, redirect_uri }),

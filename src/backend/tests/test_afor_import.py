@@ -4,12 +4,13 @@ from unittest.mock import MagicMock, patch
 
 from openpyxl import Workbook
 
-from api.routes.regional import (
+from services.afor_import import (
     BfpXlsxParser,
+    WildlandXlsxParser,
     detect_afor_template_kind,
     parse_afor_report_data,
-    parse_csv_content,
     parse_wildland_afor_report_data,
+    parse_csv_content,
     parse_xlsx_content,
 )
 

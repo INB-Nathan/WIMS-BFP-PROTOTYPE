@@ -65,7 +65,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.
 
 **TLS mount:** `src/docker-compose.yml` parameterizes the certificate bind as `${LETSENCRYPT_DIR:-/opt/wims-bfp/letsencrypt}:/etc/letsencrypt:ro`. On the VPS, `src/.env.production` sets `LETSENCRYPT_DIR=/etc/letsencrypt`, so `wims-nginx-gateway` receives the host certificate tree directly. Do not replace this with a repo-local symlink directory; Docker bind mounts expose the directory itself, so mounting `/opt/wims-bfp/letsencrypt` when it only contains `letsencrypt -> /etc/letsencrypt` hides the expected `/etc/letsencrypt/live/<domain>/...` paths from nginx.
 
-**VPS frontend/auth env:** `docker-compose.prod.yml` sets browser-facing frontend build/runtime variables to the public HTTPS origin (`${PUBLIC_BASE_URL}`) or relative paths (`/api`, `/auth`). The Next.js server-side auth routes use `BACKEND_URL=http://backend:8000` so container-to-container calls do not pass through the nginx HTTP-to-HTTPS redirect. Keycloak advertises `KC_HOSTNAME_URL=${PUBLIC_BASE_URL}/auth` to keep OIDC discovery issuer/endpoints aligned with the nginx `/auth/` proxy path.
+**Frontend/auth env:** `docker-compose.prod.yml` sets browser-facing frontend build/runtime variables to the public HTTPS origin (`${PUBLIC_BASE_URL}`) or relative paths (`/api`, `/auth`). The development compose file also uses relative `/api` and `/auth` for browser-facing access, so local HTTPS desk checks stay same-origin and avoid CORS preflight redirects from `https://localhost` to `http://localhost/api`. The Next.js server-side auth routes use `BACKEND_URL=http://backend:8000` in both development and production, and route handlers append `/api/...` explicitly. Keycloak advertises `KC_HOSTNAME_URL=${PUBLIC_BASE_URL}/auth` in production to keep OIDC discovery issuer/endpoints aligned with the nginx `/auth/` proxy path.
 
 **Route Table:**
 
@@ -171,7 +171,7 @@ MailHog local development: host=`mailhog`, port=`1025`, from=`noreply@wims-bfp.l
 
 | Client ID | Type | Auth Flow | Notes |
 |---|---|---|---|
-| `wims-web` | Public | Standard + PKCE S256 | Main frontend OIDC client; has audience mapper for `wims-web` |
+| `wims-web` | Public | Standard + PKCE S256 | Main frontend OIDC client; has audience mapper for `wims-web`; allows `http://localhost`, `https://localhost`, VPS HTTPS, and production redirects/origins |
 | `wims-admin-service` | Confidential | Direct Grant + Service Account | Backend-to-Keycloak service client; hardcoded secret |
 | `bfp-client` | Public | Standard + Direct Grant | Alternative/legacy client without PKCE |
 

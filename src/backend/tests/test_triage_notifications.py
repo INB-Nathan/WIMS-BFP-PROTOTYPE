@@ -1,4 +1,4 @@
-from api.routes import triage
+from services.civilian_triage import notifications
 
 
 def test_enqueue_status_notification_logs_and_suppresses_publish_errors(monkeypatch):
@@ -13,10 +13,10 @@ def test_enqueue_status_notification_logs_and_suppresses_publish_errors(monkeypa
         logged["message"] = message
         logged["args"] = args
 
-    monkeypatch.setattr(triage, "send_status_notification", FailingTask)
-    monkeypatch.setattr(triage.logger, "exception", fake_exception)
+    monkeypatch.setattr(notifications, "send_status_notification", FailingTask)
+    monkeypatch.setattr(notifications.logger, "exception", fake_exception)
 
-    triage._enqueue_status_notification(123, "VERIFIED")
+    notifications.enqueue_status_notification(123, "VERIFIED")
 
     assert logged["message"] == ("Failed to enqueue status notification for report_id=%s status=%s")
     assert logged["args"] == (123, "VERIFIED")

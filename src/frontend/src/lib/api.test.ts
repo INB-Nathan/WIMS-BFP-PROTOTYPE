@@ -16,6 +16,9 @@ import {
   fetchRegionalIncidents,
   fetchRegionalIncident,
 } from './api';
+import { fetchHeatmapData as fetchHeatmapDataFromSlice } from './api/analytics';
+import { submitCivilianReport as submitCivilianReportFromSlice } from './api/civilian';
+import { fetchRegionalIncidents as fetchRegionalIncidentsFromSlice } from './api/regional';
 import {
   buildRegionalIncidentsQueryString,
   clampRegionalPageSize,
@@ -61,6 +64,14 @@ describe('apiFetch content-type handling', () => {
     const [, options] = fetchSpy.mock.calls[0];
     const headers = new Headers(options?.headers as HeadersInit | undefined);
     expect(headers.has('Content-Type')).toBe(false);
+  });
+});
+
+describe('domain API slices', () => {
+  it('keep compatibility exports aligned with domain slice exports', () => {
+    expect(fetchHeatmapDataFromSlice).toBe(fetchHeatmapData);
+    expect(submitCivilianReportFromSlice).toBe(submitCivilianReport);
+    expect(fetchRegionalIncidentsFromSlice).toBe(fetchRegionalIncidents);
   });
 });
 

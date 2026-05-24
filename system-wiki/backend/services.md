@@ -1,9 +1,9 @@
 ---
 title: Backend Services
 created: 2026-05-16
-updated: 2026-05-16
+updated: 2026-05-24
 type: backend
-tags: [wims-bfp, backend, services, analytics, keycloak, duplicate-detection, ai, xai]
+tags: [wims-bfp, backend, services, analytics, keycloak, duplicate-detection, civilian-triage, ai, xai]
 sources: [src/backend/services/]
 status: draft
 ---
@@ -11,6 +11,60 @@ status: draft
 # Backend Services
 
 Business logic layer between routes and database. All services are in `src/backend/services/`.
+
+---
+
+## Civilian Triage
+
+**Files:** `src/backend/services/civilian_triage/`
+
+Workflow Module for public civilian report triage. `src/backend/api/routes/triage.py` is now the HTTP Adapter for auth dependencies, query/body binding, response models, and disabled legacy promotion endpoints.
+
+### Module Surface
+
+- `models.py` — Pydantic request/response contracts for queue, cluster activity, merge candidates, terminal actions, corrections, split/merge, and workflow results.
+- `policies.py` — terminal report statuses, role capability predicates, claim staleness, aging/timeout thresholds, related-report and merge-candidate thresholds, GPS mismatch threshold, and severity rules.
+- `repository.py` — cluster fetch, claim validation, claim response, and internal-note helpers.
+- `queue_projection.py` — `get_queue`, including durable singleton-cluster materialization before queue reads.
+- `workflow.py` — claim, refresh activity, activity projection, merge candidates, terminal action, correction, split, and merge commands.
+- `notifications.py` — status notification enqueue seam; enqueue errors are logged and do not roll back committed triage state.
+
+### Compatibility Notes
+
+Civilian reports remain `wims.citizen_reports` public signal rows and the triage workflow does not create `fire_incidents`. Queue projection does not expose `device_id`, `ip_hash`, FCM tokens, or other privacy fields. Public duplicate suggestions remain 500m in the civilian API, while triage related counts/severity remain 100m / 1hr.
+
+---
+
+## Regional Incidents
+
+**Files:** `src/backend/services/regional_incidents/lifecycle.py`, `src/backend/services/regional_incidents/policies.py`
+
+Lifecycle command Module for official `wims.fire_incidents` state transitions. `src/backend/api/routes/regional.py` remains the HTTP Adapter for auth/RLS/request parsing, while this Module owns selected transition rules and side effects.
+
+### Policy Surface
+
+`policies.py` defines:
+- `VALIDATOR_ACTION_MAP`: accept/accept_replace -> VERIFIED, pending -> PENDING, reject -> REJECTED.
+- `VALIDATOR_DEFAULT_QUEUE_STATUSES`: `("PENDING", "PENDING_VALIDATION")`.
+- encoder transition matrix for submit, unpend, force-replace, and delete.
+- validator transition matrix for `PENDING` and `PENDING_VALIDATION` inputs.
+
+### Lifecycle Commands
+
+`lifecycle.py` exposes:
+- `submit_incident_for_review_command`
+- `unpend_incident_command`
+- `delete_encoder_incident`
+- `force_replace_pending_incident`
+- `verify_incident_command`
+- `bulk_approve_pending_incidents`
+- `archive_finalized_incident`
+
+These commands preserve existing route contracts while centralizing IVH writes, duplicate checks for manual submit/validator/bulk approval, immutable replacement ordering, reference-number assignment, and analytics sync after validator approval.
+
+### Compatibility Notes
+
+Encoder submission still writes `PENDING`. Validator queues and policy tests keep compatibility with both `PENDING` and `PENDING_VALIDATION`. AFOR import duplicate handling remains separate in `services.afor_import`.
 
 ---
 
@@ -35,6 +89,16 @@ Bulk version for batch operations. Partition results in Python into to_delete + 
 Fetches all VERIFIED + non-archived incidents. Bulk-upserts via `jsonb_to_recordset`. Returns count of synced rows (0 on failure). Commits on success, rolls back on failure.
 
 ### Query Functions
+
+#### `services.analytics.filters`
+
+Typed query Interface for analytics filters.
+
+- `AnalyticsQueryFilters` normalizes date, region, geography, incident type, alarm, casualty severity, damage range, and selected incident filters.
+- `build_analytics_filters(...)` parses comma-separated `region_ids`, deduplicates selected incident ids, and rejects `damage_max < damage_min`.
+- `append_common_filters(clauses, params, filters, ...)` compiles shared SQL clauses for analytics facts and analyst-list/export aliases.
+
+The legacy `analytics_read_model._append_common_filters(...)` wrapper delegates to this Module.
 
 #### `_append_common_filters(clauses, params, **filters)`
 

@@ -16,6 +16,7 @@ import auth
 from auth import get_current_wims_user, get_analyst_or_admin
 from database import get_db_with_rls
 from schemas.incident import IncidentCreate, IncidentResponse
+from services.analytics.filters import append_common_filters, build_analytics_filters
 from services.analytics_read_model import sync_incident_to_analytics
 from api.routes.regional import _normalize_general_category, _insert_incident_verification_history
 from tasks.exports import export_analyst_incidents_task
@@ -674,28 +675,7 @@ def get_analyst_incident_list(
     where_clauses = ["fi.verification_status = 'VERIFIED'", "fi.is_archived = FALSE"]
     params: dict[str, Any] = {}
 
-    if start_date:
-        where_clauses.append("nd.notification_dt >= :start_date")
-        params["start_date"] = start_date
-    if end_date:
-        where_clauses.append("nd.notification_dt <= :end_date")
-        params["end_date"] = end_date
-    if region_id:
-        where_clauses.append("fi.region_id = :region_id")
-        params["region_id"] = region_id
-    if province:
-        where_clauses.append("aif.province_name = :province")
-        params["province"] = province
-    if municipality:
-        where_clauses.append("aif.municipality_name = :municipality")
-        params["municipality"] = municipality
-    if incident_type:
-        where_clauses.append("nd.general_category = :incident_type")
-        params["incident_type"] = incident_type
-    if alarm_level:
-        where_clauses.append("nd.alarm_level = :alarm_level")
-        params["alarm_level"] = alarm_level
-
+    parsed_incident_ids: list[int] = []
     if incident_ids:
         try:
             parsed_incident_ids = [int(x.strip()) for x in incident_ids.split(",") if x.strip()]
@@ -703,23 +683,39 @@ def get_analyst_incident_list(
             raise HTTPException(
                 status_code=422, detail="incident_ids must be comma-separated integers"
             ) from exc
-        if parsed_incident_ids:
-            where_clauses.append("fi.incident_id = ANY(:incident_ids)")
-            params["incident_ids"] = parsed_incident_ids
-
-    if casualty_severity:
-        _append_analyst_casualty_filter(where_clauses, casualty_severity)
-
-    if damage_min is not None:
-        where_clauses.append(
-            "COALESCE(aif.estimated_damage_php, nd.estimated_damage_php, 0) >= :damage_min"
-        )
-        params["damage_min"] = damage_min
-    if damage_max is not None:
-        where_clauses.append(
-            "COALESCE(aif.estimated_damage_php, nd.estimated_damage_php, 0) <= :damage_max"
-        )
-        params["damage_max"] = damage_max
+    filters = build_analytics_filters(
+        start_date=start_date,
+        end_date=end_date,
+        region_id=region_id,
+        province=province,
+        municipality=municipality,
+        incident_type=incident_type,
+        alarm_level=alarm_level,
+        casualty_severity=casualty_severity,
+        damage_min=damage_min,
+        damage_max=damage_max,
+        selected_incident_ids=parsed_incident_ids,
+    )
+    append_common_filters(
+        where_clauses,
+        params,
+        filters,
+        table_alias="fi",
+        damage_expression="COALESCE(aif.estimated_damage_php, nd.estimated_damage_php, 0)",
+        column_expressions={
+            "notification_date": "nd.notification_dt",
+            "region_id": "fi.region_id",
+            "province_name": "aif.province_name",
+            "municipality_name": "aif.municipality_name",
+            "general_category": "nd.general_category",
+            "alarm_level": "nd.alarm_level",
+            "incident_id": "fi.incident_id",
+            "civilian_injured": "COALESCE(aif.civilian_injured, nd.civilian_injured, 0)",
+            "civilian_deaths": "COALESCE(aif.civilian_deaths, nd.civilian_deaths, 0)",
+            "firefighter_injured": "COALESCE(aif.firefighter_injured, nd.firefighter_injured, 0)",
+            "firefighter_deaths": "COALESCE(aif.firefighter_deaths, nd.firefighter_deaths, 0)",
+        },
+    )
 
     where_sql = " AND ".join(where_clauses)
 

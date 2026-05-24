@@ -5,6 +5,7 @@ from api.routes.incidents import (
     get_analyst_incident_detail,
     get_analyst_incident_list,
 )
+from services.analytics.filters import append_common_filters
 
 
 def test_analyst_list_query_uses_current_location_columns():
@@ -29,9 +30,12 @@ def test_analyst_list_derives_casualty_severity_from_counts():
 
 def test_analyst_list_supports_selected_incident_ids_filter():
     source = inspect.getsource(get_analyst_incident_list)
+    compiler_source = inspect.getsource(append_common_filters)
 
     assert "incident_ids" in source
-    assert "fi.incident_id = ANY(:incident_ids)" in source
+    assert "selected_incident_ids=parsed_incident_ids" in source
+    assert "fi.incident_id" in source
+    assert "selected_incident_ids" in compiler_source
     assert "comma-separated integers" in source
 
 

@@ -665,8 +665,10 @@
       "clientAuthenticatorType": "client-secret",
       "redirectUris": [
         "http://localhost/callback",
+        "https://localhost/callback",
         "http://localhost:3000/*",
         "http://localhost/*",
+        "https://localhost/*",
         "https://165-22-101-73.nip.io/callback",
         "https://165-22-101-73.nip.io/*",
         "https://wims.bfp.gov.ph/*"
@@ -676,6 +678,7 @@
         "https://165-22-101-73.nip.io",
         "https://wims.bfp.gov.ph",
         "http://localhost",
+        "https://localhost",
         "http://localhost:3000"
       ],
       "notBefore": 0,
@@ -855,20 +858,21 @@
       "surrogateAuthRequired": false,
       "enabled": true,
       "alwaysDisplayInConsole": false,
-      "clientAuthenticatorType": "client-secret",
       "redirectUris": [
+        "https://localhost/callback",
         "http://localhost/callback",
-        "http://localhost:3000/*",
+        "https://localhost/*",
         "http://localhost/*",
+        "http://localhost:3000/*",
         "https://165-22-101-73.nip.io/callback",
         "https://165-22-101-73.nip.io/*",
         "https://wims.bfp.gov.ph/*"
       ],
       "webOrigins": [
-        "+",
+        "https://localhost",
+        "http://localhost",
         "https://165-22-101-73.nip.io",
         "https://wims.bfp.gov.ph",
-        "http://localhost",
         "http://localhost:3000"
       ],
       "notBefore": 0,

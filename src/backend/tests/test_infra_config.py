@@ -52,6 +52,24 @@ def _service_env(compose: dict[str, Any], service_name: str) -> dict[str, Any]:
     raise AssertionError(f"service '{service_name}' has unsupported environment format")
 
 
+def _service_build_args(compose: dict[str, Any], service_name: str) -> dict[str, Any]:
+    services = compose.get("services")
+    if not isinstance(services, dict):
+        raise AssertionError("docker-compose.yml missing services map")
+    service = services.get(service_name)
+    if not isinstance(service, dict):
+        raise AssertionError(f"service '{service_name}' not found")
+    build = service.get("build")
+    if not isinstance(build, dict):
+        return {}
+    args = build.get("args")
+    if args is None:
+        return {}
+    if isinstance(args, dict):
+        return args
+    raise AssertionError(f"service '{service_name}' has unsupported build args format")
+
+
 @pytest.fixture(autouse=True)
 def flush_rate_limits() -> None:
     """Override redis-dependent autouse fixture in conftest for this module."""
@@ -69,6 +87,7 @@ def test_keycloak_admin_lockout_guard() -> None:
 def test_frontend_next_public_api_url_is_browser_resolvable() -> None:
     compose = _load_compose()
     frontend_env = _service_env(compose, "frontend")
+    frontend_build_args = _service_build_args(compose, "frontend")
     api_url = frontend_env.get("NEXT_PUBLIC_API_URL")
     assert api_url, (
         "NEXT_PUBLIC_API_URL is missing for the frontend service. "
@@ -77,6 +96,25 @@ def test_frontend_next_public_api_url_is_browser_resolvable() -> None:
     assert "nginx-gateway" not in str(api_url), (
         "NEXT_PUBLIC_API_URL points at an internal Docker hostname. "
         "Use localhost or a relative path instead of nginx-gateway."
+    )
+    assert api_url == "/api", (
+        "NEXT_PUBLIC_API_URL must be same-origin /api so HTTPS localhost does not "
+        "make browser requests to http://localhost/api and trigger CORS preflight redirects."
+    )
+    assert frontend_build_args.get("NEXT_PUBLIC_API_URL") == "/api", (
+        "The frontend build arg for NEXT_PUBLIC_API_URL must also be /api because "
+        "Next.js inlines NEXT_PUBLIC_* values at build time."
+    )
+
+
+def test_frontend_server_auth_routes_call_backend_directly() -> None:
+    compose = _load_compose()
+    frontend_env = _service_env(compose, "frontend")
+    backend_url = frontend_env.get("BACKEND_URL")
+    assert backend_url == "http://backend:8000", (
+        "Next.js auth route handlers must call FastAPI directly inside Docker. "
+        "Calling nginx-gateway over HTTP can hit the HTTP-to-HTTPS redirect and make "
+        "/api/auth/session return 500 after login."
     )
 
 

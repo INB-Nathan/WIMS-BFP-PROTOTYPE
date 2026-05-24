@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from celery_config import celery_app
 from auth import get_analyst_or_admin
 from database import get_db_with_rls
+from services.analytics.filters import build_analytics_filters
 from services.analytics_read_model import (
     count_in_range,
     get_filter_options,
@@ -70,34 +71,23 @@ def get_heatmap(
     GeoJSON-compatible heatmap data for verified incidents.
     Uses wims.analytics_incident_facts (indexed access).
     """
-    if damage_min is not None and damage_max is not None and damage_max < damage_min:
-        raise HTTPException(
-            status_code=422,
-            detail="damage_max must be greater than or equal to damage_min",
-        )
-
-    parsed_region_ids: Optional[list[int]] = None
-    if region_ids:
-        try:
-            parsed_region_ids = [int(x.strip()) for x in region_ids.split(",") if x.strip()]
-        except ValueError:
-            raise HTTPException(
-                status_code=422, detail="region_ids must be comma-separated integers"
-            )
-
-    points = get_heatmap_points(
-        db,
+    filters = build_analytics_filters(
         start_date=start_date,
         end_date=end_date,
         region_id=region_id,
-        region_ids=parsed_region_ids,
+        region_ids=region_ids,
         province=province,
         municipality=municipality,
-        alarm_level=alarm_level,
         incident_type=incident_type,
+        alarm_level=alarm_level,
         casualty_severity=casualty_severity,
         damage_min=damage_min,
         damage_max=damage_max,
+    )
+
+    points = get_heatmap_points(
+        db,
+        **filters.as_task_filters(),
     )
     features = [
         {
@@ -136,29 +126,24 @@ def get_trends_route(
     Time-series counts for line/bar charts.
     Uses wims.analytics_incident_facts (indexed access).
     """
-    parsed_region_ids: Optional[list[int]] = None
-    if region_ids:
-        try:
-            parsed_region_ids = [int(x.strip()) for x in region_ids.split(",") if x.strip()]
-        except ValueError:
-            raise HTTPException(
-                status_code=422, detail="region_ids must be comma-separated integers"
-            )
-
-    data = get_trends(
-        db,
+    filters = build_analytics_filters(
         start_date=start_date,
         end_date=end_date,
         region_id=region_id,
-        region_ids=parsed_region_ids,
+        region_ids=region_ids,
         province=province,
         municipality=municipality,
         incident_type=incident_type,
         alarm_level=alarm_level,
-        interval=interval,
         casualty_severity=casualty_severity,
         damage_min=damage_min,
         damage_max=damage_max,
+    )
+
+    data = get_trends(
+        db,
+        interval=interval,
+        **filters.as_task_filters(),
     )
     return {"data": data}
 

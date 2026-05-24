@@ -1,7 +1,7 @@
 ---
 title: Regional Dashboard
 created: 2026-05-16
-updated: 2026-05-16
+updated: 2026-05-24
 type: operation
 tags: [wims-bfp, regional, encoder, dashboard, incident-workflow, afor]
 sources: [src/frontend/src/app/dashboard/regional/page.tsx, src/frontend/src/app/dashboard/regional/audit/page.tsx, src/frontend/src/app/dashboard/regional/drafts/page.tsx, src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx, src/backend/api/routes/regional.py]
@@ -16,7 +16,8 @@ The regional dashboard (`/dashboard/regional`) serves the `REGIONAL_ENCODER` rol
 
 - Accessible to: `REGIONAL_ENCODER`, `NATIONAL_VALIDATOR`, (legacy `ENCODER`, `VALIDATOR`)
 - Unauthorised users are redirected to `/dashboard`
-- All backend routes in `regional.py` use `Depends(get_regional_encoder)` or `Depends(get_national_validator)` with region-scoped RLS via `get_db_with_rls()`
+- All backend routes in `regional.py` use `Depends(get_regional_encoder)` or `Depends(get_national_validator)` with region-scoped RLS via `get_db_with_rls()`.
+- Selected mutation endpoints delegate lifecycle rules to `src/backend/services/regional_incidents/lifecycle.py`; `regional.py` remains the HTTP Adapter.
 
 ## Frontend UI Surface
 
@@ -132,6 +133,18 @@ All in `src/backend/api/routes/regional.py` (~5050 lines). This is the largest r
 | `PATCH` | `/api/regional/validator/incidents/{incident_id}/archive` | `archive_incident` | Changes status to `ARCHIVED` |
 | `GET` | `/api/regional/validator/incidents/{incident_id}/diff` | `get_incident_diff` | Returns before/after diff for verification review |
 | `POST` | `/api/regional/incidents/{incident_id}/force-replace` | `force_replace_incident` | Replaces a verified incident with a corrected version (M4 correction flow) |
+
+### Regional Incident Lifecycle Module
+
+**Source:** `src/backend/services/regional_incidents/`
+
+The Phase 3 architecture refactor moved selected official incident transition behavior out of `regional.py` and into a backend service Module:
+
+- `policies.py` defines encoder and validator transition matrices.
+- `lifecycle.py` owns submit, unpend, delete, force-replace pending, validator decision, bulk approve, and archive finalized commands.
+- `regional.py` still owns FastAPI auth dependencies, RLS session dependency injection, request models, response plumbing, and read/query endpoints.
+
+Compatibility decision: encoder submit still writes `PENDING`; validator queue defaults include both `PENDING` and `PENDING_VALIDATION`.
 
 ### Audit Logs (`regional.py` lines ~4000–4500)
 

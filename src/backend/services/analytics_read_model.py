@@ -13,6 +13,8 @@ from typing import Any, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from services.analytics.filters import append_common_filters, build_analytics_filters
+
 EXPORT_LOG_TABLE = "analytics_export_log"
 logger = logging.getLogger(__name__)
 
@@ -33,48 +35,20 @@ def _append_common_filters(
     damage_min: Optional[float] = None,
     damage_max: Optional[float] = None,
 ) -> None:
-    if start_date:
-        clauses.append("a.notification_date >= CAST(:start_date AS date)")
-        params["start_date"] = start_date
-    if end_date:
-        clauses.append("a.notification_date <= CAST(:end_date AS date)")
-        params["end_date"] = end_date
-    if region_ids:
-        clauses.append("a.region_id = ANY(:region_ids)")
-        params["region_ids"] = region_ids
-    elif region_id is not None:
-        clauses.append("a.region_id = :region_id")
-        params["region_id"] = region_id
-    if province:
-        clauses.append("a.province_name = :province")
-        params["province"] = province
-    if municipality:
-        clauses.append("a.municipality_name = :municipality")
-        params["municipality"] = municipality
-    if alarm_level:
-        clauses.append("a.alarm_level = :alarm_level")
-        params["alarm_level"] = alarm_level
-    if incident_type:
-        clauses.append("a.general_category = :incident_type")
-        params["incident_type"] = incident_type
-    if casualty_severity == "high":
-        clauses.append("(a.civilian_deaths + a.firefighter_deaths) > 0")
-    elif casualty_severity == "medium":
-        clauses.append(
-            "(a.civilian_injured + a.firefighter_injured) > 0 "
-            "AND (a.civilian_deaths + a.firefighter_deaths) = 0"
-        )
-    elif casualty_severity == "low":
-        clauses.append(
-            "(a.civilian_injured + a.firefighter_injured + "
-            "a.civilian_deaths + a.firefighter_deaths) = 0"
-        )
-    if damage_min is not None:
-        clauses.append("a.estimated_damage_php >= :damage_min")
-        params["damage_min"] = damage_min
-    if damage_max is not None:
-        clauses.append("a.estimated_damage_php <= :damage_max")
-        params["damage_max"] = damage_max
+    filters = build_analytics_filters(
+        start_date=start_date,
+        end_date=end_date,
+        region_id=region_id,
+        region_ids=region_ids,
+        province=province,
+        municipality=municipality,
+        incident_type=incident_type,
+        alarm_level=alarm_level,
+        casualty_severity=casualty_severity,
+        damage_min=damage_min,
+        damage_max=damage_max,
+    )
+    append_common_filters(clauses, params, filters)
 
 
 def sync_incident_to_analytics(db: Session, incident_id: int) -> None:

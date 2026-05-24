@@ -1,7 +1,7 @@
 ---
 title: Frontend Infrastructure
 created: 2026-05-16
-updated: 2026-05-16
+updated: 2026-05-24
 type: frontend
 tags: [wims-bfp, frontend, components, api-client, auth, utilities]
 sources: [src/frontend/src/context/AuthContext.tsx, src/frontend/src/lib/api.ts, src/frontend/src/lib/afor-utils.ts, src/frontend/src/lib/ph-regions.ts, src/frontend/src/lib/regional-incidents.ts, src/frontend/src/lib/analyst-workflow-transfer.ts, src/frontend/src/lib/edgeFunctions.ts, src/frontend/src/types/api.ts]
@@ -26,25 +26,47 @@ OIDC-based authentication wrapping Keycloak via `oidc-client-ts`. Provides sessi
 | `useAuth()` | Hook | Returns `AuthContextValue`; throws if used outside `AuthProvider` |
 
 **Key mechanics:**
+- `createUserManager()` resolves localhost auth through the browser origin `/auth` proxy when the configured Keycloak URL points at `localhost:8080`; this avoids browser-side PKCE token exchange CORS failures when the app is served from `https://localhost`.
 - `PROACTIVE_REFRESH_INTERVAL_MS = 240000` (4 min) — fires before 5-min access token expiry
 - `REFRESH_LOCK_NAME = 'wims:auth:refresh_lock'` — cross-tab coordination via `navigator.locks`
 - Logout clears OIDC state, calls `POST /api/auth/logout`, redirects to Keycloak `signoutRedirect` with `id_token_hint`
 - `refreshAccessToken` — acquires a navigator lock then `POST /api/auth/refresh`. Ensures only one tab refreshes at a time (prevents `refreshTokenMaxReuse:0` race)
 - `fetchSession` — calls `GET /api/auth/session`. On 401, attempts refresh then retries once
+- `GET /api/auth/session` is a Next.js route handler that forwards browser cookies to backend `/api/user/me`; its `BACKEND_URL` value is treated as an origin and route paths append `/api/...` explicitly.
+- Local Docker builds inline `NEXT_PUBLIC_API_URL=/api`; authenticated and public API clients therefore use same-origin requests under `https://localhost` instead of `http://localhost/api`.
 
 ---
 
 ## API Client
 
-**File:** `src/frontend/src/lib/api.ts`
+**Files:** `src/frontend/src/lib/api.ts`, `src/frontend/src/lib/api/`
 
-Core fetch-based API client. Uses `credentials: 'include'` for cookie-based auth. All 47 fetch functions exported from this single module.
+The API client is split into domain slices with a compatibility barrel. `src/frontend/src/lib/api.ts` re-exports `src/frontend/src/lib/api/index.ts` so existing `@/lib/api` imports continue to work.
+
+### API Slice Layout
+
+| File | Purpose |
+|---|---|
+| `api/transport.ts` | Authenticated `apiFetch`, `API_BASE`, `ApiRequestError`, error extraction, cookie credentials, refresh retry, FormData handling |
+| `api/public-transport.ts` | Zero-auth `publicApiFetch` with `credentials: 'omit'` |
+| `api/errors.ts` | Error utility re-exports |
+| `api/civilian.ts` | Public civilian reporting/tracking/notification exports |
+| `api/triage.ts` | Validator triage queue and cluster workflow exports |
+| `api/analytics.ts` | Analyst analytics, exports, and incident-list exports |
+| `api/regional.ts` | Regional encoder incidents, drafts, AFOR import/commit, duplicate checks |
+| `api/admin.ts` | Admin/user/session/security/audit exports |
+| `api/reference.ts` | Reference data and nearby-station exports |
+| `api/validator.ts` | Validator-oriented compatibility exports |
+| `api/legacy.ts` | Temporary implementation holder during migration; new code should prefer domain slices |
+
+Public civilian functions use `publicApiFetch` and do not call authenticated `apiFetch`.
 
 **Core helper:**
 
 | Function | Signature | Purpose |
 |---|---|---|
-| `apiFetch<T>(path, options?)` | `(path, options?) => Promise<T>` | Core fetch wrapper. Normalizes path, sets JSON Content-Type (except FormData), handles 401 with auto-refresh retry |
+| `apiFetch<T>(path, options?)` | `(path, options?) => Promise<T>` | Authenticated fetch wrapper. Normalizes path, sets JSON Content-Type (except FormData), handles 401 with auto-refresh retry |
+| `publicApiFetch<T>(path, options?)` | `(path, options?) => Promise<T>` | Public/DMZ fetch wrapper. Always sends `credentials: 'omit'` |
 
 ### Incident CRUD Functions (18)
 

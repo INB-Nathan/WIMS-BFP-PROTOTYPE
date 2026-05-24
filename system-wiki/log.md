@@ -3,6 +3,30 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-05-24] fix | Localhost Dashboard Callback Loop
+
+**Diagnosis:**
+- After successful Keycloak login, `GET /api/auth/session` returned 500 because the Next.js session route called `BACKEND_URL=http://nginx-gateway:80`; nginx redirects HTTP to HTTPS, so the server-side session probe failed before reaching FastAPI.
+- Authenticated browser API calls used the built `NEXT_PUBLIC_API_URL=http://localhost/api`, so an app opened at `https://localhost` fetched `http://localhost/api/...` and hit CORS/preflight redirect failures.
+- Keycloak `wims-web` client had `webOrigins: ["+"]` (literal string, not a wildcard in Keycloak 24 — causes 400 on all auth requests) and `clientAuthenticatorType: "client-secret"` (contradicts `publicClient: true`).
+
+**Implementation:**
+- `src/docker-compose.yml`: `BACKEND_URL=http://backend:8000` (session route calls FastAPI directly, bypassing nginx HTTPS redirect).
+- `src/docker-compose.yml`: `NEXT_PUBLIC_AUTH_API_URL=/auth` baked at build time via `docker compose build frontend`.
+- `src/keycloak/bfp-realm.json`: Replaced `webOrigins: ["+"]` with explicit origins (`https://localhost`, `http://localhost`, `https://165-22-101-73.nip.io`, `https://wims.bfp.gov.ph`) on `wims-web`. Removed `clientAuthenticatorType: "client-secret"`.
+- `docker compose restart keycloak` to reload patched realm JSON.
+- `docker compose build frontend && docker compose up -d frontend` to rebake env vars.
+
+**Verification:**
+- `pytest src/backend/tests/test_infra_config.py -q` -> 4 passed.
+- `npx vitest run src/app/api/auth/session/route.test.ts` -> 2 passed.
+
+**Wiki updates:** `frontend/frontend-infrastructure.md`, `architecture/infrastructure-config.md`, and `operations/auth-loop-debug-guide.md` (new) created. Log entry added.
+
+**Root causes:** RC-1 (session route → nginx → HTTPS redirect), RC-2 (NEXT_PUBLIC_* baked at build), RC-3 (webOrigins "+" in Keycloak 24), RC-4 (clientAuthenticatorType on public client). See `operations/auth-loop-debug-guide.md` for full debug protocol.
+
+---
+
 ## [2026-05-23] fix | VPS nginx TLS certificate bind mount
 - Diagnosed `wims-nginx-gateway` exit 1 on VPS: nginx could not load `/etc/letsencrypt/live/165-22-101-73.nip.io/fullchain.pem`.
 - Host certificate tree existed under `/etc/letsencrypt/live/165-22-101-73.nip.io`, but compose mounted `/opt/wims-bfp/letsencrypt`, which only contained `letsencrypt -> /etc/letsencrypt`.
@@ -624,3 +648,191 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `src/frontend/src/components/ClusterMapInner.tsx` (new)
 - `src/frontend/src/app/incidents/triage/page.test.tsx` (new)
 - `system-wiki/gaps/frs-codebase-gap-register.md`
+
+## [2026-05-23] fix | moved nginx /health location directive from http{} level to HTTPS server{} block
+- Commit `32780a0`: moved nginx `/health` location directive from `http{}` level to HTTPS `server{}` block — fixes "location directive is not allowed here" config validity error. `/health` now served directly by nginx gateway, not proxied.
+
+## [2026-05-23] plan | staged architecture refactor pages
+- Added seven phase planning pages under `system-wiki/plans/` for the architecture refactor sequence:
+  - `architecture-refactor-phase-0-safety-baseline.md`
+  - `architecture-refactor-phase-1-afor-parser-extraction.md`
+  - `architecture-refactor-phase-2-afor-commit-extraction.md`
+  - `architecture-refactor-phase-3-regional-incident-lifecycle.md`
+  - `architecture-refactor-phase-4-civilian-triage-workflow.md`
+  - `architecture-refactor-phase-5-analytics-query-interface.md`
+  - `architecture-refactor-phase-6-frontend-api-slices.md`
+- Updated `system-wiki/index.md` with links to each phase page.
+- No code, schema, infrastructure, or test behavior changed.
+
+## [2026-05-23] plan | architecture refactor phase goals and stop criteria
+- Added explicit `Goal` and `Stop Criteria` sections to all seven architecture refactor phase pages.
+- The stop criteria define when future agents should end each phase without expanding into adjacent refactors.
+- No code, schema, infrastructure, or test behavior changed.
+
+## [2026-05-24] complete | Architecture Refactor Phase 0 Safety Baseline
+
+**Session context:** Baseline survey for architecture refactor chain (phases 0–6). No production code changed.
+
+**Baseline results:**
+- Backend: 119/119 tests passed across 7 test files (`test_afor_import.py`, `test_regional_afor_unified_import.py`, `test_regional_crud.py`, `test_triage_queue.py`, `test_analytics_api.py`, `test_analyst_export.py`, `test_analyst_incidents_sql_contract.py`).
+- Frontend: 43/43 tests passed across 5 test files (`api.test.ts`, `incidents/triage/page.test.tsx`, `report/tracking/page.test.tsx`, `CalmEmergencyBlock.test.tsx`, `dashboard/analyst/page.test.tsx`).
+- 1 non-blocking stderr warning: React `fill` attribute on non-SVG element in `report/tracking/page.test.tsx` — does not affect functionality.
+
+**Drift decisions deferred:**
+- `PENDING` vs `PENDING_VALIDATION` → Phase 3.
+- Civilian duplicate spatial rule (500m vs 100m/1hr) → Phase 4.
+- `top-barangays` endpoint existence → Phase 5.
+
+**Environment note:** Backend tests run inside `wims-backend` container (`docker exec wims-backend pytest …`). Host Python lacks `jose`/`psycopg2`/Docker-backed DB session.
+
+**No production code edited.** Phase 0 complete; Phase 1 (AFOR parser extraction) is the next implementation target.
+
+## [2026-05-24] complete | Phase 1 AFOR Parser Extraction
+
+**Session context:** Pick up from prior session's handoff. Phase 1 parser extraction was done but Docker verification was interrupted by sandbox filesystem issue. Restarted Docker build and reran integration tests.
+
+**Implementation:**
+- `src/backend/services/afor_import/__init__.py` — exports `AforParsedRow`, `AforParseResponse`, `AforFormKind`, `WildlandRowSource`, `ALARM_LEVEL_MAP`, `_column_letters_to_index`, parser functions
+- `src/backend/services/afor_import/models.py` — parser models `AforParsedRow`, `AforParseResponse`, `AforFormKind`, `WildlandRowSource`
+- `src/backend/services/afor_import/parse.py` — parser implementation (structural/wildland/workbook/CSV)
+- Removed duplicated AFOR parser from `src/backend/api/routes/regional.py`; route now imports from `services.afor_import`
+- Updated `src/backend/tests/test_afor_import.py` to import parser symbols from `services.afor_import`
+
+**Fixes applied during verification:**
+- Added missing `ALARM_LEVEL_MAP` to `parse.py` and exported it
+- Added missing `_column_letters_to_index()` to `parse.py`
+- Fixed malformed `_parse_ha_from_area_text()` after extraction
+
+**Verification:** Host `pytest tests/test_afor_import.py` → 13 passed. Docker integration after final parser fix → all pass.
+
+## [2026-05-24] complete | Phase 2 AFOR Commit Extraction
+
+**Session context:** Followed Phase 1 directly. Commit implementation was structurally done but HTTP status codes in `_wgs84_pair_from_raw` were 422 instead of 400.
+
+**Implementation:**
+- `src/backend/services/afor_import/models.py` — added `DuplicateAction`, `RowResolution`, `AforCommitRequest`, `AforCommitResponse`
+- `src/backend/services/afor_import/commit.py` — `AforCommitDependencies`, `_wgs84_pair_from_raw()`, duplicate matching helpers, wildland persistence, `commit_afor_import_command()`
+- `src/backend/api/routes/regional.py` `POST /api/regional/afor/commit` reduced to thin adapter: parse JSON → validate `AforCommitRequest` → call `commit_afor_import_command(...)` → return response
+- Removed old AFOR commit helper block from `regional.py`
+
+**Fix applied during verification:**
+- `_wgs84_pair_from_raw` raised `HTTPException(status_code=422)` everywhere; original code used `status_code=400`. Fixed all 5 occurrences to `400`.
+
+**Verification:** Docker `pytest tests/test_afor_import.py tests/integration/test_regional_afor_unified_import.py` → 24 passed. `pytest tests/integration/test_regional_crud.py` → 15 passed.
+
+**Cleanup:** Removed unused `sync_incidents_batch` import from `regional.py`.
+
+**Wiki updates:** Phase 1 and Phase 2 plan pages marked `status: completed`. No `gaps/frs-codebase-gap-register.md` update needed.
+
+**Do not proceed to Phase 3.** User explicitly requested stop at Phase 2.
+
+## [2026-05-24] complete | Phase 3 Regional Incident Lifecycle Extraction
+
+**Implementation:**
+- Added `src/backend/services/regional_incidents/` with lifecycle command and policy Modules.
+- `policies.py` centralizes encoder/validator transition matrices and preserves `PENDING` + `PENDING_VALIDATION` validator queue compatibility.
+- `lifecycle.py` owns selected mutation commands: submit, unpend, delete, force-replace pending, validator decision, bulk approve, and archive finalized.
+- `src/backend/api/routes/regional.py` delegates those endpoints to lifecycle commands while keeping auth/RLS seams and HTTP response contracts in the route.
+- Added `src/backend/tests/test_regional_incident_lifecycle.py` for explicit transition matrix coverage.
+
+**Verification:**
+- Host `pytest tests/test_regional_incident_lifecycle.py -q` -> 2 passed.
+- Docker `pytest tests/test_regional_incident_lifecycle.py tests/integration/test_regional_crud.py tests/test_immutable_records.py tests/integration/test_regional_afor_unified_import.py -q` -> 33 passed.
+- Docker `pytest tests/integration/test_analytics_api.py tests/test_analyst_export.py tests/test_analyst_incidents_sql_contract.py -q` -> 23 passed.
+- Host integration collection is not usable without backend runtime deps (`prometheus_client` missing); Docker was used for integration verification.
+
+**Wiki updates:**
+- Marked `architecture-refactor-phase-3-regional-incident-lifecycle.md` completed.
+- Updated `backend/services.md` and `subsystems/regional-dashboard.md` with the regional incident lifecycle Module.
+- No `gaps/frs-codebase-gap-register.md` update needed; this refactor preserved current behavior and did not create or close an FRS/codebase gap.
+
+## [2026-05-24] complete | Phase 4 Civilian Triage Workflow Extraction
+
+**Implementation:**
+- Added `src/backend/services/civilian_triage/` with `models.py`, `policies.py`, `repository.py`, `queue_projection.py`, `workflow.py`, and `notifications.py`.
+- `api/routes/triage.py` is now a thin HTTP Adapter delegating queue projection and cluster workflow commands to the service Module.
+- `queue_projection.get_queue` documents and owns durable singleton-cluster materialization before queue reads.
+- Notification enqueue failures are isolated in `notifications.py` and do not roll back committed triage DB state.
+- Added `tests/test_civilian_triage_module.py` and updated `tests/test_triage_notifications.py` to target the new notification seam.
+
+**Verification:**
+- Host `pytest tests/test_civilian_triage_module.py tests/test_triage_notifications.py -q` -> 4 passed.
+- Docker `pytest tests/integration/test_triage_queue.py tests/integration/test_civilian_api.py tests/test_triage_notifications.py tests/test_civilian_triage_module.py -q` -> 71 passed.
+
+**Wiki updates:** Marked Phase 4 completed; updated `backend/services.md` and `subsystems/civilian-reporting-phase2.md`. No `gaps/frs-codebase-gap-register.md` update needed.
+
+## [2026-05-24] complete | Phase 5 Analytics Query Interface
+
+**Implementation:**
+- Added `src/backend/services/analytics/filters.py` and `__init__.py`.
+- `AnalyticsQueryFilters` now normalizes date, region, geography, incident type, alarm, casualty severity, damage range, and selected incident filters.
+- `append_common_filters` compiles shared SQL clauses; `analytics_read_model._append_common_filters` delegates to it for compatibility.
+- `api/routes/analytics.py` now builds typed filters for heatmap/trends route parsing.
+- `api/routes/incidents.py` now uses the shared compiler for analyst incident list filters with analyst-specific column expressions.
+- Added `tests/test_analytics_filters.py`.
+
+**Drift decisions:**
+- `/analytics/top-barangays` remains stale documentation/client drift; live backend uses `/analytics/top-n`.
+- `damage_max < damage_min` is rejected through the shared filter object.
+- Selected incident filtering is modeled in the shared filter Interface.
+
+**Verification:**
+- Host `pytest tests/test_analytics_filters.py -q` -> 3 passed.
+- Docker `pytest tests/integration/test_analytics_api.py tests/test_analyst_export.py tests/test_analyst_incidents_sql_contract.py tests/test_analytics_filters.py -q` -> 26 passed.
+
+**Wiki updates:** Marked Phase 5 completed; updated `backend/services.md`. No `gaps/frs-codebase-gap-register.md` update needed.
+
+## [2026-05-24] complete | Phase 6 Frontend API Slices
+
+**Implementation:**
+- Added `src/frontend/src/lib/api/` slice modules:
+  - `transport.ts`, `public-transport.ts`, `errors.ts`
+  - `admin.ts`, `analytics.ts`, `civilian.ts`, `reference.ts`, `regional.ts`, `triage.ts`, `validator.ts`
+  - `legacy.ts`, `index.ts`
+- Replaced `src/frontend/src/lib/api.ts` with a compatibility barrel re-exporting `./api/index`.
+- Public civilian functions now use `publicApiFetch` (`credentials: 'omit'`) instead of duplicating raw unauthenticated fetch logic.
+- Added API slice compatibility smoke coverage in `src/frontend/src/lib/api.test.ts`.
+
+**Verification:**
+- `npx vitest run src/lib/api.test.ts` -> 27 passed.
+- Focused frontend suite `npx vitest run src/lib/api.test.ts src/app/incidents/triage/page.test.tsx src/app/report/tracking/page.test.tsx src/components/CalmEmergencyBlock.test.tsx src/app/dashboard/analyst/page.test.tsx` -> 41 passed; one existing React warning about non-boolean `fill`.
+- `npm run lint` -> 0 errors, 16 existing warnings.
+- `npm run build` -> successful production build; Next.js emitted existing multiple-lockfile root warning and skipped type validation per project config.
+
+**Wiki updates:** Marked Phase 6 completed; updated `frontend/frontend-infrastructure.md`. No `gaps/frs-codebase-gap-register.md` update needed.
+
+## [2026-05-24] fix | Localhost Login OIDC Proxy and Session Route
+
+**Diagnosis:**
+- Local `https://localhost/login` failed during callback because `oidc-client-ts` exchanged the PKCE code directly with `http://localhost:8080/auth/.../token`, which Keycloak rejected for the browser origin.
+- `GET /api/auth/session` could return an opaque 500 from the Next.js route handler; the backend URL fallback mixed origin and `/api` base semantics.
+
+**Implementation:**
+- `src/frontend/src/lib/oidc.ts` now resolves localhost Keycloak access through the current browser origin `/auth` proxy when the configured auth URL points at `localhost:8080`.
+- `src/docker-compose.yml` now builds/runs the frontend with relative `/auth` OIDC URLs.
+- `src/frontend/src/app/api/auth/session/route.ts` and `sync/route.ts` now treat `BACKEND_URL` as an origin and append backend paths explicitly.
+- `src/keycloak/bfp-realm.json` now includes `https://localhost` redirects/origins for local HTTPS desk checks.
+
+**Verification:**
+- `npm run build` in `src/frontend` -> successful production build.
+- `npx vitest run src/app/api/auth/session/route.test.ts` -> 2 passed.
+
+**Wiki updates:** Updated `frontend/frontend-infrastructure.md` and `architecture/infrastructure-config.md`. No `gaps/frs-codebase-gap-register.md` update needed; this fixes local auth/proxy behavior without changing FRS alignment.
+
+## [2026-05-24] fix | Localhost Dashboard Callback Loop
+
+**Diagnosis:**
+- After successful Keycloak login, `GET /api/auth/session` returned 500 because the Next.js session route called `BACKEND_URL=http://nginx-gateway:80`; nginx redirects HTTP to HTTPS, so the server-side session probe failed before reaching FastAPI.
+- Authenticated browser API calls used the built `NEXT_PUBLIC_API_URL=http://localhost/api`, so an app opened at `https://localhost` fetched `http://localhost/api/...` and hit CORS/preflight redirect failures.
+
+**Implementation:**
+- `src/docker-compose.yml` now builds/runs frontend with `NEXT_PUBLIC_API_URL=/api`.
+- `src/docker-compose.yml` now sets frontend `BACKEND_URL=http://backend:8000`, so Next.js auth route handlers call FastAPI directly inside Docker.
+- `src/backend/tests/test_infra_config.py` now guards the same-origin API base, frontend build arg, and direct backend auth route URL.
+- Updated `system-wiki/architecture/infrastructure-config.md` and `system-wiki/frontend/frontend-infrastructure.md`.
+
+**Verification:**
+- `pytest src/backend/tests/test_infra_config.py -q` -> 4 passed.
+- `npx vitest run src/app/api/auth/session/route.test.ts` -> 2 passed.
+
+**Wiki updates:** Updated `frontend/frontend-infrastructure.md`, `architecture/infrastructure-config.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this fixes local infrastructure/auth routing behavior without changing FRS alignment.

@@ -1,7 +1,7 @@
 ---
 title: Civilian Reporting Phase 2 — Subsystem Deep-Dive
 created: 2026-05-20
-updated: 2026-05-20
+updated: 2026-05-24
 type: subsystem
 tags: [wims-bfp, subsystem, civilian-reporting, triage, validation, public-dmz, cluster, merge, map]
 sources: [system-wiki/prd/civilian-reporting-phase-2.md, system-wiki/decisions/0001-civilian-reporting-overhaul.md, src/backend/api/routes/triage.py, src/backend/api/routes/civilian.py, src/backend/api/routes/public_dmz.py, src/backend/tasks/civilian_reports.py, src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/app/report/page.tsx, src/frontend/src/app/report/tracking/page.tsx]
@@ -37,6 +37,8 @@ Validator triage: GET /api/triage/queue
 Official fire_incidents
   (created by REGIONAL_ENCODER via AFOR workflow only)
 ```
+
+Backend triage implementation is split under `src/backend/services/civilian_triage/`. `api/routes/triage.py` is the HTTP Adapter; queue projection, workflow commands, policies, repository helpers, and notification enqueue behavior live in the service Module.
 
 ## Public API — Civilian Routes
 
@@ -162,7 +164,7 @@ Returns clustered `citizen_reports` with cluster metadata.
 | `confidence` | min threshold |
 | `unreviewed` | no cluster membership |
 
-**Cluster discovery**: PostGIS `ST_DWithin(geography, geography, 100)` + `ABS(EXTRACT(EPOCH FROM time_offset)) < 3600`.
+**Cluster discovery / related counts**: triage queue related-count/severity uses PostGIS `ST_DWithin(geography, geography, 100)` and a 1-hour window. Queue reads first materialize durable singleton clusters for active unclustered reports so every row returned to validators has a claimable cluster id.
 
 **Returns per cluster**:
 ```

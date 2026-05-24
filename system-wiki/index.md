@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-23
 Total synthesis pages: 32
-Last changes: VPS deployment now uses `docker-compose.prod.yml` plus untracked `.env.production` for GitOps-lite environment separation.
+Last changes: Localhost login now routes browser OIDC through same-origin `/auth`, and Next auth session/sync handlers treat `BACKEND_URL` as an origin.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
@@ -20,6 +20,13 @@ Purpose: project-local knowledgebase for agents routing themselves to relevant W
 - [[concepts/frs-module-map]] — 15-module FRS map with current source availability and code anchors.
 - [[prd/civilian-reporting-phase-2]] — PRD for the structured civilian reporting and validator triage Phase 2 workflow.
 - [[plans/civilian-reporting-phase-2-implementation-issues]] — vertical implementation issue breakdown for the Phase 2 PRD.
+- [[plans/architecture-refactor-phase-0-safety-baseline]] — verification baseline for staged architecture refactors.
+- [[plans/architecture-refactor-phase-1-afor-parser-extraction]] — AFOR parser extraction plan.
+- [[plans/architecture-refactor-phase-2-afor-commit-extraction]] — AFOR commit workflow extraction plan.
+- [[plans/architecture-refactor-phase-3-regional-incident-lifecycle]] — regional incident lifecycle extraction plan.
+- [[plans/architecture-refactor-phase-4-civilian-triage-workflow]] — civilian triage workflow extraction plan.
+- [[plans/architecture-refactor-phase-5-analytics-query-interface]] — analytics query/filter Interface plan.
+- [[plans/architecture-refactor-phase-6-frontend-api-slices]] — frontend API client slicing plan.
 
 ## Backend
 - [[backend/api-route-map]] — FastAPI route files, endpoints, and likely module ownership.
