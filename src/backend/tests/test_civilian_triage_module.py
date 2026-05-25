@@ -34,8 +34,9 @@ def test_civilian_triage_policy_thresholds():
     assert is_cluster_claim_stale(now - timedelta(minutes=15))
     assert not is_cluster_claim_stale(now - timedelta(minutes=14, seconds=59))
 
-    assert aging_flags(now - timedelta(minutes=61), now) == (True, False)
-    assert aging_flags(now - timedelta(minutes=91), now) == (True, True)
+    assert aging_flags(now - timedelta(minutes=61), now) == (True, False, False)
+    assert aging_flags(now - timedelta(minutes=91), now) == (True, True, False)
+    assert aging_flags(now - timedelta(minutes=121), now) == (True, True, True)
 
     assert severity(related_count=4, trust_score=50) == "HIGH"
     assert severity(related_count=1, trust_score=30) == "MEDIUM"
