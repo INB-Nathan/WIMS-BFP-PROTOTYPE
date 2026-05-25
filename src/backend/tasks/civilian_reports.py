@@ -28,7 +28,7 @@ def timeout_pending_reports() -> dict[str, int | list[int]]:
                 SET status = 'REJECTED_TIMEOUT',
                     status_explanation = :explanation
                 WHERE status = 'PENDING'
-                  AND created_at < now() - interval '24 hours'
+                  AND created_at < now() - interval '2 hours'
                 RETURNING report_id
             """),
             {"explanation": TIMEOUT_EXPLANATION},

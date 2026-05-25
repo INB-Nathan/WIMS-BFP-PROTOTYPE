@@ -10,6 +10,7 @@ import json
 import logging
 from typing import Any, Optional
 
+from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -35,19 +36,24 @@ def _append_common_filters(
     damage_min: Optional[float] = None,
     damage_max: Optional[float] = None,
 ) -> None:
-    filters = build_analytics_filters(
-        start_date=start_date,
-        end_date=end_date,
-        region_id=region_id,
-        region_ids=region_ids,
-        province=province,
-        municipality=municipality,
-        incident_type=incident_type,
-        alarm_level=alarm_level,
-        casualty_severity=casualty_severity,
-        damage_min=damage_min,
-        damage_max=damage_max,
-    )
+    try:
+        filters = build_analytics_filters(
+            start_date=start_date,
+            end_date=end_date,
+            region_id=region_id,
+            region_ids=region_ids,
+            province=province,
+            municipality=municipality,
+            incident_type=incident_type,
+            alarm_level=alarm_level,
+            casualty_severity=casualty_severity,
+            damage_min=damage_min,
+            damage_max=damage_max,
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     append_common_filters(clauses, params, filters)
 
 
