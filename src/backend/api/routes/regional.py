@@ -8,7 +8,6 @@ import io
 import json
 import logging
 import uuid
-import re
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
