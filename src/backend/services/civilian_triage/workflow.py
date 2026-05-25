@@ -26,15 +26,12 @@ from services.civilian_triage.notifications import enqueue_status_notification, 
 from services.civilian_triage.policies import (
     TERMINAL_REPORT_STATUSES,
     is_cluster_claim_stale,
-    role_can_correct_terminal,
-    role_can_take_over_claim,
     validate_terminal_status,
 )
 from services.civilian_triage.repository import (
     append_internal_note,
     cluster_claim_response,
     ensure_cluster_claim,
-    fetch_cluster,
     fetch_cluster_for_update,
 )
 from utils.audit import log_system_audit

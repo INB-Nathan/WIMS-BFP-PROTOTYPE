@@ -6,7 +6,6 @@ from openpyxl import Workbook
 
 from services.afor_import import (
     BfpXlsxParser,
-    WildlandXlsxParser,
     detect_afor_template_kind,
     parse_afor_report_data,
     parse_wildland_afor_report_data,
