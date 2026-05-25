@@ -735,5 +735,3 @@ def merge_clusters_command(
         report_ids=report_ids,
         updated=len(report_ids),
     )
-
-

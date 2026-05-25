@@ -45,6 +45,8 @@ def test_analytics_filters_compile_casualty_damage_and_selected_ids():
 
     compiled = " AND ".join(clauses)
     assert "(fi.civilian_injured + fi.firefighter_injured) > 0" in compiled
-    assert "COALESCE(aif.estimated_damage_php, nd.estimated_damage_php, 0) >= :damage_min" in clauses
+    assert (
+        "COALESCE(aif.estimated_damage_php, nd.estimated_damage_php, 0) >= :damage_min" in clauses
+    )
     assert "fi.incident_id = ANY(:selected_incident_ids)" in clauses
     assert params["selected_incident_ids"] == [2, 5]

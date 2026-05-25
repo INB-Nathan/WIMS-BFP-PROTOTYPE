@@ -72,6 +72,7 @@ def _build_trust_breakdown(
         duplicate_device_count_30m=0,
     )
 
+
 # ─── GET /api/triage/queue ────────────────────────────────────────────────────
 
 
@@ -498,4 +499,3 @@ def get_queue(
         polled_at=datetime.now(timezone.utc),
         total_reports=len(entries),
     )
-

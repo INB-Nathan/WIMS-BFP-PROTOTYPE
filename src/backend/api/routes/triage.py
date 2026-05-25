@@ -207,8 +207,6 @@ def get_pending_reports(
     ]
 
 
-
-
 @router.post("/{report_id}/promote", status_code=201)
 def promote_report(
     report_id: int,

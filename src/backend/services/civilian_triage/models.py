@@ -151,5 +151,3 @@ class TriageQueueResponse(BaseModel):
     clusters: list[TriageClusterEntry]
     polled_at: datetime
     total_reports: int
-
-

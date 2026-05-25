@@ -71,8 +71,6 @@ router = APIRouter(prefix="/api/regional", tags=["regional"])
 # ---------------------------------------------------------------------------
 
 
-
-
 class RegionalStatsResponse(BaseModel):
     total_incidents: int
     by_category: list[dict[str, Any]]
@@ -242,7 +240,6 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
         return float(str(val).strip())
     except (ValueError, TypeError):
         return default
-
 
 
 # ---------------------------------------------------------------------------
@@ -1867,6 +1864,7 @@ def submit_incident_for_review(
 # ---------------------------------------------------------------------------
 # Validator Workflow
 # ---------------------------------------------------------------------------
+
 
 # Allowed actions a NATIONAL_VALIDATOR can submit and their target DB status.
 # accept_replace: approve a duplicate by inheriting the matched incident's ref_num and archiving it.

@@ -52,6 +52,7 @@ ALARM_LEVEL_MAP = {
 # Safe value conversions (shared by structural and wildland parsers)
 # ---------------------------------------------------------------------------
 
+
 def _safe_int(val: Any, default: int = 0) -> int:
     if val is None or val == "" or val == "N/A":
         return default
@@ -141,6 +142,7 @@ def _column_letters_to_index(letters: str) -> int:
 # CSV worksheet adapter (exposes CSV rows through A1-cell notation)
 # ---------------------------------------------------------------------------
 
+
 class CsvWorksheetAdapter:
     """Expose CSV cells through worksheet-like `A1` coordinates."""
 
@@ -155,8 +157,6 @@ class CsvWorksheetAdapter:
         column_letters, row_number = match.groups()
         row_idx = int(row_number) - 1
         col_idx = _column_letters_to_index(column_letters)
-
-
 
         value = None
         if 0 <= row_idx < len(self.rows) and 0 <= col_idx < len(self.rows[row_idx]):
@@ -180,9 +180,11 @@ def _looks_like_official_afor_csv(rows: list[list[str]]) -> bool:
         and "A. RESPONSE DETAILS" in first_column_values
     )
 
+
 # ---------------------------------------------------------------------------
 # Structural sheet helpers
 # ---------------------------------------------------------------------------
+
 
 def _cell_str(ws: Any, coord: str) -> str:
     try:
@@ -238,9 +240,11 @@ def _sheet_has_wildland_markers(ws: Any) -> bool:
         return True
     return False
 
+
 # ---------------------------------------------------------------------------
 # Template detection
 # ---------------------------------------------------------------------------
+
 
 def detect_afor_template_kind(wb: Any) -> AforFormKind | None:
     """
@@ -288,6 +292,7 @@ def _pick_structural_worksheet(wb: Any) -> Any:
 # ---------------------------------------------------------------------------
 # Wildland helpers
 # ---------------------------------------------------------------------------
+
 
 def _pick_wildland_worksheet(wb: Any) -> Any:
     for name in wb.sheetnames:
@@ -486,9 +491,11 @@ def parse_wildland_afor_report_data(data: dict[str, Any], region_id: int) -> Afo
     status = "VALID" if not errors else "INVALID"
     return AforParsedRow(row_index=0, status=status, errors=errors, data=mapped)
 
+
 # ---------------------------------------------------------------------------
 # Structural row mapper
 # ---------------------------------------------------------------------------
+
 
 def _combine_date_and_time(notification_dt: str | None, time_value: Any) -> str | None:
     if not notification_dt or not time_value:
@@ -517,6 +524,8 @@ def _time_str(val: Any) -> str | None:
     if m:
         return f"{int(m.group(1)):02d}:{m.group(2)}"
     return s or None
+
+
 class BfpXlsxParser:
     """Parser for the official BFP manual entry form (AFOR)."""
 
@@ -929,9 +938,11 @@ class BfpXlsxParser:
             "alarm_1st": self.get("D89"),
         }
 
+
 # ---------------------------------------------------------------------------
 # Row mappers
 # ---------------------------------------------------------------------------
+
 
 def parse_afor_report_data(data: dict, region_id: int) -> AforParsedRow:
     """Map the extracted AFOR dictionary into the strict database schema."""
@@ -1232,6 +1243,7 @@ def parse_afor_report_data(data: dict, region_id: int) -> AforParsedRow:
 # ---------------------------------------------------------------------------
 # Public entry points
 # ---------------------------------------------------------------------------
+
 
 def parse_csv_content(content: str, region_id: int) -> tuple[list[AforParsedRow], AforFormKind]:
     """Parse either the official AFOR form-style CSV or a flat tabular CSV (structural only)."""

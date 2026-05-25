@@ -151,7 +151,11 @@ def delete_encoder_incident(
     deps: RegionalIncidentLifecycleDependencies,
     draft_only: bool = False,
 ) -> dict[str, Any]:
-    not_found = "Draft not found or not owned by you" if draft_only else "Incident not found or not owned by you"
+    not_found = (
+        "Draft not found or not owned by you"
+        if draft_only
+        else "Incident not found or not owned by you"
+    )
     incident = db.execute(
         text("""
             SELECT incident_id, verification_status

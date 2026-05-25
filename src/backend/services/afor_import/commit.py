@@ -13,7 +13,12 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from services.afor_import.models import AforCommitRequest, AforFormKind, RowResolution, WildlandRowSource
+from services.afor_import.models import (
+    AforCommitRequest,
+    AforFormKind,
+    RowResolution,
+    WildlandRowSource,
+)
 from services.afor_import.parse import parse_wildland_afor_report_data
 from services.analytics_read_model import sync_incidents_batch
 from utils.crypto import SecurityProviderError
