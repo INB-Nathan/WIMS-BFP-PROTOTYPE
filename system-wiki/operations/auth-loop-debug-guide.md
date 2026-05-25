@@ -208,7 +208,9 @@ kcadm.sh update clients/<master-realm-security-admin-console-id> -r master \
 
 **Root cause:** The `master` realm's clients (including `security-admin-console`) are stored in Keycloak's own PostgreSQL database at `postgres:5432/keycloak` — not in a Docker named volume from the compose file. `docker compose down -v` wipes named volumes declared in the compose file, but Keycloak uses a bind mount or internal volume for its DB that survives `down -v`.
 
-**Fix:** Use kcadm to patch the master realm's clients — the fix survives across all local restarts because it lives in Keycloak's own DB, not in the import file.
+**Fix:** Let `keycloak-bootstrap` run `src/keycloak/bootstrap/bootstrap-master-realm.sh` after Keycloak is healthy. The script uses `kcadm.sh` against `-r master`, finds the master realm `security-admin-console` client, and patches the absolute redirect URIs/web origins. Backend startup waits for the one-shot service to exit successfully.
+
+**2026-05-24 verification:** Mounting `src/keycloak/import/master-realm.json` into `/opt/keycloak/data/import` is not sufficient. Keycloak 24 initializes the `master` realm first, then startup import runs with `IGNORE_EXISTING` and logs `Realm 'master' already exists. Import skipped`. The implemented `keycloak-bootstrap` service patched the live master realm `security-admin-console`; live `kcadm` inspection showed the absolute redirect URI list including `https://localhost/auth/admin/master/console/*`.
 
 ---
 

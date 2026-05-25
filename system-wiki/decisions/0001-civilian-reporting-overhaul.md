@@ -204,3 +204,4 @@ Civilian triage does not casually create official `fire_incidents` records. In t
 - `public_dmz.py` route (`POST /api/v1/public/report`) is deprecated. All public submissions route through `civilian.py`. Redis rate limiters updated to new limits (5/hr initial, 1/5min append).
 - `citizen_reports.description` column removed — free-text description replaced by category/sub-category + binary questions. Backward-compatible migration drops column.
 - Triage queue rebuild requires frontend rewrite of `/incidents/triage` page and new API endpoint `GET /api/triage/queue`.
+- Public entry point changed from `/report` to `/` — login moved to `/auth/login`. Tracking page moved from `/report/tracking` to `/tracking`. OIDC callback remains at `/callback`.

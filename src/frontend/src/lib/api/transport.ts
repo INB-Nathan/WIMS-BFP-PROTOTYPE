@@ -76,7 +76,7 @@ export async function apiFetch<T>(
       }
     } catch { /* ignore, fall through to throw */ }
     if (!skipAuthRedirect && typeof window !== 'undefined') {
-      window.location.href = '/login';
+      window.location.href = '/auth/login';
     }
     throw new ApiRequestError('Session expired. Please log in again.', 401);
   }

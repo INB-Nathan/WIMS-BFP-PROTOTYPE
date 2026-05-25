@@ -373,7 +373,8 @@ export default function TriagePage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={`rounded-md border px-2 py-1 text-xs font-medium ${statusTone(cluster.severity)}`}>{cluster.severity}</span>
                       {cluster.has_life_safety && <span className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700"><AlertTriangle className="h-3 w-3" /> Life safety</span>}
-                      {cluster.is_timeout_risk && <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">Timeout risk</span>}
+                      {cluster.is_danger && <span className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-red-100 px-2 py-1 text-xs font-bold text-red-800 animate-pulse"><AlertTriangle className="h-3 w-3" /> Needs attention — 2h+</span>}
+                      {cluster.is_timeout_risk && !cluster.is_danger && <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">Timeout risk</span>}
                       {cluster.assigned_to && <span className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700"><Lock className="h-3 w-3" /> {cluster.assigned_to}</span>}
                     </div>
                     <div>

@@ -88,6 +88,23 @@ services:
     ports:
       - "8080:8080"
 
+  keycloak-bootstrap:
+    image: quay.io/keycloak/keycloak:24.0.0
+    container_name: wims-keycloak-bootstrap
+    entrypoint: ["/bin/sh", "/opt/keycloak/bootstrap/bootstrap-master-realm.sh"]
+    volumes:
+      - ./keycloak/bootstrap:/opt/keycloak/bootstrap:ro
+    environment:
+      KEYCLOAK_URL: http://keycloak:8080/auth
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    networks:
+      - wims_internal
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    restart: "no"
+
   ollama:
     image: ollama/ollama:latest
     container_name: wims-ollama
@@ -135,6 +152,8 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_started
+      keycloak-bootstrap:
+        condition: service_completed_successfully
       ollama:
         condition: service_started
 

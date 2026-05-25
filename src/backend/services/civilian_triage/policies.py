@@ -21,6 +21,7 @@ MERGE_CANDIDATE_RADIUS_METERS = 250
 MERGE_CANDIDATE_WINDOW_SECONDS = 3600
 AGING_MINUTES = 60
 TIMEOUT_RISK_MINUTES = 90
+DANGER_MINUTES = 120
 GPS_MISMATCH_METERS = 200
 
 
@@ -49,12 +50,16 @@ def severity(related_count: int, trust_score: int) -> str:
     return "LOW"
 
 
-def aging_flags(created_at: datetime, now: datetime | None = None) -> tuple[bool, bool]:
+def aging_flags(created_at: datetime, now: datetime | None = None) -> tuple[bool, bool, bool]:
     now = now or datetime.now(timezone.utc)
     if created_at.tzinfo is None:
         created_at = created_at.replace(tzinfo=timezone.utc)
     age_min = (now - created_at).total_seconds() / 60
-    return age_min > AGING_MINUTES, age_min > TIMEOUT_RISK_MINUTES
+    return (
+        age_min > AGING_MINUTES,
+        age_min > TIMEOUT_RISK_MINUTES,
+        age_min > DANGER_MINUTES,
+    )
 
 
 def role_can_access_queue(role: str | None) -> bool:

@@ -16,6 +16,8 @@ status: draft
 
 **Keycloak import inputs:** `src/keycloak/import/bfp-realm.json`, `src/keycloak/import/master-realm.json`
 
+**Keycloak bootstrap:** `src/keycloak/import/bfp-realm.json` imports the application realm. Keycloak 24 creates the `master` realm before startup import and skips `master-realm.json` with `IGNORE_EXISTING`, so `src/keycloak/bootstrap/bootstrap-master-realm.sh` runs through the one-shot `keycloak-bootstrap` service after Keycloak is healthy. The script authenticates to the `master` realm with `kcadm.sh`, finds `security-admin-console`, and patches absolute admin-console redirect URIs and web origins for localhost, VPS, and production hostnames. Backend startup waits for this service to exit successfully via `condition: service_completed_successfully`.
+
 **Network:** `wims_internal` (bridge driver)
 
 **Services:**
@@ -26,6 +28,7 @@ status: draft
 | redis | wims-redis | `redis:7.2-alpine` | 6379 |
 | mailhog | wims-mailhog | `mailhog/mailhog:v1.0.1` | 1025 (SMTP), 8025 (Web UI) |
 | keycloak | wims-keycloak | `quay.io/keycloak/keycloak:24.0.0` | (none exposed) |
+| keycloak-bootstrap | wims-keycloak-bootstrap | `quay.io/keycloak/keycloak:24.0.0` | (one-shot, no ports) |
 | backend | wims-backend | Dockerfile at `./backend/Dockerfile` (python:3.11-slim) | 8000 (internal) |
 | frontend | wims-frontend | `./frontend/Dockerfile` (Next.js) | 3000 (internal) |
 | wims-suricata | wims-suricata | `jasonish/suricata:latest` | (none) |

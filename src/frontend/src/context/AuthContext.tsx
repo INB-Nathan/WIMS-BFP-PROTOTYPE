@@ -193,13 +193,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Explicit id_token_hint improves Keycloak end-session behavior in some deployments.
       await userManager.signoutRedirect({
         id_token_hint: currentUser?.id_token,
-        post_logout_redirect_uri: `${window.location.origin}/login`,
+        post_logout_redirect_uri: `${window.location.origin}/auth/login`,
       });
     } catch (err) {
       console.error('[AuthContext] logout: failed during signoutRedirect', err);
       setUser(null);
       setLoggingOut(false);
-      router.push('/login');
+      router.push('/auth/login');
     }
   }, [router]);
 

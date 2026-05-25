@@ -3,6 +3,19 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-05-24] fix | Automated Keycloak master realm bootstrap
+- Added `src/keycloak/bootstrap/bootstrap-master-realm.sh`, an idempotent post-start script that logs into the Keycloak `master` realm, finds `security-admin-console`, and patches admin-console redirect URIs/web origins.
+- Added a one-shot `keycloak-bootstrap` service to `src/docker-compose.yml`, dependent on healthy Keycloak. Backend startup now waits for this service with `condition: service_completed_successfully`.
+- Added `test_keycloak_master_realm_bootstrap_service` to `src/backend/tests/test_infra_config.py`.
+- Verification: `pytest tests/test_infra_config.py -q` passed; `docker compose config --quiet` passed; `docker compose up keycloak-bootstrap` exited 0; live `kcadm` inspection showed master realm `security-admin-console` includes `https://localhost/auth/admin/master/console/*`.
+- Updated `architecture/infrastructure-config.md`, `frontend/frontend-infrastructure.md`, `operations/auth-loop-debug-guide.md`, and `index.md`.
+
+## [2026-05-24] verify | Keycloak master realm import does not patch admin console
+- Reviewed latest Keycloak commits (`12a1168`, `4b41966`) and live startup state.
+- `src/docker-compose.yml` now mounts `src/keycloak/import/` and imports the `bfp` realm, but Keycloak 24 creates `master` before import and logs `Realm 'master' already exists. Import skipped`.
+- Live `kcadm` check showed master realm `security-admin-console` still at `redirectUris: ["/admin/master/console/*"]` and `webOrigins: ["+"]`; the patched absolute redirect values exist only on the `bfp` realm copy.
+- Updated `architecture/infrastructure-config.md`, `frontend/frontend-infrastructure.md`, and `operations/auth-loop-debug-guide.md` to record that the current code does not yet eliminate manual `kcadm`; an automated post-start master-realm patch/provisioning step is still needed.
+
 ## [2026-05-24] fix | Localhost Dashboard Callback Loop
 
 **Diagnosis:**
@@ -836,3 +849,32 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `npx vitest run src/app/api/auth/session/route.test.ts` -> 2 passed.
 
 **Wiki updates:** Updated `frontend/frontend-infrastructure.md`, `architecture/infrastructure-config.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this fixes local infrastructure/auth routing behavior without changing FRS alignment.
+
+## [2026-05-24] feat | Civilian routing overhaul + timeout fix
+
+**Changes implemented:**
+- Report form entry moved from `/report` to `/` (root) — `app/page.tsx` now renders the full report form; `app/report/page.tsx` deleted.
+- Tracking page moved from `/report/tracking` to `/tracking` — `app/tracking/page.tsx` + `app/tracking/page.test.tsx` created; old files deleted; internal `href="/report"` replaced with `href="/"` in all tracking page navigation CTAs.
+- Login page moved from `/login` to `/auth/login` — `app/auth/login/page.tsx` created; `app/login/page.tsx` deleted.
+- `CalmEmergencyBlock.tsx` moved from `app/report/` to `app/` alongside page.tsx.
+- 8 hardcoded `/login` paths updated to `/auth/login` across: `AuthContext.tsx` (post-logout redirect + OIDC `post_logout_redirect_uri`), `lib/auth.tsx` (signOut), `lib/api/transport.ts` (401 redirect), `callback/page.tsx` (3 error paths), `LayoutShell.tsx` (2 isPublic checks).
+- `LayoutShell.tsx` isPublic guard: removed `/report` and `startsWith('/report')`, added `/auth/login` and `startsWith('/tracking')`.
+- Backend: `civilian_reports.py` timeout changed from `interval '2 hours'` to `interval '24 hours'`.
+- ADR `0001-civilian-reporting-overhaul.md` Consequences updated to record new public entry point (`/`), login (`/auth/login`), and tracking (`/tracking`) routes.
+
+**Verification:**
+- `npm run lint` → 0 errors, 16 warnings (pre-existing).
+- `npx vitest run src/app/tracking/page.test.tsx` → 1 passed.
+- `npx vitest run src/app/CalmEmergencyBlock.test.tsx` → 3 passed.
+- All route file locations verified to exist at new paths, deleted from old paths.
+- `npx vitest run src/app/incidents/triage/page.test.tsx` → 6 passed (new `is_danger` field in mock data).
+- Docker exec wims-backend python aging_flags test → 4/4 checks passed (30m/65m/95m/125m thresholds all correct).
+
+**Danger indicator implementation:**
+- `policies.py`: added `DANGER_MINUTES = 120` constant; `aging_flags()` now returns 3-tuple `(is_aging, is_timeout_risk, is_danger)`.
+- `models.py`: `TriageReportEntry.is_danger` and `TriageClusterEntry.is_danger` added (bool, "> 120 min no validator action").
+- `queue_projection.py`: `is_danger` unpacked from `aging_flags()`, propagated to entry, cluster-level aggregation added.
+- `triage/page.tsx`: `is_danger` badge rendered in queue cards — pulsing red "Needs attention — 2h+" label, suppresses `is_timeout_risk` badge when both would show.
+- `triage/page.test.tsx`: `is_danger: false` added to mock cluster entries.
+- 24-hour auto-reject (REJECTED_TIMEOUT) in `civilian_reports.py` unchanged — distinct from 2h visual danger indicator.
+- ADR `0001-civilian-reporting-overhaul.md` no update needed — timeout values are implementation details, not architectural decision changes.

@@ -123,6 +123,7 @@ class TriageReportEntry(BaseModel):
     reported_at: datetime | None
     is_aging: bool  # > 60 min
     is_timeout_risk: bool  # > 90 min
+    is_danger: bool  # > 120 min — validator has taken no action
     previous_report_id: int | None
     station: StationContext
 
@@ -140,6 +141,7 @@ class TriageClusterEntry(BaseModel):
     oldest_report_at: datetime
     is_aging: bool
     is_timeout_risk: bool
+    is_danger: bool  # cluster has any member > 120 min with no validator action
     related_count: int  # total suggested in 100m/1hr window
     reports: list[TriageReportEntry]
     station: StationContext

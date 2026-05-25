@@ -25,6 +25,7 @@ vi.mock('@/lib/api', () => {
         oldest_report_at: '2026-05-20T09:00:00Z',
         is_aging: false,
         is_timeout_risk: true,
+        is_danger: false,
         related_count: 1,
         station: { name: 'BFP Manila', distance_m: 800, phone_available: true },
         reports: [

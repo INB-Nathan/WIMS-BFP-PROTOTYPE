@@ -352,7 +352,7 @@ def get_queue(
         tb.score = int(row[9] or 0)
 
         created_at_val = row[12]
-        is_aging, is_timeout_risk = aging_flags(created_at_val)
+        is_aging, is_timeout_risk, is_danger = aging_flags(created_at_val)
         sev = severity(int(row[29] or 0), tb.score)
 
         if aging and not is_aging:
@@ -392,6 +392,7 @@ def get_queue(
             else row[13],
             is_aging=is_aging,
             is_timeout_risk=is_timeout_risk,
+            is_danger=is_danger,
             previous_report_id=row[14],
             station=station,
         )
@@ -443,6 +444,7 @@ def get_queue(
                 oldest_report_at=entry.created_at,
                 is_aging=entry.is_aging,
                 is_timeout_risk=entry.is_timeout_risk,
+                is_danger=entry.is_danger,
                 related_count=0,
                 reports=[],
                 station=entry.station,
@@ -457,6 +459,8 @@ def get_queue(
             cluster_map[cluster_key].is_aging = True
         if entry.is_timeout_risk:
             cluster_map[cluster_key].is_timeout_risk = True
+        if entry.is_danger:
+            cluster_map[cluster_key].is_danger = True
         if entry.related_count > cluster_map[cluster_key].related_count:
             cluster_map[cluster_key].related_count = entry.related_count
 

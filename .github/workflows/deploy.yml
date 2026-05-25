@@ -128,19 +128,19 @@ jobs:
               apt-get install -y -qq certbot python3-certbot-nginx
             fi
 
-            echo "Running certbot for 165-22-101-73.nip.io..."
+            echo "Running certbot for wimsbfp.tech..."
             certbot certonly \
               --nginx \
               --non-interactive \
               --agree-tos \
               --email x1n4te@proton.me \
-              --domains 165-22-101-73.nip.io \
-              --cert-name 165-22-101-73.nip.io \
+              --domains wimsbfp.tech \
+              --cert-name wimsbfp.tech \
               --keep-until-expiring \
               --deploy-hook "docker compose -f /opt/wims-bfp/src/docker-compose.yml exec nginx-gateway nginx -s reload" \
               --webroot -w /tmp/letsencrypt || true
 
-            echo "Certbot done — certificate installed at /etc/letsencrypt/live/165-22-101-73.nip.io/"
+            echo "Certbot done — certificate installed at /etc/letsencrypt/live/wimsbfp.tech/"
 
             printf 'SHELL=/bin/sh\nPATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin\n0 0,12 * * * root sleep $(head -c 2 /dev/urandom | od -An -t u1 | tr -d " ") && certbot renew --quiet --deploy-hook "docker compose -f /opt/wims-bfp/src/docker-compose.yml exec nginx-gateway nginx -s reload"\n' > /etc/cron.d/certbot-renewal
             echo "Certbot auto-renewal cron installed."

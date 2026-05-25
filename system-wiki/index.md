@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-05-23
+Last updated: 2026-05-24
 Total synthesis pages: 32
-Last changes: Localhost login now routes browser OIDC through same-origin `/auth`, and Next auth session/sync handlers treat `BACKEND_URL` as an origin.
+Last changes: Keycloak now has a one-shot `keycloak-bootstrap` service that patches the existing master realm `security-admin-console` after Keycloak is healthy.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

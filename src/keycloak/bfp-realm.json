@@ -669,12 +669,12 @@
         "http://localhost:3000/*",
         "http://localhost/*",
         "https://localhost/*",
-        "https://165-22-101-73.nip.io/callback",
-        "https://165-22-101-73.nip.io/*",
+        "https://wimsbfp.tech/callback",
+        "https://wimsbfp.tech/*",
         "https://wims.bfp.gov.ph/*"
       ],
       "webOrigins": [
-        "https://165-22-101-73.nip.io",
+        "https://wimsbfp.tech",
         "https://localhost",
         "https://wims.bfp.gov.ph",
         "http://localhost",
@@ -798,13 +798,13 @@
       "clientAuthenticatorType": "client-secret",
       "redirectUris": [
         "https://localhost/auth/admin/master/console/*",
-        "https://165-22-101-73.nip.io/auth/admin/master/console/*",
+        "https://wimsbfp.tech/auth/admin/master/console/*",
         "http://localhost:8080/auth/admin/master/console/*",
         "/admin/bfp/console/*"
       ],
       "webOrigins": [
         "https://localhost",
-        "https://165-22-101-73.nip.io",
+        "https://wimsbfp.tech",
         "https://wims.bfp.gov.ph",
         "http://localhost"
       ],
@@ -868,14 +868,14 @@
         "https://localhost/*",
         "http://localhost/*",
         "http://localhost:3000/*",
-        "https://165-22-101-73.nip.io/callback",
-        "https://165-22-101-73.nip.io/*",
+        "https://wimsbfp.tech/callback",
+        "https://wimsbfp.tech/*",
         "https://wims.bfp.gov.ph/*"
       ],
       "webOrigins": [
         "https://localhost",
         "http://localhost",
-        "https://165-22-101-73.nip.io",
+        "https://wimsbfp.tech",
         "https://wims.bfp.gov.ph",
         "http://localhost:3000"
       ],
@@ -2417,7 +2417,7 @@
     "cibaBackchannelTokenDeliveryMode": "poll",
     "cibaExpiresIn": "120",
     "cibaAuthRequestedUserHint": "login_hint",
-    "oauth2DeviceCodeLifespan": "600",
+    "oauth2DeviceCodeLifespan": "3600",
     "oauth2DevicePollingInterval": "5",
     "parRequestUriLifespan": "60",
     "cibaInterval": "5",

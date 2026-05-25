@@ -70,6 +70,16 @@ def _service_build_args(compose: dict[str, Any], service_name: str) -> dict[str,
     raise AssertionError(f"service '{service_name}' has unsupported build args format")
 
 
+def _service(compose: dict[str, Any], service_name: str) -> dict[str, Any]:
+    services = compose.get("services")
+    if not isinstance(services, dict):
+        raise AssertionError("docker-compose.yml missing services map")
+    service = services.get(service_name)
+    if not isinstance(service, dict):
+        raise AssertionError(f"service '{service_name}' not found")
+    return service
+
+
 @pytest.fixture(autouse=True)
 def flush_rate_limits() -> None:
     """Override redis-dependent autouse fixture in conftest for this module."""
@@ -124,3 +134,23 @@ def test_keycloak_nginx_relative_path_alignment() -> None:
     assert keycloak_env.get("KC_HTTP_RELATIVE_PATH") == "/auth", (
         "KC_HTTP_RELATIVE_PATH must be set to /auth to match the Nginx reverse proxy."
     )
+
+
+def test_keycloak_master_realm_bootstrap_service() -> None:
+    compose = _load_compose()
+    bootstrap = _service(compose, "keycloak-bootstrap")
+    bootstrap_env = _service_env(compose, "keycloak-bootstrap")
+    depends_on = bootstrap.get("depends_on")
+
+    assert bootstrap.get("image") == "quay.io/keycloak/keycloak:24.0.0"
+    assert bootstrap_env.get("KEYCLOAK_URL") == "http://keycloak:8080/auth"
+    assert isinstance(depends_on, dict)
+    assert depends_on.get("keycloak", {}).get("condition") == "service_healthy"
+
+    script_path = _repo_root() / "keycloak" / "bootstrap" / "bootstrap-master-realm.sh"
+    script = script_path.read_text(encoding="utf-8")
+    assert "--realm master" in script
+    assert "-r master" in script
+    assert "security-admin-console" in script
+    assert "https://localhost/auth/admin/master/console/*" in script
+    assert "https://wimsbfp.tech/auth/admin/master/console/*" in script
