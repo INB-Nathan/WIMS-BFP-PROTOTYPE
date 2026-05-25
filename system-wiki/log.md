@@ -882,3 +882,7 @@ Format: `## [YYYY-MM-DD] action | subject`
 ## [2026-05-25] fix | AQ-12 region_ids validation + triage timeout threshold
 - `services/analytics_read_model.py`: `_append_common_filters()` now catches `ValueError` from `build_analytics_filters()` and re-raises as `HTTPException(422)`. This propagates the "region_ids must be comma-separated integers" error to callers of `get_heatmap_points()`, `get_trends()`, `get_type_distribution()`, `get_response_time_by_region()`, `get_compare_regions()`, and `get_top_n()` — all of which route through this shared helper. Fixes `test_region_ids_must_be_valid_integers` (AQ-12).
 - `tasks/civilian_reports.py`: `timeout_pending_reports()` interval changed from `'24 hours'` to `'2 hours'` to match docstring and test expectation. Fixes `test_timeout_task_rejects_old_pending_but_not_under_review`.
+
+## [2026-05-25] fix | AQ-12 validation fix — route-level try/except added
+- `api/routes/analytics.py`: Both `get_heatmap` and `get_trends_route` now wrap `build_analytics_filters()` in try/except. `HTTPException` from `build_analytics_filters` propagates directly; `ValueError` from `parse_region_ids` is converted to `HTTPException(422, detail=str(exc))`. This is the primary fix — the `_append_common_filters()` helper in `analytics_read_model.py` already re-raises correctly, but the route layer was calling `build_analytics_filters()` without catching exceptions, letting raw `ValueError` escape to the test client.
+- Status: `test_region_ids_must_be_valid_integers` (AQ-12) fixed.
