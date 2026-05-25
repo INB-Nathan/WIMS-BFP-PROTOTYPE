@@ -1,7 +1,7 @@
 ---
 title: FRS Codebase Gap Register
 created: 2026-05-14
-updated: 2026-05-20
+updated: 2026-05-25
 type: gap
 tags: [wims-bfp, gap, frs, needs-verification]
 sources: [raw/frs, raw/codebase/codebase-snapshot-2026-05-14.md]

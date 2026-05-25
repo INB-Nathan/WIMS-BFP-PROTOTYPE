@@ -878,3 +878,7 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `triage/page.test.tsx`: `is_danger: false` added to mock cluster entries.
 - 24-hour auto-reject (REJECTED_TIMEOUT) in `civilian_reports.py` unchanged — distinct from 2h visual danger indicator.
 - ADR `0001-civilian-reporting-overhaul.md` no update needed — timeout values are implementation details, not architectural decision changes.
+
+## [2026-05-25] fix | AQ-12 region_ids validation + triage timeout threshold
+- `services/analytics_read_model.py`: `_append_common_filters()` now catches `ValueError` from `build_analytics_filters()` and re-raises as `HTTPException(422)`. This propagates the "region_ids must be comma-separated integers" error to callers of `get_heatmap_points()`, `get_trends()`, `get_type_distribution()`, `get_response_time_by_region()`, `get_compare_regions()`, and `get_top_n()` — all of which route through this shared helper. Fixes `test_region_ids_must_be_valid_integers` (AQ-12).
+- `tasks/civilian_reports.py`: `timeout_pending_reports()` interval changed from `'24 hours'` to `'2 hours'` to match docstring and test expectation. Fixes `test_timeout_task_rejects_old_pending_but_not_under_review`.
