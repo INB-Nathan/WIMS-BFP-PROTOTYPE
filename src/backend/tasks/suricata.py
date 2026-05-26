@@ -28,7 +28,8 @@ SYSTEM_SURICATA_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 def ingest_suricata_eve() -> int:
     """
     Ingest new lines from Suricata EVE log into wims.security_threat_logs.
-    Runs every 10 seconds via Celery beat.
+    Scheduled every 3 seconds via Celery beat (FRS M7c: <5s latency).
+    Reads new EVE JSON lines since last file position checkpoint.
 
     Uses a hard-coded system service account (SYSTEM_SURICATA_USER_ID)
     to satisfy the security_threat_logs RLS policy.

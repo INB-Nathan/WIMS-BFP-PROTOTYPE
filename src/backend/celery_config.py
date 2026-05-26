@@ -32,7 +32,7 @@ celery_app.conf.update(
         },
         "ingest-suricata-eve": {
             "task": "tasks.suricata.ingest_suricata_eve",
-            "schedule": 10.0,  # every 10 seconds
+            "schedule": 3.0,  # every 3 seconds (FRS M7c: <5s latency)
         },
         # M4-E: Auto-archive DRAFT incidents older than 30 days. Runs daily at 02:00 UTC.
         "expire-stale-drafts-daily": {
