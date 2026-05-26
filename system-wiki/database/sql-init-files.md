@@ -1,7 +1,7 @@
 ---
 title: Database Schema — SQL Init Files
 created: 2026-05-16
-updated: 2026-05-16
+updated: 2026-05-26
 type: database
 tags: [wims-bfp, database, postgresql, postgis, sql-migrations, rls, analytics]
 sources: [src/postgres-init/]
@@ -126,6 +126,8 @@ Complete documentation of all SQL migration files in `src/postgres-init/`, order
 - `wims.system_audit_trails` — audit_id BIGSERIAL PK, user_id FK, action_type, table_affected, record_id, ip_address, user_agent, timestamp
 
 **Note:** security_threat_logs is intentionally NOT region-filtered (ADR: cybersecurity threats are borderless).
+
+**Demo seed:** `38_seed_security_threat_logs.sql` adds idempotent Suricata-style alert rows for this table.
 
 ### `09_rls_helpers.sql`
 
@@ -283,7 +285,7 @@ Seeds ref_cities for all remaining PH regions (CAR, Regions I-III, V-XIII, BARMM
 
 ---
 
-## Late Migrations (27–31)
+## Late Migrations & Demo Seeds (27–38)
 
 ### `27_reference_sequence.sql`
 
@@ -314,6 +316,14 @@ Ref number range: 0001–0012. Incident types cover STRUCTURAL (residential, com
 **Purpose:** Adds geography polygon column to ref_barangays for reverse-geocoding.
 
 ALTER TABLE ref_barangays ADD `geometry GEOGRAPHY(POLYGON, 4326)`. GIST index `idx_ref_barangays_geometry` for fast ST_Contains lookups. PSGC .shp polygon data must be loaded separately — this file only creates the column and index.
+
+### `38_seed_security_threat_logs.sql`
+
+**Purpose:** Demo Suricata threat telemetry for the System Admin threat telemetry view.
+
+Seeds 6 idempotent rows in `wims.security_threat_logs`: 2 HIGH, 2 MEDIUM, and 2 LOW Suricata-style alerts. Rows include representative raw EVE JSON payloads, XAI narratives/confidence on selected alerts, one reviewed/resolved alert, and admin action metadata where useful.
+
+**Idempotency:** Uses `(source_ip, destination_ip, suricata_sid)` existence checks so rerunning the init file or applying it manually does not duplicate the demo alerts.
 
 ---
 

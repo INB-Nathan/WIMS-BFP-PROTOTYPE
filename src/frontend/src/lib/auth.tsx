@@ -129,7 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
         setRole(null);
         setAssignedRegionId(null);
-        router.push('/auth/login');
+        router.push('/login');
     };
 
     return (

@@ -80,6 +80,16 @@ def _service(compose: dict[str, Any], service_name: str) -> dict[str, Any]:
     return service
 
 
+def _service_ports(compose: dict[str, Any], service_name: str) -> list[str]:
+    service = _service(compose, service_name)
+    ports = service.get("ports")
+    if ports is None:
+        return []
+    if not isinstance(ports, list):
+        raise AssertionError(f"service '{service_name}' has unsupported ports format")
+    return [str(port) for port in ports]
+
+
 @pytest.fixture(autouse=True)
 def flush_rate_limits() -> None:
     """Override redis-dependent autouse fixture in conftest for this module."""
@@ -154,3 +164,20 @@ def test_keycloak_master_realm_bootstrap_service() -> None:
     assert "security-admin-console" in script
     assert "https://localhost/auth/admin/master/console/*" in script
     assert "https://wimsbfp.tech/auth/admin/master/console/*" in script
+
+
+def test_non_edge_services_bind_host_ports_to_loopback() -> None:
+    compose = _load_compose()
+
+    expected_loopback_ports = {
+        "postgres": ["127.0.0.1:5432:5432"],
+        "redis": ["127.0.0.1:6379:6379"],
+        "mailhog": ["127.0.0.1:1025:1025", "127.0.0.1:8025:8025"],
+        "keycloak": ["127.0.0.1:8080:8080"],
+    }
+
+    for service_name, expected_ports in expected_loopback_ports.items():
+        assert _service_ports(compose, service_name) == expected_ports
+
+    nginx_ports = _service_ports(compose, "nginx-gateway")
+    assert nginx_ports == ["80:80", "443:443"]

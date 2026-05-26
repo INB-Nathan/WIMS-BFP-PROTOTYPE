@@ -3,6 +3,43 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-05-26] update | Seed Suricata threat telemetry
+- Seeded the live VPS database with 6 Suricata-style rows in `wims.security_threat_logs`: 2 HIGH, 2 MEDIUM, and 2 LOW alerts for the System Admin threat telemetry view.
+- Added `src/postgres-init/38_seed_security_threat_logs.sql` so fresh Postgres volumes get the same idempotent demo telemetry.
+- Verified the live telemetry count by severity after applying the seed.
+- Updated `database/sql-init-files.md`; no FRS/codebase gap register change was needed because this adds demo seed data without changing FRS alignment.
+
+## [2026-05-26] fix | Public report tracking links use live route
+- Updated the public report success and update-submitted screens in `src/frontend/src/app/page.tsx` so tracking links use `/tracking?id=<report_id>` instead of removed `/report/tracking?id=<report_id>`.
+- Updated stale "new report"/cancel links from `/report` to `/`, matching the current public report form route.
+- Added nginx compatibility redirects from `/report/tracking` and `/report/tracking/` to `/tracking` while preserving `?id=...`.
+- Added `src/frontend/src/app/report-routing.test.ts` to guard against reintroducing `/report/tracking`.
+- Updated `frontend/route-map.md` to document `/` as the public report form and `/tracking?id=<report_id>` as the live tracking route.
+
+## [2026-05-26] fix | Employee login route separated from Keycloak proxy
+- Moved the Next.js employee login page from `src/frontend/src/app/auth/login/page.tsx` to `src/frontend/src/app/login/page.tsx`, making `https://wimsbfp.tech/login` the correct employee-facing app login URL.
+- Updated frontend redirects/public-route guards from `/auth/login` to `/login` in `AuthContext`, callback handling, transport auth failure handling, and `LayoutShell`.
+- Added exact nginx compatibility redirects for `/auth/login` and `/auth/login/` to `/login`; the broader `/auth/` namespace still proxies to Keycloak.
+- Ran `docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production down -v`, rebuilt all images with `build --no-cache`, and restarted with `up -d` on the VPS.
+- Verified the Next build includes `/login`, `/login` returns 200, `/auth/login` and `/auth/login/` return 301 to `/login`, `/health` returns 200, and Keycloak discovery remains available under `/auth/realms/bfp`.
+- Updated `frontend/route-map.md`, `architecture/infrastructure-config.md`, and `index.md`.
+
+## [2026-05-26] fix | GitOps deploy and VPS port hardening
+- Updated `.github/workflows/deploy.yml` to use the production compose stack (`docker-compose.yml` + `docker-compose.prod.yml` + `.env.production`) for config validation, DB connectivity checks, rebuild/restart, rollback, and public post-deploy health checks.
+- Reworked certbot automation so existing `wimsbfp.tech` certificates are reused, first-time issuance uses standalone ACME, and renewal reloads nginx with `docker exec wims-nginx-gateway nginx -s reload`.
+- Hardened `src/docker-compose.yml` host port exposure: Postgres, Redis, MailHog, and direct Keycloak now bind to `127.0.0.1`; only `nginx-gateway` publishes public 80/443.
+- Added nginx gateway hardening: disabled version tokens, hid proxied `X-Powered-By`, and added HSTS, nosniff, SAMEORIGIN frame policy, no-referrer policy, and a restrictive permissions policy.
+- Enabled UFW on the VPS with default-deny incoming traffic and explicit inbound allows for `22/tcp`, `80/tcp`, and `443/tcp`.
+- Added `test_non_edge_services_bind_host_ports_to_loopback` to `src/backend/tests/test_infra_config.py`.
+- Applied the hardened compose bindings on the VPS and verified `ss -ltnp`, `docker compose ps`, `https://wimsbfp.tech/health`, Keycloak discovery, and the frontend.
+- Updated `architecture/infrastructure-config.md` and `index.md`.
+
+## [2026-05-26] update | VPS production origin moved to wimsbfp.tech
+- Updated `src/.env.production` so `PUBLIC_BASE_URL=https://wimsbfp.tech` instead of the previous `https://165-22-101-73.nip.io` origin.
+- Confirmed `src/nginx/nginx.conf` already targets `server_name wimsbfp.tech` and `/etc/letsencrypt/live/wimsbfp.tech/...` certificate paths.
+- Live VPS check showed `wims-nginx-gateway` exits because the `wimsbfp.tech` certificate files do not exist yet; only the old nip.io certificate is present under `/etc/letsencrypt/live/`.
+- Updated `architecture/infrastructure-config.md` and `index.md`.
+
 ## [2026-05-24] fix | Automated Keycloak master realm bootstrap
 - Added `src/keycloak/bootstrap/bootstrap-master-realm.sh`, an idempotent post-start script that logs into the Keycloak `master` realm, finds `security-admin-console`, and patches admin-console redirect URIs/web origins.
 - Added a one-shot `keycloak-bootstrap` service to `src/docker-compose.yml`, dependent on healthy Keycloak. Backend startup now waits for this service with `condition: service_completed_successfully`.

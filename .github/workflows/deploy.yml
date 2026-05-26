@@ -93,7 +93,7 @@ jobs:
               done
 
       - name: Run backend tests
-        run: pytest -v --tb=short --ignore=tests/test_rate_limiting.py --ignore=tests/test_suricata_ingestion.py --ignore=tests/test_infra_config.py --ignore=tests/integration/test_wims_initial_schema_bootstrap.py --ignore=tests/integration/test_auth_otp_policy.py --ignore=tests/integration/test_database_schema.py --ignore=tests/integration/test_rls_policy_enforcement.py --ignore=tests/integration/test_sql_quality_audit.py
+        run: pytest -v --tb=short --ignore=tests/test_rate_limiting.py --ignore=tests/test_suricata_ingestion.py --ignore=tests/integration/test_wims_initial_schema_bootstrap.py --ignore=tests/integration/test_auth_otp_policy.py --ignore=tests/integration/test_database_schema.py --ignore=tests/integration/test_rls_policy_enforcement.py --ignore=tests/integration/test_sql_quality_audit.py
         working-directory: src/backend
 
   # ─── Deploy (only if CI passes) ─────────────────────────────────────────────
@@ -119,30 +119,30 @@ jobs:
           username: root
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            set -e
-            mkdir -p /opt/wims-bfp/letsencrypt
+            set -euo pipefail
 
             if ! command -v certbot &> /dev/null; then
               echo "Installing certbot..."
               apt-get update -qq
-              apt-get install -y -qq certbot python3-certbot-nginx
+              apt-get install -y -qq certbot
             fi
 
-            echo "Running certbot for wimsbfp.tech..."
-            certbot certonly \
-              --nginx \
-              --non-interactive \
-              --agree-tos \
-              --email x1n4te@proton.me \
-              --domains wimsbfp.tech \
-              --cert-name wimsbfp.tech \
-              --keep-until-expiring \
-              --deploy-hook "docker compose -f /opt/wims-bfp/src/docker-compose.yml exec nginx-gateway nginx -s reload" \
-              --webroot -w /tmp/letsencrypt || true
+            if [ ! -s /etc/letsencrypt/live/wimsbfp.tech/fullchain.pem ] || [ ! -s /etc/letsencrypt/live/wimsbfp.tech/privkey.pem ]; then
+              echo "No wimsbfp.tech certificate found; issuing initial certificate with standalone ACME challenge..."
+              docker stop wims-nginx-gateway >/dev/null 2>&1 || true
+              certbot certonly \
+                --standalone \
+                --non-interactive \
+                --agree-tos \
+                --email x1n4te@proton.me \
+                --domains wimsbfp.tech \
+                --cert-name wimsbfp.tech \
+                --keep-until-expiring
+            else
+              echo "Existing wimsbfp.tech certificate found; skipping issuance."
+            fi
 
-            echo "Certbot done — certificate installed at /etc/letsencrypt/live/wimsbfp.tech/"
-
-            printf 'SHELL=/bin/sh\nPATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin\n0 0,12 * * * root sleep $(head -c 2 /dev/urandom | od -An -t u1 | tr -d " ") && certbot renew --quiet --deploy-hook "docker compose -f /opt/wims-bfp/src/docker-compose.yml exec nginx-gateway nginx -s reload"\n' > /etc/cron.d/certbot-renewal
+            printf 'SHELL=/bin/sh\nPATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin\n0 0,12 * * * root certbot renew --quiet --deploy-hook "docker exec wims-nginx-gateway nginx -s reload"\n' > /etc/cron.d/certbot-renewal
             echo "Certbot auto-renewal cron installed."
 
       - name: Tag previous image for rollback
@@ -152,10 +152,15 @@ jobs:
           username: root
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            PREV_IMAGE=$(docker compose -f /opt/wims-bfp/src/docker-compose.yml images -q backend | head -n 1)
+            cd /opt/wims-bfp/src
+            compose() {
+              docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production "$@"
+            }
+
+            PREV_IMAGE=$(compose images -q backend | head -n 1)
             if [ -n "$PREV_IMAGE" ]; then
               echo "Tagging previous backend image for rollback: $PREV_IMAGE"
-              docker tag "$PREV_IMAGE" wims-backend-rollback:latest
+              docker tag "$PREV_IMAGE" src-backend-rollback:latest
             else
               echo "No existing backend image found — skipping rollback tag"
             fi
@@ -187,14 +192,22 @@ jobs:
             git checkout -B master origin/master
             cd src
 
+            test -f .env.production || { echo ".env.production is missing on VPS"; exit 1; }
+
+            compose() {
+              docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production "$@"
+            }
+
+            echo "Validating production compose configuration..."
+            compose config --quiet
+
             # Pre-deploy DB connectivity check
             echo "Checking database connectivity..."
-            docker compose run --rm -T backend python -c "from database import get_engine; from sqlalchemy import text; engine = get_engine(); conn = engine.connect(); conn.execute(text('SELECT 1')); conn.close(); print('DB connection OK')" || { echo 'DB connectivity check failed — aborting deploy'; exit 1; }
+            compose run --rm -T backend python -c "from database import get_engine; from sqlalchemy import text; engine = get_engine(); conn = engine.connect(); conn.execute(text('SELECT 1')); conn.close(); print('DB connection OK')" || { echo 'DB connectivity check failed — aborting deploy'; exit 1; }
 
             # Build and restart
-            echo "Building and restarting containers..."
-            docker compose build backend
-            docker compose up -d backend
+            echo "Building and restarting production stack..."
+            compose up -d --build
 
             # ─── Post-deploy health check ───────────────────────────────────────
             echo "Waiting for backend to be ready..."
@@ -212,11 +225,15 @@ jobs:
 
             if [ "$BACKEND_READY" = "0" ]; then
               echo "Backend health check failed — initiating rollback"
-              docker tag wims-backend-rollback:latest wims-backend:latest 2>/dev/null || true
-              docker compose up -d backend
+              docker tag src-backend-rollback:latest src-backend:latest 2>/dev/null || true
+              compose up -d backend
               echo "Rollback complete"
               exit 1
             fi
+
+            echo "Checking public gateway health..."
+            curl -fsS https://wimsbfp.tech/health >/dev/null
+            curl -fsS https://wimsbfp.tech/auth/realms/bfp/.well-known/openid-configuration >/dev/null
 
             echo "Deploy successful — commit $DEPLOY_COMMIT"
             echo "DEPLOY_COMMIT=$DEPLOY_COMMIT $(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> /opt/wims-bfp/.deploy_history

@@ -25,7 +25,7 @@ function CallbackContent() {
                 const user = await userManager.signinCallback();
                 if (!user?.access_token) {
                     setError('No access token in callback');
-                    router.replace('/auth/login');
+                    router.replace('/login');
                     return;
                 }
                 const res = await fetch('/api/auth/sync', {
@@ -39,7 +39,7 @@ function CallbackContent() {
                 if (!res.ok) {
                     const data = await res.json().catch(() => ({}));
                     setError(data.error || 'Sync failed');
-                    router.replace('/auth/login');
+                    router.replace('/login');
                     return;
                 }
                 // CRITICAL: Refresh the AuthProvider session state BEFORE navigating.
@@ -51,7 +51,7 @@ function CallbackContent() {
             } catch (err) {
                 console.error('Callback error:', err);
                 setError(err instanceof Error ? err.message : 'Callback failed');
-                router.replace('/auth/login');
+                router.replace('/login');
             }
         };
         run();

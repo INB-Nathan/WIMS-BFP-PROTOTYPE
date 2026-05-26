@@ -1,7 +1,7 @@
 ---
 title: Infrastructure Configuration
 created: 2026-05-16
-updated: 2026-05-23
+updated: 2026-05-26
 type: architecture
 tags: [wims-bfp, docker, nginx, suricata, keycloak, infrastructure]
 sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/nginx/, src/suricata/, src/keycloak/bfp-realm.json]
@@ -27,7 +27,7 @@ status: draft
 | postgres | wims-postgres | `postgis/postgis:15-3.4-alpine` | 5432 |
 | redis | wims-redis | `redis:7.2-alpine` | 6379 |
 | mailhog | wims-mailhog | `mailhog/mailhog:v1.0.1` | 1025 (SMTP), 8025 (Web UI) |
-| keycloak | wims-keycloak | `quay.io/keycloak/keycloak:24.0.0` | (none exposed) |
+| keycloak | wims-keycloak | `quay.io/keycloak/keycloak:24.0.0` | 8080 |
 | keycloak-bootstrap | wims-keycloak-bootstrap | `quay.io/keycloak/keycloak:24.0.0` | (one-shot, no ports) |
 | backend | wims-backend | Dockerfile at `./backend/Dockerfile` (python:3.11-slim) | 8000 (internal) |
 | frontend | wims-frontend | `./frontend/Dockerfile` (Next.js) | 3000 (internal) |
@@ -38,6 +38,10 @@ status: draft
 
 **Named volumes:** `postgres_data`, `ollama_data`, `incident_attachments_data`
 
+**Host port exposure:** Only `nginx-gateway` intentionally binds public interfaces (`0.0.0.0:80` and `0.0.0.0:443`). Database and support/admin surfaces are bound to host loopback only: Postgres `127.0.0.1:5432`, Redis `127.0.0.1:6379`, MailHog `127.0.0.1:1025`/`8025`, and direct Keycloak `127.0.0.1:8080`. Browser and OIDC traffic should reach Keycloak only through nginx at `/auth/`.
+
+**Host firewall:** UFW is enabled on the VPS with default deny incoming, allow outgoing, and explicit inbound allows only for SSH `22/tcp`, HTTP `80/tcp`, and HTTPS `443/tcp` on IPv4/IPv6.
+
 **Key env vars (backend):**
 
 | Variable | Default |
@@ -45,7 +49,7 @@ status: draft
 | `DATABASE_URL` | `postgresql://postgres:password@postgres:5432/wims` |
 | `REDIS_URL` | `redis://redis:6379/0` |
 | `KEYCLOAK_REALM_URL` | `http://keycloak:8080/auth/realms/bfp` |
-| `KEYCLOAK_ISSUER` | `https://165-22-101-73.nip.io/auth/realms/bfp` |
+| `KEYCLOAK_ISSUER` | `${PUBLIC_BASE_URL}/auth/realms/bfp` in production override; current VPS `PUBLIC_BASE_URL=https://wimsbfp.tech` |
 | `KEYCLOAK_CLIENT_ID` | `wims-web` |
 | `KEYCLOAK_ADMIN_USER` | `admin` |
 | `KEYCLOAK_ADMIN_PASSWORD` | `admin` |
@@ -68,6 +72,12 @@ status: draft
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d --build
 ```
 
+**GitOps deploy workflow:** `.github/workflows/deploy.yml` mirrors the production command above via a shell `compose()` helper that always includes `docker-compose.yml`, `docker-compose.prod.yml`, and `.env.production`. It validates `compose config --quiet`, checks DB connectivity with the production compose stack, rebuilds/restarts the full stack with `up -d --build`, then checks backend health plus public nginx `/health` and Keycloak discovery endpoints. TLS provisioning skips issuance when `/etc/letsencrypt/live/wimsbfp.tech/` already contains a cert/key; first-time issuance uses certbot standalone and the renewal hook reloads the running nginx container with `docker exec wims-nginx-gateway nginx -s reload`.
+
+**Current VPS public origin:** `src/.env.production` sets `PUBLIC_BASE_URL=https://wimsbfp.tech`, replacing the previous `https://165-22-101-73.nip.io` deployment origin. Production frontend build args, runtime auth variables, backend `KEYCLOAK_ISSUER`, and Keycloak `KC_HOSTNAME_URL` derive from this value through `src/docker-compose.prod.yml`.
+
+**Current certificate state:** `src/nginx/nginx.conf` expects `/etc/letsencrypt/live/wimsbfp.tech/fullchain.pem` and `privkey.pem`. A Let’s Encrypt certificate for `wimsbfp.tech` was issued on the VPS on 2026-05-26 and certbot renewal is installed with an nginx reload hook.
+
 **TLS mount:** `src/docker-compose.yml` parameterizes the certificate bind as `${LETSENCRYPT_DIR:-/opt/wims-bfp/letsencrypt}:/etc/letsencrypt:ro`. On the VPS, `src/.env.production` sets `LETSENCRYPT_DIR=/etc/letsencrypt`, so `wims-nginx-gateway` receives the host certificate tree directly. Do not replace this with a repo-local symlink directory; Docker bind mounts expose the directory itself, so mounting `/opt/wims-bfp/letsencrypt` when it only contains `letsencrypt -> /etc/letsencrypt` hides the expected `/etc/letsencrypt/live/<domain>/...` paths from nginx.
 
 **Frontend/auth env:** `docker-compose.prod.yml` sets browser-facing frontend build/runtime variables to the public HTTPS origin (`${PUBLIC_BASE_URL}`) or relative paths (`/api`, `/auth`). The development compose file also uses relative `/api` and `/auth` for browser-facing access, so local HTTPS desk checks stay same-origin and avoid CORS preflight redirects from `https://localhost` to `http://localhost/api`. The Next.js server-side auth routes use `BACKEND_URL=http://backend:8000` in both development and production, and route handlers append `/api/...` explicitly. Keycloak advertises `KC_HOSTNAME_URL=${PUBLIC_BASE_URL}/auth` in production to keep OIDC discovery issuer/endpoints aligned with the nginx `/auth/` proxy path.
@@ -78,6 +88,8 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.
 |---|---|---|
 | `/api/auth/` | `http://frontend:3000` | Auth routes (session, callback, logout) handled by Next.js |
 | `/api/` | `http://backend:8000` | Main API backend with CORS + cookie domain rewrite |
+| `/auth/login`, `/auth/login/` | redirect to `/login` | Legacy app-login compatibility redirect before the Keycloak proxy |
+| `/report/tracking`, `/report/tracking/` | redirect to `/tracking` preserving query string | Legacy public-report tracking compatibility redirect |
 | `/auth/` | `http://keycloak:8080/auth/` | Keycloak authentication (with X-Forwarded-Host/Port) |
 | `/` | `http://frontend:3000/` | All other traffic to Next.js |
 
@@ -86,11 +98,12 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.
 - OPTIONS preflight handled directly by nginx (returns 204), not proxied to backend
 - CORS: dynamic `Access-Control-Allow-Origin: $http_origin`
 - Cookie domain rewrite: `proxy_cookie_domain nginx-gateway $host` — rewrites backend's `Domain=nginx-gateway` to the request host so the browser accepts it
-- TLS terminates in nginx on port 443 for `165-22-101-73.nip.io` using `/etc/letsencrypt/live/165-22-101-73.nip.io/fullchain.pem` and `privkey.pem`
+- TLS terminates in nginx on port 443 for `wimsbfp.tech` using `/etc/letsencrypt/live/wimsbfp.tech/fullchain.pem` and `privkey.pem`
+- Gateway security headers: nginx disables version tokens, hides proxied `X-Powered-By`, and adds HSTS, `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: no-referrer`, and a restrictive camera/microphone permissions policy while allowing same-origin geolocation.
 - Port 80 redirects to HTTPS
 - `/health` is served directly by nginx from the HTTPS server block for gateway uptime checks
 - **No WebSocket/SSE** specific proxy settings (no `proxy_http_version 1.1`, no Upgrade header)
-- **No caching, rate limiting, or security headers** at nginx level (beyond CORS)
+- **No caching or rate limiting** at nginx level.
 
 ---
 

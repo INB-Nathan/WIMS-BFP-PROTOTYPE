@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-05-24
+Last updated: 2026-05-26
 Total synthesis pages: 32
-Last changes: Keycloak now has a one-shot `keycloak-bootstrap` service that patches the existing master realm `security-admin-console` after Keycloak is healthy.
+Last changes: Suricata-style threat telemetry demo rows were seeded into `wims.security_threat_logs` and made persistent through `src/postgres-init/38_seed_security_threat_logs.sql`.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
@@ -52,7 +52,7 @@ Purpose: project-local knowledgebase for agents routing themselves to relevant W
 
 ## Database
 - [[database/schema-overview]] — PostgreSQL/PostGIS tables and migration source files.
-- [[database/sql-init-files]] — Complete documentation of all 31 SQL init files: RLS policies, helper functions, analytics materialized views, immutable records, seed data, and migration intent.
+- [[database/sql-init-files]] — Complete documentation of SQL init files: RLS policies, helper functions, analytics materialized views, immutable records, seed data, demo threat telemetry, and migration intent.
 
 ## Security
 - [[security/security-baseline]] — auth, RBAC, RLS, audit, IDS/XAI, and fail-closed notes.

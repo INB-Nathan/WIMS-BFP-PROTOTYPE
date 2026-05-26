@@ -718,14 +718,14 @@ export default function ReportPage() {
               </p>
               <div className="space-y-2">
                 <Link
-                  href={`/report/tracking?id=${updateReportIdParam}`}
+                  href={`/tracking?id=${updateReportIdParam}`}
                   className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-xl text-white text-sm font-semibold transition-colors"
                   style={{ background: 'var(--bfp-gradient)' }}
                 >
                   Track This Report
                 </Link>
                 <Link
-                  href="/report"
+                  href="/"
                   className="flex items-center justify-center w-full py-2.5 text-sm font-medium"
                   style={{ color: 'var(--bfp-red, #dc2626)' }}
                 >
@@ -780,7 +780,7 @@ export default function ReportPage() {
 
               <div className="flex gap-3 pt-2">
                 <Link
-                  href="/report"
+                  href="/"
                   className="flex-1 flex items-center justify-center py-2.5 rounded-xl border text-sm font-medium"
                   style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
                 >
@@ -861,9 +861,9 @@ export default function ReportPage() {
             )}
 
             <div className="text-xs p-3 rounded-lg mb-4" style={{ backgroundColor: 'var(--content-bg)', color: 'var(--text-secondary)' }}>
-              Track your report at <strong>/report/tracking?id={submittedReportId}</strong>
+              Track your report at <strong>/tracking?id={submittedReportId}</strong>
               <br />
-              Subaybayan ang iyong report sa <strong>/report/tracking?id={submittedReportId}</strong>
+              Subaybayan ang iyong report sa <strong>/tracking?id={submittedReportId}</strong>
             </div>
 
             {/* ── Update Report ─────────────────────────────────────── */}
@@ -933,7 +933,7 @@ export default function ReportPage() {
             )}
 
             <a
-              href={`/report/tracking?id=${submittedReportId}`}
+              href={`/tracking?id=${submittedReportId}`}
               className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-bold"
               style={{ background: 'var(--bfp-gradient)', boxShadow: '0 2px 8px rgba(153,27,34,0.3)' }}
             >

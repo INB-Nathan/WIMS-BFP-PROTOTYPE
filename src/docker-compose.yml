@@ -24,7 +24,7 @@ services:
       retries: 5
     restart: always
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
   redis:
     image: redis:7.2-alpine
@@ -33,7 +33,7 @@ services:
       - wims_internal
     restart: always
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -47,8 +47,8 @@ services:
       - wims_internal
     restart: unless-stopped
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
 
   keycloak:
     image: quay.io/keycloak/keycloak:24.0.0
@@ -86,7 +86,7 @@ services:
       start_period: 120s
     restart: always
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
 
   keycloak-bootstrap:
     image: quay.io/keycloak/keycloak:24.0.0
