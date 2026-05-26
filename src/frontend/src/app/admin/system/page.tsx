@@ -98,6 +98,7 @@ export default function AdminSystemPage() {
     const [auditLogs, setAuditLogs] = useState<{ items: AuditItem[]; total: number }>({ items: [], total: 0 });
     const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
     const [health, setHealth] = useState<{ status: string; components: Record<string, { status: string; latency_ms: number }> } | null>(null);
+    const [healthLastChecked, setHealthLastChecked] = useState<Date | null>(null);
     const [loadingUsers, setLoadingUsers] = useState(false);
     const [loadingLogs, setLoadingLogs] = useState(false);
     const [loadingAudit, setLoadingAudit] = useState(false);
@@ -150,10 +151,20 @@ export default function AdminSystemPage() {
         }
     }, [role]);
 
+    // M9a: 60s auto-refresh for health and monitoring panels
+    useEffect(() => {
+        if (role !== 'SYSTEM_ADMIN') return;
+        const intervalId = setInterval(() => {
+            loadHealth();
+        }, 60 * 1000);
+        return () => clearInterval(intervalId);
+    }, [role]);
+
     const loadHealth = async () => {
         try {
             const data = await fetchSystemHealth();
             setHealth(data);
+            setHealthLastChecked(new Date());
         } catch {
             setHealth({ status: 'ERROR', components: {} });
         }
@@ -415,6 +426,12 @@ export default function AdminSystemPage() {
                             <span className={`ml-2 px-2 py-0.5 rounded text-xs font-bold text-white ${health.status === 'HEALTHY' ? 'bg-green-600' : 'bg-red-600'}`}>
                                 {health.status}
                             </span>
+                            {healthLastChecked && (
+                                <span className="text-xs text-gray-400">
+                                    Last checked {healthLastChecked.toLocaleTimeString()}
+                                </span>
+                            )}
+                            <span className="text-xs text-gray-400 ml-2">(auto-refreshes every 60s)</span>
                         </div>
                         <button onClick={loadHealth} className="flex items-center gap-1 text-sm font-medium hover:opacity-80 transition-opacity" style={{ color: 'var(--bfp-maroon)' }}>
                             <RefreshCw className="w-4 h-4" /> Refresh
