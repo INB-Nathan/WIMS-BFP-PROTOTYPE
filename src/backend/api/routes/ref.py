@@ -20,10 +20,7 @@ def _get_assigned_region(user: dict, db: Session) -> int | None:
     if role not in REGION_RESTRICTED_ROLES:
         return None
     row = db.execute(
-        text(
-            "SELECT assigned_region_id FROM wims.users "
-            "WHERE user_id = CAST(:uid AS uuid)"
-        ),
+        text("SELECT assigned_region_id FROM wims.users WHERE user_id = CAST(:uid AS uuid)"),
         {"uid": user["user_id"]},
     ).fetchone()
     return row[0] if row and row[0] else None
@@ -92,9 +89,10 @@ def get_cities(
     assigned_region_id = _get_assigned_region(_user, db)
     if assigned_region_id is not None:
         province_ids_allowed = [
-            r[0] for r in db.execute(
+            r[0]
+            for r in db.execute(
                 text("SELECT province_id FROM wims.ref_provinces WHERE region_id = :rid"),
-                {"rid": assigned_region_id}
+                {"rid": assigned_region_id},
             ).fetchall()
         ]
         if province_id is not None:
