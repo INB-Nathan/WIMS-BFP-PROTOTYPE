@@ -3,6 +3,20 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-05-26] fix | VPS login outage from base compose auth settings
+- Diagnosed public login failure as a Keycloak/OIDC discovery issue, not a full stack outage: core containers were running, `/login` served 200, but `/auth/realms/bfp/.well-known/openid-configuration` returned 403 with `HTTPS required`.
+- Confirmed internal nginx-to-Keycloak discovery returned 200, while the public path was using base compose auth settings (`KC_HOSTNAME_URL=http://localhost:8080/auth`, backend `KEYCLOAK_ISSUER=http://localhost:8080/auth/realms/bfp`).
+- Recreated `keycloak`, `backend`, `frontend`, and `nginx-gateway` with `docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d --build keycloak backend frontend nginx-gateway`.
+- Restored Keycloak realm `sslRequired=external` after verification; no persistent relaxation of realm SSL policy was kept.
+- Verified public discovery now returns 200 and advertises `issuer`, `authorization_endpoint`, and `token_endpoint` under `https://wimsbfp.tech/auth/...`; `/login` returns 200; all core containers are up.
+- Updated `architecture/infrastructure-config.md` and `index.md`; no FRS/codebase gap register change was needed because this was an operational deployment-state correction, not a requirement alignment change.
+
+## [2026-05-26] fix | Threat telemetry hidden by frontend response parser mismatch
+- Verified seeded telemetry exists in `wims.security_threat_logs` (6 rows: 2 HIGH, 2 MEDIUM, 2 LOW); seeding was not the root issue.
+- Fixed `src/frontend/src/lib/api/legacy.ts` `fetchAdminSecurityLogs()` to parse the current admin API envelope (`{ items, total, limit, offset }`) in addition to legacy array / `{ data: [...] }` formats.
+- Added regression tests in `src/frontend/src/lib/api.test.ts` to cover both `{ items: [...] }` and `{ data: [...] }` parsing paths.
+- Updated `subsystems/admin-hub.md` to document paginated telemetry response semantics and current UI limitation (first-page-only consumption).
+
 ## [2026-05-26] update | Seed Suricata threat telemetry
 - Seeded the live VPS database with 6 Suricata-style rows in `wims.security_threat_logs`: 2 HIGH, 2 MEDIUM, and 2 LOW alerts for the System Admin threat telemetry view.
 - Added `src/postgres-init/38_seed_security_threat_logs.sql` so fresh Postgres volumes get the same idempotent demo telemetry.

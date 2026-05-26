@@ -224,8 +224,11 @@ export async function changeMyPassword(payload: {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function fetchAdminSecurityLogs(): Promise<any[]> {
   try {
-    const data = await apiFetch<Record<string, unknown>[] | { data?: Record<string, unknown>[] }>('/admin/security-logs');
-    return Array.isArray(data) ? data : (data?.data ?? []);
+    const data = await apiFetch<
+      Record<string, unknown>[] | { items?: Record<string, unknown>[]; data?: Record<string, unknown>[] }
+    >('/admin/security-logs');
+    if (Array.isArray(data)) return data;
+    return data?.items ?? data?.data ?? [];
   } catch {
     return [];
   }

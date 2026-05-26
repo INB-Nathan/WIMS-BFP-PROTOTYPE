@@ -15,6 +15,7 @@ import {
   commitAforImport,
   fetchRegionalIncidents,
   fetchRegionalIncident,
+  fetchAdminSecurityLogs,
 } from './api';
 import { fetchHeatmapData as fetchHeatmapDataFromSlice } from './api/analytics';
 import { submitCivilianReport as submitCivilianReportFromSlice } from './api/civilian';
@@ -72,6 +73,42 @@ describe('domain API slices', () => {
     expect(fetchHeatmapDataFromSlice).toBe(fetchHeatmapData);
     expect(submitCivilianReportFromSlice).toBe(submitCivilianReport);
     expect(fetchRegionalIncidentsFromSlice).toBe(fetchRegionalIncidents);
+  });
+});
+
+describe('fetchAdminSecurityLogs response parsing', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('parses paginated admin envelope {items: [...] }', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          items: [{ log_id: 101, severity_level: 'HIGH' }],
+          total: 1,
+          limit: 20,
+          offset: 0,
+        }),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const rows = await fetchAdminSecurityLogs();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ log_id: 101, severity_level: 'HIGH' });
+  });
+
+  it('keeps backward compatibility for {data: [...]} responses', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: [{ log_id: 7 }] }),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const rows = await fetchAdminSecurityLogs();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ log_id: 7 });
   });
 });
 

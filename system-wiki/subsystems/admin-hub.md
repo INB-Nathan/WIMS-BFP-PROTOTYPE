@@ -1,10 +1,10 @@
 ---
 title: System Admin Hub
 created: 2026-05-16
-updated: 2026-05-16
+updated: 2026-05-26
 type: operation
 tags: [wims-bfp, admin, system-admin, dashboard, identity, security]
-sources: [src/frontend/src/app/admin/system/page.tsx, src/backend/api/routes/admin.py, src/frontend/src/lib/api.ts]
+sources: [src/frontend/src/app/admin/system/page.tsx, src/backend/api/routes/admin.py, src/frontend/src/lib/api/legacy.ts]
 status: draft
 ---
 
@@ -29,7 +29,7 @@ The admin hub (`/admin/system`) is the `SYSTEM_ADMIN`-only management console fo
 | **User Management** | All users (masked Keycloak IDs), edit role/region/active state | `fetchAdminUsers()`, `updateAdminUser()` | Inline edit for role/region/active; Create User modal for onboarding; region dropdown populated from `fetchRegions()` |
 | **Create User Modal** | First name, last name, email, role, region, contact | `createAdminUser()` → `POST /api/admin/users` | Returns temp password in plaintext (prototype); copy-to-clipboard with show/hide toggle; region filter list from `fetchRegions()` |
 | **Active Sessions** | All active Keycloak sessions across all users | `fetchActiveSessions()` → `GET /api/admin/active-sessions` | Table with session ID, username, role, IP, start, last access; Revoke button calls `revokeUserSessions()` |
-| **Security Threat Logs** | Suricata/XAI threat telemetry | `fetchAdminSecurityLogs()` → `GET /api/admin/security-logs` | Table with source/dest IP, severity, Suricata SID, raw payload, XAI narrative/confidence; Analyze button runs `analyzeSecurityLog()`; edit form for admin_action_taken + resolved_at |
+| **Security Threat Logs** | Suricata/XAI threat telemetry | `fetchAdminSecurityLogs()` → `GET /api/admin/security-logs` | Table with source/dest IP, severity, Suricata SID, raw payload, XAI narrative/confidence; Analyze button runs `analyzeSecurityLog()`; edit form for admin_action_taken + resolved_at. Backend response is paginated (`items`, `total`, `limit`, `offset`). |
 | **System Audit Trails** | Paginated audit log of all admin actions | `fetchAuditLogs(limit, offset)` → `GET /api/admin/audit-logs` | Table with user_id, action_type, table_affected, record_id, IP, UA, timestamp; paginated with limit/offset |
 | **Scheduled Reports** | Create/manage scheduled analytics reports | `POST /api/admin/scheduled-reports`, `GET /api/admin/scheduled-reports` | Create form: name, format (pdf/excel/csv), cron expression, filters JSON, recipients; list with delete capability |
 | **Backup Management** | Trigger pg_dump + AES encrypt, list backups, download | `triggerBackup()`, `listBackups()`, `downloadBackup()` | Backup filenames: `wims_YYYYMMDD_HHMMSS.sql.enc`; retention policy deletes oldest when >100 files; download via FileResponse |
@@ -58,7 +58,7 @@ All in `src/backend/api/routes/admin.py` (~935 lines). Every endpoint is gated b
 
 | Method | Path | Function | Behavior |
 |---|---|---|---|
-| `GET` | `/api/admin/security-logs` | `get_security_logs` | Lists `wims.security_threat_logs` ordered by timestamp DESC; includes XAI fields (narrative, confidence) |
+| `GET` | `/api/admin/security-logs` | `get_security_logs` | Lists `wims.security_threat_logs` ordered by timestamp DESC; includes XAI fields (narrative, confidence); supports `limit`/`offset` query params and returns paginated envelope (`items`, `total`, `limit`, `offset`) |
 | `POST` | `/api/admin/security-logs/{log_id}/analyze` | `analyze_security_log` | Runs `analyze_threat_log()` via Ollama AI service; updates xai_narrative and xai_confidence |
 | `PATCH` | `/api/admin/security-logs/{log_id}` | `update_security_log` | Updates `admin_action_taken` and `resolved_at` on a threat log |
 
@@ -100,7 +100,7 @@ All in `src/backend/api/routes/admin.py` (~935 lines). Every endpoint is gated b
 ## Gap / Status Notes
 
 - The page shows all panels in a **single vertical scroll layout** — no tabbed Activity & Governance section (logged in [[gaps/ui-ux-gap-register]] as issue #A-02 and #A-04)
-- Security threat logs have **no pagination or search/filter** — the API returns all rows
+- Security threat logs still have **no frontend pagination/search/filter**. Backend API is paginated, but the admin UI currently consumes only the initial page.
 - **M9 System Monitoring metrics** (VPS usage, container status, PWA sync, AI model latency, DB query latency cards) are **not implemented** beyond the basic DB/Redis/Keycloak health check; the FRS-required 60s refresh and configuration management UI are missing (logged in [[gaps/frs-codebase-gap-register]])
 - **No pagination, full-text search, or filter** on user list or incident lists in admin hub (logged in [[gaps/ui-ux-gap-register]])
 - Backup download is not rate-limited or logged beyond the system audit trail

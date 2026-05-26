@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-26
 Total synthesis pages: 32
-Last changes: Suricata-style threat telemetry demo rows were seeded into `wims.security_threat_logs` and made persistent through `src/postgres-init/38_seed_security_threat_logs.sql`.
+Last changes: VPS login outage was restored by recreating Keycloak/backend/frontend with the production compose override so OIDC discovery advertises `https://wimsbfp.tech/auth/...`.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
