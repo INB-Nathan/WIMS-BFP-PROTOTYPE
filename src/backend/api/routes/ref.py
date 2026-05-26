@@ -11,6 +11,23 @@ from database import get_db, get_db_with_rls
 
 router = APIRouter(prefix="/api/ref", tags=["ref"])
 
+REGION_RESTRICTED_ROLES = {"REGIONAL_ENCODER", "NATIONAL_VALIDATOR"}
+
+
+def _get_assigned_region(user: dict, db: Session) -> int | None:
+    """Return assigned_region_id for roles that are region-restricted."""
+    role = user.get("role", "")
+    if role not in REGION_RESTRICTED_ROLES:
+        return None
+    row = db.execute(
+        text(
+            "SELECT assigned_region_id FROM wims.users "
+            "WHERE user_id = CAST(:uid AS uuid)"
+        ),
+        {"uid": user["user_id"]},
+    ).fetchone()
+    return row[0] if row and row[0] else None
+
 
 @router.get("/regions")
 def get_regions(
@@ -19,6 +36,9 @@ def get_regions(
     region_id: Optional[int] = Query(None),
 ):
     """Return ref_regions. Optional region_id filter."""
+    assigned_region_id = _get_assigned_region(_user, db)
+    if assigned_region_id is not None:
+        region_id = assigned_region_id
     if region_id is not None:
         rows = db.execute(
             text(
@@ -42,6 +62,9 @@ def get_provinces(
     region_id: Optional[int] = Query(None),
 ):
     """Return ref_provinces. Optional region_id filter."""
+    assigned_region_id = _get_assigned_region(_user, db)
+    if assigned_region_id is not None:
+        region_id = assigned_region_id
     if region_id is not None:
         rows = db.execute(
             text(
@@ -66,7 +89,25 @@ def get_cities(
     province_ids: Optional[str] = Query(None),
 ):
     """Return ref_cities. Optional province_id or comma-separated province_ids filter."""
-    # Support single province_id
+    assigned_region_id = _get_assigned_region(_user, db)
+    if assigned_region_id is not None:
+        province_ids_allowed = [
+            r[0] for r in db.execute(
+                text("SELECT province_id FROM wims.ref_provinces WHERE region_id = :rid"),
+                {"rid": assigned_region_id}
+            ).fetchall()
+        ]
+        if province_id is not None:
+            if province_id not in province_ids_allowed:
+                return []
+        elif province_ids:
+            ids = [int(x) for x in province_ids.split(",") if x.strip().isdigit()]
+            ids = [i for i in ids if i in province_ids_allowed]
+            if not ids:
+                return []
+            province_ids = ",".join(str(i) for i in ids)
+        else:
+            province_ids = ",".join(str(i) for i in province_ids_allowed)
     if province_id is not None:
         rows = db.execute(
             text(

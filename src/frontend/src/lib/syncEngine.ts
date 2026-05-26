@@ -9,6 +9,9 @@
 import { getPendingIncidents, markSynced } from './offlineStore';
 
 const SYNC_ENDPOINT = '/api/v1/public/report';
+const MAX_RETRIES = 5;
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export interface SyncError {
   id: number;
@@ -135,18 +138,25 @@ export async function syncPendingIncidents(): Promise<SyncResult> {
   const errors: SyncError[] = [];
 
   for (const item of pending) {
-    const result = await syncItem(item);
+    let result: { ok: boolean; status?: number; error?: string } = { ok: false, error: 'Not attempted' };
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      result = await syncItem(item);
+      if (result.ok) break;
+      const status = result.status;
+      if (status === 409) break;
+      if (status && status >= 400 && status < 500) break;
+      if (attempt < MAX_RETRIES) {
+        const delayMs = Math.min(Math.pow(2, attempt) * 1000, 32000);
+        await sleep(delayMs);
+      }
+    }
 
     if (result.ok) {
       await markSynced(item.id);
       synced++;
     } else {
       failed++;
-      errors.push({
-        id: item.id,
-        status: result.status,
-        error: result.error,
-      });
+      errors.push({ id: item.id, status: result.status, error: result.error });
     }
   }
 

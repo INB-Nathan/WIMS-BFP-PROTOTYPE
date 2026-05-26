@@ -242,7 +242,8 @@ services:
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ${LETSENCRYPT_DIR:-/opt/wims-bfp/letsencrypt}:/etc/letsencrypt:ro
+      # Production: set LETSENCRYPT_DIR=/etc/letsencrypt and update nginx.conf cert paths
+      - ./nginx/certs:/etc/nginx/certs:ro
     networks:
       - wims_internal
     depends_on:
