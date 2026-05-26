@@ -11,7 +11,7 @@ import { getPendingIncidents, markSynced } from './offlineStore';
 const SYNC_ENDPOINT = '/api/v1/public/report';
 const MAX_RETRIES = 5;
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+export const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export interface SyncError {
   id: number;

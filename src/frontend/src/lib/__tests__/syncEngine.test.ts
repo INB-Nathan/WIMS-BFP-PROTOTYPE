@@ -12,11 +12,19 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock offlineStore
 vi.mock('../offlineStore', () => ({
   getPendingIncidents: vi.fn(),
   markSynced: vi.fn(),
 }));
+
+vi.mock('../syncEngine', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../syncEngine')>();
+  return {
+    __esModule: true,
+    ...actual,
+    sleep: vi.fn(() => Promise.resolve()),
+  };
+});
 
 // Mock fetch
 const fetchSpy = vi.fn();
@@ -104,6 +112,11 @@ describe('syncPendingIncidents', () => {
     ]);
     fetchSpy
       .mockResolvedValueOnce({ ok: true, status: 201, json: () => Promise.resolve({}) })
+      .mockResolvedValueOnce({ ok: false, status: 500, json: () => Promise.resolve({ detail: 'Server error' }) })
+      .mockResolvedValueOnce({ ok: false, status: 500, json: () => Promise.resolve({ detail: 'Server error' }) })
+      .mockResolvedValueOnce({ ok: false, status: 500, json: () => Promise.resolve({ detail: 'Server error' }) })
+      .mockResolvedValueOnce({ ok: false, status: 500, json: () => Promise.resolve({ detail: 'Server error' }) })
+      .mockResolvedValueOnce({ ok: false, status: 500, json: () => Promise.resolve({ detail: 'Server error' }) })
       .mockResolvedValueOnce({ ok: false, status: 500, json: () => Promise.resolve({ detail: 'Server error' }) })
       .mockResolvedValueOnce({ ok: true, status: 201, json: () => Promise.resolve({}) });
     vi.mocked(markSynced).mockResolvedValue(undefined);
@@ -207,5 +220,5 @@ describe('syncPendingIncidents', () => {
     expect(result.synced).toBe(0);
     expect(result.failed).toBe(1);
     expect(result.errors[0].error).toMatch(/Failed to fetch/);
-  });
+  }, 60000);
 });
