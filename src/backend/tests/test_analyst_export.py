@@ -9,7 +9,12 @@ import pytest
 
 from api.routes.incidents import AnalystIncidentExportRequest, export_analyst_incidents
 from auth import get_analyst_or_admin
-from tasks.exports import ALLOWED_EXPORT_COLUMNS, _valid_columns, export_analyst_incidents_task
+from tasks.exports import (
+    ALLOWED_EXPORT_COLUMNS,
+    DEFAULT_EXPORT_COLUMNS,
+    _valid_columns,
+    export_analyst_incidents_task,
+)
 
 
 def test_export_columns_allowlist_filtering():
@@ -17,6 +22,31 @@ def test_export_columns_allowlist_filtering():
 
     assert _valid_columns(columns) == ["incident_id", "notification_dt"]
     assert set(_valid_columns(["bad_sql"])).issubset(ALLOWED_EXPORT_COLUMNS)
+
+
+def test_region_name_in_allowed_columns():
+    # #112: region_name must survive _valid_columns so it reaches get_export_rows.
+    assert "region_name" in ALLOWED_EXPORT_COLUMNS
+    assert _valid_columns(["region_name"]) == ["region_name"]
+    assert _valid_columns(["region_name", "incident_id"]) == ["region_name", "incident_id"]
+
+
+def test_default_export_columns_match_curated_list():
+    # #113: pin the contract between the backend default and the frontend
+    # DEFAULT_SELECTED_COLUMNS so the two layers stay in sync.
+    assert DEFAULT_EXPORT_COLUMNS == [
+        "incident_id",
+        "notification_dt",
+        "region_name",
+        "province_name",
+        "municipality_name",
+        "general_category",
+        "alarm_level",
+        "estimated_damage_php",
+        "total_response_time_minutes",
+    ]
+    assert "region_id" not in DEFAULT_EXPORT_COLUMNS
+    assert "barangay_name" not in DEFAULT_EXPORT_COLUMNS
 
 
 def test_export_task_dispatched_returns_task_id():

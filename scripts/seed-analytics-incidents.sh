@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 # Seed verified incidents for the National Analyst dashboard analytics.
 # Populates heatmap, trends, and comparative endpoints.
 # Run from project root: ./scripts/seed-analytics-incidents.sh

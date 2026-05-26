@@ -44,6 +44,7 @@ ALLOWED_EXPORT_COLUMNS = {
     "firefighter_deaths",
     "fire_station_name",
     "region_id",
+    "region_name",
     "verification_status",
     "estimated_damage_php",
     "municipality_name",
@@ -53,12 +54,11 @@ ALLOWED_EXPORT_COLUMNS = {
 DEFAULT_EXPORT_COLUMNS = [
     "incident_id",
     "notification_dt",
-    "region_id",
+    "region_name",
     "province_name",
     "municipality_name",
-    "alarm_level",
     "general_category",
-    "sub_category",
+    "alarm_level",
     "estimated_damage_php",
     "total_response_time_minutes",
 ]

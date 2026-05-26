@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 # rollback.sh — roll back the backend container to the last known-good image.
 # Tagged by GitHub Actions before each deploy as wims-backend-rollback:latest.
 set -e

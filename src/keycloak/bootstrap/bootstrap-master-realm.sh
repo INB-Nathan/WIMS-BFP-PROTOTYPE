@@ -1,4 +1,4 @@
-#!/bin/sh
+﻿#!/bin/sh
 set -eu
 
 KEYCLOAK_URL="${KEYCLOAK_URL:-http://keycloak:8080/auth}"

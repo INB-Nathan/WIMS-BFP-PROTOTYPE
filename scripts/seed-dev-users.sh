@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 # Seed dev users into Keycloak and sync to wims.users.
 # Run from project root: ./scripts/seed-dev-users.sh
 # chmod +x scripts/seed-dev-users.sh

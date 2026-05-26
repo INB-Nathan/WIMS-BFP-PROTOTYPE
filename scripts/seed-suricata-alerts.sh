@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 # Seed Suricata security alerts for the System Admin hub.
 # Run from project root: ./scripts/seed-suricata-alerts.sh
 # Prerequisite: Docker Compose stack running (postgres healthy)

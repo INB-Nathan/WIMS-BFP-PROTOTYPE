@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 set -euo pipefail
 
 # Re-apply reference data inserts (idempotent) to backfill missing province/city rows.
