@@ -17,15 +17,6 @@ vi.mock('../offlineStore', () => ({
   markSynced: vi.fn(),
 }));
 
-vi.mock('../syncEngine', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../syncEngine')>();
-  return {
-    __esModule: true,
-    ...actual,
-    sleep: vi.fn(() => Promise.resolve()),
-  };
-});
-
 // Mock fetch
 const fetchSpy = vi.fn();
 vi.stubGlobal('fetch', fetchSpy);
@@ -33,19 +24,24 @@ vi.stubGlobal('fetch', fetchSpy);
 import { syncPendingIncidents } from '../syncEngine';
 import { getPendingIncidents, markSynced } from '../offlineStore';
 
+describe('syncPendingIncidents', () => {
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.useFakeTimers();
+  fetchSpy.mockReset();
+  vi.mocked(getPendingIncidents).mockReset();
+  vi.mocked(markSynced).mockReset();
 });
 
 afterEach(() => {
-  vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
-describe('syncPendingIncidents', () => {
   it('returns { synced: 0, failed: 0 } when no pending items', async () => {
     vi.mocked(getPendingIncidents).mockResolvedValue([]);
 
-    const result = await syncPendingIncidents();
+    const promise = syncPendingIncidents();
+    await vi.runAllTimersAsync();
+    const result = await promise;
 
     expect(result.synced).toBe(0);
     expect(result.failed).toBe(0);
@@ -60,7 +56,9 @@ describe('syncPendingIncidents', () => {
     fetchSpy.mockResolvedValue({ ok: true, status: 201, json: () => Promise.resolve({ report_id: 10 }) });
     vi.mocked(markSynced).mockResolvedValue(undefined);
 
-    const result = await syncPendingIncidents();
+    const promise = syncPendingIncidents();
+    await vi.runAllTimersAsync();
+    const result = await promise;
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(fetchSpy.mock.calls[0][1].method).toBe('POST');
@@ -78,7 +76,9 @@ describe('syncPendingIncidents', () => {
     fetchSpy.mockResolvedValue({ ok: true, status: 201, json: () => Promise.resolve({}) });
     vi.mocked(markSynced).mockResolvedValue(undefined);
 
-    const result = await syncPendingIncidents();
+    const promise = syncPendingIncidents();
+    await vi.runAllTimersAsync();
+    const result = await promise;
 
     expect(fetchSpy).toHaveBeenCalledTimes(3);
     expect(markSynced).toHaveBeenCalledTimes(3);
@@ -95,7 +95,9 @@ describe('syncPendingIncidents', () => {
       json: () => Promise.resolve({ detail: 'Validation error' }),
     });
 
-    const result = await syncPendingIncidents();
+    const promise = syncPendingIncidents();
+    await vi.runAllTimersAsync();
+    const result = await promise;
 
     expect(markSynced).not.toHaveBeenCalled();
     expect(result.synced).toBe(0);
@@ -121,7 +123,9 @@ describe('syncPendingIncidents', () => {
       .mockResolvedValueOnce({ ok: true, status: 201, json: () => Promise.resolve({}) });
     vi.mocked(markSynced).mockResolvedValue(undefined);
 
-    const result = await syncPendingIncidents();
+    const promise = syncPendingIncidents();
+    await vi.runAllTimersAsync();
+    const result = await promise;
 
     expect(result.synced).toBe(2);
     expect(result.failed).toBe(1);
@@ -150,7 +154,9 @@ describe('syncPendingIncidents', () => {
     });
     vi.mocked(markSynced).mockResolvedValue(undefined);
 
-    const result = await syncPendingIncidents();
+    const promise = syncPendingIncidents();
+    await vi.runAllTimersAsync();
+    const result = await promise;
 
     // Should attempt resolution retry
     expect(fetchSpy).toHaveBeenCalledTimes(2);
@@ -172,7 +178,9 @@ describe('syncPendingIncidents', () => {
       }),
     });
 
-    const result = await syncPendingIncidents();
+    const promise = syncPendingIncidents();
+    await vi.runAllTimersAsync();
+    const result = await promise;
 
     // Server wins — do not overwrite, keep pending
     expect(markSynced).not.toHaveBeenCalled();
@@ -187,7 +195,9 @@ describe('syncPendingIncidents', () => {
     fetchSpy.mockResolvedValue({ ok: true, status: 201, json: () => Promise.resolve({}) });
     vi.mocked(markSynced).mockResolvedValue(undefined);
 
-    await syncPendingIncidents();
+    const promise = syncPendingIncidents();
+    await vi.runAllTimersAsync();
+    await promise;
 
     const [, options] = fetchSpy.mock.calls[0];
     expect(options.headers['Content-Type']).toBe('application/json');
@@ -203,7 +213,9 @@ describe('syncPendingIncidents', () => {
     fetchSpy.mockResolvedValue({ ok: true, status: 201, json: () => Promise.resolve({}) });
     vi.mocked(markSynced).mockResolvedValue(undefined);
 
-    await syncPendingIncidents();
+    const promise = syncPendingIncidents();
+    await vi.runAllTimersAsync();
+    await promise;
 
     const [url] = fetchSpy.mock.calls[0];
     expect(url).toMatch(/\/api\/v1\/public\/report/);
@@ -215,10 +227,12 @@ describe('syncPendingIncidents', () => {
     ]);
     fetchSpy.mockRejectedValue(new TypeError('Failed to fetch'));
 
-    const result = await syncPendingIncidents();
+    const promise = syncPendingIncidents();
+    await vi.runAllTimersAsync();
+    const result = await promise;
 
     expect(result.synced).toBe(0);
     expect(result.failed).toBe(1);
     expect(result.errors[0].error).toMatch(/Failed to fetch/);
-  }, 60000);
+  });
 });
