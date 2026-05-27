@@ -199,9 +199,15 @@ export function MapPickerInner({
         const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=ph&limit=1&q=${encodeURIComponent(q)}`;
         fetch(url, { headers: { Accept: 'application/json' } })
             .then((r) => r.json())
-            .then((data: Array<{ lat: string; lon: string }>) => {
+            .then((data: Array<{ lat: string; lon: string; type: string; class: string }>) => {
                 const first = data[0];
                 if (!first) return;
+                // Don't pin broad administrative areas (province/region centroids) —
+                // they make the result look random when the address is too vague.
+                if (first.type === 'administrative' || first.class === 'boundary') {
+                    setSearchError('Address matched only a broad area — drop a pin manually for a precise location.');
+                    return;
+                }
                 const lat = Number(first.lat);
                 const lng = Number(first.lon);
                 if (isInPhilippines(lat, lng)) {

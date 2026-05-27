@@ -135,7 +135,7 @@ export function IncidentForm({
   initialErrors?: string[];
 }) {
   const router = useRouter();
-  const { assignedRegionId, role } = useUserProfile();
+  const { assignedRegionId, role, loading: profileLoading } = useUserProfile();
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
   const [loading, setLoading] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
@@ -145,6 +145,7 @@ export function IncidentForm({
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Set<string>>(new Set(initialErrors ?? []));
+  const [regionMismatchMsg, setRegionMismatchMsg] = useState<string | null>(null);
   const locationHydratedRef = useRef(false);
   const formHydratedRef = useRef(false);
   const submitAfterSaveRef = useRef(false);
@@ -831,7 +832,9 @@ export function IncidentForm({
       const effectiveId = resolveRegionId();
       if (effectiveId && effectiveId !== assignedRegionId) {
         const name = getShortRegionName(assignedRegionId);
-        showToast(`You can only submit incidents for your assigned region (${name}).`);
+        setRegionMismatchMsg(
+          `You can only submit incidents for your assigned region (${name}).\nError code: REGION_MISMATCH`
+        );
         return;
       }
     }
@@ -846,7 +849,7 @@ export function IncidentForm({
     if (!formState.city_municipality?.trim()) submitErrors.add('city_municipality');
     if (!formState.alarm_level) submitErrors.add('alarm_level');
     if (!formState.classification_of_involved) submitErrors.add('classification_of_involved');
-    if (formState.classification_of_involved && !formState.type_of_involved_general_category) submitErrors.add('type_of_involved_general_category');
+    if (formState.classification_of_involved && (!formState.type_of_involved_general_category || !incidentTypeCode)) submitErrors.add('type_of_involved_general_category');
     if (!formState.extent_of_damage) submitErrors.add('extent_of_damage');
     if (latitude === null || longitude === null) submitErrors.add('map_location');
     const preparedBy = formState.disposition_prepared_by?.trim();
@@ -1171,11 +1174,9 @@ export function IncidentForm({
       if (isRegionMismatch) {
         setFieldErrors((prev) => new Set([...prev, 'region']));
         const assignedRegionName = PH_REGIONS.find((r) => r.regionId === assignedRegionId)?.regionName ?? `Region ${assignedRegionId ?? ''}`;
-        showToast(`Your assigned region '${assignedRegionName}' does not match the incident's assigned region.`);
-        setTimeout(() => {
-          const regionEl = document.querySelector('[data-field-error="true"]');
-          regionEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 100);
+        setRegionMismatchMsg(
+          `Your assigned region '${assignedRegionName}' does not match the incident's region.\nError code: REGION_MISMATCH`
+        );
       } else {
         showToast(`Submission failed: ${(err as Error).message}`);
       }
@@ -1343,15 +1344,17 @@ export function IncidentForm({
       <div className="flex flex-wrap justify-between items-center gap-2 bg-red-800 -m-6 mb-4 p-4 rounded-t-lg text-white">
         <h2 className="text-xl font-bold">{isEditMode ? 'Edit Incident Report' : 'AFOR Report Entry'}</h2>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleAutoFill}
-            className="inline-flex items-center gap-1.5 text-xs bg-yellow-400 text-red-900 px-3 py-1.5 rounded font-bold hover:bg-yellow-300"
-            title="Fill all fields with randomized test data"
-          >
-            <Shuffle className="w-3.5 h-3.5" />
-            Auto-fill (Test)
-          </button>
+          {!isEditMode && (
+            <button
+              type="button"
+              onClick={handleAutoFill}
+              className="inline-flex items-center gap-1.5 text-xs bg-yellow-400 text-red-900 px-3 py-1.5 rounded font-bold hover:bg-yellow-300"
+              title="Fill all fields with randomized test data"
+            >
+              <Shuffle className="w-3.5 h-3.5" />
+              Auto-fill (Test)
+            </button>
+          )}
           {pendingCount > 0 && (
             <button
               type="button"
@@ -1418,10 +1421,12 @@ export function IncidentForm({
 
             <div data-field-error={fieldErrors.has('region') ? 'true' : undefined}>
               <label className={labelCls}>Region{reqMark}</label>
-              {isEncoder && assignedRegionId ? (
+              {isEncoder ? (
                 <>
                   <p className={`${inputCls} text-gray-700 bg-gray-50 cursor-default`}>
-                    {PH_REGIONS.find((r) => r.regionId === assignedRegionId)?.regionName ?? formState.region}
+                    {assignedRegionId
+                      ? (PH_REGIONS.find((r) => r.regionId === assignedRegionId)?.regionName ?? formState.region)
+                      : profileLoading ? 'Loading…' : formState.region || 'No region assigned'}
                   </p>
                   <p className="mt-1 text-xs text-gray-400">Region is set to your assigned area.</p>
                 </>
@@ -1524,6 +1529,15 @@ export function IncidentForm({
               />
             </div>
 
+            {/* Compact fire scene location — shown near the complete address once a pin is set */}
+            {latitude !== null && longitude !== null && (
+              <div className="md:col-span-2 text-xs text-green-800 font-medium bg-green-50 border border-green-200 rounded px-3 py-2 flex items-center gap-2">
+                <span>📍 Fire Scene: {latitude.toFixed(6)}, {longitude.toFixed(6)}</span>
+                <button type="button" onClick={() => { setLatitude(null); setLongitude(null); }}
+                  className="ml-auto text-red-600 hover:underline">Clear pin</button>
+              </div>
+            )}
+
             {/* ── Map Pin (inline in Response Details) ── */}
             <div className="md:col-span-2 space-y-2" data-field-error={fieldErrors.has('map_location') ? 'true' : undefined}>
               <label className={`${labelCls} flex items-center gap-1`}>
@@ -1558,12 +1572,7 @@ export function IncidentForm({
                   }}
                 />
               </div>
-              {latitude !== null && longitude !== null ? (
-                <p className="text-xs text-green-700 font-medium">
-                  📍 Location pinned: {latitude.toFixed(6)}, {longitude.toFixed(6)}
-                  <button type="button" onClick={() => { setLatitude(null); setLongitude(null); }} className="ml-3 text-red-600 hover:underline">Clear</button>
-                </p>
-              ) : (
+              {latitude === null && longitude === null && (
                 <p className="text-xs text-amber-700 font-medium">No location pinned — click the map to mark the fire scene.</p>
               )}
             </div>
@@ -2089,6 +2098,27 @@ export function IncidentForm({
         </div>
 
       </form>
+
+      {/* ── Region Mismatch Modal ── */}
+      {regionMismatchMsg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="bg-red-100 text-red-800 text-xs font-bold px-2 py-1 rounded font-mono">
+                REGION_MISMATCH
+              </span>
+              <h2 className="text-lg font-bold text-red-900">Region Access Denied</h2>
+            </div>
+            <p className="text-sm text-gray-700 whitespace-pre-line">{regionMismatchMsg}</p>
+            <button
+              className="w-full bg-red-800 text-white rounded py-2 font-semibold hover:bg-red-700"
+              onClick={() => setRegionMismatchMsg(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Duplicate Incident Modal ── */}
       {duplicateModalData && (

@@ -167,13 +167,31 @@ Frontend API functions live in `src/frontend/src/lib/api/legacy.ts` (re-exported
 
 ### 2026-05-27 — Branch `fix/enc-val-bugs-and-UI`
 
-**Files modified:**
+**Files modified (session 1 — sidebar, crash fixes):**
 
 | File | Change | Bug Fixed |
 |------|--------|-----------|
 | `src/frontend/src/components/Sidebar.tsx` | Added two `isActive()` exclusion rules for `/dashboard/regional` and `/dashboard/validator` parent routes | Encoder sidebar: Activity Log nav highlighted Regional Dashboard; Validator sidebar: Audit Trail highlighted Validator Dashboard |
 | `src/frontend/src/app/afor/import/page.tsx` | Moved `isOffline` from render body to `useState(false)` + `useEffect` with online/offline listeners; renamed component to `AforImportPage`, wrapped in `<Suspense>` export default | AFOR Import page crashed with "Application error: a client-side exception" |
 | `src/frontend/src/app/afor/create/page.tsx` | Renamed component to `AforCreatePage`, wrapped in `<Suspense>` export default | Manual Entry page crashed with "Application error: a client-side exception" |
+
+**Files modified (session 2 — RBAC enforcement):**
+
+| File | Change | Bug Fixed |
+|------|--------|-----------|
+| `src/frontend/src/app/callback/page.tsx` | Added `useUserProfile` import; added `refreshProfile()` to post-login sync; now calls `await Promise.all([refreshSession(), refreshProfile()])` before navigating to dashboard | On first login, `UserProfileProvider` stayed at `assignedRegionId=null` for the entire session — all RBAC region guards in IncidentForm and afor pages were no-ops |
+| `src/frontend/src/components/IncidentForm.tsx` | Added `loading: profileLoading` from `useUserProfile()`; region field for encoders now unconditionally renders as a locked display (not a dropdown), showing "Loading…" while profile loads | Encoders could freely change region via the dropdown while `assignedRegionId` was null during first-login load |
+
+**Root cause (session 2):** Two independent auth contexts exist: `@/context/AuthContext` (used by Sidebar, detail page) and `@/lib/auth` (used by IncidentForm, afor pages). Both call `/api/auth/session` on mount. On first login, the cookie isn't set until after both initial fetches — only `AuthContext` was being re-fetched post-callback; `UserProfileProvider` kept `assignedRegionId=null` until manual refresh.
+
+**Files modified (session 3 — edit-mode submission hardening):**
+
+| File | Change | Bug Fixed |
+|------|--------|-----------|
+| `src/frontend/src/components/IncidentForm.tsx` | Hidden "Auto-fill (Test)" button in edit mode (`!isEditMode` guard) | Button was visible while editing an existing incident — clicking it (accidentally or intentionally) filled all fields with random data that bypassed field validation |
+| `src/frontend/src/components/IncidentForm.tsx` | Hardened type-of-involved validation: now requires both `type_of_involved_general_category` to be non-empty AND `incidentTypeCode` to be non-empty | Form hydration pulled legacy/raw `sub_category` strings from the JSONB that were non-empty (passing string check) but didn't map to any recognized type option (returning empty `incidentTypeCode`) — the `incident_type_code` DB column stayed null and the detail page kept flagging the field as missing |
+
+**Root cause (session 3):** The detail page's `handleSubmitClick()` validates against `detail.incident_type_code` (the DB column). IncidentForm's `handleSubmitForReview()` validated against `formState.type_of_involved_general_category` (the form string). These could diverge when the JSONB contained a legacy `sub_category` value that hydrated as a non-empty string but failed `getTypeCode()` lookup, producing an empty code and leaving the DB column null.
 
 **Earlier commits on this branch (pre-existing context):**
 - `6448e24` — Improved geocoding in AFOR import (abort controller, province fallback), cleared file input on region mismatch. Also restructured `auth-refresh.ts` to use module-level in-flight dedup instead of Web Locks API.
@@ -185,14 +203,14 @@ Frontend API functions live in `src/frontend/src/lib/api/legacy.ts` (re-exported
 
 | Issue | Severity | Notes |
 |-------|----------|-------|
-| If crashes persist after Suspense fix | High | Open DevTools → Console on the crashing page; the stack trace will pinpoint the actual throw site |
-| `useSearchParams()` without Suspense in `/incidents/triage` and `/dashboard/analyst/[workflow]` | Low | Same pattern, not yet reported as crashing, but at risk |
+| `useSearchParams()` without Suspense in `/incidents/triage` and `/dashboard/analyst/[workflow]` | Low | Same pattern as the fixed afor pages, not yet reported as crashing but at risk |
 | `M4-D`: AFOR import per-row duplicate decision UI | Deferred | Explicitly deferred from M4 milestone; `DuplicateResolutionModal` exists but per-row review UI in import flow is minimal |
 | `test_delete_pending_blocked` | Pre-existing | Backend DELETE allows deleting PENDING incidents (should block) |
 | Bulk approve atomicity | Pre-existing | No rollback on mid-batch failure |
 
 **Recommended next steps:**
 1. Run `docker compose up --build -d` and smoke-test `/afor/create` and `/afor/import` in the browser.
-2. If crashes persist, check DevTools console for the actual error and stack trace.
-3. Address the `useSearchParams()` pattern in `/incidents/triage` and analyst workflow pages.
-4. Consider implementing M4-D (per-row duplicate decision) as the next milestone item.
+2. Test first-login RBAC: login fresh, navigate to `/afor/create` — region field must be locked to assigned region immediately (no "Loading…" visible on a fast connection).
+3. Test edit-mode submission: open a DRAFT incident with missing "Type of Involved", click Submit → missing fields modal → Continue Editing → attempt to submit without selecting a type — should be blocked.
+4. Address the `useSearchParams()` pattern in `/incidents/triage` and analyst workflow pages.
+5. Consider implementing M4-D (per-row duplicate decision) as the next milestone item.

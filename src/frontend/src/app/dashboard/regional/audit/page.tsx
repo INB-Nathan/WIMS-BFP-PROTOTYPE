@@ -84,14 +84,8 @@ export default function EncoderAuditPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-baseline justify-between mb-2">
+      <div className="mb-2">
         <h1 className="text-2xl font-bold">My Activity Log</h1>
-        <Link
-          href="/dashboard/regional"
-          className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium bg-yellow-400 text-gray-900 hover:bg-yellow-500 transition-colors"
-        >
-          ← Back to Dashboard
-        </Link>
       </div>
       <p className="text-sm text-gray-500 mb-6">
         A record of every action you have taken on your incidents.

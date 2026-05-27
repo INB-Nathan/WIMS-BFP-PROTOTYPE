@@ -266,6 +266,7 @@ export default function RegionalIncidentDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [regionMismatchMsg, setRegionMismatchMsg] = useState<string | null>(null);
   const [saveNotification, setSaveNotification] = useState<string | null>(null);
   const [showWithdrawPopup, setShowWithdrawPopup] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -406,7 +407,9 @@ export default function RegionalIncidentDetailPage() {
     // Region constraint: encoder must only submit incidents in their assigned region
     if (isEncoder && encoderAssignedRegionId && detail.region_id !== encoderAssignedRegionId) {
       const assignedName = getShortRegionName(encoderAssignedRegionId) ?? `Region ${encoderAssignedRegionId}`;
-      setActionError(`You can only submit incidents for your assigned region (${assignedName}). This incident belongs to a different region.`);
+      setRegionMismatchMsg(
+        `You can only submit incidents for your assigned region (${assignedName}). This incident belongs to a different region.\nError code: REGION_MISMATCH`
+      );
       return;
     }
 
@@ -615,6 +618,27 @@ export default function RegionalIncidentDetailPage() {
 
   return (
     <div className="space-y-6">
+      {/* Region mismatch modal */}
+      {regionMismatchMsg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="bg-red-100 text-red-800 text-xs font-bold px-2 py-1 rounded font-mono">
+                REGION_MISMATCH
+              </span>
+              <h2 className="text-lg font-bold text-red-900">Region Access Denied</h2>
+            </div>
+            <p className="text-sm text-gray-700 whitespace-pre-line">{regionMismatchMsg}</p>
+            <button
+              className="w-full bg-red-800 text-white rounded py-2 font-semibold hover:bg-red-700"
+              onClick={() => setRegionMismatchMsg(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Duplicate detected — modal with side-by-side comparison */}
       {duplicateFound && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
