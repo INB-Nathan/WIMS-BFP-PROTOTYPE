@@ -13,7 +13,7 @@ KC_SERVER="http://localhost:8080/auth"
 KC_REALM="bfp"
 KC_ADMIN_USER="admin"
 KC_ADMIN_PASS="admin"
-PASSWORD="password123"
+PASSWORD="Password123!"
 
 # Keep docker exec path arguments Linux-style under Git Bash on Windows.
 docker_exec() {

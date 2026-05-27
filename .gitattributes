@@ -1,0 +1,2 @@
+# Ensure shell scripts always use LF, regardless of OS checkout settings
+*.sh text eol=lf
