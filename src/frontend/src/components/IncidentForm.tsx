@@ -297,8 +297,6 @@ export function IncidentForm({
     disposition_prepared_by: '',
     disposition_noted_by: '',
 
-    // Reference Number fields
-    station_code: 'TBA',
   });
 
   const [otherPersonnel, setOtherPersonnel] = useState<{ name: string; designation: string }[]>([
@@ -326,11 +324,10 @@ export function IncidentForm({
     const regionCode = effectiveId ? getAforRegionIdentifier(effectiveId) : '';
     return generateReferenceNumberPreview({
       regionCode,
-      stationCode: formState.station_code || 'TBA',
       typeCode: incidentTypeCode,
       notificationDate: formState.notification_dt_date,
     });
-  }, [isEncoder, assignedRegionId, selectedRegionId, formState.station_code, incidentTypeCode, formState.notification_dt_date]);
+  }, [isEncoder, assignedRegionId, selectedRegionId, incidentTypeCode, formState.notification_dt_date]);
 
   // ── Utility helpers ────────────────────────────────────────────────────────
 
@@ -571,7 +568,6 @@ export function IncidentForm({
         if (partial) return partial.name;
         return rawType; // fall back to raw value; user can correct
       })(),
-      station_code: (ns as Record<string, unknown>).station_code as string || 'TBA',
       owner_name: sen.owner_name || ns.owner_name || sen.establishment_name || ns.establishment_name || '',
       general_description_of_involved: ns.general_description_of_involved || responseFields.general_description_of_involved || '',
       area_of_origin: ns.area_of_origin || (ns as Record<string, unknown>).fire_origin as string || '',
@@ -950,7 +946,6 @@ export function IncidentForm({
         classification_of_involved: formState.classification_of_involved,
         type_of_involved_general_category: formState.type_of_involved_general_category,
         incident_type_code: incidentTypeCode || undefined,
-        station_code: formState.station_code || 'TBA',
         owner_name: formState.owner_name || 'N/A',
         establishment_name: formState.owner_name || 'N/A',
         general_description_of_involved: formState.general_description_of_involved || 'N/A',
@@ -1118,7 +1113,6 @@ export function IncidentForm({
         disposition: incident.incident_sensitive_details.disposition,
         latitude: latitude ?? undefined,
         longitude: longitude ?? undefined,
-        station_code: formState.station_code || 'TBA',
         incident_type_code: incidentTypeCode || undefined,
       };
       try {
@@ -1413,19 +1407,6 @@ export function IncidentForm({
             <div data-field-error={fieldErrors.has('fire_station_name') ? 'true' : undefined}>
               <label className={labelCls}>Name of Fire Station / Team{reqMark}</label>
               <input name="fire_station_name" type="text" className={errCls('fire_station_name')} value={formState.fire_station_name} onChange={handleChange} />
-            </div>
-
-            <div>
-              <label className={labelCls}>Station Code</label>
-              <input
-                name="station_code"
-                type="text"
-                className={inputCls}
-                placeholder="e.g. QC01 (leave as TBA if unknown)"
-                value={formState.station_code}
-                onChange={handleChange}
-              />
-              <p className="text-xs text-gray-500 mt-1">Used in the AFOR Reference Number. Defaults to TBA.</p>
             </div>
 
             <div data-field-error={fieldErrors.has('notification_dt_date') ? 'true' : undefined}>
@@ -2157,8 +2138,7 @@ export function IncidentForm({
             classification: formatClassification(formState.classification_of_involved),
             typeOfInvolved: formState.type_of_involved_general_category,
             incidentTypeCode,
-            stationCode: formState.station_code || 'TBA',
-            stationName: formState.fire_station_name || formState.station_code || 'TBA',
+            stationName: formState.fire_station_name || '—',
             fireDate: formState.notification_dt_date,
             fireTime: formState.notification_dt_time,
             alarmLevel: formState.alarm_level,
@@ -2178,7 +2158,6 @@ export function IncidentForm({
               sub_category: formState.type_of_involved_general_category,
               responder_type: formState.responder_type,
               fire_station_name: formState.fire_station_name,
-              station_code: formState.station_code || 'TBA',
               incident_type_code: incidentTypeCode || undefined,
               city_municipality: formState.city_municipality,
               province_district: formState.province_district,
@@ -2241,7 +2220,6 @@ export function IncidentForm({
                   general_category: formState.classification_of_involved,
                   sub_category: formState.type_of_involved_general_category,
                   incident_type_code: incidentTypeCode || undefined,
-                  station_code: formState.station_code || 'TBA',
                   fire_station_name: formState.fire_station_name,
                   responder_type: formState.responder_type,
                   structures_affected: parseInt(formState.structures_affected) || 0,

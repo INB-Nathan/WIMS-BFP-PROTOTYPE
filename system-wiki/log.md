@@ -1021,3 +1021,44 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Pending frontend lint/syntax check after implementation.
 
 **Wiki updates:** Updated `subsystems/regional-dashboard.md`, `subsystems/validator-hub.md`, `gaps/ui-ux-gap-register.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this fixes display aggregation only.
+
+## [2026-05-27] polish | Encoder incident detail report layout
+
+**Changes implemented:**
+- `/dashboard/regional/incidents/[id]` read-only view now uses a report-style header, status badge, action hierarchy, top incident summary panel, and horizontal section index.
+- Detail sections now use responsive grouped fields, report-style long text blocks, affected-count metric cards, cleaner data tables, an integrated map card, and quieter selected-problem chips.
+- Existing fetches, route paths, edit form, delete/withdraw/submit actions, validator action panel, permissions, and map coordinate behavior were left unchanged.
+
+**Verification:**
+- Lightweight TS transpile syntax check passed for the edited detail page.
+- `npm.cmd run lint` still fails on existing unrelated `src/frontend/src/components/IncidentRevisionHistory.tsx` `react-hooks/set-state-in-effect`; no lint errors were reported for the edited detail page.
+
+**Wiki updates:** Updated `frontend/route-map.md`, `subsystems/regional-dashboard.md`, `gaps/ui-ux-gap-register.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this is frontend presentation polish only.
+
+## [2026-05-27] fix | Validator submitted-date filter and status badge sizing
+
+**Changes implemented:**
+- Validator dashboard date-basis filter now shows `Date of Submission` instead of `Date Modified`, defaults to `submitted`, and sends `date_basis=submitted`.
+- `GET /api/regional/validator/incidents` now accepts `date_basis=submitted` (legacy `modified` aliases to submitted) and applies date bounds to `fi.created_at`, matching the queue's submitted date surface.
+- Validator table status badges now use fit-content sizing and the status cell aligns badges to the start, preventing Verified/Update/Duplicate pills from stretching across the column.
+
+**Verification:**
+- Lightweight TS transpile syntax check passed for `src/frontend/src/app/dashboard/validator/page.tsx`.
+- `python -m py_compile src/backend/api/routes/regional.py` passed.
+
+**Wiki updates:** Updated `frontend/route-map.md`, `subsystems/validator-hub.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this aligns an existing validator queue filter with its intended submitted-date semantics.
+
+## [2026-05-27] polish | Encoder incident detail formalization pass
+
+**Changes implemented:**
+- Removed the horizontal section navigation from `/dashboard/regional/incidents/[id]` and replaced it with a desktop-only vertical dot navigator with hover/focus labels and scroll-spy active state.
+- Removed duplicated status from the incident summary panel; status remains only in the page header/top metadata area.
+- Replaced unsafe metadata separator characters with plain hyphens so the region/created line renders without stray `?` characters.
+- Toned down field mini-cards into definition-list rows with subtle dividers, compact affected-count cells, cleaner official tables, restrained section header tints, and report-style narrative/recommendation/disposition text blocks.
+- Backend/API/data/action behavior was unchanged.
+
+**Verification:**
+- Lightweight TS transpile syntax check passed for the edited detail page.
+- `npm.cmd run lint` still fails on existing unrelated `src/frontend/src/components/IncidentRevisionHistory.tsx` `react-hooks/set-state-in-effect`; no lint errors were reported for the edited detail page.
+
+**Wiki updates:** Updated `frontend/route-map.md`, `subsystems/regional-dashboard.md`, `gaps/ui-ux-gap-register.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this is frontend presentation polish only.

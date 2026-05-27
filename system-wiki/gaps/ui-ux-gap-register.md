@@ -61,6 +61,7 @@ Source: [[ui-ux/evaluation-system-admin-hub]]
 | Category summary mismatch | Vehicular/transportation incidents could appear in rows while dashboard cards showed 0 due to alias mismatch | Fixed in code by aggregating `VEHICULAR` and `TRANSPORTATION` aliases in regional/validator cards; needs browser verification |
 | Deleted drafts inflating rejected workload | Legacy/inconsistent deleted draft rows could leak into rejected workload indicators | Fixed in code by excluding `DELETED_DRAFT` history rows from regional status summary; needs data verification |
 | Manual incident date ergonomics | Create/edit form required manually picking today's incident date | Fixed in code with a Set to today shortcut using the Asia/Manila calendar date; needs browser verification |
+| Encoder incident detail readability | Detail view presented a complete but raw stacked field dump with weak scan hierarchy | Fixed in code with a formal report-style header, non-status summary panel, vertical dot section navigation, restrained section tints, definition-list field grids, compact affected-count cells, cleaner tables, and quieter problem chips; needs browser verification |
 
 ## National Analyst Dashboard (`/dashboard/analyst`)
 | Issue | Detail | Status |

@@ -725,7 +725,6 @@ def check_incident_duplicate(
                 nd.general_category,
                 nd.sub_category,
                 nd.fire_station_name,
-                nd.station_code,
                 c.city_name,
                 p.province_name,
                 rr.region_name,
@@ -758,11 +757,10 @@ def check_incident_duplicate(
                 "general_category": r[6],
                 "type_of_involved": r[7],
                 "fire_station_name": r[8],
-                "station_code": r[9],
-                "city_municipality": r[10],
-                "province_district": r[11],
-                "region_name": r[12],
-                "street_address": r[13],
+                "city_municipality": r[9],
+                "province_district": r[10],
+                "region_name": r[11],
+                "street_address": r[12],
             }
             for r in rows
         ]
@@ -1206,10 +1204,9 @@ def _generate_reference_number(
     db: Session,
     region_id: int,
     incident_type_code: str,
-    station_code: str,
     notification_dt: str | None,
 ) -> str:
-    """Generate AFOR-{RGN-CODE}-{station}-{type}-{MMM}-{YYYY}-{NNNN}.
+    """Generate AFOR-{RGN-CODE}-{type}-{MMM}-{YYYY}-{NNNN}.
 
     The sequence number is globally unique across all incidents — not per-region
     or per-type — so no two incidents share the same trailing number.
@@ -1232,7 +1229,6 @@ def _generate_reference_number(
 
     month = _AFOR_MONTH_CODES[dt.month - 1]
     year = dt.year
-    station = (station_code or "TBA").strip() or "TBA"
 
     # Atomic monotonic counter — persists across archive/replace flows.
     # Fails loudly if the sequence row is missing, preventing duplicate risk.
@@ -1249,7 +1245,7 @@ def _generate_reference_number(
             "reference_sequence row id=0 is missing — cannot generate reference number"
         )
     seq = int(seq_row[0])
-    return f"AFOR-{rgn_code}-{station}-{incident_type_code}-{month}-{year}-{seq:04d}"
+    return f"AFOR-{rgn_code}-{incident_type_code}-{month}-{year}-{seq:04d}"
 
 
 class IncidentCreateRequest(BaseModel):
@@ -1288,7 +1284,6 @@ class IncidentCreateRequest(BaseModel):
     city_municipality: str | None = None
     barangay: str | None = None
     # Reference number fields
-    station_code: str | None = "TBA"
     incident_type_code: str | None = None
     # Update-request tracking
     parent_incident_id: int | None = None
@@ -1344,7 +1339,6 @@ class IncidentUpdateRequest(BaseModel):
     city_municipality: str | None = None
     barangay: str | None = None
     # Reference number fields
-    station_code: str | None = None
     incident_type_code: str | None = None
     # Sensitive fields
     street_address: str | None = None
@@ -1447,7 +1441,6 @@ def create_incident(
         "fire_station_name",
         "total_response_time_minutes",
         "recommendations",
-        "station_code",
     }
     ns_params = {"iid": incident_id}
     ns_cols = ["incident_id"]
@@ -1611,7 +1604,6 @@ def _apply_incident_field_updates(
         "total_response_time_minutes",
         "vehicles_affected",
         "recommendations",
-        "station_code",
     }
     ns_updates: list[str] = []
     ns_params: dict[str, Any] = {"iid": incident_id}
@@ -2043,7 +2035,7 @@ def get_validator_incident_queue(
     archived: bool = Query(default=False),
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
-    date_basis: Optional[str] = "modified",
+    date_basis: Optional[str] = "submitted",
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):
@@ -2095,13 +2087,15 @@ def get_validator_incident_queue(
         where_clauses.append("fi.region_id = :region_id")
         params["region_id"] = region_id
 
-    basis = (date_basis or "modified").strip().lower()
-    if basis not in {"modified", "fire"}:
-        raise HTTPException(status_code=422, detail="date_basis must be 'modified' or 'fire'")
+    basis = (date_basis or "submitted").strip().lower()
+    if basis == "modified":
+        basis = "submitted"
+    if basis not in {"submitted", "fire"}:
+        raise HTTPException(status_code=422, detail="date_basis must be 'submitted' or 'fire'")
     date_expr = (
         "COALESCE(nd.notification_dt, fi.created_at)"
         if basis == "fire"
-        else "COALESCE(fi.updated_at, fi.created_at)"
+        else "fi.created_at"
     )
     if date_from:
         where_clauses.append(
@@ -2623,6 +2617,50 @@ def get_incident_diff(
         "original": original_subset,
         "current": current_subset,
         "changed_fields": changed_fields,
+    }
+
+
+@router.get("/validator/incidents/{incident_id}/history")
+def get_incident_revision_history(
+    incident_id: int,
+    user: Annotated[dict, Depends(get_national_validator)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Return IVH status-change entries for one incident, newest first."""
+    rows = db.execute(
+        text("""
+            SELECT
+                ivh.history_id,
+                ivh.previous_status,
+                ivh.new_status,
+                ivh.notes,
+                ivh.action_label,
+                ivh.action_timestamp,
+                u.username
+            FROM wims.incident_verification_history ivh
+            LEFT JOIN wims.users u ON u.user_id = ivh.action_by_user_id
+            WHERE ivh.target_type = 'OFFICIAL'
+              AND ivh.target_id = :iid
+              AND (ivh.action_label IS NULL OR ivh.action_label != 'CREATED_DRAFT')
+            ORDER BY ivh.action_timestamp DESC, ivh.history_id DESC
+        """),
+        {"iid": incident_id},
+    ).fetchall()
+
+    return {
+        "incident_id": incident_id,
+        "history": [
+            {
+                "history_id": r[0],
+                "previous_status": r[1],
+                "new_status": r[2],
+                "notes": r[3],
+                "action_label": r[4],
+                "action_timestamp": r[5].isoformat() if r[5] else None,
+                "actor_username": r[6],
+            }
+            for r in rows
+        ],
     }
 
 

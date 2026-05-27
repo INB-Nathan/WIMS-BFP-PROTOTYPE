@@ -786,7 +786,6 @@ export interface RefDuplicateIncident {
   incident_type_code: string | null;
   type_of_involved: string | null;
   fire_station_name: string | null;
-  station_code: string | null;
   city_municipality: string | null;
   province_district: string | null;
   region_name: string | null;

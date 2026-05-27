@@ -13,6 +13,7 @@ import {
 import { apiFetch, ApiRequestError, fetchValidatorStats } from "@/lib/api";
 import { IncidentDiffPanel } from "@/components/IncidentDiffPanel";
 import { UpdateRequestDiffPanel } from "@/components/UpdateRequestDiffPanel";
+import { IncidentRevisionHistory } from "@/components/IncidentRevisionHistory";
 import { formatClassification } from "@/lib/afor-utils";
 import { PH_REGIONS, getShortRegionName } from "@/lib/ph-regions";
 
@@ -77,10 +78,10 @@ const DATE_FILTERS = [
 ] as const;
 
 type DateFilterValue = (typeof DATE_FILTERS)[number]["value"];
-type DateBasisValue = "modified" | "fire";
+type DateBasisValue = "submitted" | "fire";
 
 const DATE_BASIS_OPTIONS: Array<{ label: string; value: DateBasisValue }> = [
-  { label: "Date Modified", value: "modified" },
+  { label: "Date of Submission", value: "submitted" },
   { label: "Date of Fire", value: "fire" },
 ];
 
@@ -177,7 +178,7 @@ function StatusBadge({ status }: { status: string }) {
   const style = STATUS_COLORS[status] ?? { bg: "#F3F4F6", text: "#6B7280" };
   return (
     <span
-      className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap"
+      className="inline-flex w-fit max-w-full items-center justify-center rounded-full px-2.5 py-1 text-xs font-semibold leading-none whitespace-nowrap"
       style={{ backgroundColor: style.bg, color: style.text }}
     >
       {STATUS_LABELS[status] ?? status}
@@ -199,7 +200,7 @@ export default function ValidatorDashboard() {
   const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_ALL);
   const [regionFilter, setRegionFilter] = useState<string>("");
   const [dateFilter, setDateFilter] = useState<DateFilterValue>("today");
-  const [dateBasis, setDateBasis] = useState<DateBasisValue>("modified");
+  const [dateBasis, setDateBasis] = useState<DateBasisValue>("submitted");
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 10;
   const dateBounds = useMemo(() => getDateBounds(dateFilter), [dateFilter]);
@@ -221,6 +222,8 @@ export default function ValidatorDashboard() {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showDiff, setShowDiff] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showDupHistory, setShowDupHistory] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
@@ -233,6 +236,8 @@ export default function ValidatorDashboard() {
   const [acceptingId, setAcceptingId] = useState<number | null>(null);
   const [validatorDupTarget, setValidatorDupTarget] = useState<ValidatorIncident | null>(null);
   const [validatorDupMatchedId, setValidatorDupMatchedId] = useState<number | null>(null);
+  // Runtime-detected duplicates: populated when Accept returns 409. Maps incident_id → matched_incident_id.
+  const [runtimeDuplicates, setRuntimeDuplicates] = useState<Map<number, number>>(new Map());
   const [newIncidentBanner, setNewIncidentBanner] = useState(false);
   const [hoverHint, setHoverHint] = useState<HoverHint | null>(null);
   const lastKnownTotal = useRef<number | null>(null);
@@ -344,6 +349,7 @@ export default function ValidatorDashboard() {
       if (err instanceof ApiRequestError && err.status === 409) {
         const detail = err.detail as { code?: string; matched_incident_id?: number } | null;
         if (detail?.code === "DUPLICATE_DETECTED" && detail.matched_incident_id) {
+          setRuntimeDuplicates((prev) => new Map(prev).set(inc.incident_id, detail.matched_incident_id!));
           setValidatorDupTarget(inc);
           setValidatorDupMatchedId(detail.matched_incident_id);
           return;
@@ -439,6 +445,7 @@ export default function ValidatorDashboard() {
       setTotal(data.total);
       lastKnownTotal.current = data.total;
       setNewIncidentBanner(false);
+      setRuntimeDuplicates(new Map());
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load queue");
     } finally {
@@ -490,6 +497,7 @@ export default function ValidatorDashboard() {
       if (err instanceof ApiRequestError && err.status === 409) {
         const detail = err.detail as { code?: string; matched_incident_id?: number } | null;
         if (detail?.code === "DUPLICATE_DETECTED" && detail.matched_incident_id) {
+          setRuntimeDuplicates((prev) => new Map(prev).set(actionTarget.incident_id, detail.matched_incident_id!));
           setValidatorDupTarget(actionTarget);
           setValidatorDupMatchedId(detail.matched_incident_id);
           setActionTarget(null);
@@ -508,6 +516,7 @@ export default function ValidatorDashboard() {
     setActionNotes("");
     setActionError(null);
     setShowDiff(false);
+    setShowHistory(false);
   };
 
   const closeModal = () => {
@@ -517,6 +526,7 @@ export default function ValidatorDashboard() {
     setActionNotes("");
     setActionError(null);
     setShowDiff(false);
+    setShowHistory(false);
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -833,15 +843,15 @@ export default function ValidatorDashboard() {
                       {formatIncidentDate(inc.submitted_at ?? inc.created_at)}
                     </td>
                     <td className="px-4 py-4">
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-col items-start gap-1">
                         <StatusBadge status={inc.verification_status} />
                         {inc.parent_incident_id && (
-                          <span className="inline-block px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+                          <span className="inline-flex w-fit max-w-full rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold leading-none text-amber-800 whitespace-nowrap">
                             UPDATE
                           </span>
                         )}
-                        {inc.is_duplicate && !inc.parent_incident_id && !["VERIFIED", "REJECTED", "REPLACED"].includes(inc.verification_status) && (
-                          <span className="inline-block px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-800">
+                        {(inc.is_duplicate || runtimeDuplicates.has(inc.incident_id)) && !inc.parent_incident_id && !["VERIFIED", "REJECTED", "REPLACED"].includes(inc.verification_status) && (
+                          <span className="inline-flex w-fit max-w-full rounded-full bg-orange-100 px-2 py-0.5 text-xs font-bold leading-none text-orange-800 whitespace-nowrap">
                             DUPLICATE
                           </span>
                         )}
@@ -881,19 +891,36 @@ export default function ValidatorDashboard() {
                             </button>
                           ) : (
                             <>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void handleDirectAccept(inc);
-                                }}
-                                disabled={acceptingId === inc.incident_id}
-                                className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors disabled:opacity-50"
-                                style={{ backgroundColor: '#16A34A' }}
-                                onMouseEnter={(e) => { if (acceptingId !== inc.incident_id) (e.currentTarget as HTMLElement).style.backgroundColor = '#15803D'; }}
-                                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#16A34A'; }}
-                              >
-                                {acceptingId === inc.incident_id ? "…" : "Accept"}
-                              </button>
+                              {(inc.is_duplicate && inc.duplicate_of) || runtimeDuplicates.has(inc.incident_id) ? (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setValidatorDupTarget(inc);
+                                    setValidatorDupMatchedId(inc.duplicate_of ?? runtimeDuplicates.get(inc.incident_id)!);
+                                    setShowDupHistory(false);
+                                  }}
+                                  className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors"
+                                  style={{ backgroundColor: '#D97706' }}
+                                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#B45309'; }}
+                                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#D97706'; }}
+                                >
+                                  Review Dup.
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleDirectAccept(inc);
+                                  }}
+                                  disabled={acceptingId === inc.incident_id}
+                                  className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors disabled:opacity-50"
+                                  style={{ backgroundColor: '#16A34A' }}
+                                  onMouseEnter={(e) => { if (acceptingId !== inc.incident_id) (e.currentTarget as HTMLElement).style.backgroundColor = '#15803D'; }}
+                                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#16A34A'; }}
+                                >
+                                  {acceptingId === inc.incident_id ? "…" : "Accept"}
+                                </button>
+                              )}
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -961,10 +988,25 @@ export default function ValidatorDashboard() {
             <div className="mb-4">
               <UpdateRequestDiffPanel updateIncidentId={validatorDupTarget.incident_id} originalIncidentId={validatorDupMatchedId} />
             </div>
+            <div className="mb-3">
+              <button
+                type="button"
+                onClick={() => setShowDupHistory((s) => !s)}
+                className="text-xs font-medium underline"
+                style={{ color: 'var(--bfp-red)' }}
+              >
+                {showDupHistory ? "Hide" : "View"} revision history
+              </button>
+              {showDupHistory && (
+                <div className="mt-2">
+                  <IncidentRevisionHistory incidentId={validatorDupTarget.incident_id} />
+                </div>
+              )}
+            </div>
             {actionError && <p className="text-sm text-red-600 mb-2">{actionError}</p>}
             <div className="flex flex-wrap gap-2 justify-end mt-4">
-              <button onClick={() => { setValidatorDupTarget(null); setValidatorDupMatchedId(null); setActionError(null); }} disabled={actionLoading} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-40">Cancel</button>
-              <button onClick={() => { const inc = validatorDupTarget; setValidatorDupTarget(null); setValidatorDupMatchedId(null); openAction(inc, "reject"); }} disabled={actionLoading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: 'var(--bfp-red)' }}>Reject</button>
+              <button onClick={() => { setValidatorDupTarget(null); setValidatorDupMatchedId(null); setActionError(null); setShowDupHistory(false); }} disabled={actionLoading} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-40">Cancel</button>
+              <button onClick={() => { const inc = validatorDupTarget; setValidatorDupTarget(null); setValidatorDupMatchedId(null); setShowDupHistory(false); openAction(inc, "reject"); }} disabled={actionLoading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: 'var(--bfp-red)' }}>Reject</button>
               <button
                 onClick={() => {
                   const inc = validatorDupTarget;
@@ -1088,15 +1130,26 @@ export default function ValidatorDashboard() {
                 </div>
               ) : (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => setShowDiff((s) => !s)}
-                    className="text-xs font-medium underline"
-                    style={{ color: 'var(--bfp-red)' }}
-                  >
-                    {showDiff ? "Hide" : "View"} changes since submission
-                  </button>
+                  <div className="flex flex-wrap gap-4 mb-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowDiff((s) => !s)}
+                      className="text-xs font-medium underline"
+                      style={{ color: 'var(--bfp-red)' }}
+                    >
+                      {showDiff ? "Hide" : "View"} changes since submission
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowHistory((s) => !s)}
+                      className="text-xs font-medium underline"
+                      style={{ color: 'var(--bfp-red)' }}
+                    >
+                      {showHistory ? "Hide" : "View"} revision history
+                    </button>
+                  </div>
                   {showDiff && <div className="mt-2"><IncidentDiffPanel incidentId={actionTarget.incident_id} /></div>}
+                  {showHistory && <div className="mt-2"><IncidentRevisionHistory incidentId={actionTarget.incident_id} /></div>}
                 </>
               )}
             </div>

@@ -81,18 +81,20 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 - Link to `/incidents/create` for new incidents
 - Empty state: "You have no drafts." with link to start one
 
-### Incident Detail — `/dashboard/regional/incidents/[id]`
+### Incident Detail - `/dashboard/regional/incidents/[id]`
 
 **Source:** `src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx` (~1265 lines)
 
-- Full incident detail view with read-only summary + editable `IncidentForm`
-- Read-only sections:
-  - **Incident Location Map** via `MapPickerInner` with detail zoom (320px height)
-  - **Narrative Report** as ordered bullet list
-  - **Problems Grid** — all 50+ problem options shown as checked/unchecked with emoji
-  - **Personnel Section** — engine commander, shift-in-charge, nozzleman, lineman, engine crew, driver, safety officer, fire/arson investigator, other personnel
-- Edit mode: loads `IncidentForm` component (same form used for new incidents)
-- Actions: Submit for review, Unpend (if pending), Delete draft, Force replace
+- Full incident detail view with formal report-style read-only presentation plus editable `IncidentForm`.
+- Read-only layout:
+  - Compact header with back link, incident/reference title, status badge, created metadata, and encoder actions (Edit, Withdraw, Delete, Submit/Resubmit) using clearer button hierarchy.
+  - Top incident summary panel for notification date/time, fire station, classification, category/type, alarm level, location, and complete address. Status is intentionally only shown in the page header.
+  - Desktop-only vertical dot section navigation for Response, Classification, Affected Counts, Resources, Timeline, Casualties, Personnel, Location, Narrative, Problems, and Recommendations. The old horizontal section bar was removed.
+  - Section cards use restrained header tints, muted labels, dark values, responsive definition-list grids, report-style long-text blocks, compact affected-count stat cells, and cleaner tables for engines/units, alarm timeline, casualties, and other personnel.
+  - **Incident Location Map** via `MapPickerInner` with detail zoom (320px height), now wrapped in the detail card with latitude/longitude still visible.
+  - **Problems Encountered** renders selected problems as quieter chips and preserves custom/other entries.
+- Edit mode: loads `IncidentForm` component (same form used for new incidents).
+- Actions: Submit for review, Unpend/Withdraw (if pending), Delete draft, Edit; validator review controls remain available to validators at the bottom of the same route.
 - Create/edit form includes a "Set to today" shortcut beside the fire notification date field; it writes the current Asia/Manila calendar day.
 - Supports legacy and migrated `incident_verification_history` schemas (checks for `target_type` and `action_label` columns at runtime)
 

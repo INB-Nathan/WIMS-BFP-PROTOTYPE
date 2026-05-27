@@ -35,7 +35,7 @@ logger = logging.getLogger("wims.regional_incidents.lifecycle")
 class RegionalIncidentLifecycleDependencies:
     insert_incident_verification_history: Callable[..., None]
     apply_incident_field_updates: Callable[[Session, int, Any], None] | None = None
-    generate_reference_number: Callable[[Session, int, str, str, str | None], str] | None = None
+    generate_reference_number: Callable[[Session, int, str, str | None], str] | None = None
 
 
 def _date_str(value: Any) -> str | None:
@@ -561,16 +561,15 @@ def verify_incident_command(
         elif type_code:
             ns_meta = db.execute(
                 text("""
-                    SELECT notification_dt, station_code
+                    SELECT notification_dt
                     FROM wims.incident_nonsensitive_details
                     WHERE incident_id = :iid
                 """),
                 {"iid": incident_id},
             ).fetchone()
             notification_dt = str(ns_meta[0]) if ns_meta and ns_meta[0] else None
-            station_code = (ns_meta[1] if ns_meta else None) or "TBA"
             ref_num = deps.generate_reference_number(
-                db, inc_region_id, type_code, station_code, notification_dt
+                db, inc_region_id, type_code, notification_dt
             )
 
     clear_dup = action == "accept_replace" and bool(effective_original_id)
