@@ -41,6 +41,9 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         // /dashboard/validator should not stay active when the user navigates to /incidents
         if (path === '/dashboard/validator' && (pathname?.startsWith('/incidents'))) return false;
         if (path === '/dashboard/analyst' && pathname !== '/dashboard/analyst') return false;
+        // parent dashboard routes must not match their own sub-pages (e.g. /audit)
+        if (path === '/dashboard/regional' && pathname?.startsWith('/dashboard/regional/')) return false;
+        if (path === '/dashboard/validator' && pathname?.startsWith('/dashboard/validator/')) return false;
         return pathname === path || pathname?.startsWith(`${path}/`);
     };
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -101,6 +101,7 @@ export function MapPickerInner({
     mapHeight = DEFAULT_INCIDENT_MAP_HEIGHT,
 }: MapPickerInnerProps) {
     const readOnly = !onChange;
+    const autoSearchedRef = useRef<string | null>(null);
     const [position, setPosition] = useState<{ lat: number; lng: number } | null>(value ?? null);
     const [mapCenter, setMapCenter] = useState<[number, number]>(
         value ? [value.lat, value.lng] : center

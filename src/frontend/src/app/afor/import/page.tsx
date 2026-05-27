@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { Fragment, useState, useCallback, useEffect, useMemo, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Upload, FileDown, CheckCircle, AlertCircle, RefreshCw, X, MapPin, ChevronDown, ChevronUp
@@ -417,7 +417,7 @@ function useGeocoding(address: string, city: string, province = '') {
 }
 
 // ── Main page component ──────────────────────────────────────────────────────
-export default function AforImportPage() {
+function AforImportPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { assignedRegionId } = useUserProfile();
@@ -431,6 +431,7 @@ export default function AforImportPage() {
   const [commitLatStr, setCommitLatStr] = useState('');
   const [commitLngStr, setCommitLngStr] = useState('');
   const [committedIds, setCommittedIds] = useState<number[]>([]);
+  const [isOffline, setIsOffline] = useState(false);
   const [isSubmittingAll, setIsSubmittingAll] = useState(false);
   const geocodeTriggered = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -504,7 +505,17 @@ export default function AforImportPage() {
     }
   }, [searchParams]);
 
-  const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+  useEffect(() => {
+    setIsOffline(!navigator.onLine);
+    const handleOnline  = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online',  handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online',  handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const handleFileDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
@@ -1046,5 +1057,13 @@ export default function AforImportPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function AforImportPageWrapper() {
+  return (
+    <Suspense fallback={<div className="p-6 text-gray-500">Loading…</div>}>
+      <AforImportPage />
+    </Suspense>
   );
 }
