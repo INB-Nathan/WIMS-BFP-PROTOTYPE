@@ -937,3 +937,29 @@ Format: `## [YYYY-MM-DD] action | subject`
 ## [2026-05-25] fix | AQ-12 validation fix — route-level try/except added
 - `api/routes/analytics.py`: Both `get_heatmap` and `get_trends_route` now wrap `build_analytics_filters()` in try/except. `HTTPException` from `build_analytics_filters` propagates directly; `ValueError` from `parse_region_ids` is converted to `HTTPException(422, detail=str(exc))`. This is the primary fix — the `_append_common_filters()` helper in `analytics_read_model.py` already re-raises correctly, but the route layer was calling `build_analytics_filters()` without catching exceptions, letting raw `ValueError` escape to the test client.
 - Status: `test_region_ids_must_be_valid_integers` (AQ-12) fixed.
+
+## [2026-05-26] docs | Agent skill configuration
+- Added `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, and `docs/agents/domain.md` for Matt Pocock engineering skills.
+- Updated `CLAUDE.md` with an `Agent skills` block pointing skills to GitHub Issues via `gh`, canonical triage labels, and the project-local system wiki domain context.
+- Updated `system-wiki/architecture/docs-and-scripts.md` to include the new `docs/agents/` configuration.
+- No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; this is agent workflow documentation and does not change FRS/codebase alignment.
+
+## [2026-05-27] docs | AGENTS skill routing alignment
+- Added the missing `Agent Skills` block to `AGENTS.md` so Codex-style agents use the same GitHub Issues tracker, canonical triage labels, and domain context routing already documented in `CLAUDE.md`.
+- Updated `system-wiki/architecture/docs-and-scripts.md` and `system-wiki/index.md` to record the aligned root agent guidance.
+- No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; this is agent workflow documentation and does not change FRS/codebase alignment.
+
+## [2026-05-27] docs | Public report-area glossary
+- Added root `CONTEXT.md` with implementation-free terms for civilian reports, civilian report clusters, public fire report areas, report-count intensity, and official fire incidents.
+- Updated `system-wiki/architecture/context-map.md` and `system-wiki/index.md` so agents route root-map wording through the glossary.
+- No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; this captures domain language for an in-progress design discussion and does not change FRS/codebase alignment.
+
+## [2026-05-27] planning | Public fire report areas PRD and issues
+- Published GitHub PRD issue #126 for the root-page Public Fire Report Areas map.
+- Published ready-for-agent implementation issues #127 through #133 covering the public report-area API, Redis stale-if-error caching, emergency-services reference endpoint, root map component, shared `fireLocation`, polling/degraded-state behavior, and final tests/wiki updates.
+- No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; this is implementation planning and does not change current FRS/codebase alignment.
+
+## [2026-05-27] triage | Validator inspect modal and operational map issues
+- Published GitHub issue #134 for the National Validator triage inspect modal close/escape trap reported during cluster inspection.
+- Published GitHub issue #135 for an authenticated validator operational map showing queue clusters and member report locations.
+- No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; these are triaged bug/enhancement tickets and do not change current implementation state.
