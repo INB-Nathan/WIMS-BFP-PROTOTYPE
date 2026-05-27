@@ -162,6 +162,17 @@ function getDateBounds(filter: DateFilterValue): { date_from?: string; date_to?:
   return { date_from: dateOnly(first), date_to: dateOnly(last) };
 }
 
+function categoryCount(
+  stats: { by_category: { category: string; count: number }[] } | null,
+  aliases: string[],
+): string {
+  const aliasSet = new Set(aliases.map((alias) => alias.toUpperCase()));
+  const total = stats?.by_category.reduce((sum, entry) => (
+    aliasSet.has(entry.category?.toUpperCase()) ? sum + entry.count : sum
+  ), 0) ?? 0;
+  return total.toLocaleString();
+}
+
 function StatusBadge({ status }: { status: string }) {
   const style = STATUS_COLORS[status] ?? { bg: "#F3F4F6", text: "#6B7280" };
   return (
@@ -231,7 +242,15 @@ export default function ValidatorDashboard() {
     const x = window.scrollX;
     const y = window.scrollY;
     update();
-    requestAnimationFrame(() => window.scrollTo(x, y));
+    const restore = () => {
+      if (Math.abs(window.scrollY - y) > 1 || Math.abs(window.scrollX - x) > 1) {
+        window.scrollTo({ left: x, top: y, behavior: 'auto' });
+      }
+    };
+    requestAnimationFrame(() => {
+      restore();
+      requestAnimationFrame(restore);
+    });
   }, []);
 
   const clearHoverHint = useCallback(() => {
@@ -512,10 +531,14 @@ export default function ValidatorDashboard() {
     { key: 'pending', title: 'Awaiting Validation', icon: Flame, value: stats.pending_validation.toLocaleString(), iconBg: '#DBEAFE', iconColor: '#1D4ED8' },
     { key: 'verified', title: 'Total Verified', icon: Building2, value: stats.total_verified.toLocaleString(), iconBg: '#DCFCE7', iconColor: '#15803D' },
     ...(['STRUCTURAL', 'NON_STRUCTURAL', 'TRANSPORTATION'] as const).map((cat) => {
-      const entry = stats.by_category.find((c) => c.category === cat || (cat === 'TRANSPORTATION' && c.category === 'VEHICULAR'));
       const icons = { STRUCTURAL: Building2, NON_STRUCTURAL: TreePine, TRANSPORTATION: Car };
       const colors = { STRUCTURAL: { bg: '#FEF3C7', color: '#D97706' }, NON_STRUCTURAL: { bg: '#DCFCE7', color: '#16A34A' }, TRANSPORTATION: { bg: '#DBEAFE', color: '#2563EB' } };
-      return { key: cat, title: formatClassification(cat), icon: icons[cat], value: (entry?.count ?? 0).toLocaleString(), iconBg: colors[cat].bg, iconColor: colors[cat].color };
+      const aliases = cat === 'TRANSPORTATION'
+        ? ['TRANSPORTATION', 'VEHICULAR', 'Transportation', 'Vehicular']
+        : cat === 'NON_STRUCTURAL'
+          ? ['NON_STRUCTURAL', 'NON-STRUCTURAL', 'Non-Structural']
+          : ['STRUCTURAL', 'Structural'];
+      return { key: cat, title: formatClassification(cat), icon: icons[cat], value: categoryCount(stats, aliases), iconBg: colors[cat].bg, iconColor: colors[cat].color };
     }),
   ] : [];
 
@@ -658,10 +681,10 @@ export default function ValidatorDashboard() {
                     type="button"
                     onClick={() => updateFiltersWithoutScrollShift(() => { setStatusFilter(filter.value); setPage(0); })}
                     disabled={loading}
-                    className="relative rounded-full px-4 py-1.5 text-sm font-medium transition-colors disabled:opacity-50"
+                    className="relative rounded-full border px-4 py-1.5 text-sm font-semibold transition-colors disabled:opacity-50"
                     style={active
-                      ? { backgroundColor: 'var(--bfp-red)', color: '#fff' }
-                      : { backgroundColor: '#fff', border: '1px solid #e5e7eb', color: 'var(--text-secondary)' }
+                      ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#991B1B' }
+                      : { backgroundColor: '#fff', borderColor: '#e5e7eb', color: 'var(--text-secondary)' }
                     }
                     onMouseEnter={(e) => {
                       if (!active) (e.currentTarget as HTMLElement).style.borderColor = 'var(--bfp-red)';
@@ -684,7 +707,7 @@ export default function ValidatorDashboard() {
             </div>
 
             <select
-              className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm font-medium focus:outline-none focus:border-[#C62828] transition-colors"
+              className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
               style={{ color: 'var(--text-primary)' }}
               value={dateFilter}
               onChange={(e) => updateFiltersWithoutScrollShift(() => { setDateFilter(e.target.value as DateFilterValue); setPage(0); })}
@@ -696,7 +719,7 @@ export default function ValidatorDashboard() {
             </select>
 
             <select
-              className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm font-medium focus:outline-none focus:border-[#C62828] transition-colors"
+              className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
               style={{ color: 'var(--text-primary)' }}
               value={dateBasis}
               onChange={(e) => updateFiltersWithoutScrollShift(() => { setDateBasis(e.target.value as DateBasisValue); setPage(0); })}
@@ -708,7 +731,7 @@ export default function ValidatorDashboard() {
             </select>
 
             <select
-              className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm focus:outline-none focus:border-[#C62828] transition-colors"
+              className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
               style={{ color: 'var(--text-primary)' }}
               value={regionFilter}
               onChange={(e) => updateFiltersWithoutScrollShift(() => { setRegionFilter(e.target.value); setPage(0); })}
@@ -724,7 +747,7 @@ export default function ValidatorDashboard() {
             </span>
           </div>
           <p className="mt-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            Click a row to view details and diffs. Select pending rows for bulk approval; archive finalized records from the decision column.
+            Click an incident row to view details and diffs. Select pending rows for bulk approval; archive finalized records from the decision column.
           </p>
         </div>
 

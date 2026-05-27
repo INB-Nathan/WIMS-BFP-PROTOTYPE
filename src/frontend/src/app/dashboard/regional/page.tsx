@@ -121,8 +121,20 @@ function displayValue(value: string | number | null | undefined): string {
   return String(value);
 }
 
+function categoryCount(
+  stats: RegionalStatsPayload | null,
+  aliases: Array<string | null>,
+): string {
+  const aliasSet = new Set(aliases.map((alias) => alias?.toUpperCase()));
+  const total = stats?.by_category?.reduce((sum, entry) => {
+    const key = entry.category?.toUpperCase();
+    return aliasSet.has(key) ? sum + entry.count : sum;
+  }, 0) ?? 0;
+  return total.toLocaleString();
+}
+
 function completeAddress(incident: RegionalIncidentListItem): string {
-  return [incident.street_address, incident.location_display].filter(Boolean).join(', ') || '-';
+  return incident.street_address || '-';
 }
 
 export default function RegionalDashboardPage() {
@@ -162,7 +174,15 @@ export default function RegionalDashboardPage() {
     const x = window.scrollX;
     const y = window.scrollY;
     update();
-    requestAnimationFrame(() => window.scrollTo(x, y));
+    const restore = () => {
+      if (Math.abs(window.scrollY - y) > 1 || Math.abs(window.scrollX - x) > 1) {
+        window.scrollTo({ left: x, top: y, behavior: 'auto' });
+      }
+    };
+    requestAnimationFrame(() => {
+      restore();
+      requestAnimationFrame(restore);
+    });
   }, []);
 
   const clearHoverHint = useCallback(() => {
@@ -278,7 +298,7 @@ export default function RegionalDashboardPage() {
       key: 'STRUCTURAL',
       title: 'Structural',
       icon: Building2,
-      value: stats?.by_category?.find((c) => c.category === 'STRUCTURAL')?.count.toLocaleString() ?? '0',
+      value: categoryCount(stats, ['STRUCTURAL', 'Structural']),
       iconBg: '#FEF3C7',
       iconColor: '#D97706',
     },
@@ -286,7 +306,7 @@ export default function RegionalDashboardPage() {
       key: 'NON_STRUCTURAL',
       title: 'Non-Structural',
       icon: TreePine,
-      value: stats?.by_category?.find((c) => c.category === 'NON_STRUCTURAL')?.count.toLocaleString() ?? '0',
+      value: categoryCount(stats, ['NON_STRUCTURAL', 'NON-STRUCTURAL', 'Non-Structural']),
       iconBg: '#DCFCE7',
       iconColor: '#16A34A',
     },
@@ -294,7 +314,7 @@ export default function RegionalDashboardPage() {
       key: 'VEHICULAR',
       title: 'Vehicular',
       icon: Car,
-      value: stats?.by_category?.find((c) => c.category === 'VEHICULAR')?.count.toLocaleString() ?? '0',
+      value: categoryCount(stats, ['VEHICULAR', 'TRANSPORTATION', 'Vehicular', 'Transportation']),
       iconBg: '#DBEAFE',
       iconColor: '#2563EB',
     },
@@ -493,7 +513,7 @@ export default function RegionalDashboardPage() {
                 Your Incidents
               </h2>
               <p className="mt-0.5 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Click a row to view details, edit drafts, or resubmit rejected incidents.
+                Click an incident card to view details.
               </p>
             </div>
             <p className="text-sm whitespace-nowrap" style={{ color: 'var(--text-secondary)' }} aria-live="polite">
@@ -504,19 +524,19 @@ export default function RegionalDashboardPage() {
           </div>
 
           {/* Status filter chips */}
-          <div className="flex flex-wrap gap-2 mt-4">
+          <div className="mt-4 flex flex-wrap gap-2">
             {STATUS_CHIPS.map((chip) => {
               const active = statusFilter === chip.value;
               return (
                 <button
                   key={chip.value}
                   type="button"
-                onClick={() => updateFiltersWithoutScrollShift(() => { setStatusFilter(chip.value); setPageIndex(0); })}
+                  onClick={() => updateFiltersWithoutScrollShift(() => { setStatusFilter(chip.value); setPageIndex(0); })}
                   disabled={incidentsLoading}
-                  className="px-4 py-1.5 rounded-full text-sm font-medium transition-colors disabled:opacity-50"
+                  className="rounded-full border px-4 py-1.5 text-sm font-semibold transition-colors disabled:opacity-50"
                   style={active
-                    ? { backgroundColor: 'var(--bfp-red)', color: '#fff' }
-                    : { backgroundColor: '#fff', border: '1px solid #e5e7eb', color: 'var(--text-secondary)' }
+                    ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#991B1B' }
+                    : { backgroundColor: '#fff', borderColor: '#e5e7eb', color: 'var(--text-secondary)' }
                   }
                   onMouseEnter={(e) => {
                     if (!active) (e.currentTarget as HTMLElement).style.borderColor = 'var(--bfp-red)';
@@ -532,9 +552,9 @@ export default function RegionalDashboardPage() {
           </div>
 
           {/* Secondary filters row */}
-          <div className="flex flex-wrap items-center gap-3 mt-3">
+          <div className="mt-4 flex flex-wrap items-center gap-3">
             <select
-              className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm font-medium focus:outline-none focus:border-[#C62828] transition-colors"
+              className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
               style={{ color: 'var(--text-primary)' }}
               value={dateFilter}
               onChange={(e) => updateFiltersWithoutScrollShift(() => { setDateFilter(e.target.value as DateFilterValue); setPageIndex(0); })}
@@ -546,7 +566,7 @@ export default function RegionalDashboardPage() {
             </select>
 
             <select
-              className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm font-medium focus:outline-none focus:border-[#C62828] transition-colors"
+              className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
               style={{ color: 'var(--text-primary)' }}
               value={dateBasis}
               onChange={(e) => updateFiltersWithoutScrollShift(() => { setDateBasis(e.target.value as DateBasisValue); setPageIndex(0); })}
@@ -558,7 +578,7 @@ export default function RegionalDashboardPage() {
             </select>
 
             <select
-              className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm focus:outline-none focus:border-[#C62828] transition-colors"
+              className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
               style={{ color: 'var(--text-primary)' }}
               value={categoryFilter}
               onChange={(e) => updateFiltersWithoutScrollShift(() => { setCategoryFilter(e.target.value); setPageIndex(0); })}
@@ -571,7 +591,7 @@ export default function RegionalDashboardPage() {
             </select>
 
             <select
-              className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm focus:outline-none focus:border-[#C62828] transition-colors"
+              className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
               style={{ color: 'var(--text-primary)' }}
               value={String(size)}
               onChange={(e) => updateFiltersWithoutScrollShift(() => { setPageSize(Number(e.target.value)); setPageIndex(0); })}
@@ -582,12 +602,19 @@ export default function RegionalDashboardPage() {
               ))}
             </select>
 
-            {(categoryFilter || dateFilter !== 'today' || dateBasis !== 'modified') && (
+            {(statusFilter || categoryFilter || dateFilter !== 'today' || dateBasis !== 'modified' || size !== 10) && (
               <button
                 type="button"
-                className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm font-semibold hover:border-gray-300 transition-colors"
+                className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold transition-colors hover:border-gray-300 hover:bg-gray-50"
                 style={{ color: 'var(--text-primary)' }}
-                onClick={() => updateFiltersWithoutScrollShift(() => { setCategoryFilter(''); setDateFilter('today'); setDateBasis('modified'); setPageIndex(0); })}
+                onClick={() => updateFiltersWithoutScrollShift(() => {
+                  setStatusFilter('');
+                  setCategoryFilter('');
+                  setDateFilter('today');
+                  setDateBasis('modified');
+                  setPageSize(10);
+                  setPageIndex(0);
+                })}
                 disabled={incidentsLoading}
               >
                 Clear Filters
@@ -604,16 +631,21 @@ export default function RegionalDashboardPage() {
 
         {/* Incident list */}
         {isTodayView ? (
-          incidentsLoading ? (
+          incidentsLoading && incidents.length === 0 ? (
             <div className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
               Loading incidents...
             </div>
-          ) : incidents.length === 0 ? (
-            <div className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-              {incidentsError ? 'Could not load incidents.' : 'No incidents match the current filters.'}
+          ) : !incidentsLoading && incidents.length === 0 ? (
+            <div className="px-5 py-14 text-center">
+              <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                {incidentsError ? 'Could not load incidents.' : 'No incidents found'}
+              </p>
+              <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                {incidentsError ? 'Try refreshing the dashboard.' : 'Adjust the filters or clear them to see more records.'}
+              </p>
             </div>
           ) : (
-            <div className="grid gap-3 p-5 lg:grid-cols-2">
+            <div className={`grid min-h-[420px] gap-4 p-5 transition-opacity lg:grid-cols-2 ${incidentsLoading ? 'opacity-60' : ''}`}>
               {incidents.map((inc) => (
                 <article
                   key={inc.incident_id}
@@ -630,54 +662,56 @@ export default function RegionalDashboardPage() {
                   onMouseEnter={(e) => scheduleHoverHint(inc.incident_id, e)}
                   onMouseMove={hideHoverHintOnMove}
                   onMouseLeave={clearHoverHint}
-                  className="cursor-pointer rounded-xl border border-gray-200 bg-white p-4 shadow-sm outline-none transition-colors hover:border-red-200 hover:bg-red-50/50 focus-visible:ring-2 focus-visible:ring-[#C62828]"
+                  className="cursor-pointer rounded-xl border border-gray-200 bg-white p-5 shadow-sm outline-none transition-all hover:border-red-200 hover:bg-red-50/30 hover:shadow-md focus-visible:ring-2 focus-visible:ring-[#C62828]"
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-primary)' }}>
-                        Last modified
-                      </div>
-                      <div className="mt-1 text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
-                        {formatIncidentDate(inc.updated_at)}
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                          {formatClassification(inc.general_category)}
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+                      Last modified <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{formatIncidentDate(inc.updated_at)}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {inc.is_wildland && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                          Wildland
                         </span>
-                        {inc.is_wildland && (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
-                            Wildland
-                          </span>
-                        )}
+                      )}
+                      <StatusBadge status={inc.verification_status} />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-4">
+                    <div>
+                      <InfoBlock
+                        label="Date/Time of Fire"
+                        value={formatIncidentDate(inc.notification_dt || inc.created_at)}
+                        tone="primary"
+                      />
+                      <div className="mt-3">
+                        <InfoBlock label="Location" value={completeAddress(inc)} tone="primary" />
                       </div>
                     </div>
-                    <StatusBadge status={inc.verification_status} />
+
+                    <div className="grid gap-x-6 gap-y-3 border-t border-gray-100 pt-4 text-sm sm:grid-cols-2">
+                      <InfoBlock label="Classification" value={formatClassification(inc.general_category)} />
+                      <InfoBlock label="Category / Type" value={inc.sub_category || inc.alarm_level} />
+                      <InfoBlock label="District" value={inc.province_district} />
+                      <InfoBlock label="City" value={inc.city_municipality} />
+                    </div>
+
+                    <div className="grid gap-x-6 gap-y-3 border-t border-gray-100 pt-4 text-sm sm:grid-cols-2">
+                      <InfoBlock label="Responder Type" value={inc.responder_type} />
+                      <InfoBlock label="Caller / Contact" value={`${displayValue(inc.caller_name)} / ${displayValue(inc.caller_number)}`} />
+                      <div className="sm:col-span-2">
+                        <InfoBlock label="Extent of Damage" value={inc.extent_of_damage} />
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-                    <InfoBlock label="Date/Time of Fire" value={formatIncidentDate(inc.notification_dt || inc.created_at)} />
-                    <InfoBlock label="Type of Responder" value={inc.responder_type} />
-                    <InfoBlock label="Complete Address" value={completeAddress(inc)} />
-                    <InfoBlock label="Caller / Reporter Name" value={inc.caller_name} />
-                    <InfoBlock label="Caller Contact Number" value={inc.caller_number} />
-                    <InfoBlock label="Classification" value={formatClassification(inc.general_category)} />
-                    <InfoBlock label="Category / Type" value={inc.sub_category || inc.alarm_level} />
-                    <InfoBlock label="Damage Extent" value={inc.extent_of_damage} />
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                  <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
                     <MetricPill label="Structures" value={inc.structures_affected} />
                     <MetricPill label="Households" value={inc.households_affected} />
                     <MetricPill label="Families" value={inc.families_affected} />
                     <MetricPill label="Individuals" value={inc.individuals_affected} />
                     <MetricPill label="Vehicles" value={inc.vehicles_affected} />
-                  </div>
-
-                  <div className="mt-4 rounded-lg bg-gray-50 px-3 py-2 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                    <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
-                      Responsible party:
-                    </span>{' '}
-                    {displayValue(inc.establishment_name || inc.owner_name || inc.caller_name)}
                   </div>
                 </article>
               ))}
@@ -894,13 +928,24 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function InfoBlock({ label, value }: { label: string; value: string | null | undefined }) {
+function InfoBlock({
+  label,
+  value,
+  tone = 'default',
+}: {
+  label: string;
+  value: string | null | undefined;
+  tone?: 'default' | 'primary';
+}) {
   return (
     <div className="min-w-0">
-      <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-primary)' }}>
+      <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
         {label}
       </div>
-      <div className="mt-0.5 font-semibold break-words" style={{ color: 'var(--text-primary)' }}>
+      <div
+        className={`${tone === 'primary' ? 'mt-1 text-base font-semibold' : 'mt-0.5 text-sm font-medium'} break-words leading-relaxed`}
+        style={{ color: 'var(--text-primary)' }}
+      >
         {displayValue(value)}
       </div>
     </div>
@@ -909,11 +954,11 @@ function InfoBlock({ label, value }: { label: string; value: string | null | und
 
 function MetricPill({ label, value }: { label: string; value: number | null | undefined }) {
   return (
-    <div className="rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-2 text-center">
-      <div className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
+    <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-center">
+      <div className="text-lg font-bold tabular-nums leading-none" style={{ color: '#7F1D1D' }}>
         {value ?? 0}
       </div>
-      <div className="text-[11px] font-semibold" style={{ color: 'var(--text-primary)' }}>
+      <div className="mt-1 text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
         {label}
       </div>
     </div>

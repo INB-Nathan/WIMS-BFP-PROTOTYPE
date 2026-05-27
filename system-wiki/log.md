@@ -981,3 +981,43 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `git diff --check` passed with CRLF warnings only.
 
 **Wiki updates:** Updated `frontend/route-map.md`, `subsystems/regional-dashboard.md`, `subsystems/validator-hub.md`, `gaps/ui-ux-gap-register.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this fixes implementation behavior without changing FRS alignment.
+
+## [2026-05-27] polish | Regional Today card refinement and seed filtering
+
+**Changes implemented:**
+- Regional Today cards removed responsible party, use a compact one-line Last Modified header, remove the duplicate classification line under the header, pair related fields, split district/city out from street address, render labels in dark red, and emphasize affected-count numbers.
+- Regional Clear Filters now resets to All status, Today, Date Modified, 10/page, first page, and no classification filter.
+- Regional filter updates preserve scroll position across two animation frames and keep existing Today cards visible with reduced opacity during reload to reduce layout jitter.
+- Regional encoder list/stats now hide deterministic analyst seed incidents by excluding `AFOR-SEED-*` reference numbers and import batches marked `SEEDED`/`seed-incidents-*`.
+
+**Verification:**
+- Lightweight TS transpile syntax check passed for edited frontend files.
+- `python -m py_compile src/backend/api/routes/regional.py` passed.
+
+**Wiki updates:** Updated `subsystems/regional-dashboard.md`, `gaps/ui-ux-gap-register.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this is dashboard data hygiene and UI refinement.
+
+## [2026-05-27] polish | Regional dashboard card readability
+
+**Changes implemented:**
+- Regional Today cards now use muted labels, roomier padding, clearer primary fire time/location hierarchy, grouped secondary details, calmer hover/focus treatment, and lighter affected-count chips.
+- Regional and validator filter bars now use quieter active chip states and aligned rounded dropdown controls.
+- Regional empty state copy now separates title and guidance for a cleaner no-results view.
+
+**Verification:**
+- Lightweight TS transpile syntax check passed for edited dashboard files.
+
+**Wiki updates:** Updated `subsystems/regional-dashboard.md`, `gaps/ui-ux-gap-register.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this is frontend-only UI polish.
+
+## [2026-05-27] fix | Category summary alias counts
+
+**Diagnosis:**
+- Regional incident creation normalizes vehicular classifications to `TRANSPORTATION`, while older/seeded rows may still use `VEHICULAR`.
+- Regional dashboard cards looked up only `VEHICULAR`, so transportation/vehicular rows could be visible while the card showed 0. Validator cards handled aliases partially but did not sum both if both appeared.
+
+**Changes implemented:**
+- Regional and validator category cards now aggregate category aliases (`VEHICULAR` + `TRANSPORTATION`, plus common structural/non-structural variants) before rendering counts.
+
+**Verification:**
+- Pending frontend lint/syntax check after implementation.
+
+**Wiki updates:** Updated `subsystems/regional-dashboard.md`, `subsystems/validator-hub.md`, `gaps/ui-ux-gap-register.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this fixes display aggregation only.

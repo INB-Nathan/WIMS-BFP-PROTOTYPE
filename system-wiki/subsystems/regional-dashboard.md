@@ -41,9 +41,10 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 
 - Columns: Date, Classification (with wildland badge), Station, Location, Last Modified, Status
 - Filters: Today/This Week/This Month/This Year/All Time date dropdown, date-basis dropdown (`Date Modified` default, `Date of Fire` optional), Classification dropdown (from `REGIONAL_INCIDENT_GENERAL_CATEGORIES`), Verification Status chips, Per-page size selector
-- Default list scope is Today by Date Modified; Today renders incident cards with last-modified timestamp at top, fire notification date/time in the body, responder type, complete address, caller/reporter name and contact, classification, category/type, extent of damage, and affected-count cards. Wider date scopes keep the compact table layout.
+- Default list scope is Today by Date Modified; Today renders incident cards with softened metadata, primary fire time/location hierarchy, grouped secondary fields, separate district/city fields, combined caller/reporter/contact, paired classification/category, extent of damage, and compact affected-count chips. Wider date scopes keep the compact table layout.
 - Pagination: Prev/Next buttons, page X of Y display, configurable page sizes
 - Status badges: green (`VERIFIED`), red (`REJECTED`), yellow (everything else)
+- Summary category cards aggregate legacy/current category aliases, including `VEHICULAR` + `TRANSPORTATION`, so counts match incident rows after backend category normalization.
 - Empty state: "No incidents match the current filters" or error banner
 - Rows/cards are keyboard-focusable/clickable; a delayed floating "Click to view" bubble appears after hover and disappears on mouse movement or leave instead of using permanent Open text/actions.
 - **Rejected banner** — when `rejectedCount > 0`, shows a prominent red alert with "Show rejected" quick-filter button
@@ -110,7 +111,7 @@ All in `src/backend/api/routes/regional.py` (~5050 lines). This is the largest r
 
 | Method | Path | Function | Behavior |
 |---|---|---|---|
-| `GET` | `/api/regional/incidents` | `get_regional_incidents` | Paginated; filters by category, status, `date_from`, `date_to`, and `date_basis` (`modified` or `fire`); returns region-scoped via RLS; includes wildland type flag and card summary fields |
+| `GET` | `/api/regional/incidents` | `get_regional_incidents` | Paginated; filters by category, status, `date_from`, `date_to`, and `date_basis` (`modified` or `fire`); returns region-scoped via RLS; includes wildland type flag and card summary fields; hides deterministic `AFOR-SEED-*` demo incidents from encoder workload views |
 | `GET` | `/api/regional/incidents/drafts` | `list_encoder_drafts` | Returns DRAFT incidents owned by the current encoder |
 | `GET` | `/api/regional/incidents/check-duplicate` | `check_incident_duplicate` | Runs duplicate detection within 1km radius + 3 matching fields threshold |
 | `GET` | `/api/regional/incidents/{incident_id}` | `get_regional_incident_detail` | Full incident detail with all related tables (nonsensitive, sensitive, wildland, responding units, involved parties, operational challenges) |
@@ -168,6 +169,7 @@ Compatibility decision: encoder submit still writes `PENDING`; validator queue d
 - **SecurityProvider** lazy singleton via `_get_security_provider()` avoids import-time env check issues in test mocks
 - **`_wgs84_pair_from_raw`** validates latitude/longitude types, ranges, and finiteness before `ST_MakePoint`
 - **Deleted draft guard:** regional status summary excludes incidents with `DELETED_DRAFT` history so deleted drafts do not inflate rejected workload indicators if legacy rows have inconsistent archived/status state.
+- **Seeded incident guard:** regional encoder list/stats exclude deterministic analyst demo incidents (`AFOR-SEED-*` or import batch `SEEDED`) so the encoder dashboard reflects operational workload only.
 
 ## Related
 

@@ -674,6 +674,8 @@ export interface RegionalIncidentListItem {
   caller_number: string | null;
   street_address: string | null;
   is_wildland: boolean;
+  city_municipality: string | null;
+  province_district: string | null;
   location_display: string | null;
 }
 

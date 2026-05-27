@@ -73,6 +73,7 @@ The validator's primary workspace. A large, feature-rich page with:
 
 **Stats Bar** — header stats from `fetchValidatorStats()`:
 - Total verified, pending validation, by-category breakdown
+- Category cards aggregate legacy/current category aliases, including `VEHICULAR` + `TRANSPORTATION`, to keep totals aligned with normalized incident rows.
 
 ### Audit Trail — `/dashboard/validator/audit`
 

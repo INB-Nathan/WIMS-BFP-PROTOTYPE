@@ -421,6 +421,20 @@ def get_regional_incidents(
     where_clauses = [
         "fi.encoder_id = CAST(:encoder_id AS uuid)",
         "fi.is_archived = FALSE",
+        """
+        NOT (
+            COALESCE(fi.reference_number, '') LIKE 'AFOR-SEED-%'
+            OR EXISTS (
+                SELECT 1
+                FROM wims.data_import_batches dib
+                WHERE dib.batch_id = fi.import_batch_id
+                  AND (
+                    dib.sync_status = 'SEEDED'
+                    OR COALESCE(dib.batch_checksum_hash, '') LIKE 'seed-incidents-%'
+                  )
+            )
+        )
+        """,
     ]
     params: dict[str, Any] = {
         "encoder_id": str(encoder_id),
@@ -546,6 +560,8 @@ def get_regional_incidents(
                 "street_address": r[20],
                 "is_wildland": bool(r[23]),
                 "updated_at": r[24].isoformat() if r[24] else None,
+                "city_municipality": r[25],
+                "province_district": r[26],
                 "location_display": _location_display(r[25], r[26], r[27]),
             }
         )
@@ -1009,11 +1025,31 @@ def get_regional_stats(
 ):
     """Quick summary stats scoped to the current encoder."""
     encoder_id = user["user_id"]
+    hide_seeded_sql = """
+      AND NOT (
+          COALESCE(fi.reference_number, '') LIKE 'AFOR-SEED-%'
+          OR EXISTS (
+              SELECT 1
+              FROM wims.data_import_batches dib
+              WHERE dib.batch_id = fi.import_batch_id
+                AND (
+                  dib.sync_status = 'SEEDED'
+                  OR COALESCE(dib.batch_checksum_hash, '') LIKE 'seed-incidents-%'
+                )
+          )
+      )
+    """
 
     total = (
         db.execute(
             text(
-                "SELECT COUNT(*) FROM wims.fire_incidents WHERE encoder_id = CAST(:eid AS uuid) AND is_archived = FALSE"
+                f"""
+                SELECT COUNT(*)
+                FROM wims.fire_incidents fi
+                WHERE fi.encoder_id = CAST(:eid AS uuid)
+                  AND fi.is_archived = FALSE
+                  {hide_seeded_sql}
+                """
             ),
             {"eid": str(encoder_id)},
         ).scalar()
@@ -1026,6 +1062,7 @@ def get_regional_stats(
             FROM wims.fire_incidents fi
             JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
             WHERE fi.encoder_id = CAST(:eid AS uuid) AND fi.is_archived = FALSE
+            """ + hide_seeded_sql + """
             GROUP BY nd.general_category
             ORDER BY cnt DESC
         """),
@@ -1038,6 +1075,7 @@ def get_regional_stats(
             FROM wims.fire_incidents fi
             JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
             WHERE fi.encoder_id = CAST(:eid AS uuid) AND fi.is_archived = FALSE
+            """ + hide_seeded_sql + """
             GROUP BY nd.alarm_level
             ORDER BY cnt DESC
         """),
@@ -1050,6 +1088,7 @@ def get_regional_stats(
             FROM wims.fire_incidents fi
             WHERE fi.encoder_id = CAST(:eid AS uuid)
               AND fi.is_archived = FALSE
+              """ + hide_seeded_sql + """
               AND NOT EXISTS (
                   SELECT 1
                   FROM wims.incident_verification_history ivh
@@ -1070,6 +1109,7 @@ def get_regional_stats(
                 FROM wims.incident_wildland_afor iwa
                 JOIN wims.fire_incidents fi ON fi.incident_id = iwa.incident_id
                 WHERE fi.encoder_id = CAST(:eid AS uuid) AND fi.is_archived = FALSE
+                """ + hide_seeded_sql + """
             """),
             {"eid": str(encoder_id)},
         ).scalar()
@@ -1082,6 +1122,7 @@ def get_regional_stats(
             FROM wims.incident_wildland_afor iwa
             JOIN wims.fire_incidents fi ON fi.incident_id = iwa.incident_id
             WHERE fi.encoder_id = CAST(:eid AS uuid) AND fi.is_archived = FALSE
+            """ + hide_seeded_sql + """
             GROUP BY iwa.wildland_fire_type
             ORDER BY cnt DESC
         """),
@@ -1099,6 +1140,7 @@ def get_regional_stats(
             FROM wims.fire_incidents fi
             JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
             WHERE fi.encoder_id = CAST(:eid AS uuid) AND fi.is_archived = FALSE
+            """ + hide_seeded_sql + """
         """),
         {"eid": str(encoder_id)},
     ).fetchone()
