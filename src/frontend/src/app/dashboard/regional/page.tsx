@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import {
   RefreshCw, Flame, Building2, TreePine, Car, ChevronLeft, ChevronRight, Trees,
-  Home, Users, Layers, Truck, FileText, Upload, History,
+  Home, Users, Layers, Truck, FileText, Upload,
 } from 'lucide-react';
 import { fetchRegionalIncidents, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
 import Link from 'next/link';
@@ -52,6 +52,79 @@ const STATUS_CHIPS = [
   { label: 'Drafts', value: 'DRAFT' },
 ];
 
+const DATE_FILTERS = [
+  { label: 'Today', value: 'today' },
+  { label: 'This Week', value: 'week' },
+  { label: 'This Month', value: 'month' },
+  { label: 'This Year', value: 'year' },
+  { label: 'All Time', value: 'all' },
+] as const;
+
+type DateFilterValue = (typeof DATE_FILTERS)[number]['value'];
+type DateBasisValue = 'modified' | 'fire';
+
+const DATE_BASIS_OPTIONS: Array<{ label: string; value: DateBasisValue }> = [
+  { label: 'Date Modified', value: 'modified' },
+  { label: 'Date of Fire', value: 'fire' },
+];
+
+interface HoverHint {
+  id: number;
+  x: number;
+  y: number;
+}
+
+function manilaTodayUtcDate(): Date {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const year = Number(parts.find((p) => p.type === 'year')?.value);
+  const month = Number(parts.find((p) => p.type === 'month')?.value);
+  const day = Number(parts.find((p) => p.type === 'day')?.value);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function dateOnly(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function addUtcDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function getRegionalDateBounds(filter: DateFilterValue): { date_from?: string; date_to?: string } {
+  if (filter === 'all') return {};
+  const today = manilaTodayUtcDate();
+  if (filter === 'today') return { date_from: dateOnly(today), date_to: dateOnly(today) };
+  if (filter === 'week') {
+    const day = today.getUTCDay();
+    const mondayOffset = day === 0 ? -6 : 1 - day;
+    return { date_from: dateOnly(addUtcDays(today, mondayOffset)), date_to: dateOnly(addUtcDays(today, mondayOffset + 6)) };
+  }
+  if (filter === 'month') {
+    const first = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+    const last = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0));
+    return { date_from: dateOnly(first), date_to: dateOnly(last) };
+  }
+  const first = new Date(Date.UTC(today.getUTCFullYear(), 0, 1));
+  const last = new Date(Date.UTC(today.getUTCFullYear(), 11, 31));
+  return { date_from: dateOnly(first), date_to: dateOnly(last) };
+}
+
+function displayValue(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === '') return '-';
+  return String(value);
+}
+
+function completeAddress(incident: RegionalIncidentListItem): string {
+  return [incident.street_address, incident.location_display].filter(Boolean).join(', ') || '-';
+}
+
 export default function RegionalDashboardPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
@@ -79,6 +152,47 @@ export default function RegionalDashboardPage() {
   const [pageSize, setPageSize] = useState(10);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>('today');
+  const [dateBasis, setDateBasis] = useState<DateBasisValue>('modified');
+  const [hoverHint, setHoverHint] = useState<HoverHint | null>(null);
+  const hoverHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dateBounds = useMemo(() => getRegionalDateBounds(dateFilter), [dateFilter]);
+
+  const updateFiltersWithoutScrollShift = useCallback((update: () => void) => {
+    const x = window.scrollX;
+    const y = window.scrollY;
+    update();
+    requestAnimationFrame(() => window.scrollTo(x, y));
+  }, []);
+
+  const clearHoverHint = useCallback(() => {
+    if (hoverHintTimer.current) {
+      clearTimeout(hoverHintTimer.current);
+      hoverHintTimer.current = null;
+    }
+    setHoverHint(null);
+  }, []);
+
+  const scheduleHoverHint = useCallback((id: number, event: MouseEvent<HTMLElement>) => {
+    if (hoverHintTimer.current) clearTimeout(hoverHintTimer.current);
+    const { clientX, clientY } = event;
+    hoverHintTimer.current = setTimeout(() => {
+      setHoverHint({ id, x: clientX, y: clientY });
+      hoverHintTimer.current = null;
+    }, 2000);
+  }, []);
+
+  const hideHoverHintOnMove = useCallback(() => {
+    if (hoverHintTimer.current) {
+      clearTimeout(hoverHintTimer.current);
+      hoverHintTimer.current = null;
+    }
+    if (hoverHint) setHoverHint(null);
+  }, [hoverHint]);
+
+  useEffect(() => () => {
+    if (hoverHintTimer.current) clearTimeout(hoverHintTimer.current);
+  }, []);
 
   const loadStats = useCallback(async () => {
     const statsData = await fetchRegionalStats();
@@ -96,6 +210,9 @@ export default function RegionalDashboardPage() {
         offset,
         category: categoryFilter || undefined,
         status: statusFilter || undefined,
+        date_from: dateBounds.date_from,
+        date_to: dateBounds.date_to,
+        date_basis: dateBasis,
       });
       setIncidents(data.items ?? []);
       setIncidentsTotal(typeof data.total === 'number' ? data.total : 0);
@@ -106,7 +223,7 @@ export default function RegionalDashboardPage() {
     } finally {
       setIncidentsLoading(false);
     }
-  }, [pageIndex, pageSize, categoryFilter, statusFilter]);
+  }, [pageIndex, pageSize, categoryFilter, statusFilter, dateBounds.date_from, dateBounds.date_to, dateBasis]);
 
   useEffect(() => {
     if (canAccessRegional) {
@@ -144,6 +261,7 @@ export default function RegionalDashboardPage() {
   const toRow = Math.min(offset + incidents.length, incidentsTotal);
   const canPrev = pageIndex > 0 && !incidentsLoading;
   const canNext = incidentsTotal > 0 && offset + size < incidentsTotal && !incidentsLoading;
+  const isTodayView = dateFilter === 'today';
 
   const rejectedCount = stats?.by_status?.find((s) => s.status === 'REJECTED')?.count ?? 0;
 
@@ -274,14 +392,6 @@ export default function RegionalDashboardPage() {
             <Upload className="h-3.5 w-3.5" aria-hidden />
             Import AFOR
           </Link>
-          <Link
-            href="/dashboard/regional/audit"
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white transition-colors hover:bg-gray-50"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            <History className="h-3.5 w-3.5" aria-hidden />
-            Activity Log
-          </Link>
           <button
             type="button"
             onClick={() => refreshAll()}
@@ -304,7 +414,7 @@ export default function RegionalDashboardPage() {
           <button
             type="button"
             className="ml-1 underline font-medium hover:text-red-700"
-            onClick={() => { setStatusFilter('REJECTED'); setPageIndex(0); }}
+            onClick={() => updateFiltersWithoutScrollShift(() => { setStatusFilter('REJECTED'); setPageIndex(0); })}
           >
             Show rejected
           </button>
@@ -401,7 +511,7 @@ export default function RegionalDashboardPage() {
                 <button
                   key={chip.value}
                   type="button"
-                  onClick={() => { setStatusFilter(chip.value); setPageIndex(0); }}
+                onClick={() => updateFiltersWithoutScrollShift(() => { setStatusFilter(chip.value); setPageIndex(0); })}
                   disabled={incidentsLoading}
                   className="px-4 py-1.5 rounded-full text-sm font-medium transition-colors disabled:opacity-50"
                   style={active
@@ -424,13 +534,37 @@ export default function RegionalDashboardPage() {
           {/* Secondary filters row */}
           <div className="flex flex-wrap items-center gap-3 mt-3">
             <select
+              className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm font-medium focus:outline-none focus:border-[#C62828] transition-colors"
+              style={{ color: 'var(--text-primary)' }}
+              value={dateFilter}
+              onChange={(e) => updateFiltersWithoutScrollShift(() => { setDateFilter(e.target.value as DateFilterValue); setPageIndex(0); })}
+              disabled={incidentsLoading}
+            >
+              {DATE_FILTERS.map((filter) => (
+                <option key={filter.value} value={filter.value}>{filter.label}</option>
+              ))}
+            </select>
+
+            <select
+              className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm font-medium focus:outline-none focus:border-[#C62828] transition-colors"
+              style={{ color: 'var(--text-primary)' }}
+              value={dateBasis}
+              onChange={(e) => updateFiltersWithoutScrollShift(() => { setDateBasis(e.target.value as DateBasisValue); setPageIndex(0); })}
+              disabled={incidentsLoading}
+            >
+              {DATE_BASIS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+
+            <select
               className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm focus:outline-none focus:border-[#C62828] transition-colors"
               style={{ color: 'var(--text-primary)' }}
               value={categoryFilter}
-              onChange={(e) => { setCategoryFilter(e.target.value); setPageIndex(0); }}
+              onChange={(e) => updateFiltersWithoutScrollShift(() => { setCategoryFilter(e.target.value); setPageIndex(0); })}
               disabled={incidentsLoading}
             >
-              <option value="">Classification ▾</option>
+              <option value="">Classification</option>
               {REGIONAL_INCIDENT_GENERAL_CATEGORIES.map((c) => (
                 <option key={c} value={c}>{formatClassification(c)}</option>
               ))}
@@ -440,7 +574,7 @@ export default function RegionalDashboardPage() {
               className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm focus:outline-none focus:border-[#C62828] transition-colors"
               style={{ color: 'var(--text-primary)' }}
               value={String(size)}
-              onChange={(e) => { setPageSize(Number(e.target.value)); setPageIndex(0); }}
+              onChange={(e) => updateFiltersWithoutScrollShift(() => { setPageSize(Number(e.target.value)); setPageIndex(0); })}
               disabled={incidentsLoading}
             >
               {REGIONAL_PAGE_SIZE_OPTIONS.map((n) => (
@@ -448,11 +582,12 @@ export default function RegionalDashboardPage() {
               ))}
             </select>
 
-            {(categoryFilter) && (
+            {(categoryFilter || dateFilter !== 'today' || dateBasis !== 'modified') && (
               <button
                 type="button"
-                className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm font-medium text-gray-600 hover:border-gray-300 transition-colors"
-                onClick={() => { setCategoryFilter(''); setPageIndex(0); }}
+                className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm font-semibold hover:border-gray-300 transition-colors"
+                style={{ color: 'var(--text-primary)' }}
+                onClick={() => updateFiltersWithoutScrollShift(() => { setCategoryFilter(''); setDateFilter('today'); setDateBasis('modified'); setPageIndex(0); })}
                 disabled={incidentsLoading}
               >
                 Clear Filters
@@ -467,7 +602,88 @@ export default function RegionalDashboardPage() {
           </div>
         )}
 
-        {/* Table */}
+        {/* Incident list */}
+        {isTodayView ? (
+          incidentsLoading ? (
+            <div className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+              Loading incidents...
+            </div>
+          ) : incidents.length === 0 ? (
+            <div className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+              {incidentsError ? 'Could not load incidents.' : 'No incidents match the current filters.'}
+            </div>
+          ) : (
+            <div className="grid gap-3 p-5 lg:grid-cols-2">
+              {incidents.map((inc) => (
+                <article
+                  key={inc.incident_id}
+                  onClick={() => router.push(`/dashboard/regional/incidents/${inc.incident_id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      router.push(`/dashboard/regional/incidents/${inc.incident_id}`);
+                    }
+                  }}
+                  tabIndex={0}
+                  role="link"
+                  aria-label={`View incident ${inc.incident_id}`}
+                  onMouseEnter={(e) => scheduleHoverHint(inc.incident_id, e)}
+                  onMouseMove={hideHoverHintOnMove}
+                  onMouseLeave={clearHoverHint}
+                  className="cursor-pointer rounded-xl border border-gray-200 bg-white p-4 shadow-sm outline-none transition-colors hover:border-red-200 hover:bg-red-50/50 focus-visible:ring-2 focus-visible:ring-[#C62828]"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-primary)' }}>
+                        Last modified
+                      </div>
+                      <div className="mt-1 text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+                        {formatIncidentDate(inc.updated_at)}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                          {formatClassification(inc.general_category)}
+                        </span>
+                        {inc.is_wildland && (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                            Wildland
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <StatusBadge status={inc.verification_status} />
+                  </div>
+
+                  <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                    <InfoBlock label="Date/Time of Fire" value={formatIncidentDate(inc.notification_dt || inc.created_at)} />
+                    <InfoBlock label="Type of Responder" value={inc.responder_type} />
+                    <InfoBlock label="Complete Address" value={completeAddress(inc)} />
+                    <InfoBlock label="Caller / Reporter Name" value={inc.caller_name} />
+                    <InfoBlock label="Caller Contact Number" value={inc.caller_number} />
+                    <InfoBlock label="Classification" value={formatClassification(inc.general_category)} />
+                    <InfoBlock label="Category / Type" value={inc.sub_category || inc.alarm_level} />
+                    <InfoBlock label="Damage Extent" value={inc.extent_of_damage} />
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                    <MetricPill label="Structures" value={inc.structures_affected} />
+                    <MetricPill label="Households" value={inc.households_affected} />
+                    <MetricPill label="Families" value={inc.families_affected} />
+                    <MetricPill label="Individuals" value={inc.individuals_affected} />
+                    <MetricPill label="Vehicles" value={inc.vehicles_affected} />
+                  </div>
+
+                  <div className="mt-4 rounded-lg bg-gray-50 px-3 py-2 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                      Responsible party:
+                    </span>{' '}
+                    {displayValue(inc.establishment_name || inc.owner_name || inc.caller_name)}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )
+        ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
@@ -507,13 +723,20 @@ export default function RegionalDashboardPage() {
                     tabIndex={0}
                     role="link"
                     aria-label={`View incident ${inc.incident_id}`}
-                    className="group cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#C62828] focus-visible:ring-inset"
+                    className="cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#C62828] focus-visible:ring-inset"
                     style={{
                       backgroundColor: idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA',
                       borderBottom: '1px solid var(--border-color)',
                     }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-light)'; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA'; }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-light)';
+                      scheduleHoverHint(inc.incident_id, e);
+                    }}
+                    onMouseMove={hideHoverHintOnMove}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.backgroundColor = idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA';
+                      clearHoverHint();
+                    }}
                   >
                     <td className="px-5 py-4 whitespace-nowrap text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                       {formatIncidentDate(inc.notification_dt || inc.created_at)}
@@ -533,12 +756,6 @@ export default function RegionalDashboardPage() {
                     <td className="px-5 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
                       <div className="flex items-center gap-2">
                         <span>{inc.fire_station_name || '—'}</span>
-                        <span
-                          className="text-xs font-semibold opacity-0 transition-opacity duration-150 delay-[2000ms] group-hover:opacity-100 group-focus:opacity-100"
-                          style={{ color: 'var(--bfp-red)' }}
-                        >
-                          Click to view
-                        </span>
                       </div>
                     </td>
                     <td className="px-5 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
@@ -556,6 +773,7 @@ export default function RegionalDashboardPage() {
             </tbody>
           </table>
         </div>
+        )}
 
         {/* Pagination */}
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
@@ -591,6 +809,15 @@ export default function RegionalDashboardPage() {
           </div>
         </div>
       </section>
+
+      {hoverHint && (
+        <div
+          className="pointer-events-none fixed z-50 rounded-lg bg-gray-950 px-3 py-1.5 text-xs font-semibold text-white shadow-lg"
+          style={{ left: hoverHint.x + 12, top: hoverHint.y + 12 }}
+        >
+          Click to view
+        </div>
+      )}
 
       {/* ── Wildland Fire Breakdown ── */}
       {stats && (stats.wildland_total ?? 0) > 0 && (
@@ -664,5 +891,31 @@ function StatusBadge({ status }: { status: string }) {
     >
       {status}
     </span>
+  );
+}
+
+function InfoBlock({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-primary)' }}>
+        {label}
+      </div>
+      <div className="mt-0.5 font-semibold break-words" style={{ color: 'var(--text-primary)' }}>
+        {displayValue(value)}
+      </div>
+    </div>
+  );
+}
+
+function MetricPill({ label, value }: { label: string; value: number | null | undefined }) {
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-2 text-center">
+      <div className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
+        {value ?? 0}
+      </div>
+      <div className="text-[11px] font-semibold" style={{ color: 'var(--text-primary)' }}>
+        {label}
+      </div>
+    </div>
   );
 }

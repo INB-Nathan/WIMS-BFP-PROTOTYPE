@@ -4,8 +4,7 @@
  * /dashboard/validator — NATIONAL_VALIDATOR incident queue.
  */
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import Link from "next/link";
+import { useEffect, useState, useCallback, useMemo, useRef, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   RefreshCw, Flame, Building2, TreePine, Car, Layers, Home, Users, Truck,
@@ -56,6 +55,35 @@ type ActionType = "accept" | "accept_replace" | "reject";
 const STATUS_FILTER_QUEUE = "__QUEUE__";
 const STATUS_FILTER_ALL = "__ALL__";
 
+const VALIDATOR_STATUS_FILTERS = [
+  { label: "All", value: STATUS_FILTER_ALL },
+  { label: "Pending", value: STATUS_FILTER_QUEUE },
+  { label: "Accepted", value: "VERIFIED" },
+  { label: "Rejected", value: "REJECTED" },
+] as const;
+
+interface HoverHint {
+  id: number;
+  x: number;
+  y: number;
+}
+
+const DATE_FILTERS = [
+  { label: "Today", value: "today" },
+  { label: "This Week", value: "week" },
+  { label: "This Month", value: "month" },
+  { label: "This Year", value: "year" },
+  { label: "All Time", value: "all" },
+] as const;
+
+type DateFilterValue = (typeof DATE_FILTERS)[number]["value"];
+type DateBasisValue = "modified" | "fire";
+
+const DATE_BASIS_OPTIONS: Array<{ label: string; value: DateBasisValue }> = [
+  { label: "Date Modified", value: "modified" },
+  { label: "Date of Fire", value: "fire" },
+];
+
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Draft",
   PENDING: "Pending",
@@ -92,6 +120,48 @@ function formatIncidentDate(dt: string | null): string {
   return `${month} ${day} • ${time}`;
 }
 
+function manilaTodayUtcDate(): Date {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const year = Number(parts.find((p) => p.type === "year")?.value);
+  const month = Number(parts.find((p) => p.type === "month")?.value);
+  const day = Number(parts.find((p) => p.type === "day")?.value);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function dateOnly(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function addUtcDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function getDateBounds(filter: DateFilterValue): { date_from?: string; date_to?: string } {
+  if (filter === "all") return {};
+  const today = manilaTodayUtcDate();
+  if (filter === "today") return { date_from: dateOnly(today), date_to: dateOnly(today) };
+  if (filter === "week") {
+    const day = today.getUTCDay();
+    const mondayOffset = day === 0 ? -6 : 1 - day;
+    return { date_from: dateOnly(addUtcDays(today, mondayOffset)), date_to: dateOnly(addUtcDays(today, mondayOffset + 6)) };
+  }
+  if (filter === "month") {
+    const first = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+    const last = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0));
+    return { date_from: dateOnly(first), date_to: dateOnly(last) };
+  }
+  const first = new Date(Date.UTC(today.getUTCFullYear(), 0, 1));
+  const last = new Date(Date.UTC(today.getUTCFullYear(), 11, 31));
+  return { date_from: dateOnly(first), date_to: dateOnly(last) };
+}
+
 function StatusBadge({ status }: { status: string }) {
   const style = STATUS_COLORS[status] ?? { bg: "#F3F4F6", text: "#6B7280" };
   return (
@@ -117,8 +187,11 @@ export default function ValidatorDashboard() {
 
   const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_ALL);
   const [regionFilter, setRegionFilter] = useState<string>("");
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>("today");
+  const [dateBasis, setDateBasis] = useState<DateBasisValue>("modified");
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 10;
+  const dateBounds = useMemo(() => getDateBounds(dateFilter), [dateFilter]);
 
   const [stats, setStats] = useState<{
     total_verified: number;
@@ -150,7 +223,45 @@ export default function ValidatorDashboard() {
   const [validatorDupTarget, setValidatorDupTarget] = useState<ValidatorIncident | null>(null);
   const [validatorDupMatchedId, setValidatorDupMatchedId] = useState<number | null>(null);
   const [newIncidentBanner, setNewIncidentBanner] = useState(false);
+  const [hoverHint, setHoverHint] = useState<HoverHint | null>(null);
   const lastKnownTotal = useRef<number | null>(null);
+  const hoverHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const updateFiltersWithoutScrollShift = useCallback((update: () => void) => {
+    const x = window.scrollX;
+    const y = window.scrollY;
+    update();
+    requestAnimationFrame(() => window.scrollTo(x, y));
+  }, []);
+
+  const clearHoverHint = useCallback(() => {
+    if (hoverHintTimer.current) {
+      clearTimeout(hoverHintTimer.current);
+      hoverHintTimer.current = null;
+    }
+    setHoverHint(null);
+  }, []);
+
+  const scheduleHoverHint = useCallback((id: number, event: MouseEvent<HTMLElement>) => {
+    if (hoverHintTimer.current) clearTimeout(hoverHintTimer.current);
+    const { clientX, clientY } = event;
+    hoverHintTimer.current = setTimeout(() => {
+      setHoverHint({ id, x: clientX, y: clientY });
+      hoverHintTimer.current = null;
+    }, 2000);
+  }, []);
+
+  const hideHoverHintOnMove = useCallback(() => {
+    if (hoverHintTimer.current) {
+      clearTimeout(hoverHintTimer.current);
+      hoverHintTimer.current = null;
+    }
+    if (hoverHint) setHoverHint(null);
+  }, [hoverHint]);
+
+  useEffect(() => () => {
+    if (hoverHintTimer.current) clearTimeout(hoverHintTimer.current);
+  }, []);
 
   const togglePending = (inc: ValidatorIncident, checked: boolean) => {
     setSelectedIds((prev) => {
@@ -293,14 +404,15 @@ export default function ValidatorDashboard() {
       limit: String(PAGE_SIZE),
       offset: String(page * PAGE_SIZE),
     });
-    if (statusFilter === "__ARCHIVED__") {
-      params.set("archived", "true");
-    } else if (statusFilter === STATUS_FILTER_ALL) {
+    if (statusFilter === STATUS_FILTER_ALL) {
       params.set("show_all", "true");
     } else if (statusFilter && statusFilter !== STATUS_FILTER_QUEUE) {
       params.set("status", statusFilter);
     }
     if (regionFilter) params.set("region_id", regionFilter);
+    if (dateBounds.date_from) params.set("date_from", dateBounds.date_from);
+    if (dateBounds.date_to) params.set("date_to", dateBounds.date_to);
+    params.set("date_basis", dateBasis);
 
     try {
       const data: QueueResponse = await apiFetch(`/regional/validator/incidents?${params.toString()}`);
@@ -313,7 +425,7 @@ export default function ValidatorDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, regionFilter]);
+  }, [page, statusFilter, regionFilter, dateBounds.date_from, dateBounds.date_to, dateBasis]);
 
   useEffect(() => { fetchQueue(); }, [fetchQueue]);
 
@@ -435,13 +547,6 @@ export default function ValidatorDashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <Link
-            href="/dashboard/validator/audit"
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white transition-colors hover:bg-gray-50"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            Audit Trail →
-          </Link>
           <button
             onClick={fetchQueue}
             disabled={loading}
@@ -543,24 +648,70 @@ export default function ValidatorDashboard() {
         {/* Filters */}
         <div className="px-6 py-5 border-b" style={{ borderColor: 'var(--border-color)' }}>
           <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap gap-2">
+              {VALIDATOR_STATUS_FILTERS.map((filter) => {
+                const active = statusFilter === filter.value;
+                const showPendingIndicator = filter.value === STATUS_FILTER_QUEUE && (stats?.pending_validation ?? 0) > 0;
+                return (
+                  <button
+                    key={filter.value}
+                    type="button"
+                    onClick={() => updateFiltersWithoutScrollShift(() => { setStatusFilter(filter.value); setPage(0); })}
+                    disabled={loading}
+                    className="relative rounded-full px-4 py-1.5 text-sm font-medium transition-colors disabled:opacity-50"
+                    style={active
+                      ? { backgroundColor: 'var(--bfp-red)', color: '#fff' }
+                      : { backgroundColor: '#fff', border: '1px solid #e5e7eb', color: 'var(--text-secondary)' }
+                    }
+                    onMouseEnter={(e) => {
+                      if (!active) (e.currentTarget as HTMLElement).style.borderColor = 'var(--bfp-red)';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!active) (e.currentTarget as HTMLElement).style.borderColor = '#e5e7eb';
+                    }}
+                  >
+                    {filter.label}
+                    {showPendingIndicator && (
+                      <span
+                        className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white"
+                        style={{ backgroundColor: 'var(--bfp-red)' }}
+                        aria-label="Pending incidents available"
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
             <select
-              className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm focus:outline-none focus:border-[#C62828] transition-colors"
+              className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm font-medium focus:outline-none focus:border-[#C62828] transition-colors"
               style={{ color: 'var(--text-primary)' }}
-              value={statusFilter}
-              onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}
+              value={dateFilter}
+              onChange={(e) => updateFiltersWithoutScrollShift(() => { setDateFilter(e.target.value as DateFilterValue); setPage(0); })}
+              disabled={loading}
             >
-              <option value={STATUS_FILTER_QUEUE}>Pending</option>
-              <option value="REJECTED">Rejected</option>
-              <option value="VERIFIED">Accepted</option>
-              <option value={STATUS_FILTER_ALL}>All</option>
-              <option value="__ARCHIVED__">Archived</option>
+              {DATE_FILTERS.map((filter) => (
+                <option key={filter.value} value={filter.value}>{filter.label}</option>
+              ))}
+            </select>
+
+            <select
+              className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm font-medium focus:outline-none focus:border-[#C62828] transition-colors"
+              style={{ color: 'var(--text-primary)' }}
+              value={dateBasis}
+              onChange={(e) => updateFiltersWithoutScrollShift(() => { setDateBasis(e.target.value as DateBasisValue); setPage(0); })}
+              disabled={loading}
+            >
+              {DATE_BASIS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
             </select>
 
             <select
               className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm focus:outline-none focus:border-[#C62828] transition-colors"
               style={{ color: 'var(--text-primary)' }}
               value={regionFilter}
-              onChange={(e) => { setRegionFilter(e.target.value); setPage(0); }}
+              onChange={(e) => updateFiltersWithoutScrollShift(() => { setRegionFilter(e.target.value); setPage(0); })}
             >
               <option value="">All Regions</option>
               {PH_REGIONS.map((r) => (
@@ -629,13 +780,20 @@ export default function ValidatorDashboard() {
                     tabIndex={0}
                     role="link"
                     aria-label={`View incident ${inc.incident_id}`}
-                    className="group cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#C62828] focus-visible:ring-inset"
+                    className="cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#C62828] focus-visible:ring-inset"
                     style={{
                       backgroundColor: idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA',
                       borderBottom: '1px solid var(--border-color)',
                     }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-light)'; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA'; }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-light)';
+                      scheduleHoverHint(inc.incident_id, e);
+                    }}
+                    onMouseMove={hideHoverHintOnMove}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.backgroundColor = idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA';
+                      clearHoverHint();
+                    }}
                   >
                     <td className="px-4 py-4">
                       {inc.verification_status === "PENDING" ? (
@@ -672,12 +830,6 @@ export default function ValidatorDashboard() {
                     <td className="px-4 py-4 text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                       <div className="flex max-w-[260px] items-center gap-2">
                         <span className="truncate">{inc.fire_station_name ?? "Unknown station"}</span>
-                        <span
-                          className="text-xs font-semibold opacity-0 transition-opacity duration-150 delay-[2000ms] group-hover:opacity-100 group-focus:opacity-100"
-                          style={{ color: 'var(--bfp-red)' }}
-                        >
-                          Click to view
-                        </span>
                       </div>
                     </td>
                     <td className="px-4 py-4 text-sm whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
@@ -691,8 +843,7 @@ export default function ValidatorDashboard() {
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap">
                       <div className="flex gap-1.5 items-center">
-                        {statusFilter === "__ARCHIVED__" ? null : (
-                          ["VERIFIED", "REJECTED", "REPLACED"].includes(inc.verification_status) ? (
+                        {["VERIFIED", "REJECTED", "REPLACED"].includes(inc.verification_status) ? (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -733,7 +884,6 @@ export default function ValidatorDashboard() {
                                 Reject
                               </button>
                             </>
-                          )
                         )}
                       </div>
                     </td>
@@ -767,6 +917,15 @@ export default function ValidatorDashboard() {
           </button>
         </div>
       </section>
+
+      {hoverHint && (
+        <div
+          className="pointer-events-none fixed z-50 rounded-lg bg-gray-950 px-3 py-1.5 text-xs font-semibold text-white shadow-lg"
+          style={{ left: hoverHint.x + 12, top: hoverHint.y + 12 }}
+        >
+          Click to view
+        </div>
+      )}
 
       {/* ── Validator duplicate resolution modal ── */}
       {validatorDupTarget && validatorDupMatchedId && (

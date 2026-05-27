@@ -40,11 +40,12 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 **Incident Table** — paginated list with filters:
 
 - Columns: Date, Classification (with wildland badge), Station, Location, Last Modified, Status
-- Filters: Classification dropdown (from `REGIONAL_INCIDENT_GENERAL_CATEGORIES`), Verification Status dropdown (from `REGIONAL_VERIFICATION_STATUSES`), Per-page size selector
+- Filters: Today/This Week/This Month/This Year/All Time date dropdown, date-basis dropdown (`Date Modified` default, `Date of Fire` optional), Classification dropdown (from `REGIONAL_INCIDENT_GENERAL_CATEGORIES`), Verification Status chips, Per-page size selector
+- Default list scope is Today by Date Modified; Today renders incident cards with last-modified timestamp at top, fire notification date/time in the body, responder type, complete address, caller/reporter name and contact, classification, category/type, extent of damage, and affected-count cards. Wider date scopes keep the compact table layout.
 - Pagination: Prev/Next buttons, page X of Y display, configurable page sizes
 - Status badges: green (`VERIFIED`), red (`REJECTED`), yellow (everything else)
 - Empty state: "No incidents match the current filters" or error banner
-- Rows are keyboard-focusable/clickable; a delayed "Click to view" hint appears on hover/focus instead of a permanent Open action.
+- Rows/cards are keyboard-focusable/clickable; a delayed floating "Click to view" bubble appears after hover and disappears on mouse movement or leave instead of using permanent Open text/actions.
 - **Rejected banner** — when `rejectedCount > 0`, shows a prominent red alert with "Show rejected" quick-filter button
 
 **Wildland Fire Classifications** — conditionally rendered when `stats.wildland_total > 0`:
@@ -55,7 +56,6 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 
 - Manual Entry -> `/afor/create`
 - Import AFOR -> `/afor/import`
-- Activity Log -> `/dashboard/regional/audit`
 - Refresh (with spinning icon during load)
 
 ### Activity Log — `/dashboard/regional/audit`
@@ -92,6 +92,7 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
   - **Personnel Section** — engine commander, shift-in-charge, nozzleman, lineman, engine crew, driver, safety officer, fire/arson investigator, other personnel
 - Edit mode: loads `IncidentForm` component (same form used for new incidents)
 - Actions: Submit for review, Unpend (if pending), Delete draft, Force replace
+- Create/edit form includes a "Set to today" shortcut beside the fire notification date field; it writes the current Asia/Manila calendar day.
 - Supports legacy and migrated `incident_verification_history` schemas (checks for `target_type` and `action_label` columns at runtime)
 
 ## Backend API Routes
@@ -109,7 +110,7 @@ All in `src/backend/api/routes/regional.py` (~5050 lines). This is the largest r
 
 | Method | Path | Function | Behavior |
 |---|---|---|---|
-| `GET` | `/api/regional/incidents` | `get_regional_incidents` | Paginated; filters by category, status; returns region-scoped via RLS; includes wildland type flag |
+| `GET` | `/api/regional/incidents` | `get_regional_incidents` | Paginated; filters by category, status, `date_from`, `date_to`, and `date_basis` (`modified` or `fire`); returns region-scoped via RLS; includes wildland type flag and card summary fields |
 | `GET` | `/api/regional/incidents/drafts` | `list_encoder_drafts` | Returns DRAFT incidents owned by the current encoder |
 | `GET` | `/api/regional/incidents/check-duplicate` | `check_incident_duplicate` | Runs duplicate detection within 1km radius + 3 matching fields threshold |
 | `GET` | `/api/regional/incidents/{incident_id}` | `get_regional_incident_detail` | Full incident detail with all related tables (nonsensitive, sensitive, wildland, responding units, involved parties, operational challenges) |
@@ -166,6 +167,7 @@ Compatibility decision: encoder submit still writes `PENDING`; validator queue d
 - **`_insert_incident_verification_history`** handles both legacy (incident_id, comments) and new (target_type, target_id, action_label) schemas via runtime column detection
 - **SecurityProvider** lazy singleton via `_get_security_provider()` avoids import-time env check issues in test mocks
 - **`_wgs84_pair_from_raw`** validates latitude/longitude types, ranges, and finiteness before `ST_MakePoint`
+- **Deleted draft guard:** regional status summary excludes incidents with `DELETED_DRAFT` history so deleted drafts do not inflate rejected workload indicators if legacy rows have inconsistent archived/status state.
 
 ## Related
 

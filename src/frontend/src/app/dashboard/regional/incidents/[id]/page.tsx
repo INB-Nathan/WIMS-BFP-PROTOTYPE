@@ -287,6 +287,7 @@ export default function RegionalIncidentDetailPage() {
   const [validatorError, setValidatorError] = useState<string | null>(null);
   const [validatorDupMatchedId, setValidatorDupMatchedId] = useState<number | null>(null);
   const dupAutoShownRef = useRef(false);
+  const pendingSubmitOnceRef = useRef(false);
 
   useEffect(() => {
     if (!authLoading && !canAccessRegional) {
@@ -384,6 +385,17 @@ export default function RegionalIncidentDetailPage() {
       setActionLoading(false);
     }
   };
+
+  // When IncidentForm saves + submits and gets a 409 DUPLICATE_DETECTED, it redirects
+  // here with ?pending_submit=1. Re-fire the submit so the duplicate modal appears.
+  useEffect(() => {
+    if (!detail || pendingSubmitOnceRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('pending_submit') !== '1') return;
+    pendingSubmitOnceRef.current = true;
+    window.history.replaceState(null, '', window.location.pathname);
+    void handleSubmit({});
+  }, [detail]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const MISSING_FIELD_KEY_MAP: Record<string, string> = {
     'Type of Responder': 'responder_type',

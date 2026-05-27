@@ -52,6 +52,11 @@ Source: [[ui-ux/evaluation-system-admin-hub]]
 | Synced indicators too prominent | Global `SyncStatusBar` and regional local synced badge competed with dashboard content | Fixed in code; needs browser verification |
 | Regional incident row discoverability | Regional rows were clickable but discoverability depended on helper text | Fixed in code with keyboard-focusable rows and delayed "Click to view" hover/focus hint; needs browser verification |
 | Validator View/Archive repetition | Validator queue used a generic View button beside row actions and prominent Archive controls | Fixed in code with row click-to-view, delayed "Click to view" hint, and quieter finalized Archive action; needs browser verification |
+| Persistent inline click hints | Delayed inline "Click to view" hints could linger and take table space | Fixed in code with delayed floating bubbles that hide on mouse movement/leave; needs browser verification |
+| Validator status filter scanability | Validator used a native status dropdown and hid pending workload urgency | Fixed in code with All/Pending/Accepted/Rejected quick chips, date-range/date-basis dropdowns, and a pending-only red indicator; needs browser verification |
+| Regional recent workload visibility | Regional list did not default to current-day workload or provide richer today context | Fixed in code with Today-by-modified default, date-range/date-basis dropdowns, API date bounds, and Today incident cards; needs browser verification |
+| Deleted drafts inflating rejected workload | Legacy/inconsistent deleted draft rows could leak into rejected workload indicators | Fixed in code by excluding `DELETED_DRAFT` history rows from regional status summary; needs data verification |
+| Manual incident date ergonomics | Create/edit form required manually picking today's incident date | Fixed in code with a Set to today shortcut using the Asia/Manila calendar date; needs browser verification |
 
 ## National Analyst Dashboard (`/dashboard/analyst`)
 | Issue | Detail | Status |

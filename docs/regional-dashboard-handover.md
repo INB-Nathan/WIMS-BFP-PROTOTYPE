@@ -193,6 +193,14 @@ Frontend API functions live in `src/frontend/src/lib/api/legacy.ts` (re-exported
 
 **Root cause (session 3):** The detail page's `handleSubmitClick()` validates against `detail.incident_type_code` (the DB column). IncidentForm's `handleSubmitForReview()` validated against `formState.type_of_involved_general_category` (the form string). These could diverge when the JSONB contained a legacy `sub_category` value that hydrated as a non-empty string but failed `getTypeCode()` lookup, producing an empty code and leaving the DB column null.
 
+**Files modified (session 4 — duplicate detection modal from IncidentForm):**
+
+| File | Change | Bug Fixed |
+|------|--------|-----------|
+| `src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx` | Added `pendingSubmitOnceRef` and a `useEffect` that reads `?pending_submit=1` on load, clears the URL, and calls `handleSubmit({})` | When IncidentForm's Submit button detected a duplicate (409) and navigated to the detail page with `?pending_submit=1`, the detail page loaded normally with no modal — the encoder had no way to proceed through or review the duplicate comparison |
+
+**Root cause (session 4):** IncidentForm's edit-mode and create-mode submit paths both navigate to the detail page with `?pending_submit=1` when they receive a 409 DUPLICATE_DETECTED. The query param was documented in comments but was never consumed — the detail page had no `useSearchParams` or equivalent. The fix re-fires `handleSubmit({})` once on load, which produces the same 409 and sets `duplicateFound`/`pendingDuplicateFound` state, causing the existing side-by-side duplicate modal to appear. The "Submit Anyway" button in that modal calls `handleSubmit({ force: true })` (passing `?force=true` to the backend), which bypasses duplicate detection and completes the submission.
+
 **Earlier commits on this branch (pre-existing context):**
 - `6448e24` — Improved geocoding in AFOR import (abort controller, province fallback), cleared file input on region mismatch. Also restructured `auth-refresh.ts` to use module-level in-flight dedup instead of Web Locks API.
 - `9e53ec2` — Dashboard UI overhaul: affected-population metrics cards, date formatting, status badge hex colors, sidebar styling.
@@ -212,5 +220,6 @@ Frontend API functions live in `src/frontend/src/lib/api/legacy.ts` (re-exported
 1. Run `docker compose up --build -d` and smoke-test `/afor/create` and `/afor/import` in the browser.
 2. Test first-login RBAC: login fresh, navigate to `/afor/create` — region field must be locked to assigned region immediately (no "Loading…" visible on a fast connection).
 3. Test edit-mode submission: open a DRAFT incident with missing "Type of Involved", click Submit → missing fields modal → Continue Editing → attempt to submit without selecting a type — should be blocked.
-4. Address the `useSearchParams()` pattern in `/incidents/triage` and analyst workflow pages.
-5. Consider implementing M4-D (per-row duplicate decision) as the next milestone item.
+4. Test duplicate detection from IncidentForm: create or edit an incident that matches an existing verified incident (same region + type + fire date), click Submit for Review → page should navigate to detail view and show the side-by-side duplicate modal automatically (with "Submit Anyway" and "Continue Editing" options).
+5. Address the `useSearchParams()` pattern in `/incidents/triage` and analyst workflow pages.
+6. Consider implementing M4-D (per-row duplicate decision) as the next milestone item.

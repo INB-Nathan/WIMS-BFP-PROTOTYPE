@@ -657,17 +657,22 @@ export interface RegionalIncidentListItem {
   updated_at: string | null;
   notification_dt: string | null;
   general_category: string | null;
+  sub_category: string | null;
   alarm_level: string | null;
   fire_station_name: string | null;
   structures_affected: number | null;
   households_affected: number | null;
+  families_affected: number | null;
   individuals_affected: number | null;
+  vehicles_affected: number | null;
   responder_type: string | null;
   fire_origin: string | null;
   extent_of_damage: string | null;
   owner_name: string | null;
   establishment_name: string | null;
   caller_name: string | null;
+  caller_number: string | null;
+  street_address: string | null;
   is_wildland: boolean;
   location_display: string | null;
 }

@@ -27,6 +27,9 @@ export interface RegionalIncidentsQueryParams {
   offset?: number;
   category?: string;
   status?: string;
+  date_from?: string;
+  date_to?: string;
+  date_basis?: 'modified' | 'fire';
 }
 
 /** Builds query string for `GET /api/regional/incidents` (omits empty/undefined filters). */
@@ -38,6 +41,11 @@ export function buildRegionalIncidentsQueryString(params: RegionalIncidentsQuery
   if (cat) search.set('category', cat);
   const st = params.status?.trim();
   if (st) search.set('status', st);
+  const dateFrom = params.date_from?.trim();
+  if (dateFrom) search.set('date_from', dateFrom);
+  const dateTo = params.date_to?.trim();
+  if (dateTo) search.set('date_to', dateTo);
+  if (params.date_basis) search.set('date_basis', params.date_basis);
   return search.toString();
 }
 

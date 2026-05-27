@@ -30,8 +30,9 @@ The validator's primary workspace. A large, feature-rich page with:
 - The queue includes an inline hint explaining row click-to-view behavior, bulk selection, and finalized-record archive behavior.
 
 **Filters:**
-- Status filter: Queue (PENDING_VALIDATION), All, DRAFT, PENDING, VERIFIED, REJECTED, REPLACED
-- Encoder ID text filter (searches by wallet address / user ID fragment)
+- Status quick filters: All, Pending, Accepted (`VERIFIED`), Rejected; All is the default and Pending shows a red indicator only when `pending_validation > 0`
+- Date dropdown filters: Today/This Week/This Month/This Year/All Time, paired with a date-basis dropdown (`Date Modified` default, `Date of Fire` optional)
+- Region dropdown filter
 - Per-status labels and colour badges (gray=DRAFT, yellow=PENDING, blue=PENDING_VALIDATION, green=VERIFIED, red=REJECTED, purple=REPLACED)
 
 **Incident Table** — 50 rows/page:
@@ -45,7 +46,7 @@ The validator's primary workspace. A large, feature-rich page with:
 | Call Received | Formatted in Asia/Manila timezone |
 | Category | Classification via `formatClassification()` |
 | Status | Colour-coded badge |
-| Actions | Row click-to-view with delayed hover/focus hint, Accept/Reject for pending rows, quiet Archive action for finalized rows, checkbox for bulk operations |
+| Actions | Row click-to-view with delayed floating hover bubble, Accept/Reject for pending rows, quiet Archive action for finalized rows, checkbox for bulk operations |
 
 **Diff Panel** — `IncidentDiffPanel` component loads via `GET /api/regional/validator/incidents/{incident_id}/diff` and shows a before/after comparison for incidents under review
 
@@ -104,7 +105,7 @@ The validator backend routes are shared in `src/backend/api/routes/regional.py` 
 
 | Method | Path | Function | Behavior |
 |---|---|---|---|
-| `GET` | `/api/regional/validator/incidents` | `get_validator_incident_queue` | Paginated; supports status/encoder_id filters; returns full incident data with duplicate awareness fields (duplicate_of, is_duplicate, parent_incident_id) |
+| `GET` | `/api/regional/validator/incidents` | `get_validator_incident_queue` | Paginated; supports status, encoder_id, region, `date_from`, `date_to`, and `date_basis` filters; returns full incident data with duplicate awareness fields (duplicate_of, is_duplicate, parent_incident_id) |
 | `GET` | `/api/regional/validator/incidents/{incident_id}/diff` | `get_incident_diff` | Returns structured before/after comparison for verification review |
 
 ### Verification Actions

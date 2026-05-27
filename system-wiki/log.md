@@ -953,3 +953,31 @@ Format: `## [YYYY-MM-DD] action | subject`
 ## [2026-05-25] fix | AQ-12 validation fix — route-level try/except added
 - `api/routes/analytics.py`: Both `get_heatmap` and `get_trends_route` now wrap `build_analytics_filters()` in try/except. `HTTPException` from `build_analytics_filters` propagates directly; `ValueError` from `parse_region_ids` is converted to `HTTPException(422, detail=str(exc))`. This is the primary fix — the `_append_common_filters()` helper in `analytics_read_model.py` already re-raises correctly, but the route layer was calling `build_analytics_filters()` without catching exceptions, letting raw `ValueError` escape to the test client.
 - Status: `test_region_ids_must_be_valid_integers` (AQ-12) fixed.
+## [2026-05-27] polish | Encoder/Validator dashboard queue usability
+
+**Changes implemented:**
+- Regional and validator dashboard row hints now use delayed floating "Click to view" bubbles that disappear on mouse movement or leave; inline hints were removed.
+- Regional dashboard removed the Activity Log header shortcut, keeps it sidebar-only, removes the redundant classification placeholder arrow, defaults the incident list to Today, adds date chips, and renders Today incidents as richer cards.
+- Validator dashboard removed the Audit Trail header shortcut, keeps it sidebar-only, and replaces the status dropdown with All/Pending/Accepted/Rejected quick chips plus a pending-only red indicator.
+- `GET /api/regional/incidents` now accepts optional `date_from` and `date_to` date filters so regional date scopes apply before pagination/counting.
+
+**Verification:**
+- Automated tests intentionally skipped per user request.
+
+**Wiki updates:** Updated `frontend/route-map.md`, `subsystems/regional-dashboard.md`, `subsystems/validator-hub.md`, `gaps/ui-ux-gap-register.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this is dashboard usability polish plus a narrow list-query filter.
+
+## [2026-05-27] polish | Dashboard date filters and incident card details
+
+**Changes implemented:**
+- Regional date range controls changed from chips to dropdowns, paired with a `Date Modified`/`Date of Fire` basis dropdown. Regional Today cards now show last modified at the top, fire notification date/time in the body, responder type, complete address, caller/reporter name and contact number, classification, category/type, extent of damage, and affected-count cards.
+- Validator dashboard now has the same date range and date-basis dropdowns, defaulting to Today by Date Modified.
+- Encoder and validator filter changes preserve scroll position to avoid the page sliding when filters are applied.
+- `GET /api/regional/incidents` and `GET /api/regional/validator/incidents` support `date_basis=modified|fire`; regional incident list payload includes extra card summary fields and decrypts caller PII when available.
+- Regional status stats exclude `DELETED_DRAFT` history rows from rejected workload indicators, and `IncidentForm` adds a Set to today shortcut for the fire notification date.
+
+**Verification:**
+- Lightweight TS transpile syntax check passed for edited frontend files.
+- `python -m py_compile src/backend/api/routes/regional.py` passed.
+- `git diff --check` passed with CRLF warnings only.
+
+**Wiki updates:** Updated `frontend/route-map.md`, `subsystems/regional-dashboard.md`, `subsystems/validator-hub.md`, `gaps/ui-ux-gap-register.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this fixes implementation behavior without changing FRS alignment.

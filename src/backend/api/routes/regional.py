@@ -408,6 +408,9 @@ def get_regional_incidents(
     offset: int = Query(default=0, ge=0),
     category: Optional[str] = None,
     status: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    date_basis: Optional[str] = "modified",
 ):
     """
     Fetch fire incidents scoped to the current encoder.
@@ -435,6 +438,25 @@ def get_regional_incidents(
     if status:
         where_clauses.append("fi.verification_status = :status")
         params["status"] = status
+    basis = (date_basis or "modified").strip().lower()
+    if basis not in {"modified", "fire"}:
+        raise HTTPException(status_code=422, detail="date_basis must be 'modified' or 'fire'")
+    date_expr = (
+        "COALESCE(nd.notification_dt, fi.created_at)"
+        if basis == "fire"
+        else "COALESCE(fi.updated_at, fi.created_at)"
+    )
+
+    if date_from:
+        where_clauses.append(
+            f"DATE({date_expr} AT TIME ZONE 'Asia/Manila') >= CAST(:date_from AS DATE)"
+        )
+        params["date_from"] = date_from
+    if date_to:
+        where_clauses.append(
+            f"DATE({date_expr} AT TIME ZONE 'Asia/Manila') <= CAST(:date_to AS DATE)"
+        )
+        params["date_to"] = date_to
 
     where_sql = " AND ".join(where_clauses)
 
@@ -443,9 +465,12 @@ def get_regional_incidents(
             SELECT fi.incident_id, fi.verification_status, fi.created_at,
                    nd.notification_dt, nd.general_category, nd.alarm_level,
                    nd.fire_station_name, nd.structures_affected,
-                   nd.households_affected, nd.individuals_affected,
+                   nd.households_affected, nd.families_affected,
+                   nd.individuals_affected, nd.vehicles_affected,
                    nd.responder_type, nd.fire_origin, nd.extent_of_damage,
+                   nd.sub_category,
                    sd.owner_name, sd.establishment_name, sd.caller_name,
+                   sd.caller_number, sd.street_address, sd.pii_blob_enc, sd.encryption_iv,
                    CASE WHEN iwa.incident_id IS NOT NULL THEN TRUE ELSE FALSE END AS is_wildland,
                    fi.updated_at,
                    nd.city_municipality, nd.province_district, rr.region_name
@@ -478,8 +503,25 @@ def get_regional_incidents(
         parts = [p for p in (province, city) if p]
         return " • ".join(parts) if parts else None
 
-    return {
-        "items": [
+    items = []
+    for r in rows:
+        owner_name = r[16]
+        caller_name = r[18]
+        caller_number = r[19]
+        if r[21] and r[22]:
+            try:
+                pii_plaintext = _get_security_provider().decrypt_json(
+                    r[22],
+                    r[21],
+                    f"incident_id:{r[0]}".encode("utf-8"),
+                )
+                owner_name = pii_plaintext.get("owner_name") or owner_name
+                caller_name = pii_plaintext.get("caller_name") or caller_name
+                caller_number = pii_plaintext.get("caller_number") or caller_number
+            except SecurityProviderError:
+                logger.error("CRITICAL: PII blob decryption failed for incident list item. incident_id=%s", r[0])
+
+        items.append(
             {
                 "incident_id": r[0],
                 "verification_status": r[1],
@@ -490,19 +532,26 @@ def get_regional_incidents(
                 "fire_station_name": r[6],
                 "structures_affected": r[7],
                 "households_affected": r[8],
-                "individuals_affected": r[9],
-                "responder_type": r[10],
-                "fire_origin": r[11],
-                "extent_of_damage": r[12],
-                "owner_name": r[13],
-                "establishment_name": r[14],
-                "caller_name": r[15],
-                "is_wildland": bool(r[16]),
-                "updated_at": r[17].isoformat() if r[17] else None,
-                "location_display": _location_display(r[18], r[19], r[20]),
+                "families_affected": r[9],
+                "individuals_affected": r[10],
+                "vehicles_affected": r[11],
+                "responder_type": r[12],
+                "fire_origin": r[13],
+                "extent_of_damage": r[14],
+                "sub_category": r[15],
+                "owner_name": owner_name,
+                "establishment_name": r[17],
+                "caller_name": caller_name,
+                "caller_number": caller_number,
+                "street_address": r[20],
+                "is_wildland": bool(r[23]),
+                "updated_at": r[24].isoformat() if r[24] else None,
+                "location_display": _location_display(r[25], r[26], r[27]),
             }
-            for r in rows
-        ],
+        )
+
+    return {
+        "items": items,
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -998,8 +1047,15 @@ def get_regional_stats(
     by_status_rows = db.execute(
         text("""
             SELECT verification_status, COUNT(*) as cnt
-            FROM wims.fire_incidents
-            WHERE encoder_id = CAST(:eid AS uuid) AND is_archived = FALSE
+            FROM wims.fire_incidents fi
+            WHERE fi.encoder_id = CAST(:eid AS uuid)
+              AND fi.is_archived = FALSE
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM wims.incident_verification_history ivh
+                  WHERE ivh.target_id = fi.incident_id
+                    AND ivh.action_label = 'DELETED_DRAFT'
+              )
             GROUP BY verification_status
             ORDER BY cnt DESC
         """),
@@ -1943,6 +1999,9 @@ def get_validator_incident_queue(
     encoder_id: Optional[str] = None,
     region_id: Optional[int] = None,
     archived: bool = Query(default=False),
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    date_basis: Optional[str] = "modified",
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):
@@ -1994,6 +2053,25 @@ def get_validator_incident_queue(
         where_clauses.append("fi.region_id = :region_id")
         params["region_id"] = region_id
 
+    basis = (date_basis or "modified").strip().lower()
+    if basis not in {"modified", "fire"}:
+        raise HTTPException(status_code=422, detail="date_basis must be 'modified' or 'fire'")
+    date_expr = (
+        "COALESCE(nd.notification_dt, fi.created_at)"
+        if basis == "fire"
+        else "COALESCE(fi.updated_at, fi.created_at)"
+    )
+    if date_from:
+        where_clauses.append(
+            f"DATE({date_expr} AT TIME ZONE 'Asia/Manila') >= CAST(:date_from AS DATE)"
+        )
+        params["date_from"] = date_from
+    if date_to:
+        where_clauses.append(
+            f"DATE({date_expr} AT TIME ZONE 'Asia/Manila') <= CAST(:date_to AS DATE)"
+        )
+        params["date_to"] = date_to
+
     where_sql = " AND ".join(where_clauses)
 
     rows = db.execute(
@@ -2033,6 +2111,8 @@ def get_validator_incident_queue(
             text(f"""
                 SELECT COUNT(*)
                 FROM wims.fire_incidents fi
+                LEFT JOIN wims.incident_nonsensitive_details nd
+                       ON nd.incident_id = fi.incident_id
                 WHERE {where_sql}
             """),
             {k: v for k, v in params.items() if k not in ("limit", "offset")},

@@ -156,6 +156,25 @@ export function IncidentForm({
     toastTimer.current = setTimeout(() => setToast(null), 6000);
   };
 
+  const setNotificationToToday = () => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const year = parts.find((p) => p.type === 'year')?.value;
+    const month = parts.find((p) => p.type === 'month')?.value;
+    const day = parts.find((p) => p.type === 'day')?.value;
+    if (!year || !month || !day) return;
+    setFormState((prev) => ({ ...prev, notification_dt_date: `${year}-${month}-${day}` }));
+    setFieldErrors((prev) => {
+      const next = new Set(prev);
+      next.delete('notification_dt_date');
+      return next;
+    });
+  };
+
   // H. Fire location from MapPicker
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
@@ -1410,7 +1429,16 @@ export function IncidentForm({
             </div>
 
             <div data-field-error={fieldErrors.has('notification_dt_date') ? 'true' : undefined}>
-              <label className={labelCls}>Date Fire Notification Received{reqMark}</label>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <label className={labelCls}>Date Fire Notification Received{reqMark}</label>
+                <button
+                  type="button"
+                  onClick={setNotificationToToday}
+                  className="rounded-md border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 transition-colors hover:bg-red-50"
+                >
+                  Set to today
+                </button>
+              </div>
               <input name="notification_dt_date" type="date" className={errCls('notification_dt_date')} value={formState.notification_dt_date} onChange={handleChange} />
             </div>
 
