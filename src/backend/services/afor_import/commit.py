@@ -624,7 +624,7 @@ def commit_afor_import_command(
                     resources_deployed, alarm_timeline, problems_encountered, recommendations,
                     fire_station_name, total_response_time_minutes, total_gas_consumed_liters,
                     stage_of_fire, extent_total_floor_area_sqm, extent_total_land_area_hectares,
-                    vehicles_affected, province_district, city_municipality,
+                    vehicles_affected, province_district, city_municipality, barangay,
                     extent_description, extent_objects_count,
                     general_description_of_involved
                 ) VALUES (
@@ -637,7 +637,7 @@ def commit_afor_import_command(
                     CAST(:problems_encountered AS jsonb), :recommendations,
                     :fire_station_name, :total_response_time_minutes, :total_gas_consumed_liters,
                     :stage_of_fire, :floor_area, :land_area, :vehicles_affected,
-                    :province_district, :city_municipality,
+                    :province_district, :city_municipality, :barangay,
                     :extent_description, :extent_objects_count,
                     :general_description_of_involved
                 )
@@ -676,6 +676,7 @@ def commit_afor_import_command(
                 "vehicles_affected": ns.get("vehicles_affected", 0),
                 "province_district": row_data.get("_province_text", ""),
                 "city_municipality": row_data.get("_city_text", ""),
+                "barangay": row_data.get("_barangay_text", ""),
                 "extent_description": ns.get("extent_description") or None,
                 "extent_objects_count": ns.get("extent_objects_count"),
                 "general_description_of_involved": (ns.get("_response") or {}).get(

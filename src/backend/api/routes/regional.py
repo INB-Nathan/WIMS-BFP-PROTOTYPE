@@ -1188,6 +1188,7 @@ class IncidentCreateRequest(BaseModel):
     # Location text (free-text, replaces city_id/province join for display)
     province_district: str | None = None
     city_municipality: str | None = None
+    barangay: str | None = None
     # Reference number fields
     station_code: str | None = "TBA"
     incident_type_code: str | None = None
@@ -1243,6 +1244,7 @@ class IncidentUpdateRequest(BaseModel):
     # Location text (free-text, replaces city_id/province join for display)
     province_district: str | None = None
     city_municipality: str | None = None
+    barangay: str | None = None
     # Reference number fields
     station_code: str | None = None
     incident_type_code: str | None = None
@@ -1329,6 +1331,7 @@ def create_incident(
         "barangay_id",
         "province_district",
         "city_municipality",
+        "barangay",
         "distance_from_station_km",
         "estimated_damage_php",
         "civilian_injured",
@@ -1488,6 +1491,7 @@ def _apply_incident_field_updates(
         "barangay_id",
         "province_district",
         "city_municipality",
+        "barangay",
         "distance_from_station_km",
         "estimated_damage_php",
         "civilian_injured",
