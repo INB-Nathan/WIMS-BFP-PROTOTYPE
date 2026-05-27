@@ -8,6 +8,7 @@ Purpose: project-local knowledgebase for agents routing themselves to relevant W
 ## Start Here
 - [[mocs/system-map]] — primary map of content and routing entry point.
 - [[operations/agent-routing-guide]] — which page an agent should read before touching each subsystem.
+- [[operations/local-dev-deploy-guide]] — clean-slate local deployment on Windows: one-time SSL setup, known pitfalls (CRLF scripts, missing cert, password policy), seed users, verification.
 
 ## Architecture
 - [[architecture/system-overview]] — Dockerized full-stack architecture, runtime services, and evidence sources.
