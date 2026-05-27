@@ -1,7 +1,7 @@
 ---
 title: National Validator Dashboard
 created: 2026-05-16
-updated: 2026-05-16
+updated: 2026-05-27
 type: operation
 tags: [wims-bfp, validator, national-validator, dashboard, incident-workflow, audit]
 sources: [src/frontend/src/app/dashboard/validator/page.tsx, src/frontend/src/app/dashboard/validator/audit/page.tsx, src/backend/api/routes/regional.py, src/backend/api/routes/incidents.py]
@@ -22,9 +22,12 @@ The national validator dashboard (`/dashboard/validator`) serves the `NATIONAL_V
 
 ### Incident Queue — `/dashboard/validator`
 
-**Source:** `src/frontend/src/app/dashboard/validator/page.tsx` (~1042 lines)
+**Source:** `src/frontend/src/app/dashboard/validator/page.tsx`
 
 The validator's primary workspace. A large, feature-rich page with:
+
+- The page title now displays "Dashboard" in the role workspace, while the sidebar places this dashboard before the shared `/home` Operations tab.
+- The queue includes an inline hint explaining row click-to-view behavior, bulk selection, and finalized-record archive behavior.
 
 **Filters:**
 - Status filter: Queue (PENDING_VALIDATION), All, DRAFT, PENDING, VERIFIED, REJECTED, REPLACED
@@ -42,7 +45,7 @@ The validator's primary workspace. A large, feature-rich page with:
 | Call Received | Formatted in Asia/Manila timezone |
 | Category | Classification via `formatClassification()` |
 | Status | Colour-coded badge |
-| Actions | Accept (direct approve), View Diff, Archive, checkbox for bulk operations |
+| Actions | Row click-to-view with delayed hover/focus hint, Accept/Reject for pending rows, quiet Archive action for finalized rows, checkbox for bulk operations |
 
 **Diff Panel** — `IncidentDiffPanel` component loads via `GET /api/regional/validator/incidents/{incident_id}/diff` and shows a before/after comparison for incidents under review
 

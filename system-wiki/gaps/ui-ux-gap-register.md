@@ -1,10 +1,10 @@
 ---
 title: UI/UX Gap Register
 created: 2026-05-14
-updated: 2026-05-19
+updated: 2026-05-27
 type: gap
 tags: [wims-bfp, gap, ui-ux, needs-verification]
-sources: [raw/ui-ux, ui-ux/evaluation-loginpage-keycloaksso.md, ui-ux/evaluation-system-admin-hub.md, ui-ux/evaluation-national-analyst.md]
+sources: [raw/ui-ux, ui-ux/evaluation-loginpage-keycloaksso.md, ui-ux/evaluation-system-admin-hub.md, ui-ux/evaluation-national-analyst.md, src/frontend/src/components/Sidebar.tsx, src/frontend/src/app/dashboard/regional/page.tsx, src/frontend/src/app/dashboard/validator/page.tsx]
 status: needs-review
 ---
 
@@ -41,8 +41,17 @@ Source: [[ui-ux/evaluation-system-admin-hub]]
 ## Home Page (`/home`)
 | Issue | Detail | Status |
 |---|---|---|
+| Sidebar label says Home | `/home` remains the route, but the authenticated sidebar and breadcrumbs should present it as Operations | Fixed in code; needs browser verification |
 | Missing regional heatmap | Per-role heatmap not rendered for any role | Needs implementation |
 | No system-wide announcement feature | No banner/toast for global announcements | Needs implementation |
+
+## Regional Encoder + National Validator Dashboards
+| Issue | Detail | Status |
+|---|---|---|
+| Dashboard not first in role navigation | Encoder/validator sidebars showed Home before role dashboards and used role-prefixed dashboard labels | Fixed in code; needs browser verification |
+| Synced indicators too prominent | Global `SyncStatusBar` and regional local synced badge competed with dashboard content | Fixed in code; needs browser verification |
+| Regional incident row discoverability | Regional rows were clickable but discoverability depended on helper text | Fixed in code with keyboard-focusable rows and delayed "Click to view" hover/focus hint; needs browser verification |
+| Validator View/Archive repetition | Validator queue used a generic View button beside row actions and prominent Archive controls | Fixed in code with row click-to-view, delayed "Click to view" hint, and quieter finalized Archive action; needs browser verification |
 
 ## National Analyst Dashboard (`/dashboard/analyst`)
 | Issue | Detail | Status |

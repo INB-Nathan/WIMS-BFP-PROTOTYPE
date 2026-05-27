@@ -3,6 +3,22 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-05-27] update | Encoder/validator frontend UI polish
+- Renamed authenticated sidebar `/home` labels to Operations across role navigation while keeping the `/home` route unchanged.
+- Put encoder and validator dashboards first in their role navigation and relabeled those sidebar entries to plain Dashboard.
+- Removed the global authenticated `SyncStatusBar` from `LayoutShell` and removed the regional dashboard's local synced badge from the visible header.
+- Updated the regional dashboard header quick actions, added keyboard-focusable incident rows, and added a right-aligned Open affordance.
+- Updated the validator dashboard title/hint, moved Review into the station cell, preserved Accept/Reject for pending rows, and made finalized Archive a quieter secondary action.
+- Updated `frontend/route-map.md`, `subsystems/regional-dashboard.md`, `subsystems/validator-hub.md`, `gaps/ui-ux-gap-register.md`, and `index.md`.
+- Verification: `npm.cmd run lint` passed with existing warnings; `npx.cmd vitest run` had one unrelated analyst timeout in `src/app/dashboard/analyst/queue-baseline.test.tsx` (`passes casualty_severity to heatmap and trends on apply`).
+
+## [2026-05-27] update | Row click-to-view affordance refinement
+- Removed the permanent Open column from the regional dashboard incident table; rows remain click/keyboard navigable and now reveal a delayed "Click to view" hint on hover/focus.
+- Removed the permanent Review affordance from the validator station cell; validator rows now click through to incident detail while row action buttons stop propagation.
+- Preserved validator Accept, Reject, Archive, and bulk-selection controls.
+- Updated `subsystems/regional-dashboard.md`, `subsystems/validator-hub.md`, and `gaps/ui-ux-gap-register.md`.
+- Verification: not run at user request.
+
 ## [2026-05-26] fix | VPS login outage from base compose auth settings
 - Diagnosed public login failure as a Keycloak/OIDC discovery issue, not a full stack outage: core containers were running, `/login` served 200, but `/auth/realms/bfp/.well-known/openid-configuration` returned 403 with `HTTPS required`.
 - Confirmed internal nginx-to-Keycloak discovery returned 200, while the public path was using base compose auth settings (`KC_HOSTNAME_URL=http://localhost:8080/auth`, backend `KEYCLOAK_ISSUER=http://localhost:8080/auth/realms/bfp`).

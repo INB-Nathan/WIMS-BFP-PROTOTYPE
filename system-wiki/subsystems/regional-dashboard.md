@@ -1,7 +1,7 @@
 ---
 title: Regional Dashboard
 created: 2026-05-16
-updated: 2026-05-24
+updated: 2026-05-27
 type: operation
 tags: [wims-bfp, regional, encoder, dashboard, incident-workflow, afor]
 sources: [src/frontend/src/app/dashboard/regional/page.tsx, src/frontend/src/app/dashboard/regional/audit/page.tsx, src/frontend/src/app/dashboard/regional/drafts/page.tsx, src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx, src/backend/api/routes/regional.py]
@@ -23,7 +23,9 @@ The regional dashboard (`/dashboard/regional`) serves the `REGIONAL_ENCODER` rol
 
 ### Main Dashboard — `/dashboard/regional`
 
-**Source:** `src/frontend/src/app/dashboard/regional/page.tsx` (~485 lines)
+**Source:** `src/frontend/src/app/dashboard/regional/page.tsx`
+
+The page title now displays "Dashboard" in the role workspace, while the sidebar places this dashboard before the shared `/home` Operations tab. The global sync banner and the former local synced badge are not shown above this dashboard.
 
 **Summary Cards** — 5-card grid with icon, count label, and left-colour border:
 
@@ -37,22 +39,24 @@ The regional dashboard (`/dashboard/regional`) serves the `REGIONAL_ENCODER` rol
 
 **Incident Table** — paginated list with filters:
 
-- Columns: Date, Classification (with wildland badge), Station, Location, Last Modified, Status, Actions (View link)
+- Columns: Date, Classification (with wildland badge), Station, Location, Last Modified, Status
 - Filters: Classification dropdown (from `REGIONAL_INCIDENT_GENERAL_CATEGORIES`), Verification Status dropdown (from `REGIONAL_VERIFICATION_STATUSES`), Per-page size selector
 - Pagination: Prev/Next buttons, page X of Y display, configurable page sizes
 - Status badges: green (`VERIFIED`), red (`REJECTED`), yellow (everything else)
 - Empty state: "No incidents match the current filters" or error banner
+- Rows are keyboard-focusable/clickable; a delayed "Click to view" hint appears on hover/focus instead of a permanent Open action.
 - **Rejected banner** — when `rejectedCount > 0`, shows a prominent red alert with "Show rejected" quick-filter button
 
 **Wildland Fire Classifications** — conditionally rendered when `stats.wildland_total > 0`:
 
 - 8 wildland fire types (fire, agricultural, forest, grassland, brush, peatland, grazing land, mineral land) each with a colour-coded count badge
 
-**Header buttons:**
+**Header quick actions:**
 
+- Manual Entry -> `/afor/create`
+- Import AFOR -> `/afor/import`
+- Activity Log -> `/dashboard/regional/audit`
 - Refresh (with spinning icon during load)
-- Activity Log → `/dashboard/regional/audit`
-- Import AFOR → `/afor/import`
 
 ### Activity Log — `/dashboard/regional/audit`
 

@@ -187,8 +187,8 @@ function getNavSections(role: string | null): NavSection[] {
 
     // Common nav
     const navItems: NavItem[] = [
-        { label: 'Home', href: '/home', icon: Home },
         { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+        { label: 'Operations', href: '/home', icon: Home },
     ];
 
     if (role === 'SYSTEM_ADMIN') {
@@ -209,8 +209,8 @@ function getNavSections(role: string | null): NavSection[] {
         sections.push({
             label: 'Navigation',
             items: [
-                { label: 'Home', href: '/home', icon: Home },
-                { label: 'Regional Dashboard', href: '/dashboard/regional', icon: LayoutDashboard },
+                { label: 'Dashboard', href: '/dashboard/regional', icon: LayoutDashboard },
+                { label: 'Operations', href: '/home', icon: Home },
             ]
         });
 
@@ -232,8 +232,8 @@ function getNavSections(role: string | null): NavSection[] {
         sections.push({
             label: 'Navigation',
             items: [
-                { label: 'Home', href: '/home', icon: Home },
-                { label: 'Validator Dashboard', href: '/dashboard/validator', icon: LayoutDashboard },
+                { label: 'Dashboard', href: '/dashboard/validator', icon: LayoutDashboard },
+                { label: 'Operations', href: '/home', icon: Home },
                 { label: 'Incidents', href: '/incidents', icon: Flame },
             ],
         });
@@ -252,7 +252,7 @@ function getNavSections(role: string | null): NavSection[] {
         sections.push({
             label: 'Navigation',
             items: [
-                { label: 'Home', href: '/home', icon: Home },
+                { label: 'Operations', href: '/home', icon: Home },
                 { label: 'Analyst Dashboard', href: '/dashboard/analyst', icon: LayoutDashboard },
             ],
         });

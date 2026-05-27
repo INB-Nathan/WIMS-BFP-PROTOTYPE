@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-05-26
+Last updated: 2026-05-27
 Total synthesis pages: 32
-Last changes: VPS login outage was restored by recreating Keycloak/backend/frontend with the production compose override so OIDC discovery advertises `https://wimsbfp.tech/auth/...`.
+Last changes: Encoder/validator frontend polish renamed `/home` sidebar labels to Operations, put role dashboards first, removed top sync clutter, and clarified regional/validator row actions.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

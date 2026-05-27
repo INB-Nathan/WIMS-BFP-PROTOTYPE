@@ -6,8 +6,10 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   RefreshCw, Flame, Building2, TreePine, Car, Layers, Home, Users, Truck,
+  Archive,
 } from "lucide-react";
 import { apiFetch, ApiRequestError, fetchValidatorStats } from "@/lib/api";
 import { IncidentDiffPanel } from "@/components/IncidentDiffPanel";
@@ -107,6 +109,7 @@ function StatusBadge({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 
 export default function ValidatorDashboard() {
+  const router = useRouter();
   const [incidents, setIncidents] = useState<ValidatorIncident[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -424,11 +427,11 @@ export default function ValidatorDashboard() {
         <div>
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="font-bold leading-tight" style={{ fontSize: '32px', color: 'var(--text-primary)' }}>
-              Validator Queue
+              Dashboard
             </h1>
           </div>
           <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            Encoder-submitted incidents from all regions awaiting review.
+            Review workload, validation decisions, and finalized incident records.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -569,6 +572,9 @@ export default function ValidatorDashboard() {
               {loading ? 'Loading…' : `${total.toLocaleString()} total`}
             </span>
           </div>
+          <p className="mt-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Click a row to view details and diffs. Select pending rows for bulk approval; archive finalized records from the decision column.
+          </p>
         </div>
 
         {/* Loading / error states */}
@@ -613,7 +619,17 @@ export default function ValidatorDashboard() {
                 {incidents.map((inc, idx) => (
                   <tr
                     key={inc.incident_id}
-                    className="transition-colors"
+                    onClick={() => router.push(`/dashboard/regional/incidents/${inc.incident_id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        router.push(`/dashboard/regional/incidents/${inc.incident_id}`);
+                      }
+                    }}
+                    tabIndex={0}
+                    role="link"
+                    aria-label={`View incident ${inc.incident_id}`}
+                    className="group cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#C62828] focus-visible:ring-inset"
                     style={{
                       backgroundColor: idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA',
                       borderBottom: '1px solid var(--border-color)',
@@ -626,6 +642,7 @@ export default function ValidatorDashboard() {
                         <input
                           type="checkbox"
                           checked={selectedIds.has(inc.incident_id)}
+                          onClick={(e) => e.stopPropagation()}
                           onChange={(e) => togglePending(inc, e.target.checked)}
                           className="rounded"
                         />
@@ -653,7 +670,15 @@ export default function ValidatorDashboard() {
                       {regionDisplay(inc.region_id)}
                     </td>
                     <td className="px-4 py-4 text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                      {inc.fire_station_name ?? "—"}
+                      <div className="flex max-w-[260px] items-center gap-2">
+                        <span className="truncate">{inc.fire_station_name ?? "Unknown station"}</span>
+                        <span
+                          className="text-xs font-semibold opacity-0 transition-opacity duration-150 delay-[2000ms] group-hover:opacity-100 group-focus:opacity-100"
+                          style={{ color: 'var(--bfp-red)' }}
+                        >
+                          Click to view
+                        </span>
+                      </div>
                     </td>
                     <td className="px-4 py-4 text-sm whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
                       {formatIncidentDate(inc.notification_dt)}
@@ -666,31 +691,27 @@ export default function ValidatorDashboard() {
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap">
                       <div className="flex gap-1.5 items-center">
-                        <Link
-                          href={`/dashboard/regional/incidents/${inc.incident_id}`}
-                          className="px-2.5 py-1 text-xs rounded-lg border font-medium transition-colors"
-                          style={{ borderColor: '#C62828', color: '#C62828' }}
-                          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#FDECEC'; }}
-                          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = ''; }}
-                          title={inc.reference_number ?? `Incident #${inc.incident_id}`}
-                        >
-                          View
-                        </Link>
                         {statusFilter === "__ARCHIVED__" ? null : (
                           ["VERIFIED", "REJECTED", "REPLACED"].includes(inc.verification_status) ? (
                             <button
-                              onClick={() => void doArchive(inc)}
-                              className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors"
-                              style={{ backgroundColor: '#6B7280' }}
-                              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#4B5563'; }}
-                              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#6B7280'; }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void doArchive(inc);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-gray-200 bg-white font-medium transition-colors hover:bg-gray-50"
+                              style={{ color: 'var(--text-secondary)' }}
+                              title="Archive finalized incident"
                             >
+                              <Archive className="h-3.5 w-3.5" aria-hidden />
                               Archive
                             </button>
                           ) : (
                             <>
                               <button
-                                onClick={() => void handleDirectAccept(inc)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleDirectAccept(inc);
+                                }}
                                 disabled={acceptingId === inc.incident_id}
                                 className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors disabled:opacity-50"
                                 style={{ backgroundColor: '#16A34A' }}
@@ -700,7 +721,10 @@ export default function ValidatorDashboard() {
                                 {acceptingId === inc.incident_id ? "…" : "Accept"}
                               </button>
                               <button
-                                onClick={() => openAction(inc, "reject")}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openAction(inc, "reject");
+                                }}
                                 className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors"
                                 style={{ backgroundColor: 'var(--bfp-red)' }}
                                 onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-dark)'; }}

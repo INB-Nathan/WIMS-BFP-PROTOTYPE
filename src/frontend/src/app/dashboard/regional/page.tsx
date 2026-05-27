@@ -3,11 +3,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { useAutoSync } from '@/lib/useAutoSync';
-import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import {
   RefreshCw, Flame, Building2, TreePine, Car, ChevronLeft, ChevronRight, Trees,
-  Home, Users, Layers, Truck,
+  Home, Users, Layers, Truck, FileText, Upload, History,
 } from 'lucide-react';
 import { fetchRegionalIncidents, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
 import Link from 'next/link';
@@ -53,50 +51,6 @@ const STATUS_CHIPS = [
   { label: 'Rejected', value: 'REJECTED' },
   { label: 'Drafts', value: 'DRAFT' },
 ];
-
-function SyncIndicator() {
-  const { syncing, pendingCount } = useAutoSync();
-  const { isOnline, isReconnecting } = useNetworkStatus();
-
-  if (!isOnline) {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700">
-        <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
-        Offline
-      </span>
-    );
-  }
-  if (isReconnecting) {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600">
-        <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse flex-shrink-0" />
-        Reconnecting…
-      </span>
-    );
-  }
-  if (syncing) {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600">
-        <span className="w-3 h-3 rounded-full border-2 border-blue-200 border-t-blue-600 animate-spin flex-shrink-0" />
-        Syncing {pendingCount > 0 ? `${pendingCount}` : ''}…
-      </span>
-    );
-  }
-  if (pendingCount > 0) {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700">
-        <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
-        {pendingCount} queued
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700">
-      <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
-      Synced
-    </span>
-  );
-}
 
 export default function RegionalDashboardPage() {
   const router = useRouter();
@@ -178,7 +132,7 @@ export default function RegionalDashboardPage() {
   if (loading || !canAccessRegional) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-gray-500">
-        Loading Regional Dashboard…
+        Loading Dashboard…
       </div>
     );
   }
@@ -290,17 +244,44 @@ export default function RegionalDashboardPage() {
               className="font-bold leading-tight"
               style={{ fontSize: '32px', color: 'var(--text-primary)' }}
             >
-              Regional Dashboard
+              Dashboard
             </h1>
-            <SyncIndicator />
           </div>
           <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            Overview of your incident workload
+            Regional incident workload and submissions.
           </p>
         </div>
 
-        {/* Action buttons — hierarchy: Primary > Secondary > Minimal */}
+        {/* Quick actions */}
         <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            href="/afor/create"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors"
+            style={{ backgroundColor: 'var(--bfp-red)' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-dark)'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red)'; }}
+          >
+            <FileText className="h-3.5 w-3.5" aria-hidden />
+            Manual Entry
+          </Link>
+          <Link
+            href="/afor/import"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
+            style={{ borderColor: 'var(--bfp-red)', color: 'var(--bfp-red)' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-light)'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = ''; }}
+          >
+            <Upload className="h-3.5 w-3.5" aria-hidden />
+            Import AFOR
+          </Link>
+          <Link
+            href="/dashboard/regional/audit"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white transition-colors hover:bg-gray-50"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            <History className="h-3.5 w-3.5" aria-hidden />
+            Activity Log
+          </Link>
           <button
             type="button"
             onClick={() => refreshAll()}
@@ -310,24 +291,6 @@ export default function RegionalDashboardPage() {
             <RefreshCw className={`h-3.5 w-3.5 ${statsRefreshing ? 'animate-spin' : ''}`} aria-hidden />
             Refresh
           </button>
-          <Link
-            href="/afor/import"
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
-            style={{ borderColor: 'var(--bfp-red)', color: 'var(--bfp-red)' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-light)'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = ''; }}
-          >
-            Import AFOR
-          </Link>
-          <Link
-            href="/afor/create"
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors"
-            style={{ backgroundColor: 'var(--bfp-red)' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-dark)'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red)'; }}
-          >
-            + Add New Incident
-          </Link>
         </div>
       </div>
 
@@ -420,7 +383,7 @@ export default function RegionalDashboardPage() {
                 Your Incidents
               </h2>
               <p className="mt-0.5 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Click an incident entry to view details
+                Click a row to view details, edit drafts, or resubmit rejected incidents.
               </p>
             </div>
             <p className="text-sm whitespace-nowrap" style={{ color: 'var(--text-secondary)' }} aria-live="polite">
@@ -535,7 +498,16 @@ export default function RegionalDashboardPage() {
                   <tr
                     key={inc.incident_id}
                     onClick={() => router.push(`/dashboard/regional/incidents/${inc.incident_id}`)}
-                    className="cursor-pointer transition-colors"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        router.push(`/dashboard/regional/incidents/${inc.incident_id}`);
+                      }
+                    }}
+                    tabIndex={0}
+                    role="link"
+                    aria-label={`View incident ${inc.incident_id}`}
+                    className="group cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#C62828] focus-visible:ring-inset"
                     style={{
                       backgroundColor: idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA',
                       borderBottom: '1px solid var(--border-color)',
@@ -559,7 +531,15 @@ export default function RegionalDashboardPage() {
                       </div>
                     </td>
                     <td className="px-5 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                      {inc.fire_station_name || '—'}
+                      <div className="flex items-center gap-2">
+                        <span>{inc.fire_station_name || '—'}</span>
+                        <span
+                          className="text-xs font-semibold opacity-0 transition-opacity duration-150 delay-[2000ms] group-hover:opacity-100 group-focus:opacity-100"
+                          style={{ color: 'var(--bfp-red)' }}
+                        >
+                          Click to view
+                        </span>
+                      </div>
                     </td>
                     <td className="px-5 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
                       {inc.location_display ?? '—'}
