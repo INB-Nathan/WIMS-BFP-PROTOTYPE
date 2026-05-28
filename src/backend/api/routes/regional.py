@@ -534,7 +534,10 @@ def get_regional_incidents(
                 caller_name = pii_plaintext.get("caller_name") or caller_name
                 caller_number = pii_plaintext.get("caller_number") or caller_number
             except SecurityProviderError:
-                logger.error("CRITICAL: PII blob decryption failed for incident list item. incident_id=%s", r[0])
+                logger.error(
+                    "CRITICAL: PII blob decryption failed for incident list item. incident_id=%s",
+                    r[0],
+                )
 
         items.append(
             {
@@ -2187,9 +2190,7 @@ def get_validator_incident_queue(
     if basis not in {"submitted", "fire"}:
         raise HTTPException(status_code=422, detail="date_basis must be 'submitted' or 'fire'")
     date_expr = (
-        "COALESCE(nd.notification_dt, fi.created_at)"
-        if basis == "fire"
-        else "fi.created_at"
+        "COALESCE(nd.notification_dt, fi.created_at)" if basis == "fire" else "fi.created_at"
     )
     if date_from:
         where_clauses.append(

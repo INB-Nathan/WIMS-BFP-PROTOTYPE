@@ -1,10 +1,10 @@
 ---
 title: Context Map
 created: 2026-05-14
-updated: 2026-05-14
+updated: 2026-05-27
 type: architecture
 tags: [wims-bfp, frs, codebase, source-index]
-sources: [raw/frs, raw/codebase/codebase-snapshot-2026-05-14.md]
+sources: [raw/frs, raw/codebase/codebase-snapshot-2026-05-14.md, CONTEXT.md]
 status: draft
 ---
 
@@ -14,6 +14,11 @@ status: draft
 1. User-supplied FRS files in `raw/frs/` define intended final features where content exists.
 2. Live code under `src/` defines current implementation reality.
 3. This wiki synthesizes both for agent routing and gap detection.
+
+## Root Domain Glossary
+`CONTEXT.md` is the implementation-free domain glossary for resolved WIMS-BFP terms. It currently defines the public reporting distinction between civilian reports, civilian report clusters, public fire report areas, report-count intensity, and official fire incidents.
+
+Root-map design language should use "public fire report area" for public civilian cluster map labels. Do not call these areas "incidents" or "severity" markers unless a later domain decision explicitly changes the glossary.
 
 ## FRS Source Availability
 | File | Lines | First content line |

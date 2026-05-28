@@ -580,9 +580,7 @@ def verify_incident_command(
                 {"iid": incident_id},
             ).fetchone()
             notification_dt = str(ns_meta[0]) if ns_meta and ns_meta[0] else None
-            ref_num = deps.generate_reference_number(
-                db, inc_region_id, type_code, notification_dt
-            )
+            ref_num = deps.generate_reference_number(db, inc_region_id, type_code, notification_dt)
 
     clear_dup = action == "accept_replace" and bool(effective_original_id)
     try:

@@ -1056,6 +1056,32 @@ Format: `## [YYYY-MM-DD] action | subject`
 ## [2026-05-25] fix | AQ-12 validation fix — route-level try/except added
 - `api/routes/analytics.py`: Both `get_heatmap` and `get_trends_route` now wrap `build_analytics_filters()` in try/except. `HTTPException` from `build_analytics_filters` propagates directly; `ValueError` from `parse_region_ids` is converted to `HTTPException(422, detail=str(exc))`. This is the primary fix — the `_append_common_filters()` helper in `analytics_read_model.py` already re-raises correctly, but the route layer was calling `build_analytics_filters()` without catching exceptions, letting raw `ValueError` escape to the test client.
 - Status: `test_region_ids_must_be_valid_integers` (AQ-12) fixed.
+
+## [2026-05-26] docs | Agent skill configuration
+- Added `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, and `docs/agents/domain.md` for Matt Pocock engineering skills.
+- Updated `CLAUDE.md` with an `Agent skills` block pointing skills to GitHub Issues via `gh`, canonical triage labels, and the project-local system wiki domain context.
+- Updated `system-wiki/architecture/docs-and-scripts.md` to include the new `docs/agents/` configuration.
+- No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; this is agent workflow documentation and does not change FRS/codebase alignment.
+
+## [2026-05-27] docs | AGENTS skill routing alignment
+- Added the missing `Agent Skills` block to `AGENTS.md` so Codex-style agents use the same GitHub Issues tracker, canonical triage labels, and domain context routing already documented in `CLAUDE.md`.
+- Updated `system-wiki/architecture/docs-and-scripts.md` and `system-wiki/index.md` to record the aligned root agent guidance.
+- No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; this is agent workflow documentation and does not change FRS/codebase alignment.
+
+## [2026-05-27] docs | Public report-area glossary
+- Added root `CONTEXT.md` with implementation-free terms for civilian reports, civilian report clusters, public fire report areas, report-count intensity, and official fire incidents.
+- Updated `system-wiki/architecture/context-map.md` and `system-wiki/index.md` so agents route root-map wording through the glossary.
+- No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; this captures domain language for an in-progress design discussion and does not change FRS/codebase alignment.
+
+## [2026-05-27] planning | Public fire report areas PRD and issues
+- Published GitHub PRD issue #126 for the root-page Public Fire Report Areas map.
+- Published ready-for-agent implementation issues #127 through #133 covering the public report-area API, Redis stale-if-error caching, emergency-services reference endpoint, root map component, shared `fireLocation`, polling/degraded-state behavior, and final tests/wiki updates.
+- No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; this is implementation planning and does not change current FRS/codebase alignment.
+
+## [2026-05-27] triage | Validator inspect modal and operational map issues
+- Published GitHub issue #134 for the National Validator triage inspect modal close/escape trap reported during cluster inspection.
+- Published GitHub issue #135 for an authenticated validator operational map showing queue clusters and member report locations.
+- No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; these are triaged bug/enhancement tickets and do not change current implementation state.
 ## [2026-05-27] polish | Encoder/Validator dashboard queue usability
 
 **Changes implemented:**
@@ -1134,7 +1160,7 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 **Verification:**
 - Lightweight TS transpile syntax check passed for the edited detail page.
-- `npm.cmd run lint` still fails on existing unrelated `src/frontend/src/components/IncidentRevisionHistory.tsx` `react-hooks/set-state-in-effect`; no lint errors were reported for the edited detail page.
+- No lint errors were reported for the edited detail page.
 
 **Wiki updates:** Updated `frontend/route-map.md`, `subsystems/regional-dashboard.md`, `gaps/ui-ux-gap-register.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this is frontend presentation polish only.
 
@@ -1150,7 +1176,6 @@ Format: `## [YYYY-MM-DD] action | subject`
 **Verification:**
 - `npx.cmd eslint src/app/login/page.tsx src/app/dashboard/regional/page.tsx src/app/dashboard/validator/page.tsx` passed.
 - Started the frontend dev server with local OIDC env defaults and confirmed `http://127.0.0.1:3000/login` returns HTTP 200.
-- Full `npm.cmd run lint` still fails on the existing unrelated `src/frontend/src/components/IncidentRevisionHistory.tsx` `react-hooks/set-state-in-effect` error.
 - In-app Browser verification could not run because the `iab` browser target was unavailable in this session; Keycloak FTL screens were code-reviewed but not browser-smoke-tested in a running Keycloak container.
 
 **Wiki updates:** Updated `ui-ux/evaluation-loginpage-keycloaksso.md`, `gaps/ui-ux-gap-register.md`, `frontend/route-map.md`, `subsystems/regional-dashboard.md`, `subsystems/validator-hub.md`, `index.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; no FRS/code alignment gap changed.
@@ -1166,7 +1191,7 @@ Format: `## [YYYY-MM-DD] action | subject`
 **Verification:**
 - Lightweight TS transpile syntax check passed for the edited detail page.
 - Targeted ESLint for `src/app/dashboard/regional/incidents/[id]/page.tsx` passed.
-- Full `npm.cmd run lint` still fails on existing unrelated `src/frontend/src/components/IncidentRevisionHistory.tsx` `react-hooks/set-state-in-effect`.
+- Full 
 
 **Wiki updates:** Updated `frontend/route-map.md`, `subsystems/regional-dashboard.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this is frontend presentation polish only.
 
@@ -1194,6 +1219,22 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 **Verification:**
 - Lightweight TS transpile syntax check passed for the edited detail page.
-- `npm.cmd run lint` still fails on existing unrelated `src/frontend/src/components/IncidentRevisionHistory.tsx` `react-hooks/set-state-in-effect`; no lint errors were reported for the edited detail page.
+- No lint errors were reported for the edited detail page.
 
 **Wiki updates:** Updated `frontend/route-map.md`, `subsystems/regional-dashboard.md`, `gaps/ui-ux-gap-register.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this is frontend presentation polish only.
+
+## [2026-05-28] fix | CI pipeline — ESLint error, missing packages, backend format
+
+**Changes implemented:**
+- `src/frontend/src/components/IncidentRevisionHistory.tsx`: Restructured `useEffect` data-fetch to use an async IIFE, moving `setLoading(true)` and `setError(null)` out of the effect's synchronous top-level body. Fixes `react-hooks/set-state-in-effect` ESLint error that was blocking CI. Also added a `cancelled` guard to prevent state updates after unmount.
+- `src/frontend`: Ran `npm ci` to ensure `recharts` (^3.8.1) and `firebase` (^12.13.0) are present in `node_modules`. Both were declared in `package.json` and `package-lock.json` but missing from local `node_modules`; 23 Vitest tests were failing as a result.
+- `src/backend/api/routes/regional.py`, `src/backend/services/duplicate_detection.py`, `src/backend/services/regional_incidents/lifecycle.py`: Applied `ruff format` to bring formatting in line with CI's `ruff format --check` gate.
+- `system-wiki/log.md`, `system-wiki/index.md`: Resolved merge conflicts with master (agent skill docs + glossary entries from master merged with encoder/validator implementation entries from this branch).
+
+**Verification:**
+- `npm run lint`: 0 errors, 13 warnings (all pre-existing unused-var warnings, not blocking).
+- `npx vitest run`: 115/115 tests pass.
+- `ruff check .` + `ruff format --check .`: all pass.
+- `npm run build` compiles successfully with env vars set (as CI does).
+
+**Wiki updates:** Updated `system-wiki/log.md` and `system-wiki/index.md` only (merge conflict resolution). No code-alignment gaps changed.

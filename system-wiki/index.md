@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-28
 Total synthesis pages: 32
-Last changes: Encoder/validator dashboards removed Date of Fire frontend filters, added calendar specific-date pickers on default date bases, added status-coloured encoder rich-card borders, moved incident detail dot navigation to the right margin, and applied a 90% global zoom baseline.
+Last changes: Encoder/validator dashboards removed Date of Fire frontend filters, added calendar specific-date pickers on default date bases, added status-coloured encoder rich-card borders, moved incident detail dot navigation to the right margin, and applied a 90% global zoom baseline. Also added root `CONTEXT.md` glossary terms for public civilian report clusters and agent skill routing docs.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
@@ -12,7 +12,7 @@ Purpose: project-local knowledgebase for agents routing themselves to relevant W
 
 ## Architecture
 - [[architecture/system-overview]] — Dockerized full-stack architecture, runtime services, and evidence sources.
-- [[architecture/context-map]] — source-of-truth hierarchy and how FRS, code, and this wiki relate.
+- [[architecture/context-map]] — source-of-truth hierarchy, root `CONTEXT.md` glossary, and how FRS, code, and this wiki relate.
 - [[architecture/infrastructure-config]] — Docker Compose, Nginx reverse proxy, Suricata IDS, Keycloak realm config (2641-line export).
 - [[architecture/pwa-tests-cicd]] — PWA/offline-first (IndexedDB, sync engine, service worker), test infrastructure (30 test files), CI/CD pipelines (GitHub Actions).
 - [[architecture/docs-and-scripts]] — Project documentation (10 files: ARCHITECTURE, CHANGELOG, API docs, M4 specs, PR docs) and utility scripts (14 files: seeding, geography, code generation, AFOR preview tool).

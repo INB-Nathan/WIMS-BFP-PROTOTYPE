@@ -121,9 +121,7 @@ def check_for_duplicate(
     if verified_window_seconds is not None:
         params["window_seconds"] = verified_window_seconds
         extra_where.append("fi.verification_status = 'VERIFIED'")
-        extra_where.append(
-            "fi.updated_at > NOW() - (:window_seconds || ' seconds')::interval"
-        )
+        extra_where.append("fi.updated_at > NOW() - (:window_seconds || ' seconds')::interval")
 
     # Candidate pool: ±3 days from fire_date (ensures candidates within this
     # window can be evaluated; exact-date criterion still distinguishes within it)

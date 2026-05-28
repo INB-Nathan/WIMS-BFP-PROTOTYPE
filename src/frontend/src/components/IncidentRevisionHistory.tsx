@@ -58,12 +58,23 @@ export function IncidentRevisionHistory({ incidentId }: { incidentId: number }) 
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    apiFetch<HistoryResponse>(`/regional/validator/incidents/${incidentId}/history`)
-      .then((data) => setHistory(data.history))
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load history"))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await apiFetch<HistoryResponse>(`/regional/validator/incidents/${incidentId}/history`);
+        if (!cancelled) setHistory(data.history);
+      } catch (err: unknown) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load history");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    load();
+    return () => { cancelled = true; };
   }, [incidentId]);
 
   if (loading) {

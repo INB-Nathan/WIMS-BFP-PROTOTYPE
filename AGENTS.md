@@ -40,6 +40,20 @@ Key system-wiki pages:
 
 Raw FRS files are copied under `system-wiki/raw/frs/` and must be treated as source material. Do not edit raw wiki sources directly unless replacing them with a newer authoritative FRS batch. When desk checks reveal the current true system state, update the relevant synthesis page plus `system-wiki/gaps/frs-codebase-gap-register.md` and append the change to `system-wiki/log.md`.
 
+## Agent Skills
+
+### Issue Tracker
+
+Issues and PRDs are tracked in GitHub Issues for `x1n4te/WIMS-BFP-PROTOTYPE` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage Labels
+
+The canonical triage labels are `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain Docs
+
+Single-repo context: use `AGENTS.md`, `CLAUDE.md`, and `system-wiki/` for domain and architecture context. See `docs/agents/domain.md`.
+
 ## Build, Test, and Development Commands
 
 - `cd src && docker compose up --build`: build and run the local stack.

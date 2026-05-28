@@ -95,6 +95,20 @@ Before non-trivial changes, read the relevant subsystem page:
 
 The `system-wiki/` directory is the authoritative agent-routing knowledgebase. Raw FRS files live in `system-wiki/raw/frs/`.
 
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitHub Issues for `x1n4te/WIMS-BFP-PROTOTYPE` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The canonical triage labels are `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-repo context: use `AGENTS.md`, `CLAUDE.md`, and `system-wiki/` for domain and architecture context. See `docs/agents/domain.md`.
+
 ## Testing
 
 Backend pytest discovery: `testpaths = tests` in `pytest.ini`. Integration tests under `src/backend/tests/integration/`. Frontend tests use Vitest + React Testing Library + jsdom. Run `make ci-local` before opening a PR.
