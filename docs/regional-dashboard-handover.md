@@ -1,7 +1,7 @@
 # Regional Dashboard Handover
 
 > **Audience:** AI assistant sessions continuing work on the Encoder/Validator subsystem.  
-> **Last updated:** 2026-05-27 (branch `fix/enc-val-bugs-and-UI`)
+> **Last updated:** 2026-05-28 (branch `fix/enc-val-bugs-and-UI`)
 
 ---
 
@@ -223,3 +223,104 @@ Frontend API functions live in `src/frontend/src/lib/api/legacy.ts` (re-exported
 4. Test duplicate detection from IncidentForm: create or edit an incident that matches an existing verified incident (same region + type + fire date), click Submit for Review → page should navigate to detail view and show the side-by-side duplicate modal automatically (with "Submit Anyway" and "Continue Editing" options).
 5. Address the `useSearchParams()` pattern in `/incidents/triage` and analyst workflow pages.
 6. Consider implementing M4-D (per-row duplicate decision) as the next milestone item.
+
+---
+
+### 2026-05-28 — Bug batch: pin search, duplicate detection, notifications, session, dashboard stats
+
+#### Fix 1 — Map address search: removed `, Philippines` suffix
+**File:** `src/frontend/src/components/IncidentForm.tsx` (lines ~1535, ~1562)  
+`setMapSearchQuery` calls no longer append `, Philippines` to the address string. Nominatim already scopes results to the Philippines via `countrycodes=ph`; the suffix was narrowing street-level and barangay-level precision.
+
+#### Fix 2 — Re-pin from address after a manual pin
+**File:** `IncidentForm.tsx` (Re-pin `onClick` handler)  
+The "Re-pin from Address" button now clears `latitude`/`longitude` (`setLatitude(null); setLongitude(null)`) before setting the new `mapSearchQuery`. This resets `MapPickerInner`'s `autoSearchedRef` guard, which was silently blocking re-geocoding when the same address string was re-submitted after a manual map click.
+
+#### Fix 3 — Barangay overwrite guard
+**File:** `IncidentForm.tsx`  
+Added `barangayManuallySetRef = useRef(false)`. When the encoder types directly into the Barangay input, the ref is set to `true`; subsequent reverse-geocode results from map pin drops no longer overwrite the typed value. The ref resets to `false` on fresh form mounts, so it only activates within a single editing session.
+
+#### Fix 4 — Duplicate detection redesign (5-criterion scoring)
+**Files:** `src/backend/services/duplicate_detection.py`, `src/backend/services/regional_incidents/lifecycle.py`  
+Replaced the previous algorithm (5 km radius + ±1 day + OR-category fallback) with a **5-criterion scoring system** (threshold: 3/5):
+
+| # | Criterion | Points |
+|---|-----------|--------|
+| 1 | Distance ≤ 500 m | 1 |
+| 2 | Same `general_category` AND `incident_type_code` | 1 |
+| 3 | Same exact fire date (date component of `notification_dt`) | 1 |
+| 4 | Fire time within 1 hour | 1 |
+| 5 | Same city/municipality (falls back to province/district if null) | 1 |
+
+Candidate pool: ±3 days. Fallback OR-logic stage removed entirely. All three `check_for_duplicate` call sites in `lifecycle.py` updated to pass `notification_dt`, `city_municipality`, and `province_district`. New function signature:
+```python
+def check_for_duplicate(
+    db, *, incident_id, region_id, alarm_level,
+    incident_date, notification_dt=None,
+    lat, lon,
+    general_category=None, incident_type_code=None,
+    city_municipality=None, province_district=None,
+    exclude_statuses=(), verified_window_seconds=None,
+) -> int | None
+```
+
+#### Fix 5 — Notification consistency
+- **Validator polling** (`src/frontend/src/app/dashboard/validator/page.tsx`): Poll interval for new-submission detection reduced from 30 s → 10 s.
+- **Encoder actioned-submission banner** (`src/frontend/src/app/dashboard/regional/page.tsx`): Added a 20 s background poll comparing PENDING total against `lastKnownPendingCountRef`. When the count drops (indicating a validator action), a dismissable blue banner appears: *"One of your submissions was actioned. Refresh to see the update."*
+
+#### Fix 6 — Forced logout / refresh-token replay race
+**File:** `src/frontend/src/lib/api/transport.ts`  
+The `apiFetch` 401 handler was calling `fetch('/api/auth/refresh', ...)` directly, bypassing `navigator.locks` coordination in `auth-refresh.ts`. With Keycloak's `refreshTokenMaxReuse: 0`, concurrent proactive background refresh (every ~4 min in `auth.tsx`) and a 401-triggered refresh could race on the same token, causing session revocation. The 401 handler now calls `refreshToken()` from `auth-refresh.ts`, routing through the shared in-flight deduplication and lock.
+
+---
+
+### 2026-05-28 — Dashboard stats cards: scoping, date filtering, wildland fix
+
+#### Problem
+- Encoder dashboard stats were scoped to the individual encoder's incidents, not to the region.
+- Wildland stats were not being updated (encoder-scoped query excluded wildland records correctly but missed the LEFT JOIN on `nd` for date filtering).
+- No date filter on stats cards: always showed all-time totals.
+- Validator stats had the same missing-date-filter and wildland-scope issues.
+
+#### Encoder stats (`GET /api/regional/stats`)
+**File:** `src/backend/api/routes/regional.py`  
+- Added `date_from` and `date_to` Query parameters (ISO date strings, applied to `notification_dt` in Asia/Manila timezone).
+- Changed scope from `encoder_id` to `region_id` + `verification_status = VERIFIED`.
+- Wildland query updated with proper LEFT JOIN on `nd` so it respects the date filter.
+- `total_incidents_this_week` aliased to `total_incidents` (generic total for the selected period).
+- `by_status`/`by_alarm` remain encoder-scoped.
+
+**File:** `src/frontend/src/lib/api/legacy.ts`  
+`fetchRegionalStats(params?)` now accepts `{ date_from?, date_to? }` and appends them as query params.
+
+**File:** `src/frontend/src/app/dashboard/regional/page.tsx`  
+- Added `STATS_DATE_FILTERS` constant (Today / This Week / This Month / All Time) and `StatsDateFilterValue` type.
+- Added `statsDateFilter` state (default `'week'`) and `statsDateBounds` memo.
+- `loadStats` passes `statsDateBounds` to `fetchRegionalStats` and depends on it.
+- Stats filter chip row rendered above incident type stats cards.
+- First card title dynamically shows the selected period: e.g., `Total Verified · This Week`.
+
+#### Validator stats (`GET /api/regional/validator/stats`)
+**File:** `src/backend/api/routes/regional.py`  
+- Added `date_from` and `date_to` Query parameters.
+- Date clause applied to all VERIFIED queries (wildland, by_category, affected totals).
+- Pending count intentionally unfiltered (shows current queue length regardless of date).
+- Wildland query updated with LEFT JOIN on `nd`.
+- Scope: **all regions** (no region scoping — validator sees system-wide verified counts).
+
+**File:** `src/frontend/src/lib/api/legacy.ts`  
+`fetchValidatorStats(params?)` now accepts `{ date_from?, date_to? }`.
+
+**File:** `src/frontend/src/app/dashboard/validator/page.tsx`  
+- Added `STATS_DATE_FILTERS`, `StatsDateFilterValue`, and `STATS_PERIOD_LABEL` constants.
+- Added `statsDateFilter` state (default `'week'`) and `statsDateBounds` memo.
+- `fetchValidatorStats` useEffect now depends on `statsDateBounds` and passes it.
+- Stats filter chip row rendered above incident stats cards.
+- Wildland and classification card titles include the period label.
+
+#### Stats scoping summary
+
+| Role | Stats scope | Date basis | Pending count |
+|------|-------------|-----------|---------------|
+| Encoder | Own region, VERIFIED only | `notification_dt` (fire date) | Not in stats cards |
+| Validator | All regions, VERIFIED only | `notification_dt` (fire date) | Always current (unfiltered) |

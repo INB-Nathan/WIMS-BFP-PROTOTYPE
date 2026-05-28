@@ -62,6 +62,15 @@ const DATE_FILTERS = [
   { label: 'All Time', value: 'all' },
 ] as const;
 
+const STATS_DATE_FILTERS = [
+  { label: 'Today', value: 'today' },
+  { label: 'This Week', value: 'week' },
+  { label: 'This Month', value: 'month' },
+  { label: 'All Time', value: 'all' },
+] as const;
+
+type StatsDateFilterValue = (typeof STATS_DATE_FILTERS)[number]['value'];
+
 type DateFilterValue = (typeof DATE_FILTERS)[number]['value'];
 
 interface HoverHint {
@@ -172,12 +181,15 @@ export default function RegionalDashboardPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFilter, setDateFilter] = useState<DateFilterValue>('today');
   const [specificDate, setSpecificDate] = useState(() => dateOnly(manilaTodayUtcDate()));
+  const [statsDateFilter, setStatsDateFilter] = useState<StatsDateFilterValue>('week');
   const [rejectionNoticeDismissed, setRejectionNoticeDismissed] = useState(false);
   const [pendingActionedBanner, setPendingActionedBanner] = useState(false);
   const lastKnownPendingCountRef = useRef<number | null>(null);
   const [hoverHint, setHoverHint] = useState<HoverHint | null>(null);
   const hoverHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const incidentsSectionRef = useRef<HTMLElement | null>(null);
   const dateBounds = useMemo(() => getRegionalDateBounds(dateFilter, specificDate), [dateFilter, specificDate]);
+  const statsDateBounds = useMemo(() => getRegionalDateBounds(statsDateFilter, ''), [statsDateFilter]);
 
   const updateFiltersWithoutScrollShift = useCallback((update: () => void) => {
     const x = window.scrollX;
@@ -224,9 +236,9 @@ export default function RegionalDashboardPage() {
   }, []);
 
   const loadStats = useCallback(async () => {
-    const statsData = await fetchRegionalStats();
+    const statsData = await fetchRegionalStats(statsDateBounds);
     setStats(statsData);
-  }, []);
+  }, [statsDateBounds]);
 
   const loadIncidents = useCallback(async () => {
     setIncidentsLoading(true);
@@ -320,12 +332,26 @@ export default function RegionalDashboardPage() {
     setPageIndex(0);
   });
 
+  const showRejectedAndScroll = () => {
+    showRejectedFilter();
+    setTimeout(() => {
+      incidentsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 60);
+  };
+
+  const statsPeriodLabel: Record<StatsDateFilterValue, string> = {
+    today: 'Today',
+    week: 'This Week',
+    month: 'This Month',
+    all: 'All Time',
+  };
+
   const incidentCards = [
     {
-      key: 'total-this-week',
-      title: 'Total This Week',
+      key: 'total-period',
+      title: `Total Verified · ${statsPeriodLabel[statsDateFilter]}`,
       icon: Flame,
-      value: stats?.total_incidents_this_week?.toLocaleString() ?? '0',
+      value: stats?.total_incidents?.toLocaleString() ?? '0',
       iconBg: '#FEE2E2',
       iconColor: '#C62828',
     },
@@ -409,6 +435,63 @@ export default function RegionalDashboardPage() {
   return (
     <div className="space-y-6 pb-8" style={{ backgroundColor: 'var(--content-bg)' }}>
 
+      {/* ── Sticky notification toasts (visible while scrolling) ── */}
+      {(pendingActionedBanner || (rejectedCount > 0 && !rejectionNoticeDismissed)) && (
+        <div className="sticky top-0 z-40 space-y-2">
+          {pendingActionedBanner && (
+            <div className="flex items-start justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-md" role="alert">
+              <span>
+                <span className="font-semibold">A pending submission was actioned by a validator.</span>{' '}
+                Refresh to see what changed.
+              </span>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => { setPendingActionedBanner(false); void refreshAll(); }}
+                  className="rounded-lg px-3 py-1 text-xs font-semibold text-white"
+                  style={{ backgroundColor: '#1D4ED8' }}
+                >
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPendingActionedBanner(false)}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-full text-blue-700 transition-colors hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  aria-label="Dismiss notification"
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                </button>
+              </div>
+            </div>
+          )}
+          {rejectedCount > 0 && !rejectionNoticeDismissed && (
+            <div className="flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-md" role="alert">
+              <div>
+                <span className="font-semibold">
+                  {rejectedCount} incident{rejectedCount > 1 ? 's were' : ' was'} rejected by a validator.
+                </span>{' '}
+                Review the rejection reasons and resubmit.{' '}
+                <button
+                  type="button"
+                  className="ml-1 underline font-medium hover:text-red-700"
+                  onClick={showRejectedAndScroll}
+                >
+                  Show rejected
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRejectionNoticeDismissed(true)}
+                className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-red-700 transition-colors hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-300"
+                aria-label="Dismiss rejection notice"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Page header ── */}
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
@@ -459,50 +542,29 @@ export default function RegionalDashboardPage() {
         </div>
       </div>
 
-      {/* ── Pending-actioned notification ── */}
-      {pendingActionedBanner && (
-        <div className="flex items-start justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900" role="alert">
-          <span>
-            <span className="font-semibold">A pending submission was actioned by a validator.</span>{' '}
-            Refresh or filter by &ldquo;Pending&rdquo; to see what changed.
-          </span>
-          <button
-            type="button"
-            onClick={() => setPendingActionedBanner(false)}
-            className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-blue-700 transition-colors hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
-            aria-label="Dismiss notification"
-          >
-            <X className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
-      )}
-
-      {/* ── Rejection alert ── */}
-      {rejectedCount > 0 && !rejectionNoticeDismissed && (
-        <div className="flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900" role="alert">
-          <div>
-            <span className="font-semibold">
-              {rejectedCount} incident{rejectedCount > 1 ? 's were' : ' was'} rejected by a validator.
-            </span>{' '}
-            Review the rejection reasons and resubmit.{' '}
+      {/* ── Stats period filter ── */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+          Stats:
+        </span>
+        {STATS_DATE_FILTERS.map((f) => {
+          const active = statsDateFilter === f.value;
+          return (
             <button
+              key={f.value}
               type="button"
-              className="ml-1 underline font-medium hover:text-red-700"
-              onClick={showRejectedFilter}
+              onClick={() => setStatsDateFilter(f.value)}
+              className="rounded-full border px-3 py-1 text-xs font-semibold transition-colors"
+              style={active
+                ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#991B1B' }
+                : { backgroundColor: '#fff', borderColor: '#e5e7eb', color: 'var(--text-secondary)' }
+              }
             >
-              Show rejected
+              {f.label}
             </button>
-          </div>
-          <button
-            type="button"
-            onClick={() => setRejectionNoticeDismissed(true)}
-            className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-red-700 transition-colors hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-300"
-            aria-label="Dismiss rejection notice"
-          >
-            <X className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
-      )}
+          );
+        })}
+      </div>
 
       {/* ── Incident type stats ── */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
@@ -564,6 +626,7 @@ export default function RegionalDashboardPage() {
 
       {/* ── Incidents section ── */}
       <section
+        ref={incidentsSectionRef}
         className="rounded-2xl overflow-hidden"
         style={{ backgroundColor: 'var(--card-bg)', boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
         aria-labelledby="region-incidents-heading"
@@ -594,9 +657,15 @@ export default function RegionalDashboardPage() {
                 <button
                   key={chip.value}
                   type="button"
-                  onClick={() => updateFiltersWithoutScrollShift(() => { setStatusFilter(chip.value); setPageIndex(0); })}
+                  onClick={() => {
+                    if (chip.value === 'REJECTED') {
+                      showRejectedFilter();
+                    } else {
+                      updateFiltersWithoutScrollShift(() => { setStatusFilter(chip.value); setPageIndex(0); });
+                    }
+                  }}
                   disabled={incidentsLoading}
-                  className="rounded-full border px-4 py-1.5 text-sm font-semibold transition-colors disabled:opacity-50"
+                  className="relative rounded-full border px-4 py-1.5 text-sm font-semibold transition-colors disabled:opacity-50"
                   style={active
                     ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#991B1B' }
                     : { backgroundColor: '#fff', borderColor: '#e5e7eb', color: 'var(--text-secondary)' }
@@ -608,14 +677,12 @@ export default function RegionalDashboardPage() {
                     if (!active) (e.currentTarget as HTMLElement).style.borderColor = '#e5e7eb';
                   }}
                 >
-                  <span className="inline-flex items-center gap-2">
-                    {chip.label}
-                    {chip.value === 'REJECTED' && rejectedCount > 0 && (
-                      <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[11px] font-bold leading-none text-white">
-                        {rejectedCount.toLocaleString()}
-                      </span>
-                    )}
-                  </span>
+                  {chip.label}
+                  {chip.value === 'REJECTED' && rejectedCount > 0 && (
+                    <span className="absolute -right-2 -top-2 inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[11px] font-bold leading-none text-white ring-2 ring-white">
+                      {rejectedCount.toLocaleString()}
+                    </span>
+                  )}
                 </button>
               );
             })}

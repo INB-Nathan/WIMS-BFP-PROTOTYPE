@@ -967,43 +967,70 @@ def get_regional_incident_detail(
 def get_validator_stats(
     user: Annotated[dict, Depends(get_national_validator)],
     db: Annotated[Session, Depends(get_db_with_rls)],
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
 ):
-    """Counts of validator-visible incidents for dashboard summary cards."""
+    """Counts of verified incidents for validator dashboard cards — all regions, filterable by fire date."""
+    # ── Date filter on fire date (notification_dt, Asia/Manila TZ) ────────────
+    date_params: dict = {}
+    date_clause = ""
+    if date_from:
+        date_clause += (
+            " AND DATE(nd.notification_dt AT TIME ZONE 'Asia/Manila') >= CAST(:date_from AS date)"
+        )
+        date_params["date_from"] = date_from
+    if date_to:
+        date_clause += (
+            " AND DATE(nd.notification_dt AT TIME ZONE 'Asia/Manila') <= CAST(:date_to AS date)"
+        )
+        date_params["date_to"] = date_to
+
     by_cat_rows = db.execute(
-        text("""
-            SELECT nd.general_category, COUNT(*) as cnt
+        text(
+            f"""
+            SELECT nd.general_category, COUNT(*) AS cnt
             FROM wims.fire_incidents fi
             JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
             WHERE fi.verification_status = 'VERIFIED' AND fi.is_archived = FALSE
+              {date_clause}
             GROUP BY nd.general_category
             ORDER BY cnt DESC
-        """),
+            """
+        ),
+        date_params,
     ).fetchall()
 
+    # Pending count is always current (not date-filtered)
     pending_count = (
         db.execute(
             text("""
             SELECT COUNT(*) FROM wims.fire_incidents
             WHERE verification_status IN ('PENDING', 'PENDING_VALIDATION') AND is_archived = FALSE
-        """),
+            """),
         ).scalar()
         or 0
     )
 
     wildland_total = (
         db.execute(
-            text("""
+            text(
+                f"""
                 SELECT COUNT(*)
                 FROM wims.incident_wildland_afor iwa
                 JOIN wims.fire_incidents fi ON fi.incident_id = iwa.incident_id
+                LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
                 WHERE fi.verification_status = 'VERIFIED' AND fi.is_archived = FALSE
-            """),
+                  {date_clause}
+                """
+            ),
+            date_params,
         ).scalar()
         or 0
     )
 
     affected_row = db.execute(
-        text("""
+        text(
+            f"""
             SELECT
                 COALESCE(SUM(nd.structures_affected), 0),
                 COALESCE(SUM(nd.households_affected), 0),
@@ -1013,7 +1040,10 @@ def get_validator_stats(
             FROM wims.fire_incidents fi
             JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
             WHERE fi.verification_status = 'VERIFIED' AND fi.is_archived = FALSE
-        """),
+              {date_clause}
+            """
+        ),
+        date_params,
     ).fetchone()
 
     total_verified = sum(r[1] for r in by_cat_rows)
@@ -1034,9 +1064,123 @@ def get_validator_stats(
 def get_regional_stats(
     user: Annotated[dict, Depends(get_regional_encoder)],
     db: Annotated[Session, Depends(get_db_with_rls)],
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
 ):
-    """Quick summary stats scoped to the current encoder."""
+    """Summary stats for the encoder's region — verified incidents only, filterable by fire date."""
     encoder_id = user["user_id"]
+    region_id = user.get("assigned_region_id")
+
+    # ── Date filter on fire date (notification_dt, Asia/Manila TZ) ────────────
+    date_params: dict = {}
+    date_clause = ""
+    if date_from:
+        date_clause += (
+            " AND DATE(nd.notification_dt AT TIME ZONE 'Asia/Manila') >= CAST(:date_from AS date)"
+        )
+        date_params["date_from"] = date_from
+    if date_to:
+        date_clause += (
+            " AND DATE(nd.notification_dt AT TIME ZONE 'Asia/Manila') <= CAST(:date_to AS date)"
+        )
+        date_params["date_to"] = date_to
+
+    # ── Region-wide VERIFIED card stats ──────────────────────────────────────
+    verified_params: dict = {"rid": region_id, **date_params}
+
+    total = (
+        db.execute(
+            text(
+                f"""
+                SELECT COUNT(*)
+                FROM wims.fire_incidents fi
+                LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+                WHERE fi.region_id = :rid
+                  AND fi.verification_status = 'VERIFIED'
+                  AND fi.is_archived = FALSE
+                  {date_clause}
+                """
+            ),
+            verified_params,
+        ).scalar()
+        or 0
+    )
+
+    by_cat_rows = db.execute(
+        text(
+            f"""
+            SELECT nd.general_category, COUNT(*) AS cnt
+            FROM wims.fire_incidents fi
+            JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+            WHERE fi.region_id = :rid
+              AND fi.verification_status = 'VERIFIED'
+              AND fi.is_archived = FALSE
+              {date_clause}
+            GROUP BY nd.general_category
+            ORDER BY cnt DESC
+            """
+        ),
+        verified_params,
+    ).fetchall()
+
+    wildland_total = (
+        db.execute(
+            text(
+                f"""
+                SELECT COUNT(*)
+                FROM wims.incident_wildland_afor iwa
+                JOIN wims.fire_incidents fi ON fi.incident_id = iwa.incident_id
+                LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+                WHERE fi.region_id = :rid
+                  AND fi.verification_status = 'VERIFIED'
+                  AND fi.is_archived = FALSE
+                  {date_clause}
+                """
+            ),
+            verified_params,
+        ).scalar()
+        or 0
+    )
+
+    wildland_type_rows = db.execute(
+        text(
+            f"""
+            SELECT lower(trim(iwa.wildland_fire_type)) AS wildland_fire_type, COUNT(*) AS cnt
+            FROM wims.incident_wildland_afor iwa
+            JOIN wims.fire_incidents fi ON fi.incident_id = iwa.incident_id
+            LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+            WHERE fi.region_id = :rid
+              AND fi.verification_status = 'VERIFIED'
+              AND fi.is_archived = FALSE
+              {date_clause}
+            GROUP BY lower(trim(iwa.wildland_fire_type))
+            ORDER BY cnt DESC
+            """
+        ),
+        verified_params,
+    ).fetchall()
+
+    affected_row = db.execute(
+        text(
+            f"""
+            SELECT
+                COALESCE(SUM(nd.structures_affected), 0),
+                COALESCE(SUM(nd.households_affected), 0),
+                COALESCE(SUM(nd.families_affected), 0),
+                COALESCE(SUM(nd.individuals_affected), 0),
+                COALESCE(SUM(nd.vehicles_affected), 0)
+            FROM wims.fire_incidents fi
+            JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+            WHERE fi.region_id = :rid
+              AND fi.verification_status = 'VERIFIED'
+              AND fi.is_archived = FALSE
+              {date_clause}
+            """
+        ),
+        verified_params,
+    ).fetchone()
+
+    # ── Encoder-personal status counts (for rejection banner only) ────────────
     hide_seeded_sql = """
       AND NOT (
           COALESCE(fi.reference_number, '') LIKE 'AFOR-SEED-%'
@@ -1052,76 +1196,16 @@ def get_regional_stats(
       )
     """
 
-    total = (
-        db.execute(
-            text(
-                f"""
-                SELECT COUNT(*)
-                FROM wims.fire_incidents fi
-                WHERE fi.encoder_id = CAST(:eid AS uuid)
-                  AND fi.is_archived = FALSE
-                  {hide_seeded_sql}
-                """
-            ),
-            {"eid": str(encoder_id)},
-        ).scalar()
-        or 0
-    )
-
-    total_this_week = (
-        db.execute(
-            text(
-                f"""
-                SELECT COUNT(*)
-                FROM wims.fire_incidents fi
-                WHERE fi.encoder_id = CAST(:eid AS uuid)
-                  AND fi.is_archived = FALSE
-                  AND (fi.created_at AT TIME ZONE 'Asia/Manila')::date >= (
-                    (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date
-                    - (((EXTRACT(DOW FROM (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date)::int + 6) % 7))
-                  )
-                  AND (fi.created_at AT TIME ZONE 'Asia/Manila')::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date
-                  {hide_seeded_sql}
-                """
-            ),
-            {"eid": str(encoder_id)},
-        ).scalar()
-        or 0
-    )
-
-    by_cat_rows = db.execute(
-        text("""
-            SELECT nd.general_category, COUNT(*) as cnt
-            FROM wims.fire_incidents fi
-            JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
-            WHERE fi.encoder_id = CAST(:eid AS uuid) AND fi.is_archived = FALSE
-            """ + hide_seeded_sql + """
-            GROUP BY nd.general_category
-            ORDER BY cnt DESC
-        """),
-        {"eid": str(encoder_id)},
-    ).fetchall()
-
-    by_alarm_rows = db.execute(
-        text("""
-            SELECT nd.alarm_level, COUNT(*) as cnt
-            FROM wims.fire_incidents fi
-            JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
-            WHERE fi.encoder_id = CAST(:eid AS uuid) AND fi.is_archived = FALSE
-            """ + hide_seeded_sql + """
-            GROUP BY nd.alarm_level
-            ORDER BY cnt DESC
-        """),
-        {"eid": str(encoder_id)},
-    ).fetchall()
-
     by_status_rows = db.execute(
-        text("""
-            SELECT verification_status, COUNT(*) as cnt
+        text(
+            """
+            SELECT verification_status, COUNT(*) AS cnt
             FROM wims.fire_incidents fi
             WHERE fi.encoder_id = CAST(:eid AS uuid)
               AND fi.is_archived = FALSE
-              """ + hide_seeded_sql + """
+              """
+            + hide_seeded_sql
+            + """
               AND NOT EXISTS (
                   SELECT 1
                   FROM wims.incident_verification_history ivh
@@ -1130,57 +1214,31 @@ def get_regional_stats(
               )
             GROUP BY verification_status
             ORDER BY cnt DESC
-        """),
+            """
+        ),
         {"eid": str(encoder_id)},
     ).fetchall()
 
-    # Wildland fire stats (separate AFOR form)
-    wildland_total = (
-        db.execute(
-            text("""
-                SELECT COUNT(*)
-                FROM wims.incident_wildland_afor iwa
-                JOIN wims.fire_incidents fi ON fi.incident_id = iwa.incident_id
-                WHERE fi.encoder_id = CAST(:eid AS uuid) AND fi.is_archived = FALSE
-                """ + hide_seeded_sql + """
-            """),
-            {"eid": str(encoder_id)},
-        ).scalar()
-        or 0
-    )
-
-    wildland_type_rows = db.execute(
-        text("""
-            SELECT lower(trim(iwa.wildland_fire_type)) AS wildland_fire_type, COUNT(*) as cnt
-            FROM wims.incident_wildland_afor iwa
-            JOIN wims.fire_incidents fi ON fi.incident_id = iwa.incident_id
-            WHERE fi.encoder_id = CAST(:eid AS uuid) AND fi.is_archived = FALSE
-            """ + hide_seeded_sql + """
-            GROUP BY lower(trim(iwa.wildland_fire_type))
-            ORDER BY cnt DESC
-        """),
-        {"eid": str(encoder_id)},
-    ).fetchall()
-
-    affected_row = db.execute(
-        text("""
-            SELECT
-                COALESCE(SUM(nd.structures_affected), 0),
-                COALESCE(SUM(nd.households_affected), 0),
-                COALESCE(SUM(nd.families_affected), 0),
-                COALESCE(SUM(nd.individuals_affected), 0),
-                COALESCE(SUM(nd.vehicles_affected), 0)
+    by_alarm_rows = db.execute(
+        text(
+            """
+            SELECT nd.alarm_level, COUNT(*) AS cnt
             FROM wims.fire_incidents fi
             JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
             WHERE fi.encoder_id = CAST(:eid AS uuid) AND fi.is_archived = FALSE
-            """ + hide_seeded_sql + """
-        """),
+            """
+            + hide_seeded_sql
+            + """
+            GROUP BY nd.alarm_level
+            ORDER BY cnt DESC
+            """
+        ),
         {"eid": str(encoder_id)},
-    ).fetchone()
+    ).fetchall()
 
     return RegionalStatsResponse(
         total_incidents=total,
-        total_incidents_this_week=total_this_week,
+        total_incidents_this_week=total,
         by_category=[{"category": r[0], "count": r[1]} for r in by_cat_rows],
         by_alarm_level=[{"alarm_level": r[0], "count": r[1]} for r in by_alarm_rows],
         by_status=[{"status": r[0], "count": r[1]} for r in by_status_rows],

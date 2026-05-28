@@ -257,20 +257,17 @@ function fmt24h(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const d = new Date(String(raw));
   if (isNaN(d.getTime())) return String(raw);
-  const formatted = d.toLocaleString('en-PH', {
+  return d.toLocaleString('en-PH', {
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
     hour12: false,
   });
-  return `${formatted} (24H)`;
 }
 
 function mark24h(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const value = String(raw).trim();
-  if (!value) return null;
-  if (/\b24H\b/i.test(value)) return value;
-  return `${value} (24H)`;
+  return value || null;
 }
 
 function splitAlarmDateTime(raw: string | null | undefined): { date: string; time: string } | null {
@@ -282,7 +279,7 @@ function splitAlarmDateTime(raw: string | null | undefined): { date: string; tim
   const yyyy = d.getFullYear();
   const hh = String(d.getHours()).padStart(2, '0');
   const min = String(d.getMinutes()).padStart(2, '0');
-  return { date: `${mm}-${dd}-${yyyy}`, time: `${hh}:${min} (24H)` };
+  return { date: `${mm}-${dd}-${yyyy}`, time: `${hh}:${min}` };
 }
 
 // ── Section card ─────────────────────────────────────────────────────────────
@@ -398,7 +395,7 @@ function AlarmTimelineSection({ timeline }: { timeline: AlarmTimeline }) {
       })
     .filter((row) => row.some((cell, index) => index > 0 && formatDetailValue(cell) !== '—'));
 
-  return <DataTable columns={['Stage', 'Date', 'Time', 'Commander']} rows={rows} emptyMessage="No alarm escalation recorded." />;
+  return <DataTable columns={['Stage', 'Date', 'Time (24H)', 'Commander']} rows={rows} emptyMessage="No alarm escalation recorded." />;
 }
 
 // ── Main page ────────────────────────────────────────────────────────────────
@@ -1206,7 +1203,7 @@ export default function RegionalIncidentDetailPage() {
               </div>
             </div>
             <DetailGrid columns={3}>
-              <DetailField label="Date & Time of Notification" value={fmt24h(ns?.notification_dt as string | null)} />
+              <DetailField label="Date & Time of Notification (24H)" value={fmt24h(ns?.notification_dt as string | null)} />
               <DetailField label={FIELD_LABELS.fire_station_name} value={ns?.fire_station_name} />
               <DetailField label={FIELD_LABELS.alarm_level} value={ns?.alarm_level} />
               <DetailField label={FIELD_LABELS.general_category} value={classificationDisplay} />
@@ -1244,11 +1241,11 @@ export default function RegionalIncidentDetailPage() {
 
           <Section title="A. Response Details" sectionId="sec-response" tone="blue" subtitle="Notification, dispatch, station, location, and caller information.">
             <DetailGrid columns={3}>
-              <DetailField label={FIELD_LABELS.notification_dt} value={fmt24h(ns?.notification_dt as string | null)} />
+              <DetailField label={`${FIELD_LABELS.notification_dt} (24H)`} value={fmt24h(ns?.notification_dt as string | null)} />
               <DetailField label={FIELD_LABELS.fire_station_name} value={ns?.fire_station_name} />
               <DetailField label={FIELD_LABELS.responder_type} value={ns?.responder_type} />
               <DetailField label={FIELD_LABELS.alarm_level} value={ns?.alarm_level} />
-              <DetailField label="Time Returned to Base" value={mark24h(timeReturnedToBase)} />
+              <DetailField label="Time Returned to Base (24H)" value={mark24h(timeReturnedToBase)} />
               <DetailField label={FIELD_LABELS.distance_from_station_km} value={ns?.distance_from_station_km ?? ns?.distance_to_fire_scene_km} />
               <DetailField label={FIELD_LABELS.total_response_time_minutes} value={ns?.total_response_time_minutes} />
               <DetailField label={FIELD_LABELS.total_gas_consumed_liters} value={ns?.total_gas_consumed_liters} />
@@ -1262,13 +1259,13 @@ export default function RegionalIncidentDetailPage() {
             {engineRows.length > 0 ? (
               <DataTable
                 title="Engine / Unit Dispatched"
-                columns={['Engine / Unit', 'Time Dispatched', 'Time Arrived at Scene']}
+                columns={['Engine / Unit', 'Time Dispatched (24H)', 'Time Arrived at Scene (24H)']}
                 rows={engineRows}
               />
             ) : (
               <DataTable
                 title="Engine / Unit Dispatched"
-                columns={['Engine / Unit', 'Time Dispatched', 'Time Arrived at Scene']}
+                columns={['Engine / Unit', 'Time Dispatched (24H)', 'Time Arrived at Scene (24H)']}
                 rows={[[engineDispatched, mark24h(timeEngineDispatched), mark24h(timeArrivedAtScene)]]}
               />
             )}

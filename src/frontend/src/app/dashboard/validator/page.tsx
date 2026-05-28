@@ -80,6 +80,22 @@ const DATE_FILTERS = [
 
 type DateFilterValue = (typeof DATE_FILTERS)[number]["value"];
 
+const STATS_DATE_FILTERS = [
+  { label: "Today", value: "today" },
+  { label: "This Week", value: "week" },
+  { label: "This Month", value: "month" },
+  { label: "All Time", value: "all" },
+] as const;
+
+type StatsDateFilterValue = (typeof STATS_DATE_FILTERS)[number]["value"];
+
+const STATS_PERIOD_LABEL: Record<StatsDateFilterValue, string> = {
+  today: "Today",
+  week: "This Week",
+  month: "This Month",
+  all: "All Time",
+};
+
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Draft",
   PENDING: "Pending",
@@ -200,6 +216,12 @@ export default function ValidatorDashboard() {
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 10;
   const dateBounds = useMemo(() => getDateBounds(dateFilter, specificDate), [dateFilter, specificDate]);
+
+  const [statsDateFilter, setStatsDateFilter] = useState<StatsDateFilterValue>("week");
+  const statsDateBounds = useMemo(
+    () => getDateBounds(statsDateFilter, ""),
+    [statsDateFilter],
+  );
 
   const [stats, setStats] = useState<{
     total_verified: number;
@@ -452,8 +474,8 @@ export default function ValidatorDashboard() {
   useEffect(() => { fetchQueue(); }, [fetchQueue]);
 
   useEffect(() => {
-    fetchValidatorStats().then(setStats).catch(() => { /* non-critical */ });
-  }, []);
+    fetchValidatorStats(statsDateBounds).then(setStats).catch(() => { /* non-critical */ });
+  }, [statsDateBounds]);
 
   useEffect(() => {
     const checkForNewIncidents = async () => {
@@ -535,7 +557,7 @@ export default function ValidatorDashboard() {
 
   const incidentCards = stats ? [
     { key: 'pending', title: 'Awaiting Validation', icon: Flame, value: stats.pending_validation.toLocaleString(), iconBg: '#DBEAFE', iconColor: '#1D4ED8' },
-    { key: 'wildland', title: 'Wildland Fire', icon: Trees, value: stats.wildland_total.toLocaleString(), iconBg: '#FEF9C3', iconColor: '#92400E' },
+    { key: 'wildland', title: `Wildland Fire · ${STATS_PERIOD_LABEL[statsDateFilter]}`, icon: Trees, value: stats.wildland_total.toLocaleString(), iconBg: '#FEF9C3', iconColor: '#92400E' },
     ...(['STRUCTURAL', 'NON_STRUCTURAL', 'TRANSPORTATION'] as const).map((cat) => {
       const icons = { STRUCTURAL: Building2, NON_STRUCTURAL: TreePine, TRANSPORTATION: Car };
       const colors = { STRUCTURAL: { bg: '#FEF3C7', color: '#D97706' }, NON_STRUCTURAL: { bg: '#DCFCE7', color: '#16A34A' }, TRANSPORTATION: { bg: '#DBEAFE', color: '#2563EB' } };
@@ -544,7 +566,7 @@ export default function ValidatorDashboard() {
         : cat === 'NON_STRUCTURAL'
           ? ['NON_STRUCTURAL', 'NON-STRUCTURAL', 'Non-Structural']
           : ['STRUCTURAL', 'Structural'];
-      return { key: cat, title: formatClassification(cat), icon: icons[cat], value: categoryCount(stats, aliases), iconBg: colors[cat].bg, iconColor: colors[cat].color };
+      return { key: cat, title: `${formatClassification(cat)} · ${STATS_PERIOD_LABEL[statsDateFilter]}`, icon: icons[cat], value: categoryCount(stats, aliases), iconBg: colors[cat].bg, iconColor: colors[cat].color };
     }),
   ] : [];
 
@@ -562,6 +584,22 @@ export default function ValidatorDashboard() {
 
   return (
     <div className="space-y-6 pb-8" style={{ backgroundColor: 'var(--content-bg)' }}>
+
+      {/* ── Sticky notification toast (visible while scrolling) ── */}
+      {newIncidentBanner && (
+        <div className="sticky top-0 z-40">
+          <div className="flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 shadow-md">
+            <span>New incidents have been submitted. Refresh to see the latest queue.</span>
+            <button
+              onClick={fetchQueue}
+              className="ml-4 rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
+              style={{ backgroundColor: '#1D4ED8' }}
+            >
+              Refresh now
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Page header ── */}
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -599,20 +637,6 @@ export default function ValidatorDashboard() {
         </div>
       </div>
 
-      {/* ── New incident banner ── */}
-      {newIncidentBanner && (
-        <div className="flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-          <span>New incidents have been submitted. Refresh to see the latest queue.</span>
-          <button
-            onClick={fetchQueue}
-            className="ml-4 rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
-            style={{ backgroundColor: '#1D4ED8' }}
-          >
-            Refresh now
-          </button>
-        </div>
-      )}
-
       {/* ── Error/bulk banners ── */}
       {bulkError && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{bulkError}</div>
@@ -620,6 +644,28 @@ export default function ValidatorDashboard() {
       {archiveError && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">Archive failed: {archiveError}</div>
       )}
+
+      {/* ── Stats date filter chips ── */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Stats period:</span>
+        {STATS_DATE_FILTERS.map((f) => {
+          const active = statsDateFilter === f.value;
+          return (
+            <button
+              key={f.value}
+              type="button"
+              onClick={() => setStatsDateFilter(f.value)}
+              className="rounded-full border px-3 py-1 text-xs font-semibold transition-colors"
+              style={active
+                ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#991B1B' }
+                : { backgroundColor: '#fff', borderColor: '#e5e7eb', color: 'var(--text-secondary)' }
+              }
+            >
+              {f.label}
+            </button>
+          );
+        })}
+      </div>
 
       {/* ── Incident stats cards ── */}
       {incidentCards.length > 0 && (
@@ -686,7 +732,11 @@ export default function ValidatorDashboard() {
                   <button
                     key={filter.value}
                     type="button"
-                    onClick={() => updateFiltersWithoutScrollShift(() => { setStatusFilter(filter.value); setPage(0); })}
+                    onClick={() => updateFiltersWithoutScrollShift(() => {
+                      setStatusFilter(filter.value);
+                      setPage(0);
+                      if (filter.value === STATUS_FILTER_QUEUE) setDateFilter('all');
+                    })}
                     disabled={loading}
                     className="relative rounded-full border px-4 py-1.5 text-sm font-semibold transition-colors disabled:opacity-50"
                     style={active

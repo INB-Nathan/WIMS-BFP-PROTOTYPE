@@ -3,6 +3,36 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-05-28] fix | Layout zoom scoping, OTP sizing, notification toasts, badge, filter UX, 24H labels
+
+**Changes implemented:**
+
+- **Global zoom regression fix** (`src/frontend/src/app/globals.css`, `src/frontend/src/components/LayoutShell.tsx`): Removed `zoom: 0.9` from `body` (which caused a white bottom strip on login and dashboards). Added `.wims-main-zoom { zoom: 0.9; }` and applied it to the authenticated `<main>` element only. Login page and public routes are unaffected.
+
+- **Keycloak OTP layout** (`src/keycloak/themes/wims-bfp/login/resources/css/wims-custom.css`): OTP grid constrained to `max-width: 300px; margin: auto` with `gap: 0.375rem`. Boxes changed from `aspect-ratio: 1/1` (caused overflow on smaller viewports) to `height: 44px; line-height: 44px; font-size: 1.125rem`. Separator changed to `width: 10px; justify-self: center`. All 6 inputs now fit within the Keycloak card at common desktop widths.
+
+- **Rejected count badge** (`src/frontend/src/app/dashboard/regional/page.tsx`): Rejected filter chip button changed to `relative`. Badge moved from inline `span` to `absolute -right-2 -top-2` with `ring-2 ring-white`, matching validator Pending chip style.
+
+- **Rejected chip click → All Time** (`regional/page.tsx`): Clicking the Rejected status chip now calls `showRejectedFilter()` which sets `dateFilter = 'all'`, ensuring the full rejected backlog is visible.
+
+- **"Show rejected" notification → scroll** (`regional/page.tsx`): New `showRejectedAndScroll` handler: applies the filter then `scrollIntoView({ behavior: 'smooth' })` on the incidents section ref after a 60 ms delay, guiding the encoder directly to the list.
+
+- **Encoder notification toasts → sticky** (`regional/page.tsx`): Pending-actioned banner and rejection alert moved to a `sticky top-0 z-40` container at the top of the page content. Both are now visible while scrolling. Pending-actioned banner gained a **Refresh** button (calls `refreshAll()` and dismisses).
+
+- **Validator Pending filter → All Time** (`src/frontend/src/app/dashboard/validator/page.tsx`): Clicking Pending now also sets `dateFilter = 'all'` to surface the full validation backlog.
+
+- **Validator new-incident banner → sticky** (`validator/page.tsx`): `newIncidentBanner` moved before the page header and wrapped in `sticky top-0 z-40`, matching the encoder pattern.
+
+- **Incident detail 24H labeling** (`src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx`): Removed `(24H)` suffix from `fmt24h`, `mark24h`, and `splitAlarmDateTime` return values. Added `(24H)` to the relevant labels: "Date & Time of Notification (24H)", `FIELD_LABELS.notification_dt + " (24H)"`, "Time Returned to Base (24H)", DataTable columns "Time Dispatched (24H)" / "Time Arrived at Scene (24H)", alarm timeline column "Time (24H)".
+
+**Verification:**
+- `npx.cmd eslint` on all modified files: 0 errors.
+- `git diff --check`: no new trailing whitespace (pre-existing issue in `docs/regional-dashboard-handover.md`).
+- `rg zoom` in `globals.css`: only `.wims-main-zoom` class; `body {}` block has no zoom.
+- Browser verification could not run (no browser plugin available in this session).
+
+**Wiki updates:** This log. No route-map or schema changes.
+
 ## [2026-05-28] update | Dashboard date filters and visual polish
 
 **Changes implemented:**
@@ -18,6 +48,24 @@ Format: `## [YYYY-MM-DD] action | subject`
 - In-app Browser verification could not run because the `iab` browser backend was unavailable in this session.
 
 **Wiki updates:** Updated `frontend/route-map.md`, `frontend/frontend-infrastructure.md`, `subsystems/regional-dashboard.md`, `subsystems/validator-hub.md`, `gaps/ui-ux-gap-register.md`, `index.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this changed UI behavior and presentation, not FRS alignment.
+
+## [2026-05-28] fix | Encoder and validator stats cards: region scoping, date filtering, wildland fix
+
+**Changes implemented:**
+
+- **Backend `/regional/stats`** (`src/backend/api/routes/regional.py`): Added `date_from`/`date_to` Query params applied to `notification_dt`. Scope changed from `encoder_id` to `region_id + VERIFIED`. Wildland query received a proper LEFT JOIN on `nd` so date filtering works. `total_incidents` returned as a generic period-total (aliased from `total_incidents_this_week`).
+
+- **Backend `/regional/validator/stats`** (`src/backend/api/routes/regional.py`): Same `date_from`/`date_to` params added. Date clause applied to all VERIFIED queries (wildland, by_category, affected counts). Pending count intentionally unfiltered. Scope: all regions (system-wide verified totals).
+
+- **`fetchRegionalStats` / `fetchValidatorStats`** (`src/frontend/src/lib/api/legacy.ts`): Both functions now accept `{ date_from?, date_to? }` and pass them as query params.
+
+- **Encoder dashboard** (`src/frontend/src/app/dashboard/regional/page.tsx`): Added `STATS_DATE_FILTERS` constant (Today/This Week/This Month/All Time), `statsDateFilter` state defaulting to `'week'`, `statsDateBounds` memo, and stats filter chip UI above the stats cards. `loadStats` is reactive to `statsDateBounds`. First card title shows the selected period.
+
+- **Validator dashboard** (`src/frontend/src/app/dashboard/validator/page.tsx`): Same stats filter pattern added — `STATS_DATE_FILTERS`, `StatsDateFilterValue`, `STATS_PERIOD_LABEL`, `statsDateFilter` (default `'week'`), `statsDateBounds`. Stats useEffect wired to `statsDateBounds`. Wildland and classification card titles include period label. Stats filter chip row rendered above stats cards.
+
+**Verification:** Backend: `python -m py_compile src/backend/api/routes/regional.py`. Frontend: `npx vitest run`, `npm run lint`.
+
+**Wiki updates:** Updated `docs/regional-dashboard-handover.md` and this log.
 
 ## [2026-05-28] fix | Encoder/validator bug batch: pin search, duplicate detection, notifications, session
 

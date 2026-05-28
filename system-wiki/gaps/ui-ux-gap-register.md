@@ -1,7 +1,7 @@
 ---
 title: UI/UX Gap Register
 created: 2026-05-14
-updated: 2026-05-28
+updated: 2026-05-28 (zoom/OTP/notifications/badges/24H labels batch)
 type: gap
 tags: [wims-bfp, gap, ui-ux, needs-verification]
 sources: [raw/ui-ux, ui-ux/evaluation-loginpage-keycloaksso.md, ui-ux/evaluation-system-admin-hub.md, ui-ux/evaluation-national-analyst.md, src/frontend/src/app/login/page.tsx, src/frontend/src/app/globals.css, src/keycloak/themes/wims-bfp/login/template.ftl, src/keycloak/themes/wims-bfp/login/login-otp.ftl, src/keycloak/themes/wims-bfp/login/login-config-totp.ftl, src/keycloak/themes/wims-bfp/login/resources/css/wims-custom.css, src/frontend/src/components/Sidebar.tsx, src/frontend/src/app/dashboard/regional/page.tsx, src/frontend/src/app/dashboard/validator/page.tsx]
@@ -17,7 +17,7 @@ UI/UX improvement gaps identified during user desk-check evaluations (2026-05-14
 |---|---|---|
 | Sign-in container misalignment | Hero section and sign-in form are vertically stacked/misaligned on desktop | Fixed in code with desktop `/login` form nudge; needs browser verification |
 | Hero icon loss on Keycloak redirect | After Keycloak redirect, hero illustration/icon disappears | Fixed in code with shared check-circle trust icon in native login and Keycloak theme; needs browser verification |
-| TOTP digit-separation UX | 6-box TOTP input with auto-advance and backspace behavior; no visual digit grouping | Fixed in code for Keycloak OTP challenge and setup screens; needs Keycloak smoke verification |
+| TOTP digit-separation UX | 6-box TOTP input with auto-advance and backspace behavior; no visual digit grouping | Fixed in code for Keycloak OTP challenge and setup screens; OTP boxes resized (44 px height, 18 px font, max-width 300 px grid) to prevent overflow; needs Keycloak smoke verification |
 
 Source: [[ui-ux/evaluation-loginpage-keycloaksso]]
 
@@ -69,7 +69,12 @@ Source: [[ui-ux/evaluation-system-admin-hub]]
 | Dashboard Date of Fire filter crash | Encoder/validator dashboard date-basis controls exposed Date of Fire filtering, which could crash local runs with insufficient system resources | Fixed in code by removing frontend `date_basis` parameters, defaulting encoder filters to Date Modified and validator filters to Date of Submission, and adding always-visible calendar pickers for specific modified/submission dates; needs browser verification |
 | Encoder rich-card status visibility | Rich cards needed border colour to match incident status without increasing border width | Fixed in code with status-coloured 1px rich-card borders: green verified, red rejected, gray draft, warm yellow pending; needs browser verification |
 | Incident detail dot-nav overlap | Desktop circular section navigation could overlap incident details | Fixed in code by pinning the dot nav near the right viewport margin instead of the report-body edge calculation; needs browser verification |
-| Site zoom baseline | Users needed the app to open at 90% zoom automatically | Fixed in code by applying `zoom: 0.9` to the global `body`; needs browser verification |
+| Site zoom baseline | Users needed the app to open at 90% zoom automatically | Fixed in code by scoping `zoom: 0.9` to the authenticated `<main>` element only (`.wims-main-zoom`), avoiding the white-bottom-line regression caused by `body` zoom; login page unaffected; needs browser verification |
+| Encoder notification toast visibility | Encoder actioned-submission and rejection banners were inline and scrolled away | Fixed: both moved to `sticky top-0 z-40` container; pending-actioned banner gains a Refresh button; "Show rejected" scrolls to incidents section |
+| Validator notification toast visibility | Validator new-incident banner was inline | Fixed: moved to `sticky top-0 z-40` above the page header |
+| Rejected filter badge cropping | Red count badge on Rejected chip was inline and could clip at the button boundary | Fixed: chip is now `relative`; badge is `absolute -right-2 -top-2 ring-2 ring-white` |
+| Rejected/Pending filter scoping | Clicking Rejected or Pending chips kept the current date scope, hiding older records | Fixed: Rejected chip (encoder) and Pending chip (validator) now auto-set date scope to All Time |
+| Incident detail 24H clutter | Every time value had `(24H)` appended to the value, duplicating it across all fields | Fixed: `(24H)` removed from value-generating functions; added to labels only where relevant (notification dt, dispatch/arrival, return-to-base, alarm time column) |
 
 ## National Analyst Dashboard (`/dashboard/analyst`)
 | Issue | Detail | Status |

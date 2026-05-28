@@ -874,11 +874,15 @@ export async function deleteDraft(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function fetchRegionalStats(): Promise<any> {
-  return apiFetch<Record<string, unknown>>('/regional/stats');
+export async function fetchRegionalStats(params?: { date_from?: string; date_to?: string }): Promise<any> {
+  const qs = new URLSearchParams();
+  if (params?.date_from) qs.set('date_from', params.date_from);
+  if (params?.date_to) qs.set('date_to', params.date_to);
+  const query = qs.toString() ? `?${qs.toString()}` : '';
+  return apiFetch<Record<string, unknown>>(`/regional/stats${query}`);
 }
 
-export async function fetchValidatorStats(): Promise<{
+export async function fetchValidatorStats(params?: { date_from?: string; date_to?: string }): Promise<{
   total_verified: number;
   pending_validation: number;
   wildland_total: number;
@@ -889,7 +893,11 @@ export async function fetchValidatorStats(): Promise<{
   individuals_affected: number;
   vehicles_affected: number;
 }> {
-  return apiFetch('/regional/validator/stats');
+  const qs = new URLSearchParams();
+  if (params?.date_from) qs.set('date_from', params.date_from);
+  if (params?.date_to) qs.set('date_to', params.date_to);
+  const query = qs.toString() ? `?${qs.toString()}` : '';
+  return apiFetch(`/regional/validator/stats${query}`);
 }
 
 export type AforFormKind = 'STRUCTURAL_AFOR' | 'WILDLAND_AFOR';
