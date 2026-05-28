@@ -1238,3 +1238,11 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `npm run build` compiles successfully with env vars set (as CI does).
 
 **Wiki updates:** Updated `system-wiki/log.md` and `system-wiki/index.md` only (merge conflict resolution). No code-alignment gaps changed.
+
+## [2026-05-28] fix | Encoder/validator date apply and BFP red override
+
+- Updated encoder/validator dashboard UI context after changing specific-date filters to use a draft date plus explicit Apply Date action instead of refetching on every date input change; updated the BFP colour override note to `#991B1B` while leaving restored login colours unchanged. Sources: `src/frontend/src/app/dashboard/regional/page.tsx`, `src/frontend/src/app/dashboard/validator/page.tsx`, `src/frontend/src/app/globals.css`, `src/frontend/src/components/IncidentForm.tsx`, `src/frontend/src/components/WildlandAforManualForm.tsx`.
+
+- Follow-up: restored sidebar-specific tokens (`--sidebar-bg`, `--color-sidebar-bg`) to their previous `#5A1515` value while leaving action/header overrides at `#991B1B`. Source: `src/frontend/src/app/globals.css`.
+
+- Follow-up: refined encoder/validator specific-date filtering so dashboard load and preset period switches clear the staged specific date, Apply Date remains disabled until the user enters a complete valid date, date controls sit at the right edge of the filter row, and stats card titles no longer repeat the selected stats period. Sources: `src/frontend/src/app/dashboard/regional/page.tsx`, `src/frontend/src/app/dashboard/validator/page.tsx`.

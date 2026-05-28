@@ -134,7 +134,7 @@ function ProgressBar({ current, total }: { current: number; total: number }) {
               </div>
               <span
                 className="text-xs mt-1.5 font-medium"
-                style={{ color: isActive ? 'var(--bfp-maroon)' : 'var(--text-muted)' }}
+                style={{ color: isActive ? '#991B1B' : 'var(--text-muted)' }}
               >
                 {label}
               </span>
@@ -159,14 +159,14 @@ function ContextCard({ value, selected, onSelect }: { value: (typeof REPORTING_C
       onClick={onSelect}
       className="w-full text-left rounded-xl p-4 transition-all duration-200 relative overflow-hidden"
       style={{
-        border: `2px solid ${selected ? 'var(--bfp-maroon)' : 'var(--border-color)'}`,
+        border: `2px solid ${selected ? '#991B1B' : 'var(--border-color)'}`,
         backgroundColor: selected ? 'rgba(153,27,27,0.04)' : 'var(--card-bg)',
         boxShadow: selected ? '0 0 0 3px rgba(153,27,27,0.12)' : '0 1px 3px rgba(0,0,0,0.05)',
       }}
     >
       <div className="flex items-start gap-3">
         <div>
-          <p className="font-semibold text-sm" style={{ color: selected ? 'var(--bfp-maroon)' : 'var(--text-primary)' }}>{value.label}</p>
+          <p className="font-semibold text-sm" style={{ color: selected ? '#991B1B' : 'var(--text-primary)' }}>{value.label}</p>
           <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{value.desc}</p>
           <p className="text-xs mt-0.5" style={{ color: 'var(--bilingual-color)' }}>{value.labelFil}</p>
         </div>
@@ -182,7 +182,7 @@ function SafetyCard({ value, selected, onSelect }: { value: (typeof SAFETY_STATU
       onClick={onSelect}
       className="w-full text-left rounded-xl p-4 transition-all duration-200 relative overflow-hidden"
       style={{
-        border: `2px solid ${selected ? 'var(--bfp-maroon)' : 'var(--border-color)'}`,
+        border: `2px solid ${selected ? '#991B1B' : 'var(--border-color)'}`,
         backgroundColor: selected ? 'rgba(153,27,27,0.04)' : 'var(--card-bg)',
         boxShadow: selected ? '0 0 0 3px rgba(153,27,27,0.12)' : '0 1px 3px rgba(0,0,0,0.05)',
       }}
@@ -190,18 +190,18 @@ function SafetyCard({ value, selected, onSelect }: { value: (typeof SAFETY_STATU
       {value.urgent && (
         <div
           className="absolute left-0 top-0 bottom-0 w-1 rounded-l-xl"
-          style={{ backgroundColor: selected ? 'var(--bfp-maroon)' : 'var(--border-color)' }}
+          style={{ backgroundColor: selected ? '#991B1B' : 'var(--border-color)' }}
         />
       )}
       <div className="flex items-start gap-3 pl-3">
         {value.urgent && (
           <div
             className="w-2 h-2 rounded-full mt-2 flex-shrink-0"
-            style={{ backgroundColor: selected ? 'var(--bfp-maroon)' : 'var(--text-muted)' }}
+            style={{ backgroundColor: selected ? '#991B1B' : 'var(--text-muted)' }}
           />
         )}
         <div>
-          <p className="font-semibold text-sm" style={{ color: value.urgent && selected ? 'var(--bfp-maroon)' : 'var(--text-primary)' }}>
+          <p className="font-semibold text-sm" style={{ color: value.urgent && selected ? '#991B1B' : 'var(--text-primary)' }}>
             {value.label}
           </p>
           <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{value.desc}</p>
@@ -219,7 +219,7 @@ function CategoryCard({ cat, selected, onSelect }: { cat: (typeof CATEGORIES)[0]
       onClick={onSelect}
       className="flex flex-col items-center gap-2.5 p-5 rounded-xl border-2 transition-all duration-200"
       style={{
-        borderColor: selected ? 'var(--bfp-maroon)' : 'var(--border-color)',
+        borderColor: selected ? '#991B1B' : 'var(--border-color)',
         backgroundColor: selected ? 'rgba(153,27,27,0.04)' : 'var(--card-bg)',
         boxShadow: selected ? '0 0 0 3px rgba(153,27,27,0.10)' : '0 1px 3px rgba(0,0,0,0.05)',
       }}
@@ -228,7 +228,7 @@ function CategoryCard({ cat, selected, onSelect }: { cat: (typeof CATEGORIES)[0]
         className="w-12 h-12 rounded-full flex items-center justify-center transition-colors"
         style={{ backgroundColor: selected ? 'rgba(153,27,27,0.10)' : 'var(--content-bg)' }}
       >
-        <div style={{ color: selected ? 'var(--bfp-maroon)' : 'var(--text-secondary)' }}>
+        <div style={{ color: selected ? '#991B1B' : 'var(--text-secondary)' }}>
           {React.cloneElement(cat.icon, { className: 'w-6 h-6' })}
         </div>
       </div>
@@ -281,7 +281,7 @@ function GpsMismatchModal({ pinDist, onConfirm, onCancel }: { pinDist: number; o
           <button type="button" onClick={onCancel} className="flex-1 py-2.5 rounded-xl border text-sm font-medium transition-colors" style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)', backgroundColor: 'var(--card-bg)' }}>
             Go back
           </button>
-          <button type="button" onClick={onConfirm} className="flex-1 py-2.5 rounded-xl text-white text-sm font-bold transition-all" style={{ backgroundColor: 'var(--bfp-red, #dc2626)', boxShadow: '0 2px 8px rgba(220,38,38,0.3)' }}>
+          <button type="button" onClick={onConfirm} className="flex-1 py-2.5 rounded-xl text-white text-sm font-bold transition-all" style={{ backgroundColor: '#991B1B', boxShadow: '0 2px 8px rgba(153,27,27,0.3)' }}>
             Yes, this is correct
           </button>
         </div>
@@ -913,7 +913,7 @@ export default function ReportPage() {
                   onClick={() => void handleAppend()}
                   disabled={appending || !appendDescription.trim()}
                   className="w-full py-2.5 rounded-xl border text-sm font-semibold transition-all disabled:opacity-50"
-                  style={{ borderColor: 'var(--bfp-maroon)', color: 'var(--bfp-maroon)', backgroundColor: 'transparent' }}
+                  style={{ borderColor: '#991B1B', color: '#991B1B', backgroundColor: 'transparent' }}
                 >
                   {appending ? 'Submitting update...' : 'Submit Update / Magsumite ng Update'}
                 </button>
@@ -996,7 +996,7 @@ export default function ReportPage() {
                           tryAdvanceFromContext();
                         }}
                         className="flex-1 py-2.5 rounded-xl text-white text-sm font-bold transition-all"
-                        style={{ backgroundColor: 'var(--bfp-red, #dc2626)', boxShadow: '0 2px 8px rgba(220,38,38,0.3)' }}
+                        style={{ backgroundColor: '#991B1B', boxShadow: '0 2px 8px rgba(153,27,27,0.3)' }}
                       >
                         Yes, use my location
                       </button>
@@ -1199,7 +1199,7 @@ export default function ReportPage() {
                     <a
                       href="tel:911"
                       className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-bold"
-                      style={{ backgroundColor: 'var(--bfp-red, #dc2626)', boxShadow: '0 2px 8px rgba(220,38,38,0.3)' }}
+                      style={{ backgroundColor: '#991B1B', boxShadow: '0 2px 8px rgba(153,27,27,0.3)' }}
                     >
                       <PhoneCall className="w-4 h-4" /> Call 911
                     </a>
@@ -1258,7 +1258,7 @@ export default function ReportPage() {
                         onClick={() => void handleSubmit()}
                         disabled={!geo.latitude || !reportingContext || !safetyStatus || !category || submitting}
                         className="flex-1 py-3 rounded-xl text-white text-sm font-bold disabled:opacity-50 transition-all"
-                        style={{ background: 'var(--bfp-red, #dc2626)', boxShadow: '0 2px 8px rgba(220,38,38,0.3)' }}
+                        style={{ background: '#991B1B', boxShadow: '0 2px 8px rgba(153,27,27,0.3)' }}
                       >
                         {submitting ? 'Sending...' : 'Send now / Ipadala na'}
                       </button>
@@ -1388,7 +1388,7 @@ export default function ReportPage() {
                     onClick={handleSubmit}
                     disabled={!geo.latitude || !reportingContext || !safetyStatus || !category || submitting}
                     className="flex-1 py-3.5 rounded-xl text-white text-sm font-bold disabled:opacity-50 transition-all"
-                    style={{ background: 'var(--bfp-red, #dc2626)', boxShadow: '0 2px 8px rgba(220,38,38,0.3)' }}
+                    style={{ background: '#991B1B', boxShadow: '0 2px 8px rgba(153,27,27,0.3)' }}
                   >
                     {submitting ? 'Sending...' : 'Fast Submit / Mabilis na I-submit'}
                   </button>

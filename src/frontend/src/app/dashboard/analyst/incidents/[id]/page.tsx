@@ -696,7 +696,7 @@ export default function AnalystIncidentDetailPage() {
               onClick={() => void queueExport("pdf")}
               disabled={exportLoading !== null}
               className="inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:opacity-90 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-offset-2"
-              style={{ backgroundColor: "var(--bfp-maroon)",  }}
+              style={{ backgroundColor: '#991B1B',  }}
               aria-disabled={exportLoading !== null}
             >
               <Download className="h-4 w-4" aria-hidden="true" />

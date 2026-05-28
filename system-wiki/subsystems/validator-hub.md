@@ -31,7 +31,7 @@ The validator's primary workspace. A large, feature-rich page with:
 
 **Filters:**
 - Status quick filters: All, Pending, Accepted (`VERIFIED`), Rejected; All is the default and Pending shows a red count badge when `pending_validation > 0`
-- Date dropdown filters: Today/This Week/This Month/This Year/Specific Date/All Time, paired with an always-visible calendar date picker for a specific submission date. The frontend no longer exposes the Date of Fire date-basis toggle; validator filtering defaults to Date of Submission and the calendar picker switches the date scope to Specific Date.
+- Date dropdown filters are right-aligned with the calendar and Apply Date action: Today/This Week/This Month/This Year/Specific Date/All Time, paired with an always-visible calendar date picker for a specific submission date. Apply Date stays disabled until a complete valid date is entered. Specific-date state starts empty on dashboard load and is cleared whenever a preset date period is selected. The frontend no longer exposes the Date of Fire date-basis toggle; validator filtering defaults to Date of Submission and the calendar draft no longer refetches until applied.
 - Region dropdown filter
 - Per-status labels and colour badges (gray=DRAFT, yellow=PENDING, blue=PENDING_VALIDATION, green=VERIFIED, red=REJECTED, purple=REPLACED)
 
@@ -73,6 +73,7 @@ The validator's primary workspace. A large, feature-rich page with:
 
 **Stats Bar** — header stats from `fetchValidatorStats()`:
 - Awaiting validation, wildland fire, and by-category breakdown cards. The former Total Verified card is no longer shown.
+- The selected stats period is controlled by the Stats period chip row and is not repeated in individual card titles.
 - Awaiting validation counts both `PENDING` and `PENDING_VALIDATION` because the validator queue defaults include both statuses.
 - Category cards aggregate legacy/current category aliases, including `VEHICULAR` + `TRANSPORTATION`, to keep totals aligned with normalized incident rows.
 

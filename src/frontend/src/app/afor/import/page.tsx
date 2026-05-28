@@ -741,7 +741,7 @@ function AforImportPage() {
               onClick={handleSubmitAll}
               disabled={isSubmittingAll}
               className="px-5 py-2 text-sm font-bold text-white rounded-md disabled:opacity-50"
-              style={{ backgroundColor: 'var(--bfp-maroon)' }}
+              style={{ backgroundColor: '#991B1B' }}
             >
               {isSubmittingAll ? 'Submitting…' : 'Submit All for Review'}
             </button>
@@ -805,7 +805,7 @@ function AforImportPage() {
                   onClick={handleUpload}
                   disabled={isUploading}
                   className="px-6 py-2 text-sm font-bold text-white rounded-md flex items-center gap-2 transition-colors disabled:opacity-70"
-                  style={{ backgroundColor: 'var(--bfp-maroon)' }}
+                  style={{ backgroundColor: '#991B1B' }}
                 >
                   {isUploading ? <><RefreshCw className="w-4 h-4 animate-spin" /> Analyzing...</> : 'Analyze File'}
                 </button>
@@ -913,7 +913,7 @@ function AforImportPage() {
                   onClick={handleCommit}
                   disabled={isCommitting || previewData.valid_rows === 0 || !coordsReady}
                   className="px-6 py-2 text-sm font-bold text-white rounded-md flex items-center gap-2 transition-colors disabled:opacity-50"
-                  style={{ backgroundColor: 'var(--bfp-maroon)' }}
+                  style={{ backgroundColor: '#991B1B' }}
                 >
                   {isCommitting
                     ? <><RefreshCw className="w-4 h-4 animate-spin" /> Committing...</>

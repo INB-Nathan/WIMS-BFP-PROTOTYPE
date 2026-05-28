@@ -36,7 +36,7 @@
 
   --bfp-maroon: #C62828;
   --bfp-maroon-dark: #8E1B1B;
-  --bfp-gradient: linear-gradient(135deg, #C62828 0%, #8E1B1B 100%);
+  --bfp-gradient: linear-gradient(135deg, #991B1B 0%, #7f1d1d 100%);
 
   /* UI Refactoring tokens */
   --card-elevated-shadow: 0 4px 16px rgba(0, 0, 0, 0.10), 0 1px 4px rgba(0, 0, 0, 0.06);

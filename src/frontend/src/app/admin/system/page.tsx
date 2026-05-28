@@ -465,7 +465,7 @@ export default function AdminSystemPage() {
                         <button
                             onClick={() => { setShowCreateUser(true); setCreatedUser(null); }}
                             className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-md text-white"
-                            style={{ backgroundColor: 'var(--bfp-maroon)' }}
+                            style={{ backgroundColor: '#991B1B' }}
                         >
                             <UserPlus className="w-4 h-4" /> Create User
                         </button>

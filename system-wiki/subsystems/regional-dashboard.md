@@ -27,7 +27,7 @@ The regional dashboard (`/dashboard/regional`) serves the `REGIONAL_ENCODER` rol
 
 The page title now displays "Dashboard" in the role workspace, while the sidebar places this dashboard before the shared `/home` Operations tab. The global sync banner and the former local synced badge are not shown above this dashboard.
 
-**Summary Cards** — 5-card grid with icon, count label, and left-colour border:
+**Summary Cards** — 5-card grid with icon and count label. The selected stats period is controlled by the Stats chip row, not repeated in individual card titles:
 
 | Card | Border | Data Source |
 |---|---|---|
@@ -40,7 +40,7 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 **Incident Table** — paginated list with filters:
 
 - Columns: Date, Classification (with wildland badge), Station, Location, Last Modified, Status
-- Filters: Today/This Week/This Month/This Year/Specific Date/All Time date dropdown, always-visible calendar date picker for a specific modified date, Classification dropdown (from `REGIONAL_INCIDENT_GENERAL_CATEGORIES`), Verification Status chips, Per-page size selector. The frontend no longer exposes the Date of Fire date-basis toggle; regional filtering defaults to Date Modified and the calendar picker switches the date scope to Specific Date.
+- Filters: Classification dropdown (from `REGIONAL_INCIDENT_GENERAL_CATEGORIES`), Verification Status chips, Per-page size selector, and right-aligned date controls. The date controls include Today/This Week/This Month/This Year/Specific Date/All Time, an always-visible calendar date picker for a specific modified date, and an explicit Apply Date action that stays disabled until a complete valid date is entered. Specific-date state starts empty on dashboard load and is cleared whenever a preset date period is selected. The frontend no longer exposes the Date of Fire date-basis toggle; regional filtering defaults to Date Modified and the calendar draft no longer refetches until applied.
 - Default list scope is Today by Date Modified; Today, Specific Date, and any result set with 6 or fewer total incidents render incident cards with status-coloured 1px borders (green verified, red rejected, gray draft, warm yellow pending), softened metadata, primary fire time/location hierarchy, grouped secondary fields, separate district/city fields, combined caller/reporter/contact, paired classification/category, extent of damage, and compact affected-count chips. Wider result sets keep the compact table layout.
 - Pagination: Prev/Next buttons, page X of Y display, configurable page sizes
 - Status badges: green (`VERIFIED`), red (`REJECTED`), yellow (everything else)

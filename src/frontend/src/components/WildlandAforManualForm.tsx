@@ -380,7 +380,7 @@ export function WildlandAforManualForm({
 
     return (
         <div className="bg-white p-6 rounded-lg shadow-md max-w-4xl mx-auto space-y-6">
-            <div className="flex justify-between items-center bg-red-800 -m-6 mb-4 p-4 rounded-t-lg text-white">
+            <div className="flex justify-between items-center bg-[#991B1B] -m-6 mb-4 p-4 rounded-t-lg text-white">
                 <div>
                     <h2 className="text-xl font-bold">AFOR Report Entry</h2>
                     <p className="text-sm font-normal text-red-100 mt-0.5">Wildland Fire Operations Report</p>

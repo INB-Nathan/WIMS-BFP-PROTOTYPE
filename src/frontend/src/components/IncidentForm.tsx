@@ -1355,7 +1355,7 @@ export function IncidentForm({
       )}
 
       {/* Header Bar */}
-      <div className="flex flex-wrap justify-between items-center gap-2 bg-red-800 -m-6 mb-4 p-4 rounded-t-lg text-white">
+      <div className="flex flex-wrap justify-between items-center gap-2 bg-[#991B1B] -m-6 mb-4 p-4 rounded-t-lg text-white">
         <h2 className="text-xl font-bold">{isEditMode ? 'Edit Incident Report' : 'AFOR Report Entry'}</h2>
         <div className="flex items-center gap-2">
           {!isEditMode && (

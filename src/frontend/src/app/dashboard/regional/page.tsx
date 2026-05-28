@@ -96,6 +96,12 @@ function dateOnly(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+function isDateOnly(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && dateOnly(parsed) === value;
+}
+
 function addUtcDays(date: Date, days: number): Date {
   const next = new Date(date);
   next.setUTCDate(next.getUTCDate() + days);
@@ -180,7 +186,8 @@ export default function RegionalDashboardPage() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFilter, setDateFilter] = useState<DateFilterValue>('today');
-  const [specificDate, setSpecificDate] = useState(() => dateOnly(manilaTodayUtcDate()));
+  const [specificDate, setSpecificDate] = useState('');
+  const [specificDateDraft, setSpecificDateDraft] = useState('');
   const [statsDateFilter, setStatsDateFilter] = useState<StatsDateFilterValue>('week');
   const [rejectionNoticeDismissed, setRejectionNoticeDismissed] = useState(false);
   const [pendingActionedBanner, setPendingActionedBanner] = useState(false);
@@ -190,6 +197,7 @@ export default function RegionalDashboardPage() {
   const incidentsSectionRef = useRef<HTMLElement | null>(null);
   const dateBounds = useMemo(() => getRegionalDateBounds(dateFilter, specificDate), [dateFilter, specificDate]);
   const statsDateBounds = useMemo(() => getRegionalDateBounds(statsDateFilter, ''), [statsDateFilter]);
+  const specificDateDraftIsValid = isDateOnly(specificDateDraft);
 
   const updateFiltersWithoutScrollShift = useCallback((update: () => void) => {
     const x = window.scrollX;
@@ -213,6 +221,15 @@ export default function RegionalDashboardPage() {
     }
     setHoverHint(null);
   }, []);
+
+  const applySpecificDateFilter = useCallback(() => {
+    if (!specificDateDraftIsValid) return;
+    updateFiltersWithoutScrollShift(() => {
+      setSpecificDate(specificDateDraft);
+      setDateFilter('specific');
+      setPageIndex(0);
+    });
+  }, [specificDateDraft, specificDateDraftIsValid, updateFiltersWithoutScrollShift]);
 
   const scheduleHoverHint = useCallback((id: number, event: MouseEvent<HTMLElement>) => {
     if (hoverHintTimer.current) clearTimeout(hoverHintTimer.current);
@@ -329,6 +346,8 @@ export default function RegionalDashboardPage() {
     setStatusFilter('REJECTED');
     setCategoryFilter('');
     setDateFilter('all');
+    setSpecificDate('');
+    setSpecificDateDraft('');
     setPageIndex(0);
   });
 
@@ -339,21 +358,14 @@ export default function RegionalDashboardPage() {
     }, 60);
   };
 
-  const statsPeriodLabel: Record<StatsDateFilterValue, string> = {
-    today: 'Today',
-    week: 'This Week',
-    month: 'This Month',
-    all: 'All Time',
-  };
-
   const incidentCards = [
     {
       key: 'total-period',
-      title: `Total Verified · ${statsPeriodLabel[statsDateFilter]}`,
+      title: 'Total Verified',
       icon: Flame,
       value: stats?.total_incidents?.toLocaleString() ?? '0',
       iconBg: '#FEE2E2',
-      iconColor: '#C62828',
+      iconColor: '#991B1B',
     },
     {
       key: 'STRUCTURAL',
@@ -513,9 +525,9 @@ export default function RegionalDashboardPage() {
           <Link
             href="/afor/create"
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors"
-            style={{ backgroundColor: 'var(--bfp-red)' }}
+            style={{ backgroundColor: '#991B1B' }}
             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-dark)'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red)'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#991B1B'; }}
           >
             <FileText className="h-3.5 w-3.5" aria-hidden />
             Manual Entry
@@ -693,37 +705,6 @@ export default function RegionalDashboardPage() {
             <select
               className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
               style={{ color: 'var(--text-primary)' }}
-              value={dateFilter}
-              onChange={(e) => updateFiltersWithoutScrollShift(() => { setDateFilter(e.target.value as DateFilterValue); setPageIndex(0); })}
-              disabled={incidentsLoading}
-            >
-              {DATE_FILTERS.map((filter) => (
-                <option key={filter.value} value={filter.value}>{filter.label}</option>
-              ))}
-            </select>
-
-            <div className="relative">
-              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden />
-              <input
-                type="date"
-                className="min-h-9 rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
-                style={{ color: 'var(--text-primary)' }}
-                value={dateFilter === 'specific' ? specificDate : ''}
-                onChange={(e) => updateFiltersWithoutScrollShift(() => {
-                  const nextDate = e.target.value;
-                  setSpecificDate(nextDate || dateOnly(manilaTodayUtcDate()));
-                  setDateFilter(nextDate ? 'specific' : 'today');
-                  setPageIndex(0);
-                })}
-                disabled={incidentsLoading}
-                aria-label="Filter by specific modified date"
-                title="Filter by specific modified date"
-              />
-            </div>
-
-            <select
-              className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
-              style={{ color: 'var(--text-primary)' }}
               value={categoryFilter}
               onChange={(e) => updateFiltersWithoutScrollShift(() => { setCategoryFilter(e.target.value); setPageIndex(0); })}
               disabled={incidentsLoading}
@@ -755,7 +736,8 @@ export default function RegionalDashboardPage() {
                   setStatusFilter('');
                   setCategoryFilter('');
                   setDateFilter('today');
-                  setSpecificDate(dateOnly(manilaTodayUtcDate()));
+                  setSpecificDate('');
+                  setSpecificDateDraft('');
                   setPageSize(10);
                   setPageIndex(0);
                 })}
@@ -764,6 +746,53 @@ export default function RegionalDashboardPage() {
                 Clear Filters
               </button>
             )}
+
+            <div className="ml-auto flex flex-wrap items-center gap-3">
+              <select
+                className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
+                style={{ color: 'var(--text-primary)' }}
+                value={dateFilter}
+                onChange={(e) => updateFiltersWithoutScrollShift(() => {
+                  setDateFilter(e.target.value as DateFilterValue);
+                  setSpecificDate('');
+                  setSpecificDateDraft('');
+                  setPageIndex(0);
+                })}
+                disabled={incidentsLoading}
+              >
+                {DATE_FILTERS.map((filter) => (
+                  <option key={filter.value} value={filter.value}>{filter.label}</option>
+                ))}
+              </select>
+
+              <div className="relative">
+                <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden />
+                <input
+                  type="date"
+                  className="min-h-9 rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
+                  style={{ color: 'var(--text-primary)' }}
+                  value={specificDateDraft}
+                  onChange={(e) => setSpecificDateDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') applySpecificDateFilter();
+                    if (e.key === 'Escape') setSpecificDateDraft(specificDate);
+                  }}
+                  disabled={incidentsLoading}
+                  aria-label="Filter by specific modified date"
+                  title="Filter by specific modified date"
+                />
+              </div>
+
+              <button
+                type="button"
+                className="min-h-9 rounded-lg px-3 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
+                style={{ backgroundColor: '#991B1B' }}
+                onClick={applySpecificDateFilter}
+                disabled={incidentsLoading || !specificDateDraftIsValid}
+              >
+                Apply Date
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1021,7 +1050,7 @@ export default function RegionalDashboardPage() {
           <div className="p-6">
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
               {[
-                { type: 'fire', label: 'Fire', color: '#C62828' },
+                { type: 'fire', label: 'Fire', color: '#991B1B' },
                 { type: 'agricultural land fire', label: 'Agricultural Fire', color: '#65a30d' },
                 { type: 'forest fire', label: 'Forest Fire', color: '#166534' },
                 { type: 'grassland fire', label: 'Grassland Fire', color: '#84cc16' },

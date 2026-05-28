@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-28
 Total synthesis pages: 32
-Last changes: Encoder/validator dashboards removed Date of Fire frontend filters, added calendar specific-date pickers on default date bases, added status-coloured encoder rich-card borders, moved incident detail dot navigation to the right margin, and applied a 90% global zoom baseline. Also added root `CONTEXT.md` glossary terms for public civilian report clusters and agent skill routing docs.
+Last changes: Encoder/validator dashboard specific-date pickers now start empty, clear on preset date-period switches, stage typed or calendar-selected dates until Apply Date is pressed, and place the date controls at the right edge of the filter row. Stats cards no longer repeat the selected stats period in their titles.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

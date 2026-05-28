@@ -89,13 +89,6 @@ const STATS_DATE_FILTERS = [
 
 type StatsDateFilterValue = (typeof STATS_DATE_FILTERS)[number]["value"];
 
-const STATS_PERIOD_LABEL: Record<StatsDateFilterValue, string> = {
-  today: "Today",
-  week: "This Week",
-  month: "This Month",
-  all: "All Time",
-};
-
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Draft",
   PENDING: "Pending",
@@ -147,6 +140,12 @@ function manilaTodayUtcDate(): Date {
 
 function dateOnly(date: Date): string {
   return date.toISOString().slice(0, 10);
+}
+
+function isDateOnly(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && dateOnly(parsed) === value;
 }
 
 function addUtcDays(date: Date, days: number): Date {
@@ -212,10 +211,12 @@ export default function ValidatorDashboard() {
   const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_ALL);
   const [regionFilter, setRegionFilter] = useState<string>("");
   const [dateFilter, setDateFilter] = useState<DateFilterValue>("today");
-  const [specificDate, setSpecificDate] = useState(() => dateOnly(manilaTodayUtcDate()));
+  const [specificDate, setSpecificDate] = useState('');
+  const [specificDateDraft, setSpecificDateDraft] = useState('');
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 10;
   const dateBounds = useMemo(() => getDateBounds(dateFilter, specificDate), [dateFilter, specificDate]);
+  const specificDateDraftIsValid = isDateOnly(specificDateDraft);
 
   const [statsDateFilter, setStatsDateFilter] = useState<StatsDateFilterValue>("week");
   const statsDateBounds = useMemo(
@@ -276,6 +277,15 @@ export default function ValidatorDashboard() {
       requestAnimationFrame(restore);
     });
   }, []);
+
+  const applySpecificDateFilter = useCallback(() => {
+    if (!specificDateDraftIsValid) return;
+    updateFiltersWithoutScrollShift(() => {
+      setSpecificDate(specificDateDraft);
+      setDateFilter("specific");
+      setPage(0);
+    });
+  }, [specificDateDraft, specificDateDraftIsValid, updateFiltersWithoutScrollShift]);
 
   const clearHoverHint = useCallback(() => {
     if (hoverHintTimer.current) {
@@ -557,7 +567,7 @@ export default function ValidatorDashboard() {
 
   const incidentCards = stats ? [
     { key: 'pending', title: 'Awaiting Validation', icon: Flame, value: stats.pending_validation.toLocaleString(), iconBg: '#DBEAFE', iconColor: '#1D4ED8' },
-    { key: 'wildland', title: `Wildland Fire · ${STATS_PERIOD_LABEL[statsDateFilter]}`, icon: Trees, value: stats.wildland_total.toLocaleString(), iconBg: '#FEF9C3', iconColor: '#92400E' },
+    { key: 'wildland', title: 'Wildland Fire', icon: Trees, value: stats.wildland_total.toLocaleString(), iconBg: '#FEF9C3', iconColor: '#92400E' },
     ...(['STRUCTURAL', 'NON_STRUCTURAL', 'TRANSPORTATION'] as const).map((cat) => {
       const icons = { STRUCTURAL: Building2, NON_STRUCTURAL: TreePine, TRANSPORTATION: Car };
       const colors = { STRUCTURAL: { bg: '#FEF3C7', color: '#D97706' }, NON_STRUCTURAL: { bg: '#DCFCE7', color: '#16A34A' }, TRANSPORTATION: { bg: '#DBEAFE', color: '#2563EB' } };
@@ -566,7 +576,7 @@ export default function ValidatorDashboard() {
         : cat === 'NON_STRUCTURAL'
           ? ['NON_STRUCTURAL', 'NON-STRUCTURAL', 'Non-Structural']
           : ['STRUCTURAL', 'Structural'];
-      return { key: cat, title: `${formatClassification(cat)} · ${STATS_PERIOD_LABEL[statsDateFilter]}`, icon: icons[cat], value: categoryCount(stats, aliases), iconBg: colors[cat].bg, iconColor: colors[cat].color };
+      return { key: cat, title: formatClassification(cat), icon: icons[cat], value: categoryCount(stats, aliases), iconBg: colors[cat].bg, iconColor: colors[cat].color };
     }),
   ] : [];
 
@@ -735,7 +745,11 @@ export default function ValidatorDashboard() {
                     onClick={() => updateFiltersWithoutScrollShift(() => {
                       setStatusFilter(filter.value);
                       setPage(0);
-                      if (filter.value === STATUS_FILTER_QUEUE) setDateFilter('all');
+                      if (filter.value === STATUS_FILTER_QUEUE) {
+                        setDateFilter('all');
+                        setSpecificDate('');
+                        setSpecificDateDraft('');
+                      }
                     })}
                     disabled={loading}
                     className="relative rounded-full border px-4 py-1.5 text-sm font-semibold transition-colors disabled:opacity-50"
@@ -754,7 +768,7 @@ export default function ValidatorDashboard() {
                     {showPendingIndicator && (
                       <span
                         className="absolute -right-2 -top-2 inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-bold leading-none text-white ring-2 ring-white"
-                        style={{ backgroundColor: 'var(--bfp-red)' }}
+                        style={{ backgroundColor: '#991B1B' }}
                         aria-label="Pending incidents available"
                       >
                         {pendingCount.toLocaleString()}
@@ -763,37 +777,6 @@ export default function ValidatorDashboard() {
                   </button>
                 );
               })}
-            </div>
-
-            <select
-              className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
-              style={{ color: 'var(--text-primary)' }}
-              value={dateFilter}
-              onChange={(e) => updateFiltersWithoutScrollShift(() => { setDateFilter(e.target.value as DateFilterValue); setPage(0); })}
-              disabled={loading}
-            >
-              {DATE_FILTERS.map((filter) => (
-                <option key={filter.value} value={filter.value}>{filter.label}</option>
-              ))}
-            </select>
-
-            <div className="relative">
-              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden />
-              <input
-                type="date"
-                className="min-h-9 rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
-                style={{ color: 'var(--text-primary)' }}
-                value={dateFilter === "specific" ? specificDate : ""}
-                onChange={(e) => updateFiltersWithoutScrollShift(() => {
-                  const nextDate = e.target.value;
-                  setSpecificDate(nextDate || dateOnly(manilaTodayUtcDate()));
-                  setDateFilter(nextDate ? "specific" : "today");
-                  setPage(0);
-                })}
-                disabled={loading}
-                aria-label="Filter by specific submission date"
-                title="Filter by specific submission date"
-              />
             </div>
 
             <select
@@ -808,9 +791,56 @@ export default function ValidatorDashboard() {
               ))}
             </select>
 
-            <span className="ml-auto text-sm" style={{ color: 'var(--text-secondary)' }}>
+            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
               {loading ? 'Loading…' : `${total.toLocaleString()} total`}
             </span>
+
+            <div className="ml-auto flex flex-wrap items-center gap-3">
+              <select
+                className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
+                style={{ color: 'var(--text-primary)' }}
+                value={dateFilter}
+                onChange={(e) => updateFiltersWithoutScrollShift(() => {
+                  setDateFilter(e.target.value as DateFilterValue);
+                  setSpecificDate('');
+                  setSpecificDateDraft('');
+                  setPage(0);
+                })}
+                disabled={loading}
+              >
+                {DATE_FILTERS.map((filter) => (
+                  <option key={filter.value} value={filter.value}>{filter.label}</option>
+                ))}
+              </select>
+
+              <div className="relative">
+                <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden />
+                <input
+                  type="date"
+                  className="min-h-9 rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
+                  style={{ color: 'var(--text-primary)' }}
+                  value={specificDateDraft}
+                  onChange={(e) => setSpecificDateDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") applySpecificDateFilter();
+                    if (e.key === "Escape") setSpecificDateDraft(specificDate);
+                  }}
+                  disabled={loading}
+                  aria-label="Filter by specific submission date"
+                  title="Filter by specific submission date"
+                />
+              </div>
+
+              <button
+                type="button"
+                className="min-h-9 rounded-lg px-3 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
+                style={{ backgroundColor: '#991B1B' }}
+                onClick={applySpecificDateFilter}
+                disabled={loading || !specificDateDraftIsValid}
+              >
+                Apply Date
+              </button>
+            </div>
           </div>
           <p className="mt-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
             Click an incident row to view details and diffs. Select pending rows for bulk approval; archive finalized records from the decision column.
@@ -975,9 +1005,9 @@ export default function ValidatorDashboard() {
                                 openAction(inc, "reject");
                               }}
                               className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors"
-                              style={{ backgroundColor: 'var(--bfp-red)' }}
+                              style={{ backgroundColor: '#991B1B' }}
                               onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-dark)'; }}
-                              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red)'; }}
+                              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#991B1B'; }}
                             >
                               Reject
                             </button>
@@ -1054,7 +1084,7 @@ export default function ValidatorDashboard() {
             {actionError && <p className="text-sm text-red-600 mb-2">{actionError}</p>}
             <div className="flex flex-wrap gap-2 justify-end mt-4">
               <button onClick={() => { setValidatorDupTarget(null); setValidatorDupMatchedId(null); setActionError(null); setShowDupHistory(false); }} disabled={actionLoading} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-40">Cancel</button>
-              <button onClick={() => { const inc = validatorDupTarget; setValidatorDupTarget(null); setValidatorDupMatchedId(null); setShowDupHistory(false); openAction(inc, "reject"); }} disabled={actionLoading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: 'var(--bfp-red)' }}>Reject</button>
+              <button onClick={() => { const inc = validatorDupTarget; setValidatorDupTarget(null); setValidatorDupMatchedId(null); setShowDupHistory(false); openAction(inc, "reject"); }} disabled={actionLoading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#991B1B' }}>Reject</button>
               <button
                 onClick={() => {
                   const inc = validatorDupTarget;
@@ -1132,7 +1162,7 @@ export default function ValidatorDashboard() {
             )}
             <div className="flex flex-wrap gap-2 justify-end mt-4">
               <button onClick={() => bulkDupResolve.current?.("skip")} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50">Skip (Leave Pending)</button>
-              <button onClick={() => bulkDupResolve.current?.("reject")} className="px-4 py-2 text-sm rounded-lg text-white" style={{ backgroundColor: 'var(--bfp-red)' }}>Reject</button>
+              <button onClick={() => bulkDupResolve.current?.("reject")} className="px-4 py-2 text-sm rounded-lg text-white" style={{ backgroundColor: '#991B1B' }}>Reject</button>
               <button onClick={() => bulkDupResolve.current?.("accept_replace")} className="px-4 py-2 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700">Replace Original</button>
               <button onClick={() => bulkDupResolve.current?.("accept")} className="px-4 py-2 text-sm rounded-lg text-white" style={{ backgroundColor: '#16A34A' }}>Accept as New</button>
             </div>
@@ -1222,7 +1252,7 @@ export default function ValidatorDashboard() {
             {isDuplicateIncident && (actionType === "accept" || actionType === "accept_replace") ? (
               <div className="flex flex-wrap gap-2 justify-end mt-4">
                 <button onClick={closeModal} disabled={actionLoading} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-40">Back</button>
-                <button onClick={() => { setActionType("reject"); }} disabled={actionLoading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: 'var(--bfp-red)' }}>Reject</button>
+                <button onClick={() => { setActionType("reject"); }} disabled={actionLoading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#991B1B' }}>Reject</button>
                 <button onClick={() => { setActionType("accept_replace"); void submitAction(); }} disabled={actionLoading} className="px-4 py-2 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">{actionLoading ? "Saving…" : "Replace Original"}</button>
                 <button onClick={() => { setActionType("accept"); void submitAction(true); }} disabled={actionLoading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#16A34A' }}>{actionLoading ? "Saving…" : "Accept as New"}</button>
               </div>
@@ -1233,7 +1263,7 @@ export default function ValidatorDashboard() {
                   onClick={() => void submitAction()}
                   disabled={actionLoading || (actionType === "reject" && !actionNotes.trim())}
                   className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50"
-                  style={{ backgroundColor: actionType === "accept" || actionType === "accept_replace" ? '#16A34A' : 'var(--bfp-red)' }}
+                  style={{ backgroundColor: actionType === "accept" || actionType === "accept_replace" ? '#16A34A' : '#991B1B' }}
                 >
                   {actionLoading ? "Saving…" : "Confirm"}
                 </button>
