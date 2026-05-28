@@ -3,6 +3,61 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-05-28] update | Dashboard date filters and visual polish
+
+**Changes implemented:**
+- Encoder dashboard rich incident cards now keep the existing 1px border width but colour the border by status: green verified, red rejected, gray draft, warm yellow pending.
+- Encoder and validator dashboards no longer send frontend `date_basis` parameters or expose Date of Fire filtering. Encoder date filters default to Date Modified; validator date filters default to Date of Submission.
+- Both dashboards now show an always-visible calendar picker that switches the date scope to Specific Date and filters by the relevant default date field.
+- The regional incident detail section-dot navigation now hugs the right viewport margin with a fixed margin, avoiding overlap with incident details.
+- Global frontend CSS applies a 90% `body` zoom baseline.
+
+**Verification:**
+- `rg` confirmed no remaining frontend dashboard references to `date_basis`, `dateBasis`, or `DATE_BASIS`.
+- `npx.cmd eslint src/app/dashboard/regional/page.tsx src/app/dashboard/validator/page.tsx src/app/dashboard/regional/incidents/[id]/page.tsx` passed.
+- In-app Browser verification could not run because the `iab` browser backend was unavailable in this session.
+
+**Wiki updates:** Updated `frontend/route-map.md`, `frontend/frontend-infrastructure.md`, `subsystems/regional-dashboard.md`, `subsystems/validator-hub.md`, `gaps/ui-ux-gap-register.md`, `index.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this changed UI behavior and presentation, not FRS alignment.
+
+## [2026-05-28] fix | Encoder/validator bug batch: pin search, duplicate detection, notifications, session
+
+**Changes implemented:**
+
+- **Address pin search** (`src/frontend/src/components/IncidentForm.tsx`): Removed the `, Philippines` suffix appended to map search queries. Nominatim already filters to the Philippines via `countrycodes=ph`; the suffix was narrowing street-level results.
+
+- **Re-pin from address** (`IncidentForm.tsx`): The "Re-pin from Address" button now clears the current lat/lng before setting the search query. This resets `MapPickerInner`'s `autoSearchedRef` guard (which was silently blocking re-geocoding when the same address string was re-submitted after a manual pin).
+
+- **Barangay overwrite guard** (`IncidentForm.tsx`): Added `barangayManuallySetRef`. When the encoder types directly into the Barangay field, the ref is set and subsequent map-pin reverse-geocode results no longer overwrite the typed value.
+
+- **Duplicate detection redesign** (`src/backend/services/duplicate_detection.py`, `lifecycle.py`): Replaced the previous 5 km spatial + ±1-day date + OR-category fallback algorithm with a **5-criterion scoring system** (threshold: 3 of 5). Criteria: (1) distance ≤ 500 m, (2) same general category AND type code, (3) same exact fire date, (4) fire time within 1 hour, (5) same city/municipality (falls back to province/district). Candidate pool is ±3 days. All three `check_for_duplicate` call sites in `lifecycle.py` updated to pass `notification_dt`, `city_municipality`, and `province_district`.
+
+- **Validator new-submission polling** (`src/frontend/src/app/dashboard/validator/page.tsx`): Reduced poll interval from 30 s to 10 s to surface new submissions faster.
+
+- **Encoder actioned-submission banner** (`src/frontend/src/app/dashboard/regional/page.tsx`): Added a background 20 s poll that compares the current PENDING total against the last-known value. When the count drops (validator verified or rejected a submission), a dismissable blue info banner is shown.
+
+- **Forced-logout / refresh-token replay fix** (`src/frontend/src/lib/api/transport.ts`): The `apiFetch` 401 handler was calling `fetch('/api/auth/refresh', ...)` directly, bypassing the `navigator.locks` coordination in `auth-refresh.ts`. With Keycloak's `refreshTokenMaxReuse: 0`, a concurrent proactive background refresh and a 401-triggered refresh racing on the same token caused session revocation. The 401 handler now calls `refreshToken()` from `auth-refresh.ts`, routing through the shared in-flight de-duplication and lock.
+
+**Verification:** Backend: `pytest -v`. Frontend: `npx vitest run`, `npm run lint`.
+
+**Wiki updates:** This log.
+
+## [2026-05-28] fix | Encoder and validator dashboard count polish
+
+**Changes implemented:**
+- Encoder rejection alert is dismissible, and Show rejected now bypasses conflicting category/date filters by switching to all-time rejected records.
+- Encoder Rejected chip and validator Pending chip now show red count badges with white text.
+- Encoder incident list uses the richer card layout for Today, Specific Date, and any filtered result set with 6 or fewer total incidents.
+- Encoder top summary card now shows Total This Week from a new `total_incidents_this_week` stat.
+- Regional wildland fire-type stats normalize `lower(trim(wildland_fire_type))`, fixing literal/casing/spacing mismatches in the Fire bucket.
+- Validator Awaiting Validation stat now counts both `PENDING` and `PENDING_VALIDATION`, matching the queue default.
+- Validator summary cards replace Total Verified with Wildland Fire via a new `wildland_total` stat.
+
+**Verification:**
+- `python -m py_compile src/backend/api/routes/regional.py` passed.
+- `npx.cmd eslint src/app/dashboard/regional/page.tsx src/app/dashboard/validator/page.tsx src/lib/api/legacy.ts` passed.
+
+**Wiki updates:** Updated `frontend/route-map.md`, `subsystems/regional-dashboard.md`, `subsystems/validator-hub.md`, `gaps/ui-ux-gap-register.md`, `index.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this changed UI behavior and dashboard stats presentation, not FRS alignment.
+
 ## [2026-05-27] update | Encoder/validator frontend UI polish
 - Renamed authenticated sidebar `/home` labels to Operations across role navigation while keeping the `/home` route unchanged.
 - Put encoder and validator dashboards first in their role navigation and relabeled those sidebar entries to plain Dashboard.
@@ -1034,6 +1089,38 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `npm.cmd run lint` still fails on existing unrelated `src/frontend/src/components/IncidentRevisionHistory.tsx` `react-hooks/set-state-in-effect`; no lint errors were reported for the edited detail page.
 
 **Wiki updates:** Updated `frontend/route-map.md`, `subsystems/regional-dashboard.md`, `gaps/ui-ux-gap-register.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this is frontend presentation polish only.
+
+## [2026-05-28] fix | Login/Keycloak SSO UI and dashboard specific-date filters
+
+**Changes implemented:**
+- Native `/login` desktop form alignment was nudged left and the hero trust tagline now uses the same check-circle icon language expected in the Keycloak flow.
+- Keycloak theme hero tagline now includes the check-circle icon on hosted auth/MFA screens.
+- Added a custom Keycloak `login-otp.ftl` OTP challenge with six digit boxes grouped 3+3, plus auto-advance, paste distribution, and backspace-to-previous behavior.
+- Updated Keycloak TOTP setup verification (`login-config-totp.ftl`) to use the same 3+3 digit-box input while preserving hidden `totp` submission to Keycloak.
+- Regional and validator dashboard date dropdowns now include `Specific Date`; selecting it reveals a single date input and sends same-day `date_from`/`date_to` bounds through the existing APIs.
+
+**Verification:**
+- `npx.cmd eslint src/app/login/page.tsx src/app/dashboard/regional/page.tsx src/app/dashboard/validator/page.tsx` passed.
+- Started the frontend dev server with local OIDC env defaults and confirmed `http://127.0.0.1:3000/login` returns HTTP 200.
+- Full `npm.cmd run lint` still fails on the existing unrelated `src/frontend/src/components/IncidentRevisionHistory.tsx` `react-hooks/set-state-in-effect` error.
+- In-app Browser verification could not run because the `iab` browser target was unavailable in this session; Keycloak FTL screens were code-reviewed but not browser-smoke-tested in a running Keycloak container.
+
+**Wiki updates:** Updated `ui-ux/evaluation-loginpage-keycloaksso.md`, `gaps/ui-ux-gap-register.md`, `frontend/route-map.md`, `subsystems/regional-dashboard.md`, `subsystems/validator-hub.md`, `index.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; no FRS/code alignment gap changed.
+
+## [2026-05-27] polish | Encoder incident detail cohesion refinement
+
+**Changes implemented:**
+- Refined `/dashboard/regional/incidents/[id]` visual language with softer rounded section surfaces, gentler shadows, cohesive low-saturation tints, calmer text blocks, more polished tables, and softer problem tags.
+- Enlarged the desktop vertical dot section navigator click targets, added hover/focus scale animation and labels, and moved the rail inward on wide screens so it sits closer to the incident report instead of the browser scrollbar.
+- Added explicit `(24H)` indicators to formatted notification/timeline/response time displays while preserving the underlying data.
+- Backend/API/data/action/map behavior was unchanged.
+
+**Verification:**
+- Lightweight TS transpile syntax check passed for the edited detail page.
+- Targeted ESLint for `src/app/dashboard/regional/incidents/[id]/page.tsx` passed.
+- Full `npm.cmd run lint` still fails on existing unrelated `src/frontend/src/components/IncidentRevisionHistory.tsx` `react-hooks/set-state-in-effect`.
+
+**Wiki updates:** Updated `frontend/route-map.md`, `subsystems/regional-dashboard.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this is frontend presentation polish only.
 
 ## [2026-05-27] fix | Validator submitted-date filter and status badge sizing
 

@@ -149,6 +149,7 @@ export function IncidentForm({
   const locationHydratedRef = useRef(false);
   const formHydratedRef = useRef(false);
   const submitAfterSaveRef = useRef(false);
+  const barangayManuallySetRef = useRef(false);
 
   const showToast = (message: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -1516,7 +1517,7 @@ export function IncidentForm({
                 className={inputCls}
                 placeholder="e.g. Barangay San Jose"
                 value={formState.barangay}
-                onChange={handleChange}
+                onChange={(e) => { barangayManuallySetRef.current = true; handleChange(e); }}
               />
             </div>
 
@@ -1532,7 +1533,7 @@ export function IncidentForm({
                 onBlur={() => {
                   const addr = formState.incident_address.trim();
                   if (addr && latitude === null && longitude === null) {
-                    setMapSearchQuery(`${addr}, Philippines`);
+                    setMapSearchQuery(addr);
                   }
                 }}
               />
@@ -1559,7 +1560,11 @@ export function IncidentForm({
                   type="button"
                   onClick={() => {
                     const addr = formState.incident_address.trim();
-                    if (addr) setMapSearchQuery(`${addr}, Philippines`);
+                    if (addr) {
+                      setLatitude(null);
+                      setLongitude(null);
+                      setMapSearchQuery(addr);
+                    }
                   }}
                   className="text-xs text-blue-700 underline hover:text-blue-900"
                 >
@@ -1575,7 +1580,7 @@ export function IncidentForm({
                     setLatitude(lat);
                     setLongitude(lng);
                     const geo = await reverseGeocode(lat, lng);
-                    if (geo?.barangay) {
+                    if (geo?.barangay && !barangayManuallySetRef.current) {
                       setFormState((prev) => ({ ...prev, barangay: geo.barangay }));
                     }
                   }}

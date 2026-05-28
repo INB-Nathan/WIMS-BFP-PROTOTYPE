@@ -881,6 +881,7 @@ export async function fetchRegionalStats(): Promise<any> {
 export async function fetchValidatorStats(): Promise<{
   total_verified: number;
   pending_validation: number;
+  wildland_total: number;
   by_category: { category: string; count: number }[];
   structures_affected: number;
   households_affected: number;

@@ -73,6 +73,7 @@ router = APIRouter(prefix="/api/regional", tags=["regional"])
 
 class RegionalStatsResponse(BaseModel):
     total_incidents: int
+    total_incidents_this_week: int = 0
     by_category: list[dict[str, Any]]
     by_alarm_level: list[dict[str, Any]]
     by_status: list[dict[str, Any]]
@@ -967,7 +968,7 @@ def get_validator_stats(
     user: Annotated[dict, Depends(get_national_validator)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
-    """Counts of VERIFIED incidents by category visible to this validator."""
+    """Counts of validator-visible incidents for dashboard summary cards."""
     by_cat_rows = db.execute(
         text("""
             SELECT nd.general_category, COUNT(*) as cnt
@@ -983,8 +984,20 @@ def get_validator_stats(
         db.execute(
             text("""
             SELECT COUNT(*) FROM wims.fire_incidents
-            WHERE verification_status = 'PENDING_VALIDATION' AND is_archived = FALSE
+            WHERE verification_status IN ('PENDING', 'PENDING_VALIDATION') AND is_archived = FALSE
         """),
+        ).scalar()
+        or 0
+    )
+
+    wildland_total = (
+        db.execute(
+            text("""
+                SELECT COUNT(*)
+                FROM wims.incident_wildland_afor iwa
+                JOIN wims.fire_incidents fi ON fi.incident_id = iwa.incident_id
+                WHERE fi.verification_status = 'VERIFIED' AND fi.is_archived = FALSE
+            """),
         ).scalar()
         or 0
     )
@@ -1007,6 +1020,7 @@ def get_validator_stats(
     return {
         "total_verified": total_verified,
         "pending_validation": pending_count,
+        "wildland_total": wildland_total,
         "by_category": [{"category": r[0], "count": r[1]} for r in by_cat_rows],
         "structures_affected": int(affected_row[0]) if affected_row else 0,
         "households_affected": int(affected_row[1]) if affected_row else 0,
@@ -1046,6 +1060,27 @@ def get_regional_stats(
                 FROM wims.fire_incidents fi
                 WHERE fi.encoder_id = CAST(:eid AS uuid)
                   AND fi.is_archived = FALSE
+                  {hide_seeded_sql}
+                """
+            ),
+            {"eid": str(encoder_id)},
+        ).scalar()
+        or 0
+    )
+
+    total_this_week = (
+        db.execute(
+            text(
+                f"""
+                SELECT COUNT(*)
+                FROM wims.fire_incidents fi
+                WHERE fi.encoder_id = CAST(:eid AS uuid)
+                  AND fi.is_archived = FALSE
+                  AND (fi.created_at AT TIME ZONE 'Asia/Manila')::date >= (
+                    (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date
+                    - (((EXTRACT(DOW FROM (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date)::int + 6) % 7))
+                  )
+                  AND (fi.created_at AT TIME ZONE 'Asia/Manila')::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date
                   {hide_seeded_sql}
                 """
             ),
@@ -1116,12 +1151,12 @@ def get_regional_stats(
 
     wildland_type_rows = db.execute(
         text("""
-            SELECT iwa.wildland_fire_type, COUNT(*) as cnt
+            SELECT lower(trim(iwa.wildland_fire_type)) AS wildland_fire_type, COUNT(*) as cnt
             FROM wims.incident_wildland_afor iwa
             JOIN wims.fire_incidents fi ON fi.incident_id = iwa.incident_id
             WHERE fi.encoder_id = CAST(:eid AS uuid) AND fi.is_archived = FALSE
             """ + hide_seeded_sql + """
-            GROUP BY iwa.wildland_fire_type
+            GROUP BY lower(trim(iwa.wildland_fire_type))
             ORDER BY cnt DESC
         """),
         {"eid": str(encoder_id)},
@@ -1145,6 +1180,7 @@ def get_regional_stats(
 
     return RegionalStatsResponse(
         total_incidents=total,
+        total_incidents_this_week=total_this_week,
         by_category=[{"category": r[0], "count": r[1]} for r in by_cat_rows],
         by_alarm_level=[{"alarm_level": r[0], "count": r[1]} for r in by_alarm_rows],
         by_status=[{"status": r[0], "count": r[1]} for r in by_status_rows],

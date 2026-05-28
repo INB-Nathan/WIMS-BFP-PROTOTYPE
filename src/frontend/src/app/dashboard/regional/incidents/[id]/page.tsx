@@ -62,15 +62,15 @@ type SectionTone =
   | 'green'
   | 'neutral';
 
-const SECTION_TONES: Record<SectionTone, { section: string; header: string; accent: string }> = {
-  slate: { section: 'border-slate-200', header: 'bg-slate-50', accent: 'border-slate-500' },
-  red: { section: 'border-red-100', header: 'bg-red-50', accent: 'border-red-800' },
-  amber: { section: 'border-amber-100', header: 'bg-amber-50', accent: 'border-amber-500' },
-  blue: { section: 'border-slate-200', header: 'bg-blue-50', accent: 'border-blue-700' },
-  rose: { section: 'border-rose-100', header: 'bg-rose-50', accent: 'border-rose-700' },
-  emerald: { section: 'border-emerald-100', header: 'bg-emerald-50', accent: 'border-emerald-700' },
-  green: { section: 'border-emerald-100', header: 'bg-emerald-50', accent: 'border-emerald-700' },
-  neutral: { section: 'border-gray-200', header: 'bg-gray-50', accent: 'border-gray-500' },
+const SECTION_TONES: Record<SectionTone, { section: string; header: string; accent: string; table: string }> = {
+  slate: { section: 'border-slate-200/80', header: 'bg-slate-50/80', accent: 'bg-slate-500', table: 'bg-slate-50/80' },
+  red: { section: 'border-rose-200/70', header: 'bg-rose-50/70', accent: 'bg-rose-700', table: 'bg-rose-50/60' },
+  amber: { section: 'border-amber-200/70', header: 'bg-amber-50/65', accent: 'bg-amber-600', table: 'bg-amber-50/50' },
+  blue: { section: 'border-sky-200/70', header: 'bg-sky-50/65', accent: 'bg-sky-700', table: 'bg-sky-50/55' },
+  rose: { section: 'border-rose-200/65', header: 'bg-rose-50/55', accent: 'bg-rose-700', table: 'bg-rose-50/45' },
+  emerald: { section: 'border-emerald-200/70', header: 'bg-emerald-50/55', accent: 'bg-emerald-700', table: 'bg-emerald-50/45' },
+  green: { section: 'border-emerald-200/70', header: 'bg-emerald-50/55', accent: 'bg-emerald-700', table: 'bg-emerald-50/45' },
+  neutral: { section: 'border-stone-200/80', header: 'bg-stone-50/80', accent: 'bg-stone-500', table: 'bg-stone-50/70' },
 };
 
 const SECTION_NAV_LINKS = [
@@ -101,7 +101,7 @@ function EmptyValue() {
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-sm text-gray-700">
+    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/70 px-4 py-5 text-sm text-slate-700">
       {message}
     </div>
   );
@@ -109,7 +109,7 @@ function EmptyState({ message }: { message: string }) {
 
 function DetailGrid({ children, columns = 2 }: { children: React.ReactNode; columns?: 2 | 3 }) {
   const gridClass = columns === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2';
-  return <dl className={`grid grid-cols-1 gap-x-8 gap-y-5 md:grid-cols-2 ${gridClass}`}>{children}</dl>;
+  return <dl className={`grid grid-cols-1 gap-x-9 gap-y-5 md:grid-cols-2 ${gridClass}`}>{children}</dl>;
 }
 
 function DetailField({
@@ -124,9 +124,9 @@ function DetailField({
   valueClassName?: string;
 }) {
   return (
-    <div className={`min-w-0 border-b border-gray-200 pb-3 ${className}`}>
-      <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className={`mt-1 whitespace-pre-wrap break-words text-sm font-medium leading-6 text-slate-950 ${valueClassName}`}>
+    <div className={`min-w-0 border-b border-slate-200/80 pb-3.5 ${className}`}>
+      <dt className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">{label}</dt>
+      <dd className={`mt-1.5 whitespace-pre-wrap break-words text-sm font-medium leading-6 text-slate-950 ${valueClassName}`}>
         {formatDetailValue(value)}
       </dd>
     </div>
@@ -136,8 +136,8 @@ function DetailField({
 function TextBlock({ label, value }: { label?: string; value: unknown }) {
   return (
     <div>
-      {label ? <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p> : null}
-      <div className="border border-slate-200 bg-stone-50 px-4 py-4 text-sm leading-7 text-slate-900">
+      {label ? <p className="mb-2 text-xs font-semibold uppercase tracking-[0.04em] text-slate-500">{label}</p> : null}
+      <div className="rounded-xl border border-stone-200/90 bg-stone-50/80 px-4 py-4 text-sm leading-7 text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
         <p className="whitespace-pre-wrap break-words">{formatDetailValue(value)}</p>
       </div>
     </div>
@@ -146,9 +146,9 @@ function TextBlock({ label, value }: { label?: string; value: unknown }) {
 
 function MetricCard({ label, value }: { label: string; value: unknown }) {
   return (
-    <div className="border border-amber-100 bg-amber-50/50 px-4 py-3">
+    <div className="rounded-xl border border-amber-200/70 bg-amber-50/45 px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.035)]">
       <div className="text-lg font-semibold tabular-nums text-slate-950">{formatDetailValue(value)}</div>
-      <div className="mt-1 text-xs font-medium text-slate-600">{label}</div>
+      <div className="mt-1 text-xs font-medium leading-4 text-slate-600">{label}</div>
     </div>
   );
 }
@@ -173,7 +173,7 @@ function NarrativeReport({ text }: { text: string }) {
   const paragraphs = text.split('\n').map((s) => s.trim()).filter(Boolean);
   if (!paragraphs.length) return <EmptyValue />;
   return (
-    <div className="space-y-3 border border-stone-200 bg-stone-50 px-4 py-4 text-sm leading-7 text-slate-900">
+    <div className="space-y-3 rounded-xl border border-stone-200/90 bg-stone-50/80 px-4 py-4 text-sm leading-7 text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       {paragraphs.map((p, i) => (
         <p key={i} className="whitespace-pre-wrap break-words">{p}</p>
       ))}
@@ -191,12 +191,13 @@ function ProblemsGrid({ selected }: { selected: string[] }) {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
       {selectedOptions.map((label) => (
         <span
           key={label}
-          className="inline-flex items-center border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-slate-800"
+          className="inline-flex items-center rounded-xl border border-amber-200/70 bg-amber-50/60 px-3.5 py-2.5 text-sm font-medium leading-5 text-slate-800 shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
         >
+          <span className="mr-2 h-1.5 w-1.5 rounded-full bg-amber-600/70" aria-hidden />
           {label}
         </span>
       ))}
@@ -256,11 +257,20 @@ function fmt24h(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const d = new Date(String(raw));
   if (isNaN(d.getTime())) return String(raw);
-  return d.toLocaleString('en-PH', {
+  const formatted = d.toLocaleString('en-PH', {
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
     hour12: false,
   });
+  return `${formatted} (24H)`;
+}
+
+function mark24h(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const value = String(raw).trim();
+  if (!value) return null;
+  if (/\b24H\b/i.test(value)) return value;
+  return `${value} (24H)`;
 }
 
 function splitAlarmDateTime(raw: string | null | undefined): { date: string; time: string } | null {
@@ -272,7 +282,7 @@ function splitAlarmDateTime(raw: string | null | undefined): { date: string; tim
   const yyyy = d.getFullYear();
   const hh = String(d.getHours()).padStart(2, '0');
   const min = String(d.getMinutes()).padStart(2, '0');
-  return { date: `${mm}-${dd}-${yyyy}`, time: `${hh}:${min}` };
+  return { date: `${mm}-${dd}-${yyyy}`, time: `${hh}:${min} (24H)` };
 }
 
 // ── Section card ─────────────────────────────────────────────────────────────
@@ -293,14 +303,15 @@ function Section({
   return (
     <section
       id={sectionId}
-      className={`scroll-mt-24 border bg-white ${toneClasses.section}`}
+      className={`scroll-mt-24 overflow-hidden rounded-2xl border bg-white shadow-[0_8px_24px_rgba(15,23,42,0.045)] ${toneClasses.section}`}
       aria-labelledby={`${sectionId}-title`}
     >
-      <div className={`border-b border-l-4 border-b-gray-200 px-5 py-4 ${toneClasses.header} ${toneClasses.accent}`}>
+      <div className={`relative border-b border-slate-200/70 px-5 py-4 ${toneClasses.header}`}>
+        <span className={`absolute left-0 top-4 h-8 w-1 rounded-r-full ${toneClasses.accent}`} aria-hidden />
         <h2 id={`${sectionId}-title`} className="text-base font-semibold text-gray-950">{title}</h2>
         {subtitle ? <p className="mt-1 text-sm text-gray-600">{subtitle}</p> : null}
       </div>
-      <div className="space-y-5 p-5">{children}</div>
+      <div className="space-y-6 p-5">{children}</div>
     </section>
   );
 }
@@ -324,13 +335,13 @@ function DataTable({
   if (!visibleRows.length) return <EmptyState message={emptyMessage} />;
   return (
     <div>
-      {title ? <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{title}</p> : null}
-      <div className="overflow-x-auto border border-slate-200">
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50">
+      {title ? <p className="mb-2 text-xs font-semibold uppercase tracking-[0.04em] text-slate-500">{title}</p> : null}
+      <div className="overflow-x-auto rounded-xl border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.035)]">
+        <table className="min-w-full divide-y divide-slate-200/80 text-sm">
+          <thead className="bg-slate-50/90">
             <tr>
               {columns.map((column) => (
-                <th key={column} className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                <th key={column} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.04em] text-slate-600">
                   {column}
                 </th>
               ))}
@@ -338,9 +349,9 @@ function DataTable({
           </thead>
           <tbody className="divide-y divide-slate-100 bg-white">
             {visibleRows.map((row, rowIndex) => (
-              <tr key={rowIndex} className="hover:bg-slate-50">
+              <tr key={rowIndex} className={rowIndex % 2 === 0 ? 'bg-white hover:bg-slate-50/80' : 'bg-slate-50/35 hover:bg-slate-50/90'}>
                 {row.map((cell, cellIndex) => (
-                  <td key={cellIndex} className="px-4 py-2.5 align-top text-slate-900">
+                  <td key={cellIndex} className="px-4 py-3 align-top text-slate-900">
                     <span className={cellIndex > 0 ? 'tabular-nums' : ''}>{formatDetailValue(cell)}</span>
                   </td>
                 ))}
@@ -356,10 +367,10 @@ function DataTable({
 function ResourceGroup({ title, rows }: { title: string; rows: { label: string; value: unknown }[] }) {
   return (
     <div>
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</p>
-      <div className="grid grid-cols-1 border border-slate-200 sm:grid-cols-2 lg:grid-cols-3">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.04em] text-slate-500">{title}</p>
+      <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.035)] sm:grid-cols-2 lg:grid-cols-3">
         {rows.map((row) => (
-          <div key={row.label} className="border-b border-r border-slate-200 bg-slate-50/50 px-3 py-3">
+          <div key={row.label} className="border-b border-r border-slate-200/80 bg-slate-50/45 px-3.5 py-3">
             <div className="text-xs font-medium text-slate-600">{row.label}</div>
             <div className="mt-1 text-sm font-semibold tabular-nums text-slate-950">{formatDetailValue(row.value)}</div>
           </div>
@@ -751,7 +762,7 @@ export default function RegionalIncidentDetailPage() {
   const engines = ((alarmTimeline as Record<string, unknown>)._engines as EngineRow[] | undefined) ?? [];
   const engineRows = engines
     .filter((eng) => eng.name || eng.time_dispatched || eng.time_arrived)
-    .map((eng) => [eng.name, eng.time_dispatched, eng.time_arrived]);
+    .map((eng) => [eng.name, mark24h(eng.time_dispatched), mark24h(eng.time_arrived)]);
   const casualtyRows = (() => {
     const cd = sens?.casualty_details as Record<string, Record<string, Record<string, number>>> | undefined;
     const rows = [
@@ -1021,7 +1032,7 @@ export default function RegionalIncidentDetailPage() {
         </div>
       )}
 
-      <div className="border border-slate-200 bg-white px-5 py-4">
+      <div className="rounded-2xl border border-slate-200/90 bg-white px-5 py-4 shadow-[0_6px_18px_rgba(15,23,42,0.045)]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 space-y-3">
             <Link
@@ -1187,7 +1198,7 @@ export default function RegionalIncidentDetailPage() {
             </div>
           )}
 
-          <section className="border border-slate-200 bg-white p-5" aria-labelledby="incident-summary-title">
+          <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-[0_6px_18px_rgba(15,23,42,0.04)]" aria-labelledby="incident-summary-title">
             <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h2 id="incident-summary-title" className="text-base font-semibold text-gray-950">Incident Summary</h2>
@@ -1206,7 +1217,7 @@ export default function RegionalIncidentDetailPage() {
           </section>
 
           <nav
-            className="fixed right-6 top-1/2 z-30 hidden -translate-y-1/2 flex-col gap-3 xl:flex"
+            className="fixed right-6 top-1/2 z-30 hidden -translate-y-1/2 flex-col gap-3 xl:flex 2xl:right-8"
             aria-label="Incident report sections"
           >
             {SECTION_NAV_LINKS.map(([href, label]) => (
@@ -1215,16 +1226,16 @@ export default function RegionalIncidentDetailPage() {
                 href={`#${href}`}
                 aria-label={label}
                 title={label}
-                className="group relative flex h-4 w-4 items-center justify-center focus:outline-none"
+                className="group relative flex h-8 w-8 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-red-700/40"
               >
                 <span
-                  className={`h-2.5 w-2.5 rounded-full border transition-colors ${
+                  className={`h-3.5 w-3.5 rounded-full border shadow-sm transition-all duration-200 motion-safe:group-hover:scale-125 motion-safe:group-focus:scale-125 ${
                     activeSectionId === href
-                      ? 'border-red-800 bg-red-800'
-                      : 'border-slate-400 bg-white group-hover:border-slate-700 group-focus:border-slate-700'
+                      ? 'border-red-800 bg-red-800 ring-4 ring-red-100'
+                      : 'border-slate-400 bg-white group-hover:border-red-700 group-focus:border-red-700 group-hover:bg-red-50 group-focus:bg-red-50'
                   }`}
                 />
-                <span className="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 whitespace-nowrap border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus:opacity-100">
+                <span className="pointer-events-none absolute right-9 top-1/2 -translate-y-1/2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 opacity-0 shadow-sm transition-all duration-150 group-hover:-translate-x-1 group-hover:opacity-100 group-focus:-translate-x-1 group-focus:opacity-100">
                   {label}
                 </span>
               </a>
@@ -1237,7 +1248,7 @@ export default function RegionalIncidentDetailPage() {
               <DetailField label={FIELD_LABELS.fire_station_name} value={ns?.fire_station_name} />
               <DetailField label={FIELD_LABELS.responder_type} value={ns?.responder_type} />
               <DetailField label={FIELD_LABELS.alarm_level} value={ns?.alarm_level} />
-              <DetailField label="Time Returned to Base" value={timeReturnedToBase} />
+              <DetailField label="Time Returned to Base" value={mark24h(timeReturnedToBase)} />
               <DetailField label={FIELD_LABELS.distance_from_station_km} value={ns?.distance_from_station_km ?? ns?.distance_to_fire_scene_km} />
               <DetailField label={FIELD_LABELS.total_response_time_minutes} value={ns?.total_response_time_minutes} />
               <DetailField label={FIELD_LABELS.total_gas_consumed_liters} value={ns?.total_gas_consumed_liters} />
@@ -1258,7 +1269,7 @@ export default function RegionalIncidentDetailPage() {
               <DataTable
                 title="Engine / Unit Dispatched"
                 columns={['Engine / Unit', 'Time Dispatched', 'Time Arrived at Scene']}
-                rows={[[engineDispatched, timeEngineDispatched, timeArrivedAtScene]]}
+                rows={[[engineDispatched, mark24h(timeEngineDispatched), mark24h(timeArrivedAtScene)]]}
               />
             )}
           </Section>
@@ -1395,7 +1406,7 @@ export default function RegionalIncidentDetailPage() {
             <div className="flex justify-start pt-2">
               <Link
                 href="/dashboard/regional"
-                className="inline-flex items-center gap-2 rounded border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:text-gray-950"
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:bg-gray-50 hover:text-gray-950"
               >
                 <ArrowLeft className="h-4 w-4" />
                 Back to Regional Dashboard

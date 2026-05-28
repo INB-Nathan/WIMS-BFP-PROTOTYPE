@@ -1,7 +1,7 @@
 ---
 title: Regional Dashboard
 created: 2026-05-16
-updated: 2026-05-27
+updated: 2026-05-28
 type: operation
 tags: [wims-bfp, regional, encoder, dashboard, incident-workflow, afor]
 sources: [src/frontend/src/app/dashboard/regional/page.tsx, src/frontend/src/app/dashboard/regional/audit/page.tsx, src/frontend/src/app/dashboard/regional/drafts/page.tsx, src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx, src/backend/api/routes/regional.py]
@@ -31,7 +31,7 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 
 | Card | Border | Data Source |
 |---|---|---|
-| Total Incidents | Red (#dc2626) | `stats.total_incidents` |
+| Total This Week | Red (#dc2626) | `stats.total_incidents_this_week` |
 | Structural | Orange (#f97316) | `stats.by_category` filtered to STRUCTURAL |
 | Non-Structural | Green (#22c55e) | `stats.by_category` filtered to NON_STRUCTURAL |
 | Vehicular | Blue (#3b82f6) | `stats.by_category` filtered to VEHICULAR |
@@ -40,18 +40,18 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 **Incident Table** — paginated list with filters:
 
 - Columns: Date, Classification (with wildland badge), Station, Location, Last Modified, Status
-- Filters: Today/This Week/This Month/This Year/All Time date dropdown, date-basis dropdown (`Date Modified` default, `Date of Fire` optional), Classification dropdown (from `REGIONAL_INCIDENT_GENERAL_CATEGORIES`), Verification Status chips, Per-page size selector
-- Default list scope is Today by Date Modified; Today renders incident cards with softened metadata, primary fire time/location hierarchy, grouped secondary fields, separate district/city fields, combined caller/reporter/contact, paired classification/category, extent of damage, and compact affected-count chips. Wider date scopes keep the compact table layout.
+- Filters: Today/This Week/This Month/This Year/Specific Date/All Time date dropdown, always-visible calendar date picker for a specific modified date, Classification dropdown (from `REGIONAL_INCIDENT_GENERAL_CATEGORIES`), Verification Status chips, Per-page size selector. The frontend no longer exposes the Date of Fire date-basis toggle; regional filtering defaults to Date Modified and the calendar picker switches the date scope to Specific Date.
+- Default list scope is Today by Date Modified; Today, Specific Date, and any result set with 6 or fewer total incidents render incident cards with status-coloured 1px borders (green verified, red rejected, gray draft, warm yellow pending), softened metadata, primary fire time/location hierarchy, grouped secondary fields, separate district/city fields, combined caller/reporter/contact, paired classification/category, extent of damage, and compact affected-count chips. Wider result sets keep the compact table layout.
 - Pagination: Prev/Next buttons, page X of Y display, configurable page sizes
 - Status badges: green (`VERIFIED`), red (`REJECTED`), yellow (everything else)
 - Summary category cards aggregate legacy/current category aliases, including `VEHICULAR` + `TRANSPORTATION`, so counts match incident rows after backend category normalization.
 - Empty state: "No incidents match the current filters" or error banner
 - Rows/cards are keyboard-focusable/clickable; a delayed floating "Click to view" bubble appears after hover and disappears on mouse movement or leave instead of using permanent Open text/actions.
-- **Rejected banner** — when `rejectedCount > 0`, shows a prominent red alert with "Show rejected" quick-filter button
+- Rejected workload UX: the alert is dismissible, its "Show rejected" action clears classification/date filters and switches date scope to All Time, and the Rejected status chip carries a red count badge.
 
 **Wildland Fire Classifications** — conditionally rendered when `stats.wildland_total > 0`:
 
-- 8 wildland fire types (fire, agricultural, forest, grassland, brush, peatland, grazing land, mineral land) each with a colour-coded count badge
+- 8 wildland fire types (fire, agricultural, forest, grassland, brush, peatland, grazing land, mineral land) each with a colour-coded count badge. Backend stats normalize `lower(trim(wildland_fire_type))` before grouping so the generic `fire` bucket increments despite casing/spacing differences.
 
 **Header quick actions:**
 
@@ -89,8 +89,9 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 - Read-only layout:
   - Compact header with back link, incident/reference title, status badge, created metadata, and encoder actions (Edit, Withdraw, Delete, Submit/Resubmit) using clearer button hierarchy.
   - Top incident summary panel for notification date/time, fire station, classification, category/type, alarm level, location, and complete address. Status is intentionally only shown in the page header.
-  - Desktop-only vertical dot section navigation for Response, Classification, Affected Counts, Resources, Timeline, Casualties, Personnel, Location, Narrative, Problems, and Recommendations. The old horizontal section bar was removed.
-  - Section cards use restrained header tints, muted labels, dark values, responsive definition-list grids, report-style long-text blocks, compact affected-count stat cells, and cleaner tables for engines/units, alarm timeline, casualties, and other personnel.
+  - Desktop-only vertical dot section navigation for Response, Classification, Affected Counts, Resources, Timeline, Casualties, Personnel, Location, Narrative, Problems, and Recommendations. Dots use larger click targets, hover/focus animation, labels, and sit against the right viewport margin with enough offset to avoid overlapping the report body.
+  - Section cards use softened rounded surfaces, cohesive low-saturation header tints, muted labels, dark values, responsive definition-list grids, report-style long-text blocks, compact affected-count stat cells, and cleaner tables for engines/units, alarm timeline, casualties, and other personnel.
+  - Formatted operational date/time values show explicit `(24H)` indicators where the detail page formats times.
   - **Incident Location Map** via `MapPickerInner` with detail zoom (320px height), now wrapped in the detail card with latitude/longitude still visible.
   - **Problems Encountered** renders selected problems as quieter chips and preserves custom/other entries.
 - Edit mode: loads `IncidentForm` component (same form used for new incidents).
@@ -128,8 +129,8 @@ All in `src/backend/api/routes/regional.py` (~5050 lines). This is the largest r
 
 | Method | Path | Function | Behavior |
 |---|---|---|---|
-| `GET` | `/api/regional/stats` | `get_regional_stats` | Aggregated counts by category, alarm level, status, wildland type; region-scoped |
-| `GET` | `/api/regional/validator/stats` | `get_validator_stats` | Validator-scoped stats (total verified, pending validation, by category) |
+| `GET` | `/api/regional/stats` | `get_regional_stats` | Aggregated counts by category, alarm level, status, wildland type, and Asia/Manila current-week incident total; region-scoped |
+| `GET` | `/api/regional/validator/stats` | `get_validator_stats` | Validator-scoped stats (pending validation, wildland, category, total verified retained in API) |
 
 ### Verification Workflow (`regional.py` lines ~3200–4000)
 

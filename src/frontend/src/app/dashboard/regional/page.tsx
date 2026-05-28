@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import {
   RefreshCw, Flame, Building2, TreePine, Car, ChevronLeft, ChevronRight, Trees,
-  Home, Users, Layers, Truck, FileText, Upload,
+  Home, Users, Layers, Truck, FileText, Upload, X, CalendarDays,
 } from 'lucide-react';
-import { fetchRegionalIncidents, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
+import { apiFetch, fetchRegionalIncidents, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
 import Link from 'next/link';
 import {
   REGIONAL_INCIDENT_GENERAL_CATEGORIES,
@@ -20,6 +20,7 @@ import { formatClassification } from '@/lib/afor-utils';
 
 interface RegionalStatsPayload {
   total_incidents?: number;
+  total_incidents_this_week?: number;
   by_category?: Array<{ category: string | null; count: number }>;
   by_status?: Array<{ status: string; count: number }>;
   wildland_total?: number;
@@ -57,16 +58,11 @@ const DATE_FILTERS = [
   { label: 'This Week', value: 'week' },
   { label: 'This Month', value: 'month' },
   { label: 'This Year', value: 'year' },
+  { label: 'Specific Date', value: 'specific' },
   { label: 'All Time', value: 'all' },
 ] as const;
 
 type DateFilterValue = (typeof DATE_FILTERS)[number]['value'];
-type DateBasisValue = 'modified' | 'fire';
-
-const DATE_BASIS_OPTIONS: Array<{ label: string; value: DateBasisValue }> = [
-  { label: 'Date Modified', value: 'modified' },
-  { label: 'Date of Fire', value: 'fire' },
-];
 
 interface HoverHint {
   id: number;
@@ -97,8 +93,9 @@ function addUtcDays(date: Date, days: number): Date {
   return next;
 }
 
-function getRegionalDateBounds(filter: DateFilterValue): { date_from?: string; date_to?: string } {
+function getRegionalDateBounds(filter: DateFilterValue, specificDate: string): { date_from?: string; date_to?: string } {
   if (filter === 'all') return {};
+  if (filter === 'specific') return specificDate ? { date_from: specificDate, date_to: specificDate } : {};
   const today = manilaTodayUtcDate();
   if (filter === 'today') return { date_from: dateOnly(today), date_to: dateOnly(today) };
   if (filter === 'week') {
@@ -137,6 +134,15 @@ function completeAddress(incident: RegionalIncidentListItem): string {
   return incident.street_address || '-';
 }
 
+function statusBorderColor(status: string | null | undefined): string {
+  const normalized = (status ?? '').toUpperCase();
+  if (normalized === 'VERIFIED') return '#22C55E';
+  if (normalized === 'REJECTED') return '#EF4444';
+  if (normalized === 'DRAFT') return '#9CA3AF';
+  if (normalized === 'PENDING' || normalized === 'PENDING_VALIDATION') return '#F59E0B';
+  return '#E5E7EB';
+}
+
 export default function RegionalDashboardPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
@@ -165,10 +171,13 @@ export default function RegionalDashboardPage() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFilter, setDateFilter] = useState<DateFilterValue>('today');
-  const [dateBasis, setDateBasis] = useState<DateBasisValue>('modified');
+  const [specificDate, setSpecificDate] = useState(() => dateOnly(manilaTodayUtcDate()));
+  const [rejectionNoticeDismissed, setRejectionNoticeDismissed] = useState(false);
+  const [pendingActionedBanner, setPendingActionedBanner] = useState(false);
+  const lastKnownPendingCountRef = useRef<number | null>(null);
   const [hoverHint, setHoverHint] = useState<HoverHint | null>(null);
   const hoverHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dateBounds = useMemo(() => getRegionalDateBounds(dateFilter), [dateFilter]);
+  const dateBounds = useMemo(() => getRegionalDateBounds(dateFilter, specificDate), [dateFilter, specificDate]);
 
   const updateFiltersWithoutScrollShift = useCallback((update: () => void) => {
     const x = window.scrollX;
@@ -232,7 +241,6 @@ export default function RegionalDashboardPage() {
         status: statusFilter || undefined,
         date_from: dateBounds.date_from,
         date_to: dateBounds.date_to,
-        date_basis: dateBasis,
       });
       setIncidents(data.items ?? []);
       setIncidentsTotal(typeof data.total === 'number' ? data.total : 0);
@@ -243,7 +251,7 @@ export default function RegionalDashboardPage() {
     } finally {
       setIncidentsLoading(false);
     }
-  }, [pageIndex, pageSize, categoryFilter, statusFilter, dateBounds.date_from, dateBounds.date_to, dateBasis]);
+  }, [pageIndex, pageSize, categoryFilter, statusFilter, dateBounds.date_from, dateBounds.date_to]);
 
   useEffect(() => {
     if (canAccessRegional) {
@@ -256,6 +264,26 @@ export default function RegionalDashboardPage() {
       loadIncidents();
     }
   }, [canAccessRegional, loadIncidents]);
+
+  // Background poll: detect when a PENDING submission is actioned by a validator.
+  // Compares the PENDING total every 20 s; if it drops, something was resolved.
+  useEffect(() => {
+    if (!canAccessRegional) return;
+    const checkPending = async () => {
+      try {
+        const data = await apiFetch<{ total: number }>(`/regional/incidents?status=PENDING&limit=1&offset=0`);
+        if (
+          lastKnownPendingCountRef.current !== null &&
+          data.total < lastKnownPendingCountRef.current
+        ) {
+          setPendingActionedBanner(true);
+        }
+        lastKnownPendingCountRef.current = data.total;
+      } catch { /* non-critical */ }
+    };
+    const id = setInterval(checkPending, 20_000);
+    return () => clearInterval(id);
+  }, [canAccessRegional]);
 
   const refreshAll = async () => {
     setStatsRefreshing(true);
@@ -281,16 +309,23 @@ export default function RegionalDashboardPage() {
   const toRow = Math.min(offset + incidents.length, incidentsTotal);
   const canPrev = pageIndex > 0 && !incidentsLoading;
   const canNext = incidentsTotal > 0 && offset + size < incidentsTotal && !incidentsLoading;
-  const isTodayView = dateFilter === 'today';
+  const isTodayView = dateFilter === 'today' || dateFilter === 'specific';
+  const useCardView = isTodayView || (!incidentsLoading && incidentsTotal > 0 && incidentsTotal <= 6);
 
   const rejectedCount = stats?.by_status?.find((s) => s.status === 'REJECTED')?.count ?? 0;
+  const showRejectedFilter = () => updateFiltersWithoutScrollShift(() => {
+    setStatusFilter('REJECTED');
+    setCategoryFilter('');
+    setDateFilter('all');
+    setPageIndex(0);
+  });
 
   const incidentCards = [
     {
-      key: 'total',
-      title: 'Total Incidents',
+      key: 'total-this-week',
+      title: 'Total This Week',
       icon: Flame,
-      value: stats?.total_incidents?.toLocaleString() ?? '0',
+      value: stats?.total_incidents_this_week?.toLocaleString() ?? '0',
       iconBg: '#FEE2E2',
       iconColor: '#C62828',
     },
@@ -424,19 +459,47 @@ export default function RegionalDashboardPage() {
         </div>
       </div>
 
-      {/* ── Rejection alert ── */}
-      {rejectedCount > 0 && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900" role="alert">
-          <span className="font-semibold">
-            {rejectedCount} incident{rejectedCount > 1 ? 's were' : ' was'} rejected by a validator.
-          </span>{' '}
-          Review the rejection reasons and resubmit.{' '}
+      {/* ── Pending-actioned notification ── */}
+      {pendingActionedBanner && (
+        <div className="flex items-start justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900" role="alert">
+          <span>
+            <span className="font-semibold">A pending submission was actioned by a validator.</span>{' '}
+            Refresh or filter by &ldquo;Pending&rdquo; to see what changed.
+          </span>
           <button
             type="button"
-            className="ml-1 underline font-medium hover:text-red-700"
-            onClick={() => updateFiltersWithoutScrollShift(() => { setStatusFilter('REJECTED'); setPageIndex(0); })}
+            onClick={() => setPendingActionedBanner(false)}
+            className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-blue-700 transition-colors hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
+            aria-label="Dismiss notification"
           >
-            Show rejected
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
+      )}
+
+      {/* ── Rejection alert ── */}
+      {rejectedCount > 0 && !rejectionNoticeDismissed && (
+        <div className="flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900" role="alert">
+          <div>
+            <span className="font-semibold">
+              {rejectedCount} incident{rejectedCount > 1 ? 's were' : ' was'} rejected by a validator.
+            </span>{' '}
+            Review the rejection reasons and resubmit.{' '}
+            <button
+              type="button"
+              className="ml-1 underline font-medium hover:text-red-700"
+              onClick={showRejectedFilter}
+            >
+              Show rejected
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRejectionNoticeDismissed(true)}
+            className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-red-700 transition-colors hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-300"
+            aria-label="Dismiss rejection notice"
+          >
+            <X className="h-4 w-4" aria-hidden />
           </button>
         </div>
       )}
@@ -545,7 +608,14 @@ export default function RegionalDashboardPage() {
                     if (!active) (e.currentTarget as HTMLElement).style.borderColor = '#e5e7eb';
                   }}
                 >
-                  {chip.label}
+                  <span className="inline-flex items-center gap-2">
+                    {chip.label}
+                    {chip.value === 'REJECTED' && rejectedCount > 0 && (
+                      <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[11px] font-bold leading-none text-white">
+                        {rejectedCount.toLocaleString()}
+                      </span>
+                    )}
+                  </span>
                 </button>
               );
             })}
@@ -565,17 +635,24 @@ export default function RegionalDashboardPage() {
               ))}
             </select>
 
-            <select
-              className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
-              style={{ color: 'var(--text-primary)' }}
-              value={dateBasis}
-              onChange={(e) => updateFiltersWithoutScrollShift(() => { setDateBasis(e.target.value as DateBasisValue); setPageIndex(0); })}
-              disabled={incidentsLoading}
-            >
-              {DATE_BASIS_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
+            <div className="relative">
+              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden />
+              <input
+                type="date"
+                className="min-h-9 rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
+                style={{ color: 'var(--text-primary)' }}
+                value={dateFilter === 'specific' ? specificDate : ''}
+                onChange={(e) => updateFiltersWithoutScrollShift(() => {
+                  const nextDate = e.target.value;
+                  setSpecificDate(nextDate || dateOnly(manilaTodayUtcDate()));
+                  setDateFilter(nextDate ? 'specific' : 'today');
+                  setPageIndex(0);
+                })}
+                disabled={incidentsLoading}
+                aria-label="Filter by specific modified date"
+                title="Filter by specific modified date"
+              />
+            </div>
 
             <select
               className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
@@ -602,7 +679,7 @@ export default function RegionalDashboardPage() {
               ))}
             </select>
 
-            {(statusFilter || categoryFilter || dateFilter !== 'today' || dateBasis !== 'modified' || size !== 10) && (
+            {(statusFilter || categoryFilter || dateFilter !== 'today' || size !== 10) && (
               <button
                 type="button"
                 className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold transition-colors hover:border-gray-300 hover:bg-gray-50"
@@ -611,7 +688,7 @@ export default function RegionalDashboardPage() {
                   setStatusFilter('');
                   setCategoryFilter('');
                   setDateFilter('today');
-                  setDateBasis('modified');
+                  setSpecificDate(dateOnly(manilaTodayUtcDate()));
                   setPageSize(10);
                   setPageIndex(0);
                 })}
@@ -630,7 +707,7 @@ export default function RegionalDashboardPage() {
         )}
 
         {/* Incident list */}
-        {isTodayView ? (
+        {useCardView ? (
           incidentsLoading && incidents.length === 0 ? (
             <div className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
               Loading incidents...
@@ -663,6 +740,7 @@ export default function RegionalDashboardPage() {
                   onMouseMove={hideHoverHintOnMove}
                   onMouseLeave={clearHoverHint}
                   className="cursor-pointer rounded-xl border border-gray-200 bg-white p-5 shadow-sm outline-none transition-all hover:border-red-200 hover:bg-red-50/30 hover:shadow-md focus-visible:ring-2 focus-visible:ring-[#C62828]"
+                  style={{ borderColor: statusBorderColor(inc.verification_status) }}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
@@ -885,7 +963,7 @@ export default function RegionalDashboardPage() {
                 { type: 'grazing land fire', label: 'Grazing Land Fire', color: '#a16207' },
                 { type: 'mineral land fire', label: 'Mineral Land Fire', color: '#57534e' },
               ].map(({ type, label, color }) => {
-                const count = stats.by_wildland_type?.find((w) => (w.fire_type ?? '').toLowerCase() === type)?.count ?? 0;
+                const count = stats.by_wildland_type?.find((w) => (w.fire_type ?? '').trim().toLowerCase() === type)?.count ?? 0;
                 return (
                   <div
                     key={type}

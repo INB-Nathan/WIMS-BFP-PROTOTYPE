@@ -7,8 +7,8 @@
 import { useEffect, useState, useCallback, useMemo, useRef, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
-  RefreshCw, Flame, Building2, TreePine, Car, Layers, Home, Users, Truck,
-  Archive,
+  RefreshCw, Flame, Building2, TreePine, Car, Layers, Home, Users, Truck, Trees,
+  Archive, Flag, CalendarDays,
 } from "lucide-react";
 import { apiFetch, ApiRequestError, fetchValidatorStats } from "@/lib/api";
 import { IncidentDiffPanel } from "@/components/IncidentDiffPanel";
@@ -74,16 +74,11 @@ const DATE_FILTERS = [
   { label: "This Week", value: "week" },
   { label: "This Month", value: "month" },
   { label: "This Year", value: "year" },
+  { label: "Specific Date", value: "specific" },
   { label: "All Time", value: "all" },
 ] as const;
 
 type DateFilterValue = (typeof DATE_FILTERS)[number]["value"];
-type DateBasisValue = "submitted" | "fire";
-
-const DATE_BASIS_OPTIONS: Array<{ label: string; value: DateBasisValue }> = [
-  { label: "Date of Submission", value: "submitted" },
-  { label: "Date of Fire", value: "fire" },
-];
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Draft",
@@ -144,8 +139,9 @@ function addUtcDays(date: Date, days: number): Date {
   return next;
 }
 
-function getDateBounds(filter: DateFilterValue): { date_from?: string; date_to?: string } {
+function getDateBounds(filter: DateFilterValue, specificDate: string): { date_from?: string; date_to?: string } {
   if (filter === "all") return {};
+  if (filter === "specific") return specificDate ? { date_from: specificDate, date_to: specificDate } : {};
   const today = manilaTodayUtcDate();
   if (filter === "today") return { date_from: dateOnly(today), date_to: dateOnly(today) };
   if (filter === "week") {
@@ -200,14 +196,15 @@ export default function ValidatorDashboard() {
   const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_ALL);
   const [regionFilter, setRegionFilter] = useState<string>("");
   const [dateFilter, setDateFilter] = useState<DateFilterValue>("today");
-  const [dateBasis, setDateBasis] = useState<DateBasisValue>("submitted");
+  const [specificDate, setSpecificDate] = useState(() => dateOnly(manilaTodayUtcDate()));
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 10;
-  const dateBounds = useMemo(() => getDateBounds(dateFilter), [dateFilter]);
+  const dateBounds = useMemo(() => getDateBounds(dateFilter, specificDate), [dateFilter, specificDate]);
 
   const [stats, setStats] = useState<{
     total_verified: number;
     pending_validation: number;
+    wildland_total: number;
     by_category: { category: string; count: number }[];
     structures_affected: number;
     households_affected: number;
@@ -437,7 +434,6 @@ export default function ValidatorDashboard() {
     if (regionFilter) params.set("region_id", regionFilter);
     if (dateBounds.date_from) params.set("date_from", dateBounds.date_from);
     if (dateBounds.date_to) params.set("date_to", dateBounds.date_to);
-    params.set("date_basis", dateBasis);
 
     try {
       const data: QueueResponse = await apiFetch(`/regional/validator/incidents?${params.toString()}`);
@@ -451,7 +447,7 @@ export default function ValidatorDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, regionFilter, dateBounds.date_from, dateBounds.date_to, dateBasis]);
+  }, [page, statusFilter, regionFilter, dateBounds.date_from, dateBounds.date_to]);
 
   useEffect(() => { fetchQueue(); }, [fetchQueue]);
 
@@ -467,7 +463,7 @@ export default function ValidatorDashboard() {
         lastKnownTotal.current = data.total;
       } catch { /* non-critical */ }
     };
-    const intervalId = setInterval(checkForNewIncidents, 30_000);
+    const intervalId = setInterval(checkForNewIncidents, 10_000);
     return () => clearInterval(intervalId);
   }, []);
 
@@ -539,7 +535,7 @@ export default function ValidatorDashboard() {
 
   const incidentCards = stats ? [
     { key: 'pending', title: 'Awaiting Validation', icon: Flame, value: stats.pending_validation.toLocaleString(), iconBg: '#DBEAFE', iconColor: '#1D4ED8' },
-    { key: 'verified', title: 'Total Verified', icon: Building2, value: stats.total_verified.toLocaleString(), iconBg: '#DCFCE7', iconColor: '#15803D' },
+    { key: 'wildland', title: 'Wildland Fire', icon: Trees, value: stats.wildland_total.toLocaleString(), iconBg: '#FEF9C3', iconColor: '#92400E' },
     ...(['STRUCTURAL', 'NON_STRUCTURAL', 'TRANSPORTATION'] as const).map((cat) => {
       const icons = { STRUCTURAL: Building2, NON_STRUCTURAL: TreePine, TRANSPORTATION: Car };
       const colors = { STRUCTURAL: { bg: '#FEF3C7', color: '#D97706' }, NON_STRUCTURAL: { bg: '#DCFCE7', color: '#16A34A' }, TRANSPORTATION: { bg: '#DBEAFE', color: '#2563EB' } };
@@ -684,7 +680,8 @@ export default function ValidatorDashboard() {
             <div className="flex flex-wrap gap-2">
               {VALIDATOR_STATUS_FILTERS.map((filter) => {
                 const active = statusFilter === filter.value;
-                const showPendingIndicator = filter.value === STATUS_FILTER_QUEUE && (stats?.pending_validation ?? 0) > 0;
+                const pendingCount = stats?.pending_validation ?? 0;
+                const showPendingIndicator = filter.value === STATUS_FILTER_QUEUE && pendingCount > 0;
                 return (
                   <button
                     key={filter.value}
@@ -706,10 +703,12 @@ export default function ValidatorDashboard() {
                     {filter.label}
                     {showPendingIndicator && (
                       <span
-                        className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white"
+                        className="absolute -right-2 -top-2 inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-bold leading-none text-white ring-2 ring-white"
                         style={{ backgroundColor: 'var(--bfp-red)' }}
                         aria-label="Pending incidents available"
-                      />
+                      >
+                        {pendingCount.toLocaleString()}
+                      </span>
                     )}
                   </button>
                 );
@@ -728,17 +727,24 @@ export default function ValidatorDashboard() {
               ))}
             </select>
 
-            <select
-              className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
-              style={{ color: 'var(--text-primary)' }}
-              value={dateBasis}
-              onChange={(e) => updateFiltersWithoutScrollShift(() => { setDateBasis(e.target.value as DateBasisValue); setPage(0); })}
-              disabled={loading}
-            >
-              {DATE_BASIS_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
+            <div className="relative">
+              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden />
+              <input
+                type="date"
+                className="min-h-9 rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
+                style={{ color: 'var(--text-primary)' }}
+                value={dateFilter === "specific" ? specificDate : ""}
+                onChange={(e) => updateFiltersWithoutScrollShift(() => {
+                  const nextDate = e.target.value;
+                  setSpecificDate(nextDate || dateOnly(manilaTodayUtcDate()));
+                  setDateFilter(nextDate ? "specific" : "today");
+                  setPage(0);
+                })}
+                disabled={loading}
+                aria-label="Filter by specific submission date"
+                title="Filter by specific submission date"
+              />
+            </div>
 
             <select
               className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
@@ -877,63 +883,55 @@ export default function ValidatorDashboard() {
                     <td className="px-4 py-4 whitespace-nowrap">
                       <div className="flex gap-1.5 items-center">
                         {["VERIFIED", "REJECTED", "REPLACED"].includes(inc.verification_status) ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void doArchive(inc);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-gray-200 bg-white font-medium transition-colors hover:bg-gray-50"
+                            style={{ color: 'var(--text-secondary)' }}
+                            title="Archive finalized incident"
+                          >
+                            <Archive className="h-3.5 w-3.5" aria-hidden />
+                            Archive
+                          </button>
+                        ) : (
+                          <>
+                            {((inc.is_duplicate && inc.duplicate_of) || runtimeDuplicates.has(inc.incident_id)) && (
+                              <Flag className="h-3.5 w-3.5 shrink-0 text-orange-500" aria-label="Flagged as duplicate" />
+                            )}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                void doArchive(inc);
+                                if ((inc.is_duplicate && inc.duplicate_of) || runtimeDuplicates.has(inc.incident_id)) {
+                                  setValidatorDupTarget(inc);
+                                  setValidatorDupMatchedId(inc.duplicate_of ?? runtimeDuplicates.get(inc.incident_id)!);
+                                  setShowDupHistory(false);
+                                } else {
+                                  void handleDirectAccept(inc);
+                                }
                               }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-gray-200 bg-white font-medium transition-colors hover:bg-gray-50"
-                              style={{ color: 'var(--text-secondary)' }}
-                              title="Archive finalized incident"
+                              disabled={acceptingId === inc.incident_id}
+                              className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors disabled:opacity-50"
+                              style={{ backgroundColor: '#16A34A' }}
+                              onMouseEnter={(e) => { if (acceptingId !== inc.incident_id) (e.currentTarget as HTMLElement).style.backgroundColor = '#15803D'; }}
+                              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#16A34A'; }}
                             >
-                              <Archive className="h-3.5 w-3.5" aria-hidden />
-                              Archive
+                              {acceptingId === inc.incident_id ? "…" : "Accept"}
                             </button>
-                          ) : (
-                            <>
-                              {(inc.is_duplicate && inc.duplicate_of) || runtimeDuplicates.has(inc.incident_id) ? (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setValidatorDupTarget(inc);
-                                    setValidatorDupMatchedId(inc.duplicate_of ?? runtimeDuplicates.get(inc.incident_id)!);
-                                    setShowDupHistory(false);
-                                  }}
-                                  className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors"
-                                  style={{ backgroundColor: '#D97706' }}
-                                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#B45309'; }}
-                                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#D97706'; }}
-                                >
-                                  Review Dup.
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    void handleDirectAccept(inc);
-                                  }}
-                                  disabled={acceptingId === inc.incident_id}
-                                  className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors disabled:opacity-50"
-                                  style={{ backgroundColor: '#16A34A' }}
-                                  onMouseEnter={(e) => { if (acceptingId !== inc.incident_id) (e.currentTarget as HTMLElement).style.backgroundColor = '#15803D'; }}
-                                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#16A34A'; }}
-                                >
-                                  {acceptingId === inc.incident_id ? "…" : "Accept"}
-                                </button>
-                              )}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openAction(inc, "reject");
-                                }}
-                                className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors"
-                                style={{ backgroundColor: 'var(--bfp-red)' }}
-                                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-dark)'; }}
-                                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red)'; }}
-                              >
-                                Reject
-                              </button>
-                            </>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openAction(inc, "reject");
+                              }}
+                              className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors"
+                              style={{ backgroundColor: 'var(--bfp-red)' }}
+                              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-dark)'; }}
+                              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red)'; }}
+                            >
+                              Reject
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>

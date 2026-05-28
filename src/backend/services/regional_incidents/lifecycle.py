@@ -273,7 +273,8 @@ def submit_incident_for_review_command(
                 SELECT nd.notification_dt, nd.general_category, fi.incident_type_code,
                        fi.region_id, nd.alarm_level,
                        ST_Y(fi.location::geometry) AS lat,
-                       ST_X(fi.location::geometry) AS lon
+                       ST_X(fi.location::geometry) AS lon,
+                       nd.city_municipality, nd.province_district
                 FROM wims.fire_incidents fi
                 LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
                 WHERE fi.incident_id = :iid
@@ -288,10 +289,13 @@ def submit_incident_for_review_command(
                 region_id=geo_meta[3],
                 alarm_level=geo_meta[4],
                 incident_date=_date_str(geo_meta[0]),
+                notification_dt=geo_meta[0],
                 lat=geo_meta[5],
                 lon=geo_meta[6],
                 general_category=geo_meta[1],
                 incident_type_code=geo_meta[2],
+                city_municipality=geo_meta[7],
+                province_district=geo_meta[8],
                 exclude_statuses=("DRAFT", "REJECTED", "REPLACED"),
             )
             if verified_dup:
@@ -321,7 +325,8 @@ def submit_incident_for_review_command(
                     SELECT nd.notification_dt, nd.general_category, fi.incident_type_code,
                            fi.region_id, nd.alarm_level,
                            ST_Y(fi.location::geometry) AS lat,
-                           ST_X(fi.location::geometry) AS lon
+                           ST_X(fi.location::geometry) AS lon,
+                           nd.city_municipality, nd.province_district
                     FROM wims.fire_incidents fi
                     LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
                     WHERE fi.incident_id = :iid
@@ -335,10 +340,13 @@ def submit_incident_for_review_command(
                     region_id=geo_meta[3],
                     alarm_level=geo_meta[4],
                     incident_date=_date_str(geo_meta[0]),
+                    notification_dt=geo_meta[0],
                     lat=geo_meta[5],
                     lon=geo_meta[6],
                     general_category=geo_meta[1],
                     incident_type_code=geo_meta[2],
+                    city_municipality=geo_meta[7],
+                    province_district=geo_meta[8],
                     exclude_statuses=("DRAFT", "REJECTED", "REPLACED"),
                 )
                 if matched_duplicate_id:
@@ -490,7 +498,8 @@ def verify_incident_command(
             text("""
                 SELECT ST_Y(fi.location::geometry), ST_X(fi.location::geometry),
                        nd.notification_dt, nd.general_category, fi.incident_type_code,
-                       fi.region_id, nd.alarm_level, fi.parent_incident_id
+                       fi.region_id, nd.alarm_level, fi.parent_incident_id,
+                       nd.city_municipality, nd.province_district
                 FROM wims.fire_incidents fi
                 LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
                 WHERE fi.incident_id = :iid
@@ -504,10 +513,13 @@ def verify_incident_command(
                 region_id=geo_row[5],
                 alarm_level=geo_row[6],
                 incident_date=_date_str(geo_row[2]),
+                notification_dt=geo_row[2],
                 lat=geo_row[0],
                 lon=geo_row[1],
                 general_category=geo_row[3],
                 incident_type_code=geo_row[4],
+                city_municipality=geo_row[8],
+                province_district=geo_row[9],
                 exclude_statuses=("DRAFT", "REJECTED", "REPLACED"),
             )
             if dup_id:
@@ -688,7 +700,8 @@ def bulk_approve_pending_incidents(
             SELECT incident_id, verification_status, encoder_id, created_at,
                    nd.notification_dt, nd.general_category, fi2.incident_type_code,
                    fi2.region_id, nd.alarm_level,
-                   ST_Y(fi2.location::geometry), ST_X(fi2.location::geometry)
+                   ST_Y(fi2.location::geometry), ST_X(fi2.location::geometry),
+                   nd.city_municipality, nd.province_district
             FROM wims.fire_incidents fi2
             LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi2.incident_id
             WHERE fi2.incident_id = ANY(:ids) AND fi2.is_archived = FALSE
@@ -737,6 +750,8 @@ def bulk_approve_pending_incidents(
                 alarm,
                 lat,
                 lon,
+                city_muni,
+                province_dist,
             ) = row
 
             dup_id = check_for_duplicate(
@@ -745,10 +760,13 @@ def bulk_approve_pending_incidents(
                 region_id=region_id,
                 alarm_level=alarm,
                 incident_date=_date_str(notif_dt),
+                notification_dt=notif_dt,
                 lat=lat,
                 lon=lon,
                 general_category=gen_cat,
                 incident_type_code=type_code,
+                city_municipality=city_muni,
+                province_district=province_dist,
                 exclude_statuses=("DRAFT", "REJECTED", "REPLACED"),
                 verified_window_seconds=60,
             )

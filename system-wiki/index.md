@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-05-27
+Last updated: 2026-05-28
 Total synthesis pages: 32
-Last changes: Encoder/validator frontend polish renamed `/home` sidebar labels to Operations, put role dashboards first, removed top sync clutter, and clarified regional/validator row actions.
+Last changes: Encoder/validator dashboards removed Date of Fire frontend filters, added calendar specific-date pickers on default date bases, added status-coloured encoder rich-card borders, moved incident detail dot navigation to the right margin, and applied a 90% global zoom baseline.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

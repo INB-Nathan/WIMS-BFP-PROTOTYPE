@@ -1,7 +1,7 @@
 ---
 title: National Validator Dashboard
 created: 2026-05-16
-updated: 2026-05-27
+updated: 2026-05-28
 type: operation
 tags: [wims-bfp, validator, national-validator, dashboard, incident-workflow, audit]
 sources: [src/frontend/src/app/dashboard/validator/page.tsx, src/frontend/src/app/dashboard/validator/audit/page.tsx, src/backend/api/routes/regional.py, src/backend/api/routes/incidents.py]
@@ -30,8 +30,8 @@ The validator's primary workspace. A large, feature-rich page with:
 - The queue includes an inline hint explaining row click-to-view behavior, bulk selection, and finalized-record archive behavior.
 
 **Filters:**
-- Status quick filters: All, Pending, Accepted (`VERIFIED`), Rejected; All is the default and Pending shows a red indicator only when `pending_validation > 0`
-- Date dropdown filters: Today/This Week/This Month/This Year/All Time, paired with a date-basis dropdown (`Date of Submission` default, `Date of Fire` optional)
+- Status quick filters: All, Pending, Accepted (`VERIFIED`), Rejected; All is the default and Pending shows a red count badge when `pending_validation > 0`
+- Date dropdown filters: Today/This Week/This Month/This Year/Specific Date/All Time, paired with an always-visible calendar date picker for a specific submission date. The frontend no longer exposes the Date of Fire date-basis toggle; validator filtering defaults to Date of Submission and the calendar picker switches the date scope to Specific Date.
 - Region dropdown filter
 - Per-status labels and colour badges (gray=DRAFT, yellow=PENDING, blue=PENDING_VALIDATION, green=VERIFIED, red=REJECTED, purple=REPLACED)
 
@@ -72,7 +72,8 @@ The validator's primary workspace. A large, feature-rich page with:
 - Bulk: BulkDupTarget modal using `waitForBulkDupDecision()` Promise pattern
 
 **Stats Bar** — header stats from `fetchValidatorStats()`:
-- Total verified, pending validation, by-category breakdown
+- Awaiting validation, wildland fire, and by-category breakdown cards. The former Total Verified card is no longer shown.
+- Awaiting validation counts both `PENDING` and `PENDING_VALIDATION` because the validator queue defaults include both statuses.
 - Category cards aggregate legacy/current category aliases, including `VEHICULAR` + `TRANSPORTATION`, to keep totals aligned with normalized incident rows.
 
 ### Audit Trail — `/dashboard/validator/audit`
@@ -135,7 +136,7 @@ The validator backend routes are shared in `src/backend/api/routes/regional.py` 
 
 | Method | Path | Function | Behavior |
 |---|---|---|---|
-| `GET` | `/api/regional/validator/stats` | `get_validator_stats` | Returns total_verified, pending_validation, by_category counts for the validator's scope |
+| `GET` | `/api/regional/validator/stats` | `get_validator_stats` | Returns total_verified, pending_validation (`PENDING` + `PENDING_VALIDATION`), wildland_total, by_category counts, and affected counts for the validator's scope |
 
 ## Key Implementation Details
 

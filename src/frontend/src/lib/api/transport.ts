@@ -1,6 +1,7 @@
 /**
  * Authenticated API transport for cookie-based WIMS backend requests.
  */
+import { refreshToken } from '../auth-refresh';
 
 export const API_BASE = typeof window !== 'undefined'
   ? (process.env.NEXT_PUBLIC_API_URL || '/api')
@@ -70,8 +71,8 @@ export async function apiFetch<T>(
   });
   if (res.status === 401 && !_retried) {
     try {
-      const refreshRes = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
-      if (refreshRes.ok) {
+      const refreshed = await refreshToken();
+      if (refreshed) {
         return apiFetch<T>(path, { ...options, _retried: true });
       }
     } catch { /* ignore, fall through to throw */ }
