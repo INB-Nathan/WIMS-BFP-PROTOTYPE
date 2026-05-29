@@ -115,10 +115,16 @@ export async function updateQueuedIncident(id: number, payload: Record<string, u
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
     const item: QueuedRecord | undefined = await store.get(id);
-    if (item) {
-        item.encrypted = await encryptPayload(payload);
-        await store.put(item);
+    if (!item) {
+        await tx.done;
+        throw new Error(`Queued incident ${id} not found`);
     }
+    if (item.status === 'synced') {
+        await tx.done;
+        throw new Error('Cannot edit an already-synced incident');
+    }
+    item.encrypted = await encryptPayload(payload);
+    await store.put(item);
     await tx.done;
 }
 
@@ -155,30 +161,4 @@ export async function clearSynced() {
         cursor = await cursor.continue();
     }
     await tx.done;
-}
-
-export async function getQueuedIncident(id: number) {
-    const db = await getDB();
-    return db.get(STORE_NAME, id);
-}
-
-export async function updateQueuedIncident(
-    id: number,
-    payload: Record<string, unknown>
-): Promise<void> {
-    const db = await getDB();
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    const existing = await store.get(id);
-    if (!existing) throw new Error(`Queued incident ${id} not found`);
-    if (existing.status === 'synced') {
-        throw new Error('Cannot edit an already-synced incident');
-    }
-    await store.put({ ...existing, payload, updatedAt: Date.now() });
-    await tx.done;
-}
-
-export async function deleteQueuedIncident(id: number): Promise<void> {
-    const db = await getDB();
-    await db.delete(STORE_NAME, id);
 }

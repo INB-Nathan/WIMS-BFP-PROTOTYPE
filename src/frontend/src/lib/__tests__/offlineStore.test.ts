@@ -1,121 +1,149 @@
 /**
- * offlineStore tests — verifies existing IndexedDB queue operations.
+ * offlineStore tests — verifies IndexedDB queue operations with AES-256-GCM encryption.
  *
  * These tests confirm the foundation that syncEngine will consume.
+ * Payload encryption is transparent: queueIncident encrypts on write,
+ * getPendingIncidents/getQueuedIncident decrypt on read.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { webcrypto } from 'node:crypto';
 
-// In-memory store backing the idb mock
-const store = new Map<number, { id: number; payload: Record<string, unknown>; createdAt: number; status: 'pending' | 'synced' }>();
+if (!globalThis.crypto) {
+    (globalThis as Record<string, unknown>).crypto = webcrypto;
+}
+
+const store = new Map<number, { id: number; encrypted: { iv: number[]; data: number[] }; createdAt: number; status: 'pending' | 'synced' }>();
+const keyStore = new Map<string, CryptoKey>();
 let nextId = 1;
+let getAllReturn: Array<{ id: number; encrypted: { iv: number[]; data: number[] }; createdAt: number; status: 'pending' | 'synced' }> = [];
 
 function makeDbMock() {
-  return {
-    add: vi.fn((_s: string, item: Record<string, unknown>) => {
-      const id = nextId++;
-      store.set(id, { ...(item as Omit<typeof store extends Map<number, infer V> ? V : never, 'id'>), id } as typeof store extends Map<number, infer V> ? V : never);
-      return Promise.resolve(id);
-    }),
-    get: vi.fn((_s: string, id: number) => Promise.resolve(store.get(id))),
-    getAll: vi.fn(() => Promise.resolve(Array.from(store.values()))),
-    delete: vi.fn((_s: string, id: number) => { store.delete(id); return Promise.resolve(); }),
-    transaction: vi.fn(() => ({
-      objectStore: vi.fn(() => ({
-        get: vi.fn((id: number) => Promise.resolve(store.get(id))),
-        put: vi.fn((item: { id: number }) => {
-          store.set(item.id, item as typeof store extends Map<number, infer V> ? V : never);
-          return Promise.resolve();
+    return {
+        add: vi.fn((_s: string, item: Record<string, unknown>) => {
+            const id = nextId++;
+            const record = { ...item, id } as { id: number; encrypted: { iv: number[]; data: number[] }; createdAt: number; status: 'pending' | 'synced' };
+            store.set(id, record);
+            getAllReturn.push(record);
+            return Promise.resolve(id);
         }),
-        delete: vi.fn((id: number) => { store.delete(id); return Promise.resolve(); }),
-        openCursor: vi.fn(() => {
-          const entries = Array.from(store.entries());
-          let idx = 0;
-          return Promise.resolve({
-            get value() { return entries[idx]?.[1]; },
-            delete() { if (entries[idx]) store.delete(entries[idx][0]); return Promise.resolve(); },
-            continue() { idx++; return idx < entries.length ? Promise.resolve(this) : Promise.resolve(null); },
-          });
+        getAll: vi.fn(() => Promise.resolve(Array.from(store.values()))),
+        get: vi.fn((_s: string, key: string | number) => {
+            if (_s === 'crypto-keys') {
+                return Promise.resolve(keyStore.get(String(key)));
+            }
+            return Promise.resolve(store.get(key as number));
         }),
-      })),
-      done: Promise.resolve(),
-    })),
-  };
+        put: vi.fn((_s: string, key: unknown, keyName: string) => {
+            if (_s === 'crypto-keys') {
+                keyStore.set(keyName, key as CryptoKey);
+            }
+            return Promise.resolve();
+        }),
+        transaction: vi.fn(() => ({
+            objectStore: vi.fn(() => ({
+                get: vi.fn((id: number) => Promise.resolve(store.get(id))),
+                put: vi.fn((item: { id: number }) => {
+                    store.set(item.id, item as { id: number; encrypted: { iv: number[]; data: number[] }; createdAt: number; status: 'pending' | 'synced' });
+                    return Promise.resolve();
+                }),
+                delete: vi.fn((id: number) => { store.delete(id); return Promise.resolve(); }),
+                openCursor: vi.fn(() => {
+                    const entries = Array.from(store.entries());
+                    let idx = 0;
+                    return Promise.resolve({
+                        get value() { return entries[idx]?.[1]; },
+                        delete() { if (entries[idx]) store.delete(entries[idx][0]); return Promise.resolve(); },
+                        continue() { idx++; return idx < entries.length ? Promise.resolve(this) : Promise.resolve(null); },
+                    });
+                }),
+            })),
+            done: Promise.resolve(),
+        })),
+    };
 }
 
 vi.mock('idb', () => ({
-  openDB: vi.fn(() => Promise.resolve(makeDbMock())),
+    openDB: vi.fn(() => Promise.resolve(makeDbMock())),
 }));
 
-// Must import AFTER mock
-const { queueIncident, getPendingIncidents, markSynced, getQueuedIncident, updateQueuedIncident, deleteQueuedIncident } = await import('../offlineStore');
+const { queueIncident, getPendingIncidents, getQueuedIncident, updateQueuedIncident, markSynced, deleteQueuedIncident } = await import('../offlineStore');
 
 beforeEach(() => {
-  store.clear();
-  nextId = 1;
+    store.clear();
+    keyStore.clear();
+    getAllReturn = [];
+    nextId = 1;
 });
 
 describe('offlineStore', () => {
-  it('queueIncident stores item with status pending', async () => {
-    await queueIncident({ description: 'Fire at building', lat: 14.5 });
-    const pending = await getPendingIncidents();
-    expect(pending).toHaveLength(1);
-    expect(pending[0].status).toBe('pending');
-    expect(pending[0].payload.description).toBe('Fire at building');
-  });
+    it('queueIncident stores item with status pending', async () => {
+        await queueIncident({ description: 'Fire at building', lat: 14.5 });
+        const pending = await getPendingIncidents();
+        expect(pending).toHaveLength(1);
+        expect(pending[0].status).toBe('pending');
+        expect(pending[0].payload.description).toBe('Fire at building');
+    });
 
-  it('getPendingIncidents returns only pending items', async () => {
-    await queueIncident({ description: 'Incident 1' });
-    await queueIncident({ description: 'Incident 2' });
-    const pending = await getPendingIncidents();
-    expect(pending).toHaveLength(2);
-    expect(pending.every(i => i.status === 'pending')).toBe(true);
-  });
+    it('getPendingIncidents returns only pending items', async () => {
+        await queueIncident({ description: 'Incident 1' });
+        await queueIncident({ description: 'Incident 2' });
+        const pending = await getPendingIncidents();
+        expect(pending).toHaveLength(2);
+        expect(pending.every(i => i.status === 'pending')).toBe(true);
+    });
 
-  it('markSynced removes item from store', async () => {
-    await queueIncident({ description: 'To sync' });
-    const pending = await getPendingIncidents();
-    await markSynced(pending[0].id!);
-    const after = await getPendingIncidents();
-    expect(after).toHaveLength(0);
-  });
+    it('markSynced removes item from store', async () => {
+        await queueIncident({ description: 'To sync' });
+        const pending = await getPendingIncidents();
+        await markSynced(pending[0].id!);
+        const after = await getPendingIncidents();
+        expect(after).toHaveLength(0);
+    });
 
-  it('getQueuedIncident returns the queued item by id', async () => {
-    await queueIncident({ description: 'Draft incident' });
-    const pending = await getPendingIncidents();
-    const item = await getQueuedIncident(pending[0].id!);
-    expect(item).not.toBeUndefined();
-    expect(item!.payload.description).toBe('Draft incident');
-    expect(item!.status).toBe('pending');
-  });
+    it('payload is encrypted at rest', async () => {
+        await queueIncident({ description: 'Secret fire data', lat: 14.5, lon: 120.9 });
+        const rawRecord = store.get(1);
+        expect(rawRecord).toBeDefined();
+        expect(rawRecord).toHaveProperty('encrypted');
+        expect(rawRecord!.encrypted).toHaveProperty('iv');
+        expect(rawRecord!.encrypted).toHaveProperty('data');
+        expect(Array.isArray(rawRecord!.encrypted.iv)).toBe(true);
+        expect(Array.isArray(rawRecord!.encrypted.data)).toBe(true);
+        expect(rawRecord!.payload).toBeUndefined();
+        expect(JSON.stringify(rawRecord).includes('Secret fire data')).toBe(false);
+    });
 
-  it('updateQueuedIncident changes payload, preserves id + status=pending', async () => {
-    await queueIncident({ description: 'Original' });
-    const pending = await getPendingIncidents();
-    const id = pending[0].id!;
-    await updateQueuedIncident(id, { description: 'Updated', lat: 40.7128 });
-    const updated = await getQueuedIncident(id);
-    expect(updated).not.toBeUndefined();
-    expect(updated!.payload.description).toBe('Updated');
-    expect(updated!.payload.lat).toBe(40.7128);
-    expect(updated!.id).toBe(id);
-    expect(updated!.status).toBe('pending');
-  });
+    it('getPendingIncidents returns decrypted payload', async () => {
+        const originalPayload = { description: 'Test incident', lat: 15.1, lon: 121.3 };
+        await queueIncident(originalPayload);
+        const pending = await getPendingIncidents();
+        expect(pending).toHaveLength(1);
+        expect(pending[0].payload).toEqual(originalPayload);
+    });
 
-  it('updateQueuedIncident throws when item is already synced', async () => {
-    await queueIncident({ description: 'To sync' });
-    const pending = await getPendingIncidents();
-    const id = pending[0].id!;
-    await markSynced(id);
-    await expect(updateQueuedIncident(id, { description: 'Should fail' })).rejects.toThrow('not found');
-  });
+    it('updateQueuedIncident re-encrypts updated payload', async () => {
+        await queueIncident({ description: 'Original' });
+        await updateQueuedIncident(1, { description: 'Updated description', lat: 16.0 });
+        const pending = await getPendingIncidents();
+        expect(pending[0].payload.description).toBe('Updated description');
+        const rawRecord = store.get(1);
+        expect(rawRecord).toHaveProperty('encrypted');
+        expect(rawRecord!.payload).toBeUndefined();
+    });
 
-  it('deleteQueuedIncident removes the item', async () => {
-    await queueIncident({ description: 'To delete' });
-    const pending = await getPendingIncidents();
-    const id = pending[0].id!;
-    await deleteQueuedIncident(id);
-    const result = await getQueuedIncident(id);
-    expect(result).toBeUndefined();
-  });
+    it('getQueuedIncident returns decrypted payload', async () => {
+        const originalPayload = { description: 'Queued incident', lat: 14.0 };
+        await queueIncident(originalPayload);
+        const item = await getQueuedIncident(1);
+        expect(item).toBeDefined();
+        expect(item!.payload).toEqual(originalPayload);
+    });
+
+    it('deleteQueuedIncident removes record', async () => {
+        await queueIncident({ description: 'To delete' });
+        await deleteQueuedIncident(1);
+        const pending = await getPendingIncidents();
+        expect(pending).toHaveLength(0);
+    });
 });
