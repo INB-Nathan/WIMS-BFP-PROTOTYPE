@@ -105,6 +105,7 @@ export default function AdminSystemPage() {
     const [regions, setRegions] = useState<Region[]>([]);
     const [selectedLog, setSelectedLog] = useState<SecurityLog | null>(null);
     const [actionNote, setActionNote] = useState('');
+    const [pendingMoreInfo, setPendingMoreInfo] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [analyzingLogId, setAnalyzingLogId] = useState<number | null>(null);
     const [isRevoking, setIsRevoking] = useState<string | null>(null);
@@ -312,11 +313,11 @@ export default function AdminSystemPage() {
         setTimeout(() => setCopySuccess(false), 2000);
     };
 
-    const handleUpdateSecurityLog = async () => {
-        if (!selectedLog || !actionNote) return;
+    const handleHitlDecision = async (action: string, note?: string) => {
+        if (!selectedLog) return;
         setIsSubmitting(true);
         try {
-            await updateAdminSecurityLog(selectedLog.log_id, { admin_action_taken: actionNote });
+            await updateAdminSecurityLog(selectedLog.log_id, { action, note });
             setSelectedLog(null);
             setActionNote('');
             await loadSecurityLogs();
@@ -650,7 +651,7 @@ export default function AdminSystemPage() {
                     <div className="rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto bg-[var(--background)] text-[var(--foreground)]">
                         <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800">
                             <h3 className="text-lg font-bold text-[var(--foreground)] text-white">Suricata Alert #{selectedLog.log_id}</h3>
-                            <button onClick={() => { setSelectedLog(null); setActionNote(''); }} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"><XCircle className="w-6 h-6" /></button>
+                            <button onClick={() => { setSelectedLog(null); setActionNote(''); setPendingMoreInfo(false); }} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"><XCircle className="w-6 h-6" /></button>
                         </div>
                         <div className="p-6 space-y-4 text-[var(--foreground)]">
                             <div className="bg-purple-50 dark:bg-purple-950/40 p-4 rounded-lg border border-purple-100 dark:border-purple-800">
@@ -691,12 +692,56 @@ export default function AdminSystemPage() {
                             )}
                             {!selectedLog.admin_action_taken && (
                                 <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-                                    <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Admin action note</label>
-                                    <textarea value={actionNote} onChange={(e) => setActionNote(e.target.value)} placeholder="e.g. RESOLVED, FALSE_POSITIVE, ESCALATED" className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm text-[var(--foreground)] bg-[var(--background)]" rows={2} />
-                                    <div className="mt-2 flex gap-2">
-                                        <button onClick={handleUpdateSecurityLog} disabled={!actionNote.trim() || isSubmitting} className="px-4 py-2 bg-red-600 text-white rounded font-medium hover:bg-red-700 disabled:opacity-50">{isSubmitting ? 'Saving...' : 'Save'}</button>
-                                        <button onClick={() => { setSelectedLog(null); setActionNote(''); }} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 rounded font-medium hover:bg-gray-300 dark:hover:bg-gray-500">Cancel</button>
-                                    </div>
+                                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-3">Take a decision</p>
+                                    {pendingMoreInfo ? (
+                                        <div className="space-y-2">
+                                            <textarea
+                                                value={actionNote}
+                                                onChange={(e) => setActionNote(e.target.value)}
+                                                placeholder="Optional note for analyst..."
+                                                className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm text-[var(--foreground)] bg-[var(--background)]"
+                                                rows={2}
+                                            />
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => handleHitlDecision('REQUEST_MORE_INFO', actionNote || undefined)}
+                                                    disabled={isSubmitting}
+                                                    className="px-4 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 disabled:opacity-50"
+                                                >
+                                                    {isSubmitting ? 'Sending…' : 'Confirm'}
+                                                </button>
+                                                <button
+                                                    onClick={() => { setPendingMoreInfo(false); setActionNote(''); }}
+                                                    className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 rounded font-medium hover:bg-gray-300 dark:hover:bg-gray-500"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-wrap gap-2">
+                                            <button
+                                                onClick={() => handleHitlDecision('CONFIRM_THREAT')}
+                                                disabled={isSubmitting}
+                                                className="px-4 py-2 bg-red-600 text-white rounded font-medium hover:bg-red-700 disabled:opacity-50"
+                                            >
+                                                Confirm Threat
+                                            </button>
+                                            <button
+                                                onClick={() => handleHitlDecision('FALSE_POSITIVE')}
+                                                disabled={isSubmitting}
+                                                className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 rounded font-medium hover:bg-gray-300 dark:hover:bg-gray-500 disabled:opacity-50"
+                                            >
+                                                False Positive
+                                            </button>
+                                            <button
+                                                onClick={() => setPendingMoreInfo(true)}
+                                                className="px-4 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700"
+                                            >
+                                                Request More Info
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

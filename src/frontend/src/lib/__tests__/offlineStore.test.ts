@@ -17,7 +17,9 @@ function makeDbMock() {
       store.set(id, { ...(item as Omit<typeof store extends Map<number, infer V> ? V : never, 'id'>), id } as typeof store extends Map<number, infer V> ? V : never);
       return Promise.resolve(id);
     }),
+    get: vi.fn((_s: string, id: number) => Promise.resolve(store.get(id))),
     getAll: vi.fn(() => Promise.resolve(Array.from(store.values()))),
+    delete: vi.fn((_s: string, id: number) => { store.delete(id); return Promise.resolve(); }),
     transaction: vi.fn(() => ({
       objectStore: vi.fn(() => ({
         get: vi.fn((id: number) => Promise.resolve(store.get(id))),
@@ -46,7 +48,7 @@ vi.mock('idb', () => ({
 }));
 
 // Must import AFTER mock
-const { queueIncident, getPendingIncidents, markSynced } = await import('../offlineStore');
+const { queueIncident, getPendingIncidents, markSynced, getQueuedIncident, updateQueuedIncident, deleteQueuedIncident } = await import('../offlineStore');
 
 beforeEach(() => {
   store.clear();
@@ -76,5 +78,44 @@ describe('offlineStore', () => {
     await markSynced(pending[0].id!);
     const after = await getPendingIncidents();
     expect(after).toHaveLength(0);
+  });
+
+  it('getQueuedIncident returns the queued item by id', async () => {
+    await queueIncident({ description: 'Draft incident' });
+    const pending = await getPendingIncidents();
+    const item = await getQueuedIncident(pending[0].id!);
+    expect(item).not.toBeUndefined();
+    expect(item!.payload.description).toBe('Draft incident');
+    expect(item!.status).toBe('pending');
+  });
+
+  it('updateQueuedIncident changes payload, preserves id + status=pending', async () => {
+    await queueIncident({ description: 'Original' });
+    const pending = await getPendingIncidents();
+    const id = pending[0].id!;
+    await updateQueuedIncident(id, { description: 'Updated', lat: 40.7128 });
+    const updated = await getQueuedIncident(id);
+    expect(updated).not.toBeUndefined();
+    expect(updated!.payload.description).toBe('Updated');
+    expect(updated!.payload.lat).toBe(40.7128);
+    expect(updated!.id).toBe(id);
+    expect(updated!.status).toBe('pending');
+  });
+
+  it('updateQueuedIncident throws when item is already synced', async () => {
+    await queueIncident({ description: 'To sync' });
+    const pending = await getPendingIncidents();
+    const id = pending[0].id!;
+    await markSynced(id);
+    await expect(updateQueuedIncident(id, { description: 'Should fail' })).rejects.toThrow('not found');
+  });
+
+  it('deleteQueuedIncident removes the item', async () => {
+    await queueIncident({ description: 'To delete' });
+    const pending = await getPendingIncidents();
+    const id = pending[0].id!;
+    await deleteQueuedIncident(id);
+    const result = await getQueuedIncident(id);
+    expect(result).toBeUndefined();
   });
 });

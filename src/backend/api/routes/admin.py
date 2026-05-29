@@ -1,6 +1,7 @@
 """System Admin API — Identity, Security Telemetry, Audit Oversight.
 All endpoints protected by get_system_admin. No DELETE endpoints (Immutability Law)."""
 
+import json
 import logging
 import os
 import re
@@ -176,9 +177,20 @@ class UserUpdate(BaseModel):
         return v
 
 
+VALID_HITL_ACTIONS = ("CONFIRM_THREAT", "FALSE_POSITIVE", "REQUEST_MORE_INFO")
+
+HITL_ACTION_LABELS: dict[str, str] = {
+    "CONFIRM_THREAT": "Confirmed Threat",
+    "FALSE_POSITIVE": "False Positive (Dismissed)",
+    "REQUEST_MORE_INFO": "More Info Requested",
+}
+
+
 class SecurityLogUpdate(BaseModel):
+    action: Optional[str] = None
+    note: Optional[str] = None
     admin_action_taken: Optional[str] = None
-    resolved_at: Optional[str] = None  # ISO datetime string
+    resolved_at: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -590,7 +602,7 @@ def get_security_logs(
         text("""
             SELECT log_id, timestamp, source_ip, destination_ip, suricata_sid,
                    severity_level, raw_payload, xai_narrative, xai_confidence,
-                   admin_action_taken, resolved_at, reviewed_by
+                   admin_action_taken, resolved_at, reviewed_by, hitl_decision
             FROM wims.security_threat_logs
             ORDER BY timestamp DESC
             LIMIT :limit OFFSET :offset
@@ -615,6 +627,7 @@ def get_security_logs(
                 "admin_action_taken": r[9],
                 "resolved_at": r[10].isoformat() if r[10] else None,
                 "reviewed_by": str(r[11]) if r[11] else None,
+                "hitl_decision": r[12],
             }
             for r in rows
         ],
@@ -641,12 +654,39 @@ def update_security_log(
     _admin: Annotated[dict, Depends(get_system_admin)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
-    """Update admin_action_taken and resolved_at."""
-    updates = []
+    """Update security log — structured HITL action or legacy free-text admin_action_taken."""
+    updates: list[str] = []
     params: dict = {"log_id": log_id}
-    if body.admin_action_taken is not None:
+
+    if body.action is not None:
+        if body.action not in VALID_HITL_ACTIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid action. Must be one of: {', '.join(VALID_HITL_ACTIONS)}",
+            )
+        admin_action_taken = HITL_ACTION_LABELS[body.action]
+        updates.append("admin_action_taken = :admin_action_taken")
+        params["admin_action_taken"] = admin_action_taken
+
+        now = datetime.now(timezone.utc).isoformat()
+        decision_dict: dict[str, Any] = {
+            "action": body.action,
+            "note": body.note,
+            "reviewed_by": _admin["user_id"],
+            "reviewed_at": now,
+        }
+        updates.append("hitl_decision = CAST(:hitl_decision AS jsonb)")
+        params["hitl_decision"] = json.dumps(decision_dict)
+
+        if body.action in ("CONFIRM_THREAT", "FALSE_POSITIVE"):
+            updates.append("resolved_at = now()")
+        elif body.action == "REQUEST_MORE_INFO":
+            updates.append("resolved_at = NULL")
+
+    elif body.admin_action_taken is not None:
         updates.append("admin_action_taken = :admin_action_taken")
         params["admin_action_taken"] = body.admin_action_taken
+
     if body.resolved_at is not None:
         updates.append("resolved_at = CAST(:resolved_at AS timestamptz)")
         params["resolved_at"] = body.resolved_at

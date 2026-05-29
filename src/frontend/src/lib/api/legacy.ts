@@ -244,10 +244,10 @@ export async function analyzeSecurityLog(logId: number): Promise<{
   return apiFetch(`/admin/security-logs/${logId}/analyze`, { method: 'POST' });
 }
 
-/** Update security log (admin) - admin_action_taken, resolved_at */
+/** Update security log (admin) - structured HITL action or legacy free-text admin_action_taken */
 export async function updateAdminSecurityLog(
   logId: number,
-  payload: { admin_action_taken?: string; resolved_at?: string }
+  payload: { action?: string; note?: string; admin_action_taken?: string; resolved_at?: string }
 ): Promise<{ status: string; log_id: number }> {
   return apiFetch(`/admin/security-logs/${logId}`, {
     method: 'PATCH',

@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNetworkStatus } from './useNetworkStatus';
 import { syncPendingIncidents } from './syncEngine';
 import { getPendingIncidents } from './offlineStore';
+import { toast } from 'sonner';
 
 export interface AutoSyncState {
   syncing: boolean;
@@ -37,8 +38,22 @@ export function useAutoSync(): AutoSyncState {
     setSyncing(true);
 
     try {
-      await syncPendingIncidents();
+      const result = await syncPendingIncidents();
       setLastSyncedAt(new Date());
+
+      if (result.synced > 0 && result.failed === 0) {
+        toast.success(
+          `Synced ${result.synced} incident${result.synced === 1 ? '' : 's'}`
+        );
+      } else if (result.failed > 0 && result.synced > 0) {
+        toast.warning(
+          `Synced ${result.synced}, ${result.failed} failed — will retry`
+        );
+      } else if (result.failed > 0) {
+        toast.error(
+          `${result.failed} incident${result.failed === 1 ? '' : 's'} failed to sync`
+        );
+      }
     } finally {
       setSyncing(false);
       syncMutex.current = false;

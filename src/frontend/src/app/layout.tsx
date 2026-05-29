@@ -4,6 +4,7 @@ import "./globals.css";
 import { AuthProvider as AuthContextProvider } from "@/context/AuthContext";
 import { AuthProvider as UserProfileProvider } from "@/lib/auth";
 import { LayoutShell } from "@/components/LayoutShell";
+import { Toaster } from "sonner";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -31,6 +32,7 @@ export default function RootLayout({
             <LayoutShell>
               {children}
             </LayoutShell>
+            <Toaster position="top-right" richColors />
           </UserProfileProvider>
         </AuthContextProvider>
       </body>
