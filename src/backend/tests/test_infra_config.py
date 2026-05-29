@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
+
+_IN_DOCKER = os.path.exists("/.dockerenv")
 
 
 def _repo_root() -> Path:
@@ -96,6 +99,7 @@ def flush_rate_limits() -> None:
     return None
 
 
+@pytest.mark.skipif(_IN_DOCKER, reason="compose/config files not mounted in Docker container")
 def test_keycloak_admin_lockout_guard() -> None:
     compose = _load_compose()
     keycloak_env = _service_env(compose, "keycloak")
@@ -104,6 +108,7 @@ def test_keycloak_admin_lockout_guard() -> None:
     )
 
 
+@pytest.mark.skipif(_IN_DOCKER, reason="compose/config files not mounted in Docker container")
 def test_frontend_next_public_api_url_is_browser_resolvable() -> None:
     compose = _load_compose()
     frontend_env = _service_env(compose, "frontend")
@@ -127,6 +132,7 @@ def test_frontend_next_public_api_url_is_browser_resolvable() -> None:
     )
 
 
+@pytest.mark.skipif(_IN_DOCKER, reason="compose/config files not mounted in Docker container")
 def test_frontend_server_auth_routes_call_backend_directly() -> None:
     compose = _load_compose()
     frontend_env = _service_env(compose, "frontend")
@@ -138,6 +144,7 @@ def test_frontend_server_auth_routes_call_backend_directly() -> None:
     )
 
 
+@pytest.mark.skipif(_IN_DOCKER, reason="compose/config files not mounted in Docker container")
 def test_keycloak_nginx_relative_path_alignment() -> None:
     compose = _load_compose()
     keycloak_env = _service_env(compose, "keycloak")
@@ -146,6 +153,7 @@ def test_keycloak_nginx_relative_path_alignment() -> None:
     )
 
 
+@pytest.mark.skipif(_IN_DOCKER, reason="compose/config files not mounted in Docker container")
 def test_keycloak_master_realm_bootstrap_service() -> None:
     compose = _load_compose()
     bootstrap = _service(compose, "keycloak-bootstrap")
@@ -166,6 +174,7 @@ def test_keycloak_master_realm_bootstrap_service() -> None:
     assert "https://wimsbfp.tech/auth/admin/master/console/*" in script
 
 
+@pytest.mark.skipif(_IN_DOCKER, reason="compose/config files not mounted in Docker container")
 def test_non_edge_services_bind_host_ports_to_loopback() -> None:
     compose = _load_compose()
 
@@ -181,3 +190,24 @@ def test_non_edge_services_bind_host_ports_to_loopback() -> None:
 
     nginx_ports = _service_ports(compose, "nginx-gateway")
     assert nginx_ports == ["80:80", "443:443"]
+
+
+@pytest.mark.skipif(_IN_DOCKER, reason="compose/config files not mounted in Docker container")
+def test_nginx_production_config_keeps_tls_and_redirect() -> None:
+    config = (_repo_root() / "nginx" / "nginx.conf").read_text(encoding="utf-8")
+    assert "listen 443 ssl" in config
+    assert "ssl_certificate" in config
+    assert "return 301 https://$host$request_uri" in config
+
+
+@pytest.mark.skipif(_IN_DOCKER, reason="compose/config files not mounted in Docker container")
+def test_local_nginx_override_is_explicitly_local_only() -> None:
+    local_config_path = _repo_root() / "nginx" / "nginx.local.conf"
+    local_compose_path = _repo_root() / "docker-compose.override.yml"
+    local_config = local_config_path.read_text(encoding="utf-8")
+    local_compose = local_compose_path.read_text(encoding="utf-8")
+
+    assert "Local development only" in local_config
+    assert "listen 80" in local_config
+    assert "ssl_certificate" not in local_config
+    assert "./nginx/nginx.local.conf:/etc/nginx/nginx.conf:ro" in local_compose

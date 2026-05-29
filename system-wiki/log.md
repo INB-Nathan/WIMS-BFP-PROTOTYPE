@@ -963,3 +963,19 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Published GitHub issue #134 for the National Validator triage inspect modal close/escape trap reported during cluster inspection.
 - Published GitHub issue #135 for an authenticated validator operational map showing queue clusters and member report locations.
 - No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; these are triaged bug/enhancement tickets and do not change current implementation state.
+
+## [2026-05-27] fix | Public map contract repair and local nginx split
+- Restored production `src/nginx/nginx.conf` to HTTPS/TLS with HTTP-to-HTTPS redirect and moved localhost HTTP behavior to `src/nginx/nginx.local.conf` plus `src/docker-compose.override.yml`.
+- Reworked `GET /api/civilian/report-clusters` to read durable `citizen_report_clusters`/members, expose public-safe `areas`, use 500m bucket-center local queries, count `PENDING`/`UNDER_REVIEW`/`LINKED` pressure, require active `PENDING`/`UNDER_REVIEW`, exclude terminal/closed clusters, and serve Redis stale-if-error.
+- Reworked `GET /api/ref/emergency-services` to return `911` plus all BFP station names/locations, no station phones/addresses, nearest-five metadata when location is known, and 24h Redis cache with stale fallback.
+- Updated root map frontend to use `Public Fire Report Areas` language, true parent `fireLocation`, national/manual/location modes, meter-radius Leaflet circles, separate station markers, and public API transport.
+- Updated tests and wiki synthesis pages. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; this implements planned public map behavior without changing FRS alignment status.
+
+## [2026-05-29] style | Public page visual unification with /fire-stations
+- Restyled `/` (report page) — all 4 render paths (main multi-step form, review, update, submitted) now use the full-width BFP gradient hero → EmergencyReferenceCard → max-w-lg content card pattern matching `/fire-stations`.
+- Restyled `/tracking` page — same full-width hero + card pattern, moved EmergencyReferenceCard out of card into top-of-page position.
+- Rewrote `CalmEmergencyBlock` component — replaced compact amber-bordered box with modern card-style layout featuring Shield icon, "Safety First / Kaligtasan Muna" heading, and three icon-labeled safety rules.
+- Removed fire station markers from `NearbyPublicReportAreasInner` — map now shows only cluster circles and the user anchor pin; stations were cluttering the civilian-facing cluster visualization.
+- Cleaned up `NearbyPublicReportAreas` wrapper — removed unused `fetchEmergencyServices` call, `servicesData` state, and `EmergencyServiceResponse` type import; clusters load independently.
+- Build passes, lint 0 errors (15 pre-existing warnings), 119/119 Vitest tests pass.
+- No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; this is a visual restyle with no FRS/codebase alignment change.

@@ -1,0 +1,4 @@
+services:
+  nginx-gateway:
+    volumes:
+      - ./nginx/nginx.local.conf:/etc/nginx/nginx.conf:ro

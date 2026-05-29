@@ -38,7 +38,7 @@ Next.js App Router pages detected under `src/frontend/src/app`.
 | `/incidents` | `incidents/page.tsx` |
 | `/incidents/triage` | `incidents/triage/page.tsx` | Phase 2 civilian triage queue using `/api/triage/queue`, claim, cluster inspection, and terminal actions. |
 | `/login` | `login/page.tsx` | Employee-facing app login page. Do not place app pages under `/auth/*`; nginx reserves `/auth/` for Keycloak. |
-| `/` | `page.tsx` | Public civilian emergency report form. Submitted and updated reports link to `/tracking?id=<report_id>` for status checks. |
+| `/` | `page.tsx` | Public civilian emergency report form. Includes `<NearbyPublicReportAreas />` map for Public Fire Report Areas after `CalmEmergencyBlock`; it shares parent `fireLocation` with the report flow, supports national/manual/location modes, shows BFP station markers, and polls every 60 seconds when visible. Submitted and updated reports link to `/tracking?id=<report_id>` for status checks. |
 | `/profile` | `profile/page.tsx` |
 | `/tracking` | `tracking/page.tsx` | Public report status/tracking guidance with `?id=<report_id>` lookup and notification opt-in. |
 

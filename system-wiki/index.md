@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-27
 Total synthesis pages: 32
-Last changes: Added root `CONTEXT.md` glossary terms for public civilian report clusters and report-count intensity.
+Last changes: Public Fire Report Areas implementation contract was repaired and localhost nginx moved to a local-only override.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

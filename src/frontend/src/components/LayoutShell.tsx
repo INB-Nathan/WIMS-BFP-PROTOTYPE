@@ -32,7 +32,7 @@ export function LayoutShell({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         if (!loading && !user && !loggingOut) {
-            const isPublic = pathname === '/' || pathname === '/login' || pathname === '/callback' || pathname.startsWith('/tracking');
+            const isPublic = pathname === '/' || pathname === '/login' || pathname === '/callback' || pathname.startsWith('/tracking') || pathname.startsWith('/fire-stations');
 
             if (!isPublic) {
                 // Defensive: wait 500ms before auto-redirecting to Keycloak.
@@ -68,7 +68,7 @@ export function LayoutShell({ children }: { children: ReactNode }) {
     }
 
     // Public routes: no sidebar, no header
-    const isPublicRoute = pathname === '/' || pathname === '/login' || pathname === '/callback' || pathname.startsWith('/tracking');
+    const isPublicRoute = pathname === '/' || pathname === '/login' || pathname === '/callback' || pathname.startsWith('/tracking') || pathname.startsWith('/fire-stations');
 
     if (isPublicRoute) {
         return <>{children}</>;

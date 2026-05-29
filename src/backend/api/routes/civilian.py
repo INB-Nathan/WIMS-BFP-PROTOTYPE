@@ -1,6 +1,10 @@
 """Civilian Reporting Phase 2 — public signal records, no auth."""
 
 import hashlib
+import json
+import math
+import os
+import redis
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -20,6 +24,8 @@ from schemas.civilian import (
     MyReportResponse,
     NotifyRegisterRequest,
     NotifyRegisterResponse,
+    ReportClusterResponse,
+    ReportClusterArea,
 )
 
 router = APIRouter(prefix="/api/civilian", tags=["civilian"])
@@ -543,3 +549,204 @@ def register_notification(
         status="registered" if row else "already_registered",
         report_id=report_id,
     )
+
+
+def _get_count_bucket(count: int) -> str:
+    if count < 5:
+        return "3-4"
+    elif count < 10:
+        return "5-9"
+    elif count < 20:
+        return "10-19"
+    return "20+"
+
+
+def _get_age_bucket(delta_seconds: float) -> str:
+    if delta_seconds < 15 * 60:
+        return "0-15 min"
+    elif delta_seconds < 30 * 60:
+        return "15-30 min"
+    return "30-60 min"
+
+
+def _bucket_center_500m(lat: float, lon: float) -> tuple[float, float, str]:
+    """Return approximate 500m grid center for cache key and local query."""
+    lat_step = 500 / 111_320
+    lon_step = 500 / (111_320 * max(math.cos(math.radians(lat)), 0.01))
+    lat_index = math.floor(lat / lat_step)
+    lon_index = math.floor(lon / lon_step)
+    center_lat = (lat_index + 0.5) * lat_step
+    center_lon = (lon_index + 0.5) * lon_step
+    return center_lat, center_lon, f"{lat_index}:{lon_index}"
+
+
+def _area_id(cluster_id: int, newest_iso: str | None) -> str:
+    token = f"{cluster_id}:{newest_iso or ''}".encode("utf-8")
+    return hashlib.sha256(token).hexdigest()[:16]
+
+
+@router.get(
+    "/report-clusters",
+    response_model=ReportClusterResponse,
+    summary="Get recent report clusters (heat map areas)",
+)
+def get_report_clusters(
+    lat: float | None = None,
+    lon: float | None = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Local mode: lat/lon provided. Returns up to 50 clusters within 10km, min 3 reports.
+    National mode: no lat/lon. Returns up to 25 clusters nationwide from last 1 hour, min 10 reports.
+    """
+    redis_client = None
+    center = None
+    radius_m: int | None = None
+    if lat is not None and lon is not None:
+        mode = "local"
+        min_reports = 3
+        max_results = 50
+        radius_m = 10_000
+        center_lat, center_lon, bucket_id = _bucket_center_500m(lat, lon)
+        center = {"latitude": center_lat, "longitude": center_lon}
+        local_having = (
+            "AND ST_DWithin(ST_SetSRID(centroid, 4326)::geography, "
+            "ST_SetSRID(ST_MakePoint(:center_lon, :center_lat), 4326)::geography, :radius_m)"
+        )
+        params = {
+            "center_lat": center_lat,
+            "center_lon": center_lon,
+            "radius_m": radius_m,
+            "min_reports": min_reports,
+            "limit": max_results + 1,
+        }
+        cache_key = f"wims:civilian:report-clusters:v1:local:{bucket_id}:r10000:w60:min3"
+    else:
+        mode = "national"
+        min_reports = 10
+        max_results = 25
+        local_having = ""
+        params = {"min_reports": min_reports, "limit": max_results + 1}
+        cache_key = "wims:civilian:report-clusters:v1:national:w60:min10"
+
+    try:
+        redis_client = redis.from_url(
+            os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+            decode_responses=True,
+        )
+        fresh = redis_client.get(cache_key)
+        if fresh:
+            data = json.loads(fresh)
+            return ReportClusterResponse(**data)
+    except Exception:
+        pass
+
+    try:
+        sql = f"""
+            WITH member_reports AS (
+                SELECT
+                    c.cluster_id,
+                    cr.report_id,
+                    cr.location,
+                    cr.status,
+                    cr.created_at
+                FROM wims.citizen_report_clusters c
+                JOIN wims.citizen_report_cluster_members cm ON cm.cluster_id = c.cluster_id
+                JOIN wims.citizen_reports cr ON cr.report_id = cm.report_id
+                WHERE c.status IN ('CLUSTER_MONITORING', 'CLUSTER_UNDER_REVIEW')
+                  AND c.merged_into_cluster_id IS NULL
+                  AND cr.status IN ('PENDING', 'UNDER_REVIEW', 'LINKED')
+                  AND cr.created_at >= NOW() - INTERVAL '1 hour'
+            ),
+            grouped AS (
+                SELECT
+                    cluster_id,
+                    ST_Centroid(ST_Collect(location::geometry)) AS centroid,
+                    COUNT(*) AS total_reports,
+                    SUM(CASE WHEN status IN ('PENDING', 'UNDER_REVIEW') THEN 1 ELSE 0 END) AS active_reports,
+                    MAX(created_at) AS newest_report_at
+                FROM member_reports
+                GROUP BY cluster_id
+            ),
+            with_radius AS (
+                SELECT
+                    g.cluster_id,
+                    g.centroid,
+                    g.total_reports,
+                    g.active_reports,
+                    g.newest_report_at,
+                    MAX(ST_Distance(m.location::geography, ST_SetSRID(g.centroid, 4326)::geography)) AS spread_m
+                FROM grouped g
+                JOIN member_reports m ON m.cluster_id = g.cluster_id
+                GROUP BY g.cluster_id, g.centroid, g.total_reports, g.active_reports, g.newest_report_at
+            )
+            SELECT
+                cluster_id,
+                ST_Y(centroid) AS center_lat,
+                ST_X(centroid) AS center_lon,
+                total_reports,
+                EXTRACT(EPOCH FROM (NOW() - newest_report_at)) AS age_seconds,
+                newest_report_at,
+                GREATEST(100, LEAST(1000, CEIL(COALESCE(spread_m, 0) / 100.0) * 100))::int AS public_radius_m
+            FROM with_radius
+            WHERE active_reports > 0
+              AND total_reports >= :min_reports
+              {local_having}
+            ORDER BY total_reports DESC, newest_report_at DESC
+            LIMIT :limit
+        """
+
+        rows = db.execute(text(sql), params).fetchall()
+        truncated = len(rows) > max_results
+        rows = rows[:max_results]
+
+        areas = []
+        for row in rows:
+            areas.append(
+                ReportClusterArea(
+                    area_id=_area_id(int(row.cluster_id), row.newest_report_at.isoformat() if row.newest_report_at else None),
+                    latitude=row.center_lat,
+                    longitude=row.center_lon,
+                    radius_m=int(row.public_radius_m),
+                    count_bucket=_get_count_bucket(row.total_reports),
+                    age_bucket=_get_age_bucket(row.age_seconds),
+                )
+            )
+
+        resp = ReportClusterResponse(
+            mode=mode,
+            center=center,
+            radius_m=radius_m,
+            min_reports=min_reports,
+            truncated=truncated,
+            areas=areas,
+        )
+
+        try:
+            if redis_client:
+                dumped = resp.model_dump_json()
+                redis_client.setex(cache_key, 60, dumped)
+                redis_client.setex(f"{cache_key}:stale", 600, dumped)
+        except Exception:
+            pass
+
+        return resp
+
+    except Exception:
+        try:
+            stale = redis_client.get(f"{cache_key}:stale") if redis_client else None
+            if stale:
+                data = json.loads(stale)
+                data["stale"] = True
+                return ReportClusterResponse(**data)
+        except Exception:
+            pass
+
+        return ReportClusterResponse(
+            mode=mode,
+            center=center,
+            radius_m=radius_m,
+            min_reports=min_reports,
+            areas=[],
+            degraded=True,
+        )
