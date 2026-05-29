@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-05-26
+Last updated: 2026-05-27
 Total synthesis pages: 32
-Last changes: VPS login outage was restored by recreating Keycloak/backend/frontend with the production compose override so OIDC discovery advertises `https://wimsbfp.tech/auth/...`.
+Last changes: Added root `CONTEXT.md` glossary terms for public civilian report clusters and report-count intensity.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
@@ -11,7 +11,7 @@ Purpose: project-local knowledgebase for agents routing themselves to relevant W
 
 ## Architecture
 - [[architecture/system-overview]] — Dockerized full-stack architecture, runtime services, and evidence sources.
-- [[architecture/context-map]] — source-of-truth hierarchy and how FRS, code, and this wiki relate.
+- [[architecture/context-map]] — source-of-truth hierarchy, root `CONTEXT.md` glossary, and how FRS, code, and this wiki relate.
 - [[architecture/infrastructure-config]] — Docker Compose, Nginx reverse proxy, Suricata IDS, Keycloak realm config (2641-line export).
 - [[architecture/pwa-tests-cicd]] — PWA/offline-first (IndexedDB, sync engine, service worker), test infrastructure (30 test files), CI/CD pipelines (GitHub Actions).
 - [[architecture/docs-and-scripts]] — Project documentation (10 files: ARCHITECTURE, CHANGELOG, API docs, M4 specs, PR docs) and utility scripts (14 files: seeding, geography, code generation, AFOR preview tool).

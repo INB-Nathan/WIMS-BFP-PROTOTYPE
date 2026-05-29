@@ -1,16 +1,16 @@
 ---
 title: Project Documentation & Scripts
 created: 2026-05-16
-updated: 2026-05-16
+updated: 2026-05-27
 type: meta
 tags: [wims-bfp, docs, scripts, changelog, architecture-docs, seed-data]
-sources: [docs/, scripts/]
+sources: [AGENTS.md, CLAUDE.md, docs/, scripts/]
 status: draft
 ---
 
 # Project Documentation & Utility Scripts
 
-## `docs/` Directory — 10 Files
+## `docs/` Directory
 
 ### `ARCHITECTURE.md`
 Comprehensive system architecture reference. Documents the full stack: Next.js/React frontend, FastAPI/SQLAlchemy backend, PostgreSQL+PostGIS, Keycloak 24 auth (JWT/OIDC), Celery+Redis async, Ollama AI pipeline, Suricata IDS, Nginx edge gateway. Covers 9 Docker containers, data flow, auth/access control, session revocation via Redis, XAI pipeline (Suricata → Qwen2.5-3B), and RLS.
@@ -35,6 +35,12 @@ Earlier checkpoint PR noting M4-A and M4-E met, M4-B/F "mostly met". 10 gaps inc
 
 ### `feat-mod-4-import-spreadsheet.md`
 PR for spreadsheet import + validator workflow. 9 changed files: Excel parser, search bar, incident detail fixes, queue/diff/decision endpoints, audit trail, DB migration, dashboard UI, seeding updates.
+
+### `docs/agents/`
+Per-repo configuration for Matt Pocock engineering skills. `issue-tracker.md` records GitHub Issues via `gh` as the tracker, `triage-labels.md` maps the five canonical triage roles to repository labels, and `domain.md` routes skills to `AGENTS.md`, `CLAUDE.md`, and `system-wiki/` instead of absent root `CONTEXT.md` / `docs/adr/` files.
+
+### Root Agent Guidance
+`AGENTS.md` and `CLAUDE.md` both carry the repository agent-skills routing block so Codex-style and Claude-style agents use the same GitHub Issues tracker, triage label vocabulary, and domain context sources.
 
 ### `PR_fix-looping-auth.md`
 PR fixing Keycloak auth loop. Replaced shell DB bootstrap with SQL (00_keycloak_bootstrap.sql), added fallback username lookup, aligned realm roles, deterministic user IDs. Production hardening guidance.
