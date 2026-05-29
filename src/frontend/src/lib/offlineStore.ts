@@ -128,6 +128,8 @@ export async function updateQueuedIncident(id: number, payload: Record<string, u
     await tx.done;
 }
 
+// NOTE: operates on the raw stored record (has `encrypted`, not `payload`);
+    // only touches `status`, never reads payload, so no decryption needed.
 export async function markSynced(id: number) {
     const db = await getDB();
     const tx = db.transaction(STORE_NAME, 'readwrite');

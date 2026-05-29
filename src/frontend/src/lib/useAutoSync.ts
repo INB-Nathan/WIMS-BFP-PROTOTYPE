@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNetworkStatus } from './useNetworkStatus';
-import { syncPendingIncidents } from './syncEngine';
+import { syncPendingIncidents, type SyncResult } from './syncEngine';
 import { getPendingIncidents } from './offlineStore';
 import { toast } from 'sonner';
 
@@ -38,7 +38,7 @@ export function useAutoSync(): AutoSyncState {
     setSyncing(true);
 
     try {
-      const result = await syncPendingIncidents();
+      const result: SyncResult = await syncPendingIncidents();
       setLastSyncedAt(new Date());
 
       if (result.synced > 0 && result.failed === 0) {

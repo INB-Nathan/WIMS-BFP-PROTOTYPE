@@ -1,5 +1,5 @@
 -- =============================================================================
--- Migration: 39_verification_audit_fields.sql
+-- Migration: 40_verification_audit_fields.sql
 -- Purpose  : M4b / ISSUE#145 — add SHA-256 hash + sync status to verification audit
 --
 -- FRS M4b: incident ID, timestamp, validator ID, SHA-256 hash, sync status

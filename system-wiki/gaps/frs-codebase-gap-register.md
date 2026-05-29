@@ -1,7 +1,7 @@
 ---
 title: FRS Codebase Gap Register
 created: 2026-05-14
-updated: 2026-05-25
+updated: 2026-05-29
 type: gap
 tags: [wims-bfp, gap, frs, needs-verification]
 sources: [raw/frs, raw/codebase/codebase-snapshot-2026-05-14.md]
@@ -33,6 +33,10 @@ This register prevents agents from hallucinating completion. A module is not com
 - **M9 (System Monitoring)**: PARTIAL — PR #103 adds Prometheus `/metrics`, admin endpoints, and worker heartbeat. Dashboard UI and full-text log search remain gaps.
 - **M4 (Incident Workflow)**: CLOSED — PR #102: AFOR import fixes, field persistence, validator audit trail, VALIDATOR role routing, immutable rule fix.
 - **M8d (HITL Structured Decision Audit Log)**: CLOSED — `39_hitl_decision.sql` adds `hitl_decision JSONB` to `security_threat_logs`; `PATCH /admin/security-logs/{log_id}` accepts structured `{ action, note }` with three-button HITL UI (Confirm Threat / False Positive / Request More Info); decision logged as JSONB with `reviewed_by` and `reviewed_at`; `resolved_at` set only on terminal decisions (CONFIRM_THREAT, FALSE_POSITIVE); `REQUEST_MORE_INFO` leaves `resolved_at` null.
+- **M2b (Offline Encryption — AES-256-GCM)**: CLOSED — `offlineStore.ts` encrypts IndexedDB queue items with AES-256-GCM via Web Crypto API; per-user key stored in `crypto-keys` IndexedDB store, derived from user secret via PBKDF2; transparent encrypt on `addToQueue`/`updateQueuedIncident`, transparent decrypt on `getQueuedIncident`; `markSynced` operates on raw record (no payload read needed); closes ISSUE#139.
+- **M2b (Offline CRUD — IndexedDB Queue Lifecycle)**: CLOSED — `offlineStore.ts` provides `getQueuedIncident`, `updateQueuedIncident`, `deleteQueuedIncident`, `markSynced`, `getPendingIncidents`; `syncEngine.ts` `syncPendingIncidents` POSTs pending items to backend, marks synced on success, returns `SyncResult { synced, failed, errors }`; closes ISSUE#140.
+- **M2c (Sync Toast Notifications)**: CLOSED — `useAutoSync.ts` `doSync()` dispatches `toast.success`/`toast.warning`/`toast.error` based on `SyncResult` counts; `sonner` added to `package.json`; `<Toaster />` mounted in `layout.tsx`; closes ISSUE#142.
+- **M4b (Verification Audit Hash + Sync Status)**: CLOSED — `40_verification_audit_fields.sql` adds `data_hash TEXT` (SHA-256) and `sync_status TEXT` to `wims.incident_verification_history`; trigger `_insert_incident_verification_history` computes hash on insert; stored procedure `verify_incident_command` records sync status; closes ISSUE#145.
 
 ## Related
 - [[concepts/frs-module-map]]
