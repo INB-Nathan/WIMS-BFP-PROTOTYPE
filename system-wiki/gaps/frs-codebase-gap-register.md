@@ -32,6 +32,7 @@ This register prevents agents from hallucinating completion. A module is not com
 - **M6-F (Suricata IDS Integration)**: CLOSED — PR #105: HIGH severity auto-incident creation, duplicate guard, `security_alert_id` FK, service account pre-provisioned.
 - **M9 (System Monitoring)**: PARTIAL — PR #103 adds Prometheus `/metrics`, admin endpoints, and worker heartbeat. Dashboard UI and full-text log search remain gaps.
 - **M4 (Incident Workflow)**: CLOSED — PR #102: AFOR import fixes, field persistence, validator audit trail, VALIDATOR role routing, immutable rule fix.
+- **M8d (HITL Structured Decision Audit Log)**: CLOSED — `39_hitl_decision.sql` adds `hitl_decision JSONB` to `security_threat_logs`; `PATCH /admin/security-logs/{log_id}` accepts structured `{ action, note }` with three-button HITL UI (Confirm Threat / False Positive / Request More Info); decision logged as JSONB with `reviewed_by` and `reviewed_at`; `resolved_at` set only on terminal decisions (CONFIRM_THREAT, FALSE_POSITIVE); `REQUEST_MORE_INFO` leaves `resolved_at` null.
 
 ## Related
 - [[concepts/frs-module-map]]

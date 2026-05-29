@@ -369,3 +369,122 @@ class TestGetRateLimitsDefaults:
         assert "login_threshold" in data
         assert isinstance(data["login_window_seconds"], int)
         assert isinstance(data["login_threshold"], int)
+
+
+# =============================================================================
+# PATCH /admin/security-logs/{log_id} — M8d HITL decisions
+# =============================================================================
+
+
+def _mock_security_log_db(extra_rows=None):
+    mock_result = MagicMock()
+    mock_result.rowcount = 1
+    if extra_rows:
+        mock_result.fetchall.return_value = extra_rows
+    mock_db = MagicMock()
+    mock_db.execute.return_value = mock_result
+
+    def mock_get_db():
+        yield mock_db
+
+    return mock_db, mock_get_db
+
+
+class TestPatchSecurityLogHitl:
+    def test_confirm_threat_sets_label_and_jsonb(self, client: TestClient):
+        """PATCH { "action": "CONFIRM_THREAT" } sets admin_action_taken + hitl_decision JSONB."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch("/api/admin/security-logs/1", json={"action": "CONFIRM_THREAT"})
+
+        assert response.status_code == 200
+        mock_db.execute.assert_called_once()
+        call_args = mock_db.execute.call_args
+        sql = str(call_args[0][0])
+        params = call_args[0][1]
+        assert "admin_action_taken = :admin_action_taken" in sql
+        assert params["admin_action_taken"] == "Confirmed Threat"
+        assert "hitl_decision = CAST(:hitl_decision AS jsonb)" in sql
+        decision = params["hitl_decision"]
+        assert '"action": "CONFIRM_THREAT"' in decision
+        assert '"reviewed_by": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"' in decision
+        assert '"reviewed_at":' in decision
+        assert "resolved_at = now()" in sql
+
+    def test_false_positive_sets_label_and_jsonb(self, client: TestClient):
+        """PATCH { "action": "FALSE_POSITIVE" } sets admin_action_taken + hitl_decision JSONB + resolved_at."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch("/api/admin/security-logs/2", json={"action": "FALSE_POSITIVE"})
+
+        assert response.status_code == 200
+        call_args = mock_db.execute.call_args
+        params = call_args[0][1]
+        assert params["admin_action_taken"] == "False Positive (Dismissed)"
+        decision = params["hitl_decision"]
+        assert '"action": "FALSE_POSITIVE"' in decision
+        assert "resolved_at = now()" in str(call_args[0][0])
+
+    def test_request_more_info_sets_label_jsonb_leaves_resolved_at_null(self, client: TestClient):
+        """PATCH { "action": "REQUEST_MORE_INFO" } sets label + JSONB but NOT resolved_at."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch(
+            "/api/admin/security-logs/3",
+            json={"action": "REQUEST_MORE_INFO", "note": "Check source IP"},
+        )
+
+        assert response.status_code == 200
+        call_args = mock_db.execute.call_args
+        params = call_args[0][1]
+        assert params["admin_action_taken"] == "More Info Requested"
+        decision = params["hitl_decision"]
+        assert '"action": "REQUEST_MORE_INFO"' in decision
+        assert '"note": "Check source IP"' in decision
+        sql_str = str(call_args[0][0])
+        assert "resolved_at = NULL" in sql_str
+        assert "resolved_at = now()" not in sql_str
+
+    def test_invalid_action_returns_400(self, client: TestClient):
+        """PATCH with an unknown action value returns HTTP 400."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch("/api/admin/security-logs/1", json={"action": "INVALID_ACTION"})
+
+        assert response.status_code == 400
+        assert "Invalid action" in response.json()["detail"]
+
+    def test_no_fields_returns_400(self, client: TestClient):
+        """PATCH with empty body returns 400."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch("/api/admin/security-logs/1", json={})
+
+        assert response.status_code == 400
+        assert "No fields to update" in response.json()["detail"]
+
+    def test_not_found_returns_404(self, client: TestClient):
+        """PATCH against a non-existent log_id returns 404."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_result = MagicMock()
+        mock_result.rowcount = 0
+        mock_db = MagicMock()
+        mock_db.execute.return_value = mock_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch("/api/admin/security-logs/99999", json={"action": "CONFIRM_THREAT"})
+        assert response.status_code == 404

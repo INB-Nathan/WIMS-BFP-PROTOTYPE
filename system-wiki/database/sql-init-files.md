@@ -122,7 +122,7 @@ Complete documentation of all SQL migration files in `src/postgres-init/`, order
 **Tables:**
 
 - `wims.regional_public_keys` — key_id, region_id FK, public_key_pem TEXT, is_active, created_at, revoked_at
-- `wims.security_threat_logs` — log_id BIGSERIAL PK, timestamp, source_ip, destination_ip, suricata_sid (INTEGER >0), severity_level, raw_payload VARCHAR(65535), xai_narrative VARCHAR(10000), xai_confidence DOUBLE PRECISION, admin_action_taken, resolved_at, reviewed_by FK
+- `wims.security_threat_logs` — log_id BIGSERIAL PK, timestamp, source_ip, destination_ip, suricata_sid (INTEGER >0), severity_level, raw_payload VARCHAR(65535), xai_narrative VARCHAR(10000), xai_confidence DOUBLE PRECISION, admin_action_taken, resolved_at, reviewed_by FK, **hitl_decision JSONB** (M8d: structured HITL audit: `{ action, note, reviewed_by, reviewed_at }`)
 - `wims.system_audit_trails` — audit_id BIGSERIAL PK, user_id FK, action_type, table_affected, record_id, ip_address, user_agent, timestamp
 
 **Note:** security_threat_logs is intentionally NOT region-filtered (ADR: cybersecurity threats are borderless).
@@ -324,6 +324,16 @@ ALTER TABLE ref_barangays ADD `geometry GEOGRAPHY(POLYGON, 4326)`. GIST index `i
 Seeds 6 idempotent rows in `wims.security_threat_logs`: 2 HIGH, 2 MEDIUM, and 2 LOW Suricata-style alerts. Rows include representative raw EVE JSON payloads, XAI narratives/confidence on selected alerts, one reviewed/resolved alert, and admin action metadata where useful.
 
 **Idempotency:** Uses `(source_ip, destination_ip, suricata_sid)` existence checks so rerunning the init file or applying it manually does not duplicate the demo alerts.
+
+---
+
+### `39_hitl_decision.sql`
+
+**Purpose:** M8d structured HITL decision audit log.
+
+Adds `hitl_decision JSONB` column to `wims.security_threat_logs`. Stores HITL decisions as `{ "action": "CONFIRM_THREAT"|"FALSE_POSITIVE"|"REQUEST_MORE_INFO", "note": string|null, "reviewed_by": uuid, "reviewed_at": ISO8601 }`.
+
+**Idempotent:** `ADD COLUMN IF NOT EXISTS`.
 
 ---
 

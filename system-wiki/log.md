@@ -3,6 +3,17 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-05-29] implement | M8d HITL structured decision buttons + JSONB audit log
+- **FRS reference:** Module 8d — Human-in-the-Loop (HITL) Validation (FRS `frs-threatdetectionwithexplainableai.md` M8d)
+- Migration `39_hitl_decision.sql` adds `hitl_decision JSONB` column to `wims.security_threat_logs`; stores `{ "action": "CONFIRM_THREAT"|"FALSE_POSITIVE"|"REQUEST_MORE_INFO", "note": string|null, "reviewed_by": uuid, "reviewed_at": ISO8601 }`
+- Backend `PATCH /admin/security-logs/{log_id}` (`admin.py`): `SecurityLogUpdate` schema extended with `action` and `note` fields; when `action` is provided, maps to human-readable `admin_action_taken` label, writes JSONB decision record, sets `reviewed_by = admin user_id`, sets `resolved_at = now()` for CONFIRM_THREAT and FALSE_POSITIVE only (REQUEST_MORE_INFO leaves `resolved_at` null); invalid action → HTTP 400
+- Frontend `updateAdminSecurityLog` in `legacy.ts`: signature extended with `{ action?, note?, admin_action_taken?, resolved_at? }`; called with `{ action, note }` from HITL buttons
+- Frontend modal (`page.tsx`): replaced free-text `actionNote` textarea + single Save button with three structured HITL decision buttons — "Confirm Threat" (red, calls `handleHitlDecision('CONFIRM_THREAT')`), "False Positive" (gray, calls `handleHitlDecision('FALSE_POSITIVE')`), "Request More Info" (blue, reveals inline note textarea + Confirm/Cancel; calls `handleHitlDecision('REQUEST_MORE_INFO', note)`); logs with existing `admin_action_taken` show read-only display
+- GET `/admin/security-logs` now also returns `hitl_decision` JSONB column in response
+- Tests: `TestPatchSecurityLogHitl` class added to `test_admin_new_routes.py` (6 cases: CONFIRM_THREAT/FALSE_POSITIVE/REQUEST_MORE_INFO behavior, invalid action 400, no-fields 400, not-found 404); `admin-system-hitl.test.tsx` added (6 cases: 3 buttons render, each calls correct API action, Request More Info reveals note input, actioned logs show read-only)
+- Applied migration to Docker postgres; verified `hitl_decision jsonb` column present
+- Verification: backend `pytest -v -k security` → 41 passed; frontend `npx vitest run` → 8 passed (6 HITL + 2 existing AI analyze); `npm run lint` → 0 errors (pre-existing warnings only)
+
 ## [2026-05-26] fix | VPS login outage from base compose auth settings
 - Diagnosed public login failure as a Keycloak/OIDC discovery issue, not a full stack outage: core containers were running, `/login` served 200, but `/auth/realms/bfp/.well-known/openid-configuration` returned 403 with `HTTPS required`.
 - Confirmed internal nginx-to-Keycloak discovery returned 200, while the public path was using base compose auth settings (`KC_HOSTNAME_URL=http://localhost:8080/auth`, backend `KEYCLOAK_ISSUER=http://localhost:8080/auth/realms/bfp`).
