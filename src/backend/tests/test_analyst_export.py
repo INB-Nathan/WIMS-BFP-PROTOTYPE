@@ -9,7 +9,12 @@ import pytest
 
 from api.routes.incidents import AnalystIncidentExportRequest, export_analyst_incidents
 from auth import get_analyst_or_admin
-from tasks.exports import ALLOWED_EXPORT_COLUMNS, _valid_columns, export_analyst_incidents_task
+from tasks.exports import (
+    ALLOWED_EXPORT_COLUMNS,
+    DEFAULT_EXPORT_COLUMNS,
+    _valid_columns,
+    export_analyst_incidents_task,
+)
 
 
 def test_export_columns_allowlist_filtering():
@@ -17,6 +22,74 @@ def test_export_columns_allowlist_filtering():
 
     assert _valid_columns(columns) == ["incident_id", "notification_dt"]
     assert set(_valid_columns(["bad_sql"])).issubset(ALLOWED_EXPORT_COLUMNS)
+
+
+def test_region_name_in_allowed_columns():
+    # #112: region_name must survive _valid_columns so it reaches get_export_rows.
+    assert "region_name" in ALLOWED_EXPORT_COLUMNS
+    assert _valid_columns(["region_name"]) == ["region_name"]
+    assert _valid_columns(["region_name", "incident_id"]) == ["region_name", "incident_id"]
+
+
+def test_default_export_columns_match_curated_list():
+    # #113: pin the contract between the backend default and the frontend
+    # DEFAULT_SELECTED_COLUMNS so the two layers stay in sync.
+    assert DEFAULT_EXPORT_COLUMNS == [
+        "incident_id",
+        "notification_dt",
+        "region_name",
+        "province_name",
+        "municipality_name",
+        "general_category",
+        "alarm_level",
+        "estimated_damage_php",
+        "total_response_time_minutes",
+    ]
+    assert "region_id" not in DEFAULT_EXPORT_COLUMNS
+    assert "barangay_name" not in DEFAULT_EXPORT_COLUMNS
+
+
+def test_get_export_rows_joins_ref_regions_and_returns_region_name():
+    """
+    #112 regression: requesting region_name must
+      1. Inject LEFT JOIN wims.ref_regions in the SQL,
+      2. SELECT rr.region_code aliased as region_name (so the row-dict key
+         matches what the picker requested and writers don't need a mapping),
+      3. Surface region_name in the returned row dicts with the joined value
+         (e.g. 'NCR').
+    """
+    from services.analytics_read_model import get_export_rows
+
+    mock_db = MagicMock()
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = [(1, "NCR")]
+    mock_db.execute.return_value = mock_result
+
+    rows = get_export_rows(mock_db, {}, ["incident_id", "region_name"])
+
+    assert rows == [{"incident_id": 1, "region_name": "NCR"}]
+
+    executed_sql = str(mock_db.execute.call_args.args[0])
+    assert "LEFT JOIN wims.ref_regions rr ON rr.region_id = a.region_id" in executed_sql
+    assert "rr.region_code AS region_name" in executed_sql
+
+
+def test_get_export_rows_omits_region_join_when_region_name_not_requested():
+    """
+    Negative case for #112: queries that don't ask for region_name must NOT
+    inject the ref_regions JOIN — keeps the common path cheap.
+    """
+    from services.analytics_read_model import get_export_rows
+
+    mock_db = MagicMock()
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = [(1,)]
+    mock_db.execute.return_value = mock_result
+
+    get_export_rows(mock_db, {}, ["incident_id"])
+
+    executed_sql = str(mock_db.execute.call_args.args[0])
+    assert "ref_regions" not in executed_sql
 
 
 def test_export_task_dispatched_returns_task_id():
