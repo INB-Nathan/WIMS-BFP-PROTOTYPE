@@ -156,7 +156,7 @@ export default function AdminSystemPage() {
         }
     }, [loading, role, router]);
 
-    const loadHealth = async () => {
+    const loadHealth = useCallback(async () => {
         try {
             const data = await fetchSystemHealth();
             setHealth(data);
@@ -164,20 +164,13 @@ export default function AdminSystemPage() {
         } catch {
             setHealth({ status: 'ERROR', components: {} });
         }
-    };
+    }, [setHealth, setHealthLastChecked]);
 
     const loadMonitoring = useCallback(async () => {
-        const [healthRes, metricsRes, workersRes] = await Promise.allSettled([
-            fetchSystemHealth(),
+        const [metricsRes, workersRes] = await Promise.allSettled([
             fetchSystemMetrics(),
             fetchWorkerStatus(),
         ]);
-
-        if (healthRes.status === 'fulfilled') {
-            setHealth(healthRes.value as typeof health);
-        } else {
-            setHealth({ status: 'ERROR', components: {} });
-        }
 
         if (metricsRes.status === 'fulfilled') {
             setSystemMetrics(metricsRes.value as SystemMetrics);
@@ -187,9 +180,9 @@ export default function AdminSystemPage() {
             setWorkers(workersRes.value as WorkerStatus[]);
         }
 
-        setHealthLastChecked(new Date());
+        await loadHealth();
         setMonitoringLastChecked(new Date());
-    }, []);
+    }, [loadHealth, setSystemMetrics, setWorkers, setMonitoringLastChecked]);
 
     useEffect(() => {
         if (role === 'SYSTEM_ADMIN') {
