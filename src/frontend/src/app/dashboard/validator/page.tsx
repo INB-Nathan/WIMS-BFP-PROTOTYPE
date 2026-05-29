@@ -16,6 +16,8 @@ import { UpdateRequestDiffPanel } from "@/components/UpdateRequestDiffPanel";
 import { IncidentRevisionHistory } from "@/components/IncidentRevisionHistory";
 import { formatClassification } from "@/lib/afor-utils";
 import { PH_REGIONS, getShortRegionName } from "@/lib/ph-regions";
+import { StatusBadge, STATUS_COLORS, STATUS_LABELS } from "@/components/ui/StatusBadge";
+import { formatIncidentDate, manilaTodayUtcDate, dateOnly, isDateOnly, addUtcDays, getDateBounds, categoryCount as sharedCategoryCount } from "@/lib/incident-utils";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -89,113 +91,14 @@ const STATS_DATE_FILTERS = [
 
 type StatsDateFilterValue = (typeof STATS_DATE_FILTERS)[number]["value"];
 
-const STATUS_LABELS: Record<string, string> = {
-  DRAFT: "Draft",
-  PENDING: "Pending",
-  PENDING_VALIDATION: "Awaiting Validation",
-  VERIFIED: "Verified",
-  REJECTED: "Rejected",
-  REPLACED: "Replaced",
-};
-
-const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  DRAFT:              { bg: "#F3F4F6", text: "#6B7280" },
-  PENDING:            { bg: "#FEF9C3", text: "#92400E" },
-  PENDING_VALIDATION: { bg: "#DBEAFE", text: "#1D4ED8" },
-  VERIFIED:           { bg: "#DCFCE7", text: "#15803D" },
-  REJECTED:           { bg: "#FEE2E2", text: "#B91C1C" },
-  REPLACED:           { bg: "#F3E8FF", text: "#6D28D9" },
-};
+// STATUS_LABELS and STATUS_COLORS imported from @/components/ui/StatusBadge
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 const regionDisplay = getShortRegionName;
-
-function formatIncidentDate(dt: string | null): string {
-  if (!dt) return "—";
-  const d = new Date(dt);
-  if (Number.isNaN(d.getTime())) return "—";
-  const month = d.toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "short" });
-  const day = d.toLocaleString("en-PH", { timeZone: "Asia/Manila", day: "numeric" });
-  const time = d.toLocaleString("en-PH", {
-    timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit", hour12: false,
-  });
-  return `${month} ${day} • ${time}`;
-}
-
-function manilaTodayUtcDate(): Date {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Manila",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const year = Number(parts.find((p) => p.type === "year")?.value);
-  const month = Number(parts.find((p) => p.type === "month")?.value);
-  const day = Number(parts.find((p) => p.type === "day")?.value);
-  return new Date(Date.UTC(year, month - 1, day));
-}
-
-function dateOnly(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
-function isDateOnly(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const parsed = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) && dateOnly(parsed) === value;
-}
-
-function addUtcDays(date: Date, days: number): Date {
-  const next = new Date(date);
-  next.setUTCDate(next.getUTCDate() + days);
-  return next;
-}
-
-function getDateBounds(filter: DateFilterValue, specificDate: string): { date_from?: string; date_to?: string } {
-  if (filter === "all") return {};
-  if (filter === "specific") return specificDate ? { date_from: specificDate, date_to: specificDate } : {};
-  const today = manilaTodayUtcDate();
-  if (filter === "today") return { date_from: dateOnly(today), date_to: dateOnly(today) };
-  if (filter === "week") {
-    const day = today.getUTCDay();
-    const mondayOffset = day === 0 ? -6 : 1 - day;
-    return { date_from: dateOnly(addUtcDays(today, mondayOffset)), date_to: dateOnly(addUtcDays(today, mondayOffset + 6)) };
-  }
-  if (filter === "month") {
-    const first = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
-    const last = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0));
-    return { date_from: dateOnly(first), date_to: dateOnly(last) };
-  }
-  const first = new Date(Date.UTC(today.getUTCFullYear(), 0, 1));
-  const last = new Date(Date.UTC(today.getUTCFullYear(), 11, 31));
-  return { date_from: dateOnly(first), date_to: dateOnly(last) };
-}
-
-function categoryCount(
-  stats: { by_category: { category: string; count: number }[] } | null,
-  aliases: string[],
-): string {
-  const aliasSet = new Set(aliases.map((alias) => alias.toUpperCase()));
-  const total = stats?.by_category.reduce((sum, entry) => (
-    aliasSet.has(entry.category?.toUpperCase()) ? sum + entry.count : sum
-  ), 0) ?? 0;
-  return total.toLocaleString();
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const style = STATUS_COLORS[status] ?? { bg: "#F3F4F6", text: "#6B7280" };
-  return (
-    <span
-      className="inline-flex w-fit max-w-full items-center justify-center rounded-full px-2.5 py-1 text-xs font-semibold leading-none whitespace-nowrap"
-      style={{ backgroundColor: style.bg, color: style.text }}
-    >
-      {STATUS_LABELS[status] ?? status}
-    </span>
-  );
-}
+const categoryCount = sharedCategoryCount;
 
 // ---------------------------------------------------------------------------
 // Component

@@ -17,6 +17,9 @@ import {
   totalRegionalPages,
 } from '@/lib/regional-incidents';
 import { formatClassification } from '@/lib/afor-utils';
+import { StatusBadge } from '@/components/ui/StatusBadge';
+import { MetricPill } from '@/components/ui/MetricPill';
+import { formatIncidentDate, manilaTodayUtcDate, dateOnly, isDateOnly, addUtcDays, getDateBounds as getDateBoundsUtil, displayValue, statusBorderColor, categoryCount } from '@/lib/incident-utils';
 
 interface RegionalStatsPayload {
   total_incidents?: number;
@@ -32,17 +35,12 @@ interface RegionalStatsPayload {
   vehicles_affected?: number;
 }
 
-// Format date as "Mar 28 • 16:36" (no year, bullet separator)
-function formatIncidentDate(raw: string | null | undefined): string {
-  if (!raw) return '—';
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return '—';
-  const month = d.toLocaleString('en-PH', { timeZone: 'Asia/Manila', month: 'short' });
-  const day = d.toLocaleString('en-PH', { timeZone: 'Asia/Manila', day: 'numeric' });
-  const time = d.toLocaleString('en-PH', {
-    timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', hour12: false,
-  });
-  return `${month} ${day} • ${time}`;
+// Date utils and display helpers imported from @/lib/incident-utils
+
+const getRegionalDateBounds = getDateBoundsUtil;
+
+function completeAddress(incident: RegionalIncidentListItem): string {
+  return incident.street_address || '-';
 }
 
 const STATUS_CHIPS = [
@@ -70,7 +68,6 @@ const STATS_DATE_FILTERS = [
 ] as const;
 
 type StatsDateFilterValue = (typeof STATS_DATE_FILTERS)[number]['value'];
-
 type DateFilterValue = (typeof DATE_FILTERS)[number]['value'];
 
 interface HoverHint {
@@ -79,84 +76,6 @@ interface HoverHint {
   y: number;
 }
 
-function manilaTodayUtcDate(): Date {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Manila',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date());
-  const year = Number(parts.find((p) => p.type === 'year')?.value);
-  const month = Number(parts.find((p) => p.type === 'month')?.value);
-  const day = Number(parts.find((p) => p.type === 'day')?.value);
-  return new Date(Date.UTC(year, month - 1, day));
-}
-
-function dateOnly(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
-function isDateOnly(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const parsed = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) && dateOnly(parsed) === value;
-}
-
-function addUtcDays(date: Date, days: number): Date {
-  const next = new Date(date);
-  next.setUTCDate(next.getUTCDate() + days);
-  return next;
-}
-
-function getRegionalDateBounds(filter: DateFilterValue, specificDate: string): { date_from?: string; date_to?: string } {
-  if (filter === 'all') return {};
-  if (filter === 'specific') return specificDate ? { date_from: specificDate, date_to: specificDate } : {};
-  const today = manilaTodayUtcDate();
-  if (filter === 'today') return { date_from: dateOnly(today), date_to: dateOnly(today) };
-  if (filter === 'week') {
-    const day = today.getUTCDay();
-    const mondayOffset = day === 0 ? -6 : 1 - day;
-    return { date_from: dateOnly(addUtcDays(today, mondayOffset)), date_to: dateOnly(addUtcDays(today, mondayOffset + 6)) };
-  }
-  if (filter === 'month') {
-    const first = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
-    const last = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0));
-    return { date_from: dateOnly(first), date_to: dateOnly(last) };
-  }
-  const first = new Date(Date.UTC(today.getUTCFullYear(), 0, 1));
-  const last = new Date(Date.UTC(today.getUTCFullYear(), 11, 31));
-  return { date_from: dateOnly(first), date_to: dateOnly(last) };
-}
-
-function displayValue(value: string | number | null | undefined): string {
-  if (value === null || value === undefined || value === '') return '-';
-  return String(value);
-}
-
-function categoryCount(
-  stats: RegionalStatsPayload | null,
-  aliases: Array<string | null>,
-): string {
-  const aliasSet = new Set(aliases.map((alias) => alias?.toUpperCase()));
-  const total = stats?.by_category?.reduce((sum, entry) => {
-    const key = entry.category?.toUpperCase();
-    return aliasSet.has(key) ? sum + entry.count : sum;
-  }, 0) ?? 0;
-  return total.toLocaleString();
-}
-
-function completeAddress(incident: RegionalIncidentListItem): string {
-  return incident.street_address || '-';
-}
-
-function statusBorderColor(status: string | null | undefined): string {
-  const normalized = (status ?? '').toUpperCase();
-  if (normalized === 'VERIFIED') return '#22C55E';
-  if (normalized === 'REJECTED') return '#EF4444';
-  if (normalized === 'DRAFT') return '#9CA3AF';
-  if (normalized === 'PENDING' || normalized === 'PENDING_VALIDATION') return '#F59E0B';
-  return '#E5E7EB';
-}
 
 export default function RegionalDashboardPage() {
   const router = useRouter();
@@ -1084,24 +1003,6 @@ export default function RegionalDashboardPage() {
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, { bg: string; text: string }> = {
-    VERIFIED:  { bg: '#DCFCE7', text: '#15803D' },
-    REJECTED:  { bg: '#FEE2E2', text: '#B91C1C' },
-    DRAFT:     { bg: '#F3F4F6', text: '#6B7280' },
-    PENDING:   { bg: '#FEF9C3', text: '#92400E' },
-  };
-  const style = styles[status] ?? { bg: '#F3F4F6', text: '#6B7280' };
-  return (
-    <span
-      className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold"
-      style={{ backgroundColor: style.bg, color: style.text }}
-    >
-      {status}
-    </span>
-  );
-}
-
 function InfoBlock({
   label,
   value,
@@ -1126,15 +1027,3 @@ function InfoBlock({
   );
 }
 
-function MetricPill({ label, value }: { label: string; value: number | null | undefined }) {
-  return (
-    <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-center">
-      <div className="text-lg font-bold tabular-nums leading-none" style={{ color: '#7F1D1D' }}>
-        {value ?? 0}
-      </div>
-      <div className="mt-1 text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
-        {label}
-      </div>
-    </div>
-  );
-}

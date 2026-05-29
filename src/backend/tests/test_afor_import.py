@@ -2,6 +2,8 @@ import csv
 import io
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from openpyxl import Workbook
 
 from services.afor_import import (
@@ -12,6 +14,7 @@ from services.afor_import import (
     parse_csv_content,
     parse_xlsx_content,
 )
+from services.afor_import.parse import _extract_barangay_from_address
 
 
 class _FakeSheet:
@@ -225,6 +228,46 @@ def test_parse_xlsx_content_flow(mock_load):
     assert results[0].status == "VALID"
     assert results[0].data["_city_text"] == "Manila"
     assert results[0].data["incident_nonsensitive_details"]["extent_total_floor_area_sqm"] == 500
+
+
+# ---------------------------------------------------------------------------
+# _extract_barangay_from_address unit tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("address,expected", [
+    # Keyword detection: "Brgy." prefix
+    ("123 Roxas St., Brgy. San Isidro, Quezon City, Metro Manila", "Brgy. San Isidro"),
+    # Keyword detection: "Bgy." prefix
+    ("456 Mabini Ave., Bgy. Bagong Silang, Caloocan", "Bgy. Bagong Silang"),
+    # Keyword detection: "Barangay " prefix (full word)
+    ("Unit 5 Torre Tower, Barangay Poblacion, Makati City", "Barangay Poblacion"),
+    # Keyword detection: case-insensitive
+    ("1 Main St., BRGY. Holy Spirit, Quezon City", "BRGY. Holy Spirit"),
+    # Positional fallback: 5-part AFOR template "HouseNo, Street, Barangay, City, Province"
+    ("123, Rizal St, Poblacion, Manila, NCR", "Poblacion"),
+    # Positional fallback: exactly 3 comma-parts (index 2 = last)
+    ("HouseNo, Street, Barangay", "Barangay"),
+])
+def test_extract_barangay_keyword_and_positional(address, expected):
+    assert _extract_barangay_from_address(address) == expected
+
+
+@pytest.mark.unit
+def test_extract_barangay_empty_string_returns_empty():
+    assert _extract_barangay_from_address("") == ""
+
+
+@pytest.mark.unit
+def test_extract_barangay_none_like_placeholder_returns_empty():
+    assert _extract_barangay_from_address("(address)") == ""
+
+
+@pytest.mark.unit
+def test_extract_barangay_fewer_than_3_parts_returns_empty():
+    assert _extract_barangay_from_address("Only One Part") == ""
+    assert _extract_barangay_from_address("Part One, Part Two") == ""
 
 
 def test_detect_structural_workbook():

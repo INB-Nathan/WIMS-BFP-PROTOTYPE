@@ -24,6 +24,7 @@ import {
 } from '@/lib/afor-utils';
 import { useUserProfile } from '@/lib/auth';
 import { PH_REGIONS } from '@/lib/ph-regions';
+import { searchGeocode } from '@/lib/geocode';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type PersonnelOnDuty = Record<string, string | { name?: string; contact?: string }>;
@@ -379,20 +380,14 @@ function useGeocoding(address: string, city: string, province = '') {
 
     const isPlaceholder = !address || address.startsWith('(');
     const primaryQuery = isPlaceholder
-      ? [city, province, 'Philippines'].filter(Boolean).join(', ')
-      : [address, province, 'Philippines'].filter(Boolean).join(', ');
-    const fallbackQuery = [city, province, 'Philippines'].filter(Boolean).join(', ');
+      ? [city, province].filter(Boolean).join(', ')
+      : [address, province].filter(Boolean).join(', ');
+    const fallbackQuery = [city, province].filter(Boolean).join(', ');
 
-    const nominatim = (q: string) =>
-      fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&countrycodes=ph`,
-        { signal, headers: { Accept: 'application/json' } },
-      ).then((r) => r.json() as Promise<Array<{ lat: string; lon: string }>>);
-
-    nominatim(primaryQuery)
+    searchGeocode(primaryQuery, 1, 0, signal)
       .then(async (results) => {
         if (results.length === 0 && fallbackQuery !== primaryQuery && fallbackQuery.trim()) {
-          return nominatim(fallbackQuery);
+          return searchGeocode(fallbackQuery, 1, 0, signal);
         }
         return results;
       })

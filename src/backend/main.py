@@ -52,6 +52,7 @@ from api.routes import (
 )
 from api.routes.public_dmz import router as public_dmz_router
 from api.routes.user import router as user_profile_router
+from api.routes.geocode import router as geocode_router
 
 # WIMS roles in precedence order (highest first). Used when resolving from Keycloak JWT.
 WIMS_ROLES_FROM_KEYCLOAK = (
@@ -98,6 +99,7 @@ app.include_router(regional.router)
 app.include_router(analytics.router)
 app.include_router(ref.router)  # GET /api/ref/regions, /api/ref/provinces, /api/ref/cities
 app.include_router(public_dmz_router)  # POST /api/v1/public/report (no-auth DMZ)
+app.include_router(geocode_router)  # GET /api/geocode/reverse, /api/geocode/search (Nominatim proxy)
 
 logger = logging.getLogger("wims.rate_limit")
 

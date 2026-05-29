@@ -36,7 +36,6 @@ def check_for_duplicate(
     *,
     incident_id: int,
     region_id: int,
-    alarm_level: str | None,
     incident_date: str | None,
     notification_dt: datetime | None = None,
     lat: float | None,
@@ -68,8 +67,6 @@ def check_for_duplicate(
         The incident being checked — excluded from results.
     region_id:
         Region the incident belongs to.
-    alarm_level:
-        Alarm level string (unused; reserved for future use).
     incident_date:
         YYYY-MM-DD date string in Asia/Manila TZ, or None to skip date window.
     notification_dt:

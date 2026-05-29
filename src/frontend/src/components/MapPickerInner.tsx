@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { searchGeocode } from '@/lib/geocode';
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -152,18 +153,7 @@ export function MapPickerInner({
         setSearching(true);
         setSearchError(null);
         try {
-            const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=ph&limit=1&q=${encodeURIComponent(q)}`;
-            const response = await fetch(url, {
-                headers: {
-                    Accept: 'application/json',
-                },
-            });
-
-            if (!response.ok) {
-                throw new Error('Search request failed.');
-            }
-
-            const data = (await response.json()) as Array<{ lat: string; lon: string }>;
+            const data = await searchGeocode(q, 1);
             const first = data[0];
             if (!first) {
                 setSearchError('No location found. Try a more specific place name.');
@@ -196,10 +186,8 @@ export function MapPickerInner({
         if (value) return;
         const q = searchQuery;
         setSearching(true);
-        const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=ph&limit=1&q=${encodeURIComponent(q)}`;
-        fetch(url, { headers: { Accept: 'application/json' } })
-            .then((r) => r.json())
-            .then((data: Array<{ lat: string; lon: string; type: string; class: string }>) => {
+        searchGeocode(q, 1)
+            .then((data) => {
                 const first = data[0];
                 if (!first) return;
                 // Don't pin broad administrative areas (province/region centroids) —
@@ -237,15 +225,7 @@ export function MapPickerInner({
         const controller = new AbortController();
         const timer = window.setTimeout(async () => {
             try {
-                const suggestUrl = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=ph&addressdetails=1&limit=5&q=${encodeURIComponent(q)}`;
-                const response = await fetch(suggestUrl, {
-                    signal: controller.signal,
-                    headers: {
-                        Accept: 'application/json',
-                    },
-                });
-                if (!response.ok) return;
-                const data = (await response.json()) as GeoSuggestion[];
+                const data = await searchGeocode(q, 5, 1, controller.signal) as GeoSuggestion[];
                 setSuggestions((prev) => mergeSuggestions(prev.length ? prev : local, data).slice(0, 7));
             } catch {
                 // Keep local suggestions when network lookup fails.
