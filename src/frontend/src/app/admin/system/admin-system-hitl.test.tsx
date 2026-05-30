@@ -63,6 +63,26 @@ vi.mock('@/lib/api', () => ({
     updateAdminSecurityLog: (...args: unknown[]) => mockUpdateAdminSecurityLog(...args),
     fetchAuditLogs: () => mockFetchAuditLogs(),
     analyzeSecurityLog: (logId: number) => mockAnalyzeSecurityLog(logId),
+    // Stubs required by AdminSystemPage mount (added in PR #125, now in master)
+    fetchSystemHealth: vi.fn().mockResolvedValue({
+        status: 'HEALTHY',
+        components: {
+            database: { status: 'HEALTHY', latency_ms: 1 },
+            redis: { status: 'HEALTHY', latency_ms: 1 },
+            keycloak: { status: 'HEALTHY', latency_ms: 1 },
+        },
+    }),
+    fetchSystemMetrics: vi.fn().mockResolvedValue({
+        cpu_percent: 10,
+        memory: { total_mb: 8000, used_mb: 2000, percent: 25 },
+        disk: { total_gb: 100, used_gb: 40, percent: 40 },
+    }),
+    fetchWorkerStatus: vi.fn().mockResolvedValue([]),
+    fetchRegions: vi.fn().mockResolvedValue([]),
+    fetchActiveSessions: vi.fn().mockResolvedValue([]),
+    fetchUserSessions: vi.fn().mockResolvedValue({ sessions: [] }),
+    terminateUserSessions: vi.fn(),
+    revokeUserSessions: vi.fn(),
 }));
 
 describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () => {
