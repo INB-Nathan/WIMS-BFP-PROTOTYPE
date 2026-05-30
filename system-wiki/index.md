@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-30
 Total synthesis pages: 32
-Last changes: Public Fire Report Areas implementation contract was repaired and localhost nginx moved to a local-only override. Archived encoder/validator incidents can be opened from archive views, restored with unarchive actions, and pass the verified-row immutability rule in both archive directions.
+Last changes: VPS nginx TLS recovery was clarified with explicit production Compose commands and Make targets. Public Fire Report Areas implementation contract was repaired and localhost nginx moved to a local-only override. Archived encoder/validator incidents can be opened from archive views, restored with unarchive actions, and pass the verified-row immutability rule in both archive directions.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

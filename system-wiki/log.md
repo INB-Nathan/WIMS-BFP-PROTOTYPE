@@ -1449,3 +1449,13 @@ No schema, auth, or FRS alignment changes.
 **Verification:** `npm.cmd run lint -- --no-cache` passes with 0 errors and 13 pre-existing warnings outside the touched file.
 
 **Wiki updates:** Updated `system-wiki/subsystems/regional-dashboard.md` and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-05-30] ops | VPS nginx TLS recovery command clarified
+
+- Recreated `wims-nginx-gateway` with the explicit production Compose stack after plain Compose had mounted the local HTTP-only nginx override. The production container now mounts `/etc/letsencrypt` and `src/nginx/nginx.conf`; `http://wimsbfp.tech/health` redirects to HTTPS and `https://wimsbfp.tech/health` returns 200.
+- Added Make targets `prod-up` and `prod-nginx` so VPS operation uses `docker-compose.yml` + `docker-compose.prod.yml` + `.env.production` instead of the automatic local override.
+- Updated infrastructure and local deployment wiki pages to warn that plain `docker compose up` on the VPS loads `docker-compose.override.yml`, causing HTTPS failures.
+
+**Verification:** `curl -I https://wimsbfp.tech/health` returns 200; `curl -I http://wimsbfp.tech/health` returns 301 to HTTPS; nginx mount inspection shows `/etc/letsencrypt -> /etc/letsencrypt` and `src/nginx/nginx.conf -> /etc/nginx/nginx.conf`.
+
+**Wiki updates:** Updated `system-wiki/architecture/infrastructure-config.md`, `system-wiki/operations/local-dev-deploy-guide.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.

@@ -1,7 +1,7 @@
 ---
 title: Local Dev Deployment Guide
 created: 2026-05-27
-updated: 2026-05-27
+updated: 2026-05-30
 type: operations
 tags: [wims-bfp, docker, deployment, local-dev, windows, troubleshooting]
 sources: [src/docker-compose.yml, src/nginx/nginx.conf, src/keycloak/bootstrap/bootstrap-master-realm.sh, scripts/seed-dev-users.sh, CLAUDE.md]
@@ -203,12 +203,21 @@ cd src
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d --build
 ```
 
+To recover only nginx after it was accidentally recreated with the local override:
+
+```bash
+cd src
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d --force-recreate nginx-gateway
+```
+
 `docker-compose.prod.yml` overrides:
 - `KC_HOSTNAME_URL` → `${PUBLIC_BASE_URL}/auth`
 - `KEYCLOAK_ISSUER` → `${PUBLIC_BASE_URL}/auth/realms/bfp`
 - All frontend `NEXT_PUBLIC_*` build args and runtime env vars to HTTPS public origin
 
 `.env.production` (uncommitted) sets `PUBLIC_BASE_URL=https://wimsbfp.tech` and `LETSENCRYPT_DIR=/etc/letsencrypt` (points to the host cert directory on the VPS).
+
+Do not use plain `docker compose up` on the VPS. Compose auto-loads `docker-compose.override.yml`, which mounts the local HTTP-only `src/nginx/nginx.local.conf`; HTTP may still work, but HTTPS will not terminate because nginx is no longer using the TLS server block.
 
 See [[architecture/infrastructure-config]] for the full VPS setup, certbot renewal hook, and UFW firewall rules.
 

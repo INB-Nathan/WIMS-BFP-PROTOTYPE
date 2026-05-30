@@ -1,4 +1,4 @@
-.PHONY: help dev dev-build down test test-backend test-frontend lint lint-backend lint-frontend format ci-local status
+.PHONY: help dev dev-build down prod-up prod-nginx test test-backend test-frontend lint lint-backend lint-frontend format ci-local status
 
 # =============================================================================
 # WIMS-BFP Development Workflow
@@ -10,6 +10,8 @@ help:
 	@echo "  make dev           Start full stack (Docker Compose)"
 	@echo "  make dev-build     Rebuild images then start"
 	@echo "  make down          Stop all containers"
+	@echo "  make prod-up       Start VPS production stack with TLS"
+	@echo "  make prod-nginx    Recreate VPS nginx with TLS config"
 	@echo ""
 	@echo "  make test          Run all tests (backend + frontend)"
 	@echo "  make test-backend  Backend pytest"
@@ -35,6 +37,12 @@ dev-build:
 
 down:
 	cd src && docker compose down
+
+prod-up:
+	cd src && docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d --build
+
+prod-nginx:
+	cd src && docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d --force-recreate nginx-gateway
 
 # -----------------------------------------------------------------------------
 # Tests

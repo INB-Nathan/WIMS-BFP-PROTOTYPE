@@ -1,7 +1,7 @@
 ---
 title: Infrastructure Configuration
 created: 2026-05-16
-updated: 2026-05-27
+updated: 2026-05-30
 type: architecture
 tags: [wims-bfp, docker, nginx, suricata, keycloak, infrastructure]
 sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/nginx/, src/suricata/, src/keycloak/bfp-realm.json]
@@ -69,16 +69,24 @@ status: draft
 **Local HTTP-only command:**
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+docker compose up -d --build
 ```
 
-`src/nginx/nginx.local.conf` is local-development-only and intentionally omits TLS. Do not deploy it to VPS/production.
+`src/nginx/nginx.local.conf` is local-development-only and intentionally omits TLS. It is loaded automatically by `src/docker-compose.override.yml` when running plain `docker compose ...` from `src/`. Do not deploy it to VPS/production.
 
 **VPS deployment command:**
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d --build
 ```
+
+**VPS nginx recovery command:**
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d --force-recreate nginx-gateway
+```
+
+Use explicit `-f` flags on the VPS. Plain `docker compose up` auto-loads `docker-compose.override.yml`, mounts `src/nginx/nginx.local.conf`, and publishes port 443 to an HTTP-only nginx process. The symptom is HTTP working while HTTPS fails with connection refused or an SSL EOF. The production command mounts `/etc/letsencrypt` into the container and loads `src/nginx/nginx.conf`, which terminates TLS for `wimsbfp.tech`.
 
 **Operational note:** On 2026-05-26, a login outage occurred when the VPS services were running with only the base `docker-compose.yml` values. Public Keycloak discovery returned `403 {"error":"invalid_request","error_description":"HTTPS required"}` and/or advertised localhost/port-8080 auth URLs. Recreating Keycloak, backend, frontend, and nginx with the production override restored `KC_HOSTNAME_URL=${PUBLIC_BASE_URL}/auth`, backend `KEYCLOAK_ISSUER=${PUBLIC_BASE_URL}/auth/realms/bfp`, and frontend public auth build/runtime values. After the restart, `https://wimsbfp.tech/auth/realms/bfp/.well-known/openid-configuration` returned 200 and advertised `https://wimsbfp.tech/auth/...` endpoints only.
 
