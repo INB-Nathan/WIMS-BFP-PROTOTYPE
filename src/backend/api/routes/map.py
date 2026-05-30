@@ -368,7 +368,13 @@ async def get_operational_map(
     ne_lat: Annotated[float, Query(ge=-90, le=90)],
     ne_lng: Annotated[float, Query(ge=-180, le=180)],
     zoom: Annotated[int, Query(ge=4, le=18)] = 10,
-    status_filter: Annotated[str | None, Query(description="Filter by verification status")] = None,
+    status_filter: Annotated[
+        str | None,
+        Query(
+            description="Filter by verification status",
+            pattern=r"^(DRAFT|PENDING|PENDING_VALIDATION|VERIFIED|REJECTED)$",
+        ),
+    ] = None,
     db: Annotated[Session, Depends(get_db)] = None,
     _user: Annotated[dict, Depends(auth.get_current_wims_user)] = None,
 ):
@@ -379,11 +385,19 @@ async def get_operational_map(
     """
     grid_deg = _grid_size_for_zoom(zoom)
 
-    status_clause = ""
+    # Build status clause. When status_filter is truthy, filter on that
+    # specific status. Otherwise (None or empty string), exclude DRAFT.
+    query_params: dict[str, Any] = {
+        "grid_deg": grid_deg,
+        "sw_lat": sw_lat,
+        "sw_lng": sw_lng,
+        "ne_lat": ne_lat,
+        "ne_lng": ne_lng,
+    }
     if status_filter:
         status_clause = "AND fi.verification_status = :status_filter"
-    elif status_filter is None:
-        # Default: exclude DRAFT only (validators see everything else)
+        query_params["status_filter"] = str(status_filter)
+    else:
         status_clause = "AND fi.verification_status != 'DRAFT'"
 
     rows = db.execute(
@@ -414,14 +428,7 @@ async def get_operational_map(
             WHERE center_lat IS NOT NULL AND center_lng IS NOT NULL
             ORDER BY cnt DESC
         """),
-        {
-            "grid_deg": grid_deg,
-            "sw_lat": sw_lat,
-            "sw_lng": sw_lng,
-            "ne_lat": ne_lat,
-            "ne_lng": ne_lng,
-            "status_filter": str(status_filter) if status_filter else "",
-        },
+        query_params,
     ).fetchall()
 
     clusters = [
