@@ -88,12 +88,13 @@ class TestPublicClusterEndpoint:
                 pass
 
         app.dependency_overrides[get_db] = override_get_db
+        try:
+            resp = client.get(
+                "/api/public/clusters?sw_lat=14.0&sw_lng=120.0&ne_lat=15.0&ne_lng=121.0&zoom=10"
+            )
+        finally:
+            app.dependency_overrides.clear()
 
-        resp = client.get(
-            "/api/public/clusters?sw_lat=14.0&sw_lng=120.0&ne_lat=15.0&ne_lng=121.0&zoom=10"
-        )
-        # Clean up overrides
-        app.dependency_overrides.clear()
         assert resp.status_code in (200, 500)
         if resp.status_code == 200:
             data = resp.json()
