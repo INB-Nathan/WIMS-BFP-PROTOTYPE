@@ -411,7 +411,7 @@ Each item: incident_id, region_id, created_at, updated_at, notification_dt, gene
 
 **Errors:** 404 (not found or access denied)
 
-**Behavior Notes:** Role check: NATIONAL_VALIDATOR, SYSTEM_ADMIN, NATIONAL_ANALYST see any non-archived; encoders scoped to `fi.encoder_id`. Decrypts PII blob with `SecurityProvider.decrypt_json()`. Strips `pii_blob_enc` and `encryption_iv` from response. Fetches most recent REJECTION reason from `incident_verification_history` with schema compatibility.
+**Behavior Notes:** Role check: NATIONAL_VALIDATOR, SYSTEM_ADMIN, NATIONAL_ANALYST see authorized records; encoders are scoped to `fi.encoder_id`. Archived records are included so encoder/validator archive views can open details. Decrypts PII blob with `SecurityProvider.decrypt_json()`. Strips `pii_blob_enc` and `encryption_iv` from response. Fetches most recent REJECTION reason from `incident_verification_history` with schema compatibility.
 
 ### `create_incident`
 
@@ -507,6 +507,28 @@ Each item: incident_id, region_id, created_at, updated_at, notification_dt, gene
 **Returns:** `{"status": "deleted", "incident_id": int}`
 
 **Errors:** 404, 403 (status not DRAFT or REJECTED)
+
+### `encoder_archive_incident`
+
+**Route:** `@router.patch("/incidents/{incident_id}/archive", status_code=200)`
+**Auth:** `Depends(get_regional_encoder)`
+**DB Session:** `Depends(get_db_with_rls)`
+**Purpose:** Soft-archive a VERIFIED incident owned by the encoder.
+
+**Returns:** `{"status": "archived", "incident_id": int}`
+
+**Errors:** 404 (not found/already archived/not owned), 400 (wrong status), 500
+
+### `encoder_unarchive_incident`
+
+**Route:** `@router.patch("/incidents/{incident_id}/unarchive", status_code=200)`
+**Auth:** `Depends(get_regional_encoder)`
+**DB Session:** `Depends(get_db_with_rls)`
+**Purpose:** Restore an archived VERIFIED incident owned by the encoder.
+
+**Returns:** `{"status": "unarchived", "incident_id": int}`
+
+**Errors:** 404 (not found/not archived/not owned), 400 (wrong status), 500
 
 ### `submit_incident_for_review`
 
@@ -622,13 +644,24 @@ Each item: incident_id, region_id, created_at, updated_at, notification_dt, gene
 **Route:** `@router.patch("/validator/incidents/{incident_id}/archive")`  
 **Auth:** `Depends(get_national_validator)`  
 **DB Session:** `Depends(get_db_with_rls)`  
-**Purpose:** Archive a finalized (VERIFIED, REJECTED, or REPLACED) incident. Sets `is_archived=TRUE`.
+**Purpose:** Archive a finalized (VERIFIED, REJECTED, or REPLACED) incident. Sets `is_archived=TRUE` without changing the current verification status.
 
 **Returns:** `{"status": "archived", "incident_id": int}`
 
 **Errors:** 404 (not found/already archived), 400 (wrong status), 500
 
 **Behavior Notes:** Writes IVH with "ARCHIVED".
+
+### `unarchive_incident`
+
+**Route:** `@router.patch("/validator/incidents/{incident_id}/unarchive")`
+**Auth:** `Depends(get_national_validator)`
+**DB Session:** `Depends(get_db_with_rls)`
+**Purpose:** Restore an archived finalized incident to the active validator queue. Sets `is_archived=FALSE`, clears `archived_at`, preserves the verification status, writes IVH with "UNARCHIVED", and resyncs analytics.
+
+**Returns:** `{"status": "unarchived", "incident_id": int}`
+
+**Errors:** 404 (not found/not archived), 400 (wrong status), 500
 
 ### `get_incident_diff`
 

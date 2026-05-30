@@ -110,14 +110,8 @@ export default function ValidatorAuditPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-baseline justify-between mb-2">
+      <div className="mb-2">
         <h1 className="text-2xl font-bold">Audit Trail</h1>
-        <Link
-          href="/dashboard/validator"
-          className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium bg-yellow-400 text-gray-900 hover:bg-yellow-500 transition-colors"
-        >
-          ← Back to Queue
-        </Link>
       </div>
       <p className="text-sm text-gray-500 mb-6">
         Every validator decision (and encoder edit) is recorded here.

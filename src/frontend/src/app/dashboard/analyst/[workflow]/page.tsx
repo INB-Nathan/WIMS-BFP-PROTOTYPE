@@ -591,7 +591,7 @@ export default function AnalystWorkflowPage() {
                 onClick={() => void loadData()}
                 disabled={loadingData}
                 className="inline-flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-bold text-white disabled:opacity-60"
-                style={{ backgroundColor: 'var(--bfp-maroon)' }}
+                style={{ backgroundColor: '#991B1B' }}
               >
                 <Search className="h-4 w-4" /> Apply
               </button>
@@ -672,7 +672,7 @@ export default function AnalystWorkflowPage() {
                 type="button"
                 onClick={() => setExportModal({ format, open: true })}
                 className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white"
-                style={{ backgroundColor: 'var(--bfp-maroon)' }}
+                style={{ backgroundColor: '#991B1B' }}
               >
                 <Download className="h-4 w-4" />
                 {format === 'excel' ? 'Excel' : format.toUpperCase()}

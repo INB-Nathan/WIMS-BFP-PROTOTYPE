@@ -10,13 +10,13 @@ import {
   submitIncidentForReview,
   unpendIncident,
   deleteIncident,
-  forceReplaceIncident,
   apiFetch,
   ApiRequestError,
   type RegionalIncidentDetailResponse,
 } from '@/lib/api';
 import dynamic from 'next/dynamic';
 import { UpdateRequestDiffPanel } from '@/components/UpdateRequestDiffPanel';
+import { IncidentDiffPanel } from '@/components/IncidentDiffPanel';
 import type { Incident } from '@/lib/edgeFunctions';
 import { getShortRegionName } from '@/lib/ph-regions';
 
@@ -47,48 +47,170 @@ const IncidentForm = dynamic(
 import {
   FIELD_LABELS,
   fieldLabel,
-  displayValue,
   ALL_PROBLEM_OPTIONS,
   normalizeProblemLabel,
   formatClassification,
 } from '@/lib/afor-utils';
 
 // ── FIX 4: Narrative as ordered bullets ──────────────────────────────────────
+type SectionTone =
+  | 'slate'
+  | 'red'
+  | 'amber'
+  | 'blue'
+  | 'rose'
+  | 'emerald'
+  | 'green'
+  | 'neutral';
+
+const SECTION_TONES: Record<SectionTone, { section: string; header: string; accent: string; table: string }> = {
+  slate: { section: 'border-slate-200/80', header: 'bg-slate-50/80', accent: 'bg-slate-500', table: 'bg-slate-50/80' },
+  red: { section: 'border-rose-200/70', header: 'bg-rose-50/70', accent: 'bg-rose-700', table: 'bg-rose-50/60' },
+  amber: { section: 'border-amber-200/70', header: 'bg-amber-50/65', accent: 'bg-amber-600', table: 'bg-amber-50/50' },
+  blue: { section: 'border-sky-200/70', header: 'bg-sky-50/65', accent: 'bg-sky-700', table: 'bg-sky-50/55' },
+  rose: { section: 'border-rose-200/65', header: 'bg-rose-50/55', accent: 'bg-rose-700', table: 'bg-rose-50/45' },
+  emerald: { section: 'border-emerald-200/70', header: 'bg-emerald-50/55', accent: 'bg-emerald-700', table: 'bg-emerald-50/45' },
+  green: { section: 'border-emerald-200/70', header: 'bg-emerald-50/55', accent: 'bg-emerald-700', table: 'bg-emerald-50/45' },
+  neutral: { section: 'border-stone-200/80', header: 'bg-stone-50/80', accent: 'bg-stone-500', table: 'bg-stone-50/70' },
+};
+
+const SECTION_NAV_LINKS = [
+  { id: 'sec-response', label: 'Response', observedIds: ['sec-response'] },
+  { id: 'sec-class', label: 'Classification', observedIds: ['sec-class'] },
+  { id: 'sec-affected-assets-nav', label: 'Affected & Assets', observedIds: ['sec-affected', 'sec-resources'] },
+  { id: 'sec-timeline', label: 'Timeline', observedIds: ['sec-timeline'] },
+  { id: 'sec-casualties', label: 'Casualties', observedIds: ['sec-casualties'] },
+  { id: 'sec-pod', label: 'Personnel', observedIds: ['sec-pod'] },
+  { id: 'sec-geo', label: 'Location', observedIds: ['sec-geo'] },
+  { id: 'sec-narrative', label: 'Narrative', observedIds: ['sec-narrative'] },
+  { id: 'sec-problems', label: 'Problems & Recommendations', observedIds: ['sec-problems', 'sec-rec'] },
+] as const;
+
+const SECTION_OBSERVER_ID_TO_NAV_ID = SECTION_NAV_LINKS.reduce<Record<string, string>>((acc, link) => {
+  link.observedIds.forEach((id) => {
+    acc[id] = link.id;
+  });
+  return acc;
+}, {});
+
+function formatDetailValue(value: unknown): string {
+  if (value === null || value === undefined) return '—';
+  if (typeof value === 'string') return value.trim() ? value : '—';
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '—';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  return JSON.stringify(value, null, 2);
+}
+
+function EmptyValue() {
+  return <span className="text-gray-500">—</span>;
+}
+
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/70 px-4 py-5 text-sm text-slate-700">
+      {message}
+    </div>
+  );
+}
+
+function DetailGrid({ children, columns = 2 }: { children: React.ReactNode; columns?: 2 | 3 }) {
+  const gridClass = columns === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2';
+  return <dl className={`grid grid-cols-1 gap-x-9 gap-y-5 md:grid-cols-2 ${gridClass}`}>{children}</dl>;
+}
+
+function DetailField({
+  label,
+  value,
+  className = '',
+  valueClassName = '',
+}: {
+  label: string;
+  value: unknown;
+  className?: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div className={`min-w-0 border-b border-slate-200/80 pb-3.5 ${className}`}>
+      <dt className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">{label}</dt>
+      <dd className={`mt-1.5 whitespace-pre-wrap break-words text-sm font-medium leading-6 text-slate-950 ${valueClassName}`}>
+        {formatDetailValue(value)}
+      </dd>
+    </div>
+  );
+}
+
+function TextBlock({ label, value }: { label?: string; value: unknown }) {
+  return (
+    <div>
+      {label ? <p className="mb-2 text-xs font-semibold uppercase tracking-[0.04em] text-slate-500">{label}</p> : null}
+      <div className="rounded-xl border border-stone-200/90 bg-stone-50/80 px-4 py-4 text-sm leading-7 text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <p className="whitespace-pre-wrap break-words">{formatDetailValue(value)}</p>
+      </div>
+    </div>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: unknown }) {
+  return (
+    <div className="rounded-xl border border-amber-200/70 bg-amber-50/45 px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.035)]">
+      <div className="text-lg font-semibold tabular-nums text-slate-950">{formatDetailValue(value)}</div>
+      <div className="mt-1 text-xs font-medium leading-4 text-slate-600">{label}</div>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const statusColors: Record<string, string> = {
+    DRAFT: 'border-gray-200 bg-gray-100 text-gray-800',
+    PENDING: 'border-yellow-200 bg-yellow-100 text-yellow-900',
+    PENDING_VALIDATION: 'border-blue-200 bg-blue-100 text-blue-900',
+    VERIFIED: 'border-green-200 bg-green-100 text-green-900',
+    REJECTED: 'border-red-200 bg-red-100 text-red-900',
+    REPLACED: 'border-purple-200 bg-purple-100 text-purple-900',
+  };
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${statusColors[status] ?? 'border-gray-200 bg-gray-100 text-gray-800'}`}>
+      {status.replace('_', ' ')}
+    </span>
+  );
+}
+
 function NarrativeReport({ text }: { text: string }) {
   const paragraphs = text.split('\n').map((s) => s.trim()).filter(Boolean);
-  if (!paragraphs.length) return <span className="text-gray-400 text-sm">N/A</span>;
+  if (!paragraphs.length) return <EmptyValue />;
   return (
-    <ol className="list-decimal list-inside space-y-2">
+    <div className="space-y-3 rounded-xl border border-stone-200/90 bg-stone-50/80 px-4 py-4 text-sm leading-7 text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       {paragraphs.map((p, i) => (
-        <li key={i} className="text-sm leading-relaxed text-gray-800">{p}</li>
+        <p key={i} className="whitespace-pre-wrap break-words">{p}</p>
       ))}
-    </ol>
+    </div>
   );
 }
 
 // ── FIX 6: Problems grid ─────────────────────────────────────────────────────
 function ProblemsGrid({ selected }: { selected: string[] }) {
   const selectedSet = new Set((selected ?? []).map((s) => normalizeProblemLabel(String(s))));
+  const selectedOptions = ALL_PROBLEM_OPTIONS.filter((label) => selectedSet.has(normalizeProblemLabel(label)));
+
+  if (!selectedOptions.length) {
+    return <EmptyState message="No problems encountered were recorded." />;
+  }
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
-      {ALL_PROBLEM_OPTIONS.map((label) => {
-        // Normalize both the label and check against the selected set
-        const normalizedLabel = normalizeProblemLabel(label);
-        const checked = selectedSet.has(normalizedLabel);
-        return (
-          <div key={label} className="flex items-center gap-2 py-1">
-            {checked
-              ? <span className="text-green-600">✅</span>
-              : <span className="text-gray-400">—</span>}
-            <span className={`text-sm ${checked ? 'font-bold text-gray-900' : 'text-gray-400'}`}>{label}</span>
-          </div>
-        );
-      })}
+    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+      {selectedOptions.map((label) => (
+        <span
+          key={label}
+          className="inline-flex items-center rounded-xl border border-amber-200/70 bg-amber-50/60 px-3.5 py-2.5 text-sm font-medium leading-5 text-slate-800 shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
+        >
+          <span className="mr-2 h-1.5 w-1.5 rounded-full bg-amber-600/70" aria-hidden />
+          {label}
+        </span>
+      ))}
     </div>
   );
 }
 
-// ── FIX 5: Personnel on Duty section ────────────────────────────────────────
 type PersonnelOnDuty = Record<string, string | { name?: string; contact?: string }>;
 type OtherPerson = { name: string; designation: string };
 
@@ -97,15 +219,17 @@ function PersonnelSection({ pod, others }: { pod: PersonnelOnDuty; others: Other
   const complexKeys = ['safety_officer', 'fire_arson_investigator'];
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-6">
+      <DetailGrid>
       {simpleKeys.map((k) => {
         const val = pod[k];
         if (val === undefined) return null;
         return (
-          <div key={k} className="grid grid-cols-3 gap-4 text-sm border-b border-gray-100 pb-2">
-            <span className="font-medium text-gray-600">{FIELD_LABELS[k] ?? k}</span>
-            <span className="col-span-2 text-gray-900">{displayValue(typeof val === 'string' ? val : JSON.stringify(val))}</span>
-          </div>
+          <DetailField
+            key={k}
+            label={FIELD_LABELS[k] ?? fieldLabel(k)}
+            value={typeof val === 'string' ? val : JSON.stringify(val)}
+          />
         );
       })}
       {complexKeys.map((k) => {
@@ -114,54 +238,27 @@ function PersonnelSection({ pod, others }: { pod: PersonnelOnDuty; others: Other
         const nameStr = typeof val === 'object' ? (val as { name?: string }).name ?? '' : String(val ?? '');
         const contactStr = typeof val === 'object' ? (val as { contact?: string }).contact ?? '' : '';
         return (
-          <div key={k} className="grid grid-cols-3 gap-4 text-sm border-b border-gray-100 pb-2">
-            <span className="font-medium text-gray-600">{FIELD_LABELS[k] ?? k}</span>
-            <span className="col-span-2 text-gray-900">
-              {displayValue(nameStr)}
-              {contactStr ? <span className="ml-2 text-gray-500 text-xs">({contactStr})</span> : null}
-            </span>
-          </div>
+          <DetailField
+            key={k}
+            label={FIELD_LABELS[k] ?? fieldLabel(k)}
+            value={contactStr ? `${nameStr} (${contactStr})` : nameStr}
+          />
         );
       })}
+      </DetailGrid>
 
       {others.length > 0 && (
-        <div className="mt-3">
-          <p className="text-xs font-bold text-gray-500 uppercase mb-2">Other Personnel at Scene</p>
-          <table className="w-full text-sm border border-gray-200 rounded overflow-hidden">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-3 py-2 text-left font-semibold text-gray-700">Name</th>
-                <th className="px-3 py-2 text-left font-semibold text-gray-700">Designation / Agency</th>
-              </tr>
-            </thead>
-            <tbody>
-              {others.map((p, i) => (
-                <tr key={i} className="border-t border-gray-100">
-                  <td className="px-3 py-2">{displayValue(p.name)}</td>
-                  <td className="px-3 py-2">{displayValue(p.designation)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          title="Other Personnel at Scene"
+          columns={['Name', 'Designation / Agency']}
+          rows={others.map((p) => [p.name, p.designation])}
+        />
       )}
     </div>
   );
 }
 
 // ── Generic labeled field row ────────────────────────────────────────────────
-function FieldRow({ label, value }: { label: string; value: unknown }) {
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-b border-gray-100 pb-3 text-sm last:border-0">
-      <div className="font-medium text-gray-600">{label}</div>
-      <div className="whitespace-pre-wrap break-words text-gray-900 md:col-span-2">
-        {displayValue(typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : value)}
-      </div>
-    </div>
-  );
-}
-
-// ── 24h datetime formatter ───────────────────────────────────────────────────
 function fmt24h(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const d = new Date(String(raw));
@@ -171,6 +268,12 @@ function fmt24h(raw: string | null | undefined): string | null {
     hour: '2-digit', minute: '2-digit', second: '2-digit',
     hour12: false,
   });
+}
+
+function mark24h(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const value = String(raw).trim();
+  return value || null;
 }
 
 function splitAlarmDateTime(raw: string | null | undefined): { date: string; time: string } | null {
@@ -189,18 +292,29 @@ function splitAlarmDateTime(raw: string | null | undefined): { date: string; tim
 function Section({
   title,
   sectionId,
+  subtitle,
   children,
+  tone = 'neutral',
 }: {
   title: string;
   sectionId: string;
+  subtitle?: string;
   children: React.ReactNode;
+  tone?: SectionTone;
 }) {
+  const toneClasses = SECTION_TONES[tone];
   return (
-    <section className="card" aria-labelledby={sectionId}>
-      <div className="card-header px-4 py-3 border-b">
-        <h2 id={sectionId} className="font-bold text-base">{title}</h2>
+    <section
+      id={sectionId}
+      className={`scroll-mt-24 overflow-hidden rounded-2xl border bg-white shadow-[0_8px_24px_rgba(15,23,42,0.045)] ${toneClasses.section}`}
+      aria-labelledby={`${sectionId}-title`}
+    >
+      <div className={`relative border-b border-slate-200/70 px-5 py-4 ${toneClasses.header}`}>
+        <span className={`absolute left-0 top-4 h-8 w-1 rounded-r-full ${toneClasses.accent}`} aria-hidden />
+        <h2 id={`${sectionId}-title`} className="text-base font-semibold text-gray-950">{title}</h2>
+        {subtitle ? <p className="mt-1 text-sm text-gray-600">{subtitle}</p> : null}
       </div>
-      <div className="card-body p-4 space-y-3">{children}</div>
+      <div className="space-y-6 p-5">{children}</div>
     </section>
   );
 }
@@ -209,39 +323,85 @@ function Section({
 type AlarmTimelineEntry = { time?: string | null; commander?: string };
 type AlarmTimeline = Record<string, AlarmTimelineEntry | string | null>;
 
+function DataTable({
+  title,
+  columns,
+  rows,
+  emptyMessage = 'No records available.',
+}: {
+  title?: string;
+  columns: string[];
+  rows: unknown[][];
+  emptyMessage?: string;
+}) {
+  const visibleRows = rows.filter((row) => row.some((cell) => formatDetailValue(cell) !== '—'));
+  if (!visibleRows.length) return <EmptyState message={emptyMessage} />;
+  return (
+    <div>
+      {title ? <p className="mb-2 text-xs font-semibold uppercase tracking-[0.04em] text-slate-500">{title}</p> : null}
+      <div className="overflow-x-auto rounded-xl border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.035)]">
+        <table className="min-w-full divide-y divide-slate-200/80 text-sm">
+          <thead className="bg-slate-50/90">
+            <tr>
+              {columns.map((column) => (
+                <th key={column} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.04em] text-slate-600">
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 bg-white">
+            {visibleRows.map((row, rowIndex) => (
+              <tr key={rowIndex} className={rowIndex % 2 === 0 ? 'bg-white hover:bg-slate-50/80' : 'bg-slate-50/35 hover:bg-slate-50/90'}>
+                {row.map((cell, cellIndex) => (
+                  <td key={cellIndex} className="px-4 py-3 align-top text-slate-900">
+                    <span className={cellIndex > 0 ? 'tabular-nums' : ''}>{formatDetailValue(cell)}</span>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ResourceGroup({ title, rows }: { title: string; rows: { label: string; value: unknown }[] }) {
+  return (
+    <div>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.04em] text-slate-500">{title}</p>
+      <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.035)] sm:grid-cols-2 lg:grid-cols-3">
+        {rows.map((row) => (
+          <div key={row.label} className="border-b border-r border-slate-200/80 bg-slate-50/45 px-3.5 py-3">
+            <div className="text-xs font-medium text-slate-600">{row.label}</div>
+            <div className="mt-1 text-sm font-semibold tabular-nums text-slate-950">{formatDetailValue(row.value)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AlarmTimelineSection({ timeline }: { timeline: AlarmTimeline }) {
   const keys = Object.keys(timeline).filter((k) => !k.startsWith('_'));
   const hasData = keys.some((k) => {
     const v = timeline[k];
     return v && (typeof v === 'string' ? v : (v as AlarmTimelineEntry).time);
   });
-  if (!hasData) return <span className="text-gray-400 text-sm">No alarm escalation recorded</span>;
+  if (!hasData) return <EmptyState message="No alarm escalation recorded." />;
 
-  return (
-    <div className="space-y-1">
-      <div className="grid grid-cols-4 gap-4 text-xs font-semibold text-gray-500 border-b border-gray-200 pb-1">
-        <span>Stage</span>
-        <span>Date</span>
-        <span>Time</span>
-        <span>Commander</span>
-      </div>
-      {keys.map((k) => {
+  const rows = keys
+    .map((k) => {
         const entry = timeline[k];
         const rawTime = entry ? (typeof entry === 'string' ? entry : (entry as AlarmTimelineEntry).time ?? '') : '';
         const commander = entry && typeof entry !== 'string' ? (entry as AlarmTimelineEntry).commander ?? '' : '';
-        if (!rawTime && !commander) return null;
         const split = splitAlarmDateTime(rawTime);
-        return (
-          <div key={k} className="grid grid-cols-4 gap-4 text-sm border-b border-gray-100 pb-1 last:border-0">
-            <span className="font-medium text-gray-600">{FIELD_LABELS[k] ?? fieldLabel(k)}</span>
-            <span className="text-gray-900">{split?.date ?? rawTime}</span>
-            <span className="text-gray-900">{split?.time ?? ''}</span>
-            <span className="text-gray-700 text-xs">{commander}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
+        return [FIELD_LABELS[k] ?? fieldLabel(k), split?.date ?? rawTime, split?.time ?? '', commander];
+      })
+    .filter((row) => row.some((cell, index) => index > 0 && formatDetailValue(cell) !== '—'));
+
+  return <DataTable columns={['Stage', 'Date', 'Time (24H)', 'Commander']} rows={rows} emptyMessage="No alarm escalation recorded." />;
 }
 
 // ── Main page ────────────────────────────────────────────────────────────────
@@ -266,26 +426,33 @@ export default function RegionalIncidentDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [regionMismatchMsg, setRegionMismatchMsg] = useState<string | null>(null);
   const [saveNotification, setSaveNotification] = useState<string | null>(null);
   const [showWithdrawPopup, setShowWithdrawPopup] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [duplicateFound, setDuplicateFound] = useState<{ matchedIncidentId: number } | null>(null);
-  const [pendingDuplicateFound, setPendingDuplicateFound] = useState<{ matchedIncidentId: number } | null>(null);
+  const [duplicateFound, setDuplicateFound] = useState<{ matchedIncidentId: number; confidence?: 'LIKELY' | 'POSSIBLE' } | null>(null);
+  const [pendingDuplicateFound, setPendingDuplicateFound] = useState<{ matchedIncidentId: number; confidence?: 'LIKELY' | 'POSSIBLE' } | null>(null);
   const [staleAlert, setStaleAlert] = useState(false);
   const [showMissingFieldsModal, setShowMissingFieldsModal] = useState(false);
   const [missingFieldsList, setMissingFieldsList] = useState<string[]>([]);
   const [missingFieldKeys, setMissingFieldKeys] = useState<string[]>([]);
+  const [activeSectionId, setActiveSectionId] = useState<string>(SECTION_NAV_LINKS[0].id);
 
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
   const isValidator = role === 'NATIONAL_VALIDATOR' || role === 'VALIDATOR';
+  const dashboardHref = isValidator ? '/dashboard/validator' : '/dashboard/regional';
+  const dashboardLabel = isValidator ? 'Back to Validator Dashboard' : 'Back to Regional Dashboard';
 
   // Validator action state
   const [validatorAction, setValidatorAction] = useState<'accept' | 'pending' | 'reject' | null>(null);
   const [validatorNotes, setValidatorNotes] = useState('');
   const [validatorLoading, setValidatorLoading] = useState(false);
   const [validatorError, setValidatorError] = useState<string | null>(null);
+  const [showAcceptConfirm, setShowAcceptConfirm] = useState(false);
+  const [showAcceptConfirmDiff, setShowAcceptConfirmDiff] = useState(false);
   const [validatorDupMatchedId, setValidatorDupMatchedId] = useState<number | null>(null);
   const dupAutoShownRef = useRef(false);
+  const pendingSubmitOnceRef = useRef(false);
 
   useEffect(() => {
     if (!authLoading && !canAccessRegional) {
@@ -318,6 +485,34 @@ export default function RegionalIncidentDetailPage() {
     load();
   }, [authLoading, canAccessRegional, load]);
 
+  useEffect(() => {
+    if (!detail || isEditing) return;
+    const sections = Object.keys(SECTION_OBSERVER_ID_TO_NAV_ID)
+      .map((id) => document.getElementById(id))
+      .filter((section): section is HTMLElement => Boolean(section));
+    if (!sections.length) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        const navId = visible?.target.id ? SECTION_OBSERVER_ID_TO_NAV_ID[visible.target.id] : null;
+        if (navId) {
+          setActiveSectionId(navId);
+        }
+      },
+      { rootMargin: '-20% 0px -65% 0px', threshold: [0.1, 0.25, 0.5] },
+    );
+
+    sections.forEach((section) => observer.observe(section));
+    return () => observer.disconnect();
+  }, [detail, isEditing]);
+
+  const scrollToReportSection = useCallback((sectionId: string) => {
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
   // Poll every 30 s while the incident is PENDING — alert the encoder if the validator acts.
   useEffect(() => {
     if (!isEncoder || !detail || detail.verification_status !== 'PENDING') return;
@@ -336,10 +531,15 @@ export default function RegionalIncidentDetailPage() {
     return () => clearInterval(interval);
   }, [isEncoder, detail, incidentId]);
 
-  // Auto-show the duplicate comparison once when a validator opens a duplicate-flagged incident.
+  // Auto-show the duplicate comparison once when a validator opens a PENDING duplicate-flagged incident.
+  // Skip if already resolved (VERIFIED/REJECTED/REPLACED) — there's nothing left to decide.
   useEffect(() => {
     if (!isValidator || !detail || dupAutoShownRef.current) return;
-    if (detail.is_duplicate && detail.duplicate_of) {
+    if (
+      detail.is_duplicate &&
+      detail.duplicate_of &&
+      !['VERIFIED', 'REJECTED', 'REPLACED'].includes(detail.verification_status)
+    ) {
       dupAutoShownRef.current = true;
       setValidatorDupMatchedId(detail.duplicate_of);
     }
@@ -368,12 +568,12 @@ export default function RegionalIncidentDetailPage() {
       await load();
     } catch (e) {
       if (e instanceof ApiRequestError && e.status === 409) {
-        const detail = e.detail as { code?: string; matched_incident_id?: number; matched_status?: string } | null;
+        const detail = e.detail as { code?: string; matched_incident_id?: number; matched_status?: string; confidence?: 'LIKELY' | 'POSSIBLE' } | null;
         if (detail?.code === 'DUPLICATE_DETECTED' && detail.matched_incident_id) {
           if (detail.matched_status === 'PENDING') {
-            setPendingDuplicateFound({ matchedIncidentId: detail.matched_incident_id });
+            setPendingDuplicateFound({ matchedIncidentId: detail.matched_incident_id, confidence: detail.confidence });
           } else {
-            setDuplicateFound({ matchedIncidentId: detail.matched_incident_id });
+            setDuplicateFound({ matchedIncidentId: detail.matched_incident_id, confidence: detail.confidence });
           }
           return;
         }
@@ -383,6 +583,17 @@ export default function RegionalIncidentDetailPage() {
       setActionLoading(false);
     }
   };
+
+  // When IncidentForm saves + submits and gets a 409 DUPLICATE_DETECTED, it redirects
+  // here with ?pending_submit=1. Re-fire the submit so the duplicate modal appears.
+  useEffect(() => {
+    if (!detail || pendingSubmitOnceRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('pending_submit') !== '1') return;
+    pendingSubmitOnceRef.current = true;
+    window.history.replaceState(null, '', window.location.pathname);
+    void handleSubmit({});
+  }, [detail]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const MISSING_FIELD_KEY_MAP: Record<string, string> = {
     'Type of Responder': 'responder_type',
@@ -406,7 +617,9 @@ export default function RegionalIncidentDetailPage() {
     // Region constraint: encoder must only submit incidents in their assigned region
     if (isEncoder && encoderAssignedRegionId && detail.region_id !== encoderAssignedRegionId) {
       const assignedName = getShortRegionName(encoderAssignedRegionId) ?? `Region ${encoderAssignedRegionId}`;
-      setActionError(`You can only submit incidents for your assigned region (${assignedName}). This incident belongs to a different region.`);
+      setRegionMismatchMsg(
+        `You can only submit incidents for your assigned region (${assignedName}). This incident belongs to a different region.\nError code: REGION_MISMATCH`
+      );
       return;
     }
 
@@ -536,51 +749,6 @@ export default function RegionalIncidentDetailPage() {
   const others = (sens?.other_personnel ?? []) as OtherPerson[];
   const alarmTimeline = (ns?.alarm_timeline ?? {}) as AlarmTimeline;
 
-  const buildPendingReplacePayload = (): Record<string, unknown> => ({
-    notification_dt: ns?.notification_dt ?? null,
-    alarm_level: ns?.alarm_level ?? null,
-    general_category: ns?.general_category ?? ns?.classification_of_involved ?? null,
-    sub_category: ns?.sub_category ?? ns?.type_of_involved_general_category ?? null,
-    specific_type: ns?.specific_type ?? null,
-    occupancy_type: ns?.occupancy_type ?? null,
-    city_id: ns?.city_id ?? null,
-    barangay_id: ns?.barangay_id ?? null,
-    distance_from_station_km: ns?.distance_from_station_km ?? ns?.distance_to_fire_scene_km ?? null,
-    estimated_damage_php: ns?.estimated_damage_php ?? null,
-    civilian_injured: ns?.civilian_injured ?? null,
-    civilian_deaths: ns?.civilian_deaths ?? null,
-    firefighter_injured: ns?.firefighter_injured ?? null,
-    firefighter_deaths: ns?.firefighter_deaths ?? null,
-    families_affected: ns?.families_affected ?? null,
-    structures_affected: ns?.structures_affected ?? null,
-    households_affected: ns?.households_affected ?? null,
-    individuals_affected: ns?.individuals_affected ?? null,
-    responder_type: ns?.responder_type ?? null,
-    fire_origin: ns?.fire_origin ?? ns?.area_of_origin ?? null,
-    extent_of_damage: ns?.extent_of_damage ?? null,
-    stage_of_fire: ns?.stage_of_fire ?? ns?.stage_of_fire_upon_arrival ?? null,
-    fire_station_name: ns?.fire_station_name ?? null,
-    total_response_time_minutes: ns?.total_response_time_minutes ?? null,
-    recommendations: ns?.recommendations ?? null,
-    province_district: ns?.province_district ?? null,
-    city_municipality: ns?.city_municipality ?? null,
-    station_code: ns?.station_code ?? null,
-    street_address: sens?.street_address ?? ns?.incident_address ?? null,
-    landmark: sens?.landmark ?? ns?.nearest_landmark ?? null,
-    caller_name: sens?.caller_name ?? null,
-    caller_number: sens?.caller_number ?? null,
-    narrative_report: sens?.narrative_report ?? null,
-    owner_name: sens?.owner_name ?? null,
-    occupant_name: sens?.occupant_name ?? null,
-    establishment_name: sens?.establishment_name ?? null,
-    receiver_name: sens?.receiver_name ?? ns?.receiver_name ?? null,
-    prepared_by_officer: sens?.prepared_by_officer ?? null,
-    noted_by_officer: sens?.noted_by_officer ?? null,
-    remarks: sens?.remarks ?? null,
-    latitude: detail?.latitude ?? null,
-    longitude: detail?.longitude ?? null,
-  });
-
   // Defensive: problems_encountered may come back as a JSON array or (rarely) a string
   const rawProblems = ns?.problems_encountered;
   const problems: string[] = Array.isArray(rawProblems)
@@ -598,31 +766,95 @@ export default function RegionalIncidentDetailPage() {
   const timeEngineDispatched = String(ns?.time_engine_dispatched ?? responseFields.time_engine_dispatched ?? '').trim() || null;
   const timeArrivedAtScene = String(ns?.time_arrived_at_scene ?? responseFields.time_arrived_at_scene ?? '').trim() || null;
   const timeReturnedToBase = String(ns?.time_returned_to_base ?? responseFields.time_returned_to_base ?? '').trim() || null;
-
+  const classificationDisplay = formatClassification(String(ns?.general_category ?? ns?.classification_of_involved ?? ''));
+  const categoryDisplay = ns?.sub_category ?? ns?.type_of_involved_general_category;
+  const locationDisplay = [ns?.city_municipality, ns?.province_district, ns?.region].filter(Boolean).join(', ') || null;
+  const completeAddress = sens?.street_address ?? ns?.incident_address;
+  const incidentTitle = detail?.verification_status === 'VERIFIED' && detail.reference_number
+    ? detail.reference_number
+    : detail
+    ? `Incident #${detail.incident_id}`
+    : 'Incident';
+  type EngineRow = { name?: string; time_dispatched?: string; time_arrived?: string };
+  const engines = ((alarmTimeline as Record<string, unknown>)._engines as EngineRow[] | undefined) ?? [];
+  const engineRows = engines
+    .filter((eng) => eng.name || eng.time_dispatched || eng.time_arrived)
+    .map((eng) => [eng.name, mark24h(eng.time_dispatched), mark24h(eng.time_arrived)]);
+  const casualtyRows = (() => {
+    const cd = sens?.casualty_details as Record<string, Record<string, Record<string, number>>> | undefined;
+    const rows = [
+      { label: 'Injured Civilian', path: ['injured', 'civilian'] },
+      { label: 'Injured BFP Firefighter', path: ['injured', 'firefighter'] },
+      { label: 'Injured Fire Auxiliary', path: ['injured', 'auxiliary'] },
+      { label: 'Civilian Fatality/ies', path: ['fatalities', 'civilian'] },
+      { label: 'BFP Firefighter Fatality/ies', path: ['fatalities', 'firefighter'] },
+      { label: 'Fire Auxiliary Fatality/ies', path: ['fatalities', 'auxiliary'] },
+    ];
+    return rows.map(({ label, path }) => {
+      const entry = cd?.[path[0]]?.[path[1]] ?? {};
+      return [label, entry.m ?? 0, entry.f ?? 0];
+    });
+  })();
   const canSubmitOrDelete = isEncoder && detail &&
     (detail.verification_status === 'DRAFT' ||
      detail.verification_status === 'PENDING' ||
      detail.verification_status === 'REJECTED');
 
-  const STATUS_COLORS: Record<string, string> = {
-    DRAFT: 'bg-gray-100 text-gray-700',
-    PENDING: 'bg-yellow-100 text-yellow-800',
-    PENDING_VALIDATION: 'bg-blue-100 text-blue-800',
-    VERIFIED: 'bg-green-100 text-green-800',
-    REJECTED: 'bg-red-100 text-red-800',
-    REPLACED: 'bg-purple-100 text-purple-800',
-  };
-
   return (
     <div className="space-y-6">
+      {!loading && !error && detail && (
+        <>
+          <Link
+            href={dashboardHref}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-700/40 md:hidden"
+            aria-label="Back to Regional Dashboard"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden />
+            Back to Dashboard
+          </Link>
+          <Link
+            href={dashboardHref}
+            className="group fixed top-[45vh] z-40 hidden h-44 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-r-full border border-l-0 border-slate-200 bg-white/90 text-slate-600 shadow-md backdrop-blur transition-all duration-200 ease-out hover:w-12 hover:border-red-200 hover:bg-red-50/80 hover:text-red-800 hover:shadow-xl focus:outline-none focus-visible:w-12 focus-visible:ring-2 focus-visible:ring-red-700/50 md:flex"
+            style={{ left: 'calc(var(--sidebar-width) + 1rem)' }}
+            aria-label="Back to Regional Dashboard"
+            title="Back to Regional Dashboard"
+          >
+            <ArrowLeft className="h-5 w-5 shrink-0 transition-transform duration-200 motion-safe:group-hover:-translate-x-0.5 motion-safe:group-focus-visible:-translate-x-0.5" aria-hidden />
+          </Link>
+        </>
+      )}
+
+      {/* Region mismatch modal */}
+      {regionMismatchMsg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="bg-red-100 text-red-800 text-xs font-bold px-2 py-1 rounded font-mono">
+                REGION_MISMATCH
+              </span>
+              <h2 className="text-lg font-bold text-red-900">Region Access Denied</h2>
+            </div>
+            <p className="text-sm text-gray-700 whitespace-pre-line">{regionMismatchMsg}</p>
+            <button
+              className="w-full bg-red-800 text-white rounded py-2 font-semibold hover:bg-red-700"
+              onClick={() => setRegionMismatchMsg(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Duplicate detected — modal with side-by-side comparison */}
       {duplicateFound && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg font-bold text-amber-800">Possible Duplicate Detected</h2>
+            <h2 className="text-lg font-bold text-amber-800">
+              {duplicateFound.confidence === 'LIKELY' ? 'Likely Duplicate Detected' : 'Possible Duplicate Detected'}
+            </h2>
             <p className="text-sm text-gray-700">
-              A verified incident (#{duplicateFound.matchedIncidentId}) already exists with the same
-              region, type, and fire date. Review the comparison below before deciding.
+              A verified incident (#{duplicateFound.matchedIncidentId}) closely matches this record.
+              Review the comparison below before deciding.
             </p>
             <UpdateRequestDiffPanel
               updateIncidentId={incidentId}
@@ -657,7 +889,9 @@ export default function RegionalIncidentDetailPage() {
       {pendingDuplicateFound && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg font-bold text-blue-800">Duplicate Pending Incident Found</h2>
+            <h2 className="text-lg font-bold text-blue-800">
+              {pendingDuplicateFound.confidence === 'LIKELY' ? 'Likely Pending Duplicate' : 'Possible Pending Duplicate'}
+            </h2>
             <p className="text-sm text-gray-700">
               A similar incident (#{pendingDuplicateFound.matchedIncidentId}) is already pending review.
               Review the comparison below before deciding.
@@ -841,74 +1075,94 @@ export default function RegionalIncidentDetailPage() {
         </div>
       )}
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <Link
-          href={isValidator ? '/dashboard/validator' : '/dashboard/regional'}
-          className="inline-flex items-center gap-2 rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 hover:text-gray-900 transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden />
-          {isValidator ? 'Back to Validator Dashboard' : 'Back to Regional Dashboard'}
-        </Link>
-        {detail && isEncoder && (
-          <div className="flex items-center gap-2 flex-wrap">
-            {!isEditing && (
-              <>
-                {/* Delete button — always visible for DRAFT/PENDING/REJECTED */}
-                {canSubmitOrDelete && (
-                  <button
-                    onClick={() => setShowDeleteConfirm(true)}
-                    disabled={actionLoading}
-                    className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Delete
-                  </button>
-                )}
-
-                {/* Withdraw button — standalone action for PENDING, no edit required */}
-                {detail.verification_status === 'PENDING' && (
-                  <button
-                    onClick={handleUnpend}
-                    disabled={actionLoading}
-                    className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium border border-yellow-400 text-yellow-800 bg-yellow-50 hover:bg-yellow-100 disabled:opacity-50"
-                  >
-                    Withdraw
-                  </button>
-                )}
-
-                {/* Edit button — DRAFT/REJECTED: opens edit directly; PENDING: shows withdraw-first popup */}
-                <button
-                  onClick={handleEditClick}
-                  disabled={actionLoading}
-                  className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 disabled:opacity-50"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                  Edit
-                </button>
-
-                {/* Submit / Resubmit — only for DRAFT or REJECTED */}
-                {(detail.verification_status === 'DRAFT' || detail.verification_status === 'REJECTED') && (
-                  <button
-                    onClick={handleSubmitClick}
-                    disabled={actionLoading}
-                    className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium bg-red-800 text-white hover:bg-red-700 disabled:opacity-50"
-                  >
-                    <Send className="h-3.5 w-3.5" />
-                    {detail.verification_status === 'REJECTED' ? 'Resubmit for Review' : 'Submit for Review'}
-                  </button>
-                )}
-              </>
-            )}
-            {isEditing && (
-              <button
-                onClick={() => { setIsEditing(false); setActionError(null); setMissingFieldKeys([]); }}
-                className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium border border-gray-300 bg-white hover:bg-gray-50 text-gray-700"
-              >
-                ← Back to View
-              </button>
-            )}
+      <div className="rounded-2xl border border-slate-200/90 bg-white px-5 py-4 shadow-[0_6px_18px_rgba(15,23,42,0.045)]">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 space-y-3">
+            <Link
+              href={dashboardHref}
+              className="inline-flex items-center gap-2 rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-950"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden />
+              {dashboardLabel}
+            </Link>
+            {detail ? (
+              <div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <h1 className="text-2xl font-semibold tracking-tight text-gray-950">
+                    {incidentTitle}
+                  </h1>
+                  <StatusBadge status={detail.verification_status} />
+                  {detail.is_wildland ? (
+                    <span className="inline-flex items-center rounded border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-900">
+                      Wildland Fire AFOR
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-1 text-sm text-gray-600">
+                  {detail.verification_status !== 'VERIFIED' || !detail.reference_number
+                    ? `Incident #${detail.incident_id} - `
+                    : ''}
+                  {getShortRegionName(detail.region_id)}
+                  {detail.created_at ? <> - Created {new Date(detail.created_at).toLocaleString()}</> : null}
+                </p>
+              </div>
+            ) : null}
           </div>
-        )}
+
+          {detail && isEncoder ? (
+            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+              {!isEditing ? (
+                <>
+                  <button
+                    onClick={handleEditClick}
+                    disabled={actionLoading}
+                    className="inline-flex items-center gap-1.5 rounded border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Edit
+                  </button>
+                  {detail.verification_status === 'PENDING' ? (
+                    <button
+                      onClick={handleUnpend}
+                      disabled={actionLoading}
+                      className="inline-flex items-center gap-1.5 rounded border border-yellow-300 bg-yellow-50 px-3 py-2 text-sm font-semibold text-yellow-900 hover:bg-yellow-100 disabled:opacity-50"
+                    >
+                      Withdraw
+                    </button>
+                  ) : null}
+                  {canSubmitOrDelete ? (
+                    <button
+                      onClick={() => setShowDeleteConfirm(true)}
+                      disabled={actionLoading}
+                      className="inline-flex items-center gap-1.5 rounded border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete
+                    </button>
+                  ) : null}
+                  {detail.verification_status === 'DRAFT' || detail.verification_status === 'REJECTED' ? (
+                    <button
+                      onClick={handleSubmitClick}
+                      disabled={actionLoading}
+                      className="inline-flex items-center gap-1.5 rounded bg-red-800 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                      {detail.verification_status === 'REJECTED' ? 'Resubmit for Review' : 'Submit for Review'}
+                    </button>
+                  ) : null}
+                </>
+              ) : (
+                <button
+                  onClick={() => { setIsEditing(false); setActionError(null); setMissingFieldKeys([]); }}
+                  className="inline-flex items-center gap-1.5 rounded border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back to View
+                </button>
+              )}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {actionError && (
@@ -987,130 +1241,117 @@ export default function RegionalIncidentDetailPage() {
             </div>
           )}
 
-          {/* Header */}
-          <div className="flex flex-wrap items-start gap-3">
-            <div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-2xl font-bold font-mono" style={{ color: 'var(--text-primary)' }}>
-                  {detail.verification_status === 'VERIFIED' && detail.reference_number
-                    ? detail.reference_number
-                    : `Incident #${detail.incident_id}`}
-                </h1>
-                {detail.is_wildland && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-100 px-3 py-1 text-sm font-semibold text-orange-800 border border-orange-200">
-                    🌿 Wildland Fire AFOR
-                  </span>
-                )}
+          <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-[0_6px_18px_rgba(15,23,42,0.04)]" aria-labelledby="incident-summary-title">
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 id="incident-summary-title" className="text-base font-semibold text-gray-950">Incident Summary</h2>
+                <p className="mt-1 text-sm text-gray-600">Key report details for quick review.</p>
               </div>
-              <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                {detail.verification_status !== 'VERIFIED' || !detail.reference_number
-                  ? `Incident #${detail.incident_id} · `
-                  : ''}
-                {getShortRegionName(detail.region_id)}
-                {detail.created_at && <>{' · '}Created {new Date(detail.created_at).toLocaleString()}</>}
-              </p>
             </div>
-            <span className={`mt-1 inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${STATUS_COLORS[detail.verification_status] ?? 'bg-gray-100 text-gray-700'}`}>
-              {detail.verification_status.replace('_', ' ')}
-            </span>
-          </div>
+            <DetailGrid columns={3}>
+              <DetailField label="Date & Time of Notification (24H)" value={fmt24h(ns?.notification_dt as string | null)} />
+              <DetailField label={FIELD_LABELS.fire_station_name} value={ns?.fire_station_name} />
+              <DetailField label={FIELD_LABELS.alarm_level} value={ns?.alarm_level} />
+              <DetailField label={FIELD_LABELS.general_category} value={classificationDisplay} />
+              <DetailField label={FIELD_LABELS.sub_category} value={categoryDisplay} />
+              <DetailField label="Location" value={locationDisplay} className="lg:col-span-1" />
+              <DetailField label={FIELD_LABELS.street_address} value={completeAddress} className="lg:col-span-2" />
+            </DetailGrid>
+          </section>
 
-          {/* A. Response Details */}
-          <Section title="A. Response Details" sectionId="sec-response">
-            <FieldRow label={FIELD_LABELS.notification_dt} value={fmt24h(ns?.notification_dt as string | null)} />
-            <FieldRow label={FIELD_LABELS.fire_station_name} value={ns?.fire_station_name} />
-            <FieldRow label={FIELD_LABELS.responder_type} value={ns?.responder_type} />
-            <FieldRow label={FIELD_LABELS.alarm_level} value={ns?.alarm_level} />
-            {(() => {
-              type EngineRow = { name?: string; time_dispatched?: string; time_arrived?: string };
-              const engines = ((alarmTimeline as Record<string, unknown>)._engines as EngineRow[] | undefined) ?? [];
-              const hasEngines = engines.some((e) => e.name || e.time_dispatched || e.time_arrived);
-              if (hasEngines) {
-                return (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-b border-gray-100 pb-3 text-sm">
-                    <div className="font-medium text-gray-600">Engine / Unit Dispatched</div>
-                    <div className="md:col-span-2">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-xs text-gray-500 border-b border-gray-200">
-                            <th className="text-left pb-1 pr-4 font-medium">Engine / Unit</th>
-                            <th className="text-left pb-1 pr-4 font-medium">Time Dispatched</th>
-                            <th className="text-left pb-1 font-medium">Time Arrived at Scene</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {engines.map((eng, i) =>
-                            eng.name || eng.time_dispatched || eng.time_arrived ? (
-                              <tr key={i} className="border-b border-gray-50 last:border-0">
-                                <td className="py-1 pr-4">{displayValue(eng.name)}</td>
-                                <td className="py-1 pr-4">{displayValue(eng.time_dispatched)}</td>
-                                <td className="py-1">{displayValue(eng.time_arrived)}</td>
-                              </tr>
-                            ) : null
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                );
-              }
-              return (
-                <>
-                  <FieldRow label="Engine / Unit Dispatched" value={engineDispatched} />
-                  <FieldRow label="Time Engine Dispatched" value={timeEngineDispatched} />
-                  <FieldRow label="Time Arrived at Fire Scene" value={timeArrivedAtScene} />
-                </>
-              );
-            })()}
-            <FieldRow label="Time Returned to Base" value={timeReturnedToBase} />
-            <FieldRow label={FIELD_LABELS.distance_from_station_km} value={ns?.distance_from_station_km ?? ns?.distance_to_fire_scene_km} />
-            <FieldRow label={FIELD_LABELS.total_response_time_minutes} value={ns?.total_response_time_minutes} />
-            <FieldRow label={FIELD_LABELS.total_gas_consumed_liters} value={ns?.total_gas_consumed_liters} />
-            <FieldRow label="Location" value={[ns?.city_municipality, ns?.province_district, ns?.region].filter(Boolean).join(', ') || null} />
-            <FieldRow label={FIELD_LABELS.street_address} value={sens?.street_address ?? ns?.incident_address} />
-            <FieldRow label={FIELD_LABELS.landmark} value={sens?.landmark ?? ns?.nearest_landmark} />
-            <FieldRow label={FIELD_LABELS.caller_name} value={sens?.caller_name} />
-            <FieldRow label={FIELD_LABELS.caller_number} value={sens?.caller_number} />
-            <FieldRow label={FIELD_LABELS.receiver_name} value={sens?.receiver_name ?? ns?.receiver_name} />
-          </Section>
+          <nav
+            className="fixed right-6 top-1/2 z-30 hidden -translate-y-1/2 flex-col gap-3 xl:flex 2xl:right-8"
+            aria-label="Incident report sections"
+          >
+            {SECTION_NAV_LINKS.map(({ id, label }) => (
+              <a
+                key={id}
+                href={`#${id}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  scrollToReportSection(id);
+                }}
+                aria-label={label}
+                title={label}
+                className="group relative flex h-8 w-8 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-red-700/40"
+              >
+                <span
+                  className={`h-3.5 w-3.5 rounded-full border shadow-sm transition-all duration-200 motion-safe:group-hover:scale-125 motion-safe:group-focus:scale-125 ${
+                    activeSectionId === id
+                      ? 'border-red-800 bg-red-800 ring-4 ring-red-100'
+                      : 'border-slate-400 bg-white group-hover:border-red-700 group-focus:border-red-700 group-hover:bg-red-50 group-focus:bg-red-50'
+                  }`}
+                />
+                <span className="pointer-events-none absolute right-9 top-1/2 -translate-y-1/2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 opacity-0 shadow-sm transition-all duration-150 group-hover:-translate-x-1 group-hover:opacity-100 group-focus:-translate-x-1 group-focus:opacity-100">
+                  {label}
+                </span>
+              </a>
+            ))}
+          </nav>
 
-          {/* B. Nature & Classification */}
-          <Section title="B. Nature and Classification of Involved" sectionId="sec-class">
-            <FieldRow label={FIELD_LABELS.general_category} value={formatClassification(String(ns?.general_category ?? ns?.classification_of_involved ?? ''))} />
-            <FieldRow label={FIELD_LABELS.sub_category} value={ns?.sub_category ?? ns?.type_of_involved_general_category} />
-            <FieldRow label="Name of Owner/Establishment" value={sens?.owner_name ?? ns?.owner_name} />
-            <FieldRow label="General Description" value={ns?.general_description_of_involved} />
-            <FieldRow label={FIELD_LABELS.fire_origin} value={ns?.fire_origin ?? ns?.area_of_origin} />
-            <FieldRow label="Stage of Fire Upon Arrival" value={ns?.stage_of_fire_upon_arrival ?? ns?.stage_of_fire} />
-            <FieldRow label={FIELD_LABELS.extent_of_damage} value={ns?.extent_of_damage} />
-            {ns?.extent_description ? <FieldRow label="Description" value={ns.extent_description} /> : null}
-            {ns?.extent_total_floor_area_sqm ? <FieldRow label={FIELD_LABELS.extent_total_floor_area_sqm} value={ns.extent_total_floor_area_sqm} /> : null}
-            {ns?.extent_total_land_area_hectares ? <FieldRow label={FIELD_LABELS.extent_total_land_area_hectares} value={ns.extent_total_land_area_hectares} /> : null}
-            {ns?.extent_objects_count ? <FieldRow label="No. of Objects/Properties Affected" value={ns.extent_objects_count} /> : null}
-            {detail.is_wildland && (
-              <>
-                <FieldRow label="Wildland Fire Type" value={detail.wildland_fire_type} />
-                {detail.wildland_area_display && (
-                  <FieldRow label="Total Area Burned" value={detail.wildland_area_display} />
-                )}
-                {detail.wildland_area_hectares != null && (
-                  <FieldRow label="Area Burned (Hectares)" value={detail.wildland_area_hectares} />
-                )}
-              </>
+          <Section title="A. Response Details" sectionId="sec-response" tone="blue" subtitle="Notification, dispatch, station, location, and caller information.">
+            <DetailGrid columns={3}>
+              <DetailField label={`${FIELD_LABELS.notification_dt} (24H)`} value={fmt24h(ns?.notification_dt as string | null)} />
+              <DetailField label={FIELD_LABELS.fire_station_name} value={ns?.fire_station_name} />
+              <DetailField label={FIELD_LABELS.responder_type} value={ns?.responder_type} />
+              <DetailField label={FIELD_LABELS.alarm_level} value={ns?.alarm_level} />
+              <DetailField label="Time Returned to Base (24H)" value={mark24h(timeReturnedToBase)} />
+              <DetailField label={FIELD_LABELS.distance_from_station_km} value={ns?.distance_from_station_km ?? ns?.distance_to_fire_scene_km} />
+              <DetailField label={FIELD_LABELS.total_response_time_minutes} value={ns?.total_response_time_minutes} />
+              <DetailField label={FIELD_LABELS.total_gas_consumed_liters} value={ns?.total_gas_consumed_liters} />
+              <DetailField label="Location" value={locationDisplay} />
+              <DetailField label={FIELD_LABELS.street_address} value={completeAddress} className="lg:col-span-2" />
+              <DetailField label={FIELD_LABELS.landmark} value={sens?.landmark ?? ns?.nearest_landmark} />
+              <DetailField label={FIELD_LABELS.caller_name} value={sens?.caller_name} />
+              <DetailField label={FIELD_LABELS.caller_number} value={sens?.caller_number} />
+              <DetailField label={FIELD_LABELS.receiver_name} value={sens?.receiver_name ?? ns?.receiver_name} />
+            </DetailGrid>
+            {engineRows.length > 0 ? (
+              <DataTable
+                title="Engine / Unit Dispatched"
+                columns={['Engine / Unit', 'Time Dispatched (24H)', 'Time Arrived at Scene (24H)']}
+                rows={engineRows}
+              />
+            ) : (
+              <DataTable
+                title="Engine / Unit Dispatched"
+                columns={['Engine / Unit', 'Time Dispatched (24H)', 'Time Arrived at Scene (24H)']}
+                rows={[[engineDispatched, mark24h(timeEngineDispatched), mark24h(timeArrivedAtScene)]]}
+              />
             )}
           </Section>
 
-          {/* C. Affected */}
-          <Section title="C. Affected Counts" sectionId="sec-affected">
-            <FieldRow label={FIELD_LABELS.structures_affected} value={ns?.structures_affected} />
-            <FieldRow label={FIELD_LABELS.households_affected} value={ns?.households_affected} />
-            <FieldRow label={FIELD_LABELS.families_affected} value={ns?.families_affected} />
-            <FieldRow label={FIELD_LABELS.individuals_affected} value={ns?.individuals_affected} />
-            <FieldRow label={FIELD_LABELS.vehicles_affected} value={ns?.vehicles_affected} />
+          <Section title="B. Nature and Classification of Involved" sectionId="sec-class" tone="red" subtitle="Incident classification, involved property, origin, and damage description.">
+            <DetailGrid>
+              <DetailField label={FIELD_LABELS.general_category} value={classificationDisplay} />
+              <DetailField label={FIELD_LABELS.sub_category} value={categoryDisplay} />
+              <DetailField label="Name of Owner/Establishment" value={sens?.owner_name ?? ns?.owner_name} />
+              <DetailField label={FIELD_LABELS.fire_origin} value={ns?.fire_origin ?? ns?.area_of_origin} />
+              <DetailField label="Stage of Fire Upon Arrival" value={ns?.stage_of_fire_upon_arrival ?? ns?.stage_of_fire} />
+              <DetailField label={FIELD_LABELS.extent_of_damage} value={ns?.extent_of_damage} />
+              {ns?.extent_total_floor_area_sqm ? <DetailField label={FIELD_LABELS.extent_total_floor_area_sqm} value={ns.extent_total_floor_area_sqm} /> : null}
+              {ns?.extent_total_land_area_hectares ? <DetailField label={FIELD_LABELS.extent_total_land_area_hectares} value={ns.extent_total_land_area_hectares} /> : null}
+              {ns?.extent_objects_count ? <DetailField label="No. of Objects/Properties Affected" value={ns.extent_objects_count} /> : null}
+              {detail.is_wildland ? <DetailField label="Wildland Fire Type" value={detail.wildland_fire_type} /> : null}
+              {detail.is_wildland && detail.wildland_area_display ? <DetailField label="Total Area Burned" value={detail.wildland_area_display} /> : null}
+              {detail.is_wildland && detail.wildland_area_hectares != null ? <DetailField label="Area Burned (Hectares)" value={detail.wildland_area_hectares} /> : null}
+            </DetailGrid>
+            <TextBlock label="General Description" value={ns?.general_description_of_involved} />
+            {ns?.extent_description ? <TextBlock label="Description" value={ns.extent_description} /> : null}
           </Section>
 
-          {/* C. Assets and Resources Deployed */}
-          <Section title="C. Assets and Resources Deployed" sectionId="sec-resources">
+          <Section title="C. Affected Counts" sectionId="sec-affected" tone="amber" subtitle="Reported counts affected by the incident.">
+            <div id="sec-affected-assets-nav" className="scroll-mt-24" aria-hidden />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <MetricCard label={FIELD_LABELS.structures_affected} value={ns?.structures_affected} />
+              <MetricCard label={FIELD_LABELS.households_affected} value={ns?.households_affected} />
+              <MetricCard label={FIELD_LABELS.families_affected} value={ns?.families_affected} />
+              <MetricCard label={FIELD_LABELS.individuals_affected} value={ns?.individuals_affected} />
+              <MetricCard label={FIELD_LABELS.vehicles_affected} value={ns?.vehicles_affected} />
+            </div>
+          </Section>
+
+          <Section title="C. Assets and Resources Deployed" sectionId="sec-resources" tone="slate" subtitle="Vehicles, tools, equipment, and water access resources used for response.">
             {(() => {
               const trucks = resources?.trucks as Record<string, unknown> | undefined;
               const medical = resources?.medical as Record<string, unknown> | undefined;
@@ -1120,171 +1361,100 @@ export default function RegionalIncidentDetailPage() {
               const MEDICAL_LABELS: Record<string, string> = { bfp: 'BFP Ambulance', non_bfp: 'Non-BFP Ambulance' };
               const SPECIAL_LABELS: Record<string, string> = { rescue_bfp: 'BFP Rescue Trucks', rescue_non_bfp: 'Non-BFP Rescue Trucks', others: 'Other Vehicles / Assets' };
               const TOOL_LABELS: Record<string, string> = { scba: 'SCBA', rope: 'Rope', ladder: 'Ladder', hoseline: 'Hoseline', hydraulic: 'Hydraulic Tools', others: 'Other Tools' };
-              const rows: { label: string; value: unknown }[] = [];
-              if (trucks) Object.entries(trucks).forEach(([k, v]) => rows.push({ label: TRUCK_LABELS[k] ?? k, value: v }));
-              if (medical) Object.entries(medical).forEach(([k, v]) => rows.push({ label: MEDICAL_LABELS[k] ?? k, value: v }));
-              if (special) Object.entries(special).forEach(([k, v]) => rows.push({ label: SPECIAL_LABELS[k] ?? k, value: v }));
-              const hasAny = rows.some((r) => r.value !== 0 && r.value !== null && r.value !== undefined && r.value !== 'N/A');
+              const vehicleRows: { label: string; value: unknown }[] = [];
+              if (trucks) Object.entries(trucks).forEach(([k, v]) => vehicleRows.push({ label: TRUCK_LABELS[k] ?? k, value: v }));
+              if (medical) Object.entries(medical).forEach(([k, v]) => vehicleRows.push({ label: MEDICAL_LABELS[k] ?? k, value: v }));
+              if (special) Object.entries(special).forEach(([k, v]) => vehicleRows.push({ label: SPECIAL_LABELS[k] ?? k, value: v }));
+              const toolRows = tools ? Object.entries(tools).map(([k, v]) => ({ label: TOOL_LABELS[k] ?? k, value: v })) : [];
+              const hasResources = vehicleRows.length > 0 || toolRows.length > 0 || !!resources?.hydrant_distance;
+              if (!hasResources) return <EmptyState message="No resources recorded." />;
               return (
-                <>
-                  {rows.length > 0 && (
-                    <>
-                      <p className="text-xs font-bold uppercase text-gray-500 mb-1">Vehicles</p>
-                      {rows.map(({ label, value }) => (
-                        <div key={label} className="grid grid-cols-3 gap-4 text-sm border-b border-gray-100 pb-1 pl-2">
-                          <span className="font-medium text-gray-600">{label}</span>
-                          <span className="col-span-2 text-gray-900">{displayValue(value)}</span>
-                        </div>
-                      ))}
-                    </>
-                  )}
-                  {tools && (
-                    <>
-                      <p className="text-xs font-bold uppercase text-gray-500 mt-3 mb-1">Tools &amp; Equipment</p>
-                      {Object.entries(tools).map(([k, v]) => (
-                        <div key={k} className="grid grid-cols-3 gap-4 text-sm border-b border-gray-100 pb-1 pl-2">
-                          <span className="font-medium text-gray-600">{TOOL_LABELS[k] ?? k}</span>
-                          <span className="col-span-2 text-gray-900">{displayValue(v)}</span>
-                        </div>
-                      ))}
-                    </>
-                  )}
-                  {resources?.hydrant_distance && (
-                    <div className="grid grid-cols-3 gap-4 text-sm border-b border-gray-100 pb-1 pl-2 mt-1">
-                      <span className="font-medium text-gray-600">Hydrant Location / Distance</span>
-                      <span className="col-span-2 text-gray-900">{displayValue(resources.hydrant_distance)}</span>
-                    </div>
-                  )}
-                  {!hasAny && !tools && !resources?.hydrant_distance && (
-                    <span className="text-gray-400 text-sm">No resources recorded</span>
-                  )}
-                </>
+                <div className="space-y-5">
+                  {vehicleRows.length > 0 ? <ResourceGroup title="Vehicles" rows={vehicleRows} /> : null}
+                  {toolRows.length > 0 ? <ResourceGroup title="Tools & Equipment" rows={toolRows} /> : null}
+                  {resources?.hydrant_distance ? (
+                    <DetailField label="Hydrant Location / Distance" value={resources.hydrant_distance} />
+                  ) : null}
+                </div>
               );
             })()}
           </Section>
 
-          {/* D. Alarm Timeline */}
-          <Section title="D. Fire Alarm Level / Timeline" sectionId="sec-timeline">
+          <Section title="D. Fire Alarm Level / Timeline" sectionId="sec-timeline" tone="blue" subtitle="Alarm escalation stages with date, time, and commander.">
             <AlarmTimelineSection timeline={alarmTimeline} />
           </Section>
 
-          {/* E. Casualties */}
-          {sens?.casualty_details && (
-            <Section title="E. Profile of Casualties" sectionId="sec-casualties">
-              {(() => {
-                const cd = sens.casualty_details as Record<string, Record<string, Record<string, number>>>;
-                const rows = [
-                  { label: 'Injured Civilian', path: ['injured', 'civilian'] },
-                  { label: 'Injured BFP Firefighter', path: ['injured', 'firefighter'] },
-                  { label: 'Injured Fire Auxiliary', path: ['injured', 'auxiliary'] },
-                  { label: 'Civilian Fatality/ies', path: ['fatalities', 'civilian'] },
-                  { label: 'BFP Firefighter Fatality/ies', path: ['fatalities', 'firefighter'] },
-                  { label: 'Fire Auxiliary Fatality/ies', path: ['fatalities', 'auxiliary'] },
-                ];
-                return (
-                  <table className="min-w-full text-xs border border-gray-200">
-                    <thead className="bg-gray-50"><tr>
-                      <th className="border px-3 py-2 text-left">Category</th>
-                      <th className="border px-3 py-2 text-center">Male</th>
-                      <th className="border px-3 py-2 text-center">Female</th>
-                    </tr></thead>
-                    <tbody>
-                      {rows.map(({ label, path }) => {
-                        const entry = cd?.[path[0]]?.[path[1]] ?? {};
-                        return (
-                          <tr key={label} className="border-t border-gray-100">
-                            <td className="border px-3 py-1 font-semibold text-gray-700">{label}</td>
-                            <td className="border px-3 py-1 text-center">{entry.m ?? 0}</td>
-                            <td className="border px-3 py-1 text-center">{entry.f ?? 0}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                );
-              })()}
-            </Section>
-          )}
+          <Section title="E. Profile of Casualties" sectionId="sec-casualties" tone="rose" subtitle="Casualty counts by category and sex.">
+            <DataTable columns={['Category', 'Male', 'Female']} rows={casualtyRows} />
+          </Section>
 
-          {/* F. Personnel on Duty */}
-          <Section title="F. Personnel on Duty" sectionId="sec-pod">
+          <Section title="F. Personnel on Duty" sectionId="sec-pod" tone="slate" subtitle="Key personnel assignments and other agencies/personnel at the scene.">
             <PersonnelSection pod={pod} others={others} />
           </Section>
 
-          {/* G. ICP */}
-          <Section title="G. Incident Command Post" sectionId="sec-icp">
-            <FieldRow label={FIELD_LABELS.is_icp_present} value={sens?.is_icp_present} />
-            <FieldRow label={FIELD_LABELS.icp_location} value={sens?.icp_location} />
+          <Section title="G. Incident Command Post" sectionId="sec-icp" tone="neutral">
+            <DetailGrid>
+              <DetailField label={FIELD_LABELS.is_icp_present} value={sens?.is_icp_present} />
+              <DetailField label={FIELD_LABELS.icp_location} value={sens?.icp_location} />
+            </DetailGrid>
           </Section>
 
-          {/* H. Fire Scene Location (map) — placed here per AFOR sketch section position */}
-          {detail.latitude != null && detail.longitude != null && (
-            <Section title="H. Fire Scene Location" sectionId="sec-geo">
-              <div className="grid grid-cols-2 gap-4 text-sm mb-3">
-                <div>
-                  <span className="font-medium text-gray-600">Latitude</span>
-                  <div className="font-mono text-gray-900">{detail.latitude.toFixed(6)}</div>
-                </div>
-                <div>
-                  <span className="font-medium text-gray-600">Longitude</span>
-                  <div className="font-mono text-gray-900">{detail.longitude.toFixed(6)}</div>
-                </div>
+          <Section title="H. Fire Scene Location" sectionId="sec-geo" tone="emerald" subtitle="Recorded geographic coordinates and map pin.">
+            <DetailGrid>
+              <DetailField label="Latitude" value={detail.latitude != null ? detail.latitude.toFixed(6) : null} valueClassName="font-mono" />
+              <DetailField label="Longitude" value={detail.longitude != null ? detail.longitude.toFixed(6) : null} valueClassName="font-mono" />
+            </DetailGrid>
+            {detail.latitude != null && detail.longitude != null ? (
+              <div className="overflow-hidden border border-slate-200 bg-slate-100">
+                <IncidentLocationMap latitude={detail.latitude} longitude={detail.longitude} />
               </div>
-              <IncidentLocationMap latitude={detail.latitude} longitude={detail.longitude} />
-            </Section>
-          )}
+            ) : (
+              <EmptyState message="No map coordinates recorded." />
+            )}
+          </Section>
 
-          {/* H-alt: sketch attachment if present */}
           {Array.isArray((detail as unknown as Record<string, unknown>).attachments) &&
             ((detail as unknown as Record<string, unknown>).attachments as Array<{ file_name: string; url: string }>)
               .filter((a) => a.file_name === 'afor_sketch.png' && !!a.url)
               .map((a) => (
-                <Section key={a.url} title="H. Fire Scene Sketch" sectionId="sec-sketch">
+                <Section key={a.url} title="H. Fire Scene Sketch" sectionId="sec-sketch" tone="slate">
                   {/* Dynamic uploaded sketch URL; next/image cannot optimize this reliably. */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={a.url} alt="Fire Scene Sketch" className="max-w-full rounded border border-gray-200" />
+                  <img src={a.url} alt="Fire Scene Sketch" className="max-w-full rounded-lg border border-gray-200" />
                 </Section>
               ))}
 
-          {/* I. Narrative Report */}
-          <Section title="I. Narrative Report" sectionId="sec-narrative">
+          <Section title="I. Narrative Report" sectionId="sec-narrative" tone="amber">
             <NarrativeReport text={narrative} />
           </Section>
 
-          {/* J. Problems Encountered */}
-          <Section title="J. Problems Encountered" sectionId="sec-problems">
+          <Section title="J. Problems Encountered" sectionId="sec-problems" tone="amber">
             <ProblemsGrid selected={problems} />
             {(() => {
               const normalizedSet = new Set(ALL_PROBLEM_OPTIONS.map(normalizeProblemLabel));
               const customEntries = problems.filter((p) => !normalizedSet.has(normalizeProblemLabel(String(p))));
               if (!customEntries.length) return null;
-              return (
-                <div className="mt-2 border-t border-gray-100 pt-2">
-                  <p className="text-xs font-bold text-gray-500 uppercase mb-1">Others (specify)</p>
-                  <p className="text-sm text-gray-800">{customEntries.join(', ')}</p>
-                </div>
-              );
+              return <TextBlock label="Others (specify)" value={customEntries.join(', ')} />;
             })()}
           </Section>
 
-          {/* K. Recommendations */}
-          <Section title="K. Recommendations" sectionId="sec-rec">
-            <FieldRow label={FIELD_LABELS.recommendations} value={ns?.recommendations} />
+          <Section title="K. Recommendations" sectionId="sec-rec" tone="green">
+            <TextBlock value={ns?.recommendations} />
           </Section>
 
-          {/* L. Disposition & Signatories */}
-          <Section title="L. Disposition &amp; Signatories" sectionId="sec-disp">
-            <FieldRow label={FIELD_LABELS.disposition} value={sens?.disposition} />
-            <FieldRow label={FIELD_LABELS.prepared_by_officer} value={sens?.prepared_by_officer ?? sens?.disposition_prepared_by} />
-            <FieldRow label={FIELD_LABELS.noted_by_officer} value={sens?.noted_by_officer ?? sens?.disposition_noted_by} />
+          <Section title="L. Disposition & Signatories" sectionId="sec-disp" tone="slate">
+            <TextBlock label={FIELD_LABELS.disposition} value={sens?.disposition} />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <DetailField label={FIELD_LABELS.prepared_by_officer} value={sens?.prepared_by_officer ?? sens?.disposition_prepared_by} />
+              <DetailField label={FIELD_LABELS.noted_by_officer} value={sens?.noted_by_officer ?? sens?.disposition_noted_by} />
+            </div>
           </Section>
 
-          {/* Validator actions — shown only to validators at the bottom of the view */}
           {!isValidator && (
             <div className="flex justify-start pt-2">
               <Link
                 href="/dashboard/regional"
-                className="inline-flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900 border border-gray-300 rounded px-4 py-2"
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:bg-gray-50 hover:text-gray-950"
               >
                 <ArrowLeft className="h-4 w-4" />
                 Back to Regional Dashboard
@@ -1292,6 +1462,7 @@ export default function RegionalIncidentDetailPage() {
             </div>
           )}
 
+          {/* Validator actions — shown only to validators at the bottom of the view */}
           {isValidator && (
             <section className="card border-2 border-blue-200" aria-labelledby="sec-validator-actions">
               <div className="card-header px-4 py-3 border-b bg-blue-50">
@@ -1319,11 +1490,11 @@ export default function RegionalIncidentDetailPage() {
                   {validatorAction !== 'reject' && (
                     <>
                       <button
-                        onClick={() => void submitValidatorAction({ action: 'accept' })}
+                        onClick={() => { setShowAcceptConfirm(true); setShowAcceptConfirmDiff(false); }}
                         disabled={validatorLoading || detail?.verification_status === 'VERIFIED' || detail?.verification_status === 'REJECTED'}
                         className="px-4 py-2 text-sm rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
-                        {validatorLoading && validatorAction === null ? 'Checking…' : 'Accept'}
+                        Accept
                       </button>
                       <button
                         onClick={() => setValidatorAction('reject')}
@@ -1366,6 +1537,48 @@ export default function RegionalIncidentDetailPage() {
             </section>
           )}
         </>
+      )}
+
+      {/* ── Accept confirmation modal ── */}
+      {showAcceptConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-lg font-semibold mb-1 text-gray-900">Confirm Acceptance</h2>
+            <p className="text-sm mb-4 text-gray-500">
+              Incident #{incidentId} — verify the details before confirming.
+            </p>
+            <button
+              onClick={() => setShowAcceptConfirmDiff((v) => !v)}
+              className="text-sm font-medium underline mb-4 block text-red-700"
+            >
+              {showAcceptConfirmDiff ? 'Hide' : 'View'} revision history
+            </button>
+            {showAcceptConfirmDiff && (
+              <div className="mb-4">
+                <IncidentDiffPanel incidentId={incidentId} />
+              </div>
+            )}
+            <div className="flex justify-end gap-3 mt-2">
+              <button
+                onClick={() => { setShowAcceptConfirm(false); setShowAcceptConfirmDiff(false); }}
+                className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowAcceptConfirm(false);
+                  setShowAcceptConfirmDiff(false);
+                  void submitValidatorAction({ action: 'accept' });
+                }}
+                disabled={validatorLoading}
+                className="px-4 py-2 text-sm rounded-lg text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
+              >
+                Confirm Accept
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

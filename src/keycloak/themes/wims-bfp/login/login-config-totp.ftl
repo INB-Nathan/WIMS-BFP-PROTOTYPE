@@ -57,10 +57,21 @@
                         <span class="pf-v5-c-form__label-text">${msg("authenticatorCode")}</span>&nbsp;<span class="pf-v5-c-form__label-required" aria-hidden="true">&#42;</span>
                     </label>
                 </div>
-                <div class="${properties.kcInputClass!} <#if messagesPerField.existsError('totp')>pf-m-error</#if>">
-                    <input type="text" required id="totp" name="totp" autocomplete="off"
+                <div class="<#if messagesPerField.existsError('totp')>pf-m-error</#if>">
+                    <input type="text" id="totp" name="totp" autocomplete="one-time-code"
+                           inputmode="numeric"
+                           class="wims-otp-hidden"
                            aria-invalid="<#if messagesPerField.existsError('totp')>true</#if>"
                     />
+                    <div class="wims-otp-grid" role="group" aria-label="${msg("authenticatorCode")}">
+                        <input id="totp-1" class="wims-otp-box" type="text" inputmode="numeric" maxlength="1" autocomplete="one-time-code" />
+                        <input class="wims-otp-box" type="text" inputmode="numeric" maxlength="1" />
+                        <input class="wims-otp-box" type="text" inputmode="numeric" maxlength="1" />
+                        <span class="wims-otp-separator" aria-hidden="true"></span>
+                        <input class="wims-otp-box" type="text" inputmode="numeric" maxlength="1" />
+                        <input class="wims-otp-box" type="text" inputmode="numeric" maxlength="1" />
+                        <input class="wims-otp-box" type="text" inputmode="numeric" maxlength="1" />
+                    </div>
 
                     <#if messagesPerField.existsError('totp')>
                         <span class="pf-v5-c-form-control__utilities">
@@ -128,6 +139,46 @@
                     </#if>
                 </div>
             </div>
+            <script>
+                (function () {
+                    var form = document.getElementById('kc-totp-settings-form');
+                    var hidden = document.getElementById('totp');
+                    var submit = document.getElementById('saveTOTPBtn');
+                    var boxes = Array.prototype.slice.call(form.querySelectorAll('.wims-otp-box'));
+                    function syncHidden() {
+                        hidden.value = boxes.map(function (box) { return box.value; }).join('');
+                        if (submit) submit.disabled = hidden.value.length !== boxes.length;
+                    }
+                    syncHidden();
+                    boxes.forEach(function (box, index) {
+                        box.addEventListener('input', function () {
+                            var digits = box.value.replace(/\D/g, '').slice(0, boxes.length - index);
+                            digits.split('').forEach(function (digit, offset) {
+                                boxes[index + offset].value = digit;
+                            });
+                            syncHidden();
+                            var nextIndex = Math.min(index + digits.length, boxes.length - 1);
+                            if (digits.length && index < boxes.length - 1) boxes[nextIndex].focus();
+                        });
+                        box.addEventListener('keydown', function (event) {
+                            if (event.key === 'Backspace' && box.value === '' && index > 0) {
+                                boxes[index - 1].focus();
+                                boxes[index - 1].value = '';
+                                syncHidden();
+                                event.preventDefault();
+                            }
+                        });
+                        box.addEventListener('paste', function (event) {
+                            event.preventDefault();
+                            var text = (event.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '').slice(0, boxes.length);
+                            boxes.forEach(function (target, offset) { target.value = text[offset] || ''; });
+                            syncHidden();
+                            boxes[Math.max(0, Math.min(text.length, boxes.length) - 1)].focus();
+                        });
+                    });
+                    form.addEventListener('submit', syncHidden);
+                })();
+            </script>
         </form>
     </#if>
 </@layout.registrationLayout>

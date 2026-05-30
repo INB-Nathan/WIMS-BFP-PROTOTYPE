@@ -667,18 +667,25 @@ export interface RegionalIncidentListItem {
   updated_at: string | null;
   notification_dt: string | null;
   general_category: string | null;
+  sub_category: string | null;
   alarm_level: string | null;
   fire_station_name: string | null;
   structures_affected: number | null;
   households_affected: number | null;
+  families_affected: number | null;
   individuals_affected: number | null;
+  vehicles_affected: number | null;
   responder_type: string | null;
   fire_origin: string | null;
   extent_of_damage: string | null;
   owner_name: string | null;
   establishment_name: string | null;
   caller_name: string | null;
+  caller_number: string | null;
+  street_address: string | null;
   is_wildland: boolean;
+  city_municipality: string | null;
+  province_district: string | null;
   location_display: string | null;
 }
 
@@ -789,7 +796,6 @@ export interface RefDuplicateIncident {
   incident_type_code: string | null;
   type_of_involved: string | null;
   fire_station_name: string | null;
-  station_code: string | null;
   city_municipality: string | null;
   province_district: string | null;
   region_name: string | null;
@@ -878,16 +884,30 @@ export async function deleteDraft(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function fetchRegionalStats(): Promise<any> {
-  return apiFetch<Record<string, unknown>>('/regional/stats');
+export async function fetchRegionalStats(params?: { date_from?: string; date_to?: string }): Promise<any> {
+  const qs = new URLSearchParams();
+  if (params?.date_from) qs.set('date_from', params.date_from);
+  if (params?.date_to) qs.set('date_to', params.date_to);
+  const query = qs.toString() ? `?${qs.toString()}` : '';
+  return apiFetch<Record<string, unknown>>(`/regional/stats${query}`);
 }
 
-export async function fetchValidatorStats(): Promise<{
+export async function fetchValidatorStats(params?: { date_from?: string; date_to?: string }): Promise<{
   total_verified: number;
   pending_validation: number;
+  wildland_total: number;
   by_category: { category: string; count: number }[];
+  structures_affected: number;
+  households_affected: number;
+  families_affected: number;
+  individuals_affected: number;
+  vehicles_affected: number;
 }> {
-  return apiFetch('/regional/validator/stats');
+  const qs = new URLSearchParams();
+  if (params?.date_from) qs.set('date_from', params.date_from);
+  if (params?.date_to) qs.set('date_to', params.date_to);
+  const query = qs.toString() ? `?${qs.toString()}` : '';
+  return apiFetch(`/regional/validator/stats${query}`);
 }
 
 export type AforFormKind = 'STRUCTURAL_AFOR' | 'WILDLAND_AFOR';

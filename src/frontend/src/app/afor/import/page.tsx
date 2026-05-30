@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { Fragment, useState, useCallback, useEffect, useMemo, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Upload, FileDown, CheckCircle, AlertCircle, RefreshCw, X, MapPin, ChevronDown, ChevronUp
@@ -15,6 +15,7 @@ import {
 } from '@/lib/api';
 import { MapPicker } from '@/components/MapPicker';
 import { DuplicateResolutionModal } from '@/components/DuplicateResolutionModal';
+import { SectionDotNav, type SectionDotNavLink } from '@/components/SectionDotNav';
 import {
   FIELD_LABELS,
   fieldLabel,
@@ -24,6 +25,18 @@ import {
 } from '@/lib/afor-utils';
 import { useUserProfile } from '@/lib/auth';
 import { PH_REGIONS } from '@/lib/ph-regions';
+import { searchGeocode } from '@/lib/geocode';
+
+const AFOR_IMPORT_NAV_LINKS: readonly SectionDotNavLink[] = [
+  { id: 'afor-import-upload', label: 'Upload' },
+  { id: 'afor-import-location', label: 'Map Pin' },
+  { id: 'afor-import-summary', label: 'Summary' },
+  { id: 'afor-import-preview', label: 'Data Preview' },
+];
+
+const AFOR_IMPORT_UPLOAD_NAV_LINKS: readonly SectionDotNavLink[] = [
+  { id: 'afor-import-upload', label: 'Upload' },
+];
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type PersonnelOnDuty = Record<string, string | { name?: string; contact?: string }>;
@@ -367,20 +380,30 @@ function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown
 }
 
 // ── FIX 9: Geocoding hook ─────────────────────────────────────────────────────
-function useGeocoding(address: string, city: string) {
+function useGeocoding(address: string, city: string, province = '') {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [autoDetected, setAutoDetected] = useState(false);
 
   useEffect(() => {
     if (!address && !city) return;
-    const query = [address, city, 'Philippines'].filter(Boolean).join(', ');
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
 
-    fetch(url, {
-      headers: { 'User-Agent': 'WIMS-BFP/1.0' },
-    })
-      .then((r) => r.json())
-      .then((results: Array<{ lat: string; lon: string }>) => {
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    const isPlaceholder = !address || address.startsWith('(');
+    const primaryQuery = isPlaceholder
+      ? [city, province].filter(Boolean).join(', ')
+      : [address, province].filter(Boolean).join(', ');
+    const fallbackQuery = [city, province].filter(Boolean).join(', ');
+
+    searchGeocode(primaryQuery, 1, 0, signal)
+      .then(async (results) => {
+        if (results.length === 0 && fallbackQuery !== primaryQuery && fallbackQuery.trim()) {
+          return searchGeocode(fallbackQuery, 1, 0, signal);
+        }
+        return results;
+      })
+      .then((results) => {
         if (results.length > 0) {
           const lat = parseFloat(results[0].lat);
           const lng = parseFloat(results[0].lon);
@@ -391,15 +414,17 @@ function useGeocoding(address: string, city: string) {
         }
       })
       .catch(() => {
-        // Geocoding failed silently — user can set manually
+        // Geocoding failed or aborted silently — user can set manually
       });
-  }, [address, city]);
+
+    return () => controller.abort();
+  }, [address, city, province]);
 
   return { coords, autoDetected };
 }
 
 // ── Main page component ──────────────────────────────────────────────────────
-export default function AforImportPage() {
+function AforImportPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { assignedRegionId } = useUserProfile();
@@ -413,6 +438,7 @@ export default function AforImportPage() {
   const [commitLatStr, setCommitLatStr] = useState('');
   const [commitLngStr, setCommitLngStr] = useState('');
   const [committedIds, setCommittedIds] = useState<number[]>([]);
+  const [isOffline, setIsOffline] = useState(false);
   const [isSubmittingAll, setIsSubmittingAll] = useState(false);
   const geocodeTriggered = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -439,12 +465,17 @@ export default function AforImportPage() {
       if (!q) return true;
 
       const ns = (row.data.incident_nonsensitive_details ?? {}) as Record<string, unknown>;
+      const wl = (row.data.wildland ?? {}) as Record<string, unknown>;
       const haystack = [
         row.data._city_text,
         ns.fire_station_name,
         ns.general_category,
         ns.sub_category,
         ns.alarm_level,
+        wl.engine_dispatched,
+        wl.wildland_fire_type,
+        wl.call_received_at,
+        wl.primary_action_taken,
         row.errors.join(' '),
       ]
         .map((v) => String(v ?? '').toLowerCase())
@@ -470,6 +501,24 @@ export default function AforImportPage() {
     }
   }, [geoCoords, commitLatStr, commitLngStr]);
 
+  // Persist/restore previewData across page refreshes (e.g. after idle logout redirect)
+  useEffect(() => {
+    const raw = sessionStorage.getItem('wims:afor_import_draft');
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as AforImportPreviewResponse;
+      if (parsed?.rows) setPreviewData(parsed);
+    } catch { /* ignore corrupt data */ }
+  }, []);
+
+  useEffect(() => {
+    if (previewData) {
+      sessionStorage.setItem('wims:afor_import_draft', JSON.stringify(previewData));
+    } else {
+      sessionStorage.removeItem('wims:afor_import_draft');
+    }
+  }, [previewData]);
+
   useEffect(() => {
     if (searchParams.get('reset') === '1') {
       setFile(null);
@@ -477,11 +526,22 @@ export default function AforImportPage() {
       setError(null);
       setCommitLatStr('');
       setCommitLngStr('');
+      sessionStorage.removeItem('wims:afor_import_draft');
       geocodeTriggered.current = false;
     }
   }, [searchParams]);
 
-  const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+  useEffect(() => {
+    setIsOffline(!navigator.onLine);
+    const handleOnline  = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online',  handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online',  handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const handleFileDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
@@ -527,6 +587,8 @@ export default function AforImportPage() {
           const assignedName = PH_REGIONS.find((r) => r.regionId === assignedRegionId)?.regionName ?? `Region ${assignedRegionId}`;
           const aforName = PH_REGIONS.find((r) => r.regionId === aforRegionId)?.regionName ?? `Region ${aforRegionId}`;
           setError(`This AFOR is for ${aforName}, but you are assigned to ${assignedName}. You can only import AFORs within your assigned region.`);
+          setFile(null);
+          if (fileInputRef.current) fileInputRef.current.value = '';
           return;
         }
         sessionStorage.setItem('temp_afor_review', JSON.stringify({
@@ -563,6 +625,7 @@ export default function AforImportPage() {
     setCommitLatStr(String(lat));
     setCommitLngStr(String(lng));
   }, []);
+  const importNavLinks = previewData ? AFOR_IMPORT_NAV_LINKS : AFOR_IMPORT_UPLOAD_NAV_LINKS;
 
   const handleCommit = async () => {
     if (!previewData || previewData.valid_rows === 0) return;
@@ -655,12 +718,14 @@ export default function AforImportPage() {
     setCommitLngStr('');
     setCommittedIds([]);
     geocodeTriggered.current = false;
+    sessionStorage.removeItem('wims:afor_import_draft');
     // Reset the DOM file input so the same file can be re-selected after an error/cancel
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
+      <SectionDotNav links={importNavLinks} ariaLabel="AFOR import sections" />
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
@@ -705,7 +770,7 @@ export default function AforImportPage() {
               onClick={handleSubmitAll}
               disabled={isSubmittingAll}
               className="px-5 py-2 text-sm font-bold text-white rounded-md disabled:opacity-50"
-              style={{ backgroundColor: 'var(--bfp-maroon)' }}
+              style={{ backgroundColor: '#991B1B' }}
             >
               {isSubmittingAll ? 'Submitting…' : 'Submit All for Review'}
             </button>
@@ -738,7 +803,7 @@ export default function AforImportPage() {
       )}
 
       {!previewData ? (
-        <div className="card p-8">
+        <div id="afor-import-upload" className="card scroll-mt-24 p-8">
           <div
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleFileDrop}
@@ -769,7 +834,7 @@ export default function AforImportPage() {
                   onClick={handleUpload}
                   disabled={isUploading}
                   className="px-6 py-2 text-sm font-bold text-white rounded-md flex items-center gap-2 transition-colors disabled:opacity-70"
-                  style={{ backgroundColor: 'var(--bfp-maroon)' }}
+                  style={{ backgroundColor: '#991B1B' }}
                 >
                   {isUploading ? <><RefreshCw className="w-4 h-4 animate-spin" /> Analyzing...</> : 'Analyze File'}
                 </button>
@@ -796,7 +861,7 @@ export default function AforImportPage() {
 
           {/* FIX 9: Location picker with geocoding */}
           {requiresLocation && (
-            <div className="card p-4 space-y-3">
+            <div id="afor-import-location" className="card scroll-mt-24 p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
                   Incident location (WGS84)
@@ -841,7 +906,7 @@ export default function AforImportPage() {
           )}
 
           {/* Summary cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div id="afor-import-summary" className="scroll-mt-24 grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="card p-4 flex items-center justify-between" style={{ borderLeft: '4px solid #3b82f6' }}>
               <div>
                 <p className="text-xs uppercase font-bold text-gray-500">Total Rows</p>
@@ -866,7 +931,7 @@ export default function AforImportPage() {
           </div>
 
           {/* Data preview table */}
-          <div className="card">
+          <div id="afor-import-preview" className="card scroll-mt-24">
             <div className="card-header flex items-center justify-between p-4 border-b">
               <span className="font-bold">Data Preview</span>
               <div className="flex gap-2">
@@ -877,7 +942,7 @@ export default function AforImportPage() {
                   onClick={handleCommit}
                   disabled={isCommitting || previewData.valid_rows === 0 || !coordsReady}
                   className="px-6 py-2 text-sm font-bold text-white rounded-md flex items-center gap-2 transition-colors disabled:opacity-50"
-                  style={{ backgroundColor: 'var(--bfp-maroon)' }}
+                  style={{ backgroundColor: '#991B1B' }}
                 >
                   {isCommitting
                     ? <><RefreshCw className="w-4 h-4 animate-spin" /> Committing...</>
@@ -1021,5 +1086,13 @@ export default function AforImportPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function AforImportPageWrapper() {
+  return (
+    <Suspense fallback={<div className="p-6 text-gray-500">Loading…</div>}>
+      <AforImportPage />
+    </Suspense>
   );
 }

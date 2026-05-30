@@ -1,13 +1,14 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-05-27
+Last updated: 2026-05-30
 Total synthesis pages: 32
-Last changes: Public Fire Report Areas implementation contract was repaired and localhost nginx moved to a local-only override.
+Last changes: Public Fire Report Areas implementation contract was repaired and localhost nginx moved to a local-only override. Archived encoder/validator incidents can be opened from archive views, restored with unarchive actions, and pass the verified-row immutability rule in both archive directions.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
 - [[mocs/system-map]] — primary map of content and routing entry point.
 - [[operations/agent-routing-guide]] — which page an agent should read before touching each subsystem.
+- [[operations/local-dev-deploy-guide]] — clean-slate local deployment on Windows: one-time SSL setup, known pitfalls (CRLF scripts, missing cert, password policy), seed users, verification.
 
 ## Architecture
 - [[architecture/system-overview]] — Dockerized full-stack architecture, runtime services, and evidence sources.

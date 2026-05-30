@@ -245,16 +245,16 @@ Each component: `{"status": "HEALTHY"|"UNHEALTHY", "latency_ms": int}` or with `
 
 **Schema — `SecurityLogUpdate`:** `action` (optional, one of `CONFIRM_THREAT | FALSE_POSITIVE | REQUEST_MORE_INFO`), `note` (optional string), `admin_action_taken` (optional, legacy), `resolved_at` (optional ISO datetime, legacy).
 
-**HITL path (when `action` provided):**  
-- Maps `action` to human-readable `admin_action_taken` label via `HITL_ACTION_LABELS` dict  
-- Writes `hitl_decision` JSONB: `{ "action": <action>, "note": <note|null>, "reviewed_by": <admin user_id>, "reviewed_at": <now ISO8601> }`  
-- Sets `resolved_at = now()` for CONFIRM_THREAT and FALSE_POSITIVE only  
-- Sets `resolved_at = NULL` for REQUEST_MORE_INFO (not a terminal resolution)  
-- Returns 400 for invalid `action` value  
+**HITL path (when `action` provided):**
+- Maps `action` to human-readable `admin_action_taken` label via `HITL_ACTION_LABELS` dict
+- Writes `hitl_decision` JSONB: `{ "action": <action>, "note": <note|null>, "reviewed_by": <admin user_id>, "reviewed_at": <now ISO8601> }`
+- Sets `resolved_at = now()` for CONFIRM_THREAT and FALSE_POSITIVE only
+- Sets `resolved_at = NULL` for REQUEST_MORE_INFO (not a terminal resolution)
+- Returns 400 for invalid `action` value
 
-**Legacy path (when `action` is null but `admin_action_taken` provided):**  
-- Sets `admin_action_taken` directly  
-- `resolved_at` can be set via `resolved_at` ISO string param  
+**Legacy path (when `action` is null but `admin_action_taken` provided):**
+- Sets `admin_action_taken` directly
+- `resolved_at` can be set via `resolved_at` ISO string param
 
 **Returns:** `{"status": "ok", "log_id": int}`
 

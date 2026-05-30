@@ -1,12 +1,12 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { IncidentForm } from '@/components/IncidentForm';
 import { WildlandAforManualForm } from '@/components/WildlandAforManualForm';
 import { useUserProfile } from '@/lib/auth';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { AforFormKind } from '@/lib/api';
 
-export default function AforCreatePage() {
+function AforCreatePage() {
     const { role } = useUserProfile();
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -140,5 +140,13 @@ export default function AforCreatePage() {
                 </>
             )}
         </div>
+    );
+}
+
+export default function AforCreatePageWrapper() {
+    return (
+        <Suspense fallback={<div className="p-6 text-gray-500">Loading…</div>}>
+            <AforCreatePage />
+        </Suspense>
     );
 }

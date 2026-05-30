@@ -409,7 +409,7 @@ export default function ProfilePage() {
                         onClick={handleChangePassword}
                         disabled={savingPwd || !pwdForm.current_password || !pwdForm.new_password || !pwdForm.confirm_password}
                         className="flex items-center gap-2 px-5 py-2 rounded-lg font-semibold text-sm disabled:opacity-50 text-white"
-                        style={{ backgroundColor: '#dc2626' }}
+                        style={{ backgroundColor: '#991B1B' }}
                     >
                         {savingPwd ? <><RefreshCw className="w-4 h-4 animate-spin" /> Changing…</> : <><Lock className="w-4 h-4" /> Change Password</>}
                     </button>

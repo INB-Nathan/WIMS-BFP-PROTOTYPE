@@ -750,7 +750,7 @@ export default function AnalystDashboardPage() {
                   disabled={loadingData}
                   aria-label="Apply"
                   className="inline-flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-bold text-white transition-colors disabled:opacity-70 sm:flex-none"
-                  style={{ backgroundColor: 'var(--bfp-maroon)' }}
+                  style={{ backgroundColor: '#991B1B' }}
                 >
                   <Search className="h-4 w-4" />
                   Apply filters
@@ -934,7 +934,7 @@ export default function AnalystDashboardPage() {
                       onClick={() => setExportModal({ format: 'csv', open: true })}
                       aria-label="Export CSV"
                       className="inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white"
-                      style={{ backgroundColor: 'var(--bfp-maroon)' }}
+                      style={{ backgroundColor: '#991B1B' }}
                     >
                       <Download className="h-4 w-4" />
                       CSV
@@ -943,7 +943,7 @@ export default function AnalystDashboardPage() {
                       onClick={() => setExportModal({ format: 'pdf', open: true })}
                       aria-label="Export PDF"
                       className="inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white"
-                      style={{ backgroundColor: 'var(--bfp-maroon)' }}
+                      style={{ backgroundColor: '#991B1B' }}
                     >
                       <Download className="h-4 w-4" />
                       PDF
@@ -952,7 +952,7 @@ export default function AnalystDashboardPage() {
                       onClick={() => setExportModal({ format: 'excel', open: true })}
                       aria-label="Export Excel"
                       className="inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white"
-                      style={{ backgroundColor: 'var(--bfp-maroon)' }}
+                      style={{ backgroundColor: '#991B1B' }}
                     >
                       <Download className="h-4 w-4" />
                       Excel

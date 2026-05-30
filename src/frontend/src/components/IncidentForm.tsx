@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation';
 import { edgeFunctions, Incident } from '@/lib/edgeFunctions';
 import {
   updateRegionalIncident, forceReplaceIncident, createRegionalIncident,
+  submitIncidentForReview,
   type RefDuplicateIncident,
   ApiRequestError,
 } from '@/lib/api';
 import { queueIncident, getPendingIncidents, markSynced } from '@/lib/offlineStore';
 import { useUserProfile } from '@/lib/auth';
-import { PH_REGIONS, getProvincesForRegion, getCitiesForProvince, getAforRegionIdentifier } from '@/lib/ph-regions';
-import { Loader2, Save, Shuffle } from 'lucide-react';
+import { PH_REGIONS, getProvincesForRegion, getCitiesForProvince, getAforRegionIdentifier, getShortRegionName } from '@/lib/ph-regions';
+import { Loader2, Save, Shuffle, Send } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import {
   ALL_PROBLEM_OPTIONS, normalizeProblemLabel,
@@ -19,11 +20,40 @@ import {
   generateReferenceNumberPreview, formatClassification,
 } from '@/lib/afor-utils';
 import { DuplicateIncidentModal } from './DuplicateIncidentModal';
+import { reverseGeocode } from '@/lib/geocode';
+import {
+  AssetsResourcesSection,
+  AlarmLevelSection,
+  CasualtiesSection,
+  PersonnelOnDutySection,
+  ProblemsChecklistSection,
+} from './IncidentFormSections';
+import { SectionDotNav, type SectionDotNavLink } from '@/components/SectionDotNav';
 
 const MapPicker = dynamic(
   () => import('./MapPicker').then((m) => m.MapPicker),
   { ssr: false, loading: () => <div className="h-64 bg-gray-100 animate-pulse rounded border" /> },
 );
+
+const STRUCTURAL_FORM_NAV_LINKS: readonly SectionDotNavLink[] = [
+  { id: 'structural-sec-response', label: 'Response' },
+  { id: 'structural-sec-class', label: 'Classification' },
+  {
+    id: 'structural-sec-affected-assets',
+    label: 'Affected & Assets',
+    observedIds: ['structural-sec-affected-counts', 'structural-sec-assets'],
+  },
+  { id: 'structural-sec-alarm', label: 'Timeline' },
+  { id: 'structural-sec-casualties', label: 'Casualties' },
+  { id: 'structural-sec-personnel', label: 'Personnel' },
+  { id: 'structural-sec-narrative', label: 'Narrative' },
+  {
+    id: 'structural-sec-problems',
+    label: 'Problems & Recommendations',
+    observedIds: ['structural-sec-problems', 'structural-sec-recommendations'],
+  },
+  { id: 'structural-sec-disposition', label: 'Disposition' },
+];
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -33,60 +63,6 @@ const STAGE_OF_FIRE_OPTIONS = [
   'Fully Developed',
   'Decay',
 ];
-
-const ALARM_ROWS = [
-  { key: 'alarm_foua', label: '1ST ALARM-FOUA' },
-  { key: 'alarm_1st', label: '1ST ALARM' },
-  { key: 'alarm_2nd', label: '2ND ALARM' },
-  { key: 'alarm_3rd', label: '3RD ALARM' },
-  { key: 'alarm_4th', label: '4TH ALARM' },
-  { key: 'alarm_5th', label: '5TH ALARM' },
-  { key: 'alarm_tf_alpha', label: 'TASK FORCE ALPHA' },
-  { key: 'alarm_tf_bravo', label: 'TASK FORCE BRAVO' },
-  { key: 'alarm_tf_charlie', label: 'TASK FORCE CHARLIE' },
-  { key: 'alarm_tf_delta', label: 'TASK FORCE DELTA' },
-  { key: 'alarm_general', label: 'GENERAL ALARM' },
-  { key: 'alarm_fuc', label: 'FIRE UNDER CONTROL (FUC)' },
-  { key: 'alarm_fo', label: 'FIRE OUT (FO)' },
-] as const;
-
-const VEHICLE_ROWS = [
-  { key: 'resources_bfp_trucks', label: 'BFP Fire Trucks' },
-  { key: 'resources_lgu_trucks', label: 'BFP Manned Fire Trucks (LGU)' },
-  { key: 'resources_non_bfp_trucks', label: 'Non-BFP Fire Trucks' },
-  { key: 'resources_bfp_ambulance', label: 'BFP Ambulance' },
-  { key: 'resources_non_bfp_ambulance', label: 'Non-BFP Ambulance' },
-  { key: 'resources_bfp_rescue', label: 'BFP Rescue Trucks' },
-  { key: 'resources_non_bfp_rescue', label: 'Non-BFP Rescue Trucks' },
-] as const;
-
-const TOOL_ROWS: { key: string; label: string; type: 'number' | 'text' }[] = [
-  { key: 'tools_scba', label: 'SCBA', type: 'number' },
-  { key: 'tools_rope', label: 'Rope', type: 'text' },
-  { key: 'tools_ladder', label: 'Ladder', type: 'number' },
-  { key: 'tools_hoseline', label: 'Hoseline', type: 'text' },
-  { key: 'tools_hydraulic', label: 'Hydraulic Tools', type: 'number' },
-];
-
-const POD_ROLES: { key: string; label: string; contactKey?: string }[] = [
-  { key: 'pod_engine_commander', label: 'Engine Commander' },
-  { key: 'pod_shift_in_charge', label: 'Shift-in-Charge' },
-  { key: 'pod_nozzleman', label: 'Nozzleman' },
-  { key: 'pod_lineman', label: 'Lineman' },
-  { key: 'pod_engine_crew', label: 'Engine Crew' },
-  { key: 'pod_driver', label: 'Driver / Pump Operator (DPO)' },
-  { key: 'pod_safety_officer', label: 'Safety Officer in Charge', contactKey: 'pod_safety_officer_contact' },
-  { key: 'pod_inv_name', label: 'Fire & Arson Investigator/s', contactKey: 'pod_inv_contact' },
-];
-
-const CASUALTY_ROWS = [
-  { key: 'injured_civilian', label: 'Injured Civilian' },
-  { key: 'injured_firefighter', label: 'Injured BFP Firefighter' },
-  { key: 'injured_auxiliary', label: 'Injured Fire Auxiliary' },
-  { key: 'fatal_civilian', label: 'Civilian Fatality/ies' },
-  { key: 'fatal_firefighter', label: 'BFP Firefighter Fatality/ies' },
-  { key: 'fatal_auxiliary', label: 'Fire Auxiliary Fatality/ies' },
-] as const;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -104,7 +80,7 @@ export function IncidentForm({
   initialErrors?: string[];
 }) {
   const router = useRouter();
-  const { assignedRegionId, role } = useUserProfile();
+  const { assignedRegionId, role, loading: profileLoading } = useUserProfile();
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
   const [loading, setLoading] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
@@ -114,8 +90,17 @@ export function IncidentForm({
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Set<string>>(new Set(initialErrors ?? []));
+  const [regionMismatchMsg, setRegionMismatchMsg] = useState<string | null>(null);
   const locationHydratedRef = useRef(false);
   const formHydratedRef = useRef(false);
+  const submitAfterSaveRef = useRef(false);
+  const barangayManuallySetRef = useRef(false);
+  const [draftRestoreData, setDraftRestoreData] = useState<{
+    formState: Record<string, unknown>;
+    latitude: number | null;
+    longitude: number | null;
+    timestamp: number;
+  } | null>(null);
 
   const showToast = (message: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -123,9 +108,29 @@ export function IncidentForm({
     toastTimer.current = setTimeout(() => setToast(null), 6000);
   };
 
+  const setNotificationToToday = () => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const year = parts.find((p) => p.type === 'year')?.value;
+    const month = parts.find((p) => p.type === 'month')?.value;
+    const day = parts.find((p) => p.type === 'day')?.value;
+    if (!year || !month || !day) return;
+    setFormState((prev) => ({ ...prev, notification_dt_date: `${year}-${month}-${day}` }));
+    setFieldErrors((prev) => {
+      const next = new Set(prev);
+      next.delete('notification_dt_date');
+      return next;
+    });
+  };
+
   // H. Fire location from MapPicker
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
+  const [mapSearchQuery, setMapSearchQuery] = useState<string | undefined>(undefined);
 
   const [formState, setFormState] = useState({
     // A. Response Details
@@ -136,6 +141,7 @@ export function IncidentForm({
     region: '',
     province_district: '',
     city_municipality: '',
+    barangay: '',
     incident_address: '',
     nearest_landmark: '',
     caller_name: '',
@@ -235,16 +241,14 @@ export function IncidentForm({
     problems_encountered: [] as string[],
     problems_others: '',
 
-    // K. Recommendations
+    // J. Recommendations
     recommendations: '',
 
-    // L. Disposition
+    // K. Disposition
     disposition: '',
     disposition_prepared_by: '',
     disposition_noted_by: '',
 
-    // Reference Number fields
-    station_code: 'TBA',
   });
 
   const [otherPersonnel, setOtherPersonnel] = useState<{ name: string; designation: string }[]>([
@@ -268,14 +272,14 @@ export function IncidentForm({
   );
 
   const referenceNumberPreview = useMemo(() => {
-    const regionCode = selectedRegionId ? getAforRegionIdentifier(selectedRegionId) : '';
+    const effectiveId = (isEncoder && assignedRegionId) ? assignedRegionId : selectedRegionId;
+    const regionCode = effectiveId ? getAforRegionIdentifier(effectiveId) : '';
     return generateReferenceNumberPreview({
       regionCode,
-      stationCode: formState.station_code || 'TBA',
       typeCode: incidentTypeCode,
       notificationDate: formState.notification_dt_date,
     });
-  }, [selectedRegionId, formState.station_code, incidentTypeCode, formState.notification_dt_date]);
+  }, [isEncoder, assignedRegionId, selectedRegionId, incidentTypeCode, formState.notification_dt_date]);
 
   // ── Utility helpers ────────────────────────────────────────────────────────
 
@@ -426,6 +430,16 @@ export function IncidentForm({
       return String(v);
     };
 
+    // Resolve province/city from initial data
+    const hydratedProvince = ns.province_district || (initialData as unknown as Record<string, unknown>)._province_text as string || '';
+    const hydratedCity = initialData._city_text || ns.city_municipality || '';
+    // Guard: if encoder's assigned region is known, discard province/city from a
+    // different region (prevents the hydration effect from overwriting the lock effect).
+    const encoderValidProvinces = (isEncoder && assignedRegionId)
+      ? getProvincesForRegion(assignedRegionId).map((p) => p.provinceName)
+      : null;
+    const hydratedProvinceOk = !encoderValidProvinces || encoderValidProvinces.includes(hydratedProvince);
+
     setFormState((prev) => ({
       ...prev,
       responder_type: ns.responder_type || '',
@@ -433,8 +447,9 @@ export function IncidentForm({
       notification_dt_date: toDateTimeLocalValue(ns.notification_dt).split('T')[0] || '',
       notification_dt_time: toDateTimeLocalValue(ns.notification_dt).split('T')[1] || '',
       region: ns.region || '',
-      province_district: ns.province_district || (initialData as unknown as Record<string, unknown>)._province_text as string || '',
-      city_municipality: initialData._city_text || ns.city_municipality || '',
+      province_district: hydratedProvinceOk ? hydratedProvince : '',
+      city_municipality: hydratedProvinceOk ? hydratedCity : '',
+      barangay: ns.barangay || '',
       incident_address: ns.incident_address || (sen as Record<string, unknown>).street_address as string || '',
       nearest_landmark: ns.nearest_landmark || (sen as Record<string, unknown>).landmark as string || '',
       caller_name: sen.caller_name || '',
@@ -505,7 +520,6 @@ export function IncidentForm({
         if (partial) return partial.name;
         return rawType; // fall back to raw value; user can correct
       })(),
-      station_code: (ns as Record<string, unknown>).station_code as string || 'TBA',
       owner_name: sen.owner_name || ns.owner_name || sen.establishment_name || ns.establishment_name || '',
       general_description_of_involved: ns.general_description_of_involved || responseFields.general_description_of_involved || '',
       area_of_origin: ns.area_of_origin || (ns as Record<string, unknown>).fire_origin as string || '',
@@ -603,6 +617,14 @@ export function IncidentForm({
         || sen.disposition_noted_by || '',
     }));
 
+    // Auto-geocode using only the complete address field — no city/province appended.
+    // Only fires when no coordinates are pre-supplied (import without a prior map pin).
+    const hydratedAddress = ns.incident_address || (sen as Record<string, unknown>).street_address as string || '';
+    const hasCoords = typeof initialData.latitude === 'number' && typeof initialData.longitude === 'number';
+    if (hydratedAddress && !hasCoords) {
+      setMapSearchQuery(hydratedAddress);
+    }
+
     const people = (sen.other_personnel || ns.other_personnel) as Record<string, unknown>[] | undefined;
     if (people && Array.isArray(people)) {
       setOtherPersonnel(
@@ -612,7 +634,7 @@ export function IncidentForm({
         }))
       );
     }
-  }, [alarmEntryToDateTimeLocal, initialData]);
+  }, [alarmEntryToDateTimeLocal, initialData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // M4 Bug 8-D: Sync the free-text "Others" field to the "Others" checkbox.
   // Non-empty text → ensure "Others" is in problems_encountered.
@@ -659,8 +681,9 @@ export function IncidentForm({
     }
   }, [initialData]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Derive effective region ID from selectedRegionId or by looking up formState.region
+  // Derive effective region ID — encoder's assigned region always wins
   const getEffectiveRegionId = (): number => {
+    if (isEncoder && assignedRegionId) return assignedRegionId;
     if (selectedRegionId && selectedRegionId > 0) return selectedRegionId;
     if (formState.region) {
       const found = PH_REGIONS.find((r) => r.regionName === formState.region);
@@ -755,15 +778,96 @@ export function IncidentForm({
     return () => window.removeEventListener('online', handleOnline);
   }, [syncPending, checkPending]);
 
+  // ── Draft autosave (create mode only) ─────────────────────────────────────
+
+  // On mount: offer to restore a previously saved draft.
+  // Skip in edit mode (existingIncidentId set) and import-correction mode (initialData set).
+  useEffect(() => {
+    if (existingIncidentId || initialData) return;
+    const raw = localStorage.getItem('wims:incident_draft');
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed?.formState && typeof parsed.timestamp === 'number') {
+        setDraftRestoreData(parsed);
+      }
+    } catch { /* ignore corrupt draft */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounced autosave on every formState / coordinate change.
+  // Skip in edit mode and import-correction mode so we don't overwrite a real create-mode draft.
+  useEffect(() => {
+    if (existingIncidentId || initialData) return;
+    const timer = setTimeout(() => {
+      localStorage.setItem('wims:incident_draft', JSON.stringify({
+        formState,
+        latitude,
+        longitude,
+        timestamp: Date.now(),
+      }));
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [formState, latitude, longitude, existingIncidentId, initialData]);
+
   // ── Submit ─────────────────────────────────────────────────────────────────
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setToast(null);
     setFieldErrors(new Set());
-
+    submitAfterSaveRef.current = false;
     const effectiveRegionId = resolveRegionId() ?? 0;
+    await doCreateIncident(effectiveRegionId);
+  };
 
+  const handleSubmitForReview = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    setToast(null);
+    setFieldErrors(new Set());
+
+    // Region constraint: encoder can only submit for their assigned region
+    if (isEncoder && assignedRegionId) {
+      const effectiveId = resolveRegionId();
+      if (effectiveId && effectiveId !== assignedRegionId) {
+        const name = getShortRegionName(assignedRegionId);
+        setRegionMismatchMsg(
+          `You can only submit incidents for your assigned region (${name}).\nError code: REGION_MISMATCH`
+        );
+        return;
+      }
+    }
+
+    // Full required-field validation — mirrors detail page handleSubmitClick
+    const isEmpty = (v: unknown) => !v || String(v).trim() === '' || String(v).trim().toUpperCase() === 'N/A';
+    const submitErrors = new Set<string>();
+    if (!formState.responder_type) submitErrors.add('responder_type');
+    if (!formState.fire_station_name) submitErrors.add('fire_station_name');
+    if (!formState.notification_dt_date) submitErrors.add('notification_dt_date');
+    if (!formState.province_district?.trim()) submitErrors.add('province_district');
+    if (!formState.city_municipality?.trim()) submitErrors.add('city_municipality');
+    if (!formState.alarm_level) submitErrors.add('alarm_level');
+    if (!formState.classification_of_involved) submitErrors.add('classification_of_involved');
+    if (formState.classification_of_involved && (!formState.type_of_involved_general_category || !incidentTypeCode)) submitErrors.add('type_of_involved_general_category');
+    if (!formState.extent_of_damage) submitErrors.add('extent_of_damage');
+    if (latitude === null || longitude === null) submitErrors.add('map_location');
+    const preparedBy = formState.disposition_prepared_by?.trim();
+    const notedBy = formState.disposition_noted_by?.trim();
+    if (isEmpty(preparedBy)) submitErrors.add('disposition_prepared_by');
+    if (isEmpty(notedBy)) submitErrors.add('disposition_noted_by');
+
+    if (submitErrors.size > 0) {
+      setFieldErrors(submitErrors);
+      showToast('Please complete all required fields before submitting for review.');
+      setTimeout(() => {
+        const el = document.querySelector('[data-field-error="true"]');
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+      return;
+    }
+
+    submitAfterSaveRef.current = true;
+    const effectiveRegionId = resolveRegionId() ?? 0;
     await doCreateIncident(effectiveRegionId);
   };
 
@@ -819,14 +923,13 @@ export function IncidentForm({
         alarm_level: formState.alarm_level,
         time_returned_to_base: formState.time_returned_to_base || 'N/A',
         total_gas_consumed_liters: parseFloat(formState.total_gas_consumed_liters) || 0,
+        barangay: formState.barangay || '',
         // B
-        barangay: formState.incident_address.split(',')[2] || 'Unknown',
         general_category: formState.classification_of_involved,
         incident_type: formState.type_of_involved_general_category,
         classification_of_involved: formState.classification_of_involved,
         type_of_involved_general_category: formState.type_of_involved_general_category,
         incident_type_code: incidentTypeCode || undefined,
-        station_code: formState.station_code || 'TBA',
         owner_name: formState.owner_name || 'N/A',
         establishment_name: formState.owner_name || 'N/A',
         general_description_of_involved: formState.general_description_of_involved || 'N/A',
@@ -957,6 +1060,7 @@ export function IncidentForm({
         fire_station_name: incident.incident_nonsensitive_details.fire_station_name,
         city_municipality: formState.city_municipality,
         province_district: formState.province_district,
+        barangay: formState.barangay || '',
         region_label: formState.region,
         fire_origin: incident.incident_nonsensitive_details.fire_origin,
         extent_of_damage: incident.incident_nonsensitive_details.extent_of_damage,
@@ -993,23 +1097,31 @@ export function IncidentForm({
         disposition: incident.incident_sensitive_details.disposition,
         latitude: latitude ?? undefined,
         longitude: longitude ?? undefined,
-        station_code: formState.station_code || 'TBA',
         incident_type_code: incidentTypeCode || undefined,
       };
-      const isNaOrBlank = (v: string | undefined) => !v?.trim() || v.trim().toUpperCase() === 'N/A';
-      const naErrors = new Set<string>();
-      if (isNaOrBlank(formState.disposition_prepared_by)) naErrors.add('disposition_prepared_by');
-      if (isNaOrBlank(formState.disposition_noted_by)) naErrors.add('disposition_noted_by');
-      if (naErrors.size > 0) {
-        setFieldErrors(naErrors);
-        showToast('Prepared by and Noted by cannot be empty or "N/A".');
-        setLoading(false);
-        return;
-      }
       try {
         await updateRegionalIncident(existingIncidentId, updatePayload);
-        showToast('Incident saved successfully.');
-        onSaved?.();
+        if (submitAfterSaveRef.current) {
+          try {
+            await submitIncidentForReview(existingIncidentId);
+            showToast('Submitted for review!');
+            onSaved?.();
+          } catch (submitErr) {
+            if (submitErr instanceof ApiRequestError && submitErr.status === 409) {
+              const d = submitErr.detail as { code?: string; matched_incident_id?: number; confidence?: 'LIKELY' | 'POSSIBLE' } | null;
+              if (d?.code === 'DUPLICATE_DETECTED' && d.matched_incident_id) {
+                // Hard-navigate so the detail page remounts and triggers the duplicate modal
+                window.location.href = `/dashboard/regional/incidents/${existingIncidentId}?pending_submit=1`;
+                return;
+              }
+            }
+            showToast(`Saved. Submit failed: ${(submitErr as Error).message}`);
+            onSaved?.();
+          }
+        } else {
+          showToast('Incident saved successfully.');
+          onSaved?.();
+        }
       } catch (err: unknown) {
         showToast(`Save failed: ${(err as Error).message}`);
       } finally {
@@ -1019,17 +1131,6 @@ export function IncidentForm({
     }
 
     // ── Create mode ──────────────────────────────────────────────────────────
-    const isNaOrBlank = (v: string | undefined) => !v?.trim() || v.trim().toUpperCase() === 'N/A';
-    const naErrors = new Set<string>();
-    if (isNaOrBlank(formState.disposition_prepared_by)) naErrors.add('disposition_prepared_by');
-    if (isNaOrBlank(formState.disposition_noted_by)) naErrors.add('disposition_noted_by');
-    if (naErrors.size > 0) {
-      setFieldErrors(naErrors);
-      showToast('Prepared by and Noted by cannot be empty or "N/A".');
-      setLoading(false);
-      return;
-    }
-
     const payload = { region_id: effectiveRegionId, incidents: [incident] };
 
     try {
@@ -1037,6 +1138,28 @@ export function IncidentForm({
         const res = await edgeFunctions.uploadBundle(payload);
         const incidentId = res.incident_ids[0];
         if (!incidentId) throw new Error('Upload succeeded but no incident ID was returned.');
+        if (submitAfterSaveRef.current) {
+          try {
+            await submitIncidentForReview(incidentId);
+          } catch (submitErr) {
+            if (submitErr instanceof ApiRequestError && submitErr.status === 409) {
+              const d = submitErr.detail as { code?: string; matched_incident_id?: number; confidence?: 'LIKELY' | 'POSSIBLE' } | null;
+              if (d?.code === 'DUPLICATE_DETECTED' && d.matched_incident_id) {
+                // Saved as draft; navigate to detail with flag to auto-trigger the
+                // full duplicate modal (side-by-side comparison + force/cancel options).
+                localStorage.removeItem('wims:incident_draft');
+                router.push(`/dashboard/regional/incidents/${incidentId}?pending_submit=1`);
+                return;
+              }
+            }
+            // Any other submit failure — go to detail so user can retry
+            showToast(`Saved as draft. Submit failed: ${(submitErr as Error).message}`);
+            localStorage.removeItem('wims:incident_draft');
+            router.push(`/dashboard/regional/incidents/${incidentId}`);
+            return;
+          }
+        }
+        localStorage.removeItem('wims:incident_draft');
         router.push(`/dashboard/regional/incidents/${incidentId}`);
       } else {
         await queueIncident(payload);
@@ -1051,11 +1174,9 @@ export function IncidentForm({
       if (isRegionMismatch) {
         setFieldErrors((prev) => new Set([...prev, 'region']));
         const assignedRegionName = PH_REGIONS.find((r) => r.regionId === assignedRegionId)?.regionName ?? `Region ${assignedRegionId ?? ''}`;
-        showToast(`Your assigned region '${assignedRegionName}' does not match the incident's assigned region.`);
-        setTimeout(() => {
-          const regionEl = document.querySelector('[data-field-error="true"]');
-          regionEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 100);
+        setRegionMismatchMsg(
+          `Your assigned region '${assignedRegionName}' does not match the incident's region.\nError code: REGION_MISMATCH`
+        );
       } else {
         showToast(`Submission failed: ${(err as Error).message}`);
       }
@@ -1207,6 +1328,7 @@ export function IncidentForm({
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-md max-w-4xl mx-auto space-y-6">
+      <SectionDotNav links={STRUCTURAL_FORM_NAV_LINKS} ariaLabel="Incident form sections" />
       {/* Floating toast popup */}
       {toast && (
         <div
@@ -1220,18 +1342,20 @@ export function IncidentForm({
       )}
 
       {/* Header Bar */}
-      <div className="flex flex-wrap justify-between items-center gap-2 bg-red-800 -m-6 mb-4 p-4 rounded-t-lg text-white">
+      <div className="flex flex-wrap justify-between items-center gap-2 bg-[#991B1B] -m-6 mb-4 p-4 rounded-t-lg text-white">
         <h2 className="text-xl font-bold">{isEditMode ? 'Edit Incident Report' : 'AFOR Report Entry'}</h2>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleAutoFill}
-            className="inline-flex items-center gap-1.5 text-xs bg-yellow-400 text-red-900 px-3 py-1.5 rounded font-bold hover:bg-yellow-300"
-            title="Fill all fields with randomized test data"
-          >
-            <Shuffle className="w-3.5 h-3.5" />
-            Auto-fill (Test)
-          </button>
+          {!isEditMode && (
+            <button
+              type="button"
+              onClick={handleAutoFill}
+              className="inline-flex items-center gap-1.5 text-xs bg-yellow-400 text-red-900 px-3 py-1.5 rounded font-bold hover:bg-yellow-300"
+              title="Fill all fields with randomized test data"
+            >
+              <Shuffle className="w-3.5 h-3.5" />
+              Auto-fill (Test)
+            </button>
+          )}
           {pendingCount > 0 && (
             <button
               type="button"
@@ -1244,10 +1368,49 @@ export function IncidentForm({
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-8 text-gray-900">
+      {/* Draft restore banner — manual entry (create mode) only; hidden in edit or import-correction mode */}
+      {draftRestoreData && !existingIncidentId && !initialData && (
+        <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-800">
+          <span className="flex-1">
+            You have an unsaved draft from {new Date(draftRestoreData.timestamp).toLocaleString()}. Restore it?
+          </span>
+          <button
+            type="button"
+            className="font-semibold underline hover:text-blue-900"
+            onClick={() => {
+              setFormState(draftRestoreData.formState as Parameters<typeof setFormState>[0]);
+              setLatitude(draftRestoreData.latitude);
+              setLongitude(draftRestoreData.longitude);
+              setDraftRestoreData(null);
+            }}
+          >
+            Restore
+          </button>
+          <button
+            type="button"
+            className="text-blue-500 hover:text-blue-700"
+            onClick={() => {
+              localStorage.removeItem('wims:incident_draft');
+              setDraftRestoreData(null);
+            }}
+          >
+            Discard
+          </button>
+        </div>
+      )}
+
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-8 text-gray-900"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.target as HTMLElement).tagName !== 'TEXTAREA') {
+            e.preventDefault();
+          }
+        }}
+      >
 
         {/* ── A. RESPONSE DETAILS ── */}
-        <section className="space-y-4 border-b pb-6">
+        <section id="structural-sec-response" className="scroll-mt-24 space-y-4 border-b pb-6">
           <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">A. Response Details</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
@@ -1265,21 +1428,17 @@ export function IncidentForm({
               <input name="fire_station_name" type="text" className={errCls('fire_station_name')} value={formState.fire_station_name} onChange={handleChange} />
             </div>
 
-            <div>
-              <label className={labelCls}>Station Code</label>
-              <input
-                name="station_code"
-                type="text"
-                className={inputCls}
-                placeholder="e.g. QC01 (leave as TBA if unknown)"
-                value={formState.station_code}
-                onChange={handleChange}
-              />
-              <p className="text-xs text-gray-500 mt-1">Used in the AFOR Reference Number. Defaults to TBA.</p>
-            </div>
-
             <div data-field-error={fieldErrors.has('notification_dt_date') ? 'true' : undefined}>
-              <label className={labelCls}>Date Fire Notification Received{reqMark}</label>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <label className={labelCls}>Date Fire Notification Received{reqMark}</label>
+                <button
+                  type="button"
+                  onClick={setNotificationToToday}
+                  className="rounded-md border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 transition-colors hover:bg-red-50"
+                >
+                  Set to today
+                </button>
+              </div>
               <input name="notification_dt_date" type="date" className={errCls('notification_dt_date')} value={formState.notification_dt_date} onChange={handleChange} />
             </div>
 
@@ -1290,10 +1449,12 @@ export function IncidentForm({
 
             <div data-field-error={fieldErrors.has('region') ? 'true' : undefined}>
               <label className={labelCls}>Region{reqMark}</label>
-              {isEncoder && assignedRegionId ? (
+              {isEncoder ? (
                 <>
                   <p className={`${inputCls} text-gray-700 bg-gray-50 cursor-default`}>
-                    {PH_REGIONS.find((r) => r.regionId === assignedRegionId)?.regionName ?? formState.region}
+                    {assignedRegionId
+                      ? (PH_REGIONS.find((r) => r.regionId === assignedRegionId)?.regionName ?? formState.region)
+                      : profileLoading ? 'Loading…' : formState.region || 'No region assigned'}
                   </p>
                   <p className="mt-1 text-xs text-gray-400">Region is set to your assigned area.</p>
                 </>
@@ -1318,19 +1479,24 @@ export function IncidentForm({
 
             <div data-field-error={fieldErrors.has('province_district') ? 'true' : undefined}>
               <label className={labelCls}>Province / District{reqMark}</label>
-              <select
-                className={errCls('province_district')}
-                value={formState.province_district}
-                disabled={!selectedRegionId}
-                onChange={(e) => {
-                  setFormState((prev) => ({ ...prev, province_district: e.target.value, city_municipality: '' }));
-                }}
-              >
-                <option value="">{selectedRegionId ? 'Select Province' : 'Select region first'}</option>
-                {getProvincesForRegion(selectedRegionId ?? 0).map((p) => (
-                  <option key={p.provinceName} value={p.provinceName}>{p.provinceName}</option>
-                ))}
-              </select>
+              {(() => {
+                const dropRegionId = getEffectiveRegionId();
+                return (
+                  <select
+                    className={errCls('province_district')}
+                    value={formState.province_district}
+                    disabled={!dropRegionId}
+                    onChange={(e) => {
+                      setFormState((prev) => ({ ...prev, province_district: e.target.value, city_municipality: '' }));
+                    }}
+                  >
+                    <option value="">{dropRegionId ? 'Select Province' : 'Select region first'}</option>
+                    {getProvincesForRegion(dropRegionId).map((p) => (
+                      <option key={p.provinceName} value={p.provinceName}>{p.provinceName}</option>
+                    ))}
+                  </select>
+                );
+              })()}
             </div>
 
             <div data-field-error={fieldErrors.has('city_municipality') ? 'true' : undefined}>
@@ -1361,9 +1527,87 @@ export function IncidentForm({
               })()}
             </div>
 
+            <div>
+              <label className={labelCls}>Barangay</label>
+              <p className="text-xs text-gray-400 mt-0.5 mb-1">Tip: automatically filled when you pin the fire scene location on the map.</p>
+              <input
+                name="barangay"
+                type="text"
+                className={inputCls}
+                placeholder="e.g. Barangay San Jose"
+                value={formState.barangay}
+                onChange={(e) => { barangayManuallySetRef.current = true; handleChange(e); }}
+              />
+            </div>
+
             <div className="md:col-span-2" data-field-error={fieldErrors.has('incident_address') ? 'true' : undefined}>
               <label className={labelCls}>Complete Address of Fire Incident{reqMark}</label>
-              <input name="incident_address" type="text" className={errCls('incident_address')} placeholder="House/Building No., Street, Barangay, City/Municipality, Province" value={formState.incident_address} onChange={handleChange} />
+              <input
+                name="incident_address"
+                type="text"
+                className={errCls('incident_address')}
+                placeholder="House/Building No., Street, Barangay, City/Municipality, Province"
+                value={formState.incident_address}
+                onChange={handleChange}
+                onBlur={() => {
+                  const addr = formState.incident_address.trim();
+                  if (addr && latitude === null && longitude === null) {
+                    setMapSearchQuery(addr);
+                  }
+                }}
+              />
+            </div>
+
+            {/* Compact fire scene location — shown near the complete address once a pin is set */}
+            {latitude !== null && longitude !== null && (
+              <div className="md:col-span-2 text-xs text-green-800 font-medium bg-green-50 border border-green-200 rounded px-3 py-2 flex items-center gap-2">
+                <span>📍 Fire Scene: {latitude.toFixed(6)}, {longitude.toFixed(6)}</span>
+                <button type="button" onClick={() => { setLatitude(null); setLongitude(null); setMapSearchQuery(undefined); }}
+                  className="ml-auto text-red-600 hover:underline">Clear pin</button>
+              </div>
+            )}
+
+            {/* ── Map Pin (inline in Response Details) ── */}
+            <div className="md:col-span-2 space-y-2" data-field-error={fieldErrors.has('map_location') ? 'true' : undefined}>
+              <label className={`${labelCls} flex items-center gap-1`}>
+                Fire Scene Location (Map Pin){reqMark}
+              </label>
+              {fieldErrors.has('map_location') && <p className="text-xs font-semibold text-red-600">Pin the fire location on the map before saving.</p>}
+              <p className="text-xs text-gray-500">Click or search the map to pin the fire scene. The map auto-searches when you fill in the complete address above.</p>
+              {formState.incident_address && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const addr = formState.incident_address.trim();
+                    if (addr) {
+                      setLatitude(null);
+                      setLongitude(null);
+                      setMapSearchQuery(addr);
+                    }
+                  }}
+                  className="text-xs text-blue-700 underline hover:text-blue-900"
+                >
+                  Re-pin from Address
+                </button>
+              )}
+              <div className={`rounded ${fieldErrors.has('map_location') ? 'border-2 border-red-500' : 'border border-gray-300'}`}>
+                <MapPicker
+                  searchQuery={mapSearchQuery}
+                  center={latitude && longitude ? [latitude, longitude] : [14.5995, 120.9842]}
+                  value={latitude && longitude ? { lat: latitude, lng: longitude } : null}
+                  onChange={async (lat, lng) => {
+                    setLatitude(lat);
+                    setLongitude(lng);
+                    const geo = await reverseGeocode(lat, lng);
+                    if (geo?.barangay && !barangayManuallySetRef.current) {
+                      setFormState((prev) => ({ ...prev, barangay: geo.barangay }));
+                    }
+                  }}
+                />
+              </div>
+              {latitude === null && longitude === null && (
+                <p className="text-xs text-amber-700 font-medium">No location pinned — click the map to mark the fire scene.</p>
+              )}
             </div>
 
             <div>
@@ -1455,7 +1699,7 @@ export function IncidentForm({
         </section>
 
         {/* ── B. NATURE AND CLASSIFICATION ── */}
-        <section className="space-y-4 border-b pb-6">
+        <section id="structural-sec-class" className="scroll-mt-24 space-y-4 border-b pb-6">
           <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">B. Nature and Classification of Involved</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
@@ -1565,9 +1809,9 @@ export function IncidentForm({
               )}
             </div>
 
-            <div className="md:col-span-2">
+            <div id="structural-sec-affected-assets" className="scroll-mt-24 md:col-span-2">
               <label className={labelCls}>Number Affected</label>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+              <div id="structural-sec-affected-counts" className="grid grid-cols-2 md:grid-cols-5 gap-2">
                 {[
                   { key: 'structures_affected', label: 'Structures' },
                   { key: 'households_affected', label: 'Households' },
@@ -1586,168 +1830,21 @@ export function IncidentForm({
           </div>
         </section>
 
-        {/* ── C. ASSETS AND RESOURCES ── */}
-        <section className="space-y-4 border-b pb-6">
-          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">C. Assets and Resources</h3>
+        <div id="structural-sec-assets" className="scroll-mt-24">
+          <AssetsResourcesSection formState={formState as Record<string, unknown>} handleChange={handleChange} inputCls={inputCls} labelCls={labelCls} />
+        </div>
 
-          <div>
-            <p className="text-xs font-bold text-gray-600 uppercase mb-2">Response Vehicles</p>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {VEHICLE_ROWS.map(({ key, label }) => (
-                <div key={key}>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">{label}</label>
-                  <input type="number" name={key} min="0" className={inputCls} value={(formState as Record<string, unknown>)[key] as string ?? ''} onChange={handleChange} />
-                </div>
-              ))}
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Others (specify)</label>
-                <input type="text" name="resources_others" className={inputCls} placeholder="e.g. Water tanker x1" value={formState.resources_others} onChange={handleChange} />
-              </div>
-            </div>
-          </div>
+        <div id="structural-sec-alarm" className="scroll-mt-24">
+          <AlarmLevelSection formState={formState as Record<string, unknown>} handleChange={handleChange} handleRadioChange={handleRadioChange} inputCls={inputCls} labelCls={labelCls} />
+        </div>
 
-          <div>
-            <p className="text-xs font-bold text-gray-600 uppercase mb-2 mt-3">Tools and Equipment</p>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {TOOL_ROWS.map(({ key, label, type }) => (
-                <div key={key}>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">{label}</label>
-                  <input type={type} name={key} min={type === 'number' ? '0' : undefined} className={inputCls} value={(formState as Record<string, unknown>)[key] as string ?? ''} onChange={handleChange} />
-                </div>
-              ))}
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Others (specify)</label>
-                <input type="text" name="tools_others" className={inputCls} value={formState.tools_others} onChange={handleChange} />
-              </div>
-            </div>
-          </div>
+        <div id="structural-sec-casualties" className="scroll-mt-24">
+          <CasualtiesSection formState={formState as Record<string, unknown>} handleChange={handleChange} />
+        </div>
 
-          <div>
-            <label className={labelCls}>Location and Distance of Nearest Serviceable Fire Hydrant</label>
-            <input name="hydrant_location_distance" type="text" className={inputCls} placeholder="e.g. 150m from the scene, corner Rizal Ave." value={formState.hydrant_location_distance} onChange={handleChange} />
-          </div>
-        </section>
-
-        {/* ── D. FIRE ALARM LEVEL ── */}
-        <section className="space-y-4 border-b pb-6">
-          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">D. Fire Alarm Level</h3>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-xs border border-gray-300">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="border px-3 py-2 text-left w-40">Alarm Level</th>
-                  <th className="border px-3 py-2 text-left">Date &amp; Time</th>
-                  <th className="border px-3 py-2 text-left">Incident / Ground Commander</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ALARM_ROWS.map(({ key, label }) => (
-                  <tr key={key}>
-                    <td className="border px-3 py-1 font-semibold text-gray-700">{label}</td>
-                    <td className="border px-1 py-1">
-                      <input
-                        type="datetime-local"
-                        name={key}
-                        className="w-full border-0 bg-transparent text-gray-900 text-xs p-1 focus:outline-none focus:ring-1 focus:ring-red-300 rounded"
-                        value={(formState as Record<string, unknown>)[key] as string ?? ''}
-                        onChange={handleChange}
-                      />
-                    </td>
-                    <td className="border px-1 py-1">
-                      <input
-                        type="text"
-                        name={`${key}_commander`}
-                        placeholder="Name (Ground/Incident Commander)"
-                        className="w-full border-0 bg-transparent text-gray-900 text-xs p-1 focus:outline-none focus:ring-1 focus:ring-red-300 rounded"
-                        value={(formState as Record<string, unknown>)[`${key}_commander`] as string ?? ''}
-                        onChange={handleChange}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-            <div>
-              <label className={labelCls}>Incident Command Post (ICP)</label>
-              <div className="flex gap-4 mt-1">
-                {['with', 'without'].map((v) => (
-                  <label key={v} className="flex items-center gap-2 text-sm capitalize">
-                    <input type="radio" name="icp_present" value={v} checked={formState.icp_present === v} onChange={() => handleRadioChange('icp_present', v)} className="h-4 w-4" />
-                    {v}
-                  </label>
-                ))}
-              </div>
-            </div>
-            {formState.icp_present === 'with' && (
-              <div>
-                <label className={labelCls}>Specify ICP Location</label>
-                <input name="icp_location" type="text" className={inputCls} placeholder="e.g. Corner of Rizal and Mabini Sts." value={formState.icp_location} onChange={handleChange} />
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* ── E. PROFILE OF CASUALTIES ── */}
-        <section className="space-y-4 border-b pb-6">
-          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">E. Profile of Casualties</h3>
-          <table className="min-w-full text-xs border border-gray-300">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="border px-3 py-2 text-left">Category</th>
-                <th className="border px-3 py-2 text-center w-24">Male</th>
-                <th className="border px-3 py-2 text-center w-24">Female</th>
-              </tr>
-            </thead>
-            <tbody>
-              {CASUALTY_ROWS.map(({ key, label }) => (
-                <tr key={key}>
-                  <td className="border px-3 py-1 font-semibold text-gray-700">{label}</td>
-                  <td className="border px-1 py-1">
-                    <input type="number" name={`${key}_m`} min="0" className="w-full border-0 bg-transparent text-gray-900 text-xs p-1 focus:outline-none focus:ring-1 focus:ring-red-300 rounded" value={(formState as Record<string, unknown>)[`${key}_m`] as string ?? ''} onChange={handleChange} />
-                  </td>
-                  <td className="border px-1 py-1">
-                    <input type="number" name={`${key}_f`} min="0" className="w-full border-0 bg-transparent text-gray-900 text-xs p-1 focus:outline-none focus:ring-1 focus:ring-red-300 rounded" value={(formState as Record<string, unknown>)[`${key}_f`] as string ?? ''} onChange={handleChange} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-
-        {/* ── F. PERSONNEL ON DUTY ── */}
-        <section className="space-y-4 border-b pb-6">
-          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">F. Personnel On Duty</h3>
-          <div className="space-y-3">
-            {POD_ROLES.map(({ key, label, contactKey }) => (
-              <div key={key} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
-                <span className="text-sm font-semibold text-gray-700 md:col-span-1">{label}</span>
-                <input
-                  type="text"
-                  name={key}
-                  placeholder="Rank / Name"
-                  className={`${inputCls} md:col-span-1`}
-                  value={(formState as Record<string, unknown>)[key] as string ?? ''}
-                  onChange={handleChange}
-                />
-                {contactKey ? (
-                  <input
-                    type="tel"
-                    name={contactKey}
-                    placeholder="Contact number"
-                    className={`${inputCls} md:col-span-1`}
-                    value={(formState as Record<string, unknown>)[contactKey] as string ?? ''}
-                    onChange={handleChange}
-                  />
-                ) : (
-                  <div />
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
+        <div id="structural-sec-personnel" className="scroll-mt-24">
+          <PersonnelOnDutySection formState={formState as Record<string, unknown>} handleChange={handleChange} inputCls={inputCls} />
+        </div>
 
         {/* ── G. OTHER BFP PERSONNEL ── */}
         <section className="space-y-4 border-b pb-6">
@@ -1765,31 +1862,9 @@ export function IncidentForm({
           </div>
         </section>
 
-        {/* ── H. FIRE SCENE LOCATION ── */}
-        <section className="space-y-4 border-b pb-6" data-field-error={fieldErrors.has('map_location') ? 'true' : undefined}>
-          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">H. Fire Scene Location{reqMark}</h3>
-          {fieldErrors.has('map_location') && <p className="text-xs font-semibold text-red-600">Pin the fire location on the map before saving.</p>}
-          <p className="text-xs text-gray-500">Click on the map to pin the fire incident location. The coordinates will be saved with the report.</p>
-          <div className={`rounded ${fieldErrors.has('map_location') ? 'border-2 border-red-500' : 'border border-gray-300'}`}>
-            <MapPicker
-              center={latitude && longitude ? [latitude, longitude] : [14.5995, 120.9842]}
-              value={latitude && longitude ? { lat: latitude, lng: longitude } : null}
-              onChange={(lat, lng) => { setLatitude(lat); setLongitude(lng); }}
-            />
-          </div>
-          {latitude !== null && longitude !== null ? (
-            <p className="text-xs text-green-700 font-medium">
-              📍 Location selected: {latitude.toFixed(6)}, {longitude.toFixed(6)}
-              <button type="button" onClick={() => { setLatitude(null); setLongitude(null); }} className="ml-3 text-red-600 hover:underline">Clear</button>
-            </p>
-          ) : (
-            <p className="text-xs text-amber-700 font-medium">No location selected — click the map to pin the fire scene.</p>
-          )}
-        </section>
-
-        {/* ── I. NARRATIVE ── */}
-        <section className="space-y-4 border-b pb-6">
-          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">I. Narrative Content (In Chronological Order)</h3>
+        {/* ── H. NARRATIVE ── */}
+        <section id="structural-sec-narrative" className="scroll-mt-24 space-y-4 border-b pb-6">
+          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">H. Narrative Content (In Chronological Order)</h3>
           <textarea
             name="narrative_report"
             rows={6}
@@ -1800,78 +1875,19 @@ export function IncidentForm({
           />
         </section>
 
-        {/* ── J. PROBLEMS ENCOUNTERED ── */}
-        <section className="space-y-4 border-b pb-6">
-          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">J. Problems Encountered</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-            {ALL_PROBLEM_OPTIONS.map((prob, idx) => {
-              // Normalize the label to ensure consistent comparison
-              const normalizedProb = normalizeProblemLabel(prob);
-              const isChecked = (formState.problems_encountered || []).some((p) => normalizeProblemLabel(p) === normalizedProb);
-              const checkboxId = `problem-checkbox-${idx}`;
-              const isOthers = normalizedProb === normalizeProblemLabel('Others');
+        <div id="structural-sec-problems" className="scroll-mt-24">
+          <ProblemsChecklistSection formState={formState} setFormState={setFormState as React.Dispatch<React.SetStateAction<Record<string, unknown>>>} handleChange={handleChange} inputCls={inputCls} />
+        </div>
 
-              return (
-                <label key={`${idx}-${prob}`} htmlFor={checkboxId} className="flex items-start gap-2 cursor-pointer">
-                  <input
-                    id={checkboxId}
-                    type="checkbox"
-                    className="mt-0.5 h-4 w-4 flex-shrink-0 cursor-pointer"
-                    checked={isChecked}
-                    onChange={(e) => {
-                      const checked = e.target.checked;
-                      setFormState((prev) => {
-                        const current = prev.problems_encountered || [];
-                        let updated: string[];
-
-                        if (checked) {
-                          // Add the canonical form if not already present
-                          if (!current.some((p) => normalizeProblemLabel(p) === normalizedProb)) {
-                            updated = [...current, prob];
-                          } else {
-                            updated = current;
-                          }
-                        } else {
-                          // Remove all variants that normalize to this problem
-                          updated = current.filter((p) => normalizeProblemLabel(p) !== normalizedProb);
-                        }
-
-                        // M4 Bug 8-D: unchecking Others also clears the free-text input
-                        if (!checked && isOthers) {
-                          return { ...prev, problems_encountered: updated, problems_others: '' };
-                        }
-                        return { ...prev, problems_encountered: updated };
-                      });
-                    }}
-                  />
-                  <span className="select-none">{prob}</span>
-                </label>
-              );
-            })}
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-gray-900 mb-1">Others (specify, separate by comma)</label>
-            <input
-              type="text"
-              name="problems_others"
-              className={inputCls}
-              placeholder="e.g. Flooding in access road, Low visibility due to fog"
-              value={formState.problems_others || ''}
-              onChange={handleChange}
-              disabled={(formState.problems_encountered || []).every((p) => normalizeProblemLabel(p) !== 'Others')}
-            />
-          </div>
-        </section>
-
-        {/* ── K. RECOMMENDATIONS ── */}
-        <section className="space-y-4 border-b pb-6">
-          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">K. Recommendations</h3>
+        {/* ── J. RECOMMENDATIONS ── */}
+        <section id="structural-sec-recommendations" className="scroll-mt-24 space-y-4 border-b pb-6">
+          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">J. Recommendations</h3>
           <textarea name="recommendations" rows={4} className={inputCls} placeholder="Provide clear and actionable recommendations..." value={formState.recommendations} onChange={handleChange} />
         </section>
 
-        {/* ── L. DISPOSITION ── */}
-        <section className="space-y-4">
-          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">L. Disposition</h3>
+        {/* ── K. DISPOSITION ── */}
+        <section id="structural-sec-disposition" className="scroll-mt-24 space-y-4">
+          <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">K. Disposition</h3>
           <textarea name="disposition" rows={4} className={inputCls} placeholder="As of this date, no complaint has been filed..." value={formState.disposition} onChange={handleChange} />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div data-field-error={fieldErrors.has('disposition_prepared_by') ? 'true' : undefined}>
@@ -1888,20 +1904,48 @@ export function IncidentForm({
         {referenceNumberPreview && (
           <div className="border border-gray-200 rounded-lg bg-gray-50 px-4 py-3">
             <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Reference Number Preview</p>
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-sm text-gray-800 tracking-wide">{referenceNumberPreview}</span>
-              <span className="text-xs text-gray-400 italic">(sequence XXXX assigned on save)</span>
-            </div>
-            <p className="text-xs text-gray-400 mt-1">Format: AFOR-[Region]-[Station]-[Type]-[Month]-[Year]-[Sequence]</p>
+            <span className="font-mono text-sm text-gray-800 tracking-wide">{referenceNumberPreview}</span>
           </div>
         )}
 
-        <button type="submit" disabled={loading} className="w-full bg-red-800 text-white py-3 rounded font-bold hover:bg-red-700 disabled:opacity-50 flex justify-center items-center gap-2 shadow-lg">
-          {loading ? <Loader2 className="animate-spin w-5 h-5" /> : <Save className="w-5 h-5" />}
-          {loading ? (isEditMode ? 'Saving Changes…' : 'Saving Draft…') : (isEditMode ? 'Save Changes' : 'Save as Draft')}
-        </button>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button type="submit" disabled={loading} className="flex-1 bg-gray-700 text-white py-3 rounded font-bold hover:bg-gray-600 disabled:opacity-50 flex justify-center items-center gap-2 shadow-lg">
+            {loading ? <Loader2 className="animate-spin w-5 h-5" /> : <Save className="w-5 h-5" />}
+            {loading ? (isEditMode ? 'Saving Changes…' : 'Saving Draft…') : (isEditMode ? 'Save Changes' : 'Save as Draft')}
+          </button>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={(e) => void handleSubmitForReview(e)}
+            className="flex-1 bg-red-800 text-white py-3 rounded font-bold hover:bg-red-700 disabled:opacity-50 flex justify-center items-center gap-2 shadow-lg"
+          >
+            {loading ? <Loader2 className="animate-spin w-5 h-5" /> : <Send className="w-5 h-5" />}
+            {loading ? 'Submitting…' : 'Submit for Review'}
+          </button>
+        </div>
 
       </form>
+
+      {/* ── Region Mismatch Modal ── */}
+      {regionMismatchMsg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="bg-red-100 text-red-800 text-xs font-bold px-2 py-1 rounded font-mono">
+                REGION_MISMATCH
+              </span>
+              <h2 className="text-lg font-bold text-red-900">Region Access Denied</h2>
+            </div>
+            <p className="text-sm text-gray-700 whitespace-pre-line">{regionMismatchMsg}</p>
+            <button
+              className="w-full bg-red-800 text-white rounded py-2 font-semibold hover:bg-red-700"
+              onClick={() => setRegionMismatchMsg(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Duplicate Incident Modal ── */}
       {duplicateModalData && (
@@ -1912,8 +1956,7 @@ export function IncidentForm({
             classification: formatClassification(formState.classification_of_involved),
             typeOfInvolved: formState.type_of_involved_general_category,
             incidentTypeCode,
-            stationCode: formState.station_code || 'TBA',
-            stationName: formState.fire_station_name || formState.station_code || 'TBA',
+            stationName: formState.fire_station_name || '—',
             fireDate: formState.notification_dt_date,
             fireTime: formState.notification_dt_time,
             alarmLevel: formState.alarm_level,
@@ -1933,7 +1976,6 @@ export function IncidentForm({
               sub_category: formState.type_of_involved_general_category,
               responder_type: formState.responder_type,
               fire_station_name: formState.fire_station_name,
-              station_code: formState.station_code || 'TBA',
               incident_type_code: incidentTypeCode || undefined,
               city_municipality: formState.city_municipality,
               province_district: formState.province_district,
@@ -1996,7 +2038,6 @@ export function IncidentForm({
                   general_category: formState.classification_of_involved,
                   sub_category: formState.type_of_involved_general_category,
                   incident_type_code: incidentTypeCode || undefined,
-                  station_code: formState.station_code || 'TBA',
                   fire_station_name: formState.fire_station_name,
                   responder_type: formState.responder_type,
                   structures_affected: parseInt(formState.structures_affected) || 0,

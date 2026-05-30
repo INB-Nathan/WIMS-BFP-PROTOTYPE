@@ -215,7 +215,7 @@ MailHog local development: host=`mailhog`, port=`1025`, from=`noreply@wims-bfp.l
 
 ### Seed Test Users
 
-All use password `WimsBFP2026!`:
+All use password `Password123!` (set by `scripts/seed-dev-users.sh`):
 
 | Username | Email | Role |
 |---|---|---|

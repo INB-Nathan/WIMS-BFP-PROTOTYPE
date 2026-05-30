@@ -142,7 +142,6 @@ def upload_incident_bundle(
         lat = _safe_float(item.get("latitude"), 0.0)
 
         incident_type_code_val = (ns.get("incident_type_code") or "").strip().upper() or None
-        station_code_val = (ns.get("station_code") or "TBA").strip() or "TBA"
 
         city_id: int | None = None
         city_id_raw = ns.get("city_id")
@@ -199,8 +198,8 @@ def upload_incident_bundle(
                     resources_deployed, alarm_timeline, problems_encountered,
                     recommendations, fire_station_name, stage_of_fire,
                     extent_total_floor_area_sqm, extent_total_land_area_hectares,
-                    distance_from_station_km, station_code,
-                    city_municipality, province_district,
+                    distance_from_station_km,
+                    city_municipality, province_district, barangay,
                     extent_description, extent_objects_count,
                     general_description_of_involved
                 ) VALUES (
@@ -213,8 +212,8 @@ def upload_incident_bundle(
                     CAST(:resources_deployed AS jsonb), CAST(:alarm_timeline AS jsonb), CAST(:problems_encountered AS jsonb),
                     :recommendations, :fire_station_name, :stage_of_fire,
                     :floor_area, :land_area,
-                    :distance_from_station_km, :station_code,
-                    :city_municipality, :province_district,
+                    :distance_from_station_km,
+                    :city_municipality, :province_district, :barangay,
                     :extent_description, :extent_objects_count,
                     :general_description_of_involved
                 )
@@ -250,9 +249,9 @@ def upload_incident_bundle(
                 "distance_from_station_km": _safe_float(
                     ns.get("distance_to_fire_scene_km") or ns.get("distance_from_station_km")
                 ),
-                "station_code": station_code_val,
                 "city_municipality": ns.get("city_municipality") or "",
                 "province_district": ns.get("province_district") or "",
+                "barangay": ns.get("barangay") or "",
                 "extent_description": ns.get("extent_description") or None,
                 "extent_objects_count": _safe_int(ns.get("extent_objects_count")),
                 "general_description_of_involved": ns.get("general_description_of_involved")

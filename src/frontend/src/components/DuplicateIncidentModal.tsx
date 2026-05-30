@@ -9,7 +9,6 @@ interface CurrentFormSummary {
   classification: string;
   typeOfInvolved: string;
   incidentTypeCode: string;
-  stationCode: string;
   stationName: string;
   fireDate: string;
   fireTime: string;
@@ -126,7 +125,7 @@ export function DuplicateIncidentModal({
                 Current (about to submit)
               </p>
               <Row label="Region"           value={currentForm.region || '—'} />
-              <Row label="Station"          value={currentForm.stationName || currentForm.stationCode || '—'} />
+              <Row label="Station"          value={currentForm.stationName || '—'} />
               <Row label="Fire Date"        value={formatCurrentDate(currentForm.fireDate, currentForm.fireTime)} />
               <Row label="Classification"   value={currentForm.classification || '—'} />
               <Row label="Type of Involved" value={currentForm.typeOfInvolved || '—'} />
@@ -171,7 +170,7 @@ export function DuplicateIncidentModal({
               />
 
               <Row label="Region"           value={first.region_name || '—'} />
-              <Row label="Station"          value={first.fire_station_name || first.station_code || '—'} />
+              <Row label="Station"          value={first.fire_station_name || '—'} />
               <Row label="Fire Date"        value={formatDt(first.notification_dt)} />
               <Row label="Classification"   value={formatClassification(first.general_category)} />
               <Row label="Type of Involved" value={first.type_of_involved ?? '—'} />

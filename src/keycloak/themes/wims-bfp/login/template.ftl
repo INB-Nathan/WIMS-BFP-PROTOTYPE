@@ -74,7 +74,13 @@
       </div>
       <h1 class="wims-brand-title">Web-based Incident<br/>Management System</h1>
       <p class="wims-brand-subtitle">Bureau of Fire Protection</p>
-      <div class="wims-brand-tagline">Secured &bull; Monitored &bull; Explainable</div>
+      <div class="wims-brand-tagline">
+        <svg class="wims-brand-tagline-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M9 12.75 11.25 15 15 9.75" />
+          <circle cx="12" cy="12" r="9" />
+        </svg>
+        <span>Secured &bull; Monitored &bull; Explainable</span>
+      </div>
     </div>
   </div>
   <div class="pf-v5-c-login__container">

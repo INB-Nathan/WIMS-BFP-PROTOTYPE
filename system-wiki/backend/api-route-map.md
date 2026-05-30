@@ -51,6 +51,8 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `regional.py` | `POST` | `/incidents` | `create_incident` |
 | `regional.py` | `PUT` | `/incidents/{incident_id}` | `update_incident` |
 | `regional.py` | `POST` | `/incidents/{incident_id}/force-replace` | `force_replace_incident` |
+| `regional.py` | `PATCH` | `/incidents/{incident_id}/archive` | `encoder_archive_incident` |
+| `regional.py` | `PATCH` | `/incidents/{incident_id}/unarchive` | `encoder_unarchive_incident` |
 | `regional.py` | `PATCH` | `/incidents/draft/{incident_id}` | `update_draft` |
 | `regional.py` | `DELETE` | `/incidents/draft/{incident_id}` | `delete_draft` |
 | `regional.py` | `PATCH` | `/incidents/{incident_id}/unpend` | `unpend_incident` |
@@ -60,6 +62,8 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `regional.py` | `PATCH` | `/incidents/{incident_id}/verification` | `verify_incident` |
 | `regional.py` | `POST` | `/validator/incidents/bulk-approve` | `bulk_approve_incidents` |
 | `regional.py` | `PATCH` | `/validator/incidents/{incident_id}/archive` | `archive_incident` |
+| `regional.py` | `PATCH` | `/validator/incidents/{incident_id}/unarchive` | `unarchive_incident` |
+| `regional.py` | `DELETE` | `/validator/incidents/{incident_id}` | `delete_archived_incident` |
 | `regional.py` | `GET` | `/validator/incidents/{incident_id}/diff` | `get_incident_diff` |
 | `regional.py` | `GET` | `/audit-log` | `get_encoder_audit_log` |
 | `regional.py` | `GET` | `/validator/audit-logs` | `get_validator_audit_logs` |
@@ -115,6 +119,7 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 
 ## Routing Notes
 - `regional.py` owns a large share of encoder/validator incident workflow. Avoid opportunistic refactors; see [[architecture/system-overview]].
+- Regional encoder and national validator archive views can open archived incident details through `GET /regional/incidents/{incident_id}`; that detail endpoint no longer excludes archived rows, but still scopes encoders to their own records and keeps analyst-specific read surfaces non-archived.
 - `analytics.py` maps to M5 analytics and exports. It includes export dispatch/download, geography filter-options, Recharts-backed chart endpoints, top-N municipality support, and global filter support for comparative/cross-region analytics.
 - `incidents.py` now includes National Analyst read-only incident list/detail/wildland endpoints. These require `NATIONAL_ANALYST` or `SYSTEM_ADMIN`, use `get_db_with_rls`, and expose only verified, non-archived incidents. The analyst list endpoint accepts an optional comma-separated `incident_ids` query for selected-set evidence tables.
 - `analytics.py` trends now accepts `daily`, `weekly`, `monthly`, `quarterly`, and `yearly` intervals.

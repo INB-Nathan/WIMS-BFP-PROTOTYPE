@@ -116,10 +116,10 @@ export function Header({ onMenuToggle }: HeaderProps) {
 }
 
 function getBreadcrumbs(pathname: string): string[] {
-    if (!pathname || pathname === '/') return ['Home'];
+    if (!pathname || pathname === '/') return ['Operations'];
 
     const segments = pathname.split('/').filter(Boolean);
-    const crumbs = ['Home'];
+    const crumbs = ['Operations'];
 
     const labelMap: Record<string, string> = {
         home: 'Operations',
