@@ -80,33 +80,6 @@ class EventBus:
         except Exception:
             logger.warning("Failed to publish %s to %s", event_type, channel, exc_info=True)
 
-    def publish_sync(
-        self,
-        channel: str,
-        event_type: str,
-        payload: dict[str, Any],
-        *,
-        actor_id: str | None = None,
-        actor_role: str | None = None,
-    ) -> None:
-        """Publish an event to a Redis channel (synchronous, for Celery tasks)."""
-        try:
-            r = redis.from_url(REDIS_URL, decode_responses=True)
-            message = json.dumps(
-                {
-                    "channel": channel,
-                    "event_type": event_type,
-                    "payload": payload,
-                    "actor_id": actor_id,
-                    "actor_role": actor_role,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-            )
-            r.publish(channel, message)
-            logger.debug("Published (sync) %s → %s", event_type, channel)
-        except Exception:
-            logger.warning("Failed to publish (sync) %s to %s", event_type, channel, exc_info=True)
-
     async def subscribe(self, channels: list[str]) -> AsyncIterator[dict[str, Any]]:
         """Subscribe to one or more Redis channels and yield parsed events.
 

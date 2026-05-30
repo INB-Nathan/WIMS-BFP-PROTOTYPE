@@ -26,7 +26,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from auth import get_current_user, resolve_wims_role_from_token
+from auth import get_current_user, resolve_wims_role_from_token as resolve_wims_role
 from services.event_bus import CHANNELS, get_event_bus
 
 logger = logging.getLogger("wims.events")
@@ -34,7 +34,7 @@ logger = logging.getLogger("wims.events")
 router = APIRouter(prefix="/api/events", tags=["events"])
 
 # Resolve role from token (canonical source: auth.resolve_wims_role_from_token)
-_resolve_role_from_token = resolve_wims_role_from_token
+
 
 # Channels that each role is permitted to subscribe to
 _ROLE_CHANNEL_MAP: dict[str, frozenset[str]] = {
@@ -90,7 +90,7 @@ async def event_stream(
     # --- Authenticate ---
     try:
         token_payload = await get_current_user(request)
-        role = _resolve_role_from_token(token_payload)
+        role = resolve_wims_role(token_payload)
         if not role:
             raise HTTPException(status_code=403, detail="No WIMS role in token")
         user_id = token_payload.get("sub", "unknown")

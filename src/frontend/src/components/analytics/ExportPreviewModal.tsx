@@ -148,7 +148,7 @@ export function ExportPreviewModal({ format, filters, filtersSummary, onClose }:
 
       const url = URL.createObjectURL(blob);
       const ext = format === 'excel' ? 'xlsx' : format;
-      const fmtName = format === 'excel' ? 'xlsx' : format;
+      const fmtName = format === 'excel' ? 'excel' : format;
       const { start_date, end_date } = filters as Record<string, string | undefined>;
       const datePart = start_date && end_date
         ? `${start_date.replace(/-/g, '')}-${end_date.replace(/-/g, '')}`
