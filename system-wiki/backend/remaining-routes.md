@@ -146,7 +146,7 @@ All endpoints require `get_analyst_or_admin` and use `get_db_with_rls`. They del
 | 12 | `GET /top-barangays` | `get_top_barangays_route()` | Top N barangays by incident count. limit: 1-50, default 10. |
 | 13 | `GET /response-time-by-region` | `get_response_time_by_region_route()` | AVG/MIN/MAX response time grouped by region. |
 | 14 | `GET /compare-regions` | `compare_regions_route()` | Cross-region comparison. Required: region_ids (comma-separated, min 2). |
-| 15 | `GET /top-n` | `top_n_route()` | Configurable top-N. Required: metric (incidents/response_time/casualties), dimension (barangay/fire_station/region/municipality). |
+| 15 | `GET /top-n` | `top_n_route()` | Configurable top-N. Required: metric (incidents/response_time/casualties/damage_cost), dimension (barangay/fire_station/region/municipality). |
 
 ---
 

@@ -1,7 +1,7 @@
 ---
 title: Backend API Route Map
 created: 2026-05-14
-updated: 2026-05-20
+updated: 2026-05-30
 type: backend
 tags: [wims-bfp, backend, api, implementation-map]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/backend/api/routes]
@@ -105,6 +105,10 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `analytics.py` | `GET` | `/compare-regions` | `compare_regions_route` |
 | `analytics.py` | `GET` | `/top-n` | `top_n_route` |
 | `public_dmz.py` | `POST` | `/` | `submit_public_incident` |
+| `map.py` | `GET` | `/api/public/clusters` | `get_incident_clusters` | Public clustered incident markers, Redis-cached |
+| `map.py` | `GET` | `/api/public/emergency-services` | `get_emergency_services` | Public emergency contacts + nearby stations |
+| `map.py` | `GET` | `/api/validator/operational-map` | `get_operational_map` | Auth-protected operational map for validators |
+| `events.py` | `GET` | `/events/stream` | `event_stream` | SSE real-time notification stream (Redis pub/sub) |
 
 ## Routing Notes
 - `regional.py` owns a large share of encoder/validator incident workflow. Avoid opportunistic refactors; see [[architecture/system-overview]].
