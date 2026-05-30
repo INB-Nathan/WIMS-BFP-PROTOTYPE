@@ -643,6 +643,7 @@ def get_export_rows(
         "firefighter_deaths",
         "fire_station_name",
         "region_id",
+        "region_name",
         "verification_status",
         "estimated_damage_php",
         "municipality_name",
@@ -672,6 +673,10 @@ def get_export_rows(
     for c in valid_cols:
         if c == "verification_status":
             select_parts.append("fi.verification_status")
+        elif c == "region_name":
+            # Alias ref_regions.region_code under "region_name" so writers keep
+            # the picker-requested key while the cell shows a short code (NCR, CAR).
+            select_parts.append("rr.region_code AS region_name")
         elif c in fact_cols:
             select_parts.append(f"a.{c}")
         else:
@@ -703,11 +708,18 @@ def get_export_rows(
     where_sql = " AND ".join(clauses)
     col_list = ", ".join(select_parts)
 
+    region_join = (
+        "LEFT JOIN wims.ref_regions rr ON rr.region_id = a.region_id"
+        if "region_name" in valid_cols
+        else ""
+    )
+
     sql = f"""
         SELECT {col_list}
         FROM wims.analytics_incident_facts a
         LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = a.incident_id
         LEFT JOIN wims.fire_incidents fi ON fi.incident_id = a.incident_id
+        {region_join}
         WHERE {where_sql}
     """
 

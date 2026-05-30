@@ -13,6 +13,19 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Added `src/frontend/src/app/admin/system/admin-system-monitoring.test.tsx` with 6 tests: initial fetch call count, DOM rendering (CPU%/memory/disk/worker hostname), 60s interval second call, unmount cleanup, partial metrics failure resilience, and section heading presence.
 - Updated `gaps/frs-codebase-gap-register.md`: M9 PARTIAL → M9a CLOSED, updated date to 2026-05-29.
 - **Remaining M9 gap:** full-text log search in admin system page.
+## [2026-05-27] feat | Analyst export: region_name end-to-end + curated default columns (#112 #113)
+
+- Added `region_name` to the backend export column allowlist (`ALLOWED_EXPORT_COLUMNS` in `src/backend/tasks/exports.py`) and the `get_export_rows()` column set (`src/backend/services/analytics_read_model.py`).
+- When `region_name` is requested, `get_export_rows()` injects a conditional `LEFT JOIN wims.ref_regions rr ON rr.region_id = a.region_id` and aliases `rr.region_code AS region_name` so export writers receive a short code (NCR, CAR) under the picker-requested key without needing a mapping layer. The join is omitted when `region_name` is not in the column list to keep the common path cheap.
+- Replaced the old positional-slice default column selection (`ALL_COLUMNS.slice(0, 6)`) with a curated 9-column default list in both backend (`DEFAULT_EXPORT_COLUMNS`) and frontend (`DEFAULT_SELECTED_COLUMNS`): `incident_id`, `notification_dt`, `region_name`, `province_name`, `municipality_name`, `general_category`, `alarm_level`, `estimated_damage_php`, `total_response_time_minutes`.
+- Frontend `ExportPreviewModal` now pre-checks the curated defaults, `region_id` is unchecked by default (preferring `region_name`), and the dead `barangay_name` label was removed from `COLUMN_LABELS`.
+- Added 4 backend regression tests: allowlist filtering for `region_name`, curated-default-list contract, positive query-path test verifying JOIN injection and row-dict output, and negative test confirming the JOIN is omitted when `region_name` is not requested.
+- Added 5 frontend tests in new `ExportPreviewModal.test.tsx`: default list contract, pre-check behavior, `barangay_name` absence, `region_id` unchecked, and `region_name` checked.
+- Added `.gitattributes` with `*.sh text eol=lf` to prevent UTF-8 BOM corruption in shell script shebangs (companion to the `fix(scripts)` commit).
+
+**Verification:** Backend `pytest -v` — 328 passed, 10 skipped. Frontend `npx vitest run` — 119 passed.
+
+**Wiki updates:** This log. No FRS/codebase gap register change needed (analyst export UX enhancement, not a new FRS module requirement).
 
 ## [2026-05-26] fix | VPS login outage from base compose auth settings
 - Diagnosed public login failure as a Keycloak/OIDC discovery issue, not a full stack outage: core containers were running, `/login` served 200, but `/auth/realms/bfp/.well-known/openid-configuration` returned 403 with `HTTPS required`.

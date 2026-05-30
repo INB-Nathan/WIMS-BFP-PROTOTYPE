@@ -40,10 +40,10 @@ const ALL_COLUMNS = [
 const COLUMN_LABELS: Record<string, string> = {
   incident_id: 'Incident ID',
   notification_dt: 'Notification Date/Time',
+  region_name: 'Region',
   region_id: 'Region ID',
   province_name: 'Province',
   municipality_name: 'Municipality',
-  barangay_name: 'Barangay',
   general_category: 'Category',
   sub_category: 'Sub Category',
   alarm_level: 'Alarm Level',
@@ -54,6 +54,18 @@ const COLUMN_LABELS: Record<string, string> = {
   firefighter_injured: 'Firefighter Injured',
   firefighter_deaths: 'Firefighter Deaths',
 };
+
+export const DEFAULT_SELECTED_COLUMNS = [
+  'incident_id',
+  'notification_dt',
+  'region_name',
+  'province_name',
+  'municipality_name',
+  'general_category',
+  'alarm_level',
+  'estimated_damage_php',
+  'total_response_time_minutes',
+] as const;
 
 type ExportState = 'idle' | 'queued' | 'polling' | 'downloading' | 'done' | 'error';
 
@@ -66,7 +78,7 @@ interface ExportPreviewModalProps {
 
 export function ExportPreviewModal({ format, filters, filtersSummary, onClose }: ExportPreviewModalProps) {
   const [selectedColumns, setSelectedColumns] = useState<Set<string>>(
-    new Set(ALL_COLUMNS.slice(0, 6))
+    new Set(DEFAULT_SELECTED_COLUMNS)
   );
   const [exportState, setExportState] = useState<ExportState>('idle');
   const [error, setError] = useState<string | null>(null);
