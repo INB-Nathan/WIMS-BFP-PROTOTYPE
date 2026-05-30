@@ -28,11 +28,32 @@ import {
   PersonnelOnDutySection,
   ProblemsChecklistSection,
 } from './IncidentFormSections';
+import { SectionDotNav, type SectionDotNavLink } from '@/components/SectionDotNav';
 
 const MapPicker = dynamic(
   () => import('./MapPicker').then((m) => m.MapPicker),
   { ssr: false, loading: () => <div className="h-64 bg-gray-100 animate-pulse rounded border" /> },
 );
+
+const STRUCTURAL_FORM_NAV_LINKS: readonly SectionDotNavLink[] = [
+  { id: 'structural-sec-response', label: 'Response' },
+  { id: 'structural-sec-class', label: 'Classification' },
+  {
+    id: 'structural-sec-affected-assets',
+    label: 'Affected & Assets',
+    observedIds: ['structural-sec-affected-counts', 'structural-sec-assets'],
+  },
+  { id: 'structural-sec-alarm', label: 'Timeline' },
+  { id: 'structural-sec-casualties', label: 'Casualties' },
+  { id: 'structural-sec-personnel', label: 'Personnel' },
+  { id: 'structural-sec-narrative', label: 'Narrative' },
+  {
+    id: 'structural-sec-problems',
+    label: 'Problems & Recommendations',
+    observedIds: ['structural-sec-problems', 'structural-sec-recommendations'],
+  },
+  { id: 'structural-sec-disposition', label: 'Disposition' },
+];
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -74,6 +95,12 @@ export function IncidentForm({
   const formHydratedRef = useRef(false);
   const submitAfterSaveRef = useRef(false);
   const barangayManuallySetRef = useRef(false);
+  const [draftRestoreData, setDraftRestoreData] = useState<{
+    formState: Record<string, unknown>;
+    latitude: number | null;
+    longitude: number | null;
+    timestamp: number;
+  } | null>(null);
 
   const showToast = (message: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -751,6 +778,38 @@ export function IncidentForm({
     return () => window.removeEventListener('online', handleOnline);
   }, [syncPending, checkPending]);
 
+  // ── Draft autosave (create mode only) ─────────────────────────────────────
+
+  // On mount: offer to restore a previously saved draft.
+  // Skip in edit mode (existingIncidentId set) and import-correction mode (initialData set).
+  useEffect(() => {
+    if (existingIncidentId || initialData) return;
+    const raw = localStorage.getItem('wims:incident_draft');
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed?.formState && typeof parsed.timestamp === 'number') {
+        setDraftRestoreData(parsed);
+      }
+    } catch { /* ignore corrupt draft */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounced autosave on every formState / coordinate change.
+  // Skip in edit mode and import-correction mode so we don't overwrite a real create-mode draft.
+  useEffect(() => {
+    if (existingIncidentId || initialData) return;
+    const timer = setTimeout(() => {
+      localStorage.setItem('wims:incident_draft', JSON.stringify({
+        formState,
+        latitude,
+        longitude,
+        timestamp: Date.now(),
+      }));
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [formState, latitude, longitude, existingIncidentId, initialData]);
+
   // ── Submit ─────────────────────────────────────────────────────────────────
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1088,16 +1147,19 @@ export function IncidentForm({
               if (d?.code === 'DUPLICATE_DETECTED' && d.matched_incident_id) {
                 // Saved as draft; navigate to detail with flag to auto-trigger the
                 // full duplicate modal (side-by-side comparison + force/cancel options).
+                localStorage.removeItem('wims:incident_draft');
                 router.push(`/dashboard/regional/incidents/${incidentId}?pending_submit=1`);
                 return;
               }
             }
             // Any other submit failure — go to detail so user can retry
             showToast(`Saved as draft. Submit failed: ${(submitErr as Error).message}`);
+            localStorage.removeItem('wims:incident_draft');
             router.push(`/dashboard/regional/incidents/${incidentId}`);
             return;
           }
         }
+        localStorage.removeItem('wims:incident_draft');
         router.push(`/dashboard/regional/incidents/${incidentId}`);
       } else {
         await queueIncident(payload);
@@ -1266,6 +1328,7 @@ export function IncidentForm({
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-md max-w-4xl mx-auto space-y-6">
+      <SectionDotNav links={STRUCTURAL_FORM_NAV_LINKS} ariaLabel="Incident form sections" />
       {/* Floating toast popup */}
       {toast && (
         <div
@@ -1305,6 +1368,37 @@ export function IncidentForm({
         </div>
       </div>
 
+      {/* Draft restore banner — manual entry (create mode) only; hidden in edit or import-correction mode */}
+      {draftRestoreData && !existingIncidentId && !initialData && (
+        <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-800">
+          <span className="flex-1">
+            You have an unsaved draft from {new Date(draftRestoreData.timestamp).toLocaleString()}. Restore it?
+          </span>
+          <button
+            type="button"
+            className="font-semibold underline hover:text-blue-900"
+            onClick={() => {
+              setFormState(draftRestoreData.formState as Parameters<typeof setFormState>[0]);
+              setLatitude(draftRestoreData.latitude);
+              setLongitude(draftRestoreData.longitude);
+              setDraftRestoreData(null);
+            }}
+          >
+            Restore
+          </button>
+          <button
+            type="button"
+            className="text-blue-500 hover:text-blue-700"
+            onClick={() => {
+              localStorage.removeItem('wims:incident_draft');
+              setDraftRestoreData(null);
+            }}
+          >
+            Discard
+          </button>
+        </div>
+      )}
+
       <form
         onSubmit={handleSubmit}
         className="space-y-8 text-gray-900"
@@ -1316,7 +1410,7 @@ export function IncidentForm({
       >
 
         {/* ── A. RESPONSE DETAILS ── */}
-        <section className="space-y-4 border-b pb-6">
+        <section id="structural-sec-response" className="scroll-mt-24 space-y-4 border-b pb-6">
           <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">A. Response Details</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
@@ -1435,6 +1529,7 @@ export function IncidentForm({
 
             <div>
               <label className={labelCls}>Barangay</label>
+              <p className="text-xs text-gray-400 mt-0.5 mb-1">Tip: automatically filled when you pin the fire scene location on the map.</p>
               <input
                 name="barangay"
                 type="text"
@@ -1467,7 +1562,7 @@ export function IncidentForm({
             {latitude !== null && longitude !== null && (
               <div className="md:col-span-2 text-xs text-green-800 font-medium bg-green-50 border border-green-200 rounded px-3 py-2 flex items-center gap-2">
                 <span>📍 Fire Scene: {latitude.toFixed(6)}, {longitude.toFixed(6)}</span>
-                <button type="button" onClick={() => { setLatitude(null); setLongitude(null); }}
+                <button type="button" onClick={() => { setLatitude(null); setLongitude(null); setMapSearchQuery(undefined); }}
                   className="ml-auto text-red-600 hover:underline">Clear pin</button>
               </div>
             )}
@@ -1604,7 +1699,7 @@ export function IncidentForm({
         </section>
 
         {/* ── B. NATURE AND CLASSIFICATION ── */}
-        <section className="space-y-4 border-b pb-6">
+        <section id="structural-sec-class" className="scroll-mt-24 space-y-4 border-b pb-6">
           <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">B. Nature and Classification of Involved</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
@@ -1714,9 +1809,9 @@ export function IncidentForm({
               )}
             </div>
 
-            <div className="md:col-span-2">
+            <div id="structural-sec-affected-assets" className="scroll-mt-24 md:col-span-2">
               <label className={labelCls}>Number Affected</label>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+              <div id="structural-sec-affected-counts" className="grid grid-cols-2 md:grid-cols-5 gap-2">
                 {[
                   { key: 'structures_affected', label: 'Structures' },
                   { key: 'households_affected', label: 'Households' },
@@ -1735,13 +1830,21 @@ export function IncidentForm({
           </div>
         </section>
 
-        <AssetsResourcesSection formState={formState as Record<string, unknown>} handleChange={handleChange} inputCls={inputCls} labelCls={labelCls} />
+        <div id="structural-sec-assets" className="scroll-mt-24">
+          <AssetsResourcesSection formState={formState as Record<string, unknown>} handleChange={handleChange} inputCls={inputCls} labelCls={labelCls} />
+        </div>
 
-        <AlarmLevelSection formState={formState as Record<string, unknown>} handleChange={handleChange} handleRadioChange={handleRadioChange} inputCls={inputCls} labelCls={labelCls} />
+        <div id="structural-sec-alarm" className="scroll-mt-24">
+          <AlarmLevelSection formState={formState as Record<string, unknown>} handleChange={handleChange} handleRadioChange={handleRadioChange} inputCls={inputCls} labelCls={labelCls} />
+        </div>
 
-        <CasualtiesSection formState={formState as Record<string, unknown>} handleChange={handleChange} />
+        <div id="structural-sec-casualties" className="scroll-mt-24">
+          <CasualtiesSection formState={formState as Record<string, unknown>} handleChange={handleChange} />
+        </div>
 
-        <PersonnelOnDutySection formState={formState as Record<string, unknown>} handleChange={handleChange} inputCls={inputCls} />
+        <div id="structural-sec-personnel" className="scroll-mt-24">
+          <PersonnelOnDutySection formState={formState as Record<string, unknown>} handleChange={handleChange} inputCls={inputCls} />
+        </div>
 
         {/* ── G. OTHER BFP PERSONNEL ── */}
         <section className="space-y-4 border-b pb-6">
@@ -1760,7 +1863,7 @@ export function IncidentForm({
         </section>
 
         {/* ── H. NARRATIVE ── */}
-        <section className="space-y-4 border-b pb-6">
+        <section id="structural-sec-narrative" className="scroll-mt-24 space-y-4 border-b pb-6">
           <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">H. Narrative Content (In Chronological Order)</h3>
           <textarea
             name="narrative_report"
@@ -1772,16 +1875,18 @@ export function IncidentForm({
           />
         </section>
 
-        <ProblemsChecklistSection formState={formState} setFormState={setFormState as React.Dispatch<React.SetStateAction<Record<string, unknown>>>} handleChange={handleChange} inputCls={inputCls} />
+        <div id="structural-sec-problems" className="scroll-mt-24">
+          <ProblemsChecklistSection formState={formState} setFormState={setFormState as React.Dispatch<React.SetStateAction<Record<string, unknown>>>} handleChange={handleChange} inputCls={inputCls} />
+        </div>
 
         {/* ── J. RECOMMENDATIONS ── */}
-        <section className="space-y-4 border-b pb-6">
+        <section id="structural-sec-recommendations" className="scroll-mt-24 space-y-4 border-b pb-6">
           <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">J. Recommendations</h3>
           <textarea name="recommendations" rows={4} className={inputCls} placeholder="Provide clear and actionable recommendations..." value={formState.recommendations} onChange={handleChange} />
         </section>
 
         {/* ── K. DISPOSITION ── */}
-        <section className="space-y-4">
+        <section id="structural-sec-disposition" className="scroll-mt-24 space-y-4">
           <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">K. Disposition</h3>
           <textarea name="disposition" rows={4} className={inputCls} placeholder="As of this date, no complaint has been filed..." value={formState.disposition} onChange={handleChange} />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

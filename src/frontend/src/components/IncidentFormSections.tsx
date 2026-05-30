@@ -190,7 +190,7 @@ export function AlarmLevelSection({
           <div className="flex gap-4 mt-1">
             {['with', 'without'].map((v) => (
               <label key={v} className="flex items-center gap-2 text-sm capitalize">
-                <input type="radio" name="icp_present" value={v} checked={(formState.icp_present as string) === v} onChange={() => handleRadioChange('icp_present', v)} className="h-4 w-4" />
+                <input type="radio" name="icp_present" value={v} checked={(formState.icp_present as string) === v} onChange={() => { handleRadioChange('icp_present', v); if (v === 'without') handleChange({ target: { name: 'icp_location', value: '' } } as React.ChangeEvent<HTMLInputElement>); }} className="h-4 w-4" />
                 {v}
               </label>
             ))}

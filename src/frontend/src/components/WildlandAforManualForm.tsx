@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Loader2, Save, Trash2 } from 'lucide-react';
 import { commitAforImport } from '@/lib/api';
 import { MapPicker } from '@/components/MapPicker';
+import { SectionDotNav, type SectionDotNavLink } from '@/components/SectionDotNav';
 
 function isValidWgs84(lat: number, lng: number): boolean {
     return (
@@ -22,6 +23,20 @@ const fieldClass = 'w-full border border-gray-300 rounded p-2 text-gray-900 font
 const labelClass = 'block text-sm font-bold text-gray-900 mb-1';
 const sectionClass = 'space-y-4 border-b pb-4';
 const sectionTitleClass = 'font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2';
+
+const WILDLAND_FORM_NAV_LINKS: readonly SectionDotNavLink[] = [
+    { id: 'wildland-sec-pin', label: 'Map Pin' },
+    { id: 'wildland-sec-dates', label: 'Dates' },
+    { id: 'wildland-sec-caller', label: 'Caller' },
+    { id: 'wildland-sec-location', label: 'Location' },
+    { id: 'wildland-sec-response', label: 'Response' },
+    { id: 'wildland-sec-property', label: 'Property' },
+    { id: 'wildland-sec-notes', label: 'Problems & Recommendations' },
+    { id: 'wildland-sec-fire-behavior', label: 'Fire Behavior' },
+    { id: 'wildland-sec-alarm', label: 'Timeline' },
+    { id: 'wildland-sec-assistance', label: 'Assistance' },
+    { id: 'wildland-sec-prepared', label: 'Prepared' },
+];
 
 /** Values must satisfy DB + `_normalize_wildland_fire_type` (lowercase). */
 const WILDLAND_FIRE_TYPES: { value: string; label: string }[] = [
@@ -380,6 +395,7 @@ export function WildlandAforManualForm({
 
     return (
         <div className="bg-white p-6 rounded-lg shadow-md max-w-4xl mx-auto space-y-6">
+            <SectionDotNav links={WILDLAND_FORM_NAV_LINKS} ariaLabel="Wildland AFOR form sections" />
             <div className="flex justify-between items-center bg-[#991B1B] -m-6 mb-4 p-4 rounded-t-lg text-white">
                 <div>
                     <h2 className="text-xl font-bold">AFOR Report Entry</h2>
@@ -397,7 +413,7 @@ export function WildlandAforManualForm({
                     </div>
                 )}
 
-                <div className="space-y-3 border-b pb-4">
+                <div id="wildland-sec-pin" className="scroll-mt-24 space-y-3 border-b pb-4">
                     <h3 className={sectionTitleClass}>Incident location (WGS84)</h3>
                     <p className="text-xs text-gray-600">
                         Required for regional commit. PostGIS stores POINT(longitude latitude); not GeoJSON [lat, lon].
@@ -455,7 +471,7 @@ export function WildlandAforManualForm({
                     </div>
                 )}
 
-                <div className={sectionClass}>
+                <div id="wildland-sec-dates" className={`${sectionClass} scroll-mt-24`}>
                     <h3 className={sectionTitleClass}>A. Dates and Times</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
@@ -497,7 +513,7 @@ export function WildlandAforManualForm({
                     </div>
                 </div>
 
-                <div className={sectionClass}>
+                <div id="wildland-sec-caller" className={`${sectionClass} scroll-mt-24`}>
                     <h3 className={sectionTitleClass}>B. Caller / Report</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="md:col-span-2">
@@ -530,7 +546,7 @@ export function WildlandAforManualForm({
                     </div>
                 </div>
 
-                <div className={sectionClass}>
+                <div id="wildland-sec-location" className={`${sectionClass} scroll-mt-24`}>
                     <h3 className={sectionTitleClass}>C. Location of Incident</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="md:col-span-2">
@@ -555,7 +571,7 @@ export function WildlandAforManualForm({
                     </div>
                 </div>
 
-                <div className={sectionClass}>
+                <div id="wildland-sec-response" className={`${sectionClass} scroll-mt-24`}>
                     <h3 className={sectionTitleClass}>D. Response</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="md:col-span-2">
@@ -588,7 +604,7 @@ export function WildlandAforManualForm({
                     </div>
                 </div>
 
-                <div className={sectionClass}>
+                <div id="wildland-sec-property" className={`${sectionClass} scroll-mt-24`}>
                     <h3 className={sectionTitleClass}>Property &amp; Area</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
@@ -647,7 +663,7 @@ export function WildlandAforManualForm({
                     </div>
                 </div>
 
-                <div className={sectionClass}>
+                <div id="wildland-sec-notes" className={`${sectionClass} scroll-mt-24`}>
                     <h3 className={sectionTitleClass}>Narrative &amp; Notes</h3>
                     <div>
                         <label className={labelClass}>Narration</label>
@@ -680,7 +696,7 @@ export function WildlandAforManualForm({
                     </div>
                 </div>
 
-                <div className={sectionClass}>
+                <div id="wildland-sec-fire-behavior" className={`${sectionClass} scroll-mt-24`}>
                     <h3 className={sectionTitleClass}>Fire Behavior (optional)</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
@@ -716,7 +732,7 @@ export function WildlandAforManualForm({
                     </div>
                 </div>
 
-                <div className={sectionClass}>
+                <div id="wildland-sec-alarm" className={`${sectionClass} scroll-mt-24`}>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <h3 className={sectionTitleClass}>Alarm Status Timeline</h3>
                         <button
@@ -802,7 +818,7 @@ export function WildlandAforManualForm({
                     </div>
                 </div>
 
-                <div className={sectionClass}>
+                <div id="wildland-sec-assistance" className={`${sectionClass} scroll-mt-24`}>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <h3 className={sectionTitleClass}>Assistance</h3>
                         <button
@@ -867,7 +883,7 @@ export function WildlandAforManualForm({
                     </div>
                 </div>
 
-                <div className="space-y-4 border-b pb-4">
+                <div id="wildland-sec-prepared" className="scroll-mt-24 space-y-4 border-b pb-4">
                     <h3 className={sectionTitleClass}>Prepared / Noted</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>

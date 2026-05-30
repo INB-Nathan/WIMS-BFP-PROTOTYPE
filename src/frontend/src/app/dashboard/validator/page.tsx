@@ -16,8 +16,8 @@ import { UpdateRequestDiffPanel } from "@/components/UpdateRequestDiffPanel";
 import { IncidentRevisionHistory } from "@/components/IncidentRevisionHistory";
 import { formatClassification } from "@/lib/afor-utils";
 import { PH_REGIONS, getShortRegionName } from "@/lib/ph-regions";
-import { StatusBadge, STATUS_COLORS, STATUS_LABELS } from "@/components/ui/StatusBadge";
-import { formatIncidentDate, manilaTodayUtcDate, dateOnly, isDateOnly, addUtcDays, getDateBounds, categoryCount as sharedCategoryCount } from "@/lib/incident-utils";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { formatIncidentDate, isDateOnly, getDateBounds, categoryCount as sharedCategoryCount } from "@/lib/incident-utils";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,6 +44,7 @@ interface ValidatorIncident {
   is_duplicate: boolean;
   duplicate_of: number | null;
   reference_number: string | null;
+  is_resubmitted: boolean;
 }
 
 interface QueueResponse {
@@ -126,6 +127,9 @@ export default function ValidatorDashboard() {
     () => getDateBounds(statsDateFilter, ""),
     [statsDateFilter],
   );
+  // Ref so fetchQueue can trigger a stats refresh without adding statsDateBounds as a dep.
+  const statsDateBoundsRef = useRef(statsDateBounds);
+  useEffect(() => { statsDateBoundsRef.current = statsDateBounds; }, [statsDateBounds]);
 
   const [stats, setStats] = useState<{
     total_verified: number;
@@ -155,13 +159,17 @@ export default function ValidatorDashboard() {
   const [bulkDupTarget, setBulkDupTarget] = useState<ValidatorIncident | null>(null);
   const bulkDupResolve = useRef<((decision: string) => void) | null>(null);
   const [showBulkConfirmModal, setShowBulkConfirmModal] = useState(false);
+  const [isArchiveView, setIsArchiveView] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [acceptingId, setAcceptingId] = useState<number | null>(null);
   const [validatorDupTarget, setValidatorDupTarget] = useState<ValidatorIncident | null>(null);
   const [validatorDupMatchedId, setValidatorDupMatchedId] = useState<number | null>(null);
   // Runtime-detected duplicates: populated when Accept returns 409. Maps incident_id → matched_incident_id.
   const [runtimeDuplicates, setRuntimeDuplicates] = useState<Map<number, number>>(new Map());
   const [newIncidentBanner, setNewIncidentBanner] = useState(false);
+  const [confirmAcceptTarget, setConfirmAcceptTarget] = useState<ValidatorIncident | null>(null);
+  const [showConfirmDiff, setShowConfirmDiff] = useState(false);
   const [hoverHint, setHoverHint] = useState<HoverHint | null>(null);
   const lastKnownTotal = useRef<number | null>(null);
   const hoverHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -189,6 +197,43 @@ export default function ValidatorDashboard() {
       setPage(0);
     });
   }, [specificDateDraft, specificDateDraftIsValid, updateFiltersWithoutScrollShift]);
+
+  const showAllTimeIncidents = useCallback(() => {
+    updateFiltersWithoutScrollShift(() => {
+      setDateFilter("all");
+      setSpecificDate("");
+      setSpecificDateDraft("");
+      setPage(0);
+    });
+  }, [updateFiltersWithoutScrollShift]);
+
+  const toggleArchiveView = useCallback(() => {
+    updateFiltersWithoutScrollShift(() => {
+      setIsArchiveView((prev) => !prev);
+      setStatusFilter(STATUS_FILTER_QUEUE);
+      setDateFilter("all");
+      setSpecificDate("");
+      setSpecificDateDraft("");
+      setPage(0);
+    });
+  }, [updateFiltersWithoutScrollShift]);
+
+  const selectStatusFilter = useCallback((nextStatus: string) => {
+    updateFiltersWithoutScrollShift(() => {
+      setStatusFilter(nextStatus);
+      setPage(0);
+      if (nextStatus === STATUS_FILTER_ALL) {
+        setDateFilter("today");
+        setSpecificDate("");
+        setSpecificDateDraft("");
+      } else {
+        // Pending queue, Accepted, Rejected — all use "all time" so finalized records are always reachable.
+        setDateFilter("all");
+        setSpecificDate("");
+        setSpecificDateDraft("");
+      }
+    });
+  }, [updateFiltersWithoutScrollShift]);
 
   const clearHoverHint = useCallback(() => {
     if (hoverHintTimer.current) {
@@ -265,6 +310,26 @@ export default function ValidatorDashboard() {
       await fetchQueue();
     } catch (err: unknown) {
       setArchiveError(err instanceof Error ? err.message : "Archive failed");
+    }
+  };
+
+  const doUnarchive = async (inc: ValidatorIncident) => {
+    setArchiveError(null);
+    try {
+      await apiFetch(`/regional/validator/incidents/${inc.incident_id}/unarchive`, { method: "PATCH" });
+      await fetchQueue();
+    } catch (err: unknown) {
+      setArchiveError(err instanceof Error ? err.message : "Unarchive failed");
+    }
+  };
+
+  const doDelete = async (inc: ValidatorIncident) => {
+    setDeleteError(null);
+    try {
+      await apiFetch(`/regional/validator/incidents/${inc.incident_id}`, { method: "DELETE" });
+      await fetchQueue();
+    } catch (err: unknown) {
+      setDeleteError(err instanceof Error ? err.message : "Delete failed");
     }
   };
 
@@ -361,14 +426,21 @@ export default function ValidatorDashboard() {
       limit: String(PAGE_SIZE),
       offset: String(page * PAGE_SIZE),
     });
-    if (statusFilter === STATUS_FILTER_ALL) {
+
+    if (isArchiveView) {
+      params.set("archived", "true");
       params.set("show_all", "true");
-    } else if (statusFilter && statusFilter !== STATUS_FILTER_QUEUE) {
-      params.set("status", statusFilter);
+    } else {
+      if (statusFilter === STATUS_FILTER_ALL) {
+        params.set("show_all", "true");
+      } else if (statusFilter && statusFilter !== STATUS_FILTER_QUEUE) {
+        params.set("status", statusFilter);
+      }
+      if (dateBounds.date_from) params.set("date_from", dateBounds.date_from);
+      if (dateBounds.date_to) params.set("date_to", dateBounds.date_to);
     }
+
     if (regionFilter) params.set("region_id", regionFilter);
-    if (dateBounds.date_from) params.set("date_from", dateBounds.date_from);
-    if (dateBounds.date_to) params.set("date_to", dateBounds.date_to);
 
     try {
       const data: QueueResponse = await apiFetch(`/regional/validator/incidents?${params.toString()}`);
@@ -377,12 +449,14 @@ export default function ValidatorDashboard() {
       lastKnownTotal.current = data.total;
       setNewIncidentBanner(false);
       setRuntimeDuplicates(new Map());
+      // Keep the pending-count badge in sync after every queue refresh.
+      void fetchValidatorStats(statsDateBoundsRef.current).then(setStats).catch(() => {});
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load queue");
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, regionFilter, dateBounds.date_from, dateBounds.date_to]);
+  }, [page, statusFilter, regionFilter, dateBounds.date_from, dateBounds.date_to, isArchiveView]);
 
   useEffect(() => { fetchQueue(); }, [fetchQueue]);
 
@@ -555,7 +629,10 @@ export default function ValidatorDashboard() {
         <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{bulkError}</div>
       )}
       {archiveError && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">Archive failed: {archiveError}</div>
+        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{archiveError}</div>
+      )}
+      {deleteError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">Delete failed: {deleteError}</div>
       )}
 
       {/* ── Stats date filter chips ── */}
@@ -633,6 +710,11 @@ export default function ValidatorDashboard() {
         className="rounded-2xl overflow-hidden"
         style={{ backgroundColor: 'var(--card-bg)', boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
       >
+        {isArchiveView && (
+          <div className="px-6 pt-5 pb-0">
+            <p className="text-sm font-semibold" style={{ color: '#92400E' }}>Archived Incidents - restore records to the active queue or delete them permanently.</p>
+          </div>
+        )}
         {/* Filters */}
         <div className="px-6 py-5 border-b" style={{ borderColor: 'var(--border-color)' }}>
           <div className="flex flex-wrap items-center gap-3">
@@ -645,16 +727,8 @@ export default function ValidatorDashboard() {
                   <button
                     key={filter.value}
                     type="button"
-                    onClick={() => updateFiltersWithoutScrollShift(() => {
-                      setStatusFilter(filter.value);
-                      setPage(0);
-                      if (filter.value === STATUS_FILTER_QUEUE) {
-                        setDateFilter('all');
-                        setSpecificDate('');
-                        setSpecificDateDraft('');
-                      }
-                    })}
-                    disabled={loading}
+                    onClick={() => selectStatusFilter(filter.value)}
+                    disabled={loading || isArchiveView}
                     className="relative rounded-full border px-4 py-1.5 text-sm font-semibold transition-colors disabled:opacity-50"
                     style={active
                       ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#991B1B' }
@@ -758,8 +832,25 @@ export default function ValidatorDashboard() {
           <div className="border-b border-red-100 bg-red-50 px-5 py-3 text-sm text-red-800">{error}</div>
         )}
         {!loading && !error && incidents.length === 0 && (
-          <div className="py-14 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-            No incidents match the current filters.
+          <div className="flex min-h-[240px] flex-col items-center justify-center px-5 py-14 text-center">
+            <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+              No incidents found
+            </p>
+            {dateFilter !== 'all' && (
+              <>
+                <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  Try searching All Time.
+                </p>
+                <button
+                  type="button"
+                  onClick={showAllTimeIncidents}
+                  className="mt-4 inline-flex items-center rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-900"
+                  style={{ backgroundColor: '#991B1B' }}
+                >
+                  Search All Time
+                </button>
+              </>
+            )}
           </div>
         )}
 
@@ -834,12 +925,17 @@ export default function ValidatorDashboard() {
                     <td className="px-4 py-4">
                       <div className="flex flex-col items-start gap-1">
                         <StatusBadge status={inc.verification_status} />
+                        {inc.is_resubmitted && ['PENDING', 'PENDING_VALIDATION'].includes(inc.verification_status) && (
+                          <span className="inline-flex w-fit max-w-full rounded-full bg-purple-100 px-2 py-0.5 text-xs font-bold leading-none text-purple-800 whitespace-nowrap">
+                            RESUBMITTED
+                          </span>
+                        )}
                         {inc.parent_incident_id && (
                           <span className="inline-flex w-fit max-w-full rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold leading-none text-amber-800 whitespace-nowrap">
                             UPDATE
                           </span>
                         )}
-                        {(inc.is_duplicate || runtimeDuplicates.has(inc.incident_id)) && !inc.parent_incident_id && !["VERIFIED", "REJECTED", "REPLACED"].includes(inc.verification_status) && (
+                        {(inc.is_duplicate || runtimeDuplicates.has(inc.incident_id)) && !["VERIFIED", "REJECTED", "REPLACED"].includes(inc.verification_status) && (
                           <span className="inline-flex w-fit max-w-full rounded-full bg-orange-100 px-2 py-0.5 text-xs font-bold leading-none text-orange-800 whitespace-nowrap">
                             DUPLICATE
                           </span>
@@ -865,7 +961,33 @@ export default function ValidatorDashboard() {
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap">
                       <div className="flex gap-1.5 items-center">
-                        {["VERIFIED", "REJECTED", "REPLACED"].includes(inc.verification_status) ? (
+                        {isArchiveView ? (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void doUnarchive(inc);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-gray-200 bg-white font-medium transition-colors hover:bg-gray-50"
+                              style={{ color: 'var(--text-secondary)' }}
+                              title="Restore this incident to the active queue"
+                            >
+                              <Archive className="h-3.5 w-3.5" aria-hidden />
+                              Unarchive
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void doDelete(inc);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-red-200 bg-white font-medium transition-colors hover:bg-red-50"
+                              style={{ color: '#991B1B' }}
+                              title="Permanently delete this archived incident"
+                            >
+                              Delete
+                            </button>
+                          </>
+                        ) : ["VERIFIED", "REPLACED", "REJECTED"].includes(inc.verification_status) ? (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -873,35 +995,48 @@ export default function ValidatorDashboard() {
                             }}
                             className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-gray-200 bg-white font-medium transition-colors hover:bg-gray-50"
                             style={{ color: 'var(--text-secondary)' }}
-                            title="Archive finalized incident"
+                            title="Archive this incident"
                           >
                             <Archive className="h-3.5 w-3.5" aria-hidden />
                             Archive
                           </button>
                         ) : (
                           <>
-                            {((inc.is_duplicate && inc.duplicate_of) || runtimeDuplicates.has(inc.incident_id)) && (
+                            {(inc.is_duplicate || runtimeDuplicates.has(inc.incident_id)) && (
                               <Flag className="h-3.5 w-3.5 shrink-0 text-orange-500" aria-label="Flagged as duplicate" />
                             )}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if ((inc.is_duplicate && inc.duplicate_of) || runtimeDuplicates.has(inc.incident_id)) {
+                            {(inc.is_duplicate || runtimeDuplicates.has(inc.incident_id)) ? (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setValidatorDupTarget(inc);
                                   setValidatorDupMatchedId(inc.duplicate_of ?? runtimeDuplicates.get(inc.incident_id)!);
                                   setShowDupHistory(false);
-                                } else {
-                                  void handleDirectAccept(inc);
-                                }
-                              }}
-                              disabled={acceptingId === inc.incident_id}
-                              className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors disabled:opacity-50"
-                              style={{ backgroundColor: '#16A34A' }}
-                              onMouseEnter={(e) => { if (acceptingId !== inc.incident_id) (e.currentTarget as HTMLElement).style.backgroundColor = '#15803D'; }}
-                              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#16A34A'; }}
-                            >
-                              {acceptingId === inc.incident_id ? "…" : "Accept"}
-                            </button>
+                                }}
+                                disabled={acceptingId === inc.incident_id}
+                                className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors disabled:opacity-50"
+                                style={{ backgroundColor: '#9333EA' }}
+                                onMouseEnter={(e) => { if (acceptingId !== inc.incident_id) (e.currentTarget as HTMLElement).style.backgroundColor = '#7E22CE'; }}
+                                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#9333EA'; }}
+                              >
+                                Review
+                              </button>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConfirmAcceptTarget(inc);
+                                  setShowConfirmDiff(false);
+                                }}
+                                disabled={acceptingId === inc.incident_id}
+                                className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors disabled:opacity-50"
+                                style={{ backgroundColor: '#16A34A' }}
+                                onMouseEnter={(e) => { if (acceptingId !== inc.incident_id) (e.currentTarget as HTMLElement).style.backgroundColor = '#15803D'; }}
+                                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#16A34A'; }}
+                              >
+                                {acceptingId === inc.incident_id ? "…" : "Accept"}
+                              </button>
+                            )}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -926,26 +1061,40 @@ export default function ValidatorDashboard() {
         )}
 
         {/* Pagination */}
-        <div className="flex items-center gap-4 px-5 py-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
           <button
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            disabled={page === 0}
-            className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm font-medium transition-colors hover:bg-gray-50 disabled:opacity-40"
-            style={{ color: 'var(--text-primary)' }}
+            type="button"
+            onClick={toggleArchiveView}
+            className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors"
+            style={isArchiveView
+              ? { backgroundColor: '#FEF3C7', borderColor: '#F59E0B', color: '#92400E' }
+              : { backgroundColor: '#fff', borderColor: '#e5e7eb', color: 'var(--text-primary)' }
+            }
           >
-            ← Prev
+            <Archive className="h-4 w-4" aria-hidden />
+            {isArchiveView ? "Hide Archive" : "See Archive"}
           </button>
-          <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            Page {page + 1} of {totalPages} · {total} total
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-            disabled={page >= totalPages - 1}
-            className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm font-medium transition-colors hover:bg-gray-50 disabled:opacity-40"
-            style={{ color: 'var(--text-primary)' }}
-          >
-            Next →
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm font-medium transition-colors hover:bg-gray-50 disabled:opacity-40"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              Prev
+            </button>
+            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Page {page + 1} of {totalPages} - {total} total
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1}
+              className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm font-medium transition-colors hover:bg-gray-50 disabled:opacity-40"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              Next
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1023,6 +1172,50 @@ export default function ValidatorDashboard() {
                 style={{ backgroundColor: '#16A34A' }}
               >
                 {actionLoading ? "Saving…" : "Verify as New"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Accept confirmation modal ── */}
+      {confirmAcceptTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-lg font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Confirm Acceptance</h2>
+            <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
+              Incident #{confirmAcceptTarget.incident_id} · {confirmAcceptTarget.fire_station_name ?? 'Unknown station'} · {regionDisplay(confirmAcceptTarget.region_id)}
+            </p>
+            <button
+              onClick={() => setShowConfirmDiff((v) => !v)}
+              className="text-sm font-medium underline mb-4 block"
+              style={{ color: 'var(--bfp-red)' }}
+            >
+              {showConfirmDiff ? 'Hide' : 'View'} revision history
+            </button>
+            {showConfirmDiff && (
+              <div className="mb-4">
+                <IncidentDiffPanel incidentId={confirmAcceptTarget.incident_id} />
+              </div>
+            )}
+            <div className="flex justify-end gap-3 mt-2">
+              <button
+                onClick={() => { setConfirmAcceptTarget(null); setShowConfirmDiff(false); }}
+                className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const target = confirmAcceptTarget;
+                  setConfirmAcceptTarget(null);
+                  setShowConfirmDiff(false);
+                  void handleDirectAccept(target);
+                }}
+                className="px-4 py-2 text-sm rounded-lg text-white"
+                style={{ backgroundColor: '#16A34A' }}
+              >
+                Confirm Accept
               </button>
             </div>
           </div>

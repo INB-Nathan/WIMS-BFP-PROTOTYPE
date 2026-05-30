@@ -1,7 +1,7 @@
 ---
 title: National Validator Dashboard
 created: 2026-05-16
-updated: 2026-05-28
+updated: 2026-05-30
 type: operation
 tags: [wims-bfp, validator, national-validator, dashboard, incident-workflow, audit]
 sources: [src/frontend/src/app/dashboard/validator/page.tsx, src/frontend/src/app/dashboard/validator/audit/page.tsx, src/backend/api/routes/regional.py, src/backend/api/routes/incidents.py]
@@ -30,7 +30,7 @@ The validator's primary workspace. A large, feature-rich page with:
 - The queue includes an inline hint explaining row click-to-view behavior, bulk selection, and finalized-record archive behavior.
 
 **Filters:**
-- Status quick filters: All, Pending, Accepted (`VERIFIED`), Rejected; All is the default and Pending shows a red count badge when `pending_validation > 0`
+- Status quick filters: All, Pending, Accepted (`VERIFIED`), Rejected; All is the default and Pending shows a red count badge when `pending_validation > 0`. Switching to All resets an inherited All Time date scope back to Today, while Pending still broadens to All Time for queue visibility.
 - Date dropdown filters are right-aligned with the calendar and Apply Date action: Today/This Week/This Month/This Year/Specific Date/All Time, paired with an always-visible calendar date picker for a specific submission date. Apply Date stays disabled until a complete valid date is entered. Specific-date state starts empty on dashboard load and is cleared whenever a preset date period is selected. The frontend no longer exposes the Date of Fire date-basis toggle; validator filtering defaults to Date of Submission and the calendar draft no longer refetches until applied.
 - Region dropdown filter
 - Per-status labels and colour badges (gray=DRAFT, yellow=PENDING, blue=PENDING_VALIDATION, green=VERIFIED, red=REJECTED, purple=REPLACED)
@@ -47,6 +47,8 @@ The validator's primary workspace. A large, feature-rich page with:
 | Category | Classification via `formatClassification()` |
 | Status | Colour-coded badge |
 | Actions | Row click-to-view with delayed floating hover bubble, Accept/Reject for pending rows, quiet Archive action for finalized rows, checkbox for bulk operations |
+
+The queue empty state is centered and offers a BFP-red "Search All Time" button when the current date filter is narrower than All Time. The bottom pagination row includes a "See Archive" button beside the Prev/Next controls, switching the queue to archived incidents. Archived rows can be opened in the shared regional incident detail route and expose Unarchive plus permanent Delete actions in the archive view.
 
 **Diff Panel** — `IncidentDiffPanel` component loads via `GET /api/regional/validator/incidents/{incident_id}/diff` and shows a before/after comparison for incidents under review
 
@@ -117,7 +119,9 @@ The validator backend routes are shared in `src/backend/api/routes/regional.py` 
 |---|---|---|---|
 | `PATCH` | `/api/regional/incidents/{incident_id}/verification` | `verify_incident` | Single-incident: changes status to VERIFIED/REJECTED; writes `incident_verification_history`; syncs analytics facts; handles `REPLACED` duplicate edge cases |
 | `POST` | `/api/regional/validator/incidents/bulk-approve` | `bulk_approve_incidents` | Multi-incident: accepts array of `{id, action, notes, replace_existing_id}`; commits in DB transaction; partial failure handling |
-| `PATCH` | `/api/regional/validator/incidents/{incident_id}/archive` | `archive_incident` | Sets `verification_status = 'ARCHIVED'`; immutable audit trail preserved |
+| `PATCH` | `/api/regional/validator/incidents/{incident_id}/archive` | `archive_incident` | Sets `is_archived = TRUE` for finalized incidents; immutable audit trail preserved |
+| `PATCH` | `/api/regional/validator/incidents/{incident_id}/unarchive` | `unarchive_incident` | Restores archived finalized incidents to the active queue |
+| `DELETE` | `/api/regional/validator/incidents/{incident_id}` | `delete_archived_incident` | Permanently deletes archived incidents and children in FK-safe order |
 
 ### Update Requests (M4 correction flow)
 
@@ -146,6 +150,7 @@ The validator backend routes are shared in `src/backend/api/routes/regional.py` 
 - **`IncidentDiffPanel` and `UpdateRequestDiffPanel`** are reusable components in `src/frontend/src/components/`; they fetch diff data on mount
 - **No pagination on incident diff endpoint** — returns full diff payload
 - **Audit export** is a browser-native download via `window.open()`; no XLSX/PDF option, only CSV
+- **Archive restore** uses shared lifecycle service behavior so validator and encoder archive reversals write `UNARCHIVED` verification history, clear `archived_at`, resync analytics, and rely on the same startup/database immutability-rule exception for `is_archived TRUE -> FALSE`.
 
 ## Known Gaps / Status
 

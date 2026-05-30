@@ -77,6 +77,7 @@ export async function apiFetch<T>(
       }
     } catch { /* ignore, fall through to throw */ }
     if (!skipAuthRedirect && typeof window !== 'undefined') {
+      sessionStorage.setItem('wims:redirect_after_login', window.location.href);
       window.location.href = '/login';
     }
     throw new ApiRequestError('Session expired. Please log in again.', 401);

@@ -30,6 +30,22 @@ from utils.audit import log_system_audit
 
 logger = logging.getLogger("wims.regional_incidents.lifecycle")
 
+# Module-level cache for is_resubmitted column existence (same defensive pattern as regional.py).
+_lc_resubmitted_col_exists: bool | None = None
+
+
+def _lc_has_resubmitted_column(db: Session) -> bool:
+    global _lc_resubmitted_col_exists  # noqa: PLW0603
+    if _lc_resubmitted_col_exists is None:
+        result = db.execute(
+            text(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                "WHERE table_schema = 'wims' AND table_name = 'fire_incidents' AND column_name = 'is_resubmitted'"
+            )
+        ).scalar()
+        _lc_resubmitted_col_exists = bool(result)
+    return _lc_resubmitted_col_exists
+
 
 @dataclass(frozen=True)
 class RegionalIncidentLifecycleDependencies:
@@ -262,10 +278,15 @@ def submit_incident_for_review_command(
         )
 
     matched_duplicate_id: int | None = None
+    is_resubmission = current_status == "REJECTED"
     already_flagged = db.execute(
         text("SELECT is_duplicate FROM wims.fire_incidents WHERE incident_id = :iid"),
         {"iid": incident_id},
     ).scalar()
+    # On resubmit of a REJECTED incident the previous is_duplicate flag is stale —
+    # the encoder changed the data. Force a fresh check regardless of the old value.
+    if is_resubmission:
+        already_flagged = False
 
     if not force and not already_flagged and not ack_duplicate:
         geo_meta = db.execute(
@@ -318,7 +339,10 @@ def submit_incident_for_review_command(
                 )
 
     try:
-        if ack_duplicate and not already_flagged:
+        # Always run the duplicate check when the caller acknowledges or force-submits a duplicate,
+        # so the is_duplicate flag is persisted and the validator queue shows the badge immediately
+        # without needing to click Accept first.
+        if (ack_duplicate or force) and not already_flagged:
             geo_meta = db.execute(
                 text("""
                     SELECT nd.notification_dt, nd.general_category, fi.incident_type_code,
@@ -357,9 +381,20 @@ def submit_incident_for_review_command(
                         {"did": matched_duplicate_id, "iid": incident_id},
                     )
 
+        resubmitted_flag = (
+            "is_resubmitted = TRUE, "
+            if is_resubmission and _lc_has_resubmitted_column(db)
+            else ""
+        )
+        # Clear stale duplicate flags on resubmit unless a new duplicate was just matched
+        dup_clear_sql = (
+            "is_duplicate = FALSE, duplicate_of = NULL, "
+            if is_resubmission and matched_duplicate_id is None
+            else ""
+        )
         update_result = db.execute(
             text(
-                "UPDATE wims.fire_incidents SET verification_status = 'PENDING', updated_at = now() WHERE incident_id = :iid"
+                f"UPDATE wims.fire_incidents SET {resubmitted_flag}{dup_clear_sql}verification_status = 'PENDING', updated_at = now() WHERE incident_id = :iid"
             ),
             {"iid": incident_id},
         )
@@ -858,4 +893,67 @@ def archive_finalized_incident(
         logger.exception("Failed to archive incident_id=%s", incident_id)
         raise HTTPException(status_code=500, detail="Archive failed — transaction rolled back")
 
+    sync_incident_to_analytics(db, incident_id)
+    db.commit()
     return {"status": "archived", "incident_id": incident_id}
+
+
+def unarchive_finalized_incident(
+    db: Session,
+    *,
+    incident_id: int,
+    actor_user_id: Any,
+    deps: RegionalIncidentLifecycleDependencies,
+) -> dict[str, Any]:
+    incident = db.execute(
+        text("""
+            SELECT incident_id, verification_status
+            FROM wims.fire_incidents
+            WHERE incident_id = :iid
+              AND is_archived = TRUE
+        """),
+        {"iid": incident_id},
+    ).fetchone()
+
+    if incident is None:
+        raise HTTPException(status_code=404, detail="Archived incident not found")
+
+    current_status = incident[1]
+    if current_status not in VALIDATOR_ARCHIVABLE_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Only {', '.join(VALIDATOR_ARCHIVABLE_STATUSES)} incidents can be unarchived. "
+                f"Current status: '{current_status}'."
+            ),
+        )
+
+    try:
+        db.execute(
+            text("""
+                UPDATE wims.fire_incidents
+                SET is_archived = FALSE,
+                    archived_at  = NULL,
+                    updated_at   = now()
+                WHERE incident_id = :iid
+            """),
+            {"iid": incident_id},
+        )
+        deps.insert_incident_verification_history(
+            db,
+            incident_id=incident_id,
+            actor_user_id=str(actor_user_id),
+            previous_status="ARCHIVED",
+            new_status=current_status,
+            notes="Unarchived incident",
+            action_label="UNARCHIVED",
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to unarchive incident_id=%s", incident_id)
+        raise HTTPException(status_code=500, detail="Unarchive failed — transaction rolled back")
+
+    sync_incident_to_analytics(db, incident_id)
+    db.commit()
+    return {"status": "unarchived", "incident_id": incident_id}

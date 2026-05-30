@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-05-28
+Last updated: 2026-05-30
 Total synthesis pages: 32
-Last changes: Encoder/validator dashboard specific-date pickers now start empty, clear on preset date-period switches, stage typed or calendar-selected dates until Apply Date is pressed, and place the date controls at the right edge of the filter row. Stats cards no longer repeat the selected stats period in their titles.
+Last changes: Archived encoder/validator incidents can be opened from archive views, restored with unarchive actions, and pass the verified-row immutability rule in both archive directions.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

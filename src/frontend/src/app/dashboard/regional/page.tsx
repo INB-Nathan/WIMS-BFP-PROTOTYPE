@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import {
   RefreshCw, Flame, Building2, TreePine, Car, ChevronLeft, ChevronRight, Trees,
-  Home, Users, Layers, Truck, FileText, Upload, X, CalendarDays,
+  Home, Users, Layers, Truck, FileText, Upload, X, CalendarDays, Archive,
 } from 'lucide-react';
 import { apiFetch, fetchRegionalIncidents, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
 import Link from 'next/link';
@@ -19,7 +19,7 @@ import {
 import { formatClassification } from '@/lib/afor-utils';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { MetricPill } from '@/components/ui/MetricPill';
-import { formatIncidentDate, manilaTodayUtcDate, dateOnly, isDateOnly, addUtcDays, getDateBounds as getDateBoundsUtil, displayValue, statusBorderColor, categoryCount } from '@/lib/incident-utils';
+import { formatIncidentDate, isDateOnly, getDateBounds as getDateBoundsUtil, displayValue, statusBorderColor, categoryCount } from '@/lib/incident-utils';
 
 interface RegionalStatsPayload {
   total_incidents?: number;
@@ -111,6 +111,8 @@ export default function RegionalDashboardPage() {
   const [rejectionNoticeDismissed, setRejectionNoticeDismissed] = useState(false);
   const [pendingActionedBanner, setPendingActionedBanner] = useState(false);
   const lastKnownPendingCountRef = useRef<number | null>(null);
+  const [isArchiveView, setIsArchiveView] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
   const [hoverHint, setHoverHint] = useState<HoverHint | null>(null);
   const hoverHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const incidentsSectionRef = useRef<HTMLElement | null>(null);
@@ -176,6 +178,10 @@ export default function RegionalDashboardPage() {
     setStats(statsData);
   }, [statsDateBounds]);
 
+  // Ref so loadIncidents can trigger a stats refresh without adding loadStats as a dep.
+  const loadStatsRef = useRef(loadStats);
+  useEffect(() => { loadStatsRef.current = loadStats; }, [loadStats]);
+
   const loadIncidents = useCallback(async () => {
     setIncidentsLoading(true);
     setIncidentsError(null);
@@ -185,13 +191,16 @@ export default function RegionalDashboardPage() {
       const data = await fetchRegionalIncidents({
         limit: size,
         offset,
-        category: categoryFilter || undefined,
-        status: statusFilter || undefined,
-        date_from: dateBounds.date_from,
-        date_to: dateBounds.date_to,
+        category: isArchiveView ? undefined : (categoryFilter || undefined),
+        status: isArchiveView ? undefined : (statusFilter || undefined),
+        date_from: isArchiveView ? undefined : dateBounds.date_from,
+        date_to: isArchiveView ? undefined : dateBounds.date_to,
+        archived: isArchiveView || undefined,
       });
       setIncidents(data.items ?? []);
       setIncidentsTotal(typeof data.total === 'number' ? data.total : 0);
+      // Keep the rejected-count badge in sync after every incident refresh.
+      void loadStatsRef.current().catch(() => {});
     } catch (e) {
       setIncidents([]);
       setIncidentsTotal(0);
@@ -199,7 +208,7 @@ export default function RegionalDashboardPage() {
     } finally {
       setIncidentsLoading(false);
     }
-  }, [pageIndex, pageSize, categoryFilter, statusFilter, dateBounds.date_from, dateBounds.date_to]);
+  }, [pageIndex, pageSize, categoryFilter, statusFilter, dateBounds.date_from, dateBounds.date_to, isArchiveView]);
 
   useEffect(() => {
     if (canAccessRegional) {
@@ -267,6 +276,63 @@ export default function RegionalDashboardPage() {
     setDateFilter('all');
     setSpecificDate('');
     setSpecificDateDraft('');
+    setPageIndex(0);
+  });
+
+  const showAllTimeIncidents = () => updateFiltersWithoutScrollShift(() => {
+    setDateFilter('all');
+    setSpecificDate('');
+    setSpecificDateDraft('');
+    setPageIndex(0);
+  });
+
+  const doEncoderArchive = async (incidentId: number, e: MouseEvent) => {
+    e.stopPropagation();
+    setArchiveError(null);
+    try {
+      await apiFetch(`/regional/incidents/${incidentId}/archive`, { method: 'PATCH' });
+      await loadIncidents();
+    } catch (err: unknown) {
+      setArchiveError(err instanceof Error ? err.message : 'Archive failed');
+    }
+  };
+
+  const doEncoderUnarchive = async (incidentId: number, e: MouseEvent) => {
+    e.stopPropagation();
+    setArchiveError(null);
+    try {
+      await apiFetch(`/regional/incidents/${incidentId}/unarchive`, { method: 'PATCH' });
+      await loadIncidents();
+    } catch (err: unknown) {
+      setArchiveError(err instanceof Error ? err.message : 'Unarchive failed');
+    }
+  };
+
+  const toggleArchiveView = () => updateFiltersWithoutScrollShift(() => {
+    setIsArchiveView((prev) => !prev);
+    setStatusFilter('');
+    setCategoryFilter('');
+    setDateFilter('all');
+    setSpecificDate('');
+    setSpecificDateDraft('');
+    setPageIndex(0);
+  });
+
+  const selectStatusFilter = (nextStatus: string) => updateFiltersWithoutScrollShift(() => {
+    // All specific status filters need all-time so records from any date are reachable.
+    // Only the "All" chip ('') defaults back to today.
+    const LONG_RANGE_STATUSES = ['PENDING', 'VERIFIED', 'REJECTED', 'DRAFT'];
+    const leavingLongRange = LONG_RANGE_STATUSES.includes(statusFilter) && !LONG_RANGE_STATUSES.includes(nextStatus);
+    setStatusFilter(nextStatus);
+    if (LONG_RANGE_STATUSES.includes(nextStatus)) {
+      setDateFilter('all');
+      setSpecificDate('');
+      setSpecificDateDraft('');
+    } else if (leavingLongRange && dateFilter === 'all') {
+      setDateFilter('today');
+      setSpecificDate('');
+      setSpecificDateDraft('');
+    }
     setPageIndex(0);
   });
 
@@ -365,6 +431,14 @@ export default function RegionalDashboardPage() {
 
   return (
     <div className="space-y-6 pb-8" style={{ backgroundColor: 'var(--content-bg)' }}>
+
+      {/* ── Archive error banner ── */}
+      {archiveError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {archiveError}
+          <button type="button" onClick={() => setArchiveError(null)} className="ml-3 underline text-red-600 hover:text-red-800">Dismiss</button>
+        </div>
+      )}
 
       {/* ── Sticky notification toasts (visible while scrolling) ── */}
       {(pendingActionedBanner || (rejectedCount > 0 && !rejectionNoticeDismissed)) && (
@@ -567,10 +641,10 @@ export default function RegionalDashboardPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h2 id="region-incidents-heading" className="font-bold text-[20px]" style={{ color: 'var(--text-primary)' }}>
-                Your Incidents
+                {isArchiveView ? 'Archived Incidents' : 'Your Incidents'}
               </h2>
               <p className="mt-0.5 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Click an incident card to view details.
+                {isArchiveView ? 'Showing incidents that have been archived by a validator.' : 'Click an incident card to view details.'}
               </p>
             </div>
             <p className="text-sm whitespace-nowrap" style={{ color: 'var(--text-secondary)' }} aria-live="polite">
@@ -592,10 +666,10 @@ export default function RegionalDashboardPage() {
                     if (chip.value === 'REJECTED') {
                       showRejectedFilter();
                     } else {
-                      updateFiltersWithoutScrollShift(() => { setStatusFilter(chip.value); setPageIndex(0); });
+                      selectStatusFilter(chip.value);
                     }
                   }}
-                  disabled={incidentsLoading}
+                  disabled={incidentsLoading || isArchiveView}
                   className="relative rounded-full border px-4 py-1.5 text-sm font-semibold transition-colors disabled:opacity-50"
                   style={active
                     ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#991B1B' }
@@ -728,13 +802,25 @@ export default function RegionalDashboardPage() {
               Loading incidents...
             </div>
           ) : !incidentsLoading && incidents.length === 0 ? (
-            <div className="px-5 py-14 text-center">
+            <div className="flex min-h-[260px] flex-col items-center justify-center px-5 py-14 text-center">
               <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
                 {incidentsError ? 'Could not load incidents.' : 'No incidents found'}
               </p>
-              <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                {incidentsError ? 'Try refreshing the dashboard.' : 'Adjust the filters or clear them to see more records.'}
-              </p>
+              {incidentsError ? (
+                <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Try refreshing the dashboard.</p>
+              ) : dateFilter !== 'all' ? (
+                <>
+                  <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Try searching All Time.</p>
+                  <button
+                    type="button"
+                    onClick={showAllTimeIncidents}
+                    className="mt-4 inline-flex items-center rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-900"
+                    style={{ backgroundColor: '#991B1B' }}
+                  >
+                    Search All Time
+                  </button>
+                </>
+              ) : null}
             </div>
           ) : (
             <div className={`grid min-h-[420px] gap-4 p-5 transition-opacity lg:grid-cols-2 ${incidentsLoading ? 'opacity-60' : ''}`}>
@@ -806,6 +892,24 @@ export default function RegionalDashboardPage() {
                     <MetricPill label="Individuals" value={inc.individuals_affected} />
                     <MetricPill label="Vehicles" value={inc.vehicles_affected} />
                   </div>
+
+                  {inc.verification_status === 'VERIFIED' && (
+                    <div className="mt-4 flex justify-end border-t border-gray-100 pt-3">
+                      <button
+                        type="button"
+                        onClick={(e) => isArchiveView
+                          ? void doEncoderUnarchive(inc.incident_id, e)
+                          : void doEncoderArchive(inc.incident_id, e)
+                        }
+                        className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium transition-colors hover:bg-gray-50"
+                        style={{ color: 'var(--text-secondary)' }}
+                        title={isArchiveView ? 'Restore this incident to the active list' : 'Archive this verified incident'}
+                      >
+                        <Archive className="h-3.5 w-3.5" aria-hidden />
+                        {isArchiveView ? 'Unarchive' : 'Archive'}
+                      </button>
+                    </div>
+                  )}
                 </article>
               ))}
             </div>
@@ -821,19 +925,39 @@ export default function RegionalDashboardPage() {
                 <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Location</th>
                 <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>Last Modified</th>
                 <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Status</th>
+                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {incidentsLoading ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+                  <td colSpan={7} className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
                     Loading incidents…
                   </td>
                 </tr>
               ) : incidents.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-                    {incidentsError ? 'Could not load incidents.' : 'No incidents match the current filters.'}
+                  <td colSpan={7} className="px-5 py-12">
+                    <div className="flex min-h-[180px] flex-col items-center justify-center text-center">
+                      <p className="text-sm font-semibold" style={{ color: incidentsError ? '#991B1B' : 'var(--text-primary)' }}>
+                        {incidentsError ? 'Could not load incidents.' : 'No incidents found'}
+                      </p>
+                      {incidentsError ? (
+                        <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Try refreshing the dashboard.</p>
+                      ) : dateFilter !== 'all' ? (
+                        <>
+                          <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Try searching All Time.</p>
+                          <button
+                            type="button"
+                            onClick={showAllTimeIncidents}
+                            className="mt-4 inline-flex items-center rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-900"
+                            style={{ backgroundColor: '#991B1B' }}
+                          >
+                            Search All Time
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -894,6 +1018,23 @@ export default function RegionalDashboardPage() {
                     <td className="px-5 py-4">
                       <StatusBadge status={inc.verification_status} />
                     </td>
+                    <td className="px-5 py-4 whitespace-nowrap">
+                      {inc.verification_status === 'VERIFIED' && (
+                        <button
+                          type="button"
+                          onClick={(e) => isArchiveView
+                            ? void doEncoderUnarchive(inc.incident_id, e)
+                            : void doEncoderArchive(inc.incident_id, e)
+                          }
+                          className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium transition-colors hover:bg-gray-50"
+                          style={{ color: 'var(--text-secondary)' }}
+                          title={isArchiveView ? 'Restore this incident to the active list' : 'Archive this verified incident'}
+                        >
+                          <Archive className="h-3.5 w-3.5" aria-hidden />
+                          {isArchiveView ? 'Unarchive' : 'Archive'}
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))
               )}
@@ -904,9 +1045,20 @@ export default function RegionalDashboardPage() {
 
         {/* Pagination */}
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
-          <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            Total: <strong style={{ color: 'var(--text-primary)' }}>{incidentsTotal.toLocaleString()}</strong>
-          </span>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Total: <strong style={{ color: 'var(--text-primary)' }}>{incidentsTotal.toLocaleString()}</strong>
+            </span>
+            <button
+              type="button"
+              onClick={toggleArchiveView}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${isArchiveView ? 'border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100' : 'border-gray-200 bg-white hover:bg-gray-50'}`}
+              style={isArchiveView ? {} : { color: 'var(--text-primary)' }}
+            >
+              <Archive className="h-4 w-4" aria-hidden />
+              {isArchiveView ? 'Hide Archive' : 'See Archive'}
+            </button>
+          </div>
           <div className="flex items-center gap-2">
             <button
               type="button"

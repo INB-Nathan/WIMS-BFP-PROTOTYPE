@@ -25,6 +25,20 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 **Wiki updates:** This log.
 
+## [2026-05-30] fix | Encoder/validator archived incident detail and unarchive
+
+**Changes implemented:**
+
+- `GET /api/regional/incidents/{incident_id}` now allows archived records for authorized encoder/validator archive review instead of returning 404 from `fi.is_archived = FALSE` filters.
+- Added encoder and validator unarchive actions: `PATCH /api/regional/incidents/{incident_id}/unarchive` and `PATCH /api/regional/validator/incidents/{incident_id}/unarchive`.
+- Archive views on encoder and validator dashboards now expose Unarchive actions; validator archive rows also retain permanent Delete for archived cleanup.
+- `unarchive_finalized_incident()` clears `is_archived`/`archived_at`, writes `UNARCHIVED` incident verification history, and resyncs analytics.
+- The verified-row immutability rule patch now permits both archive and unarchive `is_archived` transitions while keeping other VERIFIED updates blocked.
+
+**Verification:** `npm.cmd run lint -- --no-cache` passed with warnings only; backend route/service files passed AST parsing. Python bytecode compilation was blocked by local `__pycache__` permission.
+
+**Wiki updates:** Updated `index.md`, `backend/api-route-map.md`, `subsystems/regional-dashboard.md`, `subsystems/validator-hub.md`, `subsystems/references/regional-api-ref.md`, and this log. No FRS/codebase gap entry changed.
+
 ## [2026-05-28] fix | Layout zoom scoping, OTP sizing, notification toasts, badge, filter UX, 24H labels
 
 **Changes implemented:**
@@ -1281,3 +1295,45 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Follow-up: restored sidebar-specific tokens (`--sidebar-bg`, `--color-sidebar-bg`) to their previous `#5A1515` value while leaving action/header overrides at `#991B1B`. Source: `src/frontend/src/app/globals.css`.
 
 - Follow-up: refined encoder/validator specific-date filtering so dashboard load and preset period switches clear the staged specific date, Apply Date remains disabled until the user enters a complete valid date, date controls sit at the right edge of the filter row, and stats card titles no longer repeat the selected stats period. Sources: `src/frontend/src/app/dashboard/regional/page.tsx`, `src/frontend/src/app/dashboard/validator/page.tsx`.
+
+## [2026-05-30] polish | Encoder/validator dashboard navigation and empty states
+
+- Added a persistent lengthwise left-edge back-to-dashboard affordance to the incident detail view. It routes encoders to `/dashboard/regional`, validators to `/dashboard/validator`, expands on hover/focus, and keeps the existing header/back links intact.
+- Smoothed incident detail section-dot navigation with `scrollIntoView({ behavior: "smooth" })`, combined Affected Counts + Assets/Resources into one dot, combined Problems + Recommendations into one dot, and removed unused dots from the side navigator.
+- Updated encoder dashboard filter behavior so All Time does not carry forward when switching away from Rejected or Drafts into normal status views; added centered empty-state guidance with a BFP-red Search All Time button and a bottom-row See Archive button.
+- Updated validator dashboard filter behavior so switching to All resets inherited All Time back to Today; added the same Search All Time empty state and bottom-row See Archive button.
+
+**Verification:** `npm.cmd run lint` passes with 0 errors and 13 pre-existing warnings outside the touched dashboard/detail files.
+
+**Wiki updates:** Updated `system-wiki/subsystems/regional-dashboard.md`, `system-wiki/subsystems/validator-hub.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-05-30] polish | Shared section dots for AFOR create/import/edit
+
+- Fixed the incident detail back-to-dashboard affordance visibility in authenticated layouts by offsetting it past the desktop sidebar while keeping it available on small screens.
+- Added `SectionDotNav.tsx`, a reusable fixed right-side dot navigator with smooth scrolling and scroll-spy labels.
+- Wired section dots into structural manual entry and incident edit mode through `IncidentForm.tsx`, wildland manual/import correction through `WildlandAforManualForm.tsx`, and `/afor/import` for upload, map pin, summary, and data preview.
+- Moved the combined Affected & Assets incident detail target lower by scrolling to an anchor inside the affected-count section rather than the section shell.
+
+**Verification:** `npm.cmd run lint` passes with 0 errors and 13 pre-existing warnings outside the touched files.
+
+**Wiki updates:** Updated `system-wiki/subsystems/regional-dashboard.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-05-30] fix | Incident detail back tab sidebar overlap
+
+- Refined the incident detail "Back to Dashboard" affordance into two responsive variants: a normal inline top button on small screens and a desktop fixed side tab.
+- The desktop side tab now starts at `calc(var(--sidebar-width) + 1rem)`, reusing the existing sidebar width token so it sits immediately to the right of the authenticated sidebar instead of overlapping navigation.
+- The tab keeps a compact icon-only default state, smooth hover/focus expansion, soft border/shadow styling, pointer cursor, and accessible dashboard label.
+
+**Verification:** `npm.cmd run lint -- --no-cache` passes with 0 errors and 13 pre-existing warnings outside the touched file.
+
+**Wiki updates:** Updated `system-wiki/subsystems/regional-dashboard.md` and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-05-30] polish | Incident detail back tab icon-only refinement
+
+- Removed all visible desktop side-tab label text from the incident detail "Back to Dashboard" affordance.
+- Converted the desktop affordance into a taller, slim vertical pill with a centered left-arrow icon, slight hover/focus width expansion, stronger shadow, and subtle red-tinted background.
+- Preserved the mobile/small-screen normal top back button and `aria-label="Back to Regional Dashboard"` accessibility label.
+
+**Verification:** `npm.cmd run lint -- --no-cache` passes with 0 errors and 13 pre-existing warnings outside the touched file.
+
+**Wiki updates:** Updated `system-wiki/subsystems/regional-dashboard.md` and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.

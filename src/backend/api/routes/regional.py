@@ -42,6 +42,7 @@ from services.regional_incidents import (
     delete_encoder_incident,
     force_replace_pending_incident,
     submit_incident_for_review_command,
+    unarchive_finalized_incident,
     unpend_incident_command,
     verify_incident_command,
 )
@@ -82,6 +83,23 @@ def _get_security_provider() -> SecurityProvider:
 
 
 logger = logging.getLogger("wims.regional")
+
+# Module-level cache: True once we confirm the column exists, False if missing.
+# Resets to None only on process restart; migration apply requires restart anyway.
+_fi_resubmitted_col_exists: bool | None = None
+
+
+def _fi_has_resubmitted_column(db: Session) -> bool:
+    global _fi_resubmitted_col_exists  # noqa: PLW0603
+    if _fi_resubmitted_col_exists is None:
+        result = db.execute(
+            text(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                "WHERE table_schema = 'wims' AND table_name = 'fire_incidents' AND column_name = 'is_resubmitted'"
+            )
+        ).scalar()
+        _fi_resubmitted_col_exists = bool(result)
+    return _fi_resubmitted_col_exists
 
 
 router = APIRouter(prefix="/api/regional", tags=["regional"])
@@ -220,16 +238,18 @@ def get_regional_incidents(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     date_basis: Optional[str] = "modified",
+    archived: bool = Query(default=False),
 ):
     """
     Fetch fire incidents scoped to the current encoder.
     Joins nonsensitive details for summary view.
+    Pass archived=true to list archived incidents instead of active ones.
     """
     encoder_id = user["user_id"]
 
     where_clauses = [
         "fi.encoder_id = CAST(:encoder_id AS uuid)",
-        "fi.is_archived = FALSE",
+        "fi.is_archived = TRUE" if archived else "fi.is_archived = FALSE",
         """
         NOT (
             COALESCE(fi.reference_number, '') LIKE 'AFOR-SEED-%'
@@ -588,10 +608,10 @@ def get_regional_incident_detail(
                        ST_X(fi.location::geometry) AS longitude,
                        fi.reference_number, fi.incident_type_code,
                        fi.parent_incident_id,
-                       fi.is_duplicate, fi.duplicate_of, fi.updated_at
+                       fi.is_duplicate, fi.duplicate_of, fi.updated_at,
+                       fi.is_archived
                 FROM wims.fire_incidents fi
                 WHERE fi.incident_id = :iid
-                  AND fi.is_archived = FALSE
             """),
             {"iid": incident_id},
         ).fetchone()
@@ -605,11 +625,11 @@ def get_regional_incident_detail(
                        ST_X(fi.location::geometry) AS longitude,
                        fi.reference_number, fi.incident_type_code,
                        fi.parent_incident_id,
-                       fi.is_duplicate, fi.duplicate_of, fi.updated_at
+                       fi.is_duplicate, fi.duplicate_of, fi.updated_at,
+                       fi.is_archived
                 FROM wims.fire_incidents fi
                 WHERE fi.incident_id = :iid
                   AND fi.encoder_id = CAST(:encoder_id AS uuid)
-                  AND fi.is_archived = FALSE
             """),
             {"iid": incident_id, "encoder_id": str(encoder_id)},
         ).fetchone()
@@ -738,6 +758,7 @@ def get_regional_incident_detail(
         "is_duplicate": bool(row[10]) if row[10] is not None else False,
         "duplicate_of": row[11],
         "updated_at": row[12].isoformat() if row[12] else None,
+        "is_archived": bool(row[13]) if row[13] is not None else False,
         "is_wildland": is_wildland,
         "wildland_fire_type": wildland_fire_type,
         "wildland_area_hectares": wildland_area_hectares,
@@ -1419,6 +1440,93 @@ def delete_incident(
     return result
 
 
+@router.patch("/incidents/{incident_id}/archive", status_code=200)
+def encoder_archive_incident(
+    incident_id: int,
+    user: Annotated[dict, Depends(get_regional_encoder)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Soft-archive a VERIFIED incident owned by the encoder.
+
+    Sets is_archived=TRUE so the incident moves out of the active list.
+    The record is preserved and remains visible via the archive view.
+    Only VERIFIED incidents can be archived this way; DRAFT and REJECTED
+    can be deleted via DELETE /incidents/{id}.
+    """
+    encoder_id = user["user_id"]
+    incident = db.execute(
+        text("""
+            SELECT incident_id, verification_status
+            FROM wims.fire_incidents
+            WHERE incident_id = :iid
+              AND encoder_id = CAST(:eid AS uuid)
+              AND is_archived = FALSE
+        """),
+        {"iid": incident_id, "eid": str(encoder_id)},
+    ).fetchone()
+
+    if incident is None:
+        raise HTTPException(status_code=404, detail="Incident not found, already archived, or not owned by you")
+    if incident[1] != "VERIFIED":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only VERIFIED incidents can be archived from the encoder dashboard. Current status: '{incident[1]}'.",
+        )
+
+    try:
+        db.execute(
+            text("""
+                UPDATE wims.fire_incidents
+                SET is_archived = TRUE,
+                    archived_at  = now(),
+                    updated_at   = now()
+                WHERE incident_id = :iid
+            """),
+            {"iid": incident_id},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Encoder archive failed for incident_id=%s by encoder %s", incident_id, encoder_id)
+        raise HTTPException(status_code=500, detail="Archive failed — transaction rolled back")
+
+    logger.info("Encoder user_id=%s archived incident_id=%s", encoder_id, incident_id)
+    return {"status": "archived", "incident_id": incident_id}
+
+
+@router.patch("/incidents/{incident_id}/unarchive", status_code=200)
+def encoder_unarchive_incident(
+    incident_id: int,
+    user: Annotated[dict, Depends(get_regional_encoder)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Restore an archived VERIFIED incident owned by the encoder."""
+    encoder_id = user["user_id"]
+    incident = db.execute(
+        text("""
+            SELECT incident_id, verification_status
+            FROM wims.fire_incidents
+            WHERE incident_id = :iid
+              AND encoder_id = CAST(:encoder_id AS uuid)
+              AND is_archived = TRUE
+        """),
+        {"iid": incident_id, "encoder_id": str(encoder_id)},
+    ).fetchone()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Archived incident not found or not owned by you")
+    if incident[1] != "VERIFIED":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only VERIFIED incidents can be unarchived by encoders. Current status: '{incident[1]}'.",
+        )
+    return unarchive_finalized_incident(
+        db,
+        incident_id=incident_id,
+        actor_user_id=encoder_id,
+        deps=_regional_lifecycle_dependencies(),
+    )
+
+
 @router.patch("/incidents/{incident_id}/submit", status_code=200)
 def submit_incident_for_review(
     incident_id: int,
@@ -1545,6 +1653,9 @@ def get_validator_incident_queue(
 
     where_sql = " AND ".join(where_clauses)
 
+    has_resubmitted_col = _fi_has_resubmitted_column(db)
+    resubmitted_expr = "fi.is_resubmitted" if has_resubmitted_col else "FALSE"
+
     rows = db.execute(
         text(f"""
             SELECT
@@ -1566,7 +1677,8 @@ def get_validator_incident_queue(
                 fi.is_duplicate,
                 fi.duplicate_of,
                 fi.updated_at,
-                fi.reference_number
+                fi.reference_number,
+                {resubmitted_expr}
             FROM wims.fire_incidents fi
             LEFT JOIN wims.incident_nonsensitive_details nd
                    ON nd.incident_id = fi.incident_id
@@ -1614,6 +1726,7 @@ def get_validator_incident_queue(
                 "duplicate_of": r[16],
                 "updated_at": r[17].isoformat() if r[17] else None,
                 "reference_number": r[18],
+                "is_resubmitted": bool(r[19]) if r[19] is not None else False,
             }
             for r in rows
         ],
@@ -1938,7 +2051,7 @@ def archive_incident(
     """Archive a finalized (VERIFIED, REJECTED, or REPLACED) incident.
 
     Sets is_archived=TRUE, archived_at=NOW(), verification_status unchanged.
-    Returns 400 if the incident is in DRAFT or PENDING status.
+    Returns 400 if the incident is not in an archivable finalized status.
     """
     validator_user_id = user["user_id"]
     return archive_finalized_incident(
@@ -1947,6 +2060,98 @@ def archive_incident(
         validator_user_id=validator_user_id,
         deps=_regional_lifecycle_dependencies(),
     )
+
+
+@router.patch("/validator/incidents/{incident_id}/unarchive")
+def unarchive_incident(
+    incident_id: int,
+    user: Annotated[dict, Depends(get_national_validator)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Restore an archived finalized incident to the active validator queue."""
+    validator_user_id = user["user_id"]
+    return unarchive_finalized_incident(
+        db,
+        incident_id=incident_id,
+        actor_user_id=validator_user_id,
+        deps=_regional_lifecycle_dependencies(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Validator hard-delete for archived incidents
+# ---------------------------------------------------------------------------
+
+
+@router.delete("/validator/incidents/{incident_id}", status_code=200)
+def delete_archived_incident(
+    incident_id: int,
+    user: Annotated[dict, Depends(get_national_validator)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Permanently delete an archived incident and all its child records.
+
+    Only incidents with is_archived=TRUE can be deleted. Use this to clean up
+    REPLACED incidents from the archive after review.
+    Returns 400 if the incident is not archived.
+    """
+    validator_user_id = user["user_id"]
+
+    incident = db.execute(
+        text("""
+            SELECT incident_id, verification_status, is_archived
+            FROM wims.fire_incidents
+            WHERE incident_id = :iid
+        """),
+        {"iid": incident_id},
+    ).fetchone()
+
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    if not incident[2]:
+        raise HTTPException(
+            status_code=400,
+            detail="Only archived incidents can be deleted. Archive the incident first.",
+        )
+
+    try:
+        for child_table in (
+            "wims.incident_nonsensitive_details",
+            "wims.incident_sensitive_details",
+            "wims.incident_wildland_afor",
+        ):
+            db.execute(
+                text(f"DELETE FROM {child_table} WHERE incident_id = :iid"),  # noqa: S608
+                {"iid": incident_id},
+            )
+        db.execute(
+            text(
+                "DELETE FROM wims.incident_verification_history "
+                "WHERE target_id = :iid AND target_type = 'OFFICIAL'"
+            ),
+            {"iid": incident_id},
+        )
+        db.execute(
+            text("DELETE FROM wims.fire_incidents WHERE incident_id = :iid"),
+            {"iid": incident_id},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "Failed to hard-delete archived incident_id=%s by validator %s",
+            incident_id,
+            validator_user_id,
+        )
+        raise HTTPException(status_code=500, detail="Delete failed — transaction rolled back")
+
+    logger.info(
+        "Validator user_id=%s permanently deleted archived incident_id=%s",
+        validator_user_id,
+        incident_id,
+    )
+    return {"status": "deleted", "incident_id": incident_id}
 
 
 # ---------------------------------------------------------------------------

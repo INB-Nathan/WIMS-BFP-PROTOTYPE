@@ -324,3 +324,255 @@ The `apiFetch` 401 handler was calling `fetch('/api/auth/refresh', ...)` directl
 |------|-------------|-----------|---------------|
 | Encoder | Own region, VERIFIED only | `notification_dt` (fire date) | Not in stats cards |
 | Validator | All regions, VERIFIED only | `notification_dt` (fire date) | Always current (unfiltered) |
+
+---
+
+### 2026-05-30 — Bug batch: map/pin UX, idle logout save, archive, validator duplicate/accept UX, resubmitted flag
+
+#### Fix 1 — Clear pin button re-geocoded instead of clearing
+**File:** `src/frontend/src/components/IncidentForm.tsx` (~line 1470)
+Added `setMapSearchQuery(undefined)` to the Clear pin `onClick`. Without this, clearing coordinates reset `MapPickerInner`'s `autoSearchedRef` to null while `mapSearchQuery` still held the previous address, causing an immediate re-geocode — identical behaviour to Re-pin from Address.
+
+#### Fix 2 — Idle logout loses encoding progress
+**Root cause:** Keycloak refresh-token idle timeout is server-side; the 4-minute proactive frontend refresh doesn't prevent expiry during extended inactivity. Strategy is save-and-restore, not prevent-logout.
+
+**2a — Pre-redirect URL save:** `src/frontend/src/lib/api/transport.ts` — saves `window.location.href` to `sessionStorage('wims:redirect_after_login')` before redirecting to `/login`.
+
+**2b — Post-login URL restore:** `src/frontend/src/app/callback/page.tsx` — after the existing `refreshSession()`+`refreshProfile()` call, checks `sessionStorage('wims:redirect_after_login')` and navigates there instead of `/dashboard`.
+
+**2c — IncidentForm autosave:** `src/frontend/src/components/IncidentForm.tsx` — debounced 500 ms `useEffect` writes `formState` + coordinates + timestamp to `localStorage('wims:incident_draft')` on every change (create mode only). On mount, if a saved draft exists, a blue restore banner appears at the top of the form with Restore / Discard buttons. Draft is cleared on successful save/submit navigation.
+
+**2d — AFOR import persistence:** `src/frontend/src/app/afor/import/page.tsx` — `previewData` (invalid-row parse results) saved to `sessionStorage('wims:afor_import_draft')` on change and restored on mount. Cleared on `reset()` or `?reset=1`.
+
+#### Fix 3 — Barangay hint text
+**File:** `src/frontend/src/components/IncidentForm.tsx`
+Added `<p className="text-xs text-gray-400 ...">` below the Barangay label: *"Tip: automatically filled when you pin the fire scene location on the map."*
+
+#### Fix 4 — ICP location not cleared when switching to "without"
+**File:** `src/frontend/src/components/IncidentFormSections.tsx` (~line 193)
+ICP radio `onChange` now calls a compound handler: `handleRadioChange('icp_present', v)` + a synthetic `handleChange` event that clears `icp_location` when `v === 'without'`.
+
+#### Fix 5 — Archive button on encoder dashboard
+**Files:** `src/backend/api/routes/regional.py`, `src/frontend/src/lib/regional-incidents.ts`, `src/frontend/src/app/dashboard/regional/page.tsx`
+- Backend `GET /regional/incidents` accepts `archived: bool = Query(False)`; filters `is_archived = TRUE` when set.
+- `RegionalIncidentsQueryParams` + `buildRegionalIncidentsQueryString` extended with `archived?: boolean`.
+- Dashboard: replaced broken `showArchive()` (was setting `statusFilter='ARCHIVED'`, a non-existent status) with `isArchiveView` boolean state and `toggleArchiveView()`. "See Archive / Hide Archive" toggle button at pagination row. Archive view disables status/date chips and passes `archived: true` to the incidents fetch.
+
+#### Fix 6 — Validator duplicate indicator auto-shown + "Review" button
+**File:** `src/frontend/src/app/dashboard/validator/page.tsx`
+
+**Root cause:** DUPLICATE badge had an `!inc.parent_incident_id` guard that incorrectly suppressed it. `runtimeDuplicates` was only populated on a 409 response from Accept — so no badge appeared until Accept was clicked.
+
+- Badge condition: removed `!inc.parent_incident_id`; badge now shows for any non-finalized incident where `inc.is_duplicate || runtimeDuplicates.has(inc.incident_id)`.
+- Flag icon: same fix — no longer requires `inc.duplicate_of` to be non-null alongside `inc.is_duplicate`.
+- Button: duplicate incidents now show a **purple "Review" button** instead of the green Accept; Review's `onClick` sets `validatorDupTarget` and `validatorDupMatchedId` directly (same path as the old Accept duplicate branch).
+
+#### Fix 7 — Accept confirmation modal with revision history
+**Files:** `src/frontend/src/app/dashboard/validator/page.tsx`, `src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx`
+
+Added `confirmAcceptTarget` state to the validator dashboard. Accept button sets it; a modal renders with incident summary, a "View revision history" toggle (`IncidentDiffPanel`), Cancel, and Confirm Accept. Confirm calls `handleDirectAccept()`.
+
+Same pattern added to the incident detail view: `showAcceptConfirm` + `showAcceptConfirmDiff` state; Accept button opens the modal; Confirm calls `submitValidatorAction({ action: 'accept' })`. `IncidentDiffPanel` imported.
+
+#### Fix 8 — Purple "RESUBMITTED" flag for re-submitted rejected incidents
+**Files:** `src/postgres-init/40_add_resubmitted_flag.sql` (new), `src/backend/services/regional_incidents/lifecycle.py`, `src/backend/api/routes/regional.py`, `src/frontend/src/app/dashboard/validator/page.tsx`
+
+- DB: `ALTER TABLE wims.fire_incidents ADD COLUMN IF NOT EXISTS is_resubmitted BOOLEAN NOT NULL DEFAULT FALSE`.
+- `submit_incident_for_review_command`: sets `is_resubmitted = TRUE` in the status UPDATE SQL when `current_status == 'REJECTED'`.
+- Validator queue SELECT: added `fi.is_resubmitted`; response dict includes `"is_resubmitted": bool(r[19])`.
+- `ValidatorIncident` type: added `is_resubmitted: boolean`.
+- Validator queue status cell: purple **RESUBMITTED** badge rendered when `inc.is_resubmitted && ['PENDING', 'PENDING_VALIDATION'].includes(inc.verification_status)`. No separate filter — counts as PENDING.
+
+---
+
+### 2026-05-30 — Post-plan bug batch: archive mechanics, dotNav, badge sync, resubmit, duplicate flagging
+
+Three follow-up bug batches reported after the plan above was completed.
+
+#### Fix 9 — Archive REJECTED incidents
+
+**File:** `src/backend/services/regional_incidents/policies.py`
+`VALIDATOR_ARCHIVABLE_STATUSES` changed from `("VERIFIED", "REPLACED")` to `("VERIFIED", "REPLACED", "REJECTED")`. Rejected incidents can now be soft-archived (`is_archived = TRUE`). Records are preserved and visible in archive view — not deleted.
+
+#### Fix 10 — SectionDotNav animation stuck
+
+**File:** `src/frontend/src/components/SectionDotNav.tsx` (full rewrite)
+
+**Root cause:** IntersectionObserver fired during the smooth-scroll animation and overwrote the active dot that the user just clicked, causing the dot to flicker back to the previous section mid-animation.
+
+Changes:
+- Added `suppressRef` + `suppressTimerRef`: 700 ms window after a click during which observer callbacks are ignored.
+- Optimistic `setActiveId(sectionId)` on click — dot activates immediately, not after the observer fires.
+- Replaced `intersectionRatio`-sort (unreliable during animation) with a `Map` tracking all currently intersecting sections; the topmost entry wins.
+- Root margin narrowed to `-10% 0px -50% 0px` (was `-20% 0px -65% 0px`) for a wider active band.
+- Thresholds: `[0, 0.1, 0.25, 0.5, 1]` (was `[0.1, 0.25, 0.5]`).
+- Tooltip slide increased from `1px` → `2px` for visual feedback.
+- Applies to: manual entry form (`/afor/create`), wildland form, AFOR import page, and edit/view incident pages.
+
+#### Fix 11 — "Try searching All Time" hint only when filter is not already All Time
+
+**Files:** `src/frontend/src/app/dashboard/validator/page.tsx`, `src/frontend/src/app/dashboard/regional/page.tsx`
+Empty-state hint "Try searching All Time" and the "Search All Time" shortcut button are now wrapped in `{dateFilter !== 'all' && ...}` — previously showed even when All Time was already active, which was misleading.
+
+#### Fix 12 — Validator archive silently no-ops on VERIFIED incidents (root cause fix)
+
+**File:** `src/postgres-init/41_fix_immutable_rule_for_archive.sql` (new migration)
+
+**Root cause:** The PostgreSQL rule `no_update_verified` (migration 17, narrowed in 29) uses `DO INSTEAD NOTHING` to block all UPDATE statements on VERIFIED rows. The archive UPDATE (`SET is_archived = TRUE, archived_at = now()`) silently matched the rule — no error, no rollback, the backend returned 200, but no row was ever changed.
+
+Fix: the new migration drops and recreates the rule with a third exception for the `is_archived FALSE→TRUE` transition:
+
+```sql
+CREATE RULE no_update_verified AS
+    ON UPDATE TO wims.fire_incidents
+    WHERE (
+        OLD.verification_status = 'VERIFIED'
+        AND NEW.verification_status != 'REPLACED'
+        AND NOT (NEW.is_archived = TRUE AND OLD.is_archived = FALSE)
+    )
+    DO INSTEAD NOTHING;
+```
+
+**Critical**: this migration does NOT auto-run on existing containers. Apply manually:
+```
+docker compose exec -T postgres psql -U postgres -d wims < src/postgres-init/41_fix_immutable_rule_for_archive.sql
+```
+
+This fix also unblocks the encoder archive endpoint (Fix 15) for any VERIFIED row.
+
+#### Fix 13 — Pending/Rejected count badges stale
+
+**Root cause:** Stats were only refetched when the stats period chip changed. Queue/list reloads (accept, reject, archive actions) did not trigger a stats refresh, so badge counts stayed at the pre-action values until the user manually changed the period chip.
+
+**Validator** (`src/frontend/src/app/dashboard/validator/page.tsx`):
+- Added `statsDateBoundsRef` (a `useRef` that mirrors `statsDateBounds`).
+- Inside `fetchQueue` success path: `void fetchValidatorStats(statsDateBoundsRef.current).then(setStats).catch(() => {})`.
+- Stats now refresh after every queue load (accept, reject, archive, page change).
+
+**Encoder** (`src/frontend/src/app/dashboard/regional/page.tsx`):
+- Added `loadStatsRef` (a `useRef` that mirrors `loadStats`).
+- Inside `loadIncidents` success path: `void loadStatsRef.current().catch(() => {})`.
+- Stats now refresh after every incident list load (archive action, background 20 s poll, page change).
+
+The `useRef` pattern avoids adding `statsDateBounds`/`loadStats` to dep arrays, which would cause spurious re-fetches.
+
+#### Fix 14 — Restore banner appeared in import-correction mode
+
+**Files:** `src/frontend/src/components/IncidentForm.tsx`
+
+**Root cause:** `existingIncidentId` (used in edit mode) was `null` when correcting an imported AFOR row (`initialData` set, `existingIncidentId` null). The restore banner check only guarded on `existingIncidentId`, so it appeared and the autosave effect fired — overwriting the real create-mode draft in `localStorage`.
+
+Fix: all three guards now check both conditions:
+- Restore effect: `if (existingIncidentId || initialData) return;`
+- Autosave effect: `if (existingIncidentId || initialData) return;` + `initialData` added to deps.
+- Banner JSX: `{draftRestoreData && !existingIncidentId && !initialData && (...)}`
+
+#### Fix 15 — Encoder archive capability (new endpoint + UI)
+
+**Backend** (`src/backend/api/routes/regional.py`):
+New `PATCH /api/regional/incidents/{incident_id}/archive` endpoint (inserted before `/{id}/submit`):
+- Auth: `get_regional_encoder` — encoder must own the incident (`encoder_id` match).
+- Only accepts VERIFIED incidents (`is_archived = FALSE`). Returns 400 for any other status (DRAFT/REJECTED use the existing DELETE soft-delete endpoint).
+- Sets `is_archived = TRUE`, `archived_at = now()`, `updated_at = now()`.
+
+**Frontend** (`src/frontend/src/app/dashboard/regional/page.tsx`):
+- `doEncoderArchive(incidentId, e)` function: calls `PATCH /regional/incidents/{id}/archive`, then `loadIncidents()`.
+- `archiveError` state: shown in a dismissable banner above the incident list on failure.
+- Card view: "Archive" button at bottom-right of VERIFIED cards (hidden in archive view).
+- Table view: new "Actions" column header + Archive button cell for VERIFIED rows; `colSpan` on loading/empty states updated from 6 → 7 (normal) / 6 (archive view).
+
+#### Fix 16 — Resubmit transaction rollback on REJECTED incidents
+
+**File:** `src/backend/services/regional_incidents/lifecycle.py`
+
+**Root cause:** `submit_incident_for_review_command` unconditionally included `is_resubmitted = TRUE` in the UPDATE SQL when resubmitting a REJECTED incident. On containers where migration `40` had not been applied (all existing running containers), PostgreSQL raised `psycopg2.errors.UndefinedColumn` → caught by the broad `except Exception` → `db.rollback()` → 500 "Transaction rolled back".
+
+Fix: added `_lc_has_resubmitted_column(db)` helper (module-level `bool | None` cache, same pattern as the `regional.py` `_col_exists` cache). The `is_resubmitted = TRUE` SET clause is only emitted when the column exists:
+
+```python
+resubmitted_flag = (
+    "is_resubmitted = TRUE, "
+    if current_status == "REJECTED" and _lc_has_resubmitted_column(db)
+    else ""
+)
+```
+
+Works on both old containers (column absent → no flag, no crash) and new containers (column present → flag set, RESUBMITTED badge appears). Apply column to running containers:
+```
+docker compose exec -T postgres psql -U postgres -d wims -c "ALTER TABLE wims.fire_incidents ADD COLUMN IF NOT EXISTS is_resubmitted BOOLEAN NOT NULL DEFAULT FALSE;"
+```
+
+#### Fix 17 — Duplicate flagged immediately on submit (including force-submit)
+
+**File:** `src/backend/services/regional_incidents/lifecycle.py`
+
+**Root cause:** The duplicate-flagging block inside `submit_incident_for_review_command` was guarded by `if ack_duplicate and not already_flagged`. When the encoder clicked "Submit Anyway" (`force=true`, `ack_duplicate=false`), the block was skipped entirely — `is_duplicate` stayed `FALSE` — so the DUPLICATE badge and "Review" button in the validator queue only appeared after the validator clicked Accept and got a 409.
+
+Fix: condition changed to `if (ack_duplicate or force) and not already_flagged`. Both acknowledgement-submit and force-submit paths now:
+1. Run `check_for_duplicate()`.
+2. If a match is found, persist `is_duplicate = TRUE` and `duplicate_of = <matched_id>` before the status transition to PENDING.
+
+The validator queue immediately shows the DUPLICATE badge and purple "Review" button without any validator interaction.
+
+---
+
+#### Fix 18 — Stale duplicate flag on resubmit of REJECTED incidents
+
+**File:** `src/backend/services/regional_incidents/lifecycle.py`
+
+**Root cause:** `submit_incident_for_review_command` read `already_flagged` from the DB and used it as a gate for both the normal duplicate check (`if not force and not already_flagged`) and the force/ack flag-setting path (`if (ack_duplicate or force) and not already_flagged`). When a REJECTED incident had `is_duplicate = TRUE` from before:
+- `already_flagged = True`
+- Normal check: skipped (encoder gets no 409 even if incident is still a duplicate)
+- Force/ack path: skipped (flag stays stale)
+- Main UPDATE: only sets `verification_status = 'PENDING'` — `is_duplicate` never cleared
+- Validator queue: DUPLICATE badge shown even after encoder changed date, time, coordinates
+
+**Fix:**
+```python
+is_resubmission = current_status == "REJECTED"
+if is_resubmission:
+    already_flagged = False  # force fresh check; old flag is based on old data
+```
+
+And in the UPDATE:
+```python
+dup_clear_sql = (
+    "is_duplicate = FALSE, duplicate_of = NULL, "
+    if is_resubmission and matched_duplicate_id is None
+    else ""
+)
+```
+
+The fresh check raises 409 if the incident is still a near-duplicate; encoder can force-submit. If no duplicate, `is_duplicate` and `duplicate_of` are explicitly cleared before transitioning to PENDING.
+
+#### Fix 19 — Validator archive self-healed via startup patch
+
+**File:** `src/backend/main.py`
+
+**Root cause:** Migration `41_fix_immutable_rule_for_archive.sql` narrowed the `no_update_verified` PostgreSQL rule to allow `is_archived FALSE→TRUE` updates on VERIFIED rows. But `postgres-init/` scripts only run on first boot — existing running containers kept the old rule that silently swallowed the archive UPDATE.
+
+**Fix:** Added `@app.on_event("startup")` hook `apply_schema_patches()`. On every backend container restart, it:
+1. `DROP RULE IF EXISTS no_update_verified ON wims.fire_incidents`
+2. `CREATE RULE no_update_verified AS ON UPDATE ... WHERE (OLD.verification_status = 'VERIFIED' AND NEW.verification_status != 'REPLACED' AND NOT (NEW.is_archived = TRUE AND OLD.is_archived = FALSE)) DO INSTEAD NOTHING`
+3. Commits; logs the outcome
+
+The hook is idempotent and non-fatal (warning logged on failure). After any backend restart (`docker compose restart backend` or `up --build`), the rule is up to date — no manual `docker exec` required.
+
+---
+
+**Outstanding issues (updated):**
+
+| Issue | Severity | Notes |
+|-------|----------|-------|
+| `useSearchParams()` without Suspense in `/incidents/triage` and `/dashboard/analyst/[workflow]` | Low | Same pattern as the fixed afor pages — not yet reported crashing but at risk |
+| `M4-D`: AFOR import per-row duplicate decision UI | Deferred | Explicitly deferred from M4 milestone; `DuplicateResolutionModal` exists but per-row review UI in import flow is minimal |
+| `test_delete_pending_blocked` | Pre-existing | Backend DELETE allows deleting PENDING incidents (should block) |
+| Bulk approve atomicity | Pre-existing | No rollback on mid-batch failure |
+| Migration 40 (`is_resubmitted`) for running containers | Operational | Fresh Docker boots run it automatically; existing containers need: `docker compose exec -T postgres psql -U postgres -d wims -c "ALTER TABLE wims.fire_incidents ADD COLUMN IF NOT EXISTS is_resubmitted BOOLEAN NOT NULL DEFAULT FALSE;"` |
+
+**Recommended next steps:**
+1. **Restart the backend** to trigger `apply_schema_patches()` — this self-heals the archive rule: `docker compose restart backend`
+2. Apply `is_resubmitted` column if not already applied (see Fix 16 above).
+3. Smoke-test the full test plan in `PR.md`.
+4. Address the `useSearchParams()` pattern in `/incidents/triage` and analyst workflow pages.
+5. Consider implementing M4-D (per-row duplicate decision in AFOR import) as the next milestone item.

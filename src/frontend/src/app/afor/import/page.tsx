@@ -15,6 +15,7 @@ import {
 } from '@/lib/api';
 import { MapPicker } from '@/components/MapPicker';
 import { DuplicateResolutionModal } from '@/components/DuplicateResolutionModal';
+import { SectionDotNav, type SectionDotNavLink } from '@/components/SectionDotNav';
 import {
   FIELD_LABELS,
   fieldLabel,
@@ -25,6 +26,17 @@ import {
 import { useUserProfile } from '@/lib/auth';
 import { PH_REGIONS } from '@/lib/ph-regions';
 import { searchGeocode } from '@/lib/geocode';
+
+const AFOR_IMPORT_NAV_LINKS: readonly SectionDotNavLink[] = [
+  { id: 'afor-import-upload', label: 'Upload' },
+  { id: 'afor-import-location', label: 'Map Pin' },
+  { id: 'afor-import-summary', label: 'Summary' },
+  { id: 'afor-import-preview', label: 'Data Preview' },
+];
+
+const AFOR_IMPORT_UPLOAD_NAV_LINKS: readonly SectionDotNavLink[] = [
+  { id: 'afor-import-upload', label: 'Upload' },
+];
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type PersonnelOnDuty = Record<string, string | { name?: string; contact?: string }>;
@@ -489,6 +501,24 @@ function AforImportPage() {
     }
   }, [geoCoords, commitLatStr, commitLngStr]);
 
+  // Persist/restore previewData across page refreshes (e.g. after idle logout redirect)
+  useEffect(() => {
+    const raw = sessionStorage.getItem('wims:afor_import_draft');
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as AforImportPreviewResponse;
+      if (parsed?.rows) setPreviewData(parsed);
+    } catch { /* ignore corrupt data */ }
+  }, []);
+
+  useEffect(() => {
+    if (previewData) {
+      sessionStorage.setItem('wims:afor_import_draft', JSON.stringify(previewData));
+    } else {
+      sessionStorage.removeItem('wims:afor_import_draft');
+    }
+  }, [previewData]);
+
   useEffect(() => {
     if (searchParams.get('reset') === '1') {
       setFile(null);
@@ -496,6 +526,7 @@ function AforImportPage() {
       setError(null);
       setCommitLatStr('');
       setCommitLngStr('');
+      sessionStorage.removeItem('wims:afor_import_draft');
       geocodeTriggered.current = false;
     }
   }, [searchParams]);
@@ -594,6 +625,7 @@ function AforImportPage() {
     setCommitLatStr(String(lat));
     setCommitLngStr(String(lng));
   }, []);
+  const importNavLinks = previewData ? AFOR_IMPORT_NAV_LINKS : AFOR_IMPORT_UPLOAD_NAV_LINKS;
 
   const handleCommit = async () => {
     if (!previewData || previewData.valid_rows === 0) return;
@@ -686,12 +718,14 @@ function AforImportPage() {
     setCommitLngStr('');
     setCommittedIds([]);
     geocodeTriggered.current = false;
+    sessionStorage.removeItem('wims:afor_import_draft');
     // Reset the DOM file input so the same file can be re-selected after an error/cancel
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
+      <SectionDotNav links={importNavLinks} ariaLabel="AFOR import sections" />
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
@@ -769,7 +803,7 @@ function AforImportPage() {
       )}
 
       {!previewData ? (
-        <div className="card p-8">
+        <div id="afor-import-upload" className="card scroll-mt-24 p-8">
           <div
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleFileDrop}
@@ -827,7 +861,7 @@ function AforImportPage() {
 
           {/* FIX 9: Location picker with geocoding */}
           {requiresLocation && (
-            <div className="card p-4 space-y-3">
+            <div id="afor-import-location" className="card scroll-mt-24 p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
                   Incident location (WGS84)
@@ -872,7 +906,7 @@ function AforImportPage() {
           )}
 
           {/* Summary cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div id="afor-import-summary" className="scroll-mt-24 grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="card p-4 flex items-center justify-between" style={{ borderLeft: '4px solid #3b82f6' }}>
               <div>
                 <p className="text-xs uppercase font-bold text-gray-500">Total Rows</p>
@@ -897,7 +931,7 @@ function AforImportPage() {
           </div>
 
           {/* Data preview table */}
-          <div className="card">
+          <div id="afor-import-preview" className="card scroll-mt-24">
             <div className="card-header flex items-center justify-between p-4 border-b">
               <span className="font-bold">Data Preview</span>
               <div className="flex gap-2">

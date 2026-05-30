@@ -16,6 +16,7 @@ import {
 } from '@/lib/api';
 import dynamic from 'next/dynamic';
 import { UpdateRequestDiffPanel } from '@/components/UpdateRequestDiffPanel';
+import { IncidentDiffPanel } from '@/components/IncidentDiffPanel';
 import type { Incident } from '@/lib/edgeFunctions';
 import { getShortRegionName } from '@/lib/ph-regions';
 
@@ -74,18 +75,23 @@ const SECTION_TONES: Record<SectionTone, { section: string; header: string; acce
 };
 
 const SECTION_NAV_LINKS = [
-  ['sec-response', 'Response'],
-  ['sec-class', 'Classification'],
-  ['sec-affected', 'Affected Counts'],
-  ['sec-resources', 'Resources'],
-  ['sec-timeline', 'Timeline'],
-  ['sec-casualties', 'Casualties'],
-  ['sec-pod', 'Personnel'],
-  ['sec-geo', 'Location'],
-  ['sec-narrative', 'Narrative'],
-  ['sec-problems', 'Problems'],
-  ['sec-rec', 'Recommendations'],
+  { id: 'sec-response', label: 'Response', observedIds: ['sec-response'] },
+  { id: 'sec-class', label: 'Classification', observedIds: ['sec-class'] },
+  { id: 'sec-affected-assets-nav', label: 'Affected & Assets', observedIds: ['sec-affected', 'sec-resources'] },
+  { id: 'sec-timeline', label: 'Timeline', observedIds: ['sec-timeline'] },
+  { id: 'sec-casualties', label: 'Casualties', observedIds: ['sec-casualties'] },
+  { id: 'sec-pod', label: 'Personnel', observedIds: ['sec-pod'] },
+  { id: 'sec-geo', label: 'Location', observedIds: ['sec-geo'] },
+  { id: 'sec-narrative', label: 'Narrative', observedIds: ['sec-narrative'] },
+  { id: 'sec-problems', label: 'Problems & Recommendations', observedIds: ['sec-problems', 'sec-rec'] },
 ] as const;
+
+const SECTION_OBSERVER_ID_TO_NAV_ID = SECTION_NAV_LINKS.reduce<Record<string, string>>((acc, link) => {
+  link.observedIds.forEach((id) => {
+    acc[id] = link.id;
+  });
+  return acc;
+}, {});
 
 function formatDetailValue(value: unknown): string {
   if (value === null || value === undefined) return '—';
@@ -430,16 +436,20 @@ export default function RegionalIncidentDetailPage() {
   const [showMissingFieldsModal, setShowMissingFieldsModal] = useState(false);
   const [missingFieldsList, setMissingFieldsList] = useState<string[]>([]);
   const [missingFieldKeys, setMissingFieldKeys] = useState<string[]>([]);
-  const [activeSectionId, setActiveSectionId] = useState<string>(SECTION_NAV_LINKS[0][0]);
+  const [activeSectionId, setActiveSectionId] = useState<string>(SECTION_NAV_LINKS[0].id);
 
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
   const isValidator = role === 'NATIONAL_VALIDATOR' || role === 'VALIDATOR';
+  const dashboardHref = isValidator ? '/dashboard/validator' : '/dashboard/regional';
+  const dashboardLabel = isValidator ? 'Back to Validator Dashboard' : 'Back to Regional Dashboard';
 
   // Validator action state
   const [validatorAction, setValidatorAction] = useState<'accept' | 'pending' | 'reject' | null>(null);
   const [validatorNotes, setValidatorNotes] = useState('');
   const [validatorLoading, setValidatorLoading] = useState(false);
   const [validatorError, setValidatorError] = useState<string | null>(null);
+  const [showAcceptConfirm, setShowAcceptConfirm] = useState(false);
+  const [showAcceptConfirmDiff, setShowAcceptConfirmDiff] = useState(false);
   const [validatorDupMatchedId, setValidatorDupMatchedId] = useState<number | null>(null);
   const dupAutoShownRef = useRef(false);
   const pendingSubmitOnceRef = useRef(false);
@@ -477,8 +487,8 @@ export default function RegionalIncidentDetailPage() {
 
   useEffect(() => {
     if (!detail || isEditing) return;
-    const sections = SECTION_NAV_LINKS
-      .map(([id]) => document.getElementById(id))
+    const sections = Object.keys(SECTION_OBSERVER_ID_TO_NAV_ID)
+      .map((id) => document.getElementById(id))
       .filter((section): section is HTMLElement => Boolean(section));
     if (!sections.length) return;
 
@@ -487,8 +497,9 @@ export default function RegionalIncidentDetailPage() {
         const visible = entries
           .filter((entry) => entry.isIntersecting)
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-        if (visible?.target.id) {
-          setActiveSectionId(visible.target.id);
+        const navId = visible?.target.id ? SECTION_OBSERVER_ID_TO_NAV_ID[visible.target.id] : null;
+        if (navId) {
+          setActiveSectionId(navId);
         }
       },
       { rootMargin: '-20% 0px -65% 0px', threshold: [0.1, 0.25, 0.5] },
@@ -497,6 +508,10 @@ export default function RegionalIncidentDetailPage() {
     sections.forEach((section) => observer.observe(section));
     return () => observer.disconnect();
   }, [detail, isEditing]);
+
+  const scrollToReportSection = useCallback((sectionId: string) => {
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
 
   // Poll every 30 s while the incident is PENDING — alert the encoder if the validator acts.
   useEffect(() => {
@@ -782,6 +797,28 @@ export default function RegionalIncidentDetailPage() {
 
   return (
     <div className="space-y-6">
+      {!loading && !error && detail && (
+        <>
+          <Link
+            href={dashboardHref}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-700/40 md:hidden"
+            aria-label="Back to Regional Dashboard"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden />
+            Back to Dashboard
+          </Link>
+          <Link
+            href={dashboardHref}
+            className="group fixed top-[45vh] z-40 hidden h-44 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-r-full border border-l-0 border-slate-200 bg-white/90 text-slate-600 shadow-md backdrop-blur transition-all duration-200 ease-out hover:w-12 hover:border-red-200 hover:bg-red-50/80 hover:text-red-800 hover:shadow-xl focus:outline-none focus-visible:w-12 focus-visible:ring-2 focus-visible:ring-red-700/50 md:flex"
+            style={{ left: 'calc(var(--sidebar-width) + 1rem)' }}
+            aria-label="Back to Regional Dashboard"
+            title="Back to Regional Dashboard"
+          >
+            <ArrowLeft className="h-5 w-5 shrink-0 transition-transform duration-200 motion-safe:group-hover:-translate-x-0.5 motion-safe:group-focus-visible:-translate-x-0.5" aria-hidden />
+          </Link>
+        </>
+      )}
+
       {/* Region mismatch modal */}
       {regionMismatchMsg && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -1033,11 +1070,11 @@ export default function RegionalIncidentDetailPage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 space-y-3">
             <Link
-              href={isValidator ? '/dashboard/validator' : '/dashboard/regional'}
+              href={dashboardHref}
               className="inline-flex items-center gap-2 rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-950"
             >
               <ArrowLeft className="h-4 w-4" aria-hidden />
-              {isValidator ? 'Back to Validator Dashboard' : 'Back to Regional Dashboard'}
+              {dashboardLabel}
             </Link>
             {detail ? (
               <div>
@@ -1217,17 +1254,21 @@ export default function RegionalIncidentDetailPage() {
             className="fixed right-6 top-1/2 z-30 hidden -translate-y-1/2 flex-col gap-3 xl:flex 2xl:right-8"
             aria-label="Incident report sections"
           >
-            {SECTION_NAV_LINKS.map(([href, label]) => (
+            {SECTION_NAV_LINKS.map(({ id, label }) => (
               <a
-                key={href}
-                href={`#${href}`}
+                key={id}
+                href={`#${id}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  scrollToReportSection(id);
+                }}
                 aria-label={label}
                 title={label}
                 className="group relative flex h-8 w-8 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-red-700/40"
               >
                 <span
                   className={`h-3.5 w-3.5 rounded-full border shadow-sm transition-all duration-200 motion-safe:group-hover:scale-125 motion-safe:group-focus:scale-125 ${
-                    activeSectionId === href
+                    activeSectionId === id
                       ? 'border-red-800 bg-red-800 ring-4 ring-red-100'
                       : 'border-slate-400 bg-white group-hover:border-red-700 group-focus:border-red-700 group-hover:bg-red-50 group-focus:bg-red-50'
                   }`}
@@ -1291,6 +1332,7 @@ export default function RegionalIncidentDetailPage() {
           </Section>
 
           <Section title="C. Affected Counts" sectionId="sec-affected" tone="amber" subtitle="Reported counts affected by the incident.">
+            <div id="sec-affected-assets-nav" className="scroll-mt-24" aria-hidden />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <MetricCard label={FIELD_LABELS.structures_affected} value={ns?.structures_affected} />
               <MetricCard label={FIELD_LABELS.households_affected} value={ns?.households_affected} />
@@ -1439,11 +1481,11 @@ export default function RegionalIncidentDetailPage() {
                   {validatorAction !== 'reject' && (
                     <>
                       <button
-                        onClick={() => void submitValidatorAction({ action: 'accept' })}
+                        onClick={() => { setShowAcceptConfirm(true); setShowAcceptConfirmDiff(false); }}
                         disabled={validatorLoading || detail?.verification_status === 'VERIFIED' || detail?.verification_status === 'REJECTED'}
                         className="px-4 py-2 text-sm rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
-                        {validatorLoading && validatorAction === null ? 'Checking…' : 'Accept'}
+                        Accept
                       </button>
                       <button
                         onClick={() => setValidatorAction('reject')}
@@ -1486,6 +1528,48 @@ export default function RegionalIncidentDetailPage() {
             </section>
           )}
         </>
+      )}
+
+      {/* ── Accept confirmation modal ── */}
+      {showAcceptConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-lg font-semibold mb-1 text-gray-900">Confirm Acceptance</h2>
+            <p className="text-sm mb-4 text-gray-500">
+              Incident #{incidentId} — verify the details before confirming.
+            </p>
+            <button
+              onClick={() => setShowAcceptConfirmDiff((v) => !v)}
+              className="text-sm font-medium underline mb-4 block text-red-700"
+            >
+              {showAcceptConfirmDiff ? 'Hide' : 'View'} revision history
+            </button>
+            {showAcceptConfirmDiff && (
+              <div className="mb-4">
+                <IncidentDiffPanel incidentId={incidentId} />
+              </div>
+            )}
+            <div className="flex justify-end gap-3 mt-2">
+              <button
+                onClick={() => { setShowAcceptConfirm(false); setShowAcceptConfirmDiff(false); }}
+                className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowAcceptConfirm(false);
+                  setShowAcceptConfirmDiff(false);
+                  void submitValidatorAction({ action: 'accept' });
+                }}
+                disabled={validatorLoading}
+                className="px-4 py-2 text-sm rounded-lg text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
+              >
+                Confirm Accept
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

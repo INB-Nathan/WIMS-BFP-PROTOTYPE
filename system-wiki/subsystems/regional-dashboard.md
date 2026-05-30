@@ -1,7 +1,7 @@
 ---
 title: Regional Dashboard
 created: 2026-05-16
-updated: 2026-05-28
+updated: 2026-05-30
 type: operation
 tags: [wims-bfp, regional, encoder, dashboard, incident-workflow, afor]
 sources: [src/frontend/src/app/dashboard/regional/page.tsx, src/frontend/src/app/dashboard/regional/audit/page.tsx, src/frontend/src/app/dashboard/regional/drafts/page.tsx, src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx, src/backend/api/routes/regional.py]
@@ -42,12 +42,12 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 - Columns: Date, Classification (with wildland badge), Station, Location, Last Modified, Status
 - Filters: Classification dropdown (from `REGIONAL_INCIDENT_GENERAL_CATEGORIES`), Verification Status chips, Per-page size selector, and right-aligned date controls. The date controls include Today/This Week/This Month/This Year/Specific Date/All Time, an always-visible calendar date picker for a specific modified date, and an explicit Apply Date action that stays disabled until a complete valid date is entered. Specific-date state starts empty on dashboard load and is cleared whenever a preset date period is selected. The frontend no longer exposes the Date of Fire date-basis toggle; regional filtering defaults to Date Modified and the calendar draft no longer refetches until applied.
 - Default list scope is Today by Date Modified; Today, Specific Date, and any result set with 6 or fewer total incidents render incident cards with status-coloured 1px borders (green verified, red rejected, gray draft, warm yellow pending), softened metadata, primary fire time/location hierarchy, grouped secondary fields, separate district/city fields, combined caller/reporter/contact, paired classification/category, extent of damage, and compact affected-count chips. Wider result sets keep the compact table layout.
-- Pagination: Prev/Next buttons, page X of Y display, configurable page sizes
+- Pagination: Prev/Next buttons, page X of Y display, configurable page sizes, and a bottom-row "See Archive" button that switches the workload list to archived incidents.
 - Status badges: green (`VERIFIED`), red (`REJECTED`), yellow (everything else)
 - Summary category cards aggregate legacy/current category aliases, including `VEHICULAR` + `TRANSPORTATION`, so counts match incident rows after backend category normalization.
-- Empty state: "No incidents match the current filters" or error banner
-- Rows/cards are keyboard-focusable/clickable; a delayed floating "Click to view" bubble appears after hover and disappears on mouse movement or leave instead of using permanent Open text/actions.
-- Rejected workload UX: the alert is dismissible, its "Show rejected" action clears classification/date filters and switches date scope to All Time, and the Rejected status chip carries a red count badge.
+- Empty state: centered "No incidents found" guidance with a BFP-red "Search All Time" button that switches the list date filter to All Time.
+- Rows/cards are keyboard-focusable/clickable; a delayed floating "Click to view" bubble appears after hover and disappears on mouse movement or leave instead of using permanent Open text/actions. Archive-view rows/cards now open the same incident detail route instead of 404ing, because archived records are allowed through the role-scoped detail query.
+- Rejected workload UX: the alert is dismissible, its "Show rejected" action clears classification/date filters and switches date scope to All Time, and the Rejected status chip carries a red count badge. When switching away from Rejected or Drafts, an inherited All Time date scope is reset to Today so broad date ranges do not leak into normal workload views.
 
 **Wildland Fire Classifications** — conditionally rendered when `stats.wildland_total > 0`:
 
@@ -58,6 +58,10 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 - Manual Entry -> `/afor/create`
 - Import AFOR -> `/afor/import`
 - Refresh (with spinning icon during load)
+
+### Manual Entry / Import Review Navigation
+
+`src/frontend/src/components/SectionDotNav.tsx` provides reusable fixed right-side dot navigation with scroll-spy labels and smooth-scroll click behavior. It is used by `IncidentForm.tsx` for structural manual entry and edit mode, `WildlandAforManualForm.tsx` for wildland manual entry and import correction handoff, and `/afor/import` for upload, map pin, summary, and data-preview workflow sections.
 
 ### Activity Log — `/dashboard/regional/audit`
 
@@ -87,9 +91,9 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 
 - Full incident detail view with formal report-style read-only presentation plus editable `IncidentForm`.
 - Read-only layout:
-  - Compact header with back link, incident/reference title, status badge, created metadata, and encoder actions (Edit, Withdraw, Delete, Submit/Resubmit) using clearer button hierarchy.
+  - Compact header with back link, incident/reference title, status badge, created metadata, and encoder actions (Edit, Withdraw, Delete, Submit/Resubmit) using clearer button hierarchy. A desktop-only fixed left-edge back tab uses `calc(var(--sidebar-width) + 1rem)` so it sits immediately to the right of the authenticated sidebar; it is an icon-only vertical pill with smooth width/shadow/tint hover states and is replaced by a normal top button on smaller screens.
   - Top incident summary panel for notification date/time, fire station, classification, category/type, alarm level, location, and complete address. Status is intentionally only shown in the page header.
-  - Desktop-only vertical dot section navigation for Response, Classification, Affected Counts, Resources, Timeline, Casualties, Personnel, Location, Narrative, Problems, and Recommendations. Dots use larger click targets, hover/focus animation, labels, and sit against the right viewport margin with enough offset to avoid overlapping the report body.
+  - Desktop-only vertical dot section navigation for Response, Classification, Affected & Assets, Timeline, Casualties, Personnel, Location, Narrative, and Problems & Recommendations. Dots use larger click targets, smooth-scroll click behavior, hover/focus animation, labels, and sit against the right viewport margin with enough offset to avoid overlapping the report body.
   - Section cards use softened rounded surfaces, cohesive low-saturation header tints, muted labels, dark values, responsive definition-list grids, report-style long-text blocks, compact affected-count stat cells, and cleaner tables for engines/units, alarm timeline, casualties, and other personnel.
   - Formatted operational date/time values show explicit `(24H)` indicators where the detail page formats times.
   - **Incident Location Map** via `MapPickerInner` with detail zoom (320px height), now wrapped in the detail card with latitude/longitude still visible.
@@ -117,9 +121,11 @@ All in `src/backend/api/routes/regional.py` (~5050 lines). This is the largest r
 | `GET` | `/api/regional/incidents` | `get_regional_incidents` | Paginated; filters by category, status, `date_from`, `date_to`, and `date_basis` (`modified` or `fire`); returns region-scoped via RLS; includes wildland type flag and card summary fields; hides deterministic `AFOR-SEED-*` demo incidents from encoder workload views |
 | `GET` | `/api/regional/incidents/drafts` | `list_encoder_drafts` | Returns DRAFT incidents owned by the current encoder |
 | `GET` | `/api/regional/incidents/check-duplicate` | `check_incident_duplicate` | Runs duplicate detection within 1km radius + 3 matching fields threshold |
-| `GET` | `/api/regional/incidents/{incident_id}` | `get_regional_incident_detail` | Full incident detail with all related tables (nonsensitive, sensitive, wildland, responding units, involved parties, operational challenges) |
+| `GET` | `/api/regional/incidents/{incident_id}` | `get_regional_incident_detail` | Full incident detail with all related tables (nonsensitive, sensitive, wildland, responding units, involved parties, operational challenges); includes archived records for authorized encoder/validator archive review |
 | `POST` | `/api/regional/incidents` | `create_incident` | Creates incident + nonsensitive/sensitive details + writes hash + syncs analytics |
 | `PUT` | `/api/regional/incidents/{incident_id}` | `update_incident` | Updates incident details; checks verification status before edit; re-hashes |
+| `PATCH` | `/api/regional/incidents/{incident_id}/archive` | `encoder_archive_incident` | Soft-archives a VERIFIED incident owned by the encoder |
+| `PATCH` | `/api/regional/incidents/{incident_id}/unarchive` | `encoder_unarchive_incident` | Restores an archived VERIFIED incident owned by the encoder |
 | `DELETE` | `/api/regional/incidents/draft/{incident_id}` | `delete_draft` | Soft-deletes a DRAFT incident |
 | `PATCH` | `/api/regional/incidents/draft/{incident_id}` | `update_draft` | Updates only DRAFT-status incident |
 | `PATCH` | `/api/regional/incidents/{incident_id}/submit` | `submit_incident_for_review` | Changes status to `PENDING_VALIDATION`; audits |
@@ -150,7 +156,8 @@ All in `src/backend/api/routes/regional.py` (~5050 lines). This is the largest r
 The Phase 3 architecture refactor moved selected official incident transition behavior out of `regional.py` and into a backend service Module:
 
 - `policies.py` defines encoder and validator transition matrices.
-- `lifecycle.py` owns submit, unpend, delete, force-replace pending, validator decision, bulk approve, and archive finalized commands.
+- `lifecycle.py` owns submit, unpend, delete, force-replace pending, validator decision, bulk approve, archive finalized, and unarchive finalized commands.
+- The PostgreSQL verified-row immutability rule is patched in both `src/postgres-init/41_fix_immutable_rule_for_archive.sql` and backend startup schema repair so `is_archived` may move `FALSE -> TRUE` and `TRUE -> FALSE` while other VERIFIED updates remain blocked.
 - `regional.py` still owns FastAPI auth dependencies, RLS session dependency injection, request models, response plumbing, and read/query endpoints.
 
 Compatibility decision: encoder submit still writes `PENDING`; validator queue defaults include both `PENDING` and `PENDING_VALIDATION`.

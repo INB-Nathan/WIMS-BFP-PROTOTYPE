@@ -51,7 +51,13 @@ function CallbackContent() {
                 // and UserProfileProvider keeps assignedRegionId=null (region lock
                 // in IncidentForm never fires, bypassing RBAC enforcement).
                 await Promise.all([refreshSession(), refreshProfile()]);
-                router.push('/dashboard');
+                const savedRedirect = sessionStorage.getItem('wims:redirect_after_login');
+                if (savedRedirect) {
+                    sessionStorage.removeItem('wims:redirect_after_login');
+                    router.push(savedRedirect);
+                } else {
+                    router.push('/dashboard');
+                }
             } catch (err) {
                 console.error('Callback error:', err);
                 setError(err instanceof Error ? err.message : 'Callback failed');
