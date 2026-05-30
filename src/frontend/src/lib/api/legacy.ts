@@ -150,6 +150,16 @@ export async function fetchSystemHealth(): Promise<unknown> {
   return apiFetch('/admin/health');
 }
 
+/** Fetch system resource metrics (admin) - GET /admin/monitoring/system */
+export async function fetchSystemMetrics(): Promise<unknown> {
+  return apiFetch('/admin/monitoring/system');
+}
+
+/** Fetch Celery worker status (admin) - GET /admin/monitoring/workers */
+export async function fetchWorkerStatus(): Promise<unknown> {
+  return apiFetch('/admin/monitoring/workers');
+}
+
 /** Revoke user's sessions (admin) - POST /admin/users/{userId}/logout */
 export async function revokeUserSessions(userId: string): Promise<{ status: string }> {
   return apiFetch(`/admin/users/${userId}/logout`, { method: 'POST' });

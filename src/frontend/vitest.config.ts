@@ -9,7 +9,9 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
     alias: {
-      '@': path.resolve(__dirname, './src')
+      '@': path.resolve(__dirname, './src'),
+      'firebase/app': path.resolve(__dirname, './src/test/__mocks__/firebase-app.ts'),
+      'firebase/messaging': path.resolve(__dirname, './src/test/__mocks__/firebase-app.ts'),
     }
   }
 })

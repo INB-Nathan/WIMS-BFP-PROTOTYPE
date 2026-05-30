@@ -9,6 +9,8 @@ export {
   fetchMyProfile,
   fetchSecurityLogs,
   fetchSystemHealth,
+  fetchSystemMetrics,
+  fetchWorkerStatus,
   fetchUserSessions,
   revokeUserSessions,
   terminateUserSessions,

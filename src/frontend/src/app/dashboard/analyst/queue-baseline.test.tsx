@@ -494,6 +494,9 @@ describe('Analyst dashboard — AQ-13: Cross-region comparison view', () => {
       expect(mockFetchHeatmapData).toHaveBeenCalled();
     });
 
+    await waitFor(() =>
+      expect(screen.getByText('NCR (NCR)')).toBeInTheDocument()
+    );
     await user.selectOptions(screen.getByLabelText(/^region$/i), '1');
     await user.click(screen.getByRole('button', { name: /^apply$/i }));
 
