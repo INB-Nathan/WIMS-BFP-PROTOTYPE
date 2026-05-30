@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { MapPicker } from '@/components/MapPicker';
+import { PublicFireMap } from '@/components/PublicFireMap';
 import { fetchCivilianDuplicateSuggestions, submitCivilianReportV2, appendCivilianReport } from '@/lib/api';
 import type { CivilianCategory, CivilianDuplicateSuggestion, CivilianReportV2Payload, ReportingContext, SafetyStatus } from '@/lib/api';
 import React from 'react';
@@ -261,8 +262,21 @@ function SubCategoryGrid({ options, selected, onSelect }: { options: { value: st
 }
 
 function GpsMismatchModal({ pinDist, onConfirm, onCancel }: { pinDist: number; onConfirm: () => void; onCancel: () => void }) {
+  // Trap Escape key to close modal
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onCancel();
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+    >
       <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
         <div className="flex items-center gap-3 mb-4">
           <AlertTriangle className="w-6 h-6 text-yellow-500 flex-shrink-0" />
@@ -973,7 +987,13 @@ export default function ReportPage() {
             <>
               {/* SECONDHAND challenge modal */}
               {gpsChallengeOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
+                <div
+                  className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                  style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+                  onClick={(e) => { if (e.target === e.currentTarget) setGpsChallengeOpen(false); }}
+                  onKeyDown={(e) => { if (e.key === 'Escape') setGpsChallengeOpen(false); }}
+                  tabIndex={-1}
+                >
                   <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
                     <div className="flex items-center gap-3 mb-4">
                       <MapPin className="w-6 h-6 text-yellow-500 flex-shrink-0" />
@@ -1206,6 +1226,24 @@ export default function ReportPage() {
                   )}
                 </div>
               )}
+
+              {/* ── Public map: show nearby fire clusters ───────────────── */}
+              <div className="mt-2">
+                <p className="text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                  Nearby fire activity / Mga kalapit na sunog
+                </p>
+                <PublicFireMap
+                  height={200}
+                  zoom={11}
+                  selectionMode={false}
+                  onGeolocationAvailable={(lat, lng) => {
+                    // Pass geolocation to parent report flow
+                    if (geo.latitude === null) {
+                      handlePinChange(lat, lng);
+                    }
+                  }}
+                />
+              </div>
 
               <button
                 type="button"

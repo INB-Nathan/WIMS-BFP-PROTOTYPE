@@ -968,7 +968,7 @@ def get_compare_regions(
     ]
 
 
-VALID_TOP_N_METRICS = ("incidents", "response_time", "casualties")
+VALID_TOP_N_METRICS = ("incidents", "response_time", "casualties", "damage_cost")
 VALID_TOP_N_DIMENSIONS = {
     "fire_station": "a.fire_station_name",
     "region": "a.region_id::text",
@@ -1005,6 +1005,8 @@ def get_top_n(
         agg_expr = "COUNT(*) AS value"
     elif metric == "response_time":
         agg_expr = "AVG(a.total_response_time_minutes) AS value"
+    elif metric == "damage_cost":
+        agg_expr = "SUM(a.estimated_damage_php) AS value"
     else:  # casualties
         agg_expr = "SUM(a.civilian_deaths + a.civilian_injured + a.firefighter_deaths + a.firefighter_injured) AS value"
 

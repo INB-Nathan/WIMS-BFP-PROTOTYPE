@@ -448,13 +448,20 @@ export default function ValidatorDashboard() {
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex items-baseline justify-between mb-1">
         <h1 className="text-2xl font-bold">Validator Queue</h1>
-        <Link
-          href="/dashboard/validator/audit"
-          className="text-sm font-medium text-blue-700 hover:text-blue-900"
-        >
-          Audit Trail →
-        </Link>
-      </div>
+        <div className="flex items-center gap-4">
+          <Link
+            href="/dashboard/validator/map"
+            className="text-sm font-medium text-blue-700 hover:text-blue-900"
+          >
+            Operational Map →
+          </Link>
+          <Link
+            href="/dashboard/validator/audit"
+            className="text-sm font-medium text-blue-700 hover:text-blue-900"
+          >
+            Audit Trail →
+          </Link>
+        </div>
       <p className="text-gray-500 text-sm mb-6">
         Encoder-submitted incidents from all regions awaiting review.
       </p>

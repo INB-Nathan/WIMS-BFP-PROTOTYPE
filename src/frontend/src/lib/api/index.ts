@@ -14,3 +14,4 @@ export * from './civilian';
 export * from './reference';
 export * from './regional';
 export * from './triage';
+export * from './map';

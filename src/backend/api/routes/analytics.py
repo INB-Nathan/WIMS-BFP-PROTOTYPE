@@ -440,7 +440,7 @@ def compare_regions_route(
 def top_n_route(
     _user: Annotated[dict, Depends(get_analyst_or_admin)],
     db: Annotated[Session, Depends(get_db_with_rls)],
-    metric: str = Query(..., pattern="^(incidents|response_time|casualties)$"),
+    metric: str = Query(..., pattern="^(incidents|response_time|casualties|damage_cost)$"),
     dimension: str = Query(..., pattern="^(fire_station|region|municipality)$"),
     limit: int = Query(10, ge=1, le=50),
     start_date: Optional[str] = None,

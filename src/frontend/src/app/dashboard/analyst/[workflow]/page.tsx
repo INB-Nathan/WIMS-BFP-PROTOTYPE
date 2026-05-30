@@ -183,7 +183,7 @@ function MetricTile({ label, value, detail }: { label: string; value: string; de
   );
 }
 
-function TopNTable({ data }: { data: TopNItem[] }) {
+function TopNTable({ data, metric }: { data: TopNItem[]; metric: string }) {
   if (data.length === 0) {
     return <p className="text-sm text-gray-500">No ranked data matches the active filters.</p>;
   }
@@ -192,6 +192,16 @@ function TopNTable({ data }: { data: TopNItem[] }) {
     <div className="space-y-3">
       {data.map((item, index) => {
         const width = Math.max(6, (Number(item.value || 0) / max) * 100);
+        let displayValue: string;
+        if (typeof item.value !== 'number') {
+          displayValue = String(item.value ?? '—');
+        } else if (metric === 'damage_cost') {
+          displayValue = `₱${item.value.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+        } else if (metric === 'response_time') {
+          displayValue = `${item.value.toFixed(1)} min`;
+        } else {
+          displayValue = item.value.toLocaleString('en-PH', { maximumFractionDigits: 0 });
+        }
         return (
           <div key={`${item.name}-${index}`} className="grid grid-cols-[2rem_1fr_5rem] items-center gap-3 text-sm">
             <span className="font-semibold text-gray-500">{index + 1}</span>
@@ -203,9 +213,7 @@ function TopNTable({ data }: { data: TopNItem[] }) {
                 <div className="h-full rounded-full bg-red-700" style={{ width: `${width}%` }} />
               </div>
             </div>
-            <span className="text-right font-bold text-gray-900">
-              {typeof item.value === 'number' ? item.value.toFixed(1) : item.value}
-            </span>
+            <span className="text-right font-bold text-gray-900">{displayValue}</span>
           </div>
         );
       })}
@@ -631,6 +639,7 @@ export default function AnalystWorkflowPage() {
                   <option value="incidents">Incidents</option>
                   <option value="response_time">Response Time</option>
                   <option value="casualties">Casualties</option>
+                  <option value="damage_cost">Damage Cost (PHP)</option>
                 </select>
               </FilterField>
               <FilterField label="Dimension">
@@ -731,7 +740,7 @@ export default function AnalystWorkflowPage() {
 
       {workflow === 'top-n' && (
         <Panel title="Ranked Results" icon={<ListChecks className="h-5 w-5" />} description="The ranked result uses /analytics/top-n with the selected metric and dimension.">
-          <TopNTable data={topNData ?? []} />
+          <TopNTable data={topNData ?? []} metric={topNMetric} />
         </Panel>
       )}
 

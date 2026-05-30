@@ -663,7 +663,7 @@ class TestPhase4Extensions:
         """Top-N must support incidents, response_time, casualties metrics."""
         mock_db = _set_analyst(client)
         mock_db.execute.return_value.fetchall.return_value = []
-        for metric in ("incidents", "response_time", "casualties"):
+        for metric in ("incidents", "response_time", "casualties", "damage_cost"):
             response = client.get(
                 "/api/analytics/top-n",
                 params={
