@@ -10,6 +10,8 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from services.event_bus import publish_security_event
+
 OLLAMA_MODEL = "qwen2.5:3b"
 
 
@@ -81,6 +83,14 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
         {"narrative": narrative, "confidence": confidence, "log_id": log_id},
     )
     db.commit()
+
+    # Publish security event
+    await publish_security_event(
+        "security.ai_analysis_complete",
+        log_id=log_id,
+        severity=row[5],
+        extra={"xai_confidence": confidence},
+    )
 
     return {
         "log_id": row[0],

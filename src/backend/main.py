@@ -52,6 +52,8 @@ from api.routes import (
 )
 from api.routes.public_dmz import router as public_dmz_router
 from api.routes.user import router as user_profile_router
+from api.routes.map import router as public_map_router, operational_router as validator_map_router
+from api.routes.events import router as events_router
 
 # WIMS roles in precedence order (highest first). Used when resolving from Keycloak JWT.
 WIMS_ROLES_FROM_KEYCLOAK = (
@@ -98,6 +100,9 @@ app.include_router(regional.router)
 app.include_router(analytics.router)
 app.include_router(ref.router)  # GET /api/ref/regions, /api/ref/provinces, /api/ref/cities
 app.include_router(public_dmz_router)  # POST /api/v1/public/report (no-auth DMZ)
+app.include_router(public_map_router)  # GET /api/public/clusters, /api/public/emergency-services
+app.include_router(events_router)  # GET /api/events/stream (SSE real-time notifications)
+app.include_router(validator_map_router)  # GET /api/validator/operational-map (auth)
 
 logger = logging.getLogger("wims.rate_limit")
 
