@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { MapPicker } from '@/components/MapPicker';
+import { PublicFireMap } from '@/components/PublicFireMap';
 import { fetchCivilianDuplicateSuggestions, submitCivilianReportV2, appendCivilianReport } from '@/lib/api';
 import type { CivilianCategory, CivilianDuplicateSuggestion, CivilianReportV2Payload, ReportingContext, SafetyStatus } from '@/lib/api';
 import React from 'react';
@@ -19,7 +20,6 @@ import {
   Clock,
   Flame,
   HelpCircle,
-  Info,
   Locate,
   MapPin,
   PhoneCall,
@@ -31,7 +31,8 @@ import {
   Zap,
 } from 'lucide-react';
 import { CalmEmergencyBlock } from './CalmEmergencyBlock';
-
+import { NearbyPublicReportAreas } from '@/components/NearbyPublicReportAreas';
+import { EmergencyReferenceCard } from '@/components/EmergencyReferenceCard';
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const GPS_TIMEOUT_MS = 10_000;
@@ -91,6 +92,11 @@ interface GeoState {
   source: 'gps' | 'pin' | null;
   denied: boolean;
   timedOut: boolean;
+}
+
+interface FireLocation {
+  latitude: number;
+  longitude: number;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -261,8 +267,21 @@ function SubCategoryGrid({ options, selected, onSelect }: { options: { value: st
 }
 
 function GpsMismatchModal({ pinDist, onConfirm, onCancel }: { pinDist: number; onConfirm: () => void; onCancel: () => void }) {
+  // Trap Escape key to close modal
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onCancel();
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+    >
       <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
         <div className="flex items-center gap-3 mb-4">
           <AlertTriangle className="w-6 h-6 text-yellow-500 flex-shrink-0" />
@@ -308,6 +327,7 @@ export default function ReportPage() {
   const [gpsWarningConfirmed, setGpsWarningConfirmed] = useState(false);
 
   const [geo, setGeo] = useState<GeoState>({ latitude: null, longitude: null, source: null, denied: false, timedOut: false });
+  const [fireLocation, setFireLocation] = useState<FireLocation | null>(null);
   const [phoneGeo, setPhoneGeo] = useState<{ lat: number; lng: number } | null>(null);
   // Tracks GPS permission/timeout state for phone — kept separate from the pin geo
   const [phoneGeoStatus, setPhoneGeoStatus] = useState<{ denied: boolean; timedOut: boolean }>({ denied: false, timedOut: false });
@@ -362,6 +382,7 @@ export default function ReportPage() {
           // Only overwrite geo if user is still on WITNESS and hasn't placed a manual pin yet
           setGeo((g) => {
             if (g.source === 'pin') return g; // never clobber a manual pin
+            setFireLocation({ latitude: lat, longitude: lng });
             return { latitude: lat, longitude: lng, source: 'gps', denied: false, timedOut: false };
           });
           setGpsSource('acquired');
@@ -404,6 +425,7 @@ export default function ReportPage() {
     // if the user has not already placed a manual pin (never clobber an existing pin).
     if (reportingContext !== 'WITNESS' && geo.source === 'gps') {
       setGeo({ latitude: null, longitude: null, source: null, denied: false, timedOut: false });
+      setFireLocation(null);
       setPhoneGeo(null);
     }
   }, [reportingContext]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -412,6 +434,7 @@ export default function ReportPage() {
   function handlePinChange(lat: number, lng: number) {
     setGpsWarningConfirmed(false);
     setGeo({ latitude: lat, longitude: lng, source: 'pin', denied: false, timedOut: false });
+    setFireLocation({ latitude: lat, longitude: lng });
     setGpsSource('manual');
     setPinClearedFromChallenge(false);
   }
@@ -568,12 +591,13 @@ export default function ReportPage() {
 
   if (step === 'review') {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 py-8" style={{ background: 'var(--content-bg)', backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(153,27,27,0.04) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(153,27,27,0.03) 0%, transparent 40%)' }}>
-        <div className="card max-w-lg w-full overflow-hidden">
-          <div className="p-4 text-center" style={{ background: 'var(--bfp-gradient)' }}>
-            <h1 className="text-lg font-bold text-white">Review Your Report</h1>
-            <p className="text-xs text-white/60 mt-0.5">Suriin ang iyong report</p>
-          </div>
+      <div className="min-h-screen" style={{ background: 'var(--content-bg)' }}>
+        <div className="text-center py-6 px-4" style={{ background: 'var(--bfp-gradient)' }}>
+          <h1 className="text-lg font-bold text-white">Review Your Report</h1>
+          <p className="text-xs text-white/60 mt-0.5">Suriin ang iyong report</p>
+        </div>
+        <div className="max-w-lg mx-auto px-4 mt-4 pb-8">
+          <div className="card overflow-hidden">
           <div className="card-body space-y-4 p-6">
             <div className="space-y-3 text-sm">
               <div className="flex justify-between">
@@ -690,6 +714,7 @@ export default function ReportPage() {
           </div>
         </div>
       </div>
+    </div>
     );
   }
 
@@ -697,12 +722,13 @@ export default function ReportPage() {
 
   if (isUpdateMode) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 py-8" style={{ background: 'var(--content-bg)', backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(153,27,27,0.04) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(153,27,27,0.03) 0%, transparent 40%)' }}>
-        <div className="card max-w-lg w-full overflow-hidden">
-          <div className="p-5 text-center" style={{ background: 'var(--bfp-gradient)' }}>
-            <h1 className="text-lg font-bold text-white">Update Report #{updateReportIdParam}</h1>
-            <p className="text-xs text-white/60 mt-0.5">Magdagdag ng impormasyon sa iyong umiiral na report</p>
-          </div>
+      <div className="min-h-screen" style={{ background: 'var(--content-bg)' }}>
+        <div className="text-center py-6 px-4" style={{ background: 'var(--bfp-gradient)' }}>
+          <h1 className="text-lg font-bold text-white">Update Report #{updateReportIdParam}</h1>
+          <p className="text-xs text-white/60 mt-0.5">Magdagdag ng impormasyon sa iyong umiiral na report</p>
+        </div>
+        <div className="max-w-lg mx-auto px-4 mt-4 pb-8">
+          <div className="card overflow-hidden">
 
           {appendSubmitted ? (
             <div className="p-6 space-y-4 text-center">
@@ -799,6 +825,7 @@ export default function ReportPage() {
             </div>
           )}
         </div>
+        </div>
       </div>
     );
   }
@@ -807,23 +834,27 @@ export default function ReportPage() {
 
   if (step === 'submitted') {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 py-8" style={{ background: 'var(--content-bg)', backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(153,27,27,0.04) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(153,27,27,0.03) 0%, transparent 40%)' }}>
-        <div className="card max-w-lg w-full overflow-hidden">
-          <div className="p-6 text-center">
-            <div className="mx-auto w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: 'rgba(34,197,94,0.1)' }}>
-              <CheckCircle className="w-8 h-8 text-green-600" />
-            </div>
-            <h1 className="text-xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
-              Report Submitted
-            </h1>
+      <div className="min-h-screen" style={{ background: 'var(--content-bg)' }}>
+        <div className="text-center py-6 px-4" style={{ background: 'var(--bfp-gradient)' }}>
+          <div className="mx-auto w-14 h-14 rounded-full flex items-center justify-center mb-3" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }}>
+            <CheckCircle className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-xl font-bold text-white">
+            Report Submitted
+          </h1>
+          <p className="text-xs text-white/60 mt-1">
+            Report #{submittedReportId} has been received.
+          </p>
+        </div>
+        <div className="max-w-lg mx-auto px-4 mt-4 pb-8">
+          <div className="card overflow-hidden">
+            <div className="p-6 text-center">
+
             <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
-              Report #{submittedReportId} has been received.
-            </p>
-            <p className="text-xs mb-6" style={{ color: 'var(--text-secondary)' }}>
               Ang report #{submittedReportId} ay natanggap na.
             </p>
 
-            {/*
+              {/*
               911 emergency boundary — ALL submissions, every safety status.
               Required: "does not replace emergency call" in EN+FIL.
             */}
@@ -941,6 +972,7 @@ export default function ReportPage() {
             </a>
           </div>
         </div>
+        </div>
       </div>
     );
   }
@@ -948,22 +980,30 @@ export default function ReportPage() {
   // ── Multi-step form ─────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-6" style={{ background: 'var(--content-bg)', backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(153,27,27,0.04) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(153,27,27,0.03) 0%, transparent 40%)' }}>
-      <div className="card max-w-lg w-full overflow-hidden">
-        <div className="p-5 text-center" style={{ background: 'var(--bfp-gradient)' }}>
-          <div className="relative w-14 h-14 mx-auto mb-3">
-            <Image src="/bfp-logo.svg" alt="BFP Logo" fill className="object-contain" />
-          </div>
-          <p className="text-xs text-white/50 uppercase tracking-widest mb-2">Bureau of Fire Protection</p>
-          <h1 className="text-xl font-bold text-white leading-tight">
-            Report Emergency
-          </h1>
-          <p className="text-xs text-white/60 mt-0.5">Mag-ulat ng Emergency</p>
+    <div className="min-h-screen" style={{ background: 'var(--content-bg)' }}>
+      {/* Hero — matches /fire-stations style */}
+      <div className="text-center py-8 px-4" style={{ background: 'var(--bfp-gradient)' }}>
+        <div className="relative w-14 h-14 mx-auto mb-3">
+          <Image src="/bfp-logo.svg" alt="BFP Logo" fill className="object-contain" />
         </div>
+        <p className="text-xs text-white/50 uppercase tracking-widest mb-2">Bureau of Fire Protection</p>
+        <h1 className="text-xl font-bold text-white leading-tight">
+          Report Emergency
+        </h1>
+        <p className="text-xs text-white/60 mt-0.5">Mag-ulat ng Emergency</p>
+      </div>
 
-        {step !== 'review' && step !== 'submitted' && (
-          <CalmEmergencyBlock />
-        )}
+      {/* Emergency hotlines — like /fire-stations */}
+      <div className="max-w-lg mx-auto px-4 -mt-4">
+        <EmergencyReferenceCard compact />
+      </div>
+
+      {/* Main card */}
+      <div className="max-w-lg mx-auto px-4 mt-4 pb-8">
+        <div className="card overflow-hidden">
+
+        <CalmEmergencyBlock />
+        <NearbyPublicReportAreas fireLat={fireLocation?.latitude ?? null} fireLon={fireLocation?.longitude ?? null} />
 
         <div className="card-body space-y-5 px-6 pb-6">
           {currentStepIndex >= 0 && <ProgressBar current={currentStepIndex} total={stepOrder.length} />}
@@ -973,7 +1013,13 @@ export default function ReportPage() {
             <>
               {/* SECONDHAND challenge modal */}
               {gpsChallengeOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
+                <div
+                  className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                  style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+                  onClick={(e) => { if (e.target === e.currentTarget) setGpsChallengeOpen(false); }}
+                  onKeyDown={(e) => { if (e.key === 'Escape') setGpsChallengeOpen(false); }}
+                  tabIndex={-1}
+                >
                   <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
                     <div className="flex items-center gap-3 mb-4">
                       <MapPin className="w-6 h-6 text-yellow-500 flex-shrink-0" />
@@ -1005,6 +1051,7 @@ export default function ReportPage() {
                         onClick={() => {
                           setGpsChallengeOpen(false);
                           setGeo({ latitude: null, longitude: null, source: null, denied: false, timedOut: false });
+                          setFireLocation(null);
                           setGpsSource(null);
                           setPinClearedFromChallenge(true);
                         }}
@@ -1206,6 +1253,24 @@ export default function ReportPage() {
                   )}
                 </div>
               )}
+
+              {/* ── Public map: show nearby fire clusters ───────────────── */}
+              <div className="mt-2">
+                <p className="text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                  Nearby fire activity / Mga kalapit na sunog
+                </p>
+                <PublicFireMap
+                  height={200}
+                  zoom={11}
+                  selectionMode={false}
+                  onGeolocationAvailable={(lat, lng) => {
+                    // Pass geolocation to parent report flow
+                    if (geo.latitude === null) {
+                      handlePinChange(lat, lng);
+                    }
+                  }}
+                />
+              </div>
 
               <button
                 type="button"
@@ -1412,6 +1477,7 @@ export default function ReportPage() {
               )}
             </>
           )}
+        </div>
         </div>
       </div>
 

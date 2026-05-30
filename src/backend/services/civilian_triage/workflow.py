@@ -8,6 +8,7 @@ from fastapi import HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from services.event_bus import publish_verification_event_sync
 from services.civilian_triage.models import (
     ClusterActivityRequest,
     ClusterActivityResponse,
@@ -136,6 +137,16 @@ def claim_cluster_command(
         """),
         {"cid": cluster_id},
     ).fetchone()
+
+    # Publish real-time SSE event
+    publish_verification_event_sync(
+        "verification.cluster_claimed",
+        cluster_id=cluster_id,
+        action=audit_action,
+        actor_id=user_id,
+        actor_role=user.get("role"),
+    )
+
     return cluster_claim_response(row)
 
 
@@ -456,6 +467,17 @@ def apply_terminal_action_command(
         raise
 
     notify_reports(updated_ids, status)
+
+    # Publish real-time SSE event
+    publish_verification_event_sync(
+        "verification.terminal_action",
+        cluster_id=cluster_id,
+        action=status,
+        actor_id=user_id,
+        actor_role=user.get("role"),
+        extra={"report_ids": updated_ids, "status": status},
+    )
+
     return WorkflowResult(
         status="applied", report_ids=updated_ids, cluster_id=cluster_id, updated=len(updated_ids)
     )

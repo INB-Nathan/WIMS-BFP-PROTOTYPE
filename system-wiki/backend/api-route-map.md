@@ -21,6 +21,7 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `civilian.py` | `GET` | `/reports/{report_id}` | `get_civilian_report` |
 | `civilian.py` | `GET` | `/reports/{report_id}/timeline` | `get_civilian_report_timeline` |
 | `civilian.py` | `POST` | `/reports/{report_id}/notify` | `register_notification` |
+| `civilian.py` | `GET` | `/report-clusters` | `get_report_clusters` | Public-safe root-map areas from durable civilian report clusters; no raw cluster/report IDs. |
 | `sessions.py` | `GET` | `/sessions/{user_id}` | `list_user_sessions` |
 | `sessions.py` | `DELETE` | `/sessions/{user_id}/{session_id}` | `terminate_user_session` |
 | `user.py` | `GET` | `/me/profile` | `get_my_profile` |
@@ -29,6 +30,8 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `ref.py` | `GET` | `/regions` | `get_regions` |
 | `ref.py` | `GET` | `/provinces` | `get_provinces` |
 | `ref.py` | `GET` | `/cities` | `get_cities` |
+| `ref.py` | `GET` | `/fire-stations` | `get_fire_stations` |
+| `ref.py` | `GET` | `/emergency-services` | `get_emergency_services` | Public 911 + all BFP station names/locations, nearest-five metadata when location is known. |
 | `incidents.py` | `POST` | `/incidents/upload-bundle` | `upload_incident_bundle` |
 | `incidents.py` | `POST` | `/incidents/{incident_id}/attachments` | `upload_attachment` |
 | `incidents.py` | `POST` | `/incidents` | `create_incident` |
@@ -109,6 +112,10 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `analytics.py` | `GET` | `/compare-regions` | `compare_regions_route` |
 | `analytics.py` | `GET` | `/top-n` | `top_n_route` |
 | `public_dmz.py` | `POST` | `/` | `submit_public_incident` |
+| `map.py` | `GET` | `/api/public/clusters` | `get_incident_clusters` | Public clustered incident markers, Redis-cached |
+| `map.py` | `GET` | `/api/public/emergency-services` | `get_emergency_services` | Public emergency contacts + nearby stations |
+| `map.py` | `GET` | `/api/validator/operational-map` | `get_operational_map` | Auth-protected operational map for validators |
+| `events.py` | `GET` | `/events/stream` | `event_stream` | SSE real-time notification stream (Redis pub/sub) |
 
 ## Routing Notes
 - `regional.py` owns a large share of encoder/validator incident workflow. Avoid opportunistic refactors; see [[architecture/system-overview]].

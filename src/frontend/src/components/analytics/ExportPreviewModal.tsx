@@ -44,6 +44,7 @@ const COLUMN_LABELS: Record<string, string> = {
   region_id: 'Region ID',
   province_name: 'Province',
   municipality_name: 'Municipality',
+  barangay_name: 'Barangay',
   general_category: 'Category',
   sub_category: 'Sub Category',
   alarm_level: 'Alarm Level',
@@ -53,6 +54,19 @@ const COLUMN_LABELS: Record<string, string> = {
   civilian_deaths: 'Civilian Deaths',
   firefighter_injured: 'Firefighter Injured',
   firefighter_deaths: 'Firefighter Deaths',
+  created_at: 'Created At',
+  fire_origin: 'Fire Origin',
+  extent_of_damage: 'Extent of Damage',
+  structures_affected: 'Structures Affected',
+  households_affected: 'Households Affected',
+  families_affected: 'Families Affected',
+  individuals_affected: 'Individuals Affected',
+  vehicles_affected: 'Vehicles Affected',
+  total_gas_consumed_liters: 'Gas Consumed (L)',
+  extent_total_floor_area_sqm: 'Floor Area (sqm)',
+  extent_total_land_area_hectares: 'Land Area (ha)',
+  fire_station_name: 'Fire Station',
+  verification_status: 'Status',
 };
 
 export const DEFAULT_SELECTED_COLUMNS = [
@@ -134,7 +148,12 @@ export function ExportPreviewModal({ format, filters, filtersSummary, onClose }:
 
       const url = URL.createObjectURL(blob);
       const ext = format === 'excel' ? 'xlsx' : format;
-      const filename = `wims-bfp-analyst-export.${ext}`;
+      const fmtName = format === 'excel' ? 'excel' : format;
+      const { start_date, end_date } = filters as Record<string, string | undefined>;
+      const datePart = start_date && end_date
+        ? `${start_date.replace(/-/g, '')}-${end_date.replace(/-/g, '')}`
+        : 'all-dates';
+      const filename = `wims-bfp-${fmtName}-${datePart}.${ext}`;
       const a = document.createElement('a');
       a.href = url;
       a.download = filename;

@@ -1044,6 +1044,7 @@ export default function AnalystDashboardPage() {
                         <option value="incidents">Incidents</option>
                         <option value="response_time">Response Time</option>
                         <option value="casualties">Casualties</option>
+                        <option value="damage_cost">Damage Cost (PHP)</option>
                       </select>
                     </div>
                     <div>
@@ -1065,12 +1066,24 @@ export default function AnalystDashboardPage() {
                   </div>
                   {topNData && topNData.length > 0 ? (
                     <div data-testid="bar-chart">
-                      {topNData.map((d) => (
-                        <div key={d.name} className="flex justify-between py-1 text-sm border-b" style={{ borderColor: 'var(--border-color)' }}>
-                          <span>{d.name}</span>
-                          <span className="font-bold">{typeof d.value === 'number' ? d.value.toFixed(1) : d.value}</span>
-                        </div>
-                      ))}
+                      {topNData.map((d) => {
+                        let displayValue: string;
+                        if (typeof d.value !== 'number') {
+                          displayValue = String(d.value ?? '—');
+                        } else if (topNMetric === 'damage_cost') {
+                          displayValue = `₱${d.value.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+                        } else if (topNMetric === 'response_time') {
+                          displayValue = `${d.value.toFixed(1)} min`;
+                        } else {
+                          displayValue = d.value.toLocaleString('en-PH', { maximumFractionDigits: 0 });
+                        }
+                        return (
+                          <div key={d.name} className="flex justify-between py-1 text-sm border-b" style={{ borderColor: 'var(--border-color)' }}>
+                            <span>{d.name}</span>
+                            <span className="font-bold">{displayValue}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
                     <p className="text-sm text-gray-500">No top-N data.</p>

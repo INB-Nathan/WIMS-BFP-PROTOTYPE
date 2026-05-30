@@ -64,3 +64,18 @@ def test_non_target_roles_not_forced_to_otp():
     assert "regional_encoder" not in target_roles
     assert "national_analyst" not in target_roles
     assert "citizen" not in target_roles
+
+
+def test_keycloak_brute_force_lockout_policy():
+    realm = _load_realm()
+    assert realm.get("bruteForceProtected") is True, "Brute force protection must be enabled"
+    assert realm.get("failureFactor") == 5, (
+        "Account lockout must trigger after exactly 5 consecutive failed login attempts"
+    )
+    assert realm.get("permanentLockout") is False, "Lockout should be temporary, not permanent"
+    assert realm.get("waitIncrementSeconds") == 300, (
+        "Wait increment (lockout duration) must be 300 seconds (5 minutes)"
+    )
+    assert realm.get("maxFailureWaitSeconds") == 900, (
+        "Maximum wait time must be 900 seconds (15 minutes)"
+    )

@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  Copy,
   Download,
   Eye,
   EyeOff,
@@ -577,6 +578,7 @@ export default function AnalystIncidentDetailPage() {
   const [exportTask, setExportTask] = useState<{ taskId: string; format: "csv" | "pdf" } | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportLoading, setExportLoading] = useState<"csv" | "pdf" | "download" | null>(null);
+  const [copiedId, setCopiedId] = useState(false);
 
   useEffect(() => {
     if (!authLoading && role && !canAccess) router.replace("/dashboard");
@@ -663,6 +665,22 @@ export default function AnalystIncidentDetailPage() {
               <h1 className="font-mono text-2xl font-bold tracking-tight text-gray-900">
                 {detail.reference_number || `Incident #${detail.incident_id}`}
               </h1>
+              <button
+                type="button"
+                onClick={() => {
+                  const text = detail.reference_number || String(detail.incident_id);
+                  navigator.clipboard.writeText(text).then(() => {
+                    setCopiedId(true);
+                    setTimeout(() => setCopiedId(false), 2000);
+                  }).catch(() => {});
+                }}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                aria-label={copiedId ? 'Copied' : 'Copy incident ID'}
+                title={copiedId ? 'Copied!' : 'Copy ID'}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                {copiedId ? 'Copied' : 'Copy'}
+              </button>
 
               {/* Status badge — HCI: clear affordance with dot indicator */}
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">

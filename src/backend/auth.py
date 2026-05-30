@@ -36,6 +36,37 @@ JWKS_CACHE_TTL_SECONDS = (
 # validates the token's iss claim against the browser-visible issuer.
 KEYCLOAK_ISSUER = os.environ.get("KEYCLOAK_ISSUER", KEYCLOAK_REALM_URL.rstrip("/") + "/")
 
+# WIMS roles in precedence order (highest first). Used when resolving from Keycloak JWT.
+WIMS_ROLES_FROM_KEYCLOAK = (
+    "CIVILIAN_REPORTER",
+    "REGIONAL_ENCODER",
+    "NATIONAL_VALIDATOR",
+    "NATIONAL_ANALYST",
+    "SYSTEM_ADMIN",
+)
+
+
+def resolve_wims_role_from_token(payload: dict) -> str | None:
+    """Extract WIMS role from Keycloak JWT.
+
+    Reads realm_access.roles and resource_access.<client>.roles, returns
+    the first matching role from WIMS_ROLES_FROM_KEYCLOAK, or None if
+    no FRS role is present in the token — callers must handle None.
+    """
+    roles: list[str] = []
+    if isinstance(payload.get("realm_access"), dict):
+        ra = payload["realm_access"].get("roles")
+        if isinstance(ra, list):
+            roles.extend(ra)
+    if isinstance(payload.get("resource_access"), dict):
+        for cid, client_data in payload["resource_access"].items():
+            if isinstance(client_data, dict) and isinstance(client_data.get("roles"), list):
+                roles.extend(client_data["roles"])
+    for wims_role in WIMS_ROLES_FROM_KEYCLOAK:
+        if wims_role in roles:
+            return wims_role
+    return None  # No FRS role found — do not silently default
+
 
 class KeycloakAuthenticator:
     def __init__(self):

@@ -1,5 +1,9 @@
 """Reference data endpoints (regions, provinces, cities, fire stations)."""
 
+import json
+import math
+import os
+import redis
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -156,3 +160,105 @@ def get_fire_stations(
         }
         for r in rows
     ]
+
+
+@router.get("/emergency-services")
+def get_emergency_services(
+    db: Annotated[Session, Depends(get_db)],
+    lat: Optional[float] = Query(None),
+    lon: Optional[float] = Query(None),
+):
+    """
+    Returns public emergency number and BFP station names/locations.
+    """
+    cache_key = "wims:ref:emergency-services:v1:all"
+    redis_client = None
+    cached_payload = None
+    try:
+        redis_client = redis.from_url(
+            os.getenv("REDIS_URL", "redis://redis:6379/0"), decode_responses=True
+        )
+        cached = redis_client.get(cache_key)
+        if cached:
+            cached_payload = json.loads(cached)
+    except Exception:
+        pass
+
+    if cached_payload is None:
+        try:
+            rows = db.execute(
+                text("""
+                    SELECT
+                        station_id, station_name,
+                        ST_Y(location::geometry) AS latitude,
+                        ST_X(location::geometry) AS longitude
+                    FROM wims.ref_fire_stations
+                    ORDER BY station_name ASC
+                """),
+            ).fetchall()
+
+            stations = [
+                {
+                    "station_id": r[0],
+                    "station_name": r[1],
+                    "latitude": float(r[2]),
+                    "longitude": float(r[3]),
+                    "distance_m": None,
+                }
+                for r in rows
+            ]
+            cached_payload = {"stations": stations}
+            try:
+                if redis_client:
+                    redis_client.setex(cache_key, 86_400, json.dumps(cached_payload))
+                    redis_client.setex(f"{cache_key}:stale", 604_800, json.dumps(cached_payload))
+            except Exception:
+                pass
+        except Exception:
+            cached_payload = {"stations": []}
+
+    stations = list(cached_payload.get("stations", []))
+    degraded = False
+    stale = False
+
+    if not stations:
+        try:
+            stale_cached = redis_client.get(f"{cache_key}:stale") if redis_client else None
+            if stale_cached:
+                stations = json.loads(stale_cached).get("stations", [])
+                stale = True
+            else:
+                degraded = True
+        except Exception:
+            degraded = True
+
+    nearest_station_ids: list[int] = []
+    if lat is not None and lon is not None and stations:
+
+        def distance_m(station: dict) -> float:
+            station_lat = float(station["latitude"])
+            station_lon = float(station["longitude"])
+            radius = 6_371_000
+            dlat = math.radians(station_lat - lat)
+            dlon = math.radians(station_lon - lon)
+            a = (
+                math.sin(dlat / 2) ** 2
+                + math.cos(math.radians(lat))
+                * math.cos(math.radians(station_lat))
+                * math.sin(dlon / 2) ** 2
+            )
+            return radius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+        stations = [{**station, "distance_m": distance_m(station)} for station in stations]
+        stations.sort(key=lambda station: station["distance_m"])
+        nearest_station_ids = [int(station["station_id"]) for station in stations[:5]]
+
+    response_data = {
+        "emergency_number": "911",
+        "nearest_station_ids": nearest_station_ids,
+        "stations": stations,
+        "stale": stale,
+        "degraded": degraded,
+    }
+
+    return response_data

@@ -301,7 +301,7 @@ export default function ImportIncidentPage() {
                             type="file" 
                             id="file-upload" 
                             className="hidden" 
-                            accept=".xlsx, .xls, .csv"
+                            accept=".xlsx"
                             onChange={handleFileChange}
                         />
                         <div className="flex justify-center mb-4">
@@ -313,7 +313,7 @@ export default function ImportIncidentPage() {
                             {file ? file.name : 'Click to upload or drag and drop'}
                         </h3>
                         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                            Excel (.xlsx) or CSV files up to 10MB
+                            Excel (.xlsx) files up to 10MB
                         </p>
                     </div>
                 </div>

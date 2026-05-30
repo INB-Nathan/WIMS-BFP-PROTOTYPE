@@ -687,9 +687,10 @@ def commit_afor_import_command(
             },
         )
 
-        # ── Encrypt PII fields before INSERT ─────────────────────────────────────
-        # PII fields (caller_name, caller_number, owner_name, occupant_name) are
-        # stored ONLY in the encrypted blob. Plaintext columns are set to NULL.
+        # ── Encrypt sensitive fields before INSERT ──────────────────────────────
+        # Sensitive fields (caller_name, caller_number, owner_name, occupant_name,
+        # narrative_report, casualty_details, estimated_damage_php) are stored
+        # ONLY in the encrypted blob. Plaintext columns are set to NULL.
         # receiver_name is NOT encrypted (public / internal use only).
         #
         # caller_info arrives as "Name / Number" at the top-level row_data field;
@@ -712,13 +713,12 @@ def commit_afor_import_command(
                 ("caller_number", caller_number_row),
                 ("owner_name", sens.get("owner_name")),
                 ("occupant_name", sens.get("occupant_name")),
+                ("narrative_report", sens.get("narrative_report")),
+                ("casualty_details", casualty_details if casualty_details else None),
+                ("estimated_damage_php", ns.get("estimated_damage_php")),
             )
-            if v  # omit None and empty strings
+            if v  # omit None and empty strings/empty dicts
         }
-        # Always produce a dict (empty or populated) so decrypt never raises on None
-        if not pii_for_blob:
-            pii_for_blob = {}
-
         aad = f"incident_id:{incident_id}".encode("utf-8")
         nonce_b64: str | None = None
         ct_b64: str | None = None
@@ -748,12 +748,12 @@ def commit_afor_import_command(
                     :incident_id, :street_address, :landmark,
                     NULL, NULL, :receiver_name,
                     NULL, :establishment_name,
-                    :narrative_report, :disposition,
+                    NULL, :disposition,
                     :disposition_prepared_by, :disposition_noted_by,
                     :prepared_by_officer, :noted_by_officer,
                     CAST(:personnel_on_duty AS jsonb),
                     CAST(:other_personnel AS jsonb),
-                    CAST(:casualty_details AS jsonb),
+                    NULL::jsonb,
                     :is_icp_present, :icp_location,
                     :pii_blob_enc, :pii_nonce
                 )
@@ -765,7 +765,8 @@ def commit_afor_import_command(
                 # Plaintext PII columns → NULL; only pii_blob_enc is authoritative
                 "receiver_name": sens.get("receiver_name", ""),
                 "establishment_name": sens.get("establishment_name", ""),
-                "narrative_report": sens.get("narrative_report", ""),
+                # narrative_report → encrypted in blob; plaintext column NULL
+                # casualty_details → encrypted in blob; plaintext column NULL
                 "disposition": sens.get("disposition", ""),
                 "disposition_prepared_by": sens.get("disposition_prepared_by", ""),
                 "disposition_noted_by": sens.get("disposition_noted_by", ""),
@@ -773,7 +774,7 @@ def commit_afor_import_command(
                 "noted_by_officer": sens.get("noted_by_officer", ""),
                 "personnel_on_duty": json.dumps(sens.get("personnel_on_duty", {})),
                 "other_personnel": json.dumps(sens.get("other_personnel", [])),
-                "casualty_details": json.dumps(casualty_details),
+                # casualty_details param removed — now in encrypted blob
                 "is_icp_present": sens.get("is_icp_present", False),
                 "icp_location": sens.get("icp_location", ""),
                 # Encrypted PII blob

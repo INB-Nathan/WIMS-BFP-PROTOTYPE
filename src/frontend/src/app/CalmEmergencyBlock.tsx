@@ -1,54 +1,64 @@
 'use client';
 
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Shield, Phone } from 'lucide-react';
 
 export function CalmEmergencyBlock() {
   return (
     <div
-      className="mx-6 mt-4 rounded-xl border px-4 py-3.5 relative overflow-hidden"
+      className="mx-4 mt-4 rounded-xl p-4"
       style={{
         backgroundColor: 'var(--calm-amber-bg)',
-        borderColor: 'var(--calm-amber-border)',
+        border: '1px solid var(--calm-amber-border)',
       }}
     >
-      {/* Left accent bar */}
-      <div
-        className="absolute left-0 top-0 bottom-0 w-1 rounded-l-xl"
-        style={{ backgroundColor: 'var(--calm-amber-icon)' }}
-      />
-
-      {/* Icon in amber circle */}
-      <div
-        className="w-8 h-8 rounded-full flex items-center justify-center mb-2"
-        style={{ backgroundColor: 'rgba(251,191,36,0.20)' }}
-      >
-        <AlertTriangle
-          className="w-4 h-4"
-          style={{ color: 'var(--calm-amber-icon)' }}
-          aria-hidden="true"
-        />
+      {/* Header row */}
+      <div className="flex items-center gap-2.5 mb-3">
+        <div
+          className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+          style={{ backgroundColor: 'rgba(234,179,8,0.18)' }}
+        >
+          <Shield className="w-4.5 h-4.5" style={{ color: 'var(--calm-amber-icon)' }} />
+        </div>
+        <div>
+          <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+            Safety First
+          </p>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            Kaligtasan Muna
+          </p>
+        </div>
       </div>
 
-      <div className="space-y-1.5 text-sm pl-8">
-        <p style={{ color: 'var(--text-primary)' }}>
-          Call 911 now if anyone is in immediate danger.{' '}
-          <span lang="fil" style={{ color: 'var(--bilingual-color)' }}>
-            Tumawag sa 911 kung may tao sa agarang panganib.
+      {/* Three-rule list */}
+      <ul className="space-y-2 text-sm" style={{ color: 'var(--text-primary)' }}>
+        <li className="flex items-start gap-2">
+          <Phone className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--calm-amber-icon)' }} />
+          <span>
+            Call 911 now if anyone is in immediate danger.{' '}
+            <span lang="fil" style={{ color: 'var(--bilingual-color)' }}>
+              Tumawag sa 911 kung may tao sa agarang panganib.
+            </span>
           </span>
-        </p>
-        <p style={{ color: 'var(--text-secondary)' }}>
-          Move away from smoke or fire.{' '}
-          <span lang="fil" style={{ color: 'var(--bilingual-color)' }}>
-            Umatras mula sa usok o sunog.
+        </li>
+        <li className="flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--calm-amber-icon)' }} />
+          <span>
+            Move away from smoke or fire.{' '}
+            <span lang="fil" style={{ color: 'var(--bilingual-color)' }}>
+              Umatras mula sa usok o sunog.
+            </span>
           </span>
-        </p>
-        <p style={{ color: 'var(--text-secondary)' }}>
-          Do not get closer to take photos.{' '}
-          <span lang="fil" style={{ color: 'var(--bilingual-color)' }}>
-            Huwag lumapit para kumuha ng litrato.
+        </li>
+        <li className="flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--calm-amber-icon)' }} />
+          <span>
+            Do not get closer to take photos.{' '}
+            <span lang="fil" style={{ color: 'var(--bilingual-color)' }}>
+              Huwag lumapit para kumuha ng litrato.
+            </span>
           </span>
-        </p>
-      </div>
+        </li>
+      </ul>
     </div>
   );
 }

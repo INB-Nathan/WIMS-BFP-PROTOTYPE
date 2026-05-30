@@ -6,6 +6,7 @@ import { getMessagingToken } from '@/lib/firebase';
 import Image from 'next/image';
 import Link from 'next/link';
 import { AlertTriangle, CheckCircle, Clock, PhoneCall, RefreshCw, Link2, ChevronRight } from 'lucide-react';
+import { EmergencyReferenceCard } from '@/components/EmergencyReferenceCard';
 
 // ─── Status helpers ─────────────────────────────────────────────────────────
 
@@ -270,17 +271,24 @@ export default function ReportTrackerPage() {
   // ─── Render ─────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-8" style={{ background: 'var(--content-bg)', backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(153,27,27,0.04) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(153,27,27,0.03) 0%, transparent 40%)' }}>
-      <div className="card max-w-lg w-full overflow-hidden shadow-2xl">
-
-        {/* Header */}
-        <div className="p-5 text-center" style={{ background: 'var(--bfp-gradient)' }}>
-          <div className="relative w-16 h-16 mx-auto mb-3">
-            <Image src="/bfp-logo.svg" alt="BFP Logo" fill className="object-contain" />
-          </div>
-          <h1 className="text-xl font-bold text-white">Track Emergency Report</h1>
-          <p className="text-sm text-white/70 mt-1">Sundin ang status ng iyong report</p>
+    <div className="min-h-screen" style={{ background: 'var(--content-bg)' }}>
+      {/* Hero — matches /fire-stations style */}
+      <div className="text-center py-8 px-4" style={{ background: 'var(--bfp-gradient)' }}>
+        <div className="relative w-16 h-16 mx-auto mb-3">
+          <Image src="/bfp-logo.svg" alt="BFP Logo" fill className="object-contain" />
         </div>
+        <h1 className="text-xl font-bold text-white">Track Emergency Report</h1>
+        <p className="text-xs text-white/60 mt-1">Sundin ang status ng iyong report</p>
+      </div>
+
+      {/* Emergency hotlines — like /fire-stations */}
+      <div className="max-w-lg mx-auto px-4 -mt-4">
+        <EmergencyReferenceCard compact />
+      </div>
+
+      {/* Main card */}
+      <div className="max-w-lg mx-auto px-4 mt-4 pb-8">
+        <div className="card overflow-hidden">
 
         <div className="card-body p-6 space-y-6">
 
@@ -590,6 +598,7 @@ export default function ReportTrackerPage() {
               &larr; Submit a New Emergency Report
             </Link>
           </div>
+        </div>
         </div>
       </div>
     </div>

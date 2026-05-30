@@ -10,6 +10,8 @@ import uuid
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from services.event_bus import publish_security_event_sync
+
 logger = logging.getLogger(__name__)
 
 # In-memory position tracking for tail behavior (path -> byte offset).
@@ -193,6 +195,13 @@ def ingest_eve_file(path: str, *, db_session: Session | None = None) -> int:
                 log_id = _insert_row(db, row)
                 if log_id is not None:
                     inserted += 1
+                    # Publish security event (fire-and-forget, sync)
+                    publish_security_event_sync(
+                        "security.threat_detected",
+                        log_id=log_id,
+                        severity=row.get("severity_level"),
+                        threat_type=row.get("threat_type"),
+                    )
                     if row.get("severity_level") == "HIGH":
                         if not _security_incident_exists(db, log_id):
                             try:

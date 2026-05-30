@@ -6,6 +6,7 @@ under the /api/regional prefix.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import csv
 import io
@@ -22,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user, get_national_validator, get_regional_encoder
 from database import get_db_with_rls
+from services.event_bus import publish_incident_event, publish_incident_event_sync
 from services.afor_import import (
     ALARM_LEVEL_MAP,
     AforCommitRequest,
@@ -70,7 +72,6 @@ from services.regional_incidents.helpers import (
     region_text_matches as _region_text_matches,
     generate_reference_number as _generate_reference_number,
     insert_incident_verification_history as _insert_incident_verification_history,
-    apply_incident_field_updates as _apply_incident_field_updates,
     build_audit_log_query as _build_audit_log_query,
     _CATEGORY_DB_VARIANTS,
     _ivh_has_column as _incident_verification_history_has_column,
@@ -141,10 +142,8 @@ async def import_afor_file(
         raise HTTPException(status_code=400, detail="No file provided")
 
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
-    if ext not in ("xlsx", "xls", "csv"):
-        raise HTTPException(
-            status_code=400, detail="Only .xlsx, .xls, and .csv files are supported"
-        )
+    if ext not in ("xlsx",):
+        raise HTTPException(status_code=400, detail="Only .xlsx files are supported")
 
     content = await file.read()
     if len(content) == 0:
@@ -670,20 +669,45 @@ def get_regional_incident_detail(
     sd_dict = row_to_dict(sd_row)
 
     # ── Decrypt PII blob if present (new writes use encrypted blob; old rows fall back) ──
+    pii_plaintext: dict = {}
     if sd_dict.get("pii_blob_enc") and sd_dict.get("encryption_iv"):
-        pii_plaintext = _decrypt_pii_blob(
-            sd_dict["encryption_iv"], sd_dict["pii_blob_enc"], incident_id
-        )
-        sd_dict["caller_name"] = pii_plaintext.get("caller_name")
-        sd_dict["caller_number"] = pii_plaintext.get("caller_number")
-        sd_dict["owner_name"] = pii_plaintext.get("owner_name")
-        sd_dict["occupant_name"] = pii_plaintext.get("occupant_name")
+        try:
+            aad = f"incident_id:{incident_id}".encode("utf-8")
+            pii_plaintext = _get_security_provider().decrypt_json(
+                sd_dict["encryption_iv"],
+                sd_dict["pii_blob_enc"],
+                aad,
+            )
+            # Inject decrypted PII/narrative/casualty/damage fields so frontend contract is unchanged
+            sd_dict["caller_name"] = pii_plaintext.get("caller_name")
+            sd_dict["caller_number"] = pii_plaintext.get("caller_number")
+            sd_dict["owner_name"] = pii_plaintext.get("owner_name")
+            sd_dict["occupant_name"] = pii_plaintext.get("occupant_name")
+            sd_dict["narrative_report"] = pii_plaintext.get("narrative_report")
+            sd_dict["casualty_details"] = pii_plaintext.get("casualty_details")
+        except SecurityProviderError:
+            # Auth/key failure on a blob that claims to be valid — possible tampering
+            # or key rotation without re-encrypt. Log with incident_id; never log
+            # nonce, ciphertext, or plaintext. Return legacy plaintext as fallback.
+            logger.error(
+                "CRITICAL: PII blob decryption failed (possible tamper or key mismatch). "
+                "incident_id=%s",
+                incident_id,
+            )
+            pass
 
     # Do not expose internal blob columns in API response
     sd_dict.pop("pii_blob_enc", None)
     sd_dict.pop("encryption_iv", None)
 
     nonsensitive = row_to_dict(ns)
+    # Inject estimated_damage_php from encrypted blob if available
+    # (AFOR commits store it in the blob; manual edits may still use the plaintext column)
+    if (
+        "estimated_damage_php" in pii_plaintext
+        and pii_plaintext.get("estimated_damage_php") is not None
+    ):
+        nonsensitive["estimated_damage_php"] = pii_plaintext["estimated_damage_php"]
     # Prefer the stored text columns; fall back to the ref-table JOIN for old rows
     if loc_row:
         if not nonsensitive.get("city_municipality") and loc_row[0]:
@@ -1163,14 +1187,21 @@ def create_incident(
             ns_params,
         )
 
-    # Insert sensitive details (with PII encryption if caller_name/caller_number provided)
-    pii_fields = ["caller_name", "caller_number", "owner_name", "occupant_name"]
-    has_pii = any(getattr(body, f, None) for f in pii_fields)
+    # Insert sensitive details (with encryption if any encryptable field provided)
+    pii_fields = [
+        "caller_name",
+        "caller_number",
+        "owner_name",
+        "occupant_name",
+        "narrative_report",
+        "casualty_details",
+        "estimated_damage_php",
+    ]
+    has_encryptable = any(getattr(body, f, None) for f in pii_fields)
 
     sd_fields = {
         "street_address",
         "landmark",
-        "narrative_report",
         "establishment_name",
         "receiver_name",
         "prepared_by_officer",
@@ -1181,8 +1212,12 @@ def create_incident(
     sd_cols = ["incident_id"]
     sd_vals = [":iid"]
 
-    if has_pii:
-        pii_dict = {f: getattr(body, f) or "" for f in pii_fields}
+    if has_encryptable:
+        pii_dict: dict[str, Any] = {}
+        for f in pii_fields:
+            val = getattr(body, f, None)
+            if val is not None and val != "" and val != {} and val != []:
+                pii_dict[f] = val
         try:
             sp = _get_security_provider()
             nonce_b64, ct_b64 = sp.encrypt_json(pii_dict, f"incident_id:{incident_id}".encode())
@@ -1211,6 +1246,18 @@ def create_incident(
             sd_params,
         )
 
+    # When encryption is active, NULL the plaintext estimated_damage_php
+    # in incident_nonsensitive_details — the encrypted blob is authoritative.
+    if has_encryptable:
+        db.execute(
+            text(
+                "UPDATE wims.incident_nonsensitive_details"
+                " SET estimated_damage_php = NULL"
+                " WHERE incident_id = :iid"
+            ),
+            {"iid": incident_id},
+        )
+
     _insert_incident_verification_history(
         db,
         incident_id=incident_id,
@@ -1235,6 +1282,257 @@ def create_incident(
         "incident_type_code": type_code,
         "parent_incident_id": body.parent_incident_id,
     }
+
+
+def _apply_incident_field_updates(
+    db: Session, incident_id: int, body: "IncidentUpdateRequest"
+) -> None:
+    """Apply nonsensitive/sensitive/JSONB/coords field updates from an
+    IncidentUpdateRequest to the given incident_id. Caller is responsible
+    for status checks, audit-trail writes, and committing the transaction.
+    """
+    # Ensure child rows exist so UPDATE statements never silently affect 0 rows.
+    db.execute(
+        text(
+            """
+            INSERT INTO wims.incident_nonsensitive_details (incident_id)
+            SELECT :iid
+            WHERE NOT EXISTS (
+                SELECT 1 FROM wims.incident_nonsensitive_details WHERE incident_id = :iid
+            )
+            """
+        ),
+        {"iid": incident_id},
+    )
+    db.execute(
+        text(
+            """
+            INSERT INTO wims.incident_sensitive_details (incident_id)
+            SELECT :iid
+            WHERE NOT EXISTS (
+                SELECT 1 FROM wims.incident_sensitive_details WHERE incident_id = :iid
+            )
+            """
+        ),
+        {"iid": incident_id},
+    )
+
+    ns_fields = {
+        "notification_dt",
+        "alarm_level",
+        "general_category",
+        "sub_category",
+        "specific_type",
+        "occupancy_type",
+        "city_id",
+        "barangay_id",
+        "province_district",
+        "city_municipality",
+        "distance_from_station_km",
+        "estimated_damage_php",
+        "civilian_injured",
+        "civilian_deaths",
+        "firefighter_injured",
+        "firefighter_deaths",
+        "families_affected",
+        "structures_affected",
+        "households_affected",
+        "individuals_affected",
+        "responder_type",
+        "fire_origin",
+        "extent_of_damage",
+        "extent_total_floor_area_sqm",
+        "extent_total_land_area_hectares",
+        "stage_of_fire",
+        "general_description_of_involved",
+        "fire_station_name",
+        "total_response_time_minutes",
+        "vehicles_affected",
+        "recommendations",
+        "station_code",
+    }
+    ns_updates: list[str] = []
+    ns_params: dict[str, Any] = {"iid": incident_id}
+    for field in ns_fields:
+        val = getattr(body, field, None)
+        if val is not None:
+            if field == "alarm_level" and isinstance(val, str):
+                val = ALARM_LEVEL_MAP.get(val.upper().strip(), val)
+            elif field == "general_category" and isinstance(val, str):
+                val = _normalize_general_category(val)
+            ns_updates.append(f"{field} = :{field}")
+            ns_params[field] = val
+    if ns_updates:
+        db.execute(
+            text(
+                f"UPDATE wims.incident_nonsensitive_details SET {', '.join(ns_updates)} WHERE incident_id = :iid"
+            ),
+            ns_params,
+        )
+
+    # Update incident_type_code on the fire_incidents core row if provided
+    new_type_code = (getattr(body, "incident_type_code", None) or "").strip().upper() or None
+    if new_type_code:
+        db.execute(
+            text(
+                "UPDATE wims.fire_incidents SET incident_type_code = :tc WHERE incident_id = :iid"
+            ),
+            {"tc": new_type_code, "iid": incident_id},
+        )
+
+    sd_fields = {
+        "street_address",
+        "landmark",
+        "narrative_report",
+        "establishment_name",
+        "receiver_name",
+        "prepared_by_officer",
+        "noted_by_officer",
+        "remarks",
+    }
+    pii_fields = [
+        "caller_name",
+        "caller_number",
+        "owner_name",
+        "occupant_name",
+        "narrative_report",
+        "casualty_details",
+        "estimated_damage_php",
+    ]
+    sd_updates: list[str] = []
+    sd_params: dict[str, Any] = {"iid": incident_id}
+    has_encryptable_update = False
+    for field in sd_fields | set(pii_fields):
+        val = getattr(body, field, None)
+        if val is not None:
+            if field in pii_fields:
+                has_encryptable_update = True
+                # owner_name also mirrors to the plaintext column (used by list queries)
+                if field == "owner_name":
+                    sd_updates.append(f"{field} = :{field}")
+                    sd_params[field] = val
+            else:
+                sd_updates.append(f"{field} = :{field}")
+                sd_params[field] = val
+    if has_encryptable_update:
+        existing = db.execute(
+            text(
+                "SELECT pii_blob_enc, encryption_iv FROM wims.incident_sensitive_details WHERE incident_id = :iid"
+            ),
+            {"iid": incident_id},
+        ).fetchone()
+        existing_pii: dict[str, Any] = {}
+        if existing and existing[0] and existing[1]:
+            try:
+                sp = _get_security_provider()
+                existing_pii = sp.decrypt_json(
+                    existing[1], existing[0], f"incident_id:{incident_id}".encode()
+                )
+            except SecurityProviderError:
+                logger.warning(
+                    "Failed to decrypt existing PII for incident %s — overwriting",
+                    incident_id,
+                )
+        for field in pii_fields:
+            val = getattr(body, field, None)
+            if val is not None:
+                existing_pii[field] = val
+        try:
+            sp = _get_security_provider()
+            nonce_b64, ct_b64 = sp.encrypt_json(existing_pii, f"incident_id:{incident_id}".encode())
+            sd_updates.extend(["pii_blob_enc = :pii_blob", "encryption_iv = :enc_iv"])
+            sd_params["pii_blob"] = ct_b64
+            sd_params["enc_iv"] = nonce_b64
+        except SecurityProviderError:
+            logger.warning("PII re-encryption failed for incident %s", incident_id)
+    if sd_updates:
+        db.execute(
+            text(
+                f"UPDATE wims.incident_sensitive_details SET {', '.join(sd_updates)} WHERE incident_id = :iid"
+            ),
+            sd_params,
+        )
+
+    # NULL plaintext columns for fields now routed to encrypted blob.
+    # narrative_report and casualty_details live in incident_sensitive_details;
+    # estimated_damage_php lives in incident_nonsensitive_details.
+    if has_encryptable_update:
+        db.execute(
+            text(
+                "UPDATE wims.incident_sensitive_details"
+                " SET narrative_report = NULL, casualty_details = NULL"
+                " WHERE incident_id = :iid"
+            ),
+            {"iid": incident_id},
+        )
+        db.execute(
+            text(
+                "UPDATE wims.incident_nonsensitive_details"
+                " SET estimated_damage_php = NULL"
+                " WHERE incident_id = :iid"
+            ),
+            {"iid": incident_id},
+        )
+
+    jsonb_ns = {
+        "alarm_timeline": body.alarm_timeline,
+        "resources_deployed": body.resources_deployed,
+        "problems_encountered": body.problems_encountered,
+    }
+    jsonb_ns_updates: list[str] = []
+    jsonb_ns_params: dict[str, Any] = {"iid": incident_id}
+    for field, val in jsonb_ns.items():
+        if val is not None:
+            jsonb_ns_updates.append(f"{field} = CAST(:{field} AS jsonb)")
+            jsonb_ns_params[field] = json.dumps(val)
+    if jsonb_ns_updates:
+        db.execute(
+            text(
+                f"UPDATE wims.incident_nonsensitive_details SET {', '.join(jsonb_ns_updates)} WHERE incident_id = :iid"
+            ),
+            jsonb_ns_params,
+        )
+
+    jsonb_sd = {
+        "personnel_on_duty": body.personnel_on_duty,
+        "other_personnel": body.other_personnel,
+        "casualty_details": body.casualty_details,
+        "disposition": body.disposition,
+    }
+    jsonb_sd_updates: list[str] = []
+    jsonb_sd_params: dict[str, Any] = {"iid": incident_id}
+    for field, val in jsonb_sd.items():
+        if val is not None:
+            if field == "disposition":
+                jsonb_sd_updates.append(f"{field} = :{field}")
+            else:
+                jsonb_sd_updates.append(f"{field} = CAST(:{field} AS jsonb)")
+            jsonb_sd_params[field] = json.dumps(val) if field != "disposition" else val
+    if jsonb_sd_updates:
+        db.execute(
+            text(
+                f"UPDATE wims.incident_sensitive_details SET {', '.join(jsonb_sd_updates)} WHERE incident_id = :iid"
+            ),
+            jsonb_sd_params,
+        )
+
+    if body.latitude is not None and body.longitude is not None:
+        db.execute(
+            text(
+                """
+                UPDATE wims.fire_incidents
+                SET updated_at = now(),
+                    location = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)
+                WHERE incident_id = :iid
+                """
+            ),
+            {"lon": body.longitude, "lat": body.latitude, "iid": incident_id},
+        )
+    else:
+        db.execute(
+            text("UPDATE wims.fire_incidents SET updated_at = now() WHERE incident_id = :iid"),
+            {"iid": incident_id},
+        )
 
 
 @router.put("/incidents/{incident_id}")
@@ -1297,6 +1595,16 @@ def update_incident(
         logger.exception("Failed to update incident_id=%s", incident_id)
         raise HTTPException(status_code=500, detail="Failed to save incident draft update")
     logger.info("Updated incident %s by encoder %s", incident_id, encoder_id)
+
+    # Publish real-time SSE event
+    publish_incident_event_sync(
+        "incident.updated",
+        incident_id=incident_id,
+        status=incident[1],
+        actor_id=str(encoder_id),
+        actor_role="REGIONAL_ENCODER",
+    )
+
     return {"status": "updated", "incident_id": incident_id}
 
 
@@ -1789,6 +2097,17 @@ def verify_incident(
         result["action"],
         incident_id,
     )
+
+    # Publish real-time SSE event
+    publish_incident_event_sync(
+        f"incident.{result.get('action', 'verified')}",
+        incident_id=incident_id,
+        status=result.get("new_status"),
+        previous_status=result.get("previous_status"),
+        actor_id=validator_user_id,
+        actor_role="NATIONAL_VALIDATOR",
+    )
+
     return result
 
 
@@ -2000,6 +2319,19 @@ async def correct_verified_incident(
     except Exception as e:
         db.rollback()
         logger.exception("Analytics sync failed for corrected incident %s: %s", inc_id, e)
+
+    # Publish real-time SSE event (fire-and-forget)
+    task = asyncio.create_task(
+        publish_incident_event(
+            "incident.corrected",
+            incident_id=int(inc_id),
+            status="VERIFIED",
+            actor_id=str(corrector_user_id),
+            actor_role=current_user.get("role", "NATIONAL_VALIDATOR"),
+            extra={"corrected_fields": corrected_fields},
+        )
+    )
+    task.add_done_callback(lambda t: t.exception() if t.exception() else None)
 
     return {
         "incident_id": inc_id,

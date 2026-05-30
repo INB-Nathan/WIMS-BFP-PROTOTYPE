@@ -52,37 +52,12 @@ from api.routes import (
 )
 from api.routes.public_dmz import router as public_dmz_router
 from api.routes.user import router as user_profile_router
+from api.routes.map import router as public_map_router, operational_router as validator_map_router
+from api.routes.events import router as events_router
 from api.routes.geocode import router as geocode_router
 
-# WIMS roles in precedence order (highest first). Used when resolving from Keycloak JWT.
-WIMS_ROLES_FROM_KEYCLOAK = (
-    "CIVILIAN_REPORTER",
-    "REGIONAL_ENCODER",
-    "NATIONAL_VALIDATOR",
-    "NATIONAL_ANALYST",
-    "SYSTEM_ADMIN",
-)
-
-
-def _resolve_role_from_token(payload: dict) -> str:
-    """
-    Extract WIMS role from Keycloak JWT. realm_access.roles or resource_access.<client>.roles.
-    Returns ONLY roles in WIMS_ROLES_FROM_KEYCLOAK (exact FRS literals).
-    Returns None if no FRS role is present in the token — callers must handle this.
-    """
-    roles: list[str] = []
-    if isinstance(payload.get("realm_access"), dict):
-        ra = payload["realm_access"].get("roles")
-        if isinstance(ra, list):
-            roles.extend(ra)
-    if isinstance(payload.get("resource_access"), dict):
-        for cid, client_data in payload["resource_access"].items():
-            if isinstance(client_data, dict) and isinstance(client_data.get("roles"), list):
-                roles.extend(client_data["roles"])
-    for wims_role in WIMS_ROLES_FROM_KEYCLOAK:
-        if wims_role in roles:
-            return wims_role
-    return None  # No FRS role found — do not silently default
+# WIMS role resolution — canonical source in auth.py
+from auth import resolve_wims_role_from_token as _resolve_role_from_token
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +116,9 @@ app.include_router(regional.router)
 app.include_router(analytics.router)
 app.include_router(ref.router)  # GET /api/ref/regions, /api/ref/provinces, /api/ref/cities
 app.include_router(public_dmz_router)  # POST /api/v1/public/report (no-auth DMZ)
+app.include_router(public_map_router)  # GET /api/public/clusters, /api/public/emergency-services
+app.include_router(events_router)  # GET /api/events/stream (SSE real-time notifications)
+app.include_router(validator_map_router)  # GET /api/validator/operational-map (auth)
 app.include_router(
     geocode_router
 )  # GET /api/geocode/reverse, /api/geocode/search (Nominatim proxy)

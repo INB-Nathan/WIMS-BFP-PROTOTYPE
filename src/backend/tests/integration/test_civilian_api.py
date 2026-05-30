@@ -105,10 +105,11 @@ def _insert_report(
 
 class TestCivilianReportPublicSubmission:
     def test_public_can_submit_structured_report(self, client):
+        ip = f"198.51.{uuid.uuid4().hex[:4]}.{uuid.uuid4().hex[:4]}"
         response = client.post(
             "/api/civilian/reports",
             json=_payload(),
-            headers={"x-forwarded-for": "198.51.100.10"},
+            headers={"x-forwarded-for": ip},
         )
 
         assert response.status_code == 201, response.text
@@ -157,10 +158,11 @@ class TestCivilianReportPublicSubmission:
             status_explanation="Insufficient information was available.",
         )
 
+        ip = f"198.51.{uuid.uuid4().hex[:4]}.{uuid.uuid4().hex[:4]}"
         response = client.post(
             "/api/civilian/reports",
             json=_payload(previous_report_id=previous_id, device_id=str(uuid.uuid4())),
-            headers={"x-forwarded-for": "198.51.100.11"},
+            headers={"x-forwarded-for": ip},
         )
 
         assert response.status_code == 201, response.text
@@ -253,3 +255,87 @@ class TestCivilianReportPublicSubmission:
             data["escalation_guidance"]
             == "Submit a new report if the emergency is ongoing, or call 911."
         )
+
+
+def _insert_cluster(db: Session, report_ids: list[int]) -> int:
+    row = db.execute(
+        text("""
+            INSERT INTO wims.citizen_report_clusters (anchor_report_id, status)
+            VALUES (:anchor_report_id, 'CLUSTER_MONITORING')
+            RETURNING cluster_id
+        """),
+        {"anchor_report_id": report_ids[0]},
+    ).fetchone()
+    cluster_id = int(row[0])
+    for report_id in report_ids:
+        db.execute(
+            text("""
+                INSERT INTO wims.citizen_report_cluster_members (cluster_id, report_id)
+                VALUES (:cluster_id, :report_id)
+                ON CONFLICT DO NOTHING
+            """),
+            {"cluster_id": cluster_id, "report_id": report_id},
+        )
+    db.commit()
+    return cluster_id
+
+
+def test_get_report_clusters_cache_and_stale_fallback(client, db_session):
+    import redis
+    from unittest import mock
+
+    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
+    r.flushdb()
+
+    report_ids = [_insert_report(db_session, status="PENDING") for _ in range(3)]
+    linked_id = _insert_report(db_session, status="LINKED")
+    _insert_cluster(db_session, [*report_ids, linked_id])
+
+    # 1. Fresh DB hit
+    resp1 = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
+    assert resp1.status_code == 200
+    data1 = resp1.json()
+    assert data1["mode"] == "local"
+    assert data1["radius_m"] == 10000
+    assert data1["min_reports"] == 3
+    assert len(data1["areas"]) >= 1
+    area = data1["areas"][0]
+    assert area["count_bucket"] == "3-4"
+    assert area["radius_m"] == 100
+    assert "area_id" in area
+    assert "cluster_id" not in area
+    assert "report_id" not in area
+    assert "total_reports" not in area
+    assert data1.get("stale") is False
+    assert data1.get("degraded") is False
+
+    # 2. Cache hit (DB not called)
+    with mock.patch("sqlalchemy.orm.Session.execute") as mock_exec:
+        resp2 = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
+        assert resp2.status_code == 200
+        assert mock_exec.call_count == 0
+        assert resp2.json()["areas"] == data1["areas"]
+
+    # 3. DB fails, fresh cache expired -> serve stale
+    # Clear fresh cache, leave stale
+    for key in r.keys("wims:civilian:report-clusters:v1:local:*"):
+        if not key.endswith(":stale"):
+            r.delete(key)
+
+    with mock.patch("sqlalchemy.orm.Session.execute", side_effect=Exception("DB dead")):
+        resp3 = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
+        assert resp3.status_code == 200
+        data3 = resp3.json()
+        assert data3["stale"] is True
+        assert data3["degraded"] is False
+        assert len(data3["areas"]) >= 1
+
+    # 4. DB fails, no stale cache -> degraded
+    r.flushdb()
+    with mock.patch("sqlalchemy.orm.Session.execute", side_effect=Exception("DB dead")):
+        resp4 = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
+        assert resp4.status_code == 200
+        data4 = resp4.json()
+        assert data4["stale"] is False
+        assert data4["degraded"] is True
+        assert len(data4["areas"]) == 0

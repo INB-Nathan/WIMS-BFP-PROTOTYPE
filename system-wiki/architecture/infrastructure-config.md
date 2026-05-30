@@ -1,7 +1,7 @@
 ---
 title: Infrastructure Configuration
 created: 2026-05-16
-updated: 2026-05-26
+updated: 2026-05-27
 type: architecture
 tags: [wims-bfp, docker, nginx, suricata, keycloak, infrastructure]
 sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/nginx/, src/suricata/, src/keycloak/bfp-realm.json]
@@ -64,7 +64,15 @@ status: draft
 
 **File:** `src/nginx/nginx.conf`
 
-**Compose split:** `src/docker-compose.yml` is the dev-neutral base compose file. Production/VPS deployment uses the committed `src/docker-compose.prod.yml` override plus an uncommitted `src/.env.production` file. The tracked `src/.env.production.example` documents required host values.
+**Compose split:** `src/docker-compose.yml` is the dev-neutral base compose file. Production/VPS deployment uses the committed `src/docker-compose.prod.yml` override plus an uncommitted `src/.env.production` file. Local HTTP-only nginx testing uses `src/docker-compose.override.yml`, which mounts `src/nginx/nginx.local.conf` over the container config. The tracked `src/.env.production.example` documents required host values.
+
+**Local HTTP-only command:**
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+```
+
+`src/nginx/nginx.local.conf` is local-development-only and intentionally omits TLS. Do not deploy it to VPS/production.
 
 **VPS deployment command:**
 

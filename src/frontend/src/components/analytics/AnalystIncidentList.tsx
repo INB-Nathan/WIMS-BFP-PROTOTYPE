@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, ListChecks, X } from 'lucide-react';
+import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, Copy, ExternalLink, ListChecks, X } from 'lucide-react';
 import {
   fetchAnalystIncidentList,
   type AnalystIncidentListItem,
@@ -128,10 +128,12 @@ export function AnalystIncidentList({
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [localPageSize, setLocalPageSize] = useState(pageSize);
 
   const filterKey = useMemo(() => JSON.stringify(filters), [filters]);
   const initialSelectedKey = JSON.stringify(initialSelectedIncidentIds ?? []);
-  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const pageCount = Math.max(1, Math.ceil(total / localPageSize));
   const selectedCount = selectedIds.size;
   const currentPageIds = useMemo(() => items.map((incident) => incident.incident_id), [items]);
   const allCurrentPageSelected = currentPageIds.length > 0 && currentPageIds.every((id) => selectedIds.has(id));
@@ -159,7 +161,7 @@ export function AnalystIncidentList({
         const response = await fetchAnalystIncidentList({
           ...filters,
           page,
-          page_size: pageSize,
+          page_size: localPageSize,
           sort_by: sortBy,
           sort_dir: sortDir,
         });
@@ -179,7 +181,7 @@ export function AnalystIncidentList({
     return () => {
       cancelled = true;
     };
-  }, [filterKey, filters, page, pageSize, sortBy, sortDir]);
+  }, [filterKey, filters, page, localPageSize, sortBy, sortDir]);
 
   const toggleSort = (column: AnalystListSortField) => {
     if (column === sortBy) {
@@ -269,7 +271,7 @@ export function AnalystIncidentList({
               disabled={items.length === 0 || loading}
               className="rounded-md border border-gray-200 bg-white px-3 py-1.5 font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50"
             >
-              {allCurrentPageSelected ? 'Unselect page' : 'Select page'}
+              {allCurrentPageSelected ? 'Uncheck all on page' : 'Check all on page'}
             </button>
             <button
               type="button"
@@ -400,9 +402,28 @@ export function AnalystIncidentList({
         </div>
 
         <div className="flex flex-col gap-3 border-t border-gray-200 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-          <span className="text-gray-500">
-            Page {page} of {pageCount}
-          </span>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-gray-500">
+              <span className="whitespace-nowrap">Rows:</span>
+              <select
+                value={localPageSize}
+                onChange={(e) => {
+                  setLocalPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+                className="rounded border border-gray-200 bg-white px-2 py-1 text-sm text-gray-700"
+                aria-label="Rows per page"
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={250}>250</option>
+              </select>
+            </label>
+            <span className="text-gray-500">
+              Page {page} of {pageCount}
+            </span>
+          </div>
           <div className="flex gap-2">
             <button
               type="button"
@@ -434,14 +455,31 @@ export function AnalystIncidentList({
                 </h3>
                 <p className="mt-1 text-sm text-gray-500">{formatDateTime(selected.notification_dt)}</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
-                aria-label="Close incident summary"
-              >
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const text = selected.reference_number || String(selected.incident_id);
+                    navigator.clipboard.writeText(text).then(() => {
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }).catch(() => {});
+                  }}
+                  className="rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                  aria-label={copied ? 'Copied' : 'Copy incident ID'}
+                  title={copied ? 'Copied!' : 'Copy ID'}
+                >
+                  <Copy className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelected(null)}
+                  className="rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                  aria-label="Close incident summary"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto px-5 py-4">

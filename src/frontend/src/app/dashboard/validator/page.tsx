@@ -6,6 +6,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   RefreshCw, Flame, Building2, TreePine, Car, Layers, Home, Users, Truck, Trees,
   Archive, CalendarDays,
@@ -577,7 +578,27 @@ export default function ValidatorDashboard() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="space-y-6 pb-8" style={{ backgroundColor: 'var(--content-bg)' }}>
+    <div className="p-6 max-w-7xl mx-auto">
+      <div className="flex items-baseline justify-between mb-1">
+        <h1 className="text-2xl font-bold">Validator Queue</h1>
+        <div className="flex items-center gap-4">
+          <Link
+            href="/dashboard/validator/map"
+            className="text-sm font-medium text-blue-700 hover:text-blue-900"
+          >
+            Operational Map →
+          </Link>
+          <Link
+            href="/dashboard/validator/audit"
+            className="text-sm font-medium text-blue-700 hover:text-blue-900"
+          >
+            Audit Trail →
+          </Link>
+        </div>
+      </div>
+      <p className="text-gray-500 text-sm mb-6">
+        Encoder-submitted incidents from all regions awaiting review.
+      </p>
 
       {/* ── Sticky notification toast (visible while scrolling) ── */}
       {newIncidentBanner && (
