@@ -973,6 +973,7 @@ VALID_TOP_N_DIMENSIONS = {
     "fire_station": "a.fire_station_name",
     "region": "a.region_id::text",
     "municipality": "a.municipality_name",
+    "barangay": "a.barangay_name",
 }
 
 
