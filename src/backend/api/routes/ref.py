@@ -175,7 +175,9 @@ def get_emergency_services(
     redis_client = None
     cached_payload = None
     try:
-        redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
+        redis_client = redis.from_url(
+            os.getenv("REDIS_URL", "redis://redis:6379/0"), decode_responses=True
+        )
         cached = redis_client.get(cache_key)
         if cached:
             cached_payload = json.loads(cached)
@@ -232,6 +234,7 @@ def get_emergency_services(
 
     nearest_station_ids: list[int] = []
     if lat is not None and lon is not None and stations:
+
         def distance_m(station: dict) -> float:
             station_lat = float(station["latitude"])
             station_lon = float(station["longitude"])
@@ -246,10 +249,7 @@ def get_emergency_services(
             )
             return radius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
-        stations = [
-            {**station, "distance_m": distance_m(station)}
-            for station in stations
-        ]
+        stations = [{**station, "distance_m": distance_m(station)} for station in stations]
         stations.sort(key=lambda station: station["distance_m"])
         nearest_station_ids = [int(station["station_id"]) for station in stations[:5]]
 

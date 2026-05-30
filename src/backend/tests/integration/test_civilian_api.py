@@ -256,6 +256,7 @@ class TestCivilianReportPublicSubmission:
             == "Submit a new report if the emergency is ongoing, or call 911."
         )
 
+
 def _insert_cluster(db: Session, report_ids: list[int]) -> int:
     row = db.execute(
         text("""

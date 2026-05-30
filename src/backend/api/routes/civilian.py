@@ -704,7 +704,10 @@ def get_report_clusters(
         for row in rows:
             areas.append(
                 ReportClusterArea(
-                    area_id=_area_id(int(row.cluster_id), row.newest_report_at.isoformat() if row.newest_report_at else None),
+                    area_id=_area_id(
+                        int(row.cluster_id),
+                        row.newest_report_at.isoformat() if row.newest_report_at else None,
+                    ),
                     latitude=row.center_lat,
                     longitude=row.center_lon,
                     radius_m=int(row.public_radius_m),

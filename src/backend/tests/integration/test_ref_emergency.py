@@ -3,6 +3,7 @@ from main import app
 
 client = TestClient(app)
 
+
 def test_emergency_services_no_coords():
     """Test /api/ref/emergency-services without lat/lon."""
     response = client.get("/api/ref/emergency-services")
@@ -22,6 +23,7 @@ def test_emergency_services_no_coords():
         assert "address" not in station
         assert station["distance_m"] is None
 
+
 def test_emergency_services_with_coords():
     """Test /api/ref/emergency-services with lat/lon."""
     # Assuming standard lat/lon in PH
@@ -36,15 +38,19 @@ def test_emergency_services_with_coords():
         assert len(data["nearest_station_ids"]) <= 5
         assert data["stations"][0]["distance_m"] is not None
 
+
 def test_emergency_services_cache_hit(monkeypatch):
     """Test that Redis cache is hit."""
+
     class DummyRedis:
         def get(self, key):
             return '{"stations": [{"station_id": 999, "station_name": "Cache Station", "latitude": 10.0, "longitude": 10.0, "distance_m": null}]}'
+
         def setex(self, key, ttl, val):
             pass
 
     import redis
+
     monkeypatch.setattr(redis, "from_url", lambda url, **kwargs: DummyRedis())
 
     response = client.get("/api/ref/emergency-services?lat=10.0&lon=10.0")

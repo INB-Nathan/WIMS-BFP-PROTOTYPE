@@ -363,9 +363,7 @@ async def import_afor_file(
 
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
     if ext not in ("xlsx",):
-        raise HTTPException(
-            status_code=400, detail="Only .xlsx files are supported"
-        )
+        raise HTTPException(status_code=400, detail="Only .xlsx files are supported")
 
     content = await file.read()
     if len(content) == 0:
