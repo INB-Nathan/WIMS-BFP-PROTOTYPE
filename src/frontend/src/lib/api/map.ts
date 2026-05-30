@@ -28,8 +28,8 @@ export interface EmergencyContact {
 }
 
 export interface NearbyStation {
-  city: string;
-  province: string;
+  name: string;
+  address: string;
   region: string;
   lat: number;
   lng: number;

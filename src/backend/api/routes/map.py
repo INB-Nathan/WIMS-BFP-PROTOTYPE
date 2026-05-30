@@ -216,8 +216,8 @@ class EmergencyContact(BaseModel):
 
 
 class NearbyStation(BaseModel):
-    city: str
-    province: str
+    name: str
+    address: str
     region: str
     lat: float
     lng: float
@@ -266,21 +266,18 @@ async def get_emergency_services(
         rows = db.execute(
             text("""
                 SELECT
-                    rc.city_name,
-                    rp.province_name,
+                    fs.station_name,
+                    fs.address,
                     rr.region_name,
-                    ST_Y(rc.location::geometry) AS station_lat,
-                    ST_X(rc.location::geometry) AS station_lng,
+                    ST_Y(fs.location::geometry) AS station_lat,
+                    ST_X(fs.location::geometry) AS station_lng,
                     ST_Distance(
-                        rc.location::geography,
+                        fs.location::geography,
                         ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography
                     ) AS distance_m
-                FROM wims.ref_cities rc
-                JOIN wims.ref_provinces rp ON rp.province_id = rc.province_id
-                JOIN wims.ref_regions rr ON rr.region_id = rp.region_id
-                WHERE rc.location IS NOT NULL
-                  AND rc.has_fire_station = TRUE
-                ORDER BY rc.location::geography <-> ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography
+                FROM wims.ref_fire_stations fs
+                JOIN wims.ref_regions rr ON rr.region_id = fs.region_id
+                ORDER BY fs.location::geography <-> ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography
                 LIMIT 20
             """),
             {"lat": lat, "lng": lng},
@@ -288,8 +285,8 @@ async def get_emergency_services(
 
         stations = [
             {
-                "city": r.city_name,
-                "province": r.province_name,
+                "name": r.station_name,
+                "address": r.address or "",
                 "region": r.region_name,
                 "lat": round(float(r.station_lat), 6),
                 "lng": round(float(r.station_lng), 6),

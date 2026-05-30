@@ -187,13 +187,13 @@ function EmergencyPanel({
           </div>
           <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
             {stations.slice(0, 5).map((s) => (
-              <div key={s.city + s.distance_m} className="px-3 py-2">
-                <div className="font-medium text-slate-800 text-xs">{s.city}</div>
+              <div key={s.name + s.distance_m} className="px-3 py-2">
+                <div className="font-medium text-slate-800 text-xs">{s.name}</div>
                 <div className="text-slate-500 text-xs">
                   {s.distance_m < 1000
                     ? `${Math.round(s.distance_m)}m`
                     : `${(s.distance_m / 1000).toFixed(1)}km`}
-                  {' — '}{s.province}
+                  {' — '}{s.address}
                 </div>
               </div>
             ))}
