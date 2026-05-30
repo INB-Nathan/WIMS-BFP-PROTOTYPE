@@ -3,6 +3,28 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-05-30] fix | PR #143 review fixes: geocode proxy, tests, component extraction, PII dedup, ruff format
+
+**Changes implemented (review-fix batch @ `2ab506a` → `2bc229b`):**
+
+- **Nominatim geocode proxy** (`src/backend/api/routes/geocode.py`, `src/frontend/src/lib/geocode.ts`): All geocode requests now route through the backend (`/api/geocode/reverse`, `/api/geocode/search`) instead of the frontend calling `nominatim.openstreetmap.org` directly. Fire incident coordinates never leave the server to a third party. Backend proxy uses `httpx.AsyncClient` with timeout handling (504) and upstream error passthrough (502). Forward search restricted to Philippines (`countrycodes=ph`). Router registered in `main.py`.
+
+- **Duplicate detection unit tests** (`src/backend/tests/test_duplicate_detection.py`): 293-line test suite, 21 unit tests. Covers threshold logic (score ≥ 3), effective_date derivation from notification_dt, parameter forwarding for all 5 criteria (parametrized), null lat/lon/notification_dt handling, exclude_statuses construction, verified_window_seconds, and combined edge cases. All 21 pass.
+
+- **IncidentForm component extraction** (`src/frontend/src/components/IncidentFormSections.tsx`, `src/frontend/src/lib/geocode.ts`): IncidentForm.tsx reduced from 2,269 → 1,977 lines (below 2k ceiling). Form sections extracted to `IncidentFormSections.tsx` (365 lines). Geocode logic extracted to `lib/geocode.ts` (78 lines) with `reverseGeocode()` and `searchGeocode()` calling the backend proxy.
+
+- **PII decryption deduplication** (`src/backend/services/regional_incidents/helpers.py`): `decrypt_pii_blob()` defined once as a shared helper instead of duplicated inline decryption at both list and detail endpoints in `regional.py`. Uses lazy `SecurityProvider` singleton with proper `SecurityProviderError` logging.
+
+- **Barangay extraction unit tests** (`src/backend/tests/test_afor_import.py`): 9 new tests for `_extract_barangay_from_address()` covering keyword detection (Brgy/Bgy/Barangay/BRGY), positional fallback (5-part AFOR template), empty string, placeholder, and fewer-than-3-parts inputs.
+
+- **Ruff format pass** (`regional.py`, `main.py`, `helpers.py`, `test_afor_import.py`, `test_duplicate_detection.py`): 5 files reformatted to satisfy CI `ruff format --check` gate (line-length wrapping, trailing commas).
+
+- **Repo hygiene:** Removed `PR.md`, `feedback.md`, `checklists/` from repo root (process artifacts).
+
+**Verification:** Backend: `ruff format --check .` (110 files clean), `ruff check .` (all pass), `pytest tests/test_duplicate_detection.py` (21 pass), `pytest tests/test_afor_import.py -k extract_barangay` (9 pass).
+
+**Wiki updates:** This log.
+
 ## [2026-05-28] fix | Layout zoom scoping, OTP sizing, notification toasts, badge, filter UX, 24H labels
 
 **Changes implemented:**
