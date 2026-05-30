@@ -3,6 +3,42 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-05-29] implement | M8d HITL structured decision buttons + JSONB audit log
+- **FRS reference:** Module 8d — Human-in-the-Loop (HITL) Validation (FRS `frs-threatdetectionwithexplainableai.md` M8d)
+- Migration `39_hitl_decision.sql` adds `hitl_decision JSONB` column to `wims.security_threat_logs`; stores `{ "action": "CONFIRM_THREAT"|"FALSE_POSITIVE"|"REQUEST_MORE_INFO", "note": string|null, "reviewed_by": uuid, "reviewed_at": ISO8601 }`
+- Backend `PATCH /admin/security-logs/{log_id}` (`admin.py`): `SecurityLogUpdate` schema extended with `action` and `note` fields; when `action` is provided, maps to human-readable `admin_action_taken` label, writes JSONB decision record, sets `reviewed_by = admin user_id`, sets `resolved_at = now()` for CONFIRM_THREAT and FALSE_POSITIVE only (REQUEST_MORE_INFO leaves `resolved_at` null); invalid action → HTTP 400
+- Frontend `updateAdminSecurityLog` in `legacy.ts`: signature extended with `{ action?, note?, admin_action_taken?, resolved_at? }`; called with `{ action, note }` from HITL buttons
+- Frontend modal (`page.tsx`): replaced free-text `actionNote` textarea + single Save button with three structured HITL decision buttons — "Confirm Threat" (red, calls `handleHitlDecision('CONFIRM_THREAT')`), "False Positive" (gray, calls `handleHitlDecision('FALSE_POSITIVE')`), "Request More Info" (blue, reveals inline note textarea + Confirm/Cancel; calls `handleHitlDecision('REQUEST_MORE_INFO', note)`); logs with existing `admin_action_taken` show read-only display
+- GET `/admin/security-logs` now also returns `hitl_decision` JSONB column in response
+- Tests: `TestPatchSecurityLogHitl` class added to `test_admin_new_routes.py` (6 cases: CONFIRM_THREAT/FALSE_POSITIVE/REQUEST_MORE_INFO behavior, invalid action 400, no-fields 400, not-found 404); `admin-system-hitl.test.tsx` added (6 cases: 3 buttons render, each calls correct API action, Request More Info reveals note input, actioned logs show read-only)
+- Applied migration to Docker postgres; verified `hitl_decision jsonb` column present
+- Verification: backend `pytest -v -k security` → 41 passed; frontend `npx vitest run` → 8 passed (6 HITL + 2 existing AI analyze); `npm run lint` → 0 errors (pre-existing warnings only)
+
+## [2026-05-29] implement | M2c sync success/failure toast notifications
+- **FRS reference:** Module 2c — Offline-First IndexedDB Queue (FRS `frs-offlinefirst.md` M2c)
+- `useAutoSync.ts` `doSync()`: after `syncPendingIncidents()` returns, dispatches `toast.success`/`toast.warning`/`toast.error` based on `result.synced` and `result.failed` counts; success for clean sync, warning for partial, error for complete failure
+- `sonner` toast library added to `package.json` dependencies; `toast` imported from `sonner` in `useAutoSync.ts`
+- `layout.tsx`: `<Toaster />` component rendered to mount toast portal
+- Closes ISSUE#142
+
+## [2026-05-29] implement | M2b offline CRUD — IndexedDB queue operations
+- **FRS reference:** Module 2b — Encryption of Offline Payloads (FRS `frs-offlinefirst.md` M2b)
+- `offlineStore.ts`: `getQueuedIncident(id)`, `updateQueuedIncident(id, payload)`, `deleteQueuedIncident(id)`, `markSynced(id)`, `getPendingIncidents()` — full CRUD lifecycle for the IndexedDB incident queue
+- `syncEngine.ts`: `syncPendingIncidents()` iterates pending items, POSTs to backend, marks synced on success, retains on failure; returns `SyncResult { synced, failed, errors }`
+- Closes ISSUE#140
+
+## [2026-05-29] implement | M2b AES-256-GCM encryption of offline payloads
+- **FRS reference:** Module 2b — Encryption of Offline Payloads (FRS `frs-offlinefirst.md` M2b)
+- `offlineStore.ts`: `encryptPayload(payload)` uses Web Crypto API — `AES-GCM` with `crypto.getRandomValues()` for 12-byte IV; stored item has `encrypted` field (base64) instead of plaintext `payload`; `decryptPayload(encrypted)` reverses on read
+- `crypto-keys` IndexedDB store holds per-user AES key; key derived from user secret via PBKDF2 (with salt) if not already stored
+- Transparent encrypt on `addToQueue` / `updateQueuedIncident`; transparent decrypt on `getQueuedIncident`; `markSynced` operates on raw record (never needs payload, only `status` field) — no decryption required
+- Closes ISSUE#139
+
+## [2026-05-29] implement | M4b data_hash + sync_status in verification audit trail
+- **FRS reference:** Module 4b — Immutable Incident Record (FRS `frs-incidentworkflow.md` M4b)
+- Migration `40_verification_audit_fields.sql`: adds `data_hash TEXT` (SHA-256 of canonical incident payload) and `sync_status TEXT` (pending/synced/failed) columns to `wims.incident_verification_history`; trigger `_insert_incident_verification_history` updated to compute hash on insert; stored procedure `verify_incident_command` updated to accept and store sync status
+- Backend `verify_incident_command` now records `data_hash` via `sha256(concat_ws(...))` of all canonical incident fields and `sync_status` as 'synced' upon successful verification
+- Closes ISSUE#145
 ## [2026-05-29] implement | M9a System Monitoring dashboard UI (PR #125)
 - `GET /admin/monitoring/system` and `GET /admin/monitoring/workers` endpoints existed from PR #103, but frontend had no UI to consume them.
 - Added `fetchSystemMetrics()` and `fetchWorkerStatus()` to `src/frontend/src/lib/api/legacy.ts`; re-exported from `src/frontend/src/lib/api/admin.ts`.

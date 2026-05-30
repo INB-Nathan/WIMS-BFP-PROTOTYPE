@@ -596,6 +596,8 @@ def verify_incident_command(
                 new_status="REPLACED",
                 notes=f"Archived — superseded by replacement incident #{incident_id}",
                 action_label="REPLACED_EXISTING",
+                data_hash=None,
+                sync_status="SYNCED",
             )
 
         db.execute(
@@ -632,6 +634,8 @@ def verify_incident_command(
             new_status=target_status,
             notes=action_body.notes or "Validator action",
             action_label=action_label_map.get(action_body.action, action_body.action.upper()),
+            data_hash=data_hash if target_status == "VERIFIED" else None,
+            sync_status="SYNCED",
         )
         db.commit()
     except Exception:
