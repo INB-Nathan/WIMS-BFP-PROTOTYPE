@@ -2321,20 +2321,17 @@ async def correct_verified_incident(
         logger.exception("Analytics sync failed for corrected incident %s: %s", inc_id, e)
 
     # Publish real-time SSE event (fire-and-forget)
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(
-            publish_incident_event(
-                "incident.corrected",
-                incident_id=int(inc_id),
-                status="VERIFIED",
-                actor_id=str(corrector_user_id),
-                actor_role=current_user.get("role", "NATIONAL_VALIDATOR"),
-                extra={"corrected_fields": corrected_fields},
-            )
+    task = asyncio.create_task(
+        publish_incident_event(
+            "incident.corrected",
+            incident_id=int(inc_id),
+            status="VERIFIED",
+            actor_id=str(corrector_user_id),
+            actor_role=current_user.get("role", "NATIONAL_VALIDATOR"),
+            extra={"corrected_fields": corrected_fields},
         )
-    except RuntimeError:
-        pass
+    )
+    task.add_done_callback(lambda t: t.exception() if t.exception() else None)
 
     return {
         "incident_id": inc_id,

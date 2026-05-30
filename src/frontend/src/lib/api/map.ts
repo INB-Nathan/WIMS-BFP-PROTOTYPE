@@ -65,24 +65,3 @@ export async function fetchClusters(
   });
   return publicApiFetch<ClusterResponse>(`/api/public/clusters?${params}`);
 }
-
-/**
- * Fetch emergency contacts and nearby BFP stations.
- *
- * @param lat - Optional latitude for proximity-based station sorting
- * @param lng - Optional longitude for proximity-based station sorting
- */
-export async function fetchEmergencyServices(
-  lat?: number,
-  lng?: number,
-): Promise<EmergencyServicesResponse> {
-  const params = new URLSearchParams();
-  if (lat !== undefined && lng !== undefined) {
-    params.set('lat', lat.toFixed(6));
-    params.set('lng', lng.toFixed(6));
-  }
-  const qs = params.toString();
-  return publicApiFetch<EmergencyServicesResponse>(
-    `/api/public/emergency-services${qs ? `?${qs}` : ''}`,
-  );
-}

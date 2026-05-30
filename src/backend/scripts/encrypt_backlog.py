@@ -170,6 +170,18 @@ def run(db, sp: SecurityProvider) -> dict:
             ),
             params,
         )
+
+        # NULL estimated_damage_php in the nonsensitive table separately
+        if not has_damage and incident_id in damage_map:
+            db.execute(
+                text(
+                    "UPDATE wims.incident_nonsensitive_details "
+                    "SET estimated_damage_php = NULL "
+                    "WHERE incident_id = :iid"
+                ),
+                {"iid": incident_id},
+            )
+
         stats["newly_encrypted"] += 1
 
     db.commit()
