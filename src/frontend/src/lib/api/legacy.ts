@@ -150,6 +150,16 @@ export async function fetchSystemHealth(): Promise<unknown> {
   return apiFetch('/admin/health');
 }
 
+/** Fetch system resource metrics (admin) - GET /admin/monitoring/system */
+export async function fetchSystemMetrics(): Promise<unknown> {
+  return apiFetch('/admin/monitoring/system');
+}
+
+/** Fetch Celery worker status (admin) - GET /admin/monitoring/workers */
+export async function fetchWorkerStatus(): Promise<unknown> {
+  return apiFetch('/admin/monitoring/workers');
+}
+
 /** Revoke user's sessions (admin) - POST /admin/users/{userId}/logout */
 export async function revokeUserSessions(userId: string): Promise<{ status: string }> {
   return apiFetch(`/admin/users/${userId}/logout`, { method: 'POST' });
@@ -244,10 +254,10 @@ export async function analyzeSecurityLog(logId: number): Promise<{
   return apiFetch(`/admin/security-logs/${logId}/analyze`, { method: 'POST' });
 }
 
-/** Update security log (admin) - admin_action_taken, resolved_at */
+/** Update security log (admin) - structured HITL action or legacy free-text admin_action_taken */
 export async function updateAdminSecurityLog(
   logId: number,
-  payload: { admin_action_taken?: string; resolved_at?: string }
+  payload: { action?: string; note?: string; admin_action_taken?: string; resolved_at?: string }
 ): Promise<{ status: string; log_id: number }> {
   return apiFetch(`/admin/security-logs/${logId}`, {
     method: 'PATCH',

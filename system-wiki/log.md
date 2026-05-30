@@ -3,6 +3,13 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-05-30] merge | Master conflict resolution for encoder/validator branch
+
+- Merged `master` into `fix/enc-val-bugs-and-UI` and resolved conflicts in `src/backend/api/routes/regional.py` and `system-wiki/log.md`.
+- Preserved the encoder/validator branch's extracted regional helper architecture instead of reintroducing inline helper definitions from master.
+- Updated `src/backend/services/regional_incidents/helpers.py` so `insert_incident_verification_history()` accepts optional `data_hash` and `sync_status`, keeping the extracted helper compatible with master's M4b verification audit migration.
+- Preserved both master's M2/M4/M8/M9 log entries and this branch's archive/unarchive and duplicate-detection log entries.
+
 ## [2026-05-30] redesign | duplicate detection — conservative anchor-gated model
 
 **Root cause of false positives:** The previous 5-criterion scoring model (distance ≤500m | same category+type | same date | time within 1 hr | same city, threshold 3/5) could reach 3/5 with purely administrative/temporal signals — same city + same date + same time — without any location or address proximity. Multiple separate fires per day in the same city is normal for BFP operations.
@@ -178,6 +185,52 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - Preserved validator Accept, Reject, Archive, and bulk-selection controls.
 - Updated `subsystems/regional-dashboard.md`, `subsystems/validator-hub.md`, and `gaps/ui-ux-gap-register.md`.
 - Verification: not run at user request.
+## [2026-05-29] implement | M8d HITL structured decision buttons + JSONB audit log
+- **FRS reference:** Module 8d — Human-in-the-Loop (HITL) Validation (FRS `frs-threatdetectionwithexplainableai.md` M8d)
+- Migration `39_hitl_decision.sql` adds `hitl_decision JSONB` column to `wims.security_threat_logs`; stores `{ "action": "CONFIRM_THREAT"|"FALSE_POSITIVE"|"REQUEST_MORE_INFO", "note": string|null, "reviewed_by": uuid, "reviewed_at": ISO8601 }`
+- Backend `PATCH /admin/security-logs/{log_id}` (`admin.py`): `SecurityLogUpdate` schema extended with `action` and `note` fields; when `action` is provided, maps to human-readable `admin_action_taken` label, writes JSONB decision record, sets `reviewed_by = admin user_id`, sets `resolved_at = now()` for CONFIRM_THREAT and FALSE_POSITIVE only (REQUEST_MORE_INFO leaves `resolved_at` null); invalid action → HTTP 400
+- Frontend `updateAdminSecurityLog` in `legacy.ts`: signature extended with `{ action?, note?, admin_action_taken?, resolved_at? }`; called with `{ action, note }` from HITL buttons
+- Frontend modal (`page.tsx`): replaced free-text `actionNote` textarea + single Save button with three structured HITL decision buttons — "Confirm Threat" (red, calls `handleHitlDecision('CONFIRM_THREAT')`), "False Positive" (gray, calls `handleHitlDecision('FALSE_POSITIVE')`), "Request More Info" (blue, reveals inline note textarea + Confirm/Cancel; calls `handleHitlDecision('REQUEST_MORE_INFO', note)`); logs with existing `admin_action_taken` show read-only display
+- GET `/admin/security-logs` now also returns `hitl_decision` JSONB column in response
+- Tests: `TestPatchSecurityLogHitl` class added to `test_admin_new_routes.py` (6 cases: CONFIRM_THREAT/FALSE_POSITIVE/REQUEST_MORE_INFO behavior, invalid action 400, no-fields 400, not-found 404); `admin-system-hitl.test.tsx` added (6 cases: 3 buttons render, each calls correct API action, Request More Info reveals note input, actioned logs show read-only)
+- Applied migration to Docker postgres; verified `hitl_decision jsonb` column present
+- Verification: backend `pytest -v -k security` → 41 passed; frontend `npx vitest run` → 8 passed (6 HITL + 2 existing AI analyze); `npm run lint` → 0 errors (pre-existing warnings only)
+
+## [2026-05-29] implement | M2c sync success/failure toast notifications
+- **FRS reference:** Module 2c — Offline-First IndexedDB Queue (FRS `frs-offlinefirst.md` M2c)
+- `useAutoSync.ts` `doSync()`: after `syncPendingIncidents()` returns, dispatches `toast.success`/`toast.warning`/`toast.error` based on `result.synced` and `result.failed` counts; success for clean sync, warning for partial, error for complete failure
+- `sonner` toast library added to `package.json` dependencies; `toast` imported from `sonner` in `useAutoSync.ts`
+- `layout.tsx`: `<Toaster />` component rendered to mount toast portal
+- Closes ISSUE#142
+
+## [2026-05-29] implement | M2b offline CRUD — IndexedDB queue operations
+- **FRS reference:** Module 2b — Encryption of Offline Payloads (FRS `frs-offlinefirst.md` M2b)
+- `offlineStore.ts`: `getQueuedIncident(id)`, `updateQueuedIncident(id, payload)`, `deleteQueuedIncident(id)`, `markSynced(id)`, `getPendingIncidents()` — full CRUD lifecycle for the IndexedDB incident queue
+- `syncEngine.ts`: `syncPendingIncidents()` iterates pending items, POSTs to backend, marks synced on success, retains on failure; returns `SyncResult { synced, failed, errors }`
+- Closes ISSUE#140
+
+## [2026-05-29] implement | M2b AES-256-GCM encryption of offline payloads
+- **FRS reference:** Module 2b — Encryption of Offline Payloads (FRS `frs-offlinefirst.md` M2b)
+- `offlineStore.ts`: `encryptPayload(payload)` uses Web Crypto API — `AES-GCM` with `crypto.getRandomValues()` for 12-byte IV; stored item has `encrypted` field (base64) instead of plaintext `payload`; `decryptPayload(encrypted)` reverses on read
+- `crypto-keys` IndexedDB store holds per-user AES key; key derived from user secret via PBKDF2 (with salt) if not already stored
+- Transparent encrypt on `addToQueue` / `updateQueuedIncident`; transparent decrypt on `getQueuedIncident`; `markSynced` operates on raw record (never needs payload, only `status` field) — no decryption required
+- Closes ISSUE#139
+
+## [2026-05-29] implement | M4b data_hash + sync_status in verification audit trail
+- **FRS reference:** Module 4b — Immutable Incident Record (FRS `frs-incidentworkflow.md` M4b)
+- Migration `40_verification_audit_fields.sql`: adds `data_hash TEXT` (SHA-256 of canonical incident payload) and `sync_status TEXT` (pending/synced/failed) columns to `wims.incident_verification_history`; trigger `_insert_incident_verification_history` updated to compute hash on insert; stored procedure `verify_incident_command` updated to accept and store sync status
+- Backend `verify_incident_command` now records `data_hash` via `sha256(concat_ws(...))` of all canonical incident fields and `sync_status` as 'synced' upon successful verification
+- Closes ISSUE#145
+## [2026-05-29] implement | M9a System Monitoring dashboard UI (PR #125)
+- `GET /admin/monitoring/system` and `GET /admin/monitoring/workers` endpoints existed from PR #103, but frontend had no UI to consume them.
+- Added `fetchSystemMetrics()` and `fetchWorkerStatus()` to `src/frontend/src/lib/api/legacy.ts`; re-exported from `src/frontend/src/lib/api/admin.ts`.
+- Added `SystemMetrics` and `WorkerStatus` TypeScript interfaces to `src/frontend/src/app/admin/system/page.tsx`.
+- Added `loadMonitoring()` callback (`useCallback`) that fans out `fetchSystemHealth`, `fetchSystemMetrics`, `fetchWorkerStatus` via `Promise.allSettled` so one failure does not block others; sets `health`, `systemMetrics`, `workers`, `monitoringLastChecked`.
+- Replaced standalone `loadHealth()` mount useEffect with `loadMonitoring()` in both the mount effect (for initial load) and a dedicated M9a 60s interval `useEffect`; the manual System Health Refresh button still calls `loadHealth()`.
+- Rendered new "System Monitoring" section before "System Health": CPU/RAM/disk progress bars with absolute values, and a Celery worker table (hostname, status, active tasks, last seen).
+- Added `src/frontend/src/app/admin/system/admin-system-monitoring.test.tsx` with 6 tests: initial fetch call count, DOM rendering (CPU%/memory/disk/worker hostname), 60s interval second call, unmount cleanup, partial metrics failure resilience, and section heading presence.
+- Updated `gaps/frs-codebase-gap-register.md`: M9 PARTIAL → M9a CLOSED, updated date to 2026-05-29.
+- **Remaining M9 gap:** full-text log search in admin system page.
 ## [2026-05-27] feat | Analyst export: region_name end-to-end + curated default columns (#112 #113)
 
 - Added `region_name` to the backend export column allowlist (`ALLOWED_EXPORT_COLUMNS` in `src/backend/tasks/exports.py`) and the `get_export_rows()` column set (`src/backend/services/analytics_read_model.py`).

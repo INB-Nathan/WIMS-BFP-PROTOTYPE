@@ -241,11 +241,24 @@ Each component: `{"status": "HEALTHY"|"UNHEALTHY", "latency_ms": int}` or with `
 **Route:** `@router.patch("/security-logs/{log_id}")`  
 **Auth:** `Depends(get_system_admin)`  
 **DB Session:** `get_db_with_rls`  
-**Purpose:** Update `admin_action_taken` and/or `resolved_at` on a security threat log.
+**Purpose:** Update a security threat log — structured HITL decision or legacy free-text path.
+
+**Schema — `SecurityLogUpdate`:** `action` (optional, one of `CONFIRM_THREAT | FALSE_POSITIVE | REQUEST_MORE_INFO`), `note` (optional string), `admin_action_taken` (optional, legacy), `resolved_at` (optional ISO datetime, legacy).
+
+**HITL path (when `action` provided):**
+- Maps `action` to human-readable `admin_action_taken` label via `HITL_ACTION_LABELS` dict
+- Writes `hitl_decision` JSONB: `{ "action": <action>, "note": <note|null>, "reviewed_by": <admin user_id>, "reviewed_at": <now ISO8601> }`
+- Sets `resolved_at = now()` for CONFIRM_THREAT and FALSE_POSITIVE only
+- Sets `resolved_at = NULL` for REQUEST_MORE_INFO (not a terminal resolution)
+- Returns 400 for invalid `action` value
+
+**Legacy path (when `action` is null but `admin_action_taken` provided):**
+- Sets `admin_action_taken` directly
+- `resolved_at` can be set via `resolved_at` ISO string param
 
 **Returns:** `{"status": "ok", "log_id": int}`
 
-**Errors:** 400 (no fields), 404 (log not found)
+**Errors:** 400 (no fields to update, or invalid action value), 404 (log not found)
 
 ---
 

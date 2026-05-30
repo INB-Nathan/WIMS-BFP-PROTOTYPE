@@ -1,10 +1,11 @@
 """
-Integration tests for #66 (M6-D Immutable Records) and #84 (Analytics Sync).
+Integration tests for #66 (M6-D Immutable Records) and #84 (Analytics Sync), and #145 (M4b).
 
 Red state: ALL 5 tests FAIL before the fix.
 Green state: ALL 5 tests PASS after:
   1. src/postgres-init/17_immutable_records.sql applied to running container
   2. verify_incident() in regional.py patched (data_hash + sync_incident_to_analytics)
+  3. src/postgres-init/39_verification_audit_fields.sql applied (data_hash + sync_status on IVH)
 
 Run inside Docker:
     docker compose run --rm backend pytest tests/test_immutable_records.py -v
@@ -163,6 +164,67 @@ def verified_incident(encoder_region, validator_region):
     return incident_id
 
 
+@pytest.fixture
+def rejected_incident(encoder_region, validator_region):
+    """
+    Full workflow: create DRAFT → submit PENDING → reject REJECTED.
+    Returns incident_id.
+    """
+
+    async def _enc():
+        return {
+            "user_id": _ENCODER_UID,
+            "keycloak_id": str(_ENCODER_UID),
+            "role": "REGIONAL_ENCODER",
+            "assigned_region_id": encoder_region,
+        }
+
+    app.dependency_overrides[get_current_wims_user] = _enc
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/regional/incidents",
+            json={
+                "latitude": 14.5995,
+                "longitude": 120.9842,
+                "notification_dt": "2026-05-11T08:00:00+08:00",
+                "general_category": "STRUCTURAL",
+                "province_district": "Metro Manila",
+                "city_municipality": "Quezon City",
+                "alarm_level": "FIRST_ALARM",
+                "station_code": "TST",
+                "incident_type_code": "APT",
+            },
+        )
+        assert resp.status_code == 201, f"Create incident failed: {resp.text}"
+        incident_id = resp.json()["incident_id"]
+
+        resp = client.patch(
+            f"/api/regional/incidents/{incident_id}/submit",
+            params={"force": True},
+        )
+        assert resp.status_code == 200, f"Submit failed: {resp.text}"
+
+    async def _val():
+        return {
+            "user_id": _VALIDATOR_UID,
+            "keycloak_id": str(_VALIDATOR_UID),
+            "role": "NATIONAL_VALIDATOR",
+            "assigned_region_id": validator_region,
+        }
+
+    app.dependency_overrides[get_current_wims_user] = _val
+    with TestClient(app) as client:
+        resp = client.patch(
+            f"/api/regional/incidents/{incident_id}/verification",
+            params={"force": True},
+            json={"action": "reject", "notes": "Integration test rejection"},
+        )
+        assert resp.status_code == 200, f"Reject failed: {resp.text}"
+
+    app.dependency_overrides.clear()
+    return incident_id
+
+
 # ===========================================================================
 # #84 — Analytics sync
 # ===========================================================================
@@ -291,6 +353,70 @@ def test_66_db_blocks_delete_on_ivh(verified_incident, db):
     assert remaining is not None, (
         f"IVH row {history_id} was deleted — "
         "apply 17_immutable_records.sql no_delete_ivh RULE to enforce append-only"
+    )
+
+
+# ===========================================================================
+# #145 — M4b: data_hash + sync_status in IVH audit trail
+# ===========================================================================
+
+
+def test_145_verified_ivh_has_hash_and_sync_status(verified_incident):
+    """
+    On VERIFIED transition, the incident_verification_history row must have:
+      - data_hash: non-null, 64 hex chars (SHA-256)
+      - sync_status: 'SYNCED'
+    """
+    engine = _autocommit_engine()
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT data_hash, sync_status FROM wims.incident_verification_history "
+                "WHERE target_type = 'OFFICIAL' AND target_id = :iid "
+                "  AND new_status = 'VERIFIED' "
+                "ORDER BY action_timestamp DESC LIMIT 1"
+            ),
+            {"iid": verified_incident},
+        ).fetchone()
+
+    assert row is not None, f"No IVH row found for VERIFIED incident {verified_incident}"
+    data_hash, sync_status = row
+    assert data_hash is not None, (
+        f"IVH data_hash is NULL for incident {verified_incident} — "
+        "fix #145: pass data_hash to insert_incident_verification_history on VERIFIED"
+    )
+    assert len(data_hash) == 64, f"data_hash must be 64 hex chars, got: {data_hash!r}"
+    assert all(c in "0123456789abcdef" for c in data_hash), (
+        f"data_hash must be lowercase hex, got: {data_hash!r}"
+    )
+    assert sync_status == "SYNCED", f"sync_status must be 'SYNCED', got: {sync_status!r}"
+
+
+def test_145_rejected_ivh_has_null_hash_but_sync_status(rejected_incident):
+    """
+    On REJECTED transition, the IVH row must have:
+      - data_hash: NULL (no canonical hash computed for rejected incidents)
+      - sync_status: 'SYNCED'
+    """
+    engine = _autocommit_engine()
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT data_hash, sync_status FROM wims.incident_verification_history "
+                "WHERE target_type = 'OFFICIAL' AND target_id = :iid "
+                "  AND new_status = 'REJECTED' "
+                "ORDER BY action_timestamp DESC LIMIT 1"
+            ),
+            {"iid": rejected_incident},
+        ).fetchone()
+
+    assert row is not None, f"No IVH row found for REJECTED incident {rejected_incident}"
+    data_hash, sync_status = row
+    assert data_hash is None, (
+        f"IVH data_hash must be NULL for REJECTED incident, got: {data_hash!r}"
+    )
+    assert sync_status == "SYNCED", (
+        f"sync_status must be 'SYNCED' for REJECTED, got: {sync_status!r}"
     )
 
 

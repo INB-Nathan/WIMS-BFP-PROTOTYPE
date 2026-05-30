@@ -258,12 +258,40 @@ def insert_incident_verification_history(
     new_status: str,
     notes: str,
     action_label: str | None = None,
+    data_hash: str | None = None,
+    sync_status: str = "SYNCED",
 ) -> None:
     """Insert IVH row with compatibility for both legacy and migrated schemas."""
     has_action_label = _ivh_has_column(db, "action_label")
+    has_data_hash = _ivh_has_column(db, "data_hash")
+    has_sync_status = _ivh_has_column(db, "sync_status")
 
     if _ivh_uses_target_columns(db):
-        if has_action_label:
+        if has_action_label and has_data_hash and has_sync_status:
+            db.execute(
+                text("""
+                    INSERT INTO wims.incident_verification_history (
+                        target_type, target_id, action_by_user_id,
+                        previous_status, new_status, notes, action_label,
+                        data_hash, sync_status
+                    ) VALUES (
+                        'OFFICIAL', :iid, CAST(:uid AS uuid),
+                        :prev_status, :new_status, :notes, :action_label,
+                        :data_hash, :sync_status
+                    )
+                """),
+                {
+                    "iid": incident_id,
+                    "uid": actor_user_id,
+                    "prev_status": previous_status,
+                    "new_status": new_status,
+                    "notes": notes,
+                    "action_label": action_label,
+                    "data_hash": data_hash,
+                    "sync_status": sync_status,
+                },
+            )
+        elif has_action_label:
             db.execute(
                 text("""
                     INSERT INTO wims.incident_verification_history (
@@ -281,6 +309,29 @@ def insert_incident_verification_history(
                     "new_status": new_status,
                     "notes": notes,
                     "action_label": action_label,
+                },
+            )
+        elif has_data_hash and has_sync_status:
+            db.execute(
+                text("""
+                    INSERT INTO wims.incident_verification_history (
+                        target_type, target_id, action_by_user_id,
+                        previous_status, new_status, notes,
+                        data_hash, sync_status
+                    ) VALUES (
+                        'OFFICIAL', :iid, CAST(:uid AS uuid),
+                        :prev_status, :new_status, :notes,
+                        :data_hash, :sync_status
+                    )
+                """),
+                {
+                    "iid": incident_id,
+                    "uid": actor_user_id,
+                    "prev_status": previous_status,
+                    "new_status": new_status,
+                    "notes": notes,
+                    "data_hash": data_hash,
+                    "sync_status": sync_status,
                 },
             )
         else:

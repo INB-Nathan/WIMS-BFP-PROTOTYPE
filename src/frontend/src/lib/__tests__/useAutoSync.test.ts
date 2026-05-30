@@ -22,6 +22,15 @@ vi.mock('../offlineStore', () => ({
   getPendingIncidents: vi.fn(),
 }));
 
+// Mock sonner
+vi.mock('sonner', () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+  },
+}));
+
 // Mock useNetworkStatus
 const mockNetworkStatus = { isOnline: true, isReconnecting: false };
 vi.mock('../useNetworkStatus', () => ({
@@ -31,6 +40,7 @@ vi.mock('../useNetworkStatus', () => ({
 import { useAutoSync } from '../useAutoSync';
 import { syncPendingIncidents } from '../syncEngine';
 import { getPendingIncidents } from '../offlineStore';
+import { toast } from 'sonner';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -38,6 +48,9 @@ beforeEach(() => {
   mockNetworkStatus.isReconnecting = false;
   vi.mocked(getPendingIncidents).mockResolvedValue([]);
   vi.mocked(syncPendingIncidents).mockResolvedValue({ synced: 0, failed: 0, errors: [] });
+  vi.mocked(toast.success).mockClear();
+  vi.mocked(toast.error).mockClear();
+  vi.mocked(toast.warning).mockClear();
 });
 
 afterEach(() => {
@@ -182,5 +195,67 @@ describe('useAutoSync', () => {
     // Should not have synced after unmount
     expect(syncPendingIncidents).not.toHaveBeenCalled();
     vi.useRealTimers();
+  });
+
+  it('fires toast.success when sync succeeds with no failures', async () => {
+    vi.mocked(syncPendingIncidents).mockResolvedValue({
+      synced: 2, failed: 0, errors: [],
+    });
+    vi.mocked(getPendingIncidents).mockResolvedValue([]);
+
+    const { result } = renderHook(() => useAutoSync());
+
+    await act(async () => {
+      await result.current.syncNow();
+    });
+
+    expect(toast.success).toHaveBeenCalledWith('Synced 2 incidents');
+  });
+
+  it('fires toast.error when sync fails with no successes', async () => {
+    vi.mocked(syncPendingIncidents).mockResolvedValue({
+      synced: 0, failed: 1, errors: [{ id: 1, error: 'Network error' }],
+    });
+    vi.mocked(getPendingIncidents).mockResolvedValue([]);
+
+    const { result } = renderHook(() => useAutoSync());
+
+    await act(async () => {
+      await result.current.syncNow();
+    });
+
+    expect(toast.error).toHaveBeenCalledWith('1 incident failed to sync');
+  });
+
+  it('fires no toast when nothing to sync', async () => {
+    vi.mocked(syncPendingIncidents).mockResolvedValue({
+      synced: 0, failed: 0, errors: [],
+    });
+    vi.mocked(getPendingIncidents).mockResolvedValue([]);
+
+    const { result } = renderHook(() => useAutoSync());
+
+    await act(async () => {
+      await result.current.syncNow();
+    });
+
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(toast.warning).not.toHaveBeenCalled();
+  });
+
+  it('fires toast.warning when sync has mixed success and failure', async () => {
+    vi.mocked(syncPendingIncidents).mockResolvedValue({
+      synced: 1, failed: 1, errors: [{ id: 1, error: 'Network error' }],
+    });
+    vi.mocked(getPendingIncidents).mockResolvedValue([]);
+
+    const { result } = renderHook(() => useAutoSync());
+
+    await act(async () => {
+      await result.current.syncNow();
+    });
+
+    expect(toast.warning).toHaveBeenCalledWith('Synced 1, 1 failed — will retry');
   });
 });
