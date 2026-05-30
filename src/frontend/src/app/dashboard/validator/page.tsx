@@ -6,6 +6,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   RefreshCw, Flame, Building2, TreePine, Car, Layers, Home, Users, Truck, Trees,
   Archive, CalendarDays,
