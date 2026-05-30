@@ -95,20 +95,31 @@ export function useEventStream(options: EventStreamOptions) {
       optionsRef.current.onError?.(err);
     };
 
-    // Generic handler — dispatches to the right callback based on event_type
+    // Register per-event-type listeners — the backend emits named SSE events
+    // (e.g. event: incident.updated) which bypass EventSource.onmessage entirely.
+    for (const [eventType, callbackKey] of Object.entries(EVENT_CALLBACK_MAP)) {
+      es.addEventListener(eventType, (msg: Event) => {
+        try {
+          const me = msg as MessageEvent;
+          const event: SSEEvent = JSON.parse(me.data);
+          const current = optionsRef.current;
+
+          // Firehose callback
+          current.onEvent?.(event);
+
+          // Type-specific callback
+          (current[callbackKey] as EventCallback | undefined)?.(event);
+        } catch {
+          // Ignore malformed events
+        }
+      });
+    }
+
+    // Fallback — catches any event types not in EVENT_CALLBACK_MAP
     es.onmessage = (msg) => {
       try {
         const event: SSEEvent = JSON.parse(msg.data);
-        const current = optionsRef.current;
-
-        // Firehose callback
-        current.onEvent?.(event);
-
-        // Type-specific callback
-        const callbackKey = EVENT_CALLBACK_MAP[event.event_type];
-        if (callbackKey) {
-          (current[callbackKey] as EventCallback | undefined)?.(event);
-        }
+        optionsRef.current.onEvent?.(event);
       } catch {
         // Ignore malformed events
       }
