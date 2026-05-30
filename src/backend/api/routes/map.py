@@ -31,16 +31,32 @@ logger = logging.getLogger("wims.map")
 # ---------------------------------------------------------------------------
 _REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
-_REDIS_POOL: aioredis.Redis | None = None
+# Sentinel to distinguish "never initialized" from "initialized but failed."
+# _REDIS_POOL = _UNSET → never tried.  None → tried and unreachable.
+# During the _REDIS_RETRY_AFTER cooldown, requests skip reconnection to avoid
+# creating a new aioredis client per request when Redis is briefly down.
+_UNSET: object = object()
+_REDIS_POOL: aioredis.Redis | None | object = _UNSET
+_REDIS_RETRY_AFTER: float = 0.0  # monotonic timestamp
+_REDIS_BACKOFF_SECONDS = 30.0
+
 _REDIS_CLUSTER_TTL = 120  # 2 minutes
 _REDIS_EMERGENCY_TTL = 300  # 5 minutes
 _REDIS_POOL_MAX_CONNECTIONS = 10
 
 
 async def _get_redis() -> aioredis.Redis | None:
-    """Return a lazy Redis connection. Returns None if Redis is unreachable."""
-    global _REDIS_POOL  # noqa: PLW0603
+    """Return a lazy Redis connection with backoff. Returns None if Redis is
+    unreachable; skips reconnection during cooldown to avoid connection storms."""
+    global _REDIS_POOL, _REDIS_RETRY_AFTER  # noqa: PLW0603
+
+    # Known-bad with active cooldown — skip retry
     if _REDIS_POOL is None:
+        if time.monotonic() < _REDIS_RETRY_AFTER:
+            return None
+        # Cooldown expired — fall through to retry
+
+    if _REDIS_POOL is _UNSET or _REDIS_POOL is None:
         try:
             _REDIS_POOL = aioredis.from_url(
                 _REDIS_URL,
@@ -54,8 +70,11 @@ async def _get_redis() -> aioredis.Redis | None:
             await _REDIS_POOL.ping()
         except Exception:
             logger.warning("Redis unreachable — public map cache disabled")
-            _REDIS_POOL = None  # type: ignore[assignment]
-    return _REDIS_POOL
+            _REDIS_POOL = None
+            _REDIS_RETRY_AFTER = time.monotonic() + _REDIS_BACKOFF_SECONDS
+            return None
+
+    return _REDIS_POOL  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
