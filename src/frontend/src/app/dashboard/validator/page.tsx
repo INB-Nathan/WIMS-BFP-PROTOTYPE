@@ -8,7 +8,7 @@ import { useEffect, useState, useCallback, useMemo, useRef, type MouseEvent } fr
 import { useRouter } from "next/navigation";
 import {
   RefreshCw, Flame, Building2, TreePine, Car, Layers, Home, Users, Truck, Trees,
-  Archive, Flag, CalendarDays,
+  Archive, CalendarDays,
 } from "lucide-react";
 import { apiFetch, ApiRequestError, fetchValidatorStats } from "@/lib/api";
 import { IncidentDiffPanel } from "@/components/IncidentDiffPanel";
@@ -174,6 +174,7 @@ export default function ValidatorDashboard() {
   const [hoverHint, setHoverHint] = useState<HoverHint | null>(null);
   const lastKnownTotal = useRef<number | null>(null);
   const hoverHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const statsInitialMountRef = useRef(true);
 
   const updateFiltersWithoutScrollShift = useCallback((update: () => void) => {
     const x = window.scrollX;
@@ -462,7 +463,10 @@ export default function ValidatorDashboard() {
 
   useEffect(() => { fetchQueue(); }, [fetchQueue]);
 
+  // Skip the very first fire — fetchQueue already calls fetchValidatorStats on mount.
+  // Subsequent fires (statsDateFilter change) still update stats without a full queue refetch.
   useEffect(() => {
+    if (statsInitialMountRef.current) { statsInitialMountRef.current = false; return; }
     fetchValidatorStats(statsDateBounds).then(setStats).catch(() => { /* non-critical */ });
   }, [statsDateBounds]);
 
@@ -1005,9 +1009,6 @@ export default function ValidatorDashboard() {
                           </button>
                         ) : (
                           <>
-                            {(inc.is_duplicate || runtimeDuplicates.has(inc.incident_id)) && (
-                              <Flag className="h-3.5 w-3.5 shrink-0 text-orange-500" aria-label="Flagged as duplicate" />
-                            )}
                             {(inc.is_duplicate || runtimeDuplicates.has(inc.incident_id)) ? (
                               <button
                                 onClick={(e) => {

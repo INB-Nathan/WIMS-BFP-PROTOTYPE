@@ -531,10 +531,15 @@ export default function RegionalIncidentDetailPage() {
     return () => clearInterval(interval);
   }, [isEncoder, detail, incidentId]);
 
-  // Auto-show the duplicate comparison once when a validator opens a duplicate-flagged incident.
+  // Auto-show the duplicate comparison once when a validator opens a PENDING duplicate-flagged incident.
+  // Skip if already resolved (VERIFIED/REJECTED/REPLACED) — there's nothing left to decide.
   useEffect(() => {
     if (!isValidator || !detail || dupAutoShownRef.current) return;
-    if (detail.is_duplicate && detail.duplicate_of) {
+    if (
+      detail.is_duplicate &&
+      detail.duplicate_of &&
+      !['VERIFIED', 'REJECTED', 'REPLACED'].includes(detail.verification_status)
+    ) {
       dupAutoShownRef.current = true;
       setValidatorDupMatchedId(detail.duplicate_of);
     }
