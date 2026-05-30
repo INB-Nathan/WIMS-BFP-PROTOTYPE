@@ -1,10 +1,10 @@
 ---
 title: UI/UX Gap Register
 created: 2026-05-14
-updated: 2026-05-19
+updated: 2026-05-28 (zoom/OTP/notifications/badges/24H labels batch)
 type: gap
 tags: [wims-bfp, gap, ui-ux, needs-verification]
-sources: [raw/ui-ux, ui-ux/evaluation-loginpage-keycloaksso.md, ui-ux/evaluation-system-admin-hub.md, ui-ux/evaluation-national-analyst.md]
+sources: [raw/ui-ux, ui-ux/evaluation-loginpage-keycloaksso.md, ui-ux/evaluation-system-admin-hub.md, ui-ux/evaluation-national-analyst.md, src/frontend/src/app/login/page.tsx, src/frontend/src/app/globals.css, src/keycloak/themes/wims-bfp/login/template.ftl, src/keycloak/themes/wims-bfp/login/login-otp.ftl, src/keycloak/themes/wims-bfp/login/login-config-totp.ftl, src/keycloak/themes/wims-bfp/login/resources/css/wims-custom.css, src/frontend/src/components/Sidebar.tsx, src/frontend/src/app/dashboard/regional/page.tsx, src/frontend/src/app/dashboard/validator/page.tsx]
 status: needs-review
 ---
 
@@ -15,9 +15,9 @@ UI/UX improvement gaps identified during user desk-check evaluations (2026-05-14
 ## Login Page + Keycloak SSO (`/login`)
 | Issue | Detail | Status |
 |---|---|---|
-| Sign-in container misalignment | Hero section and sign-in form are vertically stacked/misaligned on desktop | Needs implementation |
-| Hero icon loss on Keycloak redirect | After Keycloak redirect, hero illustration/icon disappears | Needs implementation |
-| TOTP digit-separation UX | 6-box TOTP input with auto-advance and backspace behavior; no visual digit grouping | Needs implementation |
+| Sign-in container misalignment | Hero section and sign-in form are vertically stacked/misaligned on desktop | Fixed in code with desktop `/login` form nudge; needs browser verification |
+| Hero icon loss on Keycloak redirect | After Keycloak redirect, hero illustration/icon disappears | Fixed in code with shared check-circle trust icon in native login and Keycloak theme; needs browser verification |
+| TOTP digit-separation UX | 6-box TOTP input with auto-advance and backspace behavior; no visual digit grouping | Fixed in code for Keycloak OTP challenge and setup screens; OTP boxes resized (44 px height, 18 px font, max-width 300 px grid) to prevent overflow; needs Keycloak smoke verification |
 
 Source: [[ui-ux/evaluation-loginpage-keycloaksso]]
 
@@ -41,8 +41,40 @@ Source: [[ui-ux/evaluation-system-admin-hub]]
 ## Home Page (`/home`)
 | Issue | Detail | Status |
 |---|---|---|
+| Sidebar label says Home | `/home` remains the route, but the authenticated sidebar and breadcrumbs should present it as Operations | Fixed in code; needs browser verification |
 | Missing regional heatmap | Per-role heatmap not rendered for any role | Needs implementation |
 | No system-wide announcement feature | No banner/toast for global announcements | Needs implementation |
+
+## Regional Encoder + National Validator Dashboards
+| Issue | Detail | Status |
+|---|---|---|
+| Dashboard not first in role navigation | Encoder/validator sidebars showed Home before role dashboards and used role-prefixed dashboard labels | Fixed in code; needs browser verification |
+| Synced indicators too prominent | Global `SyncStatusBar` and regional local synced badge competed with dashboard content | Fixed in code; needs browser verification |
+| Regional incident row discoverability | Regional rows were clickable but discoverability depended on helper text | Fixed in code with keyboard-focusable rows and delayed "Click to view" hover/focus hint; needs browser verification |
+| Validator View/Archive repetition | Validator queue used a generic View button beside row actions and prominent Archive controls | Fixed in code with row click-to-view, delayed "Click to view" hint, and quieter finalized Archive action; needs browser verification |
+| Persistent inline click hints | Delayed inline "Click to view" hints could linger and take table space | Fixed in code with delayed floating bubbles that hide on mouse movement/leave; needs browser verification |
+| Validator status filter scanability | Validator used a native status dropdown and hid pending workload urgency | Fixed in code with All/Pending/Accepted/Rejected quick chips, date-range/date-basis dropdowns, and a pending-only red indicator; needs browser verification |
+| Regional recent workload visibility | Regional list did not default to current-day workload or provide richer today context | Fixed in code with Today-by-modified default, date-range/date-basis dropdowns, API date bounds, and Today incident cards; needs browser verification |
+| Specific date dashboard filtering | Regional and validator dashboards needed a single-date filter integrated with Today/Week/Month/Year presets | Fixed in code with a Specific Date option in the existing date dropdown that sends same-day `date_from`/`date_to`; needs browser verification |
+| Encoder rejected workload UX | Rejected notification was not dismissible, Show rejected preserved conflicting date filters, and Rejected chip lacked a count | Fixed in code with dismissible alert, all-time rejected quick-filter, and red count badge; needs browser verification |
+| Encoder compact result presentation | Rich card layout only applied to Today/Specific Date and not to small filtered sets | Fixed in code by using cards for any filtered result set with 6 or fewer total incidents; needs browser verification |
+| Dashboard stats accuracy | Encoder total card needed current-week scope, wildland fire-type grouping was too literal, validator awaiting count did not match queue status defaults, and validator Total Verified card was unwanted | Fixed in code with `total_incidents_this_week`, normalized wildland type grouping, `PENDING` + `PENDING_VALIDATION` validator count, pending count badge, and Wildland Fire validator card; needs data verification |
+| Regional Today card density/readability | Today cards needed tighter pairings, clearer label/value hierarchy, and stronger affected-count emphasis | Fixed in code with dark-red labels, paired caller/classification rows, district/city separation, compact last-modified header, and emphasized count tiles; needs browser verification |
+| Regional Today card visual density | Incident cards were visually cramped and overused red uppercase labels | Fixed in code with muted labels, clearer primary/secondary hierarchy, roomier card padding, grouped sections, subtler hover state, and calmer affected-count chips; needs browser verification |
+| Seeded incidents in encoder workload | Deterministic analyst seed incidents appeared in regional encoder dashboard data | Fixed in code by filtering `AFOR-SEED-*`/`SEEDED` import batches from regional encoder list and stats; needs data verification |
+| Category summary mismatch | Vehicular/transportation incidents could appear in rows while dashboard cards showed 0 due to alias mismatch | Fixed in code by aggregating `VEHICULAR` and `TRANSPORTATION` aliases in regional/validator cards; needs browser verification |
+| Deleted drafts inflating rejected workload | Legacy/inconsistent deleted draft rows could leak into rejected workload indicators | Fixed in code by excluding `DELETED_DRAFT` history rows from regional status summary; needs data verification |
+| Manual incident date ergonomics | Create/edit form required manually picking today's incident date | Fixed in code with a Set to today shortcut using the Asia/Manila calendar date; needs browser verification |
+| Encoder incident detail readability | Detail view presented a complete but raw stacked field dump with weak scan hierarchy | Fixed in code with a formal report-style header, non-status summary panel, vertical dot section navigation, restrained section tints, definition-list field grids, compact affected-count cells, cleaner tables, and quieter problem chips; needs browser verification |
+| Dashboard Date of Fire filter crash | Encoder/validator dashboard date-basis controls exposed Date of Fire filtering, which could crash local runs with insufficient system resources | Fixed in code by removing frontend `date_basis` parameters, defaulting encoder filters to Date Modified and validator filters to Date of Submission, and adding always-visible calendar pickers for specific modified/submission dates; needs browser verification |
+| Encoder rich-card status visibility | Rich cards needed border colour to match incident status without increasing border width | Fixed in code with status-coloured 1px rich-card borders: green verified, red rejected, gray draft, warm yellow pending; needs browser verification |
+| Incident detail dot-nav overlap | Desktop circular section navigation could overlap incident details | Fixed in code by pinning the dot nav near the right viewport margin instead of the report-body edge calculation; needs browser verification |
+| Site zoom baseline | Users needed the app to open at 90% zoom automatically | Fixed in code by scoping `zoom: 0.9` to the authenticated `<main>` element only (`.wims-main-zoom`), avoiding the white-bottom-line regression caused by `body` zoom; login page unaffected; needs browser verification |
+| Encoder notification toast visibility | Encoder actioned-submission and rejection banners were inline and scrolled away | Fixed: both moved to `sticky top-0 z-40` container; pending-actioned banner gains a Refresh button; "Show rejected" scrolls to incidents section |
+| Validator notification toast visibility | Validator new-incident banner was inline | Fixed: moved to `sticky top-0 z-40` above the page header |
+| Rejected filter badge cropping | Red count badge on Rejected chip was inline and could clip at the button boundary | Fixed: chip is now `relative`; badge is `absolute -right-2 -top-2 ring-2 ring-white` |
+| Rejected/Pending filter scoping | Clicking Rejected or Pending chips kept the current date scope, hiding older records | Fixed: Rejected chip (encoder) and Pending chip (validator) now auto-set date scope to All Time |
+| Incident detail 24H clutter | Every time value had `(24H)` appended to the value, duplicating it across all fields | Fixed: `(24H)` removed from value-generating functions; added to labels only where relevant (notification dt, dispatch/arrival, return-to-base, alarm time column) |
 
 ## National Analyst Dashboard (`/dashboard/analyst`)
 | Issue | Detail | Status |

@@ -4,11 +4,13 @@ import { Suspense, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createUserManager } from '@/lib/oidc';
 import { useAuth } from '@/context/AuthContext';
+import { useUserProfile } from '@/lib/auth';
 import { Loader2 } from 'lucide-react';
 
 function CallbackContent() {
     const router = useRouter();
     const { refreshSession } = useAuth();
+    const { refreshProfile } = useUserProfile();
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -42,12 +44,20 @@ function CallbackContent() {
                     router.replace('/login');
                     return;
                 }
-                // CRITICAL: Refresh the AuthProvider session state BEFORE navigating.
-                // The cookie is now set, but fetchSession() already ran on mount
-                // (before the cookie existed). Without this, user stays null and
-                // the LayoutShell auth guard redirects back to Keycloak.
-                await refreshSession();
-                router.push('/dashboard');
+                // CRITICAL: Refresh BOTH auth providers BEFORE navigating.
+                // The cookie is now set, but both fetchSession() and fetchProfile()
+                // already ran on mount before the cookie existed. Without this,
+                // AuthContext stays null (LayoutShell redirects back to Keycloak)
+                // and UserProfileProvider keeps assignedRegionId=null (region lock
+                // in IncidentForm never fires, bypassing RBAC enforcement).
+                await Promise.all([refreshSession(), refreshProfile()]);
+                const savedRedirect = sessionStorage.getItem('wims:redirect_after_login');
+                if (savedRedirect) {
+                    sessionStorage.removeItem('wims:redirect_after_login');
+                    router.push(savedRedirect);
+                } else {
+                    router.push('/dashboard');
+                }
             } catch (err) {
                 console.error('Callback error:', err);
                 setError(err instanceof Error ? err.message : 'Callback failed');
@@ -55,7 +65,7 @@ function CallbackContent() {
             }
         };
         run();
-    }, [router, refreshSession]);
+    }, [router, refreshSession, refreshProfile]);
 
     return (
         <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--content-bg)' }}>

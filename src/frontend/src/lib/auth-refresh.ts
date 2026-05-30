@@ -12,39 +12,30 @@
  */
 
 const REFRESH_ENDPOINT = '/api/auth/refresh';
-const REFRESH_LOCK_NAME = 'wims:auth:refresh_lock';
+export const REFRESH_LOCK_NAME = 'wims:auth:refresh_lock';
 
-async function doRefresh(): Promise<boolean> {
-  try {
-    const res = await fetch(REFRESH_ENDPOINT, {
-      method: 'POST',
-      credentials: 'include',
-    });
-    if (!res.ok) {
-      console.warn('[auth-refresh] refresh failed', res.status);
-      return false;
-    }
-    console.log('[auth-refresh] token refreshed');
-    return true;
-  } catch (err) {
-    console.error('[auth-refresh] refresh request failed', err);
-    return false;
-  }
-}
+let refreshInFlight: Promise<boolean> | null = null;
 
 export async function refreshToken(): Promise<boolean> {
-  // Web Locks API available — use the lock to serialise cross-tab refreshes.
-  if ('locks' in navigator && typeof navigator.locks.request === 'function') {
-    const lock = await navigator.locks.request(REFRESH_LOCK_NAME, async () => {
-      return doRefresh();
-    });
-    return lock ?? false;
-  }
+  if (refreshInFlight) return refreshInFlight;
 
-  // Web Locks unavailable — fall back to direct fetch.
-  // This still handles token expiry correctly; the only tradeoff is loss of
-  // cross-tab serialisation (multiple tabs may hit /api/auth/refresh
-  // concurrently), which is safe for refresh token grants.
-  console.warn('[auth-refresh] Web Locks API unavailable — using direct fetch fallback');
-  return doRefresh();
+  const p = (async () => {
+    try {
+      if (typeof navigator === 'undefined' || !navigator.locks) {
+        const res = await fetch(REFRESH_ENDPOINT, { method: 'POST', credentials: 'include' });
+        return res.ok;
+      }
+      const result = await navigator.locks.request(REFRESH_LOCK_NAME, async () => {
+        const res = await fetch(REFRESH_ENDPOINT, { method: 'POST', credentials: 'include' });
+        return res.ok;
+      });
+      return result ?? false;
+    } catch {
+      return false;
+    }
+  })();
+
+  refreshInFlight = p;
+  p.finally(() => { refreshInFlight = null; });
+  return p;
 }

@@ -1,14 +1,20 @@
 ---
 title: Frontend Infrastructure
 created: 2026-05-16
-updated: 2026-05-24
+updated: 2026-05-28
 type: frontend
 tags: [wims-bfp, frontend, components, api-client, auth, utilities]
-sources: [src/frontend/src/context/AuthContext.tsx, src/frontend/src/lib/api.ts, src/frontend/src/lib/afor-utils.ts, src/frontend/src/lib/ph-regions.ts, src/frontend/src/lib/regional-incidents.ts, src/frontend/src/lib/analyst-workflow-transfer.ts, src/frontend/src/lib/edgeFunctions.ts, src/frontend/src/types/api.ts]
+sources: [src/frontend/src/app/globals.css, src/frontend/src/context/AuthContext.tsx, src/frontend/src/lib/api.ts, src/frontend/src/lib/afor-utils.ts, src/frontend/src/lib/ph-regions.ts, src/frontend/src/lib/regional-incidents.ts, src/frontend/src/lib/analyst-workflow-transfer.ts, src/frontend/src/lib/edgeFunctions.ts, src/frontend/src/types/api.ts]
 status: draft
 ---
 
 # Frontend Infrastructure
+
+## Global Presentation
+
+**File:** `src/frontend/src/app/globals.css`
+
+The application body applies a 90% `zoom` baseline so the authenticated dashboard surfaces fit more operational content on screen without requiring each user to manually adjust browser zoom.
 
 ## Auth Context
 

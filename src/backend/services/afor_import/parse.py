@@ -526,6 +526,21 @@ def _time_str(val: Any) -> str | None:
     return s or None
 
 
+def _extract_barangay_from_address(address: str) -> str:
+    """Extract barangay from AFOR D27 address.
+    Tries keyword detection first (handles free-form input),
+    then falls back to the AFOR template position (index 2 of comma-split)."""
+    if not address or address.startswith("("):
+        return ""
+    # Keyword-based: match "Brgy.", "Bgy.", "Barangay " followed by the name until the next comma
+    m = re.search(r"((?:Brgy|Bgy)\.?\s*[^,]+|Barangay\s+[^,]+)", address, re.IGNORECASE)
+    if m:
+        return m.group(1).strip().rstrip(".")
+    # Positional fallback: AFOR template = "HouseNo, Street, Barangay, City, Province"
+    parts = [p.strip() for p in address.split(",")]
+    return parts[2] if len(parts) >= 3 else ""
+
+
 class BfpXlsxParser:
     """Parser for the official BFP manual entry form (AFOR)."""
 
@@ -763,6 +778,7 @@ class BfpXlsxParser:
             "province": self.get("D25"),
             "city": self.get("D26"),
             "address": self.get("D27"),
+            "barangay": _extract_barangay_from_address(self.get("D27") or ""),
             "landmark": self.get("D28"),
             "caller_info": self.get("D29"),
             "receiver": self.get("D30"),
@@ -1227,6 +1243,7 @@ def parse_afor_report_data(data: dict, region_id: int) -> AforParsedRow:
         "_city_text": data.get("city") or "",
         "_province_text": data.get("province") or "",
         "_region_text": data.get("region") or "",
+        "_barangay_text": data.get("barangay") or "",
     }
 
     if not notif_dt:

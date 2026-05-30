@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { searchGeocode } from '@/lib/geocode';
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -21,6 +22,8 @@ export interface MapPickerInnerProps {
     value?: { lat: number; lng: number } | null;
     onChange?: (lat: number, lng: number) => void;
     mapHeight?: string;
+    /** Pre-fill the search box and auto-pin to this address (forward geocode). */
+    searchQuery?: string;
 }
 
 const DEFAULT_CENTER: [number, number] = [14.5995, 120.9842]; // Manila area
@@ -99,8 +102,10 @@ export function MapPickerInner({
     value,
     onChange,
     mapHeight = DEFAULT_INCIDENT_MAP_HEIGHT,
+    searchQuery,
 }: MapPickerInnerProps) {
     const readOnly = !onChange;
+    const autoSearchedRef = useRef<string | null>(null);
     const [position, setPosition] = useState<{ lat: number; lng: number } | null>(value ?? null);
     const [mapCenter, setMapCenter] = useState<[number, number]>(
         value ? [value.lat, value.lng] : center
@@ -115,6 +120,10 @@ export function MapPickerInner({
         setPosition(value ?? null);
         if (value) {
             setMapCenter([value.lat, value.lng]);
+        } else {
+            // Clear the guard so the same searchQuery can trigger auto-geocoding again
+            // (e.g. "Re-pin from Address" reuses the same query after clearing the marker)
+            autoSearchedRef.current = null;
         }
     }, [value]);
 
@@ -144,18 +153,7 @@ export function MapPickerInner({
         setSearching(true);
         setSearchError(null);
         try {
-            const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=ph&limit=1&q=${encodeURIComponent(q)}`;
-            const response = await fetch(url, {
-                headers: {
-                    Accept: 'application/json',
-                },
-            });
-
-            if (!response.ok) {
-                throw new Error('Search request failed.');
-            }
-
-            const data = (await response.json()) as Array<{ lat: string; lon: string }>;
+            const data = await searchGeocode(q, 1);
             const first = data[0];
             if (!first) {
                 setSearchError('No location found. Try a more specific place name.');
@@ -177,6 +175,41 @@ export function MapPickerInner({
         }
     }, [handleChange, searchText]);
 
+    // Auto-pin the map when a searchQuery prop is supplied (e.g. from AFOR import).
+    // Fills the search box with the address and fires a forward geocode so the marker
+    // is placed at the nearest matching location without the user having to type.
+    useEffect(() => {
+        if (!searchQuery || searchQuery.startsWith('(') || autoSearchedRef.current === searchQuery) return;
+        autoSearchedRef.current = searchQuery;
+        setSearchText(searchQuery);
+        // Skip network call when the caller already supplied valid coordinates via `value`.
+        if (value) return;
+        const q = searchQuery;
+        setSearching(true);
+        searchGeocode(q, 1)
+            .then((data) => {
+                const first = data[0];
+                if (!first) return;
+                // Don't pin broad administrative areas (province/region centroids) —
+                // they make the result look random when the address is too vague.
+                if (first.type === 'administrative' || first.class === 'boundary') {
+                    setSearchError('Address matched only a broad area — drop a pin manually for a precise location.');
+                    return;
+                }
+                const lat = Number(first.lat);
+                const lng = Number(first.lon);
+                if (isInPhilippines(lat, lng)) {
+                    handleChange(lat, lng);
+                    // Restore the address in the search box after auto-pin.
+                    // handleChange clears it, but keeping the address visible
+                    // lets the user see what was searched and edit if needed.
+                    setSearchText(q);
+                }
+            })
+            .catch(() => { /* silent — user can search manually */ })
+            .finally(() => setSearching(false));
+    }, [searchQuery, value, handleChange]);
+
     useEffect(() => {
         const q = searchText.trim();
         if (q.length < 2) {
@@ -192,15 +225,7 @@ export function MapPickerInner({
         const controller = new AbortController();
         const timer = window.setTimeout(async () => {
             try {
-                const suggestUrl = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=ph&addressdetails=1&limit=5&q=${encodeURIComponent(q)}`;
-                const response = await fetch(suggestUrl, {
-                    signal: controller.signal,
-                    headers: {
-                        Accept: 'application/json',
-                    },
-                });
-                if (!response.ok) return;
-                const data = (await response.json()) as GeoSuggestion[];
+                const data = await searchGeocode(q, 5, 1, controller.signal) as GeoSuggestion[];
                 setSuggestions((prev) => mergeSuggestions(prev.length ? prev : local, data).slice(0, 7));
             } catch {
                 // Keep local suggestions when network lookup fails.

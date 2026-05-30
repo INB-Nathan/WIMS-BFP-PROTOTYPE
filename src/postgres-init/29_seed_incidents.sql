@@ -69,7 +69,7 @@ BEGIN
                     121.0521, 14.6869, '2026-01-08 09:12:00+08'::timestamptz,
                     '2', 'STRUCTURAL', 'Residential', 'Electrical ignition',
                     'Partial', 2, 5, 18, 0, 0, 1, 0, 42, 185000.00,
-                    'Quezon City Fire Station 1', 'QC01', 'STR'
+                    'Quezon City Fire Station 1', 'STR'
                 ),
                 (
                     'AFOR-SEED-NCR-MNL1-STR-JAN-2026-0002',
@@ -77,7 +77,7 @@ BEGIN
                     120.9687, 14.6176, '2026-01-16 22:41:00+08'::timestamptz,
                     '3', 'STRUCTURAL', 'Commercial', 'Open flame',
                     'Major', 6, 19, 63, 2, 0, 0, 0, 71, 950000.00,
-                    'Manila Fire Station 2', 'MNL1', 'STR'
+                    'Manila Fire Station 2', 'STR'
                 ),
                 (
                     'AFOR-SEED-NCR-MKT1-VEH-FEB-2026-0003',
@@ -85,7 +85,7 @@ BEGIN
                     121.0299, 14.5655, '2026-02-03 18:05:00+08'::timestamptz,
                     '1', 'VEHICULAR', 'Vehicle fire', 'Engine compartment',
                     'Contained', 0, 0, 0, 0, 0, 0, 0, 18, 75000.00,
-                    'Makati Central Fire Station', 'MKT1', 'VEH'
+                    'Makati Central Fire Station', 'VEH'
                 ),
                 (
                     'AFOR-SEED-NCR-PAS1-STR-FEB-2026-0004',
@@ -93,7 +93,7 @@ BEGIN
                     121.0614, 14.5821, '2026-02-21 14:27:00+08'::timestamptz,
                     'Task Force Bravo', 'STRUCTURAL', 'High-rise', 'Kitchen fire',
                     'Major', 4, 12, 41, 1, 0, 2, 0, 64, 1325000.00,
-                    'Pasig City Fire Station', 'PAS1', 'STR'
+                    'Pasig City Fire Station', 'STR'
                 ),
                 (
                     'AFOR-SEED-NCR-MUN1-NON-MAR-2026-0005',
@@ -101,7 +101,7 @@ BEGIN
                     121.0437, 14.4231, '2026-03-04 07:55:00+08'::timestamptz,
                     '1', 'NON_STRUCTURAL', 'Grass fire', 'Open burning',
                     'Contained', 0, 0, 0, 0, 0, 0, 0, 21, 12000.00,
-                    'Muntinlupa Fire Station', 'MUN1', 'NON'
+                    'Muntinlupa Fire Station', 'NON'
                 ),
                 (
                     'AFOR-SEED-NCR-CAL1-STR-MAR-2026-0006',
@@ -109,7 +109,7 @@ BEGIN
                     121.0445, 14.7764, '2026-03-17 02:18:00+08'::timestamptz,
                     'General Alarm', 'STRUCTURAL', 'Residential cluster', 'Candle',
                     'Major', 12, 31, 109, 3, 1, 4, 0, 96, 2850000.00,
-                    'Caloocan Fire Station', 'CAL1', 'STR'
+                    'Caloocan Fire Station', 'STR'
                 ),
                 (
                     'AFOR-SEED-IVA-LIP1-STR-JAN-2026-0007',
@@ -117,7 +117,7 @@ BEGIN
                     121.1624, 13.9411, '2026-01-22 11:33:00+08'::timestamptz,
                     '2', 'STRUCTURAL', 'Warehouse', 'Electrical ignition',
                     'Partial', 1, 1, 7, 0, 0, 0, 0, 53, 640000.00,
-                    'Lipa City Fire Station', 'LIP1', 'STR'
+                    'Lipa City Fire Station', 'STR'
                 ),
                 (
                     'AFOR-SEED-IVA-ANT1-NON-FEB-2026-0008',
@@ -125,7 +125,7 @@ BEGIN
                     121.1762, 14.5840, '2026-02-12 15:49:00+08'::timestamptz,
                     '1', 'NON_STRUCTURAL', 'Rubbish fire', 'Open burning',
                     'Contained', 0, 0, 0, 0, 0, 0, 0, 25, 18000.00,
-                    'Antipolo Fire Station', 'ANT1', 'NON'
+                    'Antipolo Fire Station', 'NON'
                 ),
                 (
                     'AFOR-SEED-IVA-CAB1-VEH-MAR-2026-0009',
@@ -133,7 +133,7 @@ BEGIN
                     121.1251, 14.2476, '2026-03-09 20:16:00+08'::timestamptz,
                     '2', 'VEHICULAR', 'Truck fire', 'Fuel leak',
                     'Partial', 0, 0, 0, 1, 0, 0, 0, 38, 315000.00,
-                    'Cabuyao Fire Station', 'CAB1', 'VEH'
+                    'Cabuyao Fire Station', 'VEH'
                 ),
                 (
                     'AFOR-SEED-V-LEG1-STR-JAN-2026-0010',
@@ -141,7 +141,7 @@ BEGIN
                     123.7462, 13.1575, '2026-01-29 04:42:00+08'::timestamptz,
                     '3', 'STRUCTURAL', 'Mixed occupancy', 'Cooking equipment',
                     'Major', 5, 11, 36, 1, 0, 1, 0, 67, 880000.00,
-                    'Legazpi City Fire Station', 'LEG1', 'STR'
+                    'Legazpi City Fire Station', 'STR'
                 ),
                 (
                     'AFOR-SEED-V-NAG1-STR-FEB-2026-0011',
@@ -149,7 +149,7 @@ BEGIN
                     123.1948, 13.6297, '2026-02-24 13:10:00+08'::timestamptz,
                     '2', 'STRUCTURAL', 'School', 'Electrical ignition',
                     'Partial', 1, 0, 0, 0, 0, 0, 0, 44, 420000.00,
-                    'Naga City Fire Station', 'NAG1', 'STR'
+                    'Naga City Fire Station', 'STR'
                 ),
                 (
                     'AFOR-SEED-V-SOR1-NON-MAR-2026-0012',
@@ -157,7 +157,7 @@ BEGIN
                     124.0039, 12.9742, '2026-03-28 16:36:00+08'::timestamptz,
                     '1', 'NON_STRUCTURAL', 'Wildland edge', 'Grass and brush',
                     'Contained', 0, 0, 0, 0, 0, 0, 0, 31, 26000.00,
-                    'Sorsogon City Fire Station', 'SOR1', 'NON'
+                    'Sorsogon City Fire Station', 'NON'
                 )
         ) AS s(
             reference_number,
@@ -184,7 +184,6 @@ BEGIN
             total_response_time_minutes,
             estimated_damage_php,
             fire_station_name,
-            station_code,
             incident_type_code
         )
     LOOP
@@ -255,7 +254,6 @@ BEGIN
             total_gas_consumed_liters,
             estimated_damage_php,
             fire_station_name,
-            station_code,
             city_municipality,
             province_district,
             resources_deployed,
@@ -287,7 +285,6 @@ BEGIN
             ROUND((8 + seed_row.total_response_time_minutes * 0.45)::numeric, 2),
             seed_row.estimated_damage_php,
             seed_row.fire_station_name,
-            seed_row.station_code,
             seed_row.municipality_name,
             seed_row.province_name,
             jsonb_build_object('engine', 1, 'ambulance', 1),

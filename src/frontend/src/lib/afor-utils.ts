@@ -125,19 +125,17 @@ export function formatAforRegionCode(regionCode: string): string {
  */
 export function generateReferenceNumberPreview(params: {
   regionCode: string;
-  stationCode: string;
   typeCode: string;
   notificationDate: string; // YYYY-MM-DD
 }): string {
-  const { regionCode, stationCode, typeCode, notificationDate } = params;
+  const { regionCode, typeCode, notificationDate } = params;
   if (!regionCode || !typeCode || !notificationDate) return '';
   const d = new Date(`${notificationDate}T00:00:00`);
   if (isNaN(d.getTime())) return '';
   const month = MONTH_CODES[d.getMonth()];
   const year = d.getFullYear();
   const aforRegion = formatAforRegionCode(regionCode);
-  const station = (stationCode || 'TBA').trim() || 'TBA';
-  return `AFOR-${aforRegion}-${station}-${typeCode}-${month}-${year}-XXXX`;
+  return `AFOR-${aforRegion}-${typeCode}-${month}-${year}-XXXX`;
 }
 
 /**

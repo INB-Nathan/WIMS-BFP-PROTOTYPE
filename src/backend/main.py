@@ -38,7 +38,7 @@ from utils.metrics import (
 
 import auth
 from auth import get_current_user
-from database import get_db
+from database import get_db, get_session_maker
 
 from api.routes import (
     incidents,
@@ -52,6 +52,7 @@ from api.routes import (
 )
 from api.routes.public_dmz import router as public_dmz_router
 from api.routes.user import router as user_profile_router
+from api.routes.geocode import router as geocode_router
 
 # WIMS roles in precedence order (highest first). Used when resolving from Keycloak JWT.
 WIMS_ROLES_FROM_KEYCLOAK = (
@@ -88,6 +89,48 @@ def _resolve_role_from_token(payload: dict) -> str:
 # App
 # ---------------------------------------------------------------------------
 app = FastAPI(title="WIMS-BFP Backend")
+
+
+@app.on_event("startup")
+def apply_schema_patches() -> None:
+    """Idempotent schema patches for containers that predate specific init migrations.
+
+    postgres-init/ scripts only run on first boot. This hook ensures schema fixes
+    that shipped after a container was first created are applied on every restart
+    without requiring a manual docker exec or down -v.
+
+    Currently patches:
+    - no_update_verified rule: allows is_archived FALSE→TRUE and TRUE→FALSE on VERIFIED rows
+      (migration 41_fix_immutable_rule_for_archive.sql — may not have run on
+      existing containers).
+    """
+    db = get_session_maker()()
+    try:
+        db.execute(text("DROP RULE IF EXISTS no_update_verified ON wims.fire_incidents"))
+        db.execute(
+            text("""
+                CREATE RULE no_update_verified AS
+                    ON UPDATE TO wims.fire_incidents
+                    WHERE (
+                        OLD.verification_status = 'VERIFIED'
+                        AND NEW.verification_status != 'REPLACED'
+                        AND NOT (NEW.is_archived = TRUE AND OLD.is_archived = FALSE)
+                        AND NOT (NEW.is_archived = FALSE AND OLD.is_archived = TRUE)
+                    )
+                    DO INSTEAD NOTHING
+            """)
+        )
+        db.commit()
+        logger.info(
+            "Schema patch applied: no_update_verified rule updated to allow archival and unarchival"
+        )
+    except Exception as exc:
+        logger.warning("Schema patch failed (non-fatal, will retry on next restart): %s", exc)
+        db.rollback()
+    finally:
+        db.close()
+
+
 app.include_router(incidents.router)
 app.include_router(admin.router, prefix="/api/admin")
 app.include_router(sessions.router, prefix="/api/admin")
@@ -98,6 +141,9 @@ app.include_router(regional.router)
 app.include_router(analytics.router)
 app.include_router(ref.router)  # GET /api/ref/regions, /api/ref/provinces, /api/ref/cities
 app.include_router(public_dmz_router)  # POST /api/v1/public/report (no-auth DMZ)
+app.include_router(
+    geocode_router
+)  # GET /api/geocode/reverse, /api/geocode/search (Nominatim proxy)
 
 logger = logging.getLogger("wims.rate_limit")
 

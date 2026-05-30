@@ -30,12 +30,28 @@ from utils.audit import log_system_audit
 
 logger = logging.getLogger("wims.regional_incidents.lifecycle")
 
+# Module-level cache for is_resubmitted column existence (same defensive pattern as regional.py).
+_lc_resubmitted_col_exists: bool | None = None
+
+
+def _lc_has_resubmitted_column(db: Session) -> bool:
+    global _lc_resubmitted_col_exists  # noqa: PLW0603
+    if _lc_resubmitted_col_exists is None:
+        result = db.execute(
+            text(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                "WHERE table_schema = 'wims' AND table_name = 'fire_incidents' AND column_name = 'is_resubmitted'"
+            )
+        ).scalar()
+        _lc_resubmitted_col_exists = bool(result)
+    return _lc_resubmitted_col_exists
+
 
 @dataclass(frozen=True)
 class RegionalIncidentLifecycleDependencies:
     insert_incident_verification_history: Callable[..., None]
     apply_incident_field_updates: Callable[[Session, int, Any], None] | None = None
-    generate_reference_number: Callable[[Session, int, str, str, str | None], str] | None = None
+    generate_reference_number: Callable[[Session, int, str, str | None], str] | None = None
 
 
 def _date_str(value: Any) -> str | None:
@@ -262,10 +278,15 @@ def submit_incident_for_review_command(
         )
 
     matched_duplicate_id: int | None = None
+    is_resubmission = current_status == "REJECTED"
     already_flagged = db.execute(
         text("SELECT is_duplicate FROM wims.fire_incidents WHERE incident_id = :iid"),
         {"iid": incident_id},
     ).scalar()
+    # On resubmit of a REJECTED incident the previous is_duplicate flag is stale —
+    # the encoder changed the data. Force a fresh check regardless of the old value.
+    if is_resubmission:
+        already_flagged = False
 
     if not force and not already_flagged and not ack_duplicate:
         geo_meta = db.execute(
@@ -273,28 +294,42 @@ def submit_incident_for_review_command(
                 SELECT nd.notification_dt, nd.general_category, fi.incident_type_code,
                        fi.region_id, nd.alarm_level,
                        ST_Y(fi.location::geometry) AS lat,
-                       ST_X(fi.location::geometry) AS lon
+                       ST_X(fi.location::geometry) AS lon,
+                       nd.city_municipality, nd.province_district,
+                       nd.barangay_id, nd.barangay,
+                       sd.street_address, sd.landmark, sd.establishment_name,
+                       nd.fire_station_name
                 FROM wims.fire_incidents fi
                 LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+                LEFT JOIN wims.incident_sensitive_details sd ON sd.incident_id = fi.incident_id
                 WHERE fi.incident_id = :iid
             """),
             {"iid": incident_id},
         ).fetchone()
 
         if geo_meta:
-            verified_dup = check_for_duplicate(
+            dup_result = check_for_duplicate(
                 db,
                 incident_id=incident_id,
                 region_id=geo_meta[3],
-                alarm_level=geo_meta[4],
                 incident_date=_date_str(geo_meta[0]),
+                notification_dt=geo_meta[0],
                 lat=geo_meta[5],
                 lon=geo_meta[6],
                 general_category=geo_meta[1],
                 incident_type_code=geo_meta[2],
+                city_municipality=geo_meta[7],
+                province_district=geo_meta[8],
+                barangay_id=geo_meta[9],
+                barangay=geo_meta[10],
+                street_address=geo_meta[11],
+                landmark=geo_meta[12],
+                establishment_name=geo_meta[13],
+                fire_station_name=geo_meta[14],
                 exclude_statuses=("DRAFT", "REJECTED", "REPLACED"),
             )
-            if verified_dup:
+            if dup_result:
+                verified_dup, dup_confidence = dup_result
                 matched_status = (
                     db.execute(
                         text(
@@ -311,36 +346,54 @@ def submit_incident_for_review_command(
                         "incident_id": incident_id,
                         "matched_incident_id": verified_dup,
                         "matched_status": matched_status,
+                        "confidence": dup_confidence,
                     },
                 )
 
     try:
-        if ack_duplicate and not already_flagged:
+        # Always run the duplicate check when the caller acknowledges or force-submits a duplicate,
+        # so the is_duplicate flag is persisted and the validator queue shows the badge immediately
+        # without needing to click Accept first.
+        if (ack_duplicate or force) and not already_flagged:
             geo_meta = db.execute(
                 text("""
                     SELECT nd.notification_dt, nd.general_category, fi.incident_type_code,
                            fi.region_id, nd.alarm_level,
                            ST_Y(fi.location::geometry) AS lat,
-                           ST_X(fi.location::geometry) AS lon
+                           ST_X(fi.location::geometry) AS lon,
+                           nd.city_municipality, nd.province_district,
+                           nd.barangay_id, nd.barangay,
+                           sd.street_address, sd.landmark, sd.establishment_name,
+                           nd.fire_station_name
                     FROM wims.fire_incidents fi
                     LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+                    LEFT JOIN wims.incident_sensitive_details sd ON sd.incident_id = fi.incident_id
                     WHERE fi.incident_id = :iid
                 """),
                 {"iid": incident_id},
             ).fetchone()
             if geo_meta:
-                matched_duplicate_id = check_for_duplicate(
+                dup_result = check_for_duplicate(
                     db,
                     incident_id=incident_id,
                     region_id=geo_meta[3],
-                    alarm_level=geo_meta[4],
                     incident_date=_date_str(geo_meta[0]),
+                    notification_dt=geo_meta[0],
                     lat=geo_meta[5],
                     lon=geo_meta[6],
                     general_category=geo_meta[1],
                     incident_type_code=geo_meta[2],
+                    city_municipality=geo_meta[7],
+                    province_district=geo_meta[8],
+                    barangay_id=geo_meta[9],
+                    barangay=geo_meta[10],
+                    street_address=geo_meta[11],
+                    landmark=geo_meta[12],
+                    establishment_name=geo_meta[13],
+                    fire_station_name=geo_meta[14],
                     exclude_statuses=("DRAFT", "REJECTED", "REPLACED"),
                 )
+                matched_duplicate_id = dup_result[0] if dup_result else None
                 if matched_duplicate_id:
                     db.execute(
                         text("""
@@ -351,9 +404,18 @@ def submit_incident_for_review_command(
                         {"did": matched_duplicate_id, "iid": incident_id},
                     )
 
+        resubmitted_flag = (
+            "is_resubmitted = TRUE, " if is_resubmission and _lc_has_resubmitted_column(db) else ""
+        )
+        # Clear stale duplicate flags on resubmit unless a new duplicate was just matched
+        dup_clear_sql = (
+            "is_duplicate = FALSE, duplicate_of = NULL, "
+            if is_resubmission and matched_duplicate_id is None
+            else ""
+        )
         update_result = db.execute(
             text(
-                "UPDATE wims.fire_incidents SET verification_status = 'PENDING', updated_at = now() WHERE incident_id = :iid"
+                f"UPDATE wims.fire_incidents SET {resubmitted_flag}{dup_clear_sql}verification_status = 'PENDING', updated_at = now() WHERE incident_id = :iid"
             ),
             {"iid": incident_id},
         )
@@ -490,30 +552,48 @@ def verify_incident_command(
             text("""
                 SELECT ST_Y(fi.location::geometry), ST_X(fi.location::geometry),
                        nd.notification_dt, nd.general_category, fi.incident_type_code,
-                       fi.region_id, nd.alarm_level, fi.parent_incident_id
+                       fi.region_id, nd.alarm_level, fi.parent_incident_id,
+                       nd.city_municipality, nd.province_district,
+                       nd.barangay_id, nd.barangay,
+                       sd.street_address, sd.landmark, sd.establishment_name,
+                       nd.fire_station_name
                 FROM wims.fire_incidents fi
                 LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+                LEFT JOIN wims.incident_sensitive_details sd ON sd.incident_id = fi.incident_id
                 WHERE fi.incident_id = :iid
             """),
             {"iid": incident_id},
         ).fetchone()
         if geo_row and geo_row[7] is None:
-            dup_id = check_for_duplicate(
+            dup_result = check_for_duplicate(
                 db,
                 incident_id=incident_id,
                 region_id=geo_row[5],
-                alarm_level=geo_row[6],
                 incident_date=_date_str(geo_row[2]),
+                notification_dt=geo_row[2],
                 lat=geo_row[0],
                 lon=geo_row[1],
                 general_category=geo_row[3],
                 incident_type_code=geo_row[4],
+                city_municipality=geo_row[8],
+                province_district=geo_row[9],
+                barangay_id=geo_row[10],
+                barangay=geo_row[11],
+                street_address=geo_row[12],
+                landmark=geo_row[13],
+                establishment_name=geo_row[14],
+                fire_station_name=geo_row[15],
                 exclude_statuses=("DRAFT", "REJECTED", "REPLACED"),
             )
-            if dup_id:
+            if dup_result:
+                dup_id, dup_confidence = dup_result
                 raise HTTPException(
                     status_code=409,
-                    detail={"code": "DUPLICATE_DETECTED", "matched_incident_id": dup_id},
+                    detail={
+                        "code": "DUPLICATE_DETECTED",
+                        "matched_incident_id": dup_id,
+                        "confidence": dup_confidence,
+                    },
                 )
 
     data_hash = None
@@ -561,17 +641,14 @@ def verify_incident_command(
         elif type_code:
             ns_meta = db.execute(
                 text("""
-                    SELECT notification_dt, station_code
+                    SELECT notification_dt
                     FROM wims.incident_nonsensitive_details
                     WHERE incident_id = :iid
                 """),
                 {"iid": incident_id},
             ).fetchone()
             notification_dt = str(ns_meta[0]) if ns_meta and ns_meta[0] else None
-            station_code = (ns_meta[1] if ns_meta else None) or "TBA"
-            ref_num = deps.generate_reference_number(
-                db, inc_region_id, type_code, station_code, notification_dt
-            )
+            ref_num = deps.generate_reference_number(db, inc_region_id, type_code, notification_dt)
 
     clear_dup = action == "accept_replace" and bool(effective_original_id)
     try:
@@ -690,12 +767,17 @@ def bulk_approve_pending_incidents(
     rows = db.execute(
         text(
             """
-            SELECT incident_id, verification_status, encoder_id, created_at,
+            SELECT fi2.incident_id, fi2.verification_status, fi2.encoder_id, fi2.created_at,
                    nd.notification_dt, nd.general_category, fi2.incident_type_code,
                    fi2.region_id, nd.alarm_level,
-                   ST_Y(fi2.location::geometry), ST_X(fi2.location::geometry)
+                   ST_Y(fi2.location::geometry), ST_X(fi2.location::geometry),
+                   nd.city_municipality, nd.province_district,
+                   nd.barangay_id, nd.barangay,
+                   sd.street_address, sd.landmark, sd.establishment_name,
+                   nd.fire_station_name
             FROM wims.fire_incidents fi2
             LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi2.incident_id
+            LEFT JOIN wims.incident_sensitive_details sd ON sd.incident_id = fi2.incident_id
             WHERE fi2.incident_id = ANY(:ids) AND fi2.is_archived = FALSE
             """
         ),
@@ -742,22 +824,39 @@ def bulk_approve_pending_incidents(
                 alarm,
                 lat,
                 lon,
+                city_muni,
+                province_dist,
+                ba_id,
+                ba_text,
+                street_addr,
+                lmark,
+                estab_name,
+                fire_station,
             ) = row
 
-            dup_id = check_for_duplicate(
+            dup_result = check_for_duplicate(
                 db,
                 incident_id=iid,
                 region_id=region_id,
-                alarm_level=alarm,
                 incident_date=_date_str(notif_dt),
+                notification_dt=notif_dt,
                 lat=lat,
                 lon=lon,
                 general_category=gen_cat,
                 incident_type_code=type_code,
+                city_municipality=city_muni,
+                province_district=province_dist,
+                barangay_id=ba_id,
+                barangay=ba_text,
+                street_address=street_addr,
+                landmark=lmark,
+                establishment_name=estab_name,
+                fire_station_name=fire_station,
                 exclude_statuses=("DRAFT", "REJECTED", "REPLACED"),
                 verified_window_seconds=60,
             )
-            if dup_id:
+            if dup_result:
+                dup_id = dup_result[0]
                 held_for_review.append({"id": iid, "matching_incident_id": dup_id})
                 continue
 
@@ -851,4 +950,67 @@ def archive_finalized_incident(
         logger.exception("Failed to archive incident_id=%s", incident_id)
         raise HTTPException(status_code=500, detail="Archive failed — transaction rolled back")
 
+    sync_incident_to_analytics(db, incident_id)
+    db.commit()
     return {"status": "archived", "incident_id": incident_id}
+
+
+def unarchive_finalized_incident(
+    db: Session,
+    *,
+    incident_id: int,
+    actor_user_id: Any,
+    deps: RegionalIncidentLifecycleDependencies,
+) -> dict[str, Any]:
+    incident = db.execute(
+        text("""
+            SELECT incident_id, verification_status
+            FROM wims.fire_incidents
+            WHERE incident_id = :iid
+              AND is_archived = TRUE
+        """),
+        {"iid": incident_id},
+    ).fetchone()
+
+    if incident is None:
+        raise HTTPException(status_code=404, detail="Archived incident not found")
+
+    current_status = incident[1]
+    if current_status not in VALIDATOR_ARCHIVABLE_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Only {', '.join(VALIDATOR_ARCHIVABLE_STATUSES)} incidents can be unarchived. "
+                f"Current status: '{current_status}'."
+            ),
+        )
+
+    try:
+        db.execute(
+            text("""
+                UPDATE wims.fire_incidents
+                SET is_archived = FALSE,
+                    archived_at  = NULL,
+                    updated_at   = now()
+                WHERE incident_id = :iid
+            """),
+            {"iid": incident_id},
+        )
+        deps.insert_incident_verification_history(
+            db,
+            incident_id=incident_id,
+            actor_user_id=str(actor_user_id),
+            previous_status="ARCHIVED",
+            new_status=current_status,
+            notes="Unarchived incident",
+            action_label="UNARCHIVED",
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to unarchive incident_id=%s", incident_id)
+        raise HTTPException(status_code=500, detail="Unarchive failed — transaction rolled back")
+
+    sync_incident_to_analytics(db, incident_id)
+    db.commit()
+    return {"status": "unarchived", "incident_id": incident_id}

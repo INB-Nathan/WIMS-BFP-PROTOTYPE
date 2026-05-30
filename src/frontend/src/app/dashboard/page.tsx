@@ -325,7 +325,7 @@ export default function DashboardPage() {
                             <div className="flex gap-2">
                                 <button onClick={handleApplyFilters}
                                     className="flex-1 text-sm font-bold py-2 px-3 rounded-md text-white transition-colors"
-                                    style={{ backgroundColor: 'var(--bfp-maroon)' }}>Apply</button>
+                                    style={{ backgroundColor: '#991B1B' }}>Apply</button>
                                 <button onClick={handleClearFilters}
                                     className="text-sm py-2 px-3 rounded-md border hover:bg-gray-50 transition-colors"
                                     style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}>Clear</button>
@@ -456,7 +456,7 @@ export default function DashboardPage() {
                         <div className="p-4 flex justify-end" style={{ borderTop: `1px solid var(--border-color)` }}>
                             <button onClick={() => setShowHelp(false)}
                                 className="text-sm font-bold text-white px-4 py-2 rounded-md transition-colors"
-                                style={{ backgroundColor: 'var(--bfp-maroon)' }}>Close</button>
+                                style={{ backgroundColor: '#991B1B' }}>Close</button>
                         </div>
                     </div>
                 </div>

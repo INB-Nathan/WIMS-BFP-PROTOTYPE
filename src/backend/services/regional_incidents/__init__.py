@@ -7,6 +7,7 @@ from services.regional_incidents.lifecycle import (
     delete_encoder_incident,
     force_replace_pending_incident,
     submit_incident_for_review_command,
+    unarchive_finalized_incident,
     unpend_incident_command,
     verify_incident_command,
 )
@@ -23,6 +24,7 @@ __all__ = [
     "delete_encoder_incident",
     "force_replace_pending_incident",
     "submit_incident_for_review_command",
+    "unarchive_finalized_incident",
     "unpend_incident_command",
     "verify_incident_command",
     "VALIDATOR_ACTION_MAP",
