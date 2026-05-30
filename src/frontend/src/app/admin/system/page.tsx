@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -18,6 +18,8 @@ import {
     fetchActiveSessions,
     revokeUserSessions,
     fetchSystemHealth,
+    fetchSystemMetrics,
+    fetchWorkerStatus,
 } from '@/lib/api';
 import { Region } from '@/types/api';
 import {
@@ -88,6 +90,20 @@ interface ActiveSession {
     last_access: number;
 }
 
+interface SystemMetrics {
+    cpu_percent: number;
+    memory: { total_mb: number; used_mb: number; percent: number };
+    disk: { total_gb: number; used_gb: number; percent: number };
+}
+
+interface WorkerStatus {
+    worker_id: string;
+    hostname: string;
+    last_seen: string | null;
+    active_tasks: number;
+    status: string;
+}
+
 export default function AdminSystemPage() {
     const router = useRouter();
     const { user, loading } = useAuth();
@@ -98,6 +114,10 @@ export default function AdminSystemPage() {
     const [auditLogs, setAuditLogs] = useState<{ items: AuditItem[]; total: number }>({ items: [], total: 0 });
     const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
     const [health, setHealth] = useState<{ status: string; components: Record<string, { status: string; latency_ms: number }> } | null>(null);
+    const [healthLastChecked, setHealthLastChecked] = useState<Date | null>(null);
+    const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
+    const [workers, setWorkers] = useState<WorkerStatus[]>([]);
+    const [monitoringLastChecked, setMonitoringLastChecked] = useState<Date | null>(null);
     const [loadingUsers, setLoadingUsers] = useState(false);
     const [loadingLogs, setLoadingLogs] = useState(false);
     const [loadingAudit, setLoadingAudit] = useState(false);
@@ -136,6 +156,34 @@ export default function AdminSystemPage() {
         }
     }, [loading, role, router]);
 
+    const loadHealth = useCallback(async () => {
+        try {
+            const data = await fetchSystemHealth();
+            setHealth(data);
+            setHealthLastChecked(new Date());
+        } catch {
+            setHealth({ status: 'ERROR', components: {} });
+        }
+    }, [setHealth, setHealthLastChecked]);
+
+    const loadMonitoring = useCallback(async () => {
+        const [metricsRes, workersRes] = await Promise.allSettled([
+            fetchSystemMetrics(),
+            fetchWorkerStatus(),
+        ]);
+
+        if (metricsRes.status === 'fulfilled') {
+            setSystemMetrics(metricsRes.value as SystemMetrics);
+        }
+
+        if (workersRes.status === 'fulfilled') {
+            setWorkers(workersRes.value as WorkerStatus[]);
+        }
+
+        await loadHealth();
+        setMonitoringLastChecked(new Date());
+    }, [loadHealth, setSystemMetrics, setWorkers, setMonitoringLastChecked]);
+
     useEffect(() => {
         if (role === 'SYSTEM_ADMIN') {
             loadUsers().then(async () => {
@@ -146,18 +194,16 @@ export default function AdminSystemPage() {
             loadAuditLogs();
             loadRegions();
             loadSessions();
-            loadHealth();
         }
     }, [role]);
 
-    const loadHealth = async () => {
-        try {
-            const data = await fetchSystemHealth();
-            setHealth(data);
-        } catch {
-            setHealth({ status: 'ERROR', components: {} });
-        }
-    };
+    // M9a: 60s grouped auto-refresh (health + system metrics + workers)
+    useEffect(() => {
+        if (role !== 'SYSTEM_ADMIN') return;
+        loadMonitoring();
+        const intervalId = setInterval(loadMonitoring, 60 * 1000);
+        return () => clearInterval(intervalId);
+    }, [role, loadMonitoring]);
 
     const loadSessions = async () => {
         setLoadingSessions(true);
@@ -406,6 +452,88 @@ export default function AdminSystemPage() {
                 </div>
             </section>
 
+            <section id="monitoring" className="card overflow-hidden">
+                <div className="card-header flex items-center justify-between" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
+                    <div className="flex items-center gap-2">
+                        <Activity className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                        <span>System Monitoring</span>
+                        {monitoringLastChecked && (
+                            <span className="text-xs text-gray-400">
+                                Last checked {monitoringLastChecked.toLocaleTimeString()} (auto-refreshes every 60s)
+                            </span>
+                        )}
+                    </div>
+                    <button onClick={loadMonitoring} className="flex items-center gap-1 text-sm font-medium hover:opacity-80 transition-opacity" style={{ color: 'var(--bfp-maroon)' }}>
+                        <RefreshCw className="w-4 h-4" /> Refresh
+                    </button>
+                </div>
+                <div className="card-body space-y-4">
+                    {systemMetrics ? (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="p-4 rounded-lg" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
+                                <div className="text-sm text-gray-500">CPU</div>
+                                <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{systemMetrics.cpu_percent}%</div>
+                                <div className="w-full bg-gray-200 rounded h-2 mt-2">
+                                    <div className="bg-blue-500 h-2 rounded" style={{ width: `${systemMetrics.cpu_percent}%` }} />
+                                </div>
+                            </div>
+                            <div className="p-4 rounded-lg" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
+                                <div className="text-sm text-gray-500">Memory</div>
+                                <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{systemMetrics.memory.percent}%</div>
+                                <div className="text-xs text-gray-400">
+                                    {systemMetrics.memory.used_mb} / {systemMetrics.memory.total_mb} MB
+                                </div>
+                                <div className="w-full bg-gray-200 rounded h-2 mt-2">
+                                    <div className="bg-green-500 h-2 rounded" style={{ width: `${systemMetrics.memory.percent}%` }} />
+                                </div>
+                            </div>
+                            <div className="p-4 rounded-lg" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
+                                <div className="text-sm text-gray-500">Disk</div>
+                                <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{systemMetrics.disk.percent}%</div>
+                                <div className="text-xs text-gray-400">
+                                    {systemMetrics.disk.used_gb} / {systemMetrics.disk.total_gb} GB
+                                </div>
+                                <div className="w-full bg-gray-200 rounded h-2 mt-2">
+                                    <div className="bg-amber-500 h-2 rounded" style={{ width: `${systemMetrics.disk.percent}%` }} />
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="text-sm text-gray-400">System metrics unavailable.</p>
+                    )}
+
+                    <div>
+                        <h3 className="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Celery Workers</h3>
+                        {workers.length > 0 ? (
+                            <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hostname</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Active Tasks</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Seen</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                    {workers.map((w) => (
+                                        <tr key={w.worker_id} className="hover:bg-gray-50">
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{w.hostname}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{w.status}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{w.active_tasks}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                {w.last_seen ? new Date(w.last_seen).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : '—'}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        ) : (
+                            <p className="text-sm text-gray-400">No active workers.</p>
+                        )}
+                    </div>
+                </div>
+            </section>
+
             {health && (
                 <section id="health" className="card overflow-hidden">
                     <div className="card-header flex items-center justify-between" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
@@ -415,6 +543,12 @@ export default function AdminSystemPage() {
                             <span className={`ml-2 px-2 py-0.5 rounded text-xs font-bold text-white ${health.status === 'HEALTHY' ? 'bg-green-600' : 'bg-red-600'}`}>
                                 {health.status}
                             </span>
+                            {healthLastChecked && (
+                                <span className="text-xs text-gray-400">
+                                    Last checked {healthLastChecked.toLocaleTimeString()}
+                                </span>
+                            )}
+                            <span className="text-xs text-gray-400 ml-2">(auto-refreshes every 60s)</span>
                         </div>
                         <button onClick={loadHealth} className="flex items-center gap-1 text-sm font-medium hover:opacity-80 transition-opacity" style={{ color: 'var(--bfp-maroon)' }}>
                             <RefreshCw className="w-4 h-4" /> Refresh

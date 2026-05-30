@@ -55,6 +55,20 @@ vi.mock('@/lib/api', () => ({
     updateAdminSecurityLog: vi.fn(),
     fetchAuditLogs: () => mockFetchAuditLogs(),
     analyzeSecurityLog: (logId: number) => mockAnalyzeSecurityLog(logId),
+    fetchSystemHealth: vi.fn().mockResolvedValue({
+        status: 'HEALTHY',
+        components: {
+            database: { status: 'HEALTHY', latency_ms: 1 },
+            redis: { status: 'HEALTHY', latency_ms: 1 },
+            keycloak: { status: 'HEALTHY', latency_ms: 1 },
+        },
+    }),
+    fetchSystemMetrics: vi.fn().mockResolvedValue({
+        cpu_percent: 10,
+        memory: { total_mb: 8000, used_mb: 2000, percent: 25 },
+        disk: { total_gb: 100, used_gb: 40, percent: 40 },
+    }),
+    fetchWorkerStatus: vi.fn().mockResolvedValue([]),
 }));
 
 describe('Admin System — Analyze with AI in Threat Telemetry', () => {
