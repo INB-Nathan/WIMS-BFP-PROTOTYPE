@@ -277,7 +277,7 @@ async def get_emergency_services(
                     ) AS distance_m
                 FROM wims.ref_cities rc
                 JOIN wims.ref_provinces rp ON rp.province_id = rc.province_id
-                JOIN wims.ref_regions rr ON rr.region_id = rc.region_id
+                JOIN wims.ref_regions rr ON rr.region_id = rp.region_id
                 WHERE rc.location IS NOT NULL
                   AND rc.has_fire_station = TRUE
                 ORDER BY rc.location::geography <-> ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography
