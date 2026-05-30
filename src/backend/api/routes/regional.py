@@ -72,7 +72,6 @@ from services.regional_incidents.helpers import (
     region_text_matches as _region_text_matches,
     generate_reference_number as _generate_reference_number,
     insert_incident_verification_history as _insert_incident_verification_history,
-    apply_incident_field_updates as _apply_incident_field_updates,
     build_audit_log_query as _build_audit_log_query,
     _CATEGORY_DB_VARIANTS,
     _ivh_has_column as _incident_verification_history_has_column,
@@ -1534,8 +1533,6 @@ def _apply_incident_field_updates(
             text("UPDATE wims.fire_incidents SET updated_at = now() WHERE incident_id = :iid"),
             {"iid": incident_id},
         )
-
-
 
 
 @router.put("/incidents/{incident_id}")

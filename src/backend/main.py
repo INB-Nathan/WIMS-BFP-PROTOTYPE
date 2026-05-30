@@ -119,7 +119,9 @@ app.include_router(public_dmz_router)  # POST /api/v1/public/report (no-auth DMZ
 app.include_router(public_map_router)  # GET /api/public/clusters, /api/public/emergency-services
 app.include_router(events_router)  # GET /api/events/stream (SSE real-time notifications)
 app.include_router(validator_map_router)  # GET /api/validator/operational-map (auth)
-app.include_router(geocode_router)  # GET /api/geocode/reverse, /api/geocode/search (Nominatim proxy)
+app.include_router(
+    geocode_router
+)  # GET /api/geocode/reverse, /api/geocode/search (Nominatim proxy)
 
 logger = logging.getLogger("wims.rate_limit")
 
