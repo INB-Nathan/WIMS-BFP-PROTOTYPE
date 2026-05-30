@@ -1403,7 +1403,6 @@ def create_incident(
     sd_fields = {
         "street_address",
         "landmark",
-        "narrative_report",
         "establishment_name",
         "receiver_name",
         "prepared_by_officer",
@@ -1446,6 +1445,18 @@ def create_incident(
                 f"INSERT INTO wims.incident_sensitive_details ({', '.join(sd_cols)}) VALUES ({', '.join(sd_vals)})"
             ),
             sd_params,
+        )
+
+    # When encryption is active, NULL the plaintext estimated_damage_php
+    # in incident_nonsensitive_details — the encrypted blob is authoritative.
+    if has_encryptable:
+        db.execute(
+            text(
+                "UPDATE wims.incident_nonsensitive_details"
+                " SET estimated_damage_php = NULL"
+                " WHERE incident_id = :iid"
+            ),
+            {"iid": incident_id},
         )
 
     _insert_incident_verification_history(
@@ -1641,6 +1652,27 @@ def _apply_incident_field_updates(
                 f"UPDATE wims.incident_sensitive_details SET {', '.join(sd_updates)} WHERE incident_id = :iid"
             ),
             sd_params,
+        )
+
+    # NULL plaintext columns for fields now routed to encrypted blob.
+    # narrative_report and casualty_details live in incident_sensitive_details;
+    # estimated_damage_php lives in incident_nonsensitive_details.
+    if has_encryptable_update:
+        db.execute(
+            text(
+                "UPDATE wims.incident_sensitive_details"
+                " SET narrative_report = NULL, casualty_details = NULL"
+                " WHERE incident_id = :iid"
+            ),
+            {"iid": incident_id},
+        )
+        db.execute(
+            text(
+                "UPDATE wims.incident_nonsensitive_details"
+                " SET estimated_damage_php = NULL"
+                " WHERE incident_id = :iid"
+            ),
+            {"iid": incident_id},
         )
 
     jsonb_ns = {
