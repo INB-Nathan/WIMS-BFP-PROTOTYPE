@@ -7,7 +7,7 @@ Subscribes to Redis pub/sub channels and streams real-time events to the
 client as SSE text/event-stream messages.
 
 Channel authorization:
-  incident     — any authenticated user
+  incident     — internal WIMS roles (excludes CIVILIAN_REPORTER)
   verification — REGIONAL_ENCODER, NATIONAL_VALIDATOR
   security     — SYSTEM_ADMIN
   system       — SYSTEM_ADMIN
@@ -26,21 +26,15 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from auth import get_current_user
+from auth import get_current_user, resolve_wims_role_from_token
 from services.event_bus import CHANNELS, get_event_bus
 
 logger = logging.getLogger("wims.events")
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
-# WIMS roles in precedence order — copied from main.py to avoid circular imports
-_WIMS_ROLES = (
-    "CIVILIAN_REPORTER",
-    "REGIONAL_ENCODER",
-    "NATIONAL_VALIDATOR",
-    "NATIONAL_ANALYST",
-    "SYSTEM_ADMIN",
-)
+# Resolve role from token (canonical source: auth.resolve_wims_role_from_token)
+_resolve_role_from_token = resolve_wims_role_from_token
 
 # Channels that each role is permitted to subscribe to
 _ROLE_CHANNEL_MAP: dict[str, frozenset[str]] = {
@@ -49,23 +43,6 @@ _ROLE_CHANNEL_MAP: dict[str, frozenset[str]] = {
     "NATIONAL_ANALYST": frozenset({"incident"}),
     "SYSTEM_ADMIN": frozenset({"incident", "verification", "security", "system"}),
 }
-
-
-def _resolve_role_from_token(payload: dict) -> str | None:
-    """Extract WIMS role from Keycloak JWT (duplicated from main.py to avoid circular import)."""
-    roles: list[str] = []
-    if isinstance(payload.get("realm_access"), dict):
-        ra = payload["realm_access"].get("roles")
-        if isinstance(ra, list):
-            roles.extend(ra)
-    if isinstance(payload.get("resource_access"), dict):
-        for _cid, client_data in payload["resource_access"].items():
-            if isinstance(client_data, dict) and isinstance(client_data.get("roles"), list):
-                roles.extend(client_data["roles"])
-    for wims_role in _WIMS_ROLES:
-        if wims_role in roles:
-            return wims_role
-    return None
 
 
 def _resolve_channels(raw: str | None, role: str) -> list[str]:

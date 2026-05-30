@@ -21,7 +21,7 @@ import type {
 // ── Constants ───────────────────────────────────────────────────────────────
 
 /** Polling interval in ms for new clusters */
-const POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_MS = 60_000;
 /** Minimum zoom for showing individual markers instead of clusters */
 const INDIVIDUAL_ZOOM = 15;
 /** Debounce delay before re-fetching clusters after viewport change */
@@ -280,20 +280,42 @@ export default function PublicFireMapInner({
     [loadClusters],
   );
 
-  // ── Polling ─────────────────────────────────────────────────────────────
+  // ── Polling (60s when visible; paused when tab hidden) ──────────────────
   useEffect(() => {
-    pollTimer.current = setInterval(() => {
-      if (lastBounds.current) {
-        const bounds = L.latLngBounds(
-          L.latLng(lastBounds.current.sw[0], lastBounds.current.sw[1]),
-          L.latLng(lastBounds.current.ne[0], lastBounds.current.ne[1]),
-        );
-        loadClusters(bounds, lastZoom.current);
+    const startPolling = () => {
+      if (pollTimer.current) return; // already polling
+      pollTimer.current = setInterval(() => {
+        if (lastBounds.current) {
+          const bounds = L.latLngBounds(
+            L.latLng(lastBounds.current.sw[0], lastBounds.current.sw[1]),
+            L.latLng(lastBounds.current.ne[0], lastBounds.current.ne[1]),
+          );
+          loadClusters(bounds, lastZoom.current);
+        }
+      }, POLL_INTERVAL_MS);
+    };
+
+    const stopPolling = () => {
+      if (pollTimer.current) {
+        clearInterval(pollTimer.current);
+        pollTimer.current = null;
       }
-    }, POLL_INTERVAL_MS);
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        startPolling();
+      }
+    };
+
+    startPolling();
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
-      if (pollTimer.current) clearInterval(pollTimer.current);
+      stopPolling();
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [loadClusters]);
 

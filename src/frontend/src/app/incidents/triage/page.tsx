@@ -410,8 +410,14 @@ export default function TriagePage() {
       </div>
 
       {openCluster && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-md bg-white shadow-xl">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setOpenCluster(null)}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-md bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
               <div>
                 <h2 className="text-lg font-semibold text-slate-950">{openCluster.cluster_id ? `Cluster ${openCluster.cluster_id}` : 'Singleton report'}</h2>

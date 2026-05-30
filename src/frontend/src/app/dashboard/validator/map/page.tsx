@@ -7,9 +7,8 @@
  * with status filters and popup details.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { MapContainer, TileLayer, CircleMarker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import dynamic from 'next/dynamic';
 import { apiFetch } from '@/lib/api';
 import type { MapClusterItem } from '@/lib/api';
@@ -36,20 +35,6 @@ const STATUS_OPTIONS = [
   { value: 'VERIFIED', label: 'Verified' },
   { value: 'REJECTED', label: 'Rejected' },
 ];
-
-// ── Severity helpers ────────────────────────────────────────────────────────
-
-function severityColor(severity: string): string {
-  switch (severity) {
-    case 'high':   return '#dc2626';
-    case 'medium': return '#ea580c';
-    default:       return '#eab308';
-  }
-}
-
-function markerRadius(count: number): number {
-  return Math.min(8 + count * 1.5, 30);
-}
 
 // ── Main page ───────────────────────────────────────────────────────────────
 

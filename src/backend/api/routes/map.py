@@ -14,7 +14,7 @@ import time
 from typing import Annotated, Any
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -93,7 +93,7 @@ class ClusterResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# GET /api/public/clusters — clustered incident map markers
+# GET /api/public/clusters — civilian pressure report areas for the public map
 # ---------------------------------------------------------------------------
 @router.get("/clusters", response_model=ClusterResponse)
 async def get_incident_clusters(
@@ -105,11 +105,16 @@ async def get_incident_clusters(
     zoom: Annotated[int, Query(ge=4, le=18, description="Map zoom level for cluster granularity")] = 10,
     db: Annotated[Session, Depends(get_db)] = None,
 ):
-    """Return clustered VERIFIED fire incident locations for the public map.
+    """Return clustered civilian pressure report areas for the public map.
+
+    Privacy contract: these are anonymous citizen reports *only*, NOT BFP-confirmed
+    incidents. Queries wims.citizen_reports (public signal records), excludes
+    rejected/triaged reports, and returns area-level aggregates — never individual
+    reports or personally identifiable information.
 
     Uses PostGIS ST_SnapToGrid for server-side clustering. Zoom controls
     grid cell size — higher zoom = smaller cells = more precise clusters.
-    Responses cached in Redis for 2 minutes; stale-if-error on Redis failure.
+    Responses cached in Redis for 2 minutes.
     """
     cache_key = f"map:clusters:{zoom}:{sw_lat:.4f}:{sw_lng:.4f}:{ne_lat:.4f}:{ne_lng:.4f}"
 
@@ -129,6 +134,10 @@ async def get_incident_clusters(
     # ── Query PostGIS ─────────────────────────────────────────────────────
     grid_deg = _grid_size_for_zoom(zoom)
 
+    # Civilian report statuses included in public pressure map:
+    # PENDING, UNDER_REVIEW, LINKED — active pressure signals
+    # Excludes rejected statuses (REJECTED_BOGUS, REJECTED_DUPLICATE,
+    # REJECTED_INSUFFICIENT, REJECTED_TIMEOUT) and ACTIONED reports.
     rows = db.execute(
         text("""
             WITH clustered AS (
@@ -143,9 +152,8 @@ async def get_incident_clusters(
                         ELSE 'low'
                     END                                                             AS severity,
                     MAX(created_at)                                                 AS latest_at
-                FROM wims.fire_incidents
-                WHERE verification_status = 'VERIFIED'
-                  AND is_archived = FALSE
+                FROM wims.citizen_reports
+                WHERE status IN ('PENDING', 'UNDER_REVIEW', 'LINKED')
                   AND ST_Within(
                       location::geometry,
                       ST_MakeEnvelope(:sw_lng, :sw_lat, :ne_lng, :ne_lat, 4326)

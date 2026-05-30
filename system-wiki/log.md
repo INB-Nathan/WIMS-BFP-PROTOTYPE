@@ -1023,3 +1023,13 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Published GitHub issue #134 for the National Validator triage inspect modal close/escape trap reported during cluster inspection.
 - Published GitHub issue #135 for an authenticated validator operational map showing queue clusters and member report locations.
 - No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; these are triaged bug/enhancement tickets and do not change current implementation state.
+
+## [2026-05-30] feat | kanban-batch-1 implementation
+
+Six-commit batch implementing Analyst UX QoL (#113,#115,#116,#117,#119,#120), Public Fire Report Areas map (#126-#135,#147) with civilian pressure report clusters, TLS 1.3 enforcement (#153) + cipher suite hardening (#154), expanded AES-256-GCM encryption scope (#150) to narratives/casualties/damage, real-time SSE notification infrastructure (#175), and system wiki synthesis updates.
+
+- Updated `system-wiki/backend/api-route-map.md` — new `/api/public/clusters`, `/api/public/emergency-services`, `/api/validator/operational-map`, `/api/events/stream` routes.
+- Updated `system-wiki/backend/remaining-routes.md` — marked completed routes moved to api-route-map.
+- Updated `system-wiki/frontend/route-map.md` — new public map, validator operational map, SSE hook, analyst QoL components.
+- Updated `system-wiki/security/security-baseline.md` — TLS 1.3-only, ChaCha20-Poly1305, AES-256-GCM expansion to 7 fields (from 4).
+- Updated `system-wiki/gaps/frs-codebase-gap-register.md` — closed M6a (AES-GCM scope), M6b (data-in-transit), partial M13 (SSE backend); tracked public map data-source gap (civilian reports vs fire_incidents table).
