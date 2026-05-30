@@ -718,10 +718,6 @@ def commit_afor_import_command(
             )
             if v  # omit None and empty strings/empty dicts
         }
-        # Always produce a dict (empty or populated) so decrypt never raises on None
-        if not pii_for_blob:
-            pii_for_blob = {}
-
         aad = f"incident_id:{incident_id}".encode("utf-8")
         nonce_b64: str | None = None
         ct_b64: str | None = None

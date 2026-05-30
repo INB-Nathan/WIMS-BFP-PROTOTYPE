@@ -274,9 +274,6 @@ def upload_incident_bundle(
             )
             if v  # omit None and empty strings/empty dicts
         }
-        if not pii_for_blob:
-            pii_for_blob = {}
-
         aad = f"incident_id:{incident_id}".encode("utf-8")
         nonce_b64: str | None = None
         ct_b64: str | None = None
