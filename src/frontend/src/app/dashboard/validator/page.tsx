@@ -462,6 +462,7 @@ export default function ValidatorDashboard() {
             Audit Trail →
           </Link>
         </div>
+      </div>
       <p className="text-gray-500 text-sm mb-6">
         Encoder-submitted incidents from all regions awaiting review.
       </p>

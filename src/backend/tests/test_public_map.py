@@ -8,8 +8,6 @@ Run: cd src && python -m pytest backend/tests/test_public_map.py -v
 
 from __future__ import annotations
 
-import json
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -55,7 +53,6 @@ class TestPublicClusterEndpoint:
 
     def test_response_shape_when_db_available(self, monkeypatch):
         """When DB returns data, response must match ClusterItem schema."""
-        import json
 
         # Mock the db.execute to return sample data
         class MockRow:

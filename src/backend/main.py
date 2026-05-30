@@ -56,7 +56,7 @@ from api.routes.map import router as public_map_router, operational_router as va
 from api.routes.events import router as events_router
 
 # WIMS role resolution — canonical source in auth.py
-from auth import WIMS_ROLES_FROM_KEYCLOAK, resolve_wims_role_from_token as _resolve_role_from_token
+from auth import resolve_wims_role_from_token as _resolve_role_from_token
 
 
 # ---------------------------------------------------------------------------
