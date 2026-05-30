@@ -866,7 +866,10 @@ def get_regional_incident_detail(
     nonsensitive = row_to_dict(ns)
     # Inject estimated_damage_php from encrypted blob if available
     # (AFOR commits store it in the blob; manual edits may still use the plaintext column)
-    if "estimated_damage_php" in pii_plaintext and pii_plaintext.get("estimated_damage_php") is not None:
+    if (
+        "estimated_damage_php" in pii_plaintext
+        and pii_plaintext.get("estimated_damage_php") is not None
+    ):
         nonsensitive["estimated_damage_php"] = pii_plaintext["estimated_damage_php"]
     # Prefer the stored text columns; fall back to the ref-table JOIN for old rows
     if loc_row:
@@ -1387,8 +1390,13 @@ def create_incident(
 
     # Insert sensitive details (with encryption if any encryptable field provided)
     pii_fields = [
-        "caller_name", "caller_number", "owner_name", "occupant_name",
-        "narrative_report", "casualty_details", "estimated_damage_php",
+        "caller_name",
+        "caller_number",
+        "owner_name",
+        "occupant_name",
+        "narrative_report",
+        "casualty_details",
+        "estimated_damage_php",
     ]
     has_encryptable = any(getattr(body, f, None) for f in pii_fields)
 
@@ -1575,8 +1583,13 @@ def _apply_incident_field_updates(
         "remarks",
     }
     pii_fields = [
-        "caller_name", "caller_number", "owner_name", "occupant_name",
-        "narrative_report", "casualty_details", "estimated_damage_php",
+        "caller_name",
+        "caller_number",
+        "owner_name",
+        "occupant_name",
+        "narrative_report",
+        "casualty_details",
+        "estimated_damage_php",
     ]
     sd_updates: list[str] = []
     sd_params: dict[str, Any] = {"iid": incident_id}

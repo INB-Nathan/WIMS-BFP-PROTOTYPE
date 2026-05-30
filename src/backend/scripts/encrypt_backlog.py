@@ -180,8 +180,7 @@ def main() -> None:
     """Entry point — requires WIMS_MASTER_KEY in environment."""
     if not os.environ.get("WIMS_MASTER_KEY"):
         logger.error(
-            "WIMS_MASTER_KEY env var is required. "
-            "Set it to the base64-encoded 32-byte AES-256 key."
+            "WIMS_MASTER_KEY env var is required. Set it to the base64-encoded 32-byte AES-256 key."
         )
         sys.exit(1)
 

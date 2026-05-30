@@ -32,8 +32,7 @@ class TestPublicClusterEndpoint:
     def test_invalid_latitudes_returns_422(self):
         """Out-of-range latitudes must return 422."""
         resp = client.get(
-            "/api/public/clusters"
-            "?sw_lat=-100&sw_lng=120.0&ne_lat=100&ne_lng=121.0&zoom=10"
+            "/api/public/clusters?sw_lat=-100&sw_lng=120.0&ne_lat=100&ne_lng=121.0&zoom=10"
         )
         assert resp.status_code == 422
 
@@ -41,8 +40,7 @@ class TestPublicClusterEndpoint:
     def test_valid_params_returns_200_or_500(self):
         """With valid bounding box, route must return 200 or 500 (DB availability)."""
         resp = client.get(
-            "/api/public/clusters"
-            "?sw_lat=14.0&sw_lng=120.0&ne_lat=15.0&ne_lng=121.0&zoom=10"
+            "/api/public/clusters?sw_lat=14.0&sw_lng=120.0&ne_lat=15.0&ne_lng=121.0&zoom=10"
         )
         # 500 is acceptable if PostGIS is not available (integration test needs Docker)
         assert resp.status_code in (200, 500)
@@ -92,8 +90,7 @@ class TestPublicClusterEndpoint:
         app.dependency_overrides[get_db] = override_get_db
 
         resp = client.get(
-            "/api/public/clusters"
-            "?sw_lat=14.0&sw_lng=120.0&ne_lat=15.0&ne_lng=121.0&zoom=10"
+            "/api/public/clusters?sw_lat=14.0&sw_lng=120.0&ne_lat=15.0&ne_lng=121.0&zoom=10"
         )
         # Clean up overrides
         app.dependency_overrides.clear()
@@ -112,24 +109,19 @@ class TestPublicClusterEndpoint:
     def test_zoom_out_of_range_returns_422(self):
         """Zoom outside 4-18 must return 422."""
         resp = client.get(
-            "/api/public/clusters"
-            "?sw_lat=14.0&sw_lng=120.0&ne_lat=15.0&ne_lng=121.0&zoom=3"
+            "/api/public/clusters?sw_lat=14.0&sw_lng=120.0&ne_lat=15.0&ne_lng=121.0&zoom=3"
         )
         assert resp.status_code == 422
 
         resp = client.get(
-            "/api/public/clusters"
-            "?sw_lat=14.0&sw_lng=120.0&ne_lat=15.0&ne_lng=121.0&zoom=19"
+            "/api/public/clusters?sw_lat=14.0&sw_lng=120.0&ne_lat=15.0&ne_lng=121.0&zoom=19"
         )
         assert resp.status_code == 422
 
     @pytest.mark.integration
     def test_default_zoom(self):
         """Zoom defaults to 10 when not provided."""
-        resp = client.get(
-            "/api/public/clusters"
-            "?sw_lat=14.0&sw_lng=120.0&ne_lat=15.0&ne_lng=121.0"
-        )
+        resp = client.get("/api/public/clusters?sw_lat=14.0&sw_lng=120.0&ne_lat=15.0&ne_lng=121.0")
         assert resp.status_code in (200, 500)
 
 
@@ -158,10 +150,7 @@ class TestPublicEmergencyServicesEndpoint:
     @pytest.mark.integration
     def test_with_coordinates_returns_stations_or_empty(self):
         """With lat/lng query params, stations must be present."""
-        resp = client.get(
-            "/api/public/emergency-services"
-            "?lat=14.5995&lng=120.9842"
-        )
+        resp = client.get("/api/public/emergency-services?lat=14.5995&lng=120.9842")
         assert resp.status_code in (200, 500)
         if resp.status_code == 200:
             data = resp.json()
@@ -174,8 +163,7 @@ class TestOperationalMapEndpoint:
     def test_without_auth_returns_401(self):
         """Unauthenticated request must return 401."""
         resp = client.get(
-            "/api/validator/operational-map"
-            "?sw_lat=14.0&sw_lng=120.0&ne_lat=15.0&ne_lng=121.0"
+            "/api/validator/operational-map?sw_lat=14.0&sw_lng=120.0&ne_lat=15.0&ne_lng=121.0"
         )
         assert resp.status_code == 401
 

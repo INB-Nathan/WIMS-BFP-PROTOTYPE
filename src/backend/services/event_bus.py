@@ -107,9 +107,7 @@ class EventBus:
         except Exception:
             logger.warning("Failed to publish (sync) %s to %s", event_type, channel, exc_info=True)
 
-    async def subscribe(
-        self, channels: list[str]
-    ) -> AsyncIterator[dict[str, Any]]:
+    async def subscribe(self, channels: list[str]) -> AsyncIterator[dict[str, Any]]:
         """Subscribe to one or more Redis channels and yield parsed events.
 
         This is an async generator — the caller should iterate over it
@@ -154,6 +152,7 @@ async def get_event_bus() -> EventBus:
 # ---------------------------------------------------------------------------
 # Convenience helpers for common event types
 # ---------------------------------------------------------------------------
+
 
 async def publish_incident_event(
     event_type: str,
@@ -258,6 +257,7 @@ async def publish_system_event(
 # ---------------------------------------------------------------------------
 # Synchronous convenience helpers (for Celery tasks and sync code)
 # ---------------------------------------------------------------------------
+
 
 def publish_security_event_sync(
     event_type: str,

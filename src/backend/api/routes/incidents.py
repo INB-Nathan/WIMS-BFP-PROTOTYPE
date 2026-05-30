@@ -18,7 +18,11 @@ from database import get_db_with_rls
 from schemas.incident import IncidentCreate, IncidentResponse
 from services.analytics.filters import append_common_filters, build_analytics_filters
 from services.analytics_read_model import sync_incident_to_analytics
-from api.routes.regional import _normalize_general_category, _insert_incident_verification_history, _get_security_provider
+from api.routes.regional import (
+    _normalize_general_category,
+    _insert_incident_verification_history,
+    _get_security_provider,
+)
 from tasks.exports import export_analyst_incidents_task
 from utils.crypto import SecurityProviderError
 

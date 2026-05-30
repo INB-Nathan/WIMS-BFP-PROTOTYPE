@@ -74,7 +74,10 @@ def _resolve_channels(raw: str | None, role: str) -> list[str]:
 @router.get("/stream")
 async def event_stream(
     request: Request,
-    channels: Annotated[str | None, Query(description="Comma-separated channel names: incident,verification,security,system")] = None,
+    channels: Annotated[
+        str | None,
+        Query(description="Comma-separated channel names: incident,verification,security,system"),
+    ] = None,
 ):
     """SSE streaming endpoint.
 

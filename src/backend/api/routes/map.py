@@ -32,8 +32,8 @@ logger = logging.getLogger("wims.map")
 _REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
 _REDIS_POOL: aioredis.Redis | None = None
-_REDIS_CLUSTER_TTL = 120       # 2 minutes
-_REDIS_EMERGENCY_TTL = 300      # 5 minutes
+_REDIS_CLUSTER_TTL = 120  # 2 minutes
+_REDIS_EMERGENCY_TTL = 300  # 5 minutes
 _REDIS_POOL_SIZE = 5
 _REDIS_POOL_MAX_CONNECTIONS = 10
 
@@ -62,6 +62,7 @@ async def _get_redis() -> aioredis.Redis | None:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _grid_size_for_zoom(zoom: int) -> float:
     """Return grid cell size in degrees for a given zoom level.
 
@@ -78,6 +79,7 @@ def _grid_size_for_zoom(zoom: int) -> float:
 # ---------------------------------------------------------------------------
 # Pydantic response models
 # ---------------------------------------------------------------------------
+
 
 class ClusterItem(BaseModel):
     lat: float
@@ -102,7 +104,9 @@ async def get_incident_clusters(
     sw_lng: Annotated[float, Query(ge=-180, le=180, description="South-west corner longitude")],
     ne_lat: Annotated[float, Query(ge=-90, le=90, description="North-east corner latitude")],
     ne_lng: Annotated[float, Query(ge=-180, le=180, description="North-east corner longitude")],
-    zoom: Annotated[int, Query(ge=4, le=18, description="Map zoom level for cluster granularity")] = 10,
+    zoom: Annotated[
+        int, Query(ge=4, le=18, description="Map zoom level for cluster granularity")
+    ] = 10,
     db: Annotated[Session, Depends(get_db)] = None,
 ):
     """Return clustered civilian pressure report areas for the public map.
@@ -203,6 +207,7 @@ async def get_incident_clusters(
 # ---------------------------------------------------------------------------
 # Pydantic response models for emergency services
 # ---------------------------------------------------------------------------
+
 
 class EmergencyContact(BaseModel):
     name: str
