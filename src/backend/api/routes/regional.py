@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import csv
 import io
@@ -19,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user, get_national_validator, get_regional_encoder
 from database import get_db_with_rls
+from services.event_bus import publish_incident_event
 from services.afor_import import (
     ALARM_LEVEL_MAP,
     AforCommitRequest,
@@ -830,6 +832,7 @@ def get_regional_incident_detail(
     sd_dict = row_to_dict(sd_row)
 
     # ── Decrypt PII blob if present (new writes use encrypted blob; old rows fall back) ──
+    pii_plaintext: dict = {}
     if sd_dict.get("pii_blob_enc") and sd_dict.get("encryption_iv"):
         try:
             aad = f"incident_id:{incident_id}".encode("utf-8")
@@ -838,11 +841,13 @@ def get_regional_incident_detail(
                 sd_dict["pii_blob_enc"],
                 aad,
             )
-            # Inject decrypted PII fields so frontend contract is unchanged
+            # Inject decrypted PII/narrative/casualty/damage fields so frontend contract is unchanged
             sd_dict["caller_name"] = pii_plaintext.get("caller_name")
             sd_dict["caller_number"] = pii_plaintext.get("caller_number")
             sd_dict["owner_name"] = pii_plaintext.get("owner_name")
             sd_dict["occupant_name"] = pii_plaintext.get("occupant_name")
+            sd_dict["narrative_report"] = pii_plaintext.get("narrative_report")
+            sd_dict["casualty_details"] = pii_plaintext.get("casualty_details")
         except SecurityProviderError:
             # Auth/key failure on a blob that claims to be valid — possible tampering
             # or key rotation without re-encrypt. Log with incident_id; never log
@@ -859,6 +864,10 @@ def get_regional_incident_detail(
     sd_dict.pop("encryption_iv", None)
 
     nonsensitive = row_to_dict(ns)
+    # Inject estimated_damage_php from encrypted blob if available
+    # (AFOR commits store it in the blob; manual edits may still use the plaintext column)
+    if "estimated_damage_php" in pii_plaintext and pii_plaintext.get("estimated_damage_php") is not None:
+        nonsensitive["estimated_damage_php"] = pii_plaintext["estimated_damage_php"]
     # Prefer the stored text columns; fall back to the ref-table JOIN for old rows
     if loc_row:
         if not nonsensitive.get("city_municipality") and loc_row[0]:
@@ -1376,9 +1385,12 @@ def create_incident(
             ns_params,
         )
 
-    # Insert sensitive details (with PII encryption if caller_name/caller_number provided)
-    pii_fields = ["caller_name", "caller_number", "owner_name", "occupant_name"]
-    has_pii = any(getattr(body, f, None) for f in pii_fields)
+    # Insert sensitive details (with encryption if any encryptable field provided)
+    pii_fields = [
+        "caller_name", "caller_number", "owner_name", "occupant_name",
+        "narrative_report", "casualty_details", "estimated_damage_php",
+    ]
+    has_encryptable = any(getattr(body, f, None) for f in pii_fields)
 
     sd_fields = {
         "street_address",
@@ -1394,8 +1406,14 @@ def create_incident(
     sd_cols = ["incident_id"]
     sd_vals = [":iid"]
 
-    if has_pii:
-        pii_dict = {f: getattr(body, f) or "" for f in pii_fields}
+    if has_encryptable:
+        pii_dict: dict[str, Any] = {}
+        for f in pii_fields:
+            val = getattr(body, f, None)
+            if val is not None and val != "" and val != {} and val != []:
+                pii_dict[f] = val
+        if not pii_dict:
+            pii_dict = {}
         try:
             sp = _get_security_provider()
             nonce_b64, ct_b64 = sp.encrypt_json(pii_dict, f"incident_id:{incident_id}".encode())
@@ -1556,15 +1574,18 @@ def _apply_incident_field_updates(
         "noted_by_officer",
         "remarks",
     }
-    pii_fields = ["caller_name", "caller_number", "owner_name", "occupant_name"]
+    pii_fields = [
+        "caller_name", "caller_number", "owner_name", "occupant_name",
+        "narrative_report", "casualty_details", "estimated_damage_php",
+    ]
     sd_updates: list[str] = []
     sd_params: dict[str, Any] = {"iid": incident_id}
-    has_pii_update = False
+    has_encryptable_update = False
     for field in sd_fields | set(pii_fields):
         val = getattr(body, field, None)
         if val is not None:
             if field in pii_fields:
-                has_pii_update = True
+                has_encryptable_update = True
                 # owner_name also mirrors to the plaintext column (used by list queries)
                 if field == "owner_name":
                     sd_updates.append(f"{field} = :{field}")
@@ -1572,7 +1593,7 @@ def _apply_incident_field_updates(
             else:
                 sd_updates.append(f"{field} = :{field}")
                 sd_params[field] = val
-    if has_pii_update:
+    if has_encryptable_update:
         existing = db.execute(
             text(
                 "SELECT pii_blob_enc, encryption_iv FROM wims.incident_sensitive_details WHERE incident_id = :iid"
@@ -1732,6 +1753,22 @@ def update_incident(
         logger.exception("Failed to update incident_id=%s", incident_id)
         raise HTTPException(status_code=500, detail="Failed to save incident draft update")
     logger.info("Updated incident %s by encoder %s", incident_id, encoder_id)
+
+    # Publish real-time SSE event
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(
+            publish_incident_event(
+                "incident.updated",
+                incident_id=incident_id,
+                status=incident[1],
+                actor_id=str(encoder_id),
+                actor_role="REGIONAL_ENCODER",
+            )
+        )
+    except RuntimeError:
+        pass
+
     return {"status": "updated", "incident_id": incident_id}
 
 
@@ -2121,6 +2158,23 @@ def verify_incident(
         result["action"],
         incident_id,
     )
+
+    # Publish real-time SSE event
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(
+            publish_incident_event(
+                f"incident.{result.get('action', 'verified')}",
+                incident_id=incident_id,
+                status=result.get("new_status"),
+                previous_status=result.get("previous_status"),
+                actor_id=validator_user_id,
+                actor_role="NATIONAL_VALIDATOR",
+            )
+        )
+    except RuntimeError:
+        pass
+
     return result
 
 
@@ -2332,6 +2386,22 @@ async def correct_verified_incident(
     except Exception as e:
         db.rollback()
         logger.exception("Analytics sync failed for corrected incident %s: %s", inc_id, e)
+
+    # Publish real-time SSE event (fire-and-forget)
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(
+            publish_incident_event(
+                "incident.corrected",
+                incident_id=int(inc_id),
+                status="VERIFIED",
+                actor_id=str(corrector_user_id),
+                actor_role=current_user.get("role", "NATIONAL_VALIDATOR"),
+                extra={"corrected_fields": corrected_fields},
+            )
+        )
+    except RuntimeError:
+        pass
 
     return {
         "incident_id": inc_id,

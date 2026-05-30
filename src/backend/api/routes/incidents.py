@@ -18,8 +18,9 @@ from database import get_db_with_rls
 from schemas.incident import IncidentCreate, IncidentResponse
 from services.analytics.filters import append_common_filters, build_analytics_filters
 from services.analytics_read_model import sync_incident_to_analytics
-from api.routes.regional import _normalize_general_category, _insert_incident_verification_history
+from api.routes.regional import _normalize_general_category, _insert_incident_verification_history, _get_security_provider
 from tasks.exports import export_analyst_incidents_task
+from utils.crypto import SecurityProviderError
 
 router = APIRouter(prefix="/api", tags=["incidents"])
 logger = logging.getLogger("wims.incidents")
@@ -255,6 +256,37 @@ def upload_incident_bundle(
             },
         )
 
+        # ── Encrypt sensitive fields before INSERT ──────────────────────────────
+        pii_for_blob = {
+            k: v
+            for k, v in (
+                ("caller_name", sens.get("caller_name")),
+                ("caller_number", sens.get("caller_number")),
+                ("owner_name", sens.get("owner_name")),
+                ("occupant_name", sens.get("occupant_name")),
+                ("narrative_report", sens.get("narrative_report")),
+                ("casualty_details", sens.get("casualty_details")),
+                ("estimated_damage_php", ns.get("estimated_damage_php")),
+            )
+            if v  # omit None and empty strings/empty dicts
+        }
+        if not pii_for_blob:
+            pii_for_blob = {}
+
+        aad = f"incident_id:{incident_id}".encode("utf-8")
+        nonce_b64: str | None = None
+        ct_b64: str | None = None
+        try:
+            sp = _get_security_provider()
+            nonce_b64, ct_b64 = sp.encrypt_json(pii_for_blob, aad)
+        except SecurityProviderError as exc:
+            logger.warning(
+                "PII encryption unavailable for incident_id=%s during bundle upload; "
+                "proceeding without encrypted blob (%s)",
+                incident_id,
+                exc,
+            )
+
         db.execute(
             text(
                 """
@@ -265,15 +297,18 @@ def upload_incident_bundle(
                     narrative_report, disposition,
                     disposition_prepared_by, disposition_noted_by,
                     personnel_on_duty, other_personnel, casualty_details,
-                    is_icp_present, icp_location
+                    is_icp_present, icp_location,
+                    pii_blob_enc, encryption_iv
                 ) VALUES (
                     :incident_id, :street_address, :landmark,
-                    :caller_name, :caller_number, :receiver_name,
-                    :owner_name, :establishment_name,
-                    :narrative_report, :disposition,
+                    NULL, NULL, :receiver_name,
+                    NULL, :establishment_name,
+                    NULL, :disposition,
                     :disposition_prepared_by, :disposition_noted_by,
-                    CAST(:personnel_on_duty AS jsonb), CAST(:other_personnel AS jsonb), CAST(:casualty_details AS jsonb),
-                    :is_icp_present, :icp_location
+                    CAST(:personnel_on_duty AS jsonb), CAST(:other_personnel AS jsonb),
+                    NULL::jsonb,
+                    :is_icp_present, :icp_location,
+                    :pii_blob_enc, :pii_nonce
                 )
                 """
             ),
@@ -281,12 +316,10 @@ def upload_incident_bundle(
                 "incident_id": incident_id,
                 "street_address": sens.get("street_address") or ns.get("incident_address") or "",
                 "landmark": sens.get("landmark") or ns.get("nearest_landmark") or "",
-                "caller_name": sens.get("caller_name", ""),
-                "caller_number": sens.get("caller_number", ""),
+                # Plaintext PII columns → NULL; only pii_blob_enc is authoritative
                 "receiver_name": sens.get("receiver_name", ""),
-                "owner_name": sens.get("owner_name", ""),
                 "establishment_name": sens.get("establishment_name", ""),
-                "narrative_report": sens.get("narrative_report", ""),
+                # narrative_report → encrypted in blob; plaintext column NULL
                 "disposition": sens.get("disposition", ""),
                 "disposition_prepared_by": sens.get("prepared_by_officer")
                 or sens.get("disposition_prepared_by", ""),
@@ -294,9 +327,12 @@ def upload_incident_bundle(
                 or sens.get("disposition_noted_by", ""),
                 "personnel_on_duty": json.dumps(sens.get("personnel_on_duty", {})),
                 "other_personnel": json.dumps(ns.get("other_personnel", [])),
-                "casualty_details": json.dumps(sens.get("casualty_details", {})),
+                # casualty_details → encrypted in blob; plaintext column NULL
                 "is_icp_present": bool(sens.get("is_icp_present", False)),
                 "icp_location": sens.get("icp_location", ""),
+                # Encrypted blob
+                "pii_blob_enc": ct_b64,
+                "pii_nonce": nonce_b64,
             },
         )
 
