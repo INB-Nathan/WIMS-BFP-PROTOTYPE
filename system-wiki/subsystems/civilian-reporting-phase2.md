@@ -1,10 +1,10 @@
 ---
 title: Civilian Reporting Phase 2 — Subsystem Deep-Dive
 created: 2026-05-20
-updated: 2026-05-24
+updated: 2026-05-27
 type: subsystem
 tags: [wims-bfp, subsystem, civilian-reporting, triage, validation, public-dmz, cluster, merge, map]
-sources: [system-wiki/prd/civilian-reporting-phase-2.md, system-wiki/decisions/0001-civilian-reporting-overhaul.md, src/backend/api/routes/triage.py, src/backend/api/routes/civilian.py, src/backend/api/routes/public_dmz.py, src/backend/tasks/civilian_reports.py, src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/app/report/page.tsx, src/frontend/src/app/report/tracking/page.tsx]
+sources: [system-wiki/prd/civilian-reporting-phase-2.md, system-wiki/decisions/0001-civilian-reporting-overhaul.md, src/backend/api/routes/triage.py, src/backend/api/routes/civilian.py, src/backend/api/routes/ref.py, src/backend/api/routes/public_dmz.py, src/backend/tasks/civilian_reports.py, src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/app/page.tsx, src/frontend/src/app/tracking/page.tsx]
 status: current
 related: [prd/civilian-reporting-phase-2, decisions/0001-civilian-reporting-overhaul, subsystems/references/triage-api-ref, frontend/validator-triage-shortcuts, gaps/frs-codebase-gap-register]
 ---
@@ -135,6 +135,35 @@ Append new signal to an existing report (new row with `linked_to_report_id`). Re
 Register FCM notification token for tracking page push.
 
 **Request body**: `{ fcm_token }`
+
+### `GET /api/civilian/report-clusters`
+Public root-map projection for **Public Fire Report Areas**. This is unauthenticated but privacy-minimized and is not an official incident feed.
+
+**Local mode**: when `lat` and `lon` are supplied, the backend maps the coordinates to a 500m bucket center, queries durable civilian report clusters within 10km for the last 60 minutes, requires at least 3 pressure reports, caps to 50 areas, and sorts by internal exact report count descending.
+
+**National mode**: when no location is supplied, the endpoint returns high-signal areas nationwide for the last 60 minutes, requires at least 10 pressure reports, caps to 25 areas, and sorts by internal exact report count descending.
+
+**Cluster rules**:
+- Source is `citizen_report_clusters` plus `citizen_report_cluster_members`, not raw ad hoc grid grouping.
+- Visible areas require at least one `PENDING` or `UNDER_REVIEW` report.
+- Count pressure includes `PENDING`, `UNDER_REVIEW`, and `LINKED`.
+- Excludes `ACTIONED`, all `REJECTED_*`, `CLUSTER_ACTIONED`, `CLUSTER_CLOSED`, and merged clusters.
+
+**Public response privacy contract**:
+- Includes mode metadata, query center, radius/window/minimums, `truncated`, `stale`, `degraded`, and `areas`.
+- Each area exposes only ephemeral `area_id`, exact centroid, dynamic meter radius, report count bucket, and age bucket.
+- It never exposes raw `cluster_id`, `report_id`, exact report count, exact timestamps, category breakdown, validator severity, life-safety status, witness/contact/device/IP data, or station-per-cluster context.
+
+**Cache behavior**: Redis cache-aside. Fresh responses live for 60 seconds; stale fallback lives for 10 minutes. If DB query fails and stale cache exists, response returns `stale: true`; otherwise it returns an empty degraded response.
+
+## Public Reference API
+
+### `GET /api/ref/emergency-services`
+Public reference endpoint for root-map station markers and emergency call guidance.
+
+Returns `emergency_number: "911"` and all BFP station names/coordinates. It does not return station phone numbers or addresses. When `lat`/`lon` are supplied, the backend computes distances and returns `nearest_station_ids` for the nearest five stations while still returning all stations for map display.
+
+**Cache behavior**: Redis cache-aside with 24-hour fresh TTL and 7-day stale fallback. If DB query fails and no cache exists, it returns `911`, empty stations, and `degraded: true`.
 
 ## Public DMZ Boundary
 

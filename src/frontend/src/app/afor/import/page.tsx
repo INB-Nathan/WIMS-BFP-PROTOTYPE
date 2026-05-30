@@ -502,8 +502,8 @@ export default function AforImportPage() {
   const validateAndSetFile = (f: File | undefined | null) => {
     if (!f) return;
     const ext = f.name.split('.').pop()?.toLowerCase();
-    if (ext !== 'csv' && ext !== 'xlsx' && ext !== 'xls') {
-      setError('Please upload a valid .csv or .xlsx file.');
+    if (ext !== 'xlsx') {
+      setError('Please upload a valid .xlsx file.');
       return;
     }
     setFile(f);
@@ -748,7 +748,7 @@ export default function AforImportPage() {
             style={{ borderColor: 'var(--border-color)' }}
             onClick={() => !isOffline && document.getElementById('file-upload')?.click()}
           >
-            <input ref={fileInputRef} type="file" id="file-upload" className="hidden" accept=".csv, .xlsx, .xls" onChange={handleFileInput} disabled={isOffline || isUploading} />
+            <input ref={fileInputRef} type="file" id="file-upload" className="hidden" accept=".xlsx" onChange={handleFileInput} disabled={isOffline || isUploading} />
             <div className="flex justify-center mb-4">
               <div className="p-4 rounded-full bg-blue-50 text-blue-600">
                 <Upload className="w-8 h-8" />
@@ -758,7 +758,7 @@ export default function AforImportPage() {
               {file ? file.name : 'Click to upload or drag and drop'}
             </h3>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              {file ? `${(file.size / 1024).toFixed(1)} KB` : 'Excel (.xlsx) or CSV files up to 10MB'}
+              {file ? `${(file.size / 1024).toFixed(1)} KB` : 'Excel (.xlsx) files up to 10MB'}
             </p>
             {file && !isOffline && (
               <div className="mt-8 flex justify-center gap-3" onClick={(e) => e.stopPropagation()}>

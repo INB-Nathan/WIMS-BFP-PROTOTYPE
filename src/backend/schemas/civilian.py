@@ -139,3 +139,35 @@ class MyReportResponse(BaseModel):
     """Response body for GET /api/civilian/reports — the device's own report history."""
 
     reports: list[MyReportItem]
+
+
+class ReportClusterCenter(BaseModel):
+    """Anchor used for the public report-area query."""
+
+    latitude: float
+    longitude: float
+
+
+class ReportClusterArea(BaseModel):
+    """A public-safe area of recent civilian report pressure."""
+
+    area_id: str
+    latitude: float
+    longitude: float
+    radius_m: int
+    count_bucket: str
+    age_bucket: str
+
+
+class ReportClusterResponse(BaseModel):
+    """Response body for GET /api/civilian/report-clusters."""
+
+    mode: str
+    center: ReportClusterCenter | None = None
+    radius_m: int | None = None
+    window_minutes: int = 60
+    min_reports: int
+    truncated: bool = False
+    stale: bool = False
+    degraded: bool = False
+    areas: list[ReportClusterArea]
