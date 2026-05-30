@@ -259,6 +259,82 @@ async def publish_system_event(
 # ---------------------------------------------------------------------------
 
 
+def publish_incident_event_sync(
+    event_type: str,
+    *,
+    incident_id: int | None = None,
+    status: str | None = None,
+    previous_status: str | None = None,
+    actor_id: str | None = None,
+    actor_role: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """Publish an incident lifecycle event synchronously (for sync endpoints)."""
+    try:
+        r = redis.from_url(REDIS_URL, decode_responses=True)
+        payload: dict[str, Any] = {}
+        if incident_id is not None:
+            payload["incident_id"] = incident_id
+        if status:
+            payload["status"] = status
+        if previous_status:
+            payload["previous_status"] = previous_status
+        if extra:
+            payload.update(extra)
+        message = json.dumps(
+            {
+                "channel": CHANNELS["incident"],
+                "event_type": event_type,
+                "payload": payload,
+                "actor_id": actor_id,
+                "actor_role": actor_role,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        r.publish(CHANNELS["incident"], message)
+        logger.debug("Published (sync) %s → %s", event_type, CHANNELS["incident"])
+    except Exception:
+        logger.warning("Failed to publish (sync) %s", event_type, exc_info=True)
+
+
+def publish_verification_event_sync(
+    event_type: str,
+    *,
+    cluster_id: int | None = None,
+    report_id: int | None = None,
+    action: str | None = None,
+    actor_id: str | None = None,
+    actor_role: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """Publish a verification/triage event synchronously (for sync endpoints)."""
+    try:
+        r = redis.from_url(REDIS_URL, decode_responses=True)
+        payload: dict[str, Any] = {}
+        if cluster_id is not None:
+            payload["cluster_id"] = cluster_id
+        if report_id is not None:
+            payload["report_id"] = report_id
+        if action:
+            payload["action"] = action
+        if extra:
+            payload.update(extra)
+        message = json.dumps(
+            {
+                "channel": CHANNELS["verification"],
+                "event_type": event_type,
+                "payload": payload,
+                "actor_id": actor_id,
+                "actor_role": actor_role,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        r.publish(CHANNELS["verification"], message)
+        logger.debug("Published (sync) %s → %s", event_type, CHANNELS["verification"])
+    except Exception:
+        logger.warning("Failed to publish (sync) %s", event_type, exc_info=True)
+
+
 def publish_security_event_sync(
     event_type: str,
     *,

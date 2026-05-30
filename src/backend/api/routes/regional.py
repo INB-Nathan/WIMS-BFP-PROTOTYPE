@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user, get_national_validator, get_regional_encoder
 from database import get_db_with_rls
-from services.event_bus import publish_incident_event
+from services.event_bus import publish_incident_event, publish_incident_event_sync
 from services.afor_import import (
     ALARM_LEVEL_MAP,
     AforCommitRequest,
@@ -1420,8 +1420,6 @@ def create_incident(
             val = getattr(body, f, None)
             if val is not None and val != "" and val != {} and val != []:
                 pii_dict[f] = val
-        if not pii_dict:
-            pii_dict = {}
         try:
             sp = _get_security_provider()
             nonce_b64, ct_b64 = sp.encrypt_json(pii_dict, f"incident_id:{incident_id}".encode())
@@ -1768,19 +1766,13 @@ def update_incident(
     logger.info("Updated incident %s by encoder %s", incident_id, encoder_id)
 
     # Publish real-time SSE event
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(
-            publish_incident_event(
-                "incident.updated",
-                incident_id=incident_id,
-                status=incident[1],
-                actor_id=str(encoder_id),
-                actor_role="REGIONAL_ENCODER",
-            )
-        )
-    except RuntimeError:
-        pass
+    publish_incident_event_sync(
+        "incident.updated",
+        incident_id=incident_id,
+        status=incident[1],
+        actor_id=str(encoder_id),
+        actor_role="REGIONAL_ENCODER",
+    )
 
     return {"status": "updated", "incident_id": incident_id}
 
@@ -2173,20 +2165,14 @@ def verify_incident(
     )
 
     # Publish real-time SSE event
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(
-            publish_incident_event(
-                f"incident.{result.get('action', 'verified')}",
-                incident_id=incident_id,
-                status=result.get("new_status"),
-                previous_status=result.get("previous_status"),
-                actor_id=validator_user_id,
-                actor_role="NATIONAL_VALIDATOR",
-            )
-        )
-    except RuntimeError:
-        pass
+    publish_incident_event_sync(
+        f"incident.{result.get('action', 'verified')}",
+        incident_id=incident_id,
+        status=result.get("new_status"),
+        previous_status=result.get("previous_status"),
+        actor_id=validator_user_id,
+        actor_role="NATIONAL_VALIDATOR",
+    )
 
     return result
 

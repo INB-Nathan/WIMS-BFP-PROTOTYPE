@@ -34,7 +34,6 @@ _REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 _REDIS_POOL: aioredis.Redis | None = None
 _REDIS_CLUSTER_TTL = 120  # 2 minutes
 _REDIS_EMERGENCY_TTL = 300  # 5 minutes
-_REDIS_POOL_SIZE = 5
 _REDIS_POOL_MAX_CONNECTIONS = 10
 
 
@@ -50,6 +49,7 @@ async def _get_redis() -> aioredis.Redis | None:
                 socket_connect_timeout=2,
                 socket_timeout=2,
                 health_check_interval=30,
+                max_connections=_REDIS_POOL_MAX_CONNECTIONS,
             )
             await _REDIS_POOL.ping()
         except Exception:

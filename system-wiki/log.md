@@ -1033,3 +1033,14 @@ Six-commit batch implementing Analyst UX QoL (#113,#115,#116,#117,#119,#120), Pu
 - Updated `system-wiki/frontend/route-map.md` — new public map, validator operational map, SSE hook, analyst QoL components.
 - Updated `system-wiki/security/security-baseline.md` — TLS 1.3-only, ChaCha20-Poly1305, AES-256-GCM expansion to 7 fields (from 4).
 - Updated `system-wiki/gaps/frs-codebase-gap-register.md` — closed M6a (AES-GCM scope), M6b (data-in-transit), partial M13 (SSE backend); tracked public map data-source gap (civilian reports vs fire_incidents table).
+
+## [2026-05-30] fix | PR #179 re-review implementation — SSE, dead code, pool config
+
+Applied 4 blocking fixes from PR #179 re-review (`docs/reviews/pr-179-re-review.md`):
+
+- **B1 — SSE publishing dead from 5 sync endpoints** (CRITICAL): Added `publish_incident_event_sync()` and `publish_verification_event_sync()` to `services/event_bus.py` (matching existing `publish_security_event_sync` pattern). Replaced 5 dead `asyncio.get_running_loop()` + `except RuntimeError: pass` blocks in `regional.py` (×2), `admin.py` (×1), `workflow.py` (×2) with direct sync calls. Removed now-unused `import asyncio` from `admin.py` and `workflow.py`. Fixes silent SSE event loss from `update_incident`, `verify_incident`, `update_security_log`, `claim_cluster_command`, and `apply_terminal_action_command`.
+- **B2 — Dead EmergencyPanel in PublicFireMapInner.tsx**: Removed unrendered EmergencyPanel component, unused `emergencyContacts`/`nearbyStations` state, `fetchEmergencyServices` useEffect, `useMap` import, and `EmergencyContact`/`NearbyStation` type imports (−79 lines).
+- **B3 — Dead no-op pii_dict reassignment**: Removed `if not pii_dict: pii_dict = {}` from `regional.py` (already `{}`).
+- **B4 — Dead Redis pool constants**: Wired `_REDIS_POOL_MAX_CONNECTIONS` into `aioredis.from_url()` in `map.py`.
+
+No schema, auth, or FRS alignment changes. Updated `system-wiki/backend/api-route-map.md` and `system-wiki/security/security-baseline.md` unchanged (no surface-level changes).

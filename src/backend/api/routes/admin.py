@@ -1,7 +1,6 @@
 """System Admin API — Identity, Security Telemetry, Audit Oversight.
 All endpoints protected by get_system_admin. No DELETE endpoints (Immutability Law)."""
 
-import asyncio
 import json
 import logging
 import os
@@ -27,7 +26,7 @@ from auth import get_system_admin
 from database import get_db, get_db_with_rls
 from services.ai_service import analyze_threat_log
 from services.analytics_read_model import backfill_analytics_facts
-from services.event_bus import publish_security_event
+from services.event_bus import publish_security_event_sync
 from services.keycloak_admin import (
     create_keycloak_user,
     generate_temp_password,
@@ -702,19 +701,13 @@ def update_security_log(
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Security log not found")
 
-    # Publish real-time SSE event (fire-and-forget)
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(
-            publish_security_event(
-                "security.hitl_confirmed",
-                log_id=log_id,
-                actor_id=_admin["user_id"],
-                extra={"action": body.action} if body.action else {},
-            )
-        )
-    except RuntimeError:
-        pass
+    # Publish real-time SSE event
+    publish_security_event_sync(
+        "security.hitl_confirmed",
+        log_id=log_id,
+        actor_id=_admin["user_id"],
+        extra={"action": body.action} if body.action else {},
+    )
 
     return {"status": "ok", "log_id": log_id}
 

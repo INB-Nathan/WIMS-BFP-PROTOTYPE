@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from services.event_bus import publish_verification_event
+from services.event_bus import publish_verification_event_sync
 from services.civilian_triage.models import (
     ClusterActivityRequest,
     ClusterActivityResponse,
@@ -139,20 +138,14 @@ def claim_cluster_command(
         {"cid": cluster_id},
     ).fetchone()
 
-    # Publish real-time SSE event (fire-and-forget)
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(
-            publish_verification_event(
-                "verification.cluster_claimed",
-                cluster_id=cluster_id,
-                action=audit_action,
-                actor_id=user_id,
-                actor_role=user.get("role"),
-            )
-        )
-    except RuntimeError:
-        pass
+    # Publish real-time SSE event
+    publish_verification_event_sync(
+        "verification.cluster_claimed",
+        cluster_id=cluster_id,
+        action=audit_action,
+        actor_id=user_id,
+        actor_role=user.get("role"),
+    )
 
     return cluster_claim_response(row)
 
@@ -475,21 +468,15 @@ def apply_terminal_action_command(
 
     notify_reports(updated_ids, status)
 
-    # Publish real-time SSE event (fire-and-forget)
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(
-            publish_verification_event(
-                "verification.terminal_action",
-                cluster_id=cluster_id,
-                action=status,
-                actor_id=user_id,
-                actor_role=user.get("role"),
-                extra={"report_ids": updated_ids, "status": status},
-            )
-        )
-    except RuntimeError:
-        pass
+    # Publish real-time SSE event
+    publish_verification_event_sync(
+        "verification.terminal_action",
+        cluster_id=cluster_id,
+        action=status,
+        actor_id=user_id,
+        actor_role=user.get("role"),
+        extra={"report_ids": updated_ids, "status": status},
+    )
 
     return WorkflowResult(
         status="applied", report_ids=updated_ids, cluster_id=cluster_id, updated=len(updated_ids)

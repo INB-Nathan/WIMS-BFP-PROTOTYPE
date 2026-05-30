@@ -6,16 +6,13 @@ import {
   TileLayer,
   CircleMarker,
   Popup,
-  useMap,
   useMapEvents,
   Marker,
 } from 'react-leaflet';
 import L from 'leaflet';
-import { fetchClusters, fetchEmergencyServices } from '@/lib/api';
+import { fetchClusters } from '@/lib/api';
 import type {
   MapClusterItem,
-  EmergencyContact,
-  NearbyStation,
 } from '@/lib/api';
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -146,64 +143,6 @@ function GeolocateButton({
   );
 }
 
-// ── Emergency Services Panel ────────────────────────────────────────────────
-
-function EmergencyPanel({
-  contacts,
-  stations,
-  error,
-}: {
-  contacts: EmergencyContact[];
-  stations: NearbyStation[];
-  error: string | null;
-}) {
-  return (
-    <div className="space-y-2 text-sm">
-      {error && (
-        <div className="p-2 rounded bg-red-50 border border-red-200 text-red-700 text-xs">
-          {error}
-        </div>
-      )}
-
-      <div className="rounded-md border border-slate-200 overflow-hidden">
-        <div className="bg-red-600 text-white px-3 py-1.5 text-xs font-semibold">
-          National Emergency Contacts
-        </div>
-        <div className="divide-y divide-slate-100">
-          {contacts.map((c) => (
-            <div key={c.phone + c.name} className="px-3 py-2">
-              <div className="font-medium text-slate-800 text-xs">{c.name}</div>
-              <div className="text-red-600 font-bold text-sm">{c.phone}</div>
-              <div className="text-slate-500 text-xs mt-0.5">{c.description}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {stations.length > 0 && (
-        <div className="rounded-md border border-slate-200 overflow-hidden">
-          <div className="bg-slate-700 text-white px-3 py-1.5 text-xs font-semibold">
-            Nearby BFP Stations
-          </div>
-          <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
-            {stations.slice(0, 5).map((s) => (
-              <div key={s.name + s.distance_m} className="px-3 py-2">
-                <div className="font-medium text-slate-800 text-xs">{s.name}</div>
-                <div className="text-slate-500 text-xs">
-                  {s.distance_m < 1000
-                    ? `${Math.round(s.distance_m)}m`
-                    : `${(s.distance_m / 1000).toFixed(1)}km`}
-                  {' — '}{s.address}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Main component ──────────────────────────────────────────────────────────
 
 export default function PublicFireMapInner({
@@ -215,10 +154,6 @@ export default function PublicFireMapInner({
   onGeolocationAvailable,
 }: PublicFireMapInnerProps) {
   const [clusters, setClusters] = useState<MapClusterItem[]>([]);
-  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>(
-    [],
-  );
-  const [nearbyStations, setNearbyStations] = useState<NearbyStation[]>([]);
   const [mapError, setMapError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [pinPosition, setPinPosition] = useState<[number, number] | null>(
@@ -318,18 +253,6 @@ export default function PublicFireMapInner({
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [loadClusters]);
-
-  // ── Fetch emergency services on mount ───────────────────────────────────
-  useEffect(() => {
-    fetchEmergencyServices(center[0], center[1])
-      .then((data) => {
-        setEmergencyContacts(data.national ?? []);
-        setNearbyStations(data.stations ?? []);
-      })
-      .catch(() => {
-        /* silent — emergency panel may be hidden */
-      });
-  }, [center]);
 
   // ── Handle geolocation ──────────────────────────────────────────────────
   const handleGeolocation = useCallback(
