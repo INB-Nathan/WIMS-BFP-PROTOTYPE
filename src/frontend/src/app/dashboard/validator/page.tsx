@@ -165,6 +165,7 @@ export default function ValidatorDashboard() {
   const [acceptingId, setAcceptingId] = useState<number | null>(null);
   const [validatorDupTarget, setValidatorDupTarget] = useState<ValidatorIncident | null>(null);
   const [validatorDupMatchedId, setValidatorDupMatchedId] = useState<number | null>(null);
+  const [validatorDupConfidence, setValidatorDupConfidence] = useState<'LIKELY' | 'POSSIBLE' | null>(null);
   // Runtime-detected duplicates: populated when Accept returns 409. Maps incident_id → matched_incident_id.
   const [runtimeDuplicates, setRuntimeDuplicates] = useState<Map<number, number>>(new Map());
   const [newIncidentBanner, setNewIncidentBanner] = useState(false);
@@ -344,11 +345,12 @@ export default function ValidatorDashboard() {
       await fetchQueue();
     } catch (err: unknown) {
       if (err instanceof ApiRequestError && err.status === 409) {
-        const detail = err.detail as { code?: string; matched_incident_id?: number } | null;
+        const detail = err.detail as { code?: string; matched_incident_id?: number; confidence?: 'LIKELY' | 'POSSIBLE' } | null;
         if (detail?.code === "DUPLICATE_DETECTED" && detail.matched_incident_id) {
           setRuntimeDuplicates((prev) => new Map(prev).set(inc.incident_id, detail.matched_incident_id!));
           setValidatorDupTarget(inc);
           setValidatorDupMatchedId(detail.matched_incident_id);
+          setValidatorDupConfidence(detail.confidence ?? null);
           return;
         }
       }
@@ -497,14 +499,15 @@ export default function ValidatorDashboard() {
       setActionType(null);
       setActionNotes("");
       setValidatorDupTarget(null);
-      setValidatorDupMatchedId(null);
+      setValidatorDupMatchedId(null); setValidatorDupConfidence(null);
     } catch (err: unknown) {
       if (err instanceof ApiRequestError && err.status === 409) {
-        const detail = err.detail as { code?: string; matched_incident_id?: number } | null;
+        const detail = err.detail as { code?: string; matched_incident_id?: number; confidence?: 'LIKELY' | 'POSSIBLE' } | null;
         if (detail?.code === "DUPLICATE_DETECTED" && detail.matched_incident_id) {
           setRuntimeDuplicates((prev) => new Map(prev).set(actionTarget.incident_id, detail.matched_incident_id!));
           setValidatorDupTarget(actionTarget);
           setValidatorDupMatchedId(detail.matched_incident_id);
+          setValidatorDupConfidence(detail.confidence ?? null);
           setActionTarget(null);
           return;
         }
@@ -1111,9 +1114,11 @@ export default function ValidatorDashboard() {
       {validatorDupTarget && validatorDupMatchedId && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl p-6 max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg font-semibold mb-1 text-amber-800">Duplicate Incident Detected</h2>
+            <h2 className="text-lg font-semibold mb-1 text-amber-800">
+              {validatorDupConfidence === 'LIKELY' ? 'Likely Duplicate Incident' : 'Possible Duplicate Incident'}
+            </h2>
             <p className="text-sm text-gray-500 mb-4">
-              Incident #{validatorDupTarget.incident_id} matches a verified record (#{validatorDupMatchedId}) from within the past 7 days. Review the records side by side before deciding.
+              Incident #{validatorDupTarget.incident_id} closely matches a verified record (#{validatorDupMatchedId}). Review the records side by side before deciding.
             </p>
             <div className="mb-4">
               <UpdateRequestDiffPanel updateIncidentId={validatorDupTarget.incident_id} originalIncidentId={validatorDupMatchedId} />
@@ -1135,14 +1140,14 @@ export default function ValidatorDashboard() {
             </div>
             {actionError && <p className="text-sm text-red-600 mb-2">{actionError}</p>}
             <div className="flex flex-wrap gap-2 justify-end mt-4">
-              <button onClick={() => { setValidatorDupTarget(null); setValidatorDupMatchedId(null); setActionError(null); setShowDupHistory(false); }} disabled={actionLoading} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-40">Cancel</button>
-              <button onClick={() => { const inc = validatorDupTarget; setValidatorDupTarget(null); setValidatorDupMatchedId(null); setShowDupHistory(false); openAction(inc, "reject"); }} disabled={actionLoading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#991B1B' }}>Reject</button>
+              <button onClick={() => { setValidatorDupTarget(null); setValidatorDupMatchedId(null); setValidatorDupConfidence(null); setActionError(null); setShowDupHistory(false); }} disabled={actionLoading} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-40">Cancel</button>
+              <button onClick={() => { const inc = validatorDupTarget; setValidatorDupTarget(null); setValidatorDupMatchedId(null); setValidatorDupConfidence(null); setShowDupHistory(false); openAction(inc, "reject"); }} disabled={actionLoading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#991B1B' }}>Reject</button>
               <button
                 onClick={() => {
                   const inc = validatorDupTarget;
                   const originalId = validatorDupMatchedId;
                   setValidatorDupTarget(null);
-                  setValidatorDupMatchedId(null);
+                  setValidatorDupMatchedId(null); setValidatorDupConfidence(null);
                   setActionLoading(true);
                   setActionError(null);
                   void apiFetch(`/regional/incidents/${inc.incident_id}/verification?force=true`, {
@@ -1159,7 +1164,7 @@ export default function ValidatorDashboard() {
                 onClick={() => {
                   const inc = validatorDupTarget;
                   setValidatorDupTarget(null);
-                  setValidatorDupMatchedId(null);
+                  setValidatorDupMatchedId(null); setValidatorDupConfidence(null);
                   setActionLoading(true);
                   setActionError(null);
                   void apiFetch(`/regional/incidents/${inc.incident_id}/verification?force=true`, {

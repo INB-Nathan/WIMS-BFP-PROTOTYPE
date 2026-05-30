@@ -1466,7 +1466,9 @@ def encoder_archive_incident(
     ).fetchone()
 
     if incident is None:
-        raise HTTPException(status_code=404, detail="Incident not found, already archived, or not owned by you")
+        raise HTTPException(
+            status_code=404, detail="Incident not found, already archived, or not owned by you"
+        )
     if incident[1] != "VERIFIED":
         raise HTTPException(
             status_code=400,
@@ -1487,7 +1489,9 @@ def encoder_archive_incident(
         db.commit()
     except Exception:
         db.rollback()
-        logger.exception("Encoder archive failed for incident_id=%s by encoder %s", incident_id, encoder_id)
+        logger.exception(
+            "Encoder archive failed for incident_id=%s by encoder %s", incident_id, encoder_id
+        )
         raise HTTPException(status_code=500, detail="Archive failed — transaction rolled back")
 
     logger.info("Encoder user_id=%s archived incident_id=%s", encoder_id, incident_id)
@@ -1513,7 +1517,9 @@ def encoder_unarchive_incident(
         {"iid": incident_id, "encoder_id": str(encoder_id)},
     ).fetchone()
     if not incident:
-        raise HTTPException(status_code=404, detail="Archived incident not found or not owned by you")
+        raise HTTPException(
+            status_code=404, detail="Archived incident not found or not owned by you"
+        )
     if incident[1] != "VERIFIED":
         raise HTTPException(
             status_code=400,

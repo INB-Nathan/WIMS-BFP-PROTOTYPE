@@ -121,7 +121,9 @@ def apply_schema_patches() -> None:
             """)
         )
         db.commit()
-        logger.info("Schema patch applied: no_update_verified rule updated to allow archival and unarchival")
+        logger.info(
+            "Schema patch applied: no_update_verified rule updated to allow archival and unarchival"
+        )
     except Exception as exc:
         logger.warning("Schema patch failed (non-fatal, will retry on next restart): %s", exc)
         db.rollback()

@@ -430,8 +430,8 @@ export default function RegionalIncidentDetailPage() {
   const [saveNotification, setSaveNotification] = useState<string | null>(null);
   const [showWithdrawPopup, setShowWithdrawPopup] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [duplicateFound, setDuplicateFound] = useState<{ matchedIncidentId: number } | null>(null);
-  const [pendingDuplicateFound, setPendingDuplicateFound] = useState<{ matchedIncidentId: number } | null>(null);
+  const [duplicateFound, setDuplicateFound] = useState<{ matchedIncidentId: number; confidence?: 'LIKELY' | 'POSSIBLE' } | null>(null);
+  const [pendingDuplicateFound, setPendingDuplicateFound] = useState<{ matchedIncidentId: number; confidence?: 'LIKELY' | 'POSSIBLE' } | null>(null);
   const [staleAlert, setStaleAlert] = useState(false);
   const [showMissingFieldsModal, setShowMissingFieldsModal] = useState(false);
   const [missingFieldsList, setMissingFieldsList] = useState<string[]>([]);
@@ -563,12 +563,12 @@ export default function RegionalIncidentDetailPage() {
       await load();
     } catch (e) {
       if (e instanceof ApiRequestError && e.status === 409) {
-        const detail = e.detail as { code?: string; matched_incident_id?: number; matched_status?: string } | null;
+        const detail = e.detail as { code?: string; matched_incident_id?: number; matched_status?: string; confidence?: 'LIKELY' | 'POSSIBLE' } | null;
         if (detail?.code === 'DUPLICATE_DETECTED' && detail.matched_incident_id) {
           if (detail.matched_status === 'PENDING') {
-            setPendingDuplicateFound({ matchedIncidentId: detail.matched_incident_id });
+            setPendingDuplicateFound({ matchedIncidentId: detail.matched_incident_id, confidence: detail.confidence });
           } else {
-            setDuplicateFound({ matchedIncidentId: detail.matched_incident_id });
+            setDuplicateFound({ matchedIncidentId: detail.matched_incident_id, confidence: detail.confidence });
           }
           return;
         }
@@ -844,10 +844,12 @@ export default function RegionalIncidentDetailPage() {
       {duplicateFound && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg font-bold text-amber-800">Possible Duplicate Detected</h2>
+            <h2 className="text-lg font-bold text-amber-800">
+              {duplicateFound.confidence === 'LIKELY' ? 'Likely Duplicate Detected' : 'Possible Duplicate Detected'}
+            </h2>
             <p className="text-sm text-gray-700">
-              A verified incident (#{duplicateFound.matchedIncidentId}) already exists with the same
-              region, type, and fire date. Review the comparison below before deciding.
+              A verified incident (#{duplicateFound.matchedIncidentId}) closely matches this record.
+              Review the comparison below before deciding.
             </p>
             <UpdateRequestDiffPanel
               updateIncidentId={incidentId}
@@ -882,7 +884,9 @@ export default function RegionalIncidentDetailPage() {
       {pendingDuplicateFound && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg font-bold text-blue-800">Duplicate Pending Incident Found</h2>
+            <h2 className="text-lg font-bold text-blue-800">
+              {pendingDuplicateFound.confidence === 'LIKELY' ? 'Likely Pending Duplicate' : 'Possible Pending Duplicate'}
+            </h2>
             <p className="text-sm text-gray-700">
               A similar incident (#{pendingDuplicateFound.matchedIncidentId}) is already pending review.
               Review the comparison below before deciding.

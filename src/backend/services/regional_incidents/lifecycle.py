@@ -295,16 +295,20 @@ def submit_incident_for_review_command(
                        fi.region_id, nd.alarm_level,
                        ST_Y(fi.location::geometry) AS lat,
                        ST_X(fi.location::geometry) AS lon,
-                       nd.city_municipality, nd.province_district
+                       nd.city_municipality, nd.province_district,
+                       nd.barangay_id, nd.barangay,
+                       sd.street_address, sd.landmark, sd.establishment_name,
+                       nd.fire_station_name
                 FROM wims.fire_incidents fi
                 LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+                LEFT JOIN wims.incident_sensitive_details sd ON sd.incident_id = fi.incident_id
                 WHERE fi.incident_id = :iid
             """),
             {"iid": incident_id},
         ).fetchone()
 
         if geo_meta:
-            verified_dup = check_for_duplicate(
+            dup_result = check_for_duplicate(
                 db,
                 incident_id=incident_id,
                 region_id=geo_meta[3],
@@ -316,9 +320,16 @@ def submit_incident_for_review_command(
                 incident_type_code=geo_meta[2],
                 city_municipality=geo_meta[7],
                 province_district=geo_meta[8],
+                barangay_id=geo_meta[9],
+                barangay=geo_meta[10],
+                street_address=geo_meta[11],
+                landmark=geo_meta[12],
+                establishment_name=geo_meta[13],
+                fire_station_name=geo_meta[14],
                 exclude_statuses=("DRAFT", "REJECTED", "REPLACED"),
             )
-            if verified_dup:
+            if dup_result:
+                verified_dup, dup_confidence = dup_result
                 matched_status = (
                     db.execute(
                         text(
@@ -335,6 +346,7 @@ def submit_incident_for_review_command(
                         "incident_id": incident_id,
                         "matched_incident_id": verified_dup,
                         "matched_status": matched_status,
+                        "confidence": dup_confidence,
                     },
                 )
 
@@ -349,15 +361,19 @@ def submit_incident_for_review_command(
                            fi.region_id, nd.alarm_level,
                            ST_Y(fi.location::geometry) AS lat,
                            ST_X(fi.location::geometry) AS lon,
-                           nd.city_municipality, nd.province_district
+                           nd.city_municipality, nd.province_district,
+                           nd.barangay_id, nd.barangay,
+                           sd.street_address, sd.landmark, sd.establishment_name,
+                           nd.fire_station_name
                     FROM wims.fire_incidents fi
                     LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+                    LEFT JOIN wims.incident_sensitive_details sd ON sd.incident_id = fi.incident_id
                     WHERE fi.incident_id = :iid
                 """),
                 {"iid": incident_id},
             ).fetchone()
             if geo_meta:
-                matched_duplicate_id = check_for_duplicate(
+                dup_result = check_for_duplicate(
                     db,
                     incident_id=incident_id,
                     region_id=geo_meta[3],
@@ -369,8 +385,15 @@ def submit_incident_for_review_command(
                     incident_type_code=geo_meta[2],
                     city_municipality=geo_meta[7],
                     province_district=geo_meta[8],
+                    barangay_id=geo_meta[9],
+                    barangay=geo_meta[10],
+                    street_address=geo_meta[11],
+                    landmark=geo_meta[12],
+                    establishment_name=geo_meta[13],
+                    fire_station_name=geo_meta[14],
                     exclude_statuses=("DRAFT", "REJECTED", "REPLACED"),
                 )
+                matched_duplicate_id = dup_result[0] if dup_result else None
                 if matched_duplicate_id:
                     db.execute(
                         text("""
@@ -382,9 +405,7 @@ def submit_incident_for_review_command(
                     )
 
         resubmitted_flag = (
-            "is_resubmitted = TRUE, "
-            if is_resubmission and _lc_has_resubmitted_column(db)
-            else ""
+            "is_resubmitted = TRUE, " if is_resubmission and _lc_has_resubmitted_column(db) else ""
         )
         # Clear stale duplicate flags on resubmit unless a new duplicate was just matched
         dup_clear_sql = (
@@ -532,15 +553,19 @@ def verify_incident_command(
                 SELECT ST_Y(fi.location::geometry), ST_X(fi.location::geometry),
                        nd.notification_dt, nd.general_category, fi.incident_type_code,
                        fi.region_id, nd.alarm_level, fi.parent_incident_id,
-                       nd.city_municipality, nd.province_district
+                       nd.city_municipality, nd.province_district,
+                       nd.barangay_id, nd.barangay,
+                       sd.street_address, sd.landmark, sd.establishment_name,
+                       nd.fire_station_name
                 FROM wims.fire_incidents fi
                 LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+                LEFT JOIN wims.incident_sensitive_details sd ON sd.incident_id = fi.incident_id
                 WHERE fi.incident_id = :iid
             """),
             {"iid": incident_id},
         ).fetchone()
         if geo_row and geo_row[7] is None:
-            dup_id = check_for_duplicate(
+            dup_result = check_for_duplicate(
                 db,
                 incident_id=incident_id,
                 region_id=geo_row[5],
@@ -552,12 +577,23 @@ def verify_incident_command(
                 incident_type_code=geo_row[4],
                 city_municipality=geo_row[8],
                 province_district=geo_row[9],
+                barangay_id=geo_row[10],
+                barangay=geo_row[11],
+                street_address=geo_row[12],
+                landmark=geo_row[13],
+                establishment_name=geo_row[14],
+                fire_station_name=geo_row[15],
                 exclude_statuses=("DRAFT", "REJECTED", "REPLACED"),
             )
-            if dup_id:
+            if dup_result:
+                dup_id, dup_confidence = dup_result
                 raise HTTPException(
                     status_code=409,
-                    detail={"code": "DUPLICATE_DETECTED", "matched_incident_id": dup_id},
+                    detail={
+                        "code": "DUPLICATE_DETECTED",
+                        "matched_incident_id": dup_id,
+                        "confidence": dup_confidence,
+                    },
                 )
 
     data_hash = None
@@ -727,13 +763,17 @@ def bulk_approve_pending_incidents(
     rows = db.execute(
         text(
             """
-            SELECT incident_id, verification_status, encoder_id, created_at,
+            SELECT fi2.incident_id, fi2.verification_status, fi2.encoder_id, fi2.created_at,
                    nd.notification_dt, nd.general_category, fi2.incident_type_code,
                    fi2.region_id, nd.alarm_level,
                    ST_Y(fi2.location::geometry), ST_X(fi2.location::geometry),
-                   nd.city_municipality, nd.province_district
+                   nd.city_municipality, nd.province_district,
+                   nd.barangay_id, nd.barangay,
+                   sd.street_address, sd.landmark, sd.establishment_name,
+                   nd.fire_station_name
             FROM wims.fire_incidents fi2
             LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi2.incident_id
+            LEFT JOIN wims.incident_sensitive_details sd ON sd.incident_id = fi2.incident_id
             WHERE fi2.incident_id = ANY(:ids) AND fi2.is_archived = FALSE
             """
         ),
@@ -782,9 +822,15 @@ def bulk_approve_pending_incidents(
                 lon,
                 city_muni,
                 province_dist,
+                ba_id,
+                ba_text,
+                street_addr,
+                lmark,
+                estab_name,
+                fire_station,
             ) = row
 
-            dup_id = check_for_duplicate(
+            dup_result = check_for_duplicate(
                 db,
                 incident_id=iid,
                 region_id=region_id,
@@ -796,10 +842,17 @@ def bulk_approve_pending_incidents(
                 incident_type_code=type_code,
                 city_municipality=city_muni,
                 province_district=province_dist,
+                barangay_id=ba_id,
+                barangay=ba_text,
+                street_address=street_addr,
+                landmark=lmark,
+                establishment_name=estab_name,
+                fire_station_name=fire_station,
                 exclude_statuses=("DRAFT", "REJECTED", "REPLACED"),
                 verified_window_seconds=60,
             )
-            if dup_id:
+            if dup_result:
+                dup_id = dup_result[0]
                 held_for_review.append({"id": iid, "matching_incident_id": dup_id})
                 continue
 

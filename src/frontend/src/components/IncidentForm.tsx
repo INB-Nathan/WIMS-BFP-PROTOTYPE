@@ -1108,7 +1108,7 @@ export function IncidentForm({
             onSaved?.();
           } catch (submitErr) {
             if (submitErr instanceof ApiRequestError && submitErr.status === 409) {
-              const d = submitErr.detail as { code?: string; matched_incident_id?: number } | null;
+              const d = submitErr.detail as { code?: string; matched_incident_id?: number; confidence?: 'LIKELY' | 'POSSIBLE' } | null;
               if (d?.code === 'DUPLICATE_DETECTED' && d.matched_incident_id) {
                 // Hard-navigate so the detail page remounts and triggers the duplicate modal
                 window.location.href = `/dashboard/regional/incidents/${existingIncidentId}?pending_submit=1`;
@@ -1143,7 +1143,7 @@ export function IncidentForm({
             await submitIncidentForReview(incidentId);
           } catch (submitErr) {
             if (submitErr instanceof ApiRequestError && submitErr.status === 409) {
-              const d = submitErr.detail as { code?: string; matched_incident_id?: number } | null;
+              const d = submitErr.detail as { code?: string; matched_incident_id?: number; confidence?: 'LIKELY' | 'POSSIBLE' } | null;
               if (d?.code === 'DUPLICATE_DETECTED' && d.matched_incident_id) {
                 // Saved as draft; navigate to detail with flag to auto-trigger the
                 // full duplicate modal (side-by-side comparison + force/cancel options).

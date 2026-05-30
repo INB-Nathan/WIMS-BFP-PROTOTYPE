@@ -240,28 +240,55 @@ The "Re-pin from Address" button now clears `latitude`/`longitude` (`setLatitude
 **File:** `IncidentForm.tsx`  
 Added `barangayManuallySetRef = useRef(false)`. When the encoder types directly into the Barangay input, the ref is set to `true`; subsequent reverse-geocode results from map pin drops no longer overwrite the typed value. The ref resets to `false` on fresh form mounts, so it only activates within a single editing session.
 
-#### Fix 4 — Duplicate detection redesign (5-criterion scoring)
-**Files:** `src/backend/services/duplicate_detection.py`, `src/backend/services/regional_incidents/lifecycle.py`  
-Replaced the previous algorithm (5 km radius + ±1 day + OR-category fallback) with a **5-criterion scoring system** (threshold: 3/5):
+#### Fix 4 — Duplicate detection redesign (conservative anchor-gated model)
+**Files:** `src/backend/services/duplicate_detection.py`, `src/backend/services/regional_incidents/lifecycle.py`
 
-| # | Criterion | Points |
-|---|-----------|--------|
-| 1 | Distance ≤ 500 m | 1 |
-| 2 | Same `general_category` AND `incident_type_code` | 1 |
-| 3 | Same exact fire date (date component of `notification_dt`) | 1 |
-| 4 | Fire time within 1 hour | 1 |
-| 5 | Same city/municipality (falls back to province/district if null) | 1 |
+**Root cause of false positives:** The previous 5-criterion model could reach threshold 3/5 with purely administrative/temporal signals (same city + same date + same time), with no location/address proximity required. Multiple separate fires per day in the same city is normal.
 
-Candidate pool: ±3 days. Fallback OR-logic stage removed entirely. All three `check_for_duplicate` call sites in `lifecycle.py` updated to pass `notification_dt`, `city_municipality`, and `province_district`. New function signature:
+**New model:** Anchor gate + Python scoring. SQL fetches candidates with `ST_Distance` and all address/text fields. Python applies the gate and scores each candidate.
+
+**Anchor gate** (any one required):
+- Coordinate proximity ≤ 250 m  
+- Matching barangay + matching street_address OR landmark  
+- Matching non-empty `establishment_name` AND (distance ≤ 500 m OR barangay matches)
+
+**Score components** (max 12):
+
+| Signal | Points | Condition |
+|--------|--------|-----------|
+| Distance ≤ 100 m | 3 | strong coordinate match |
+| Distance 101–250 m | 2 | moderate |
+| Distance 251–500 m | 1 | weak (requires anchor from address/estab) |
+| Same `general_category` + `incident_type_code` | 3 | exact |
+| Same `general_category` only | 1 | category only |
+| Time ≤ 30 min | 2 | |
+| Time 31–120 min | 1 | |
+| Same barangay + street or landmark | 2 | |
+| Same barangay only | 1 | |
+| Same `establishment_name` | 1 | |
+| Same `fire_station_name` | 1 | |
+
+**Confidence bands:** LIKELY ≥ 7, POSSIBLE ≥ 4. Incompatible `general_category` (e.g. STRUCTURAL vs WILDLAND) hard-blocks a candidate even if anchor passed.
+
+**Return type:** `tuple[int, str] | None` — returns `(matched_incident_id, "LIKELY" | "POSSIBLE")` or None.
+
+**409 response** now includes `"confidence": "LIKELY" | "POSSIBLE"`. Frontend modal titles adapt: "Likely Duplicate Detected" vs "Possible Duplicate Detected".
+
+**New fields added to all geo_meta queries** in `lifecycle.py`: `nd.barangay_id`, `nd.barangay`, `sd.street_address`, `sd.landmark`, `sd.establishment_name`, `nd.fire_station_name` (requires LEFT JOIN to `wims.incident_sensitive_details`).
+
+New function signature:
 ```python
 def check_for_duplicate(
-    db, *, incident_id, region_id, alarm_level,
-    incident_date, notification_dt=None,
+    db, *, incident_id, region_id,
+    incident_date=None, notification_dt=None,
     lat, lon,
     general_category=None, incident_type_code=None,
     city_municipality=None, province_district=None,
+    barangay=None, barangay_id=None,
+    street_address=None, landmark=None,
+    establishment_name=None, fire_station_name=None,
     exclude_statuses=(), verified_window_seconds=None,
-) -> int | None
+) -> tuple[int, str] | None
 ```
 
 #### Fix 5 — Notification consistency

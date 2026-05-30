@@ -172,7 +172,7 @@ Compatibility decision: encoder submit still writes `PENDING`; validator queue d
 
 ## Key Implementation Details
 
-- **Duplicate detection** (M4-D): `DUPLICATE_RADIUS_METERS = 1000`, `DUPLICATE_MIN_MATCHING_FIELDS = 3`; uses `wims.check_incident_duplicate()` SQL function
+- **Duplicate detection** (`src/backend/services/duplicate_detection.py`): Conservative anchor-gated model. A candidate is only evaluated after passing an anchor gate (coordinate proximity ≤ 250 m, OR matching barangay+street/landmark, OR matching establishment name + compatible location). After the anchor, candidates are scored across six dimensions: location (0–3 pts), category+type (0–3 pts), time delta (0–2 pts), address match (0–2 pts), establishment (0–1 pt), fire station (0–1 pt). Confidence bands: LIKELY ≥ 7, POSSIBLE ≥ 4. Returns `(matched_id, confidence)` or None. Temporal/administrative signals alone (same day, same city, same category) cannot trigger a duplicate.
 - **AFOR import** handles Excel serial date conversion (`datetime(1899, 12, 30) + timedelta(days=serial)`) for 14 date/time format patterns
 - **Barangay reverse-geocoding** (`_reverse_geocode_barangay`): newly added; uses `ST_Contains` against `ref_barangays.geometry` when polygon data is loaded; gracefully skips if geometry not available
 - **`_insert_incident_verification_history`** handles both legacy (incident_id, comments) and new (target_type, target_id, action_label) schemas via runtime column detection

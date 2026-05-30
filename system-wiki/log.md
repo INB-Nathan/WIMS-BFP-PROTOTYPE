@@ -3,6 +3,27 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-05-30] redesign | duplicate detection — conservative anchor-gated model
+
+**Root cause of false positives:** The previous 5-criterion scoring model (distance ≤500m | same category+type | same date | time within 1 hr | same city, threshold 3/5) could reach 3/5 with purely administrative/temporal signals — same city + same date + same time — without any location or address proximity. Multiple separate fires per day in the same city is normal for BFP operations.
+
+**New model** (`src/backend/services/duplicate_detection.py`): Anchor gate + Python scoring.
+
+Architecture change: SQL now fetches candidates with `ST_Distance` and all address/text fields (via LEFT JOIN to `incident_nonsensitive_details` and `incident_sensitive_details`). Python applies the anchor gate and scores each candidate.
+
+**Anchor gate** (any one required):
+- Coordinate proximity ≤ 250 m
+- Matching barangay + matching street_address OR landmark
+- Matching non-empty establishment_name AND (distance ≤ 500 m OR barangay matches)
+
+**Scoring** (max 12 pts): distance tiers (3/2/1), category+type match (3/1), time delta (2/1), address match (2/1), establishment (+1), fire station (+1). Confidence: LIKELY ≥ 7, POSSIBLE ≥ 4.
+
+**API change**: 409 DUPLICATE_DETECTED response now includes `"confidence": "LIKELY" | "POSSIBLE"`. Frontend modals use this to show "Likely Duplicate" vs "Possible Duplicate".
+
+**New fields added to geo_meta queries** in `lifecycle.py`: `barangay_id`, `barangay`, `street_address`, `landmark`, `establishment_name`, `fire_station_name` (via LEFT JOIN to `incident_sensitive_details`).
+
+**subsystems/regional-dashboard.md**: Updated duplicate detection description.
+
 ## [2026-05-30] fix | PR #143 review fixes: geocode proxy, tests, component extraction, PII dedup, ruff format
 
 **Changes implemented (review-fix batch @ `2ab506a` → `2bc229b`):**
