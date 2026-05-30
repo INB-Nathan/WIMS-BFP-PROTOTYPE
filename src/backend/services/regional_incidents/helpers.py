@@ -71,6 +71,7 @@ def normalize_general_category(val: str) -> str:
 
 # ── Safe type coercions ───────────────────────────────────────────────────────
 
+
 def safe_int(val: Any, default: int = 0) -> int:
     if val is None or val == "" or val == "N/A":
         return default
@@ -131,16 +132,39 @@ def region_text_matches(encoder_region_name: str, xlsx_region_text: str) -> bool
 # ── Reference number generation ───────────────────────────────────────────────
 
 _AFOR_MONTH_CODES = [
-    "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
-    "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+    "JAN",
+    "FEB",
+    "MAR",
+    "APR",
+    "MAY",
+    "JUN",
+    "JUL",
+    "AUG",
+    "SEP",
+    "OCT",
+    "NOV",
+    "DEC",
 ]
 
 _REGION_CODE_TO_AFOR: dict[str, str] = {
-    "NCR": "RGN-NCR", "CAR": "RGN-CAR", "NIR": "RGN-NIR", "BARMM": "RGN-BARMM",
-    "I": "RGN-1", "II": "RGN-2", "III": "RGN-3",
-    "IV-A": "RGN-4A", "IV-B": "RGN-4B",
-    "V": "RGN-5", "VI": "RGN-6", "VII": "RGN-7", "VIII": "RGN-8",
-    "IX": "RGN-9", "X": "RGN-10", "XI": "RGN-11", "XII": "RGN-12", "XIII": "RGN-13",
+    "NCR": "RGN-NCR",
+    "CAR": "RGN-CAR",
+    "NIR": "RGN-NIR",
+    "BARMM": "RGN-BARMM",
+    "I": "RGN-1",
+    "II": "RGN-2",
+    "III": "RGN-3",
+    "IV-A": "RGN-4A",
+    "IV-B": "RGN-4B",
+    "V": "RGN-5",
+    "VI": "RGN-6",
+    "VII": "RGN-7",
+    "VIII": "RGN-8",
+    "IX": "RGN-9",
+    "X": "RGN-10",
+    "XI": "RGN-11",
+    "XII": "RGN-12",
+    "XIII": "RGN-13",
 }
 
 
@@ -190,6 +214,7 @@ def generate_reference_number(
 
 # ── IVH (incident verification history) helpers ───────────────────────────────
 
+
 def _ivh_has_column(db: Session, column_name: str) -> bool:
     return bool(
         db.execute(
@@ -214,7 +239,13 @@ def _ivh_uses_target_columns(db: Session) -> bool:
 def ivh_has_hash_columns(db: Session) -> bool:
     return all(
         _ivh_has_column(db, col)
-        for col in ("old_data_hash", "new_data_hash", "corrected_fields", "prev_ivh_hash", "ivh_row_hash")
+        for col in (
+            "old_data_hash",
+            "new_data_hash",
+            "corrected_fields",
+            "prev_ivh_hash",
+            "ivh_row_hash",
+        )
     )
 
 
@@ -243,9 +274,14 @@ def insert_incident_verification_history(
                         :prev_status, :new_status, :notes, :action_label
                     )
                 """),
-                {"iid": incident_id, "uid": actor_user_id,
-                 "prev_status": previous_status, "new_status": new_status,
-                 "notes": notes, "action_label": action_label},
+                {
+                    "iid": incident_id,
+                    "uid": actor_user_id,
+                    "prev_status": previous_status,
+                    "new_status": new_status,
+                    "notes": notes,
+                    "action_label": action_label,
+                },
             )
         else:
             db.execute(
@@ -258,8 +294,13 @@ def insert_incident_verification_history(
                         :prev_status, :new_status, :notes
                     )
                 """),
-                {"iid": incident_id, "uid": actor_user_id,
-                 "prev_status": previous_status, "new_status": new_status, "notes": notes},
+                {
+                    "iid": incident_id,
+                    "uid": actor_user_id,
+                    "prev_status": previous_status,
+                    "new_status": new_status,
+                    "notes": notes,
+                },
             )
         return
 
@@ -273,16 +314,20 @@ def insert_incident_verification_history(
                 :prev_status, :new_status, :comments
             )
         """),
-        {"iid": incident_id, "uid": actor_user_id,
-         "prev_status": previous_status, "new_status": new_status, "comments": notes},
+        {
+            "iid": incident_id,
+            "uid": actor_user_id,
+            "prev_status": previous_status,
+            "new_status": new_status,
+            "comments": notes,
+        },
     )
 
 
 # ── Field update helper ───────────────────────────────────────────────────────
 
-def apply_incident_field_updates(
-    db: Session, incident_id: int, body: Any
-) -> None:
+
+def apply_incident_field_updates(db: Session, incident_id: int, body: Any) -> None:
     """Apply nonsensitive/sensitive/JSONB/coords field updates from an IncidentUpdateRequest."""
     db.execute(
         text("""
@@ -306,16 +351,38 @@ def apply_incident_field_updates(
     )
 
     ns_fields = {
-        "notification_dt", "alarm_level", "general_category", "sub_category",
-        "specific_type", "occupancy_type", "city_id", "barangay_id",
-        "province_district", "city_municipality", "barangay",
-        "distance_from_station_km", "estimated_damage_php",
-        "civilian_injured", "civilian_deaths", "firefighter_injured", "firefighter_deaths",
-        "families_affected", "structures_affected", "households_affected",
-        "individuals_affected", "responder_type", "fire_origin",
-        "extent_of_damage", "extent_total_floor_area_sqm", "extent_total_land_area_hectares",
-        "stage_of_fire", "general_description_of_involved", "fire_station_name",
-        "total_response_time_minutes", "vehicles_affected", "recommendations",
+        "notification_dt",
+        "alarm_level",
+        "general_category",
+        "sub_category",
+        "specific_type",
+        "occupancy_type",
+        "city_id",
+        "barangay_id",
+        "province_district",
+        "city_municipality",
+        "barangay",
+        "distance_from_station_km",
+        "estimated_damage_php",
+        "civilian_injured",
+        "civilian_deaths",
+        "firefighter_injured",
+        "firefighter_deaths",
+        "families_affected",
+        "structures_affected",
+        "households_affected",
+        "individuals_affected",
+        "responder_type",
+        "fire_origin",
+        "extent_of_damage",
+        "extent_total_floor_area_sqm",
+        "extent_total_land_area_hectares",
+        "stage_of_fire",
+        "general_description_of_involved",
+        "fire_station_name",
+        "total_response_time_minutes",
+        "vehicles_affected",
+        "recommendations",
     }
     ns_updates: list[str] = []
     ns_params: dict[str, Any] = {"iid": incident_id}
@@ -330,21 +397,30 @@ def apply_incident_field_updates(
             ns_params[field] = val
     if ns_updates:
         db.execute(
-            text(f"UPDATE wims.incident_nonsensitive_details SET {', '.join(ns_updates)} WHERE incident_id = :iid"),
+            text(
+                f"UPDATE wims.incident_nonsensitive_details SET {', '.join(ns_updates)} WHERE incident_id = :iid"
+            ),
             ns_params,
         )
 
     new_type_code = (getattr(body, "incident_type_code", None) or "").strip().upper() or None
     if new_type_code:
         db.execute(
-            text("UPDATE wims.fire_incidents SET incident_type_code = :tc WHERE incident_id = :iid"),
+            text(
+                "UPDATE wims.fire_incidents SET incident_type_code = :tc WHERE incident_id = :iid"
+            ),
             {"tc": new_type_code, "iid": incident_id},
         )
 
     sd_fields = {
-        "street_address", "landmark", "narrative_report",
-        "establishment_name", "receiver_name", "prepared_by_officer",
-        "noted_by_officer", "remarks",
+        "street_address",
+        "landmark",
+        "narrative_report",
+        "establishment_name",
+        "receiver_name",
+        "prepared_by_officer",
+        "noted_by_officer",
+        "remarks",
     }
     pii_fields = ["caller_name", "caller_number", "owner_name", "occupant_name"]
     sd_updates: list[str] = []
@@ -363,16 +439,22 @@ def apply_incident_field_updates(
                 sd_params[field] = val
     if has_pii_update:
         existing = db.execute(
-            text("SELECT pii_blob_enc, encryption_iv FROM wims.incident_sensitive_details WHERE incident_id = :iid"),
+            text(
+                "SELECT pii_blob_enc, encryption_iv FROM wims.incident_sensitive_details WHERE incident_id = :iid"
+            ),
             {"iid": incident_id},
         ).fetchone()
         existing_pii: dict[str, Any] = {}
         if existing and existing[0] and existing[1]:
             try:
                 sp = get_security_provider()
-                existing_pii = sp.decrypt_json(existing[1], existing[0], f"incident_id:{incident_id}".encode())
+                existing_pii = sp.decrypt_json(
+                    existing[1], existing[0], f"incident_id:{incident_id}".encode()
+                )
             except SecurityProviderError:
-                logger.warning("Failed to decrypt existing PII for incident %s — overwriting", incident_id)
+                logger.warning(
+                    "Failed to decrypt existing PII for incident %s — overwriting", incident_id
+                )
         for field in pii_fields:
             val = getattr(body, field, None)
             if val is not None:
@@ -387,7 +469,9 @@ def apply_incident_field_updates(
             logger.warning("PII re-encryption failed for incident %s", incident_id)
     if sd_updates:
         db.execute(
-            text(f"UPDATE wims.incident_sensitive_details SET {', '.join(sd_updates)} WHERE incident_id = :iid"),
+            text(
+                f"UPDATE wims.incident_sensitive_details SET {', '.join(sd_updates)} WHERE incident_id = :iid"
+            ),
             sd_params,
         )
 
@@ -404,7 +488,9 @@ def apply_incident_field_updates(
             jsonb_ns_params[field] = json.dumps(val)
     if jsonb_ns_updates:
         db.execute(
-            text(f"UPDATE wims.incident_nonsensitive_details SET {', '.join(jsonb_ns_updates)} WHERE incident_id = :iid"),
+            text(
+                f"UPDATE wims.incident_nonsensitive_details SET {', '.join(jsonb_ns_updates)} WHERE incident_id = :iid"
+            ),
             jsonb_ns_params,
         )
 
@@ -425,7 +511,9 @@ def apply_incident_field_updates(
             jsonb_sd_params[field] = json.dumps(val) if field != "disposition" else val
     if jsonb_sd_updates:
         db.execute(
-            text(f"UPDATE wims.incident_sensitive_details SET {', '.join(jsonb_sd_updates)} WHERE incident_id = :iid"),
+            text(
+                f"UPDATE wims.incident_sensitive_details SET {', '.join(jsonb_sd_updates)} WHERE incident_id = :iid"
+            ),
             jsonb_sd_params,
         )
 
@@ -447,6 +535,7 @@ def apply_incident_field_updates(
 
 
 # ── Audit log query builder ───────────────────────────────────────────────────
+
 
 def build_audit_log_query(
     *,

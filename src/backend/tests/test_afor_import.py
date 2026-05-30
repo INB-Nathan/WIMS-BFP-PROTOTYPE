@@ -236,20 +236,23 @@ def test_parse_xlsx_content_flow(mock_load):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("address,expected", [
-    # Keyword detection: "Brgy." prefix
-    ("123 Roxas St., Brgy. San Isidro, Quezon City, Metro Manila", "Brgy. San Isidro"),
-    # Keyword detection: "Bgy." prefix
-    ("456 Mabini Ave., Bgy. Bagong Silang, Caloocan", "Bgy. Bagong Silang"),
-    # Keyword detection: "Barangay " prefix (full word)
-    ("Unit 5 Torre Tower, Barangay Poblacion, Makati City", "Barangay Poblacion"),
-    # Keyword detection: case-insensitive
-    ("1 Main St., BRGY. Holy Spirit, Quezon City", "BRGY. Holy Spirit"),
-    # Positional fallback: 5-part AFOR template "HouseNo, Street, Barangay, City, Province"
-    ("123, Rizal St, Poblacion, Manila, NCR", "Poblacion"),
-    # Positional fallback: exactly 3 comma-parts (index 2 = last)
-    ("HouseNo, Street, Barangay", "Barangay"),
-])
+@pytest.mark.parametrize(
+    "address,expected",
+    [
+        # Keyword detection: "Brgy." prefix
+        ("123 Roxas St., Brgy. San Isidro, Quezon City, Metro Manila", "Brgy. San Isidro"),
+        # Keyword detection: "Bgy." prefix
+        ("456 Mabini Ave., Bgy. Bagong Silang, Caloocan", "Bgy. Bagong Silang"),
+        # Keyword detection: "Barangay " prefix (full word)
+        ("Unit 5 Torre Tower, Barangay Poblacion, Makati City", "Barangay Poblacion"),
+        # Keyword detection: case-insensitive
+        ("1 Main St., BRGY. Holy Spirit, Quezon City", "BRGY. Holy Spirit"),
+        # Positional fallback: 5-part AFOR template "HouseNo, Street, Barangay, City, Province"
+        ("123, Rizal St, Poblacion, Manila, NCR", "Poblacion"),
+        # Positional fallback: exactly 3 comma-parts (index 2 = last)
+        ("HouseNo, Street, Barangay", "Barangay"),
+    ],
+)
 def test_extract_barangay_keyword_and_positional(address, expected):
     assert _extract_barangay_from_address(address) == expected
 

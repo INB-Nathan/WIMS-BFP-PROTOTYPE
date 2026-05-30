@@ -99,7 +99,9 @@ app.include_router(regional.router)
 app.include_router(analytics.router)
 app.include_router(ref.router)  # GET /api/ref/regions, /api/ref/provinces, /api/ref/cities
 app.include_router(public_dmz_router)  # POST /api/v1/public/report (no-auth DMZ)
-app.include_router(geocode_router)  # GET /api/geocode/reverse, /api/geocode/search (Nominatim proxy)
+app.include_router(
+    geocode_router
+)  # GET /api/geocode/reverse, /api/geocode/search (Nominatim proxy)
 
 logger = logging.getLogger("wims.rate_limit")
 

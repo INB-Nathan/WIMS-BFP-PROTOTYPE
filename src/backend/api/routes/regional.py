@@ -98,6 +98,7 @@ def _regional_lifecycle_dependencies() -> RegionalIncidentLifecycleDependencies:
 def _incident_verification_history_has_hash_columns(db: Session) -> bool:
     """Return True when IVH table has columns needed for correction hash chaining."""
     from services.regional_incidents.helpers import ivh_has_hash_columns
+
     return ivh_has_hash_columns(db)
 
 
@@ -650,7 +651,9 @@ def get_regional_incident_detail(
 
     # ── Decrypt PII blob if present (new writes use encrypted blob; old rows fall back) ──
     if sd_dict.get("pii_blob_enc") and sd_dict.get("encryption_iv"):
-        pii_plaintext = _decrypt_pii_blob(sd_dict["encryption_iv"], sd_dict["pii_blob_enc"], incident_id)
+        pii_plaintext = _decrypt_pii_blob(
+            sd_dict["encryption_iv"], sd_dict["pii_blob_enc"], incident_id
+        )
         sd_dict["caller_name"] = pii_plaintext.get("caller_name")
         sd_dict["caller_number"] = pii_plaintext.get("caller_number")
         sd_dict["owner_name"] = pii_plaintext.get("owner_name")
@@ -1038,6 +1041,7 @@ def get_regional_stats(
 # ---------------------------------------------------------------------------
 # CRUD — Direct Incident Create / Update / Delete
 # ---------------------------------------------------------------------------
+
 
 @router.post("/incidents", status_code=201)
 def create_incident(
@@ -1455,6 +1459,7 @@ def submit_incident_for_review(
 # ---------------------------------------------------------------------------
 # Validator Workflow
 # ---------------------------------------------------------------------------
+
 
 @router.get("/validator/incidents")
 def get_validator_incident_queue(
