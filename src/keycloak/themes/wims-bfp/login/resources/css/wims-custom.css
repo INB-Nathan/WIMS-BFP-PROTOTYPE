@@ -158,9 +158,13 @@ body.login-pf {
     display: flex !important;
     flex-direction: column !important;
     align-items: center !important;
-    justify-content: center !important;
+    /* flex-start prevents tall pages (TOTP setup, register) from overflowing above
+       the viewport — justify-content:center splits overflow evenly above/below and
+       the above portion is unreachable since scroll position can't go negative. */
+    justify-content: flex-start !important;
     flex: 1 !important;
-    padding: 0 6% !important;
+    padding: 2rem 6% !important;
+    overflow-y: auto !important;
     background: transparent !important;
     font-family: 'Inter', sans-serif !important;
 }

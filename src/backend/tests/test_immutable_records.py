@@ -60,7 +60,7 @@ def _autocommit_engine():
 @pytest.fixture
 def db():
     """Plain SQLAlchemy session for direct SQL queries."""
-    from database import _SessionLocal  # noqa: SLF001
+    from database import _AdminSessionLocal as _SessionLocal  # noqa: SLF001
 
     session = _SessionLocal()
     try:

@@ -35,6 +35,8 @@ from utils.metrics import (
 import auth
 from auth import get_current_user
 from database import get_db, get_session_maker
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker as _sessionmaker
 
 from api.routes import (
     incidents,
@@ -68,6 +70,21 @@ app.middleware("http")(csrf_middleware)
 
 
 @app.on_event("startup")
+def _get_admin_session():
+    """Return a superuser session for DDL operations in the startup patch.
+
+    The app connects as wims_app_user (non-superuser) so RLS is enforced.
+    Schema-level DDL (CREATE RULE, CREATE POLICY, ALTER TABLE) requires
+    the table owner or superuser — use DATABASE_ADMIN_URL for those ops.
+    Falls back to the regular DATABASE_URL if the admin URL is not set.
+    """
+    admin_url = os.environ.get("DATABASE_ADMIN_URL") or os.environ.get(
+        "SQLALCHEMY_DATABASE_URL", os.environ.get("DATABASE_URL", "")
+    )
+    engine = create_engine(admin_url)
+    return _sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+
+
 def apply_schema_patches() -> None:
     """Idempotent schema patches for containers that predate specific init migrations.
 
@@ -83,12 +100,16 @@ def apply_schema_patches() -> None:
       their assigned region; NATIONAL_VALIDATOR/ANALYST/ADMIN see all
       (migration 42_ref_table_rls.sql — may not have run on existing containers).
 
+    Uses DATABASE_ADMIN_URL (superuser) because CREATE RULE / CREATE POLICY /
+    ALTER TABLE require the table owner; wims_app_user (the runtime role) is not
+    the owner and cannot run DDL.
+
     Note: email column (migration 44_add_email_to_users.sql) is intentionally NOT
     patched at startup. Startup DDL on wims.users can deadlock with open read
     transactions (e.g. test fixtures querying wims.users while TestClient(app)
     triggers startup). The postgres-init migration handles fresh CI databases.
     """
-    db = get_session_maker()()
+    db = _get_admin_session()
     try:
         db.execute(text("DROP RULE IF EXISTS no_update_verified ON wims.fire_incidents"))
         db.execute(
@@ -119,8 +140,71 @@ def apply_schema_patches() -> None:
     except Exception as exc:
         logger.warning("Schema patch (ref RLS) failed (non-fatal): %s", exc)
         db.rollback()
+
+    try:
+        _apply_rls_helpers_security_definer(db)
+        db.commit()
+        logger.info("Schema patch applied: current_user_role/region_id made SECURITY DEFINER")
+    except Exception as exc:
+        logger.warning("Schema patch (RLS helpers SECURITY DEFINER) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    try:
+        _apply_users_rls(db)
+        db.commit()
+        logger.info("Schema patch applied: wims.users SELECT policy broadened for BFP staff roles")
+    except Exception as exc:
+        logger.warning("Schema patch (users RLS) failed (non-fatal): %s", exc)
+        db.rollback()
     finally:
         db.close()
+
+
+def _apply_rls_helpers_security_definer(db) -> None:  # type: ignore[type-arg]
+    """Re-create RLS helper functions as SECURITY DEFINER.
+
+    Without SECURITY DEFINER, current_user_role() queries wims.users, which
+    fires the users RLS policy, which calls current_user_role() → recursion.
+    SECURITY DEFINER makes the function run as its owner (postgres) so the query
+    bypasses RLS.  This is safe: the function only reads the GUC-set user's own row.
+    """
+    for fn, body in (
+        (
+            "current_user_role() RETURNS text LANGUAGE sql STABLE",
+            "SELECT COALESCE(u.role, 'ANONYMOUS'::text) FROM wims.users u "
+            "WHERE u.user_id = wims.current_user_uuid() AND u.is_active = TRUE",
+        ),
+        (
+            "current_user_region_id() RETURNS integer LANGUAGE sql STABLE",
+            "SELECT u.assigned_region_id FROM wims.users u "
+            "WHERE u.user_id = wims.current_user_uuid() AND u.is_active = TRUE",
+        ),
+        (
+            "current_region_id() RETURNS integer LANGUAGE sql STABLE",
+            "SELECT wims.current_user_region_id()",
+        ),
+    ):
+        db.execute(
+            text(
+                f"CREATE OR REPLACE FUNCTION wims.{fn} SECURITY DEFINER AS '{body}'"
+            )
+        )
+
+
+def _apply_users_rls(db) -> None:  # type: ignore[type-arg]
+    """Broaden users SELECT policy so BFP staff roles can JOIN wims.users."""
+    db.execute(text("DROP POLICY IF EXISTS users_self_or_admin_select ON wims.users"))
+    db.execute(
+        text("""
+            CREATE POLICY users_self_or_admin_select
+            ON wims.users FOR SELECT USING (
+                wims.current_user_role() IN (
+                    'SYSTEM_ADMIN', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER'
+                )
+                OR user_id = wims.current_user_uuid()
+            )
+        """)
+    )
 
 
 def _apply_ref_table_rls(db) -> None:  # type: ignore[type-arg]

@@ -23,6 +23,7 @@ import {
     MapPinned,
     Search,
     TrendingUp,
+    Map,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -241,6 +242,7 @@ function getNavSections(role: string | null): NavSection[] {
             label: 'Workflow',
             items: [
                 { label: 'Triage Queue', href: '/incidents/triage', icon: ClipboardList },
+                { label: 'Operational Map', href: '/dashboard/validator/map', icon: Map },
                 { label: 'Audit Trail', href: '/dashboard/validator/audit', icon: History },
             ],
         });
