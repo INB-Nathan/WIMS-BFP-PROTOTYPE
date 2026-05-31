@@ -194,6 +194,13 @@ Attribute access: `station_row.region_id if station_row else None`. Fallback to 
 
 **Wiki updated:** `system-wiki/log.md`. No `gaps/frs-codebase-gap-register.md` update needed (production quality fixes, no FRS alignment change).
 
+## [2026-05-31] fix | canonical dev encoder usernames and region mapping
+
+- Replaced the offset dev encoder seed naming with canonical region-code usernames: `encoder_ncr` for NCR region 1, `encoder_car` for CAR region 2, `encoder_r01` for Region I region 3, through `encoder_nir` for region 18.
+- Updated `scripts/seed-dev-users.sh`, `scripts/seed-dev-users.ps1`, Keycloak realm exports, and SQL bootstrap rows so fresh and reseeded local stacks create login-capable encoder accounts with `Password123!`, verified email, first/last profile fields, no required actions, and repairable legacy usernames.
+- Added `test_dev_user_seed_mapping.py` to guard the canonical mapping across scripts, SQL bootstrap, and Keycloak realm exports.
+- Updated local dev and database synthesis pages to document the corrected account mapping. No FRS gap entry changed because this is a dev identity/bootstrap alignment fix.
+
 ## [2026-05-30] merge | Master conflict resolution for encoder/validator branch
 
 ## [2026-06-03] fix | M13b test_email_infra — relative path + leak-proof sys.modules mock

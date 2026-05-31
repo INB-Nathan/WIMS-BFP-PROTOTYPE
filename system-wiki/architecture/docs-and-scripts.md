@@ -1,7 +1,7 @@
 ---
 title: Project Documentation & Scripts
 created: 2026-05-16
-updated: 2026-05-27
+updated: 2026-05-31
 type: meta
 tags: [wims-bfp, docs, scripts, changelog, architecture-docs, seed-data]
 sources: [AGENTS.md, CLAUDE.md, docs/, scripts/]
@@ -46,7 +46,7 @@ Per-repo configuration for Matt Pocock engineering skills. `issue-tracker.md` re
 PR fixing Keycloak auth loop. Replaced shell DB bootstrap with SQL (00_keycloak_bootstrap.sql), added fallback username lookup, aligned realm roles, deterministic user IDs. Production hardening guidance.
 
 ### `PR_fix-bootstrap-and-admin-config.md`
-PR fixing bootstrap ordering, encoder region assignment, and admin client config. Renamed SQL files for correct sort order, added encoder_test region, added wims-admin-service OAuth2 client, bootstrap verify guard.
+PR fixing bootstrap ordering, encoder region assignment, and admin client config. Renamed SQL files for correct sort order, added the NCR encoder region assignment, added wims-admin-service OAuth2 client, bootstrap verify guard.
 
 ---
 

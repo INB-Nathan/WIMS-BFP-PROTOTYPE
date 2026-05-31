@@ -131,7 +131,7 @@ src/backend/tests/
 └── test_suricata_ingestion.py
 ```
 
-Total: 30 test files (10 unit, 19 integration, 2 conftest).
+Total: 31 documented test files plus conftest files. `test_dev_user_seed_mapping.py` statically verifies the canonical dev encoder usernames, deterministic Keycloak UUIDs, seed scripts, SQL bootstrap rows, and realm-export passwords.
 
 ### Key Test Patterns
 

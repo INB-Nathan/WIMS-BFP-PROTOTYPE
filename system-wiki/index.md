@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-05
 Total synthesis pages: 32
-Last changes: PR #213 follow-ups documented fail-fast compose env handling in CI, production CORS `$cors_origin` behavior, canonical Keycloak roles, Firebase env placeholders, and JWT fallback test coverage.
+Last changes: PR #213 follow-ups documented fail-fast compose env handling in CI, production CORS `$cors_origin` behavior, canonical Keycloak roles, Firebase env placeholders, and JWT fallback test coverage. Dev encoder seeding now uses canonical region-code usernames (`encoder_ncr`, `encoder_car`, `encoder_r01`...) aligned with `ref_regions`; Keycloak realm imports, SQL bootstrap rows, seed scripts, and local dev docs use `Password123!` consistently.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

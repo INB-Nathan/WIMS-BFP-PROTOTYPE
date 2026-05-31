@@ -69,9 +69,8 @@ app = FastAPI(title="WIMS-BFP Backend")
 app.middleware("http")(csrf_middleware)
 
 
-@app.on_event("startup")
 def _get_admin_session():
-    """Return a superuser session for DDL operations in the startup patch.
+    """Return a superuser session for DDL operations in startup patches.
 
     The app connects as wims_app_user (non-superuser) so RLS is enforced.
     Schema-level DDL (CREATE RULE, CREATE POLICY, ALTER TABLE) requires
@@ -85,6 +84,7 @@ def _get_admin_session():
     return _sessionmaker(autocommit=False, autoflush=False, bind=engine)()
 
 
+@app.on_event("startup")
 def apply_schema_patches() -> None:
     """Idempotent schema patches for containers that predate specific init migrations.
 
@@ -110,6 +110,34 @@ def apply_schema_patches() -> None:
     triggers startup). The postgres-init migration handles fresh CI databases.
     """
     db = _get_admin_session()
+
+    # Ensure wims_app_user exists — postgres-init only runs on first boot,
+    # so existing containers (e.g. VPS) won't have this role until this patch runs.
+    try:
+        db.execute(
+            text("""
+                DO $$
+                BEGIN
+                  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'wims_app') THEN
+                    CREATE ROLE wims_app NOLOGIN;
+                  END IF;
+                  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'wims_app_user') THEN
+                    CREATE ROLE wims_app_user LOGIN PASSWORD 'wimsapp' INHERIT;
+                    GRANT wims_app TO wims_app_user;
+                  END IF;
+                END
+                $$
+            """)
+        )
+        db.execute(text("GRANT USAGE ON SCHEMA wims TO wims_app"))
+        db.execute(text("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA wims TO wims_app"))
+        db.execute(text("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA wims TO wims_app"))
+        db.commit()
+        logger.info("Schema patch applied: wims_app_user role ensured")
+    except Exception as exc:
+        logger.warning("Schema patch (wims_app_user) failed (non-fatal): %s", exc)
+        db.rollback()
+
     try:
         db.execute(text("DROP RULE IF EXISTS no_update_verified ON wims.fire_incidents"))
         db.execute(

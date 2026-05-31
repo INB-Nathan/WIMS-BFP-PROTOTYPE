@@ -229,12 +229,14 @@ All use password `Password123!` (set by `scripts/seed-dev-users.sh`):
 
 | Username | Email | Role |
 |---|---|---|
-| `encoder_test` | encoder@bfp.gov.ph | REGIONAL_ENCODER |
+| `encoder_ncr` | encoder_ncr@bfp.gov.ph | REGIONAL_ENCODER |
+| `encoder_car` | encoder_car@bfp.gov.ph | REGIONAL_ENCODER |
+| `encoder_r01` through `encoder_r13` | encoder_r{01-13}@bfp.gov.ph | REGIONAL_ENCODER |
+| `encoder_barmm` / `encoder_nir` | encoder_barmm@bfp.gov.ph / encoder_nir@bfp.gov.ph | REGIONAL_ENCODER |
 | `validator_test` | validator@bfp.gov.ph | NATIONAL_VALIDATOR |
 | `analyst_test` | analyst@bfp.gov.ph | NATIONAL_ANALYST |
 | `analyst1_test` | analyst1_test@gmail.com | NATIONAL_ANALYST |
 | `admin_test` | admin@bfp.gov.ph | SYSTEM_ADMIN |
-| `encoder_r02` through `encoder_r18` | encoder_r{02-18}@bfp.gov.ph | REGIONAL_ENCODER |
 
 ### Key Security Headers
 

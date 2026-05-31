@@ -77,13 +77,13 @@ def _clear_overrides():
 
 @pytest.fixture
 def encoder_region(db):
-    """NCR region_id assigned to seed encoder_test user."""
+    """NCR region_id assigned to seed encoder_ncr user."""
     row = db.execute(
         text("SELECT assigned_region_id FROM wims.users WHERE user_id = :uid"),
         {"uid": _ENCODER_UID},
     ).fetchone()
     assert row and row[0] is not None, (
-        "encoder_test has no assigned_region_id — run migration 14a_assign_ncr_to_test_users.sql"
+        "encoder_ncr has no assigned_region_id — run migration 14a_assign_ncr_to_test_users.sql"
     )
     return row[0]
 
