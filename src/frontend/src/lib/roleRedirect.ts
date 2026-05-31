@@ -25,6 +25,14 @@ export function resolvePostLoginRedirect(
     const target = new URL(savedRedirect, origin);
     if (target.origin !== origin) return defaultRoute;
     if (GENERIC_LOGIN_PATHS.has(target.pathname)) return defaultRoute;
+    // Saved redirect points to another role's dashboard (e.g. validator URL saved during
+    // a previous session, now replayed for an encoder login). Send them to their own dashboard.
+    if (
+      target.pathname.startsWith('/dashboard/') &&
+      !target.pathname.startsWith(defaultRoute)
+    ) {
+      return defaultRoute;
+    }
     return `${target.pathname}${target.search}${target.hash}`;
   } catch {
     return defaultRoute;

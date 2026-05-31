@@ -3,6 +3,36 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-05-31] polish | OTP confirmation alignment refinement
+
+- Removed the visible "One-time code" label from the post-enrollment OTP confirmation card while preserving an accessibility label for the OTP input group.
+- Shifted the OTP confirmation card content to one left-aligned column: icon, title, helper text, OTP boxes, "Go back" action, and sign-in button.
+- Aligned the sign-in button with the OTP input group instead of centering it independently.
+
+**Verification:** `git diff --check` passes for `wims-custom.css` with only CRLF warnings.
+
+**Wiki updates:** Updated `system-wiki/ui-ux/evaluation-loginpage-keycloaksso.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-05-31] polish | OTP confirmation card
+
+- Updated the post-enrollment Keycloak OTP confirmation page to render as a self-contained verification card with an authentication icon, title, helper text, centered OTP inputs, "Go back" secondary action, and proportional sign-in button.
+- Removed visible account identifiers from the OTP confirmation screen by omitting the attempted username and keeping the shared template username block suppressed for this page only.
+- Scoped larger OTP input boxes, card shadow, spacing, mobile scaling, and submit-button sizing to `#kc-otp-login-form` so the separate OTP setup/enrollment page is not changed.
+
+**Verification:** `git diff --check` passes for `login-otp.ftl` and `wims-custom.css` with only CRLF warnings; targeted search confirms no `auth.attemptedUsername` or `restartLoginTooltip` remains in the OTP confirmation template.
+
+**Wiki updates:** Updated `system-wiki/ui-ux/evaluation-loginpage-keycloaksso.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-05-31] polish | OTP challenge order and AFOR Barangay hint alignment
+
+- Updated the Keycloak OTP challenge layout so the attempted username, six OTP boxes, restart-login link, and sign-in button render in one ordered form flow.
+- Hid the shared template username/restart block only for the OTP challenge page so the new order is not duplicated and OTP verification behavior remains unchanged.
+- Moved the AFOR Barangay reverse-geocoding tip below the Barangay input in `IncidentForm.tsx`, aligning the Barangay input with City/Municipality across manual create and import correction flows.
+
+**Verification:** `git diff --check` passes for the touched OTP/form files; `npm.cmd run lint` passes with 0 errors and 16 existing warnings outside this change.
+
+**Wiki updates:** Updated `system-wiki/ui-ux/evaluation-loginpage-keycloaksso.md`, `system-wiki/subsystems/regional-dashboard.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
 ## [2026-05-31] fix | canonical dev encoder usernames and region mapping
 
 - Replaced the offset dev encoder seed naming with canonical region-code usernames: `encoder_ncr` for NCR region 1, `encoder_car` for CAR region 2, `encoder_r01` for Region I region 3, through `encoder_nir` for region 18.
@@ -1428,10 +1458,13 @@ No schema, auth, or FRS alignment changes.
 
 ## [2026-05-31] fix | Responsive Keycloak MFA setup containment
 
-- Refactored `login-config-totp.ftl` so setup steps, QR/manual secret, warning alert, OTP boxes, device-name field, checkbox, and submit action share one right-side onboarding card.
+- Refactored `login-config-totp.ftl` so setup steps, QR/manual secret, warning alert, OTP boxes, device-name field, checkbox, and submit action share one compact right-side onboarding card.
 - Fixed the Keycloak auth layout overflow by changing `.pf-v5-c-login__container` from a full-width sibling beside the branding panel to a flexing `min-width: 0` right-side region without modifying the red BFP branding section.
-- Replaced the narrow internally scrollable TOTP card with a natural-height `wims-totp-setup` layout: two columns on desktop, stacked on tablet/mobile, wider max width, grouped QR area, integrated alert, and scaled OTP boxes at small breakpoints.
+- Replaced the narrow internally scrollable TOTP card with a natural-height `wims-totp-setup` layout: two columns on desktop, stacked on tablet/mobile, compact instruction rows, smaller grouped QR area, integrated alert, and scaled OTP boxes at small breakpoints.
 - Removed unnecessary `max-height` and `overflow-y:auto` rules from the OTP setup container and right auth main area so standard desktop screens do not show an internal setup scrollbar.
+- Disabled page-level overflow for the Keycloak auth shell and further compacted the MFA setup card: 860px max card width, 150px desktop QR max, reduced card/form/alert padding, and tighter instruction rows so the submit area remains visible.
+- Hardened root scroll suppression by setting `overflow: hidden` and viewport bounds on `html`, `body.login-pf`, `#keycloak-bg`, `.pf-v5-c-login`, `.pf-v5-c-login__container`, and `.pf-v5-c-login__main`.
+- Updated `login.ftl` so login auth messages and username/password validation errors render inside `#kc-form` through `.wims-login-alerts`, directly above the username field instead of floating between the branding panel and form.
 
 **Verification:** CSS/template diff reviewed; scan confirmed no `max-height` or `overflow-y:auto` remains on `.wims-totp-setup` or `.pf-v5-c-login__main`; static sizing check for a 1920x1080 viewport leaves roughly 900+ px of usable right-panel width for the 980 px max card, so the two-column setup fits without an internal scrollbar. No automated Keycloak browser render was available in this turn.
 

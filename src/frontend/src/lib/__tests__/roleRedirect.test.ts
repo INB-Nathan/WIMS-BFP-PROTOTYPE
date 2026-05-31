@@ -17,4 +17,15 @@ describe('role redirect helpers', () => {
   it('keeps a specific same-origin workflow redirect after idle logout', () => {
     expect(resolvePostLoginRedirect('REGIONAL_ENCODER', 'https://localhost/afor/create?x=1', 'https://localhost')).toBe('/afor/create?x=1');
   });
+
+  it('ignores a cross-role dashboard saved redirect', () => {
+    // encoder_r01 logs in but browser had a stale /dashboard/validator saved redirect
+    expect(resolvePostLoginRedirect('REGIONAL_ENCODER', 'http://localhost/dashboard/validator', 'http://localhost')).toBe('/dashboard/regional');
+    // validator logs in but browser had a stale /dashboard/regional saved redirect
+    expect(resolvePostLoginRedirect('NATIONAL_VALIDATOR', 'http://localhost/dashboard/regional', 'http://localhost')).toBe('/dashboard/validator');
+  });
+
+  it('preserves a deep link within the user\'s own dashboard', () => {
+    expect(resolvePostLoginRedirect('REGIONAL_ENCODER', 'http://localhost/dashboard/regional/incidents/42', 'http://localhost')).toBe('/dashboard/regional/incidents/42');
+  });
 });

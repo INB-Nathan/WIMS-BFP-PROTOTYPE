@@ -67,6 +67,10 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 
 `IncidentForm.tsx` autosaves create-mode manual-entry drafts only after actual user input is observed by the form. Draft storage is scoped to the authenticated user ID (`wims:incident_draft:{user.id}`), while discard and successful submit also remove the legacy global `wims:incident_draft` key. This preserves intentional idle-logout restoration for `/afor/create` without showing a restore banner for a first-login blank form or another user's old browser draft.
 
+### Manual Entry / Import Field Guidance
+
+`IncidentForm.tsx` renders the Barangay reverse-geocoding tip below the Barangay input so the Barangay field aligns with City/Municipality in AFOR create and import correction flows while preserving the map-pin guidance text.
+
 ### Activity Log — `/dashboard/regional/audit`
 
 **Source:** `src/frontend/src/app/dashboard/regional/audit/page.tsx` (~193 lines)
