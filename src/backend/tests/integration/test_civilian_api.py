@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from database import _SessionLocal  # noqa: E402, SLF001
+from database import _AdminSessionLocal as _SessionLocal  # noqa: E402, SLF001
 from main import app  # noqa: E402
 
 

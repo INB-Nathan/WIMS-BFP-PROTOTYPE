@@ -14,12 +14,17 @@ AS $$
 $$;
 
 -- current_user_role: returns FRS role from wims.users.role
--- COALESCE to ANONYMOUS is a defensive sentinel for no-session / broken configs
--- ANONYMOUS does NOT appear in any RLS policy IN clause — it is a deny sentinel only
+-- COALESCE to ANONYMOUS is a defensive sentinel for no-session / broken configs.
+-- ANONYMOUS does NOT appear in any RLS policy IN clause — it is a deny sentinel only.
+-- SECURITY DEFINER: runs as the function owner (postgres) so it can query
+-- wims.users without triggering the table's own RLS policy.  Without this,
+-- calling current_user_role() from inside the users_self_or_admin_select policy
+-- causes infinite recursion (policy → function → table → policy → ...).
 CREATE OR REPLACE FUNCTION wims.current_user_role()
 RETURNS text
 LANGUAGE sql
 STABLE
+SECURITY DEFINER
 AS $$
   SELECT COALESCE(
     u.role,
@@ -31,10 +36,12 @@ AS $$
 $$;
 
 -- current_user_region_id: returns assigned_region_id from wims.users
+-- SECURITY DEFINER for the same reason as current_user_role() above.
 CREATE OR REPLACE FUNCTION wims.current_user_region_id()
 RETURNS integer
 LANGUAGE sql
 STABLE
+SECURITY DEFINER
 AS $$
   SELECT u.assigned_region_id
   FROM wims.users u

@@ -43,11 +43,17 @@ ALTER TABLE wims.system_audit_trails            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE wims.system_audit_trails            FORCE ROW LEVEL SECURITY;
 
 -- ─── USERS TABLE POLICIES ───────────────────────────────────────────────────
+-- All authenticated BFP staff can see all user rows.
+-- Verification, analytics, and incident workflows JOIN wims.users to retrieve
+-- encoder/validator display info — restricting to self-only breaks those joins.
+-- CIVILIAN_REPORTER and unauthenticated callers (ANONYMOUS) cannot see any row.
 DROP POLICY IF EXISTS users_self_or_admin_select ON wims.users;
 CREATE POLICY users_self_or_admin_select
 ON wims.users FOR SELECT USING (
-  user_id = wims.current_user_uuid()
-  OR wims.current_user_role() IN ('SYSTEM_ADMIN')
+  wims.current_user_role() IN (
+    'SYSTEM_ADMIN', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST', 'REGIONAL_ENCODER'
+  )
+  OR user_id = wims.current_user_uuid()
 );
 
 DROP POLICY IF EXISTS users_self_update_or_admin ON wims.users;

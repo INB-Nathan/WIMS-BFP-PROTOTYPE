@@ -86,7 +86,7 @@ def _reset_overrides():
 
 @pytest.fixture
 def db_session():
-    from database import _SessionLocal  # noqa: SLF001
+    from database import _AdminSessionLocal as _SessionLocal  # noqa: SLF001
 
     db = _SessionLocal()
     try:
