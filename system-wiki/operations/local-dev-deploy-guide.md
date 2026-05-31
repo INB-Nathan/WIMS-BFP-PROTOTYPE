@@ -1,7 +1,7 @@
 ---
 title: Local Dev Deployment Guide
 created: 2026-05-27
-updated: 2026-05-30
+updated: 2026-05-31
 type: operations
 tags: [wims-bfp, docker, deployment, local-dev, windows, troubleshooting]
 sources: [src/docker-compose.yml, src/nginx/nginx.conf, src/keycloak/bootstrap/bootstrap-master-realm.sh, scripts/seed-dev-users.sh, CLAUDE.md]
@@ -104,18 +104,25 @@ After `docker compose up -d`, Keycloak and Postgres are populated from the realm
 bash scripts/seed-dev-users.sh
 ```
 
-This creates 22 Keycloak users and upserts them into `wims.users`. It waits for Keycloak to be healthy before proceeding.
+This creates 22 Keycloak users and upserts them into `wims.users`. It waits for Keycloak to be healthy before proceeding. Encoder usernames follow the authoritative `ref_regions` IDs: NCR is `1`, CAR is `2`, Region I starts at `3`, and so on.
 
 **Dev credentials** (all users):
 
 | Username | Role | Region |
 |----------|------|--------|
-| `encoder_test` | REGIONAL_ENCODER | 1 |
-| `encoder_r02` … `encoder_r18` | REGIONAL_ENCODER | 2–18 |
+| `encoder_ncr` | REGIONAL_ENCODER | 1 (NCR) |
+| `encoder_car` | REGIONAL_ENCODER | 2 (CAR) |
+| `encoder_r01` | REGIONAL_ENCODER | 3 (Region I) |
+| `encoder_r02` | REGIONAL_ENCODER | 4 (Region II) |
+| `encoder_r03` | REGIONAL_ENCODER | 5 (Region III) |
+| `encoder_r04a` / `encoder_r04b` | REGIONAL_ENCODER | 6 / 7 (Region IV-A / IV-B) |
+| `encoder_r05` ... `encoder_r13` | REGIONAL_ENCODER | 8-16 (Regions V-XIII) |
+| `encoder_barmm` | REGIONAL_ENCODER | 17 (BARMM) |
+| `encoder_nir` | REGIONAL_ENCODER | 18 (NIR) |
 | `validator_test` | NATIONAL_VALIDATOR | 1 |
-| `analyst_test` | NATIONAL_ANALYST | — |
-| `analyst1_test` | NATIONAL_ANALYST | — |
-| `admin_test` | SYSTEM_ADMIN | — |
+| `analyst_test` | NATIONAL_ANALYST | - |
+| `analyst1_test` | NATIONAL_ANALYST | - |
+| `admin_test` | SYSTEM_ADMIN | - |
 
 Password for all: **`Password123!`**
 

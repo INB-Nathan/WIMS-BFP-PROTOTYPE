@@ -1,7 +1,7 @@
 ---
 title: PWA/Offline-First, Tests & CI/CD
 created: 2026-05-16
-updated: 2026-05-23
+updated: 2026-05-31
 type: architecture
 tags: [wims-bfp, pwa, offline-first, testing, ci-cd, service-worker]
 sources: [src/frontend/src/lib/, src/frontend/public/sw.js, .github/workflows/]
@@ -131,7 +131,7 @@ src/backend/tests/
 └── test_suricata_ingestion.py
 ```
 
-Total: 30 test files (10 unit, 19 integration, 2 conftest).
+Total: 31 documented test files plus conftest files. `test_dev_user_seed_mapping.py` statically verifies the canonical dev encoder usernames, deterministic Keycloak UUIDs, seed scripts, SQL bootstrap rows, and realm-export passwords.
 
 ### Key Test Patterns
 

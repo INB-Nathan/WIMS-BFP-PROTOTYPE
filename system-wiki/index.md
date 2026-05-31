@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-05-30
+Last updated: 2026-05-31
 Total synthesis pages: 32
-Last changes: VPS nginx TLS recovery was clarified with explicit production Compose commands and Make targets. Public Fire Report Areas implementation contract was repaired and localhost nginx moved to a local-only override. Archived encoder/validator incidents can be opened from archive views, restored with unarchive actions, and pass the verified-row immutability rule in both archive directions.
+Last changes: Dev encoder seeding now uses canonical region-code usernames (`encoder_ncr`, `encoder_car`, `encoder_r01`...) aligned with `ref_regions`; Keycloak realm imports, SQL bootstrap rows, seed scripts, and local dev docs use `Password123!` consistently.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

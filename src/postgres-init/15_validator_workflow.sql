@@ -91,7 +91,7 @@ END $$;
 
 -- ---------------------------------------------------------------------------
 -- 3. Ensure validator_test user has an assigned_region_id
---    (seed-dev-users.sh leaves it NULL; our dependency requires a value).
+--    (seed-dev-users.sh assigns it; our dependency requires a value).
 --    Defaults to region_id = 1.  Skip if user does not exist yet.
 -- ---------------------------------------------------------------------------
 
