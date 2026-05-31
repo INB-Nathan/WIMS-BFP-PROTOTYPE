@@ -79,6 +79,9 @@ def apply_schema_patches() -> None:
     - no_update_verified rule: allows is_archived FALSE→TRUE and TRUE→FALSE on VERIFIED rows
       (migration 41_fix_immutable_rule_for_archive.sql — may not have run on
       existing containers).
+    - ref_regions / ref_provinces / ref_cities RLS policies: REGIONAL_ENCODER sees only
+      their assigned region; NATIONAL_VALIDATOR/ANALYST/ADMIN see all
+      (migration 42_ref_table_rls.sql — may not have run on existing containers).
 
     Note: email column (migration 44_add_email_to_users.sql) is intentionally NOT
     patched at startup. Startup DDL on wims.users can deadlock with open read
@@ -106,10 +109,60 @@ def apply_schema_patches() -> None:
             "Schema patch applied: no_update_verified rule updated to allow archival and unarchival"
         )
     except Exception as exc:
-        logger.warning("Schema patch failed (non-fatal, will retry on next restart): %s", exc)
+        logger.warning("Schema patch (no_update_verified) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    try:
+        _apply_ref_table_rls(db)
+        db.commit()
+        logger.info("Schema patch applied: ref_regions/ref_provinces/ref_cities RLS policies")
+    except Exception as exc:
+        logger.warning("Schema patch (ref RLS) failed (non-fatal): %s", exc)
         db.rollback()
     finally:
         db.close()
+
+
+def _apply_ref_table_rls(db) -> None:  # type: ignore[type-arg]
+    """Enable RLS and upsert SELECT policies on reference geography tables."""
+    for table in ("wims.ref_regions", "wims.ref_provinces", "wims.ref_cities"):
+        db.execute(text(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"))
+        db.execute(text(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY"))
+
+    full_access_roles = "('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'NATIONAL_VALIDATOR')"
+
+    db.execute(text("DROP POLICY IF EXISTS ref_regions_select ON wims.ref_regions"))
+    db.execute(
+        text(f"""
+            CREATE POLICY ref_regions_select ON wims.ref_regions FOR SELECT USING (
+                wims.current_user_role() IN {full_access_roles}
+                OR region_id = wims.current_user_region_id()
+            )
+        """)
+    )
+
+    db.execute(text("DROP POLICY IF EXISTS ref_provinces_select ON wims.ref_provinces"))
+    db.execute(
+        text(f"""
+            CREATE POLICY ref_provinces_select ON wims.ref_provinces FOR SELECT USING (
+                wims.current_user_role() IN {full_access_roles}
+                OR region_id = wims.current_user_region_id()
+            )
+        """)
+    )
+
+    db.execute(text("DROP POLICY IF EXISTS ref_cities_select ON wims.ref_cities"))
+    db.execute(
+        text(f"""
+            CREATE POLICY ref_cities_select ON wims.ref_cities FOR SELECT USING (
+                wims.current_user_role() IN {full_access_roles}
+                OR province_id IN (
+                    SELECT province_id FROM wims.ref_provinces
+                    WHERE region_id = wims.current_user_region_id()
+                )
+            )
+        """)
+    )
 
 
 app.include_router(incidents.router)
