@@ -34,7 +34,7 @@ from utils.metrics import (
 
 import auth
 from auth import get_current_user
-from database import get_db, get_session_maker
+from database import get_db
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker as _sessionmaker
 
