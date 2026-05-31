@@ -1548,7 +1548,6 @@ export function IncidentForm({
 
             <div>
               <label className={labelCls}>Barangay</label>
-              <p className="text-xs text-gray-400 mt-0.5 mb-1">Tip: automatically filled when you pin the fire scene location on the map.</p>
               <input
                 name="barangay"
                 type="text"
@@ -1557,6 +1556,7 @@ export function IncidentForm({
                 value={formState.barangay}
                 onChange={(e) => { barangayManuallySetRef.current = true; handleChange(e); }}
               />
+              <p className="text-xs text-gray-400 mt-1">Tip: automatically filled when you pin the fire scene location on the map.</p>
             </div>
 
             <div className="md:col-span-2" data-field-error={fieldErrors.has('incident_address') ? 'true' : undefined}>
