@@ -174,10 +174,6 @@ export default function RegionalDashboardPage() {
     setStats(statsData);
   }, [statsDateBounds]);
 
-  // Ref so loadIncidents can trigger a stats refresh without adding loadStats as a dep.
-  const loadStatsRef = useRef(loadStats);
-  useEffect(() => { loadStatsRef.current = loadStats; }, [loadStats]);
-
   const loadIncidents = useCallback(async () => {
     setIncidentsLoading(true);
     setIncidentsError(null);
@@ -195,8 +191,6 @@ export default function RegionalDashboardPage() {
       });
       setIncidents(data.items ?? []);
       setIncidentsTotal(typeof data.total === 'number' ? data.total : 0);
-      // Keep the rejected-count badge in sync after every incident refresh.
-      void loadStatsRef.current().catch(() => {});
     } catch (e) {
       setIncidents([]);
       setIncidentsTotal(0);
@@ -315,20 +309,7 @@ export default function RegionalDashboardPage() {
   });
 
   const selectStatusFilter = (nextStatus: string) => updateFiltersWithoutScrollShift(() => {
-    // All specific status filters need all-time so records from any date are reachable.
-    // Only the "All" chip ('') defaults back to today.
-    const LONG_RANGE_STATUSES = ['PENDING', 'VERIFIED', 'REJECTED', 'DRAFT'];
-    const leavingLongRange = LONG_RANGE_STATUSES.includes(statusFilter) && !LONG_RANGE_STATUSES.includes(nextStatus);
     setStatusFilter(nextStatus);
-    if (LONG_RANGE_STATUSES.includes(nextStatus)) {
-      setDateFilter('all');
-      setSpecificDate('');
-      setSpecificDateDraft('');
-    } else if (leavingLongRange && dateFilter === 'all') {
-      setDateFilter('today');
-      setSpecificDate('');
-      setSpecificDateDraft('');
-    }
     setPageIndex(0);
   });
 

@@ -1682,6 +1682,28 @@ No schema, auth, or FRS alignment changes.
 
 **Wiki updates:** Updated `system-wiki/subsystems/regional-dashboard.md`, `system-wiki/subsystems/validator-hub.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
 
+## [2026-05-31] fix | Responsive Keycloak MFA setup containment
+
+- Refactored `login-config-totp.ftl` so setup steps, QR/manual secret, warning alert, OTP boxes, device-name field, checkbox, and submit action share one right-side onboarding card.
+- Fixed the Keycloak auth layout overflow by changing `.pf-v5-c-login__container` from a full-width sibling beside the branding panel to a flexing `min-width: 0` right-side region without modifying the red BFP branding section.
+- Replaced the narrow internally scrollable TOTP card with a natural-height `wims-totp-setup` layout: two columns on desktop, stacked on tablet/mobile, wider max width, grouped QR area, integrated alert, and scaled OTP boxes at small breakpoints.
+- Removed unnecessary `max-height` and `overflow-y:auto` rules from the OTP setup container and right auth main area so standard desktop screens do not show an internal setup scrollbar.
+
+**Verification:** CSS/template diff reviewed; scan confirmed no `max-height` or `overflow-y:auto` remains on `.wims-totp-setup` or `.pf-v5-c-login__main`; static sizing check for a 1920x1080 viewport leaves roughly 900+ px of usable right-panel width for the 980 px max card, so the two-column setup fits without an internal scrollbar. No automated Keycloak browser render was available in this turn.
+
+**Wiki updates:** Updated `system-wiki/ui-ux/evaluation-loginpage-keycloaksso.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-05-31] fix | Encoder and validator landing plus manual-entry draft restore
+
+- Added `src/frontend/src/lib/roleRedirect.ts` so role landing routes are centralized: regional encoders go to `/dashboard/regional`, validators go to `/dashboard/validator`, system admins go to `/admin/system`, and analysts go to `/dashboard/analyst`.
+- Updated `/callback`, `/login`, and `/dashboard` routing so stale generic saved redirects such as `/home` do not send encoder/validator users to Operations after login, while specific same-origin workflow redirects still restore after idle logout.
+- Changed `IncidentForm.tsx` create-mode autosave to use a per-user key (`wims:incident_draft:{user.id}`), begin only after user input, and clear the legacy global draft key on discard/success so first-login blank forms do not show a restore banner.
+- Added focused Vitest coverage for role redirect behavior.
+
+**Verification:** `npm.cmd run lint` passes with 0 errors and 16 existing warnings; `npx.cmd vitest run src/lib/__tests__/roleRedirect.test.ts` passes 3 tests; `npm.cmd run build` passes with the existing Turbopack root warning. `npx.cmd tsc --noEmit` was also run and still fails on pre-existing type errors outside this change path (admin system, analyst detail, triage/public/tracking pages, sync tests, Firebase mocks).
+
+**Wiki updates:** Updated `system-wiki/frontend/route-map.md`, `system-wiki/subsystems/regional-dashboard.md`, `system-wiki/subsystems/validator-hub.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
 ## [2026-05-30] polish | Shared section dots for AFOR create/import/edit
 
 - Fixed the incident detail back-to-dashboard affordance visibility in authenticated layouts by offsetting it past the desktop sidebar while keeping it available on small screens.

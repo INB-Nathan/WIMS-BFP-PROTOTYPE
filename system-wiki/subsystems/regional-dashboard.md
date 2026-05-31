@@ -1,7 +1,7 @@
 ---
 title: Regional Dashboard
 created: 2026-05-16
-updated: 2026-05-30
+updated: 2026-05-31
 type: operation
 tags: [wims-bfp, regional, encoder, dashboard, incident-workflow, afor]
 sources: [src/frontend/src/app/dashboard/regional/page.tsx, src/frontend/src/app/dashboard/regional/audit/page.tsx, src/frontend/src/app/dashboard/regional/drafts/page.tsx, src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx, src/backend/api/routes/regional.py]
@@ -62,6 +62,10 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 ### Manual Entry / Import Review Navigation
 
 `src/frontend/src/components/SectionDotNav.tsx` provides reusable fixed right-side dot navigation with scroll-spy labels and smooth-scroll click behavior. It is used by `IncidentForm.tsx` for structural manual entry and edit mode, `WildlandAforManualForm.tsx` for wildland manual entry and import correction handoff, and `/afor/import` for upload, map pin, summary, and data-preview workflow sections.
+
+### Manual Entry Draft Restore
+
+`IncidentForm.tsx` autosaves create-mode manual-entry drafts only after actual user input is observed by the form. Draft storage is scoped to the authenticated user ID (`wims:incident_draft:{user.id}`), while discard and successful submit also remove the legacy global `wims:incident_draft` key. This preserves intentional idle-logout restoration for `/afor/create` without showing a restore banner for a first-login blank form or another user's old browser draft.
 
 ### Activity Log — `/dashboard/regional/audit`
 

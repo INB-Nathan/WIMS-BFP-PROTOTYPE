@@ -99,6 +99,15 @@ done
 echo "Allowing dev username repairs in Keycloak..."
 docker_exec "$KEYCLOAK_CONTAINER" /opt/keycloak/bin/kcadm.sh update "realms/$KC_REALM" -s editUsernameAllowed=true
 
+echo "Enforcing User Profile: firstName and lastName required for non-seed users..."
+docker_exec "$KEYCLOAK_CONTAINER" /opt/keycloak/bin/kcadm.sh update "authentication/required-actions/UPDATE_PROFILE" \
+  -r "$KC_REALM" -s defaultAction=true 2>/dev/null || true
+docker_exec "$KEYCLOAK_CONTAINER" bash -c 'cat > /tmp/wims-up.json <<'"'"'UPEOF'"'"'
+{"attributes":[{"name":"username","displayName":"${username}","validations":{"length":{"min":3,"max":255},"username-prohibited-characters":{},"up-username-not-idn-homograph":{}},"permissions":{"view":["admin","user"],"edit":["admin","user"]},"multivalued":false},{"name":"email","displayName":"${email}","validations":{"email":{},"length":{"max":255}},"required":{"roles":["user"]},"permissions":{"view":["admin","user"],"edit":["admin","user"]},"multivalued":false},{"name":"firstName","displayName":"${firstName}","validations":{"length":{"max":255},"person-name-prohibited-characters":{}},"required":{"roles":["user"]},"permissions":{"view":["admin","user"],"edit":["admin","user"]},"multivalued":false},{"name":"lastName","displayName":"${lastName}","validations":{"length":{"max":255},"person-name-prohibited-characters":{}},"required":{"roles":["user"]},"permissions":{"view":["admin","user"],"edit":["admin","user"]},"multivalued":false}],"groups":[]}
+UPEOF'
+docker_exec "$KEYCLOAK_CONTAINER" /opt/keycloak/bin/kcadm.sh update users/profile \
+  -r "$KC_REALM" -f /tmp/wims-up.json 2>/dev/null || echo "  (user profile update skipped — may not be supported on this Keycloak version)"
+
 # Some local DBs may not yet include NATIONAL_ANALYST in users_role_check.
 supports_national_analyst=$(docker compose -f "$COMPOSE_FILE" exec -T postgres psql -U postgres -d wims -tA -c "SELECT CASE WHEN pg_get_constraintdef(c.oid) LIKE '%NATIONAL_ANALYST%' THEN '1' ELSE '0' END FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='wims' AND c.conname='users_role_check' LIMIT 1;")
 supports_national_analyst=$(echo "$supports_national_analyst" | tr -d '[:space:]')

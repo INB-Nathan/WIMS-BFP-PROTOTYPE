@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createUserManager } from '@/lib/oidc';
 import { useAuth } from '@/context/AuthContext';
 import { useUserProfile } from '@/lib/auth';
+import { resolvePostLoginRedirect } from '@/lib/roleRedirect';
 import { Loader2 } from 'lucide-react';
 
 function CallbackContent() {
@@ -51,13 +52,13 @@ function CallbackContent() {
                 // and UserProfileProvider keeps assignedRegionId=null (region lock
                 // in IncidentForm never fires, bypassing RBAC enforcement).
                 await Promise.all([refreshSession(), refreshProfile()]);
+                const session = await fetch('/api/auth/session')
+                    .then((r) => (r.ok ? r.json() : null))
+                    .catch(() => null);
+                const role = session?.role ?? session?.user?.role ?? null;
                 const savedRedirect = sessionStorage.getItem('wims:redirect_after_login');
-                if (savedRedirect) {
-                    sessionStorage.removeItem('wims:redirect_after_login');
-                    router.push(savedRedirect);
-                } else {
-                    router.push('/dashboard');
-                }
+                if (savedRedirect) sessionStorage.removeItem('wims:redirect_after_login');
+                router.push(resolvePostLoginRedirect(role, savedRedirect, window.location.origin));
             } catch (err) {
                 console.error('Callback error:', err);
                 setError(err instanceof Error ? err.message : 'Callback failed');

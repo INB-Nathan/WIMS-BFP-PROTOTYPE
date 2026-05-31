@@ -195,16 +195,6 @@ export default function ValidatorDashboard() {
     updateFiltersWithoutScrollShift(() => {
       setStatusFilter(nextStatus);
       setPage(0);
-      if (nextStatus === STATUS_FILTER_ALL) {
-        setDateFilter("today");
-        setSpecificDate("");
-        setSpecificDateDraft("");
-      } else {
-        // Pending queue, Accepted, Rejected — all use "all time" so finalized records are always reachable.
-        setDateFilter("all");
-        setSpecificDate("");
-        setSpecificDateDraft("");
-      }
     });
   }, [updateFiltersWithoutScrollShift]);
 
