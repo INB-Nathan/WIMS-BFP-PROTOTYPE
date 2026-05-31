@@ -191,7 +191,6 @@ def rejected_incident(encoder_region, validator_region):
                 "province_district": "Metro Manila",
                 "city_municipality": "Quezon City",
                 "alarm_level": "FIRST_ALARM",
-                "station_code": "TST",
                 "incident_type_code": "APT",
             },
         )

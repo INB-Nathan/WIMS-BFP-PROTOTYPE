@@ -253,7 +253,9 @@ M4-G: Adds `submitted_snapshot JSONB` to fire_incidents. Snapshot of incident_no
 
 ### `19_reference_number.sql`
 
-Adds `reference_number TEXT` (format: AFOR-RGN-{code}-{station}-{type}-{MMM}-{YYYY}-{NNNN}) and `incident_type_code TEXT` to fire_incidents. UNIQUE partial index on reference_number WHERE NOT NULL. Adds `station_code TEXT DEFAULT 'TBA'` to incident_nonsensitive_details.
+Adds `reference_number TEXT` (original format: AFOR-RGN-{code}-{station}-{type}-{MMM}-{YYYY}-{NNNN}) and `incident_type_code TEXT` to fire_incidents. UNIQUE partial index on reference_number WHERE NOT NULL. Adds `station_code TEXT DEFAULT 'TBA'` to incident_nonsensitive_details.
+
+> **Deprecated by `39_remove_station_code.sql`** — `station_code` column was removed; reference number format updated to `AFOR-RGN-{region_code}-{type_code}-{MMM}-{YYYY}-{NNNN}` (no station segment).
 
 ### `20_parent_incident_id.sql`
 
@@ -335,6 +337,15 @@ Adds `hitl_decision JSONB` column to `wims.security_threat_logs`. Stores HITL de
 
 **Idempotent:** `ADD COLUMN IF NOT EXISTS`.
 
+### `39_remove_station_code.sql`
+
+**Purpose:** Remove the `station_code` column that was added by `19_reference_number.sql` and update the reference number format comment.
+
+- `ALTER TABLE wims.incident_nonsensitive_details DROP COLUMN IF EXISTS station_code`
+- Updates `COMMENT ON COLUMN wims.fire_incidents.reference_number` to reflect the new format: `AFOR-RGN-{region_code}-{type_code}-{MMM}-{YYYY}-{NNNN}` (station segment removed)
+
+**Idempotent:** YES (`DROP COLUMN IF EXISTS`).
+
 ---
 
 ## RLS Policy Summary
@@ -351,3 +362,4 @@ The RLS system uses a GUC-based approach:
 - Admins have unrestricted access
 - Unauthenticated (ANONYMOUS) is denied by COALESCE in current_user_role()
 - Immutable records use PostgreSQL RULES (not RLS) to block UPDATE/DELETE on VERIFIED
+- Reference tables (ref_regions, ref_provinces, ref_cities): REGIONAL_ENCODER sees only their assigned region; NATIONAL_VALIDATOR, NATIONAL_ANALYST, and SYSTEM_ADMIN see all (via 42_ref_table_rls.sql)

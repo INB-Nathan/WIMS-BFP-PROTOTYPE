@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import {
   RefreshCw, Flame, Building2, TreePine, Car, ChevronLeft, ChevronRight, Trees,
-  Home, Users, Layers, Truck, FileText, Upload, X, CalendarDays, Archive,
+  Home, Users, Layers, Truck, FileText, Upload, CalendarDays, Archive,
 } from 'lucide-react';
 import { apiFetch, fetchRegionalIncidents, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
 import Link from 'next/link';
@@ -18,8 +18,10 @@ import {
 } from '@/lib/regional-incidents';
 import { formatClassification } from '@/lib/afor-utils';
 import { StatusBadge } from '@/components/ui/StatusBadge';
-import { MetricPill } from '@/components/ui/MetricPill';
-import { formatIncidentDate, isDateOnly, getDateBounds as getDateBoundsUtil, displayValue, statusBorderColor, categoryCount } from '@/lib/incident-utils';
+import { formatIncidentDate, isDateOnly, getDateBounds as getDateBoundsUtil, categoryCount } from '@/lib/incident-utils';
+import { NotificationToasts } from '@/components/regional/NotificationToasts';
+import { IncidentCard } from '@/components/regional/IncidentCard';
+import { WildlandFireBreakdown } from '@/components/regional/WildlandFireBreakdown';
 
 interface RegionalStatsPayload {
   total_incidents?: number;
@@ -35,13 +37,7 @@ interface RegionalStatsPayload {
   vehicles_affected?: number;
 }
 
-// Date utils and display helpers imported from @/lib/incident-utils
-
 const getRegionalDateBounds = getDateBoundsUtil;
-
-function completeAddress(incident: RegionalIncidentListItem): string {
-  return incident.street_address || '-';
-}
 
 const STATUS_CHIPS = [
   { label: 'All', value: '' },
@@ -440,62 +436,15 @@ export default function RegionalDashboardPage() {
         </div>
       )}
 
-      {/* ── Sticky notification toasts (visible while scrolling) ── */}
-      {(pendingActionedBanner || (rejectedCount > 0 && !rejectionNoticeDismissed)) && (
-        <div className="sticky top-0 z-40 space-y-2">
-          {pendingActionedBanner && (
-            <div className="flex items-start justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-md" role="alert">
-              <span>
-                <span className="font-semibold">A pending submission was actioned by a validator.</span>{' '}
-                Refresh to see what changed.
-              </span>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  type="button"
-                  onClick={() => { setPendingActionedBanner(false); void refreshAll(); }}
-                  className="rounded-lg px-3 py-1 text-xs font-semibold text-white"
-                  style={{ backgroundColor: '#1D4ED8' }}
-                >
-                  Refresh
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPendingActionedBanner(false)}
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-full text-blue-700 transition-colors hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                  aria-label="Dismiss notification"
-                >
-                  <X className="h-4 w-4" aria-hidden />
-                </button>
-              </div>
-            </div>
-          )}
-          {rejectedCount > 0 && !rejectionNoticeDismissed && (
-            <div className="flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-md" role="alert">
-              <div>
-                <span className="font-semibold">
-                  {rejectedCount} incident{rejectedCount > 1 ? 's were' : ' was'} rejected by a validator.
-                </span>{' '}
-                Review the rejection reasons and resubmit.{' '}
-                <button
-                  type="button"
-                  className="ml-1 underline font-medium hover:text-red-700"
-                  onClick={showRejectedAndScroll}
-                >
-                  Show rejected
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={() => setRejectionNoticeDismissed(true)}
-                className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-red-700 transition-colors hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-300"
-                aria-label="Dismiss rejection notice"
-              >
-                <X className="h-4 w-4" aria-hidden />
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+      <NotificationToasts
+        pendingActionedBanner={pendingActionedBanner}
+        rejectedCount={rejectedCount}
+        rejectionNoticeDismissed={rejectionNoticeDismissed}
+        onDismissPendingActioned={() => setPendingActionedBanner(false)}
+        onRefreshAndDismiss={() => { setPendingActionedBanner(false); void refreshAll(); }}
+        onDismissRejection={() => setRejectionNoticeDismissed(true)}
+        onShowRejected={showRejectedAndScroll}
+      />
 
       {/* ── Page header ── */}
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -825,92 +774,17 @@ export default function RegionalDashboardPage() {
           ) : (
             <div className={`grid min-h-[420px] gap-4 p-5 transition-opacity lg:grid-cols-2 ${incidentsLoading ? 'opacity-60' : ''}`}>
               {incidents.map((inc) => (
-                <article
+                <IncidentCard
                   key={inc.incident_id}
-                  onClick={() => router.push(`/dashboard/regional/incidents/${inc.incident_id}`)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      router.push(`/dashboard/regional/incidents/${inc.incident_id}`);
-                    }
-                  }}
-                  tabIndex={0}
-                  role="link"
-                  aria-label={`View incident ${inc.incident_id}`}
-                  onMouseEnter={(e) => scheduleHoverHint(inc.incident_id, e)}
-                  onMouseMove={hideHoverHintOnMove}
-                  onMouseLeave={clearHoverHint}
-                  className="cursor-pointer rounded-xl border border-gray-200 bg-white p-5 shadow-sm outline-none transition-all hover:border-red-200 hover:bg-red-50/30 hover:shadow-md focus-visible:ring-2 focus-visible:ring-[#C62828]"
-                  style={{ borderColor: statusBorderColor(inc.verification_status) }}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
-                      Last modified <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{formatIncidentDate(inc.updated_at)}</span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {inc.is_wildland && (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
-                          Wildland
-                        </span>
-                      )}
-                      <StatusBadge status={inc.verification_status} />
-                    </div>
-                  </div>
-
-                  <div className="mt-4 space-y-4">
-                    <div>
-                      <InfoBlock
-                        label="Date/Time of Fire"
-                        value={formatIncidentDate(inc.notification_dt || inc.created_at)}
-                        tone="primary"
-                      />
-                      <div className="mt-3">
-                        <InfoBlock label="Location" value={completeAddress(inc)} tone="primary" />
-                      </div>
-                    </div>
-
-                    <div className="grid gap-x-6 gap-y-3 border-t border-gray-100 pt-4 text-sm sm:grid-cols-2">
-                      <InfoBlock label="Classification" value={formatClassification(inc.general_category)} />
-                      <InfoBlock label="Category / Type" value={inc.sub_category || inc.alarm_level} />
-                      <InfoBlock label="District" value={inc.province_district} />
-                      <InfoBlock label="City" value={inc.city_municipality} />
-                    </div>
-
-                    <div className="grid gap-x-6 gap-y-3 border-t border-gray-100 pt-4 text-sm sm:grid-cols-2">
-                      <InfoBlock label="Responder Type" value={inc.responder_type} />
-                      <InfoBlock label="Caller / Contact" value={`${displayValue(inc.caller_name)} / ${displayValue(inc.caller_number)}`} />
-                      <div className="sm:col-span-2">
-                        <InfoBlock label="Extent of Damage" value={inc.extent_of_damage} />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
-                    <MetricPill label="Structures" value={inc.structures_affected} />
-                    <MetricPill label="Households" value={inc.households_affected} />
-                    <MetricPill label="Families" value={inc.families_affected} />
-                    <MetricPill label="Individuals" value={inc.individuals_affected} />
-                    <MetricPill label="Vehicles" value={inc.vehicles_affected} />
-                  </div>
-
-                  {inc.verification_status === 'VERIFIED' && (
-                    <div className="mt-4 flex justify-end border-t border-gray-100 pt-3">
-                      <button
-                        type="button"
-                        onClick={(e) => isArchiveView
-                          ? void doEncoderUnarchive(inc.incident_id, e)
-                          : void doEncoderArchive(inc.incident_id, e)
-                        }
-                        className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium transition-colors hover:bg-gray-50"
-                        style={{ color: 'var(--text-secondary)' }}
-                        title={isArchiveView ? 'Restore this incident to the active list' : 'Archive this verified incident'}
-                      >
-                        <Archive className="h-3.5 w-3.5" aria-hidden />
-                        {isArchiveView ? 'Unarchive' : 'Archive'}
-                      </button>
-                    </div>
-                  )}
-                </article>
+                  inc={inc}
+                  isArchiveView={isArchiveView}
+                  onCardClick={(id) => router.push(`/dashboard/regional/incidents/${id}`)}
+                  onHoverStart={scheduleHoverHint}
+                  onHoverMove={hideHoverHintOnMove}
+                  onHoverEnd={clearHoverHint}
+                  onArchive={doEncoderArchive}
+                  onUnarchive={doEncoderUnarchive}
+                />
               ))}
             </div>
           )
@@ -1098,83 +972,12 @@ export default function RegionalDashboardPage() {
         </div>
       )}
 
-      {/* ── Wildland Fire Breakdown ── */}
       {stats && (stats.wildland_total ?? 0) > 0 && (
-        <section
-          className="rounded-2xl overflow-hidden"
-          style={{ backgroundColor: 'var(--card-bg)', boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
-          aria-labelledby="wildland-breakdown-heading"
-        >
-          <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: 'var(--border-color)' }}>
-            <div>
-              <h2 id="wildland-breakdown-heading" className="font-bold text-[20px]" style={{ color: 'var(--text-primary)' }}>
-                Wildland Fire Classifications
-              </h2>
-              <p className="mt-0.5 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Breakdown by wildland fire type
-              </p>
-            </div>
-            <span className="text-2xl font-bold" style={{ color: '#92400E' }}>
-              {stats.wildland_total?.toLocaleString() ?? '0'}
-            </span>
-          </div>
-          <div className="p-6">
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-              {[
-                { type: 'fire', label: 'Fire', color: '#991B1B' },
-                { type: 'agricultural land fire', label: 'Agricultural Fire', color: '#65a30d' },
-                { type: 'forest fire', label: 'Forest Fire', color: '#166534' },
-                { type: 'grassland fire', label: 'Grassland Fire', color: '#84cc16' },
-                { type: 'brush fire', label: 'Brush Fire', color: '#d97706' },
-                { type: 'peatland fire', label: 'Peatland Fire', color: '#78350f' },
-                { type: 'grazing land fire', label: 'Grazing Land Fire', color: '#a16207' },
-                { type: 'mineral land fire', label: 'Mineral Land Fire', color: '#57534e' },
-              ].map(({ type, label, color }) => {
-                const count = stats.by_wildland_type?.find((w) => (w.fire_type ?? '').trim().toLowerCase() === type)?.count ?? 0;
-                return (
-                  <div
-                    key={type}
-                    className="flex items-center gap-3 rounded-xl border border-gray-100 px-3 py-2.5 transition-shadow hover:shadow-sm"
-                    style={{ borderLeft: `3px solid ${color}` }}
-                  >
-                    <div
-                      className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white flex-shrink-0"
-                      style={{ backgroundColor: color }}
-                    >
-                      {count}
-                    </div>
-                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{label}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
+        <WildlandFireBreakdown
+          wildlandTotal={stats.wildland_total ?? 0}
+          byWildlandType={stats.by_wildland_type}
+        />
       )}
-    </div>
-  );
-}
-
-function InfoBlock({
-  label,
-  value,
-  tone = 'default',
-}: {
-  label: string;
-  value: string | null | undefined;
-  tone?: 'default' | 'primary';
-}) {
-  return (
-    <div className="min-w-0">
-      <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
-        {label}
-      </div>
-      <div
-        className={`${tone === 'primary' ? 'mt-1 text-base font-semibold' : 'mt-0.5 text-sm font-medium'} break-words leading-relaxed`}
-        style={{ color: 'var(--text-primary)' }}
-      >
-        {displayValue(value)}
-      </div>
     </div>
   );
 }
