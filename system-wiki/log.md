@@ -3,6 +3,15 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-05-31] docs | PR RLS and fixes summary updated
+
+- Updated `docs/PR-rls-and-fixes.md` with Codex-authored UI/auth changes: role dashboard redirects, user-scoped manual-entry draft restore, login alert placement, OTP confirmation card refinements, MFA scroll containment, and AFOR Barangay tip alignment.
+- Removed the dedicated plain-language RLS explanation section and replaced the Part 1 RLS pointer with concise technical bullets.
+
+**Verification:** `rg` confirms the removed plain-language RLS section text is no longer present in `docs/PR-rls-and-fixes.md`.
+
+**Wiki updates:** Updated `system-wiki/architecture/docs-and-scripts.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
 ## [2026-05-31] polish | OTP confirmation alignment refinement
 
 - Removed the visible "One-time code" label from the post-enrollment OTP confirmation card while preserving an accessibility label for the OTP input group.

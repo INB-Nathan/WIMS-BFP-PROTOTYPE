@@ -35,7 +35,11 @@ This PR has two main parts done by two separate agents. Leave the other agent's 
 - **Filter response time improved.** `loadIncidents` was silently firing a second `loadStats` API call on every filter change (via `loadStatsRef`). This doubled API traffic and caused a second re-render of all incident cards when stats finished loading. Removed the stats call from inside `loadIncidents`; stats now refresh only when the stats period chip changes or the user clicks Refresh.
 
 ### Row-Level Security — the big fix
-See the plain-language explanation below.
+- Backend uses `wims_app_user` as the non-superuser application login role.
+- `DATABASE_ADMIN_URL` preserves admin access for auth bootstrap, schema repair, and startup patches.
+- RLS helper functions use `SECURITY DEFINER` to avoid recursive policy lookups.
+- BFP staff user joins are supported through the broadened `users_self_or_admin_select` policy.
+- Startup schema patches self-heal existing deployments that do not yet have the app login role or RLS helper/policy fixes.
 
 ---
 
@@ -52,6 +56,15 @@ See the plain-language explanation below.
 - Removed stale `station_code` references from the immutable-record fixture and regional API wiki reference.
 - Added the migration-39 `station_code` removal cross-reference to the SQL init wiki page.
 - Removed hardcoded `, Philippines` suffixes from MapPicker fallback display names.
+- Redirected encoder and validator login landings to their role dashboards instead of the shared Operations landing.
+- Scoped manual-entry draft restoration to the authenticated user and gated autosave until actual form interaction.
+- Moved the AFOR Barangay map-pin tip below the Barangay input so create/import correction fields align.
+- Moved login alerts into the login card above the username field.
+- Refined the post-enrollment OTP confirmation page into a self-contained left-aligned verification card.
+- Removed visible account identifiers and the redundant OTP label from the OTP confirmation page.
+- Renamed the OTP confirmation secondary action to `Go back`.
+- Kept the separate OTP setup/enrollment page scoped away from OTP confirmation changes.
+- Disabled unnecessary Keycloak auth-shell scrolling for MFA/login pages.
 
 ### Dev encoder seed/login repair
 - Replaced the old offset encoder seed names with canonical region-code usernames:
@@ -74,46 +87,8 @@ See the plain-language explanation below.
 - Confirmed Keycloak direct token login works with `Password123!` for `encoder_ncr`, `encoder_car`, `encoder_r01`, `encoder_r02`, and `encoder_nir`.
 - `test_dev_user_seed_mapping.py` passed: 3 tests.
 - Keycloak realm JSON parse, PowerShell parser, and Git Bash `bash -n scripts/seed-dev-users.sh` passed.
-
----
-
-## Plain-language explanation of Row-Level Security
-
-### The problem (before this PR)
-
-Imagine a building with locks on every door. The locks say things like:
-- "Only Region 3 staff can open this door"
-- "Only the person who submitted this report can read it"
-
-That's **Row-Level Security (RLS)** — rules inside the database that control who can see which rows of data.
-
-The problem was: the app was using a **master key** (the database `postgres` superuser account) to connect. A master key bypasses all the locks. So even though the rules were written correctly, they did nothing — every user saw every row.
-
-### What was changed
-
-The app now connects using a **regular key** (`wims_app_user`) that is subject to the locks. The locks work now.
-
-But this introduced two technical challenges:
-
-**Challenge 1 — Chicken and egg**
-To set up a user's security context, the app first needs to look up who they are in the database. But if the database already has locks on the users table, it can't look them up without a context. It's a circle.
-
-**Solution:** Auth lookups (finding out who you are) still use the master key. Only after the app knows who you are does it switch to the regular key with your security context applied.
-
-**Challenge 2 — Infinite loop in the locks themselves**
-Some database security rules were written like: "to decide if you can see this row, call this function → the function looks up your role → but looking up your role reads the same table → which triggers the rule again → loop."
-
-**Solution:** The helper functions that check your role are now marked `SECURITY DEFINER`. This means they run as the database owner (who can bypass locks) instead of as the current user. The loop is broken.
-
-### What RLS actually enforces now
-
-| Role | What they see |
-|---|---|
-| **Regional Encoder** | Only incidents and reference data for their own assigned region |
-| **National Validator** | All regions (they approve reports from everywhere) |
-| **National Analyst** | All regions |
-| **System Admin** | Everything |
-| **Civilian** | Only their own submitted reports |
+- Focused role redirect Vitest coverage passed.
+- `git diff --check` passed for touched OTP/form/wiki files with CRLF warnings only.
 
 ---
 

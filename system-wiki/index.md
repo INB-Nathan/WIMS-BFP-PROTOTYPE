@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-31
 Total synthesis pages: 32
-Last changes: Keycloak OTP confirmation now uses a left-aligned verification card without visible account identifiers or redundant OTP label; AFOR Barangay guidance sits below the Barangay input.
+Last changes: `docs/PR-rls-and-fixes.md` now records the Codex UI/auth fixes and removes the plain-language RLS explanation block.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
