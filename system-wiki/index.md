@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-31
 Total synthesis pages: 32
-Last changes: Dev encoder seeding now uses canonical region-code usernames (`encoder_ncr`, `encoder_car`, `encoder_r01`...) aligned with `ref_regions`; Keycloak realm imports, SQL bootstrap rows, seed scripts, and local dev docs use `Password123!` consistently.
+Last changes: Keycloak MFA setup now uses a natural-height, wider right-side onboarding card with step instructions, QR, warning alert, OTP boxes, device name, and submit action grouped without internal scrolling.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

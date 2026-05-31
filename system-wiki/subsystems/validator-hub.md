@@ -1,7 +1,7 @@
 ---
 title: National Validator Dashboard
 created: 2026-05-16
-updated: 2026-05-30
+updated: 2026-05-31
 type: operation
 tags: [wims-bfp, validator, national-validator, dashboard, incident-workflow, audit]
 sources: [src/frontend/src/app/dashboard/validator/page.tsx, src/frontend/src/app/dashboard/validator/audit/page.tsx, src/backend/api/routes/regional.py, src/backend/api/routes/incidents.py]
@@ -17,6 +17,7 @@ The national validator dashboard (`/dashboard/validator`) serves the `NATIONAL_V
 - Accessible to: `NATIONAL_VALIDATOR` (and legacy `VALIDATOR`)
 - Backend endpoints use `Depends(get_national_validator)` for write operations and `Depends(get_regional_encoder)` (or combined) for read-only access
 - All queries use `get_db_with_rls()` for region-scoped data visibility
+- Post-login routing sends validator roles directly to `/dashboard/validator`; generic saved redirects such as `/home` are treated as stale/default landing locations and replaced by the validator dashboard.
 
 ## Frontend UI Surface
 

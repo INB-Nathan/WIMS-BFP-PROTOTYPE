@@ -60,6 +60,11 @@ foreach ($role in $roles) {
 Write-Host "Allowing dev username repairs in Keycloak..."
 docker exec $keycloakContainer /opt/keycloak/bin/kcadm.sh update "realms/$kcRealm" -s "editUsernameAllowed=true" | Out-Null
 
+Write-Host "Enforcing User Profile: firstName and lastName required for non-seed users..."
+docker exec $keycloakContainer /opt/keycloak/bin/kcadm.sh update "authentication/required-actions/UPDATE_PROFILE" -r $kcRealm -s "defaultAction=true" 2>$null | Out-Null
+$upJson = '{"attributes":[{"name":"username","displayName":"${username}","validations":{"length":{"min":3,"max":255},"username-prohibited-characters":{},"up-username-not-idn-homograph":{}},"permissions":{"view":["admin","user"],"edit":["admin","user"]},"multivalued":false},{"name":"email","displayName":"${email}","validations":{"email":{},"length":{"max":255}},"required":{"roles":["user"]},"permissions":{"view":["admin","user"],"edit":["admin","user"]},"multivalued":false},{"name":"firstName","displayName":"${firstName}","validations":{"length":{"max":255},"person-name-prohibited-characters":{}},"required":{"roles":["user"]},"permissions":{"view":["admin","user"],"edit":["admin","user"]},"multivalued":false},{"name":"lastName","displayName":"${lastName}","validations":{"length":{"max":255},"person-name-prohibited-characters":{}},"required":{"roles":["user"]},"permissions":{"view":["admin","user"],"edit":["admin","user"]},"multivalued":false}],"groups":[]}'
+$upJson | docker exec -i $keycloakContainer bash -c 'cat > /tmp/wims-up.json && /opt/keycloak/bin/kcadm.sh update users/profile -r bfp -f /tmp/wims-up.json' 2>$null | Out-Null
+
 foreach ($u in $users) {
     $username = $u.username
     $email = $u.email

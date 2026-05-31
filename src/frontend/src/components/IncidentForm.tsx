@@ -80,7 +80,7 @@ export function IncidentForm({
   initialErrors?: string[];
 }) {
   const router = useRouter();
-  const { assignedRegionId, role, loading: profileLoading } = useUserProfile();
+  const { user, assignedRegionId, role, loading: profileLoading } = useUserProfile();
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
   const [loading, setLoading] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
@@ -95,6 +95,7 @@ export function IncidentForm({
   const formHydratedRef = useRef(false);
   const submitAfterSaveRef = useRef(false);
   const barangayManuallySetRef = useRef(false);
+  const userEditedDraftRef = useRef(false);
   const [draftRestoreData, setDraftRestoreData] = useState<{
     formState: Record<string, unknown>;
     latitude: number | null;
@@ -108,6 +109,16 @@ export function IncidentForm({
     toastTimer.current = setTimeout(() => setToast(null), 6000);
   };
 
+  const draftStorageKey = useMemo(
+    () => (user?.id ? `wims:incident_draft:${user.id}` : null),
+    [user?.id],
+  );
+
+  const clearStoredDraft = useCallback(() => {
+    if (draftStorageKey) localStorage.removeItem(draftStorageKey);
+    localStorage.removeItem('wims:incident_draft');
+  }, [draftStorageKey]);
+
   const setNotificationToToday = () => {
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Manila',
@@ -119,6 +130,7 @@ export function IncidentForm({
     const month = parts.find((p) => p.type === 'month')?.value;
     const day = parts.find((p) => p.type === 'day')?.value;
     if (!year || !month || !day) return;
+    userEditedDraftRef.current = true;
     setFormState((prev) => ({ ...prev, notification_dt_date: `${year}-${month}-${day}` }));
     setFieldErrors((prev) => {
       const next = new Set(prev);
@@ -783,8 +795,8 @@ export function IncidentForm({
   // On mount: offer to restore a previously saved draft.
   // Skip in edit mode (existingIncidentId set) and import-correction mode (initialData set).
   useEffect(() => {
-    if (existingIncidentId || initialData) return;
-    const raw = localStorage.getItem('wims:incident_draft');
+    if (existingIncidentId || initialData || !draftStorageKey) return;
+    const raw = localStorage.getItem(draftStorageKey);
     if (!raw) return;
     try {
       const parsed = JSON.parse(raw);
@@ -793,14 +805,14 @@ export function IncidentForm({
       }
     } catch { /* ignore corrupt draft */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [draftStorageKey]);
 
   // Debounced autosave on every formState / coordinate change.
   // Skip in edit mode and import-correction mode so we don't overwrite a real create-mode draft.
   useEffect(() => {
-    if (existingIncidentId || initialData) return;
+    if (existingIncidentId || initialData || !draftStorageKey || !userEditedDraftRef.current) return;
     const timer = setTimeout(() => {
-      localStorage.setItem('wims:incident_draft', JSON.stringify({
+      localStorage.setItem(draftStorageKey, JSON.stringify({
         formState,
         latitude,
         longitude,
@@ -808,7 +820,7 @@ export function IncidentForm({
       }));
     }, 500);
     return () => clearTimeout(timer);
-  }, [formState, latitude, longitude, existingIncidentId, initialData]);
+  }, [formState, latitude, longitude, existingIncidentId, initialData, draftStorageKey]);
 
   // ── Submit ─────────────────────────────────────────────────────────────────
 
@@ -1147,19 +1159,19 @@ export function IncidentForm({
               if (d?.code === 'DUPLICATE_DETECTED' && d.matched_incident_id) {
                 // Saved as draft; navigate to detail with flag to auto-trigger the
                 // full duplicate modal (side-by-side comparison + force/cancel options).
-                localStorage.removeItem('wims:incident_draft');
+                clearStoredDraft();
                 router.push(`/dashboard/regional/incidents/${incidentId}?pending_submit=1`);
                 return;
               }
             }
             // Any other submit failure — go to detail so user can retry
             showToast(`Saved as draft. Submit failed: ${(submitErr as Error).message}`);
-            localStorage.removeItem('wims:incident_draft');
+            clearStoredDraft();
             router.push(`/dashboard/regional/incidents/${incidentId}`);
             return;
           }
         }
-        localStorage.removeItem('wims:incident_draft');
+        clearStoredDraft();
         router.push(`/dashboard/regional/incidents/${incidentId}`);
       } else {
         await queueIncident(payload);
@@ -1378,6 +1390,7 @@ export function IncidentForm({
             type="button"
             className="font-semibold underline hover:text-blue-900"
             onClick={() => {
+              userEditedDraftRef.current = true;
               setFormState(draftRestoreData.formState as Parameters<typeof setFormState>[0]);
               setLatitude(draftRestoreData.latitude);
               setLongitude(draftRestoreData.longitude);
@@ -1390,7 +1403,7 @@ export function IncidentForm({
             type="button"
             className="text-blue-500 hover:text-blue-700"
             onClick={() => {
-              localStorage.removeItem('wims:incident_draft');
+              clearStoredDraft();
               setDraftRestoreData(null);
             }}
           >
@@ -1402,6 +1415,12 @@ export function IncidentForm({
       <form
         onSubmit={handleSubmit}
         className="space-y-8 text-gray-900"
+        onChange={() => {
+          userEditedDraftRef.current = true;
+        }}
+        onInput={() => {
+          userEditedDraftRef.current = true;
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.target as HTMLElement).tagName !== 'TEXTAREA') {
             e.preventDefault();
@@ -1562,7 +1581,7 @@ export function IncidentForm({
             {latitude !== null && longitude !== null && (
               <div className="md:col-span-2 text-xs text-green-800 font-medium bg-green-50 border border-green-200 rounded px-3 py-2 flex items-center gap-2">
                 <span>📍 Fire Scene: {latitude.toFixed(6)}, {longitude.toFixed(6)}</span>
-                <button type="button" onClick={() => { setLatitude(null); setLongitude(null); setMapSearchQuery(undefined); }}
+                <button type="button" onClick={() => { userEditedDraftRef.current = true; setLatitude(null); setLongitude(null); setMapSearchQuery(undefined); }}
                   className="ml-auto text-red-600 hover:underline">Clear pin</button>
               </div>
             )}
@@ -1580,6 +1599,7 @@ export function IncidentForm({
                   onClick={() => {
                     const addr = formState.incident_address.trim();
                     if (addr) {
+                      userEditedDraftRef.current = true;
                       setLatitude(null);
                       setLongitude(null);
                       setMapSearchQuery(addr);
@@ -1596,6 +1616,7 @@ export function IncidentForm({
                   center={latitude && longitude ? [latitude, longitude] : [14.5995, 120.9842]}
                   value={latitude && longitude ? { lat: latitude, lng: longitude } : null}
                   onChange={async (lat, lng) => {
+                    userEditedDraftRef.current = true;
                     setLatitude(lat);
                     setLongitude(lng);
                     const geo = await reverseGeocode(lat, lng);

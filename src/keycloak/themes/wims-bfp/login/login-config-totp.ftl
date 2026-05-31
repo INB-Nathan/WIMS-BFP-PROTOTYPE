@@ -1,56 +1,82 @@
 <#import "template.ftl" as layout>
 <#import "password-commons.ftl" as passwordCommons>
-<@layout.registrationLayout displayRequiredFields=false displayMessage=!messagesPerField.existsError('totp','userLabel'); section>
+<@layout.registrationLayout displayRequiredFields=false displayMessage=false; section>
 
     <#if section = "header">
         ${msg("loginTotpTitle")}
     <#elseif section = "form">
-        <ol id="kc-totp-settings" class="pf-v5-c-list pf-v5-u-mb-md">
-            <li>
-                <p>${msg("loginTotpStep1")}</p>
+        <div class="wims-totp-setup">
+            <div class="wims-totp-grid-layout">
+                <section class="wims-totp-guidance" aria-labelledby="wims-totp-guidance-title">
+                    <h2 id="wims-totp-guidance-title">Setup Instructions</h2>
+                    <ol id="kc-totp-settings" class="wims-totp-steps">
+                        <li>
+                            <span class="wims-totp-step-number">1</span>
+                            <div>
+                                <p>${msg("loginTotpStep1")}</p>
+                                <ul id="kc-totp-supported-apps">
+                                    <#list totp.supportedApplications as app>
+                                        <li>${msg(app)}</li>
+                                    </#list>
+                                </ul>
+                            </div>
+                        </li>
+                        <li>
+                            <span class="wims-totp-step-number">2</span>
+                            <div>
+                                <#if mode?? && mode = "manual">
+                                    <p>${msg("loginTotpManualStep2")}</p>
+                                <#else>
+                                    <p>${msg("loginTotpStep2")}</p>
+                                </#if>
+                            </div>
+                        </li>
+                        <li>
+                            <span class="wims-totp-step-number">3</span>
+                            <div>
+                                <p>${msg("loginTotpStep3")}</p>
+                                <p>${msg("loginTotpStep3DeviceName")}</p>
+                            </div>
+                        </li>
+                    </ol>
+                </section>
 
-                <ul id="kc-totp-supported-apps">
-                    <#list totp.supportedApplications as app>
-                        <li>${msg(app)}</li>
-                    </#list>
-                </ul>
-            </li>
-
-            <#if mode?? && mode = "manual">
-                <li>
-                    <p>${msg("loginTotpManualStep2")}</p>
-                    <p><span id="kc-totp-secret-key">${totp.totpSecretEncoded}</span></p>
-                    <p><a href="${totp.qrUrl}" id="mode-barcode">${msg("loginTotpScanBarcode")}</a></p>
-                </li>
-                <li>
-                    <p>${msg("loginTotpManualStep3")}</p>
-                    <p>
-                    <ul>
-                        <li id="kc-totp-type">${msg("loginTotpType")}: ${msg("loginTotp." + totp.policy.type)}</li>
-                        <li id="kc-totp-algorithm">${msg("loginTotpAlgorithm")}: ${totp.policy.getAlgorithmKey()}</li>
-                        <li id="kc-totp-digits">${msg("loginTotpDigits")}: ${totp.policy.digits}</li>
-                        <#if totp.policy.type = "totp">
-                            <li id="kc-totp-period">${msg("loginTotpInterval")}: ${totp.policy.period}</li>
-                        <#elseif totp.policy.type = "hotp">
-                            <li id="kc-totp-counter">${msg("loginTotpCounter")}: ${totp.policy.initialCounter}</li>
+                <section class="wims-totp-entry" aria-label="${msg("loginTotpTitle")}">
+                    <div class="wims-totp-qr-card">
+                        <#if mode?? && mode = "manual">
+                            <p class="wims-totp-card-label">${msg("loginTotpManualStep2")}</p>
+                            <p><span id="kc-totp-secret-key">${totp.totpSecretEncoded}</span></p>
+                            <ul class="wims-totp-policy-list">
+                                <li id="kc-totp-type">${msg("loginTotpType")}: ${msg("loginTotp." + totp.policy.type)}</li>
+                                <li id="kc-totp-algorithm">${msg("loginTotpAlgorithm")}: ${totp.policy.getAlgorithmKey()}</li>
+                                <li id="kc-totp-digits">${msg("loginTotpDigits")}: ${totp.policy.digits}</li>
+                                <#if totp.policy.type = "totp">
+                                    <li id="kc-totp-period">${msg("loginTotpInterval")}: ${totp.policy.period}</li>
+                                <#elseif totp.policy.type = "hotp">
+                                    <li id="kc-totp-counter">${msg("loginTotpCounter")}: ${totp.policy.initialCounter}</li>
+                                </#if>
+                            </ul>
+                            <p><a href="${totp.qrUrl}" id="mode-barcode">${msg("loginTotpScanBarcode")}</a></p>
+                        <#else>
+                            <p class="wims-totp-card-label">${msg("loginTotpStep2")}</p>
+                            <img id="kc-totp-secret-qr-code" src="data:image/png;base64, ${totp.totpSecretQrCode}" alt="Figure: Barcode">
+                            <p><a href="${totp.manualUrl}" id="mode-manual">${msg("loginTotpUnableToScan")}</a></p>
                         </#if>
-                    </ul>
-                    </p>
-                </li>
-            <#else>
-                <li>
-                    <p>${msg("loginTotpStep2")}</p>
-                    <img id="kc-totp-secret-qr-code" src="data:image/png;base64, ${totp.totpSecretQrCode}" alt="Figure: Barcode"><br/>
-                    <p><a href="${totp.manualUrl}" id="mode-manual">${msg("loginTotpUnableToScan")}</a></p>
-                </li>
-            </#if>
-            <li>
-                <p>${msg("loginTotpStep3")}</p>
-                <p>${msg("loginTotpStep3DeviceName")}</p>
-            </li>
-        </ol>
+                    </div>
 
-        <form action="${url.loginAction}" class="${properties.kcFormClass!}" id="kc-totp-settings-form" method="post">
+                    <#if message?has_content && (message.type != 'warning' || !isAppInitiatedAction??)>
+                        <div class="${properties.kcAlertClass!} pf-m-${(message.type = 'error')?then('danger', message.type)}">
+                            <div class="pf-v5-c-alert__icon">
+                                <#if message.type = 'success'><span class="${properties.kcFeedbackSuccessIcon!}"></span></#if>
+                                <#if message.type = 'warning'><span class="${properties.kcFeedbackWarningIcon!}"></span></#if>
+                                <#if message.type = 'error'><span class="${properties.kcFeedbackErrorIcon!}"></span></#if>
+                                <#if message.type = 'info'><span class="${properties.kcFeedbackInfoIcon!}"></span></#if>
+                            </div>
+                            <span class="${properties.kcAlertTitleClass!}">${kcSanitize(message.summary)?no_esc}</span>
+                        </div>
+                    </#if>
+
+                    <form action="${url.loginAction}" class="${properties.kcFormClass!}" id="kc-totp-settings-form" method="post">
             <div class="${properties.kcFormGroupClass!}">
                 <div class="${properties.kcLabelClass!}">
                     <label class="pf-v5-c-form__label" for="form-vertical-name">
@@ -179,6 +205,9 @@
                     form.addEventListener('submit', syncHidden);
                 })();
             </script>
-        </form>
+                    </form>
+                </section>
+            </div>
+        </div>
     </#if>
 </@layout.registrationLayout>
