@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+
 def _repo_root() -> Path:
     for candidate in [Path(__file__).resolve().parent, *Path(__file__).resolve().parents]:
         if (candidate / "scripts").is_dir() and (candidate / "src").is_dir():
@@ -51,9 +52,7 @@ def test_seed_scripts_use_canonical_encoder_region_mapping() -> None:
 
 
 def test_postgres_bootstrap_assigns_canonical_encoder_regions() -> None:
-    users_sql = (REPO_ROOT / "src" / "postgres-init" / "03_users.sql").read_text(
-        encoding="utf-8"
-    )
+    users_sql = (REPO_ROOT / "src" / "postgres-init" / "03_users.sql").read_text(encoding="utf-8")
     regions_sql = (REPO_ROOT / "src" / "postgres-init" / "21_all_regions.sql").read_text(
         encoding="utf-8"
     )

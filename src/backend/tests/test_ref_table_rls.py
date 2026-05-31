@@ -77,6 +77,7 @@ def _rls_db_override(user_id: uuid.UUID):
     dependency_overrides only replaces the return value, not the side effect.
     This override sets the GUC directly so RLS policies fire correctly.
     """
+
     def _override(request: Request):  # noqa: ARG001
         db = get_session_maker()()
         try:

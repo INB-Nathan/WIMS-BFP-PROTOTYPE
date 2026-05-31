@@ -28,7 +28,9 @@ _SessionLocal: sessionmaker = sessionmaker(autocommit=False, autoflush=False, bi
 # Application code must NOT use this; use get_db_with_rls() instead.
 _ADMIN_DATABASE_URL: str = os.environ.get("DATABASE_ADMIN_URL", SQLALCHEMY_DATABASE_URL)
 _admin_engine: Engine = create_engine(_ADMIN_DATABASE_URL)
-_AdminSessionLocal: sessionmaker = sessionmaker(autocommit=False, autoflush=False, bind=_admin_engine)
+_AdminSessionLocal: sessionmaker = sessionmaker(
+    autocommit=False, autoflush=False, bind=_admin_engine
+)
 
 
 def get_engine() -> Engine:
@@ -111,5 +113,6 @@ def __getattr__(name: str):
     # keep working without any changes.
     if name == "get_db_with_rls":
         from auth import get_db_with_rls  # noqa: PLC0415
+
         return get_db_with_rls
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

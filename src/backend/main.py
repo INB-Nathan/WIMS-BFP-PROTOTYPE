@@ -130,7 +130,9 @@ def apply_schema_patches() -> None:
             """)
         )
         db.execute(text("GRANT USAGE ON SCHEMA wims TO wims_app"))
-        db.execute(text("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA wims TO wims_app"))
+        db.execute(
+            text("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA wims TO wims_app")
+        )
         db.execute(text("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA wims TO wims_app"))
         db.commit()
         logger.info("Schema patch applied: wims_app_user role ensured")
@@ -212,11 +214,7 @@ def _apply_rls_helpers_security_definer(db) -> None:  # type: ignore[type-arg]
             "SELECT wims.current_user_region_id()",
         ),
     ):
-        db.execute(
-            text(
-                f"CREATE OR REPLACE FUNCTION wims.{fn} SECURITY DEFINER AS '{body}'"
-            )
-        )
+        db.execute(text(f"CREATE OR REPLACE FUNCTION wims.{fn} SECURITY DEFINER AS '{body}'"))
 
 
 def _apply_users_rls(db) -> None:  # type: ignore[type-arg]
