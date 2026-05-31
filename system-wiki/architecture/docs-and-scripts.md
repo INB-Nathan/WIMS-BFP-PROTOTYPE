@@ -48,6 +48,9 @@ PR fixing Keycloak auth loop. Replaced shell DB bootstrap with SQL (00_keycloak_
 ### `PR_fix-bootstrap-and-admin-config.md`
 PR fixing bootstrap ordering, encoder region assignment, and admin client config. Renamed SQL files for correct sort order, added the NCR encoder region assignment, added wims-admin-service OAuth2 client, bootstrap verify guard.
 
+### `PR-rls-and-fixes.md`
+PR notes for the encoder/validator page refactor and M15a RLS fix. The current version keeps the RLS summary technical, removes the previous plain-language RLS explanation block, and adds Codex-authored UI/auth fixes covering role dashboard redirects, user-scoped manual-entry draft restore, login alert placement, Keycloak OTP confirmation styling, MFA scroll containment, and AFOR Barangay tip alignment.
+
 ---
 
 ## `scripts/` Directory — 14 Files
