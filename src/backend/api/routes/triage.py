@@ -1,4 +1,4 @@
-﻿"""Triage Queue and Promotion Workflow — ENCODER/VALIDATOR only."""
+"""Triage Queue and Promotion Workflow — ENCODER/VALIDATOR only."""
 
 from typing import Annotated
 
