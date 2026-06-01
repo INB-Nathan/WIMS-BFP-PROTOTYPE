@@ -1,4 +1,4 @@
-"""
+﻿"""
 Integration tests for 42_ref_table_rls.sql — RLS enforcement on reference geography tables.
 
 These tests require a running PostgreSQL container with migration 42 applied.

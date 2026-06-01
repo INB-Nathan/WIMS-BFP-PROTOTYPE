@@ -1,4 +1,4 @@
-"""National Analyst Analytics API — Read-only Intelligence Loop.
+﻿"""National Analyst Analytics API — Read-only Intelligence Loop.
 
 All endpoints require NATIONAL_ANALYST or SYSTEM_ADMIN.
 Scoped to verified, non-archived incidents only.

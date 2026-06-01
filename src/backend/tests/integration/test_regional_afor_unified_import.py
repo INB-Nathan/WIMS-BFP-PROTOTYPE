@@ -1,4 +1,4 @@
-"""
+﻿"""
 Unified regional AFOR import — structural vs wildland detection, preview, commit.
 
 Requires DATABASE_URL / running Postgres with WIMS schema (same as test_triage_api).

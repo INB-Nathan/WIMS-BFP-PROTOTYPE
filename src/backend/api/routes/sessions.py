@@ -1,4 +1,4 @@
-"""Admin Sessions API — List and terminate active Keycloak sessions.
+﻿"""Admin Sessions API — List and terminate active Keycloak sessions.
 
 All endpoints require SYSTEM_ADMIN role.
 Prefix: /api/admin  (registered in main.py)

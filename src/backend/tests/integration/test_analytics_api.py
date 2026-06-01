@@ -1,4 +1,4 @@
-"""
+﻿"""
 TDD: National Analyst Analytics API — RBAC and CSV Export.
 
 Red State: REGIONAL_ENCODER gets 403 on analytics endpoints.

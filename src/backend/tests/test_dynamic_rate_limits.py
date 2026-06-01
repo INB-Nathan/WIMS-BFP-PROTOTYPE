@@ -1,4 +1,4 @@
-"""
+﻿"""
 Task: Dynamic Rate Limit Configuration — #47.
 
 Red State: GET/PATCH /api/admin/rate-limits endpoints do not exist.
