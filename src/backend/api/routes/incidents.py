@@ -1,4 +1,4 @@
-import hashlib
+﻿import hashlib
 import json
 import logging
 import os
@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 import auth
 from auth import get_current_wims_user, get_analyst_or_admin
-from database import get_db_with_rls
+from auth import get_db_with_rls
 from schemas.incident import IncidentCreate, IncidentResponse
 from services.analytics.filters import append_common_filters, build_analytics_filters
 from services.analytics_read_model import sync_incident_to_analytics

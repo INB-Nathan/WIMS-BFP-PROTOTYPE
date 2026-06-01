@@ -1,4 +1,4 @@
-"""Triage Queue and Promotion Workflow — ENCODER/VALIDATOR only."""
+﻿"""Triage Queue and Promotion Workflow — ENCODER/VALIDATOR only."""
 
 from typing import Annotated
 
@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user
-from database import get_db_with_rls
+from auth import get_db_with_rls
 from services.civilian_triage import (
     BulkPromoteRequest,
     ClusterActivityRequest,

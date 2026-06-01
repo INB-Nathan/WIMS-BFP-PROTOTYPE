@@ -1418,9 +1418,6 @@ export function IncidentForm({
         onChange={() => {
           userEditedDraftRef.current = true;
         }}
-        onInput={() => {
-          userEditedDraftRef.current = true;
-        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.target as HTMLElement).tagName !== 'TEXTAREA') {
             e.preventDefault();

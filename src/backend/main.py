@@ -81,6 +81,12 @@ def _reset_schema_patch_state_for_tests() -> None:
         _schema_patches_in_progress = False
 
 
+_STARTUP_ADMIN_URL: str = os.environ.get("DATABASE_ADMIN_URL") or os.environ.get(
+    "SQLALCHEMY_DATABASE_URL", os.environ.get("DATABASE_URL", "")
+)
+_startup_admin_engine = create_engine(_STARTUP_ADMIN_URL)
+
+
 def _get_admin_session():
     """Return a superuser session for DDL operations in startup patches.
 
@@ -89,11 +95,7 @@ def _get_admin_session():
     the table owner or superuser — use DATABASE_ADMIN_URL for those ops.
     Falls back to the regular DATABASE_URL if the admin URL is not set.
     """
-    admin_url = os.environ.get("DATABASE_ADMIN_URL") or os.environ.get(
-        "SQLALCHEMY_DATABASE_URL", os.environ.get("DATABASE_URL", "")
-    )
-    engine = create_engine(admin_url)
-    return _sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+    return _sessionmaker(autocommit=False, autoflush=False, bind=_startup_admin_engine)()
 
 
 @app.on_event("startup")
@@ -111,6 +113,10 @@ def apply_schema_patches() -> None:
     - ref_regions / ref_provinces / ref_cities RLS policies: REGIONAL_ENCODER sees only
       their assigned region; NATIONAL_VALIDATOR/ANALYST/ADMIN see all
       (migration 42_ref_table_rls.sql — may not have run on existing containers).
+    - svc_task system service account: background Celery task service account with
+      SYSTEM_ADMIN role for cross-table RLS access (seeded in 03_users.sql for new installs).
+    - Analytics MV ownership: transfers wims.mv_* materialized view ownership to
+      wims_app_user so the non-superuser can run REFRESH MATERIALIZED VIEW.
 
     Uses DATABASE_ADMIN_URL (superuser) because CREATE RULE / CREATE POLICY /
     ALTER TABLE require the table owner; wims_app_user (the runtime role) is not
@@ -202,6 +208,40 @@ def apply_schema_patches() -> None:
     except Exception as exc:
         logger.warning("Schema patch (users RLS) failed (non-fatal): %s", exc)
         db.rollback()
+
+    try:
+        db.execute(
+            text("""
+                INSERT INTO wims.users (user_id, keycloak_id, username, role, is_active)
+                VALUES (
+                    '00000000-0000-0000-0000-000000000002'::uuid,
+                    '00000000-0000-0000-0000-000000000002'::uuid,
+                    'svc_task',
+                    'SYSTEM_ADMIN',
+                    TRUE
+                )
+                ON CONFLICT (user_id) DO NOTHING
+            """)
+        )
+        db.commit()
+        logger.info("Schema patch applied: svc_task system service account ensured")
+    except Exception as exc:
+        logger.warning("Schema patch (svc_task user) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    try:
+        for mv in (
+            "wims.mv_incident_counts_daily",
+            "wims.mv_incident_by_region",
+            "wims.mv_incident_type_distribution",
+        ):
+            db.execute(text(f"ALTER MATERIALIZED VIEW IF EXISTS {mv} OWNER TO wims_app_user"))
+        db.commit()
+        logger.info("Schema patch applied: analytics materialized view ownership transferred to wims_app_user")
+    except Exception as exc:
+        logger.warning("Schema patch (MV ownership) failed (non-fatal): %s", exc)
+        db.rollback()
+
     finally:
         db.close()
         with _schema_patches_lock:

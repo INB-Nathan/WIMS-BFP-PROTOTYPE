@@ -1,4 +1,4 @@
-"""
+﻿"""
 TDD: National Analyst Analytics API — RBAC and CSV Export.
 
 Red State: REGIONAL_ENCODER gets 403 on analytics endpoints.
@@ -15,7 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import auth
-from database import get_db_with_rls
+from auth import get_db_with_rls
 from main import app
 
 

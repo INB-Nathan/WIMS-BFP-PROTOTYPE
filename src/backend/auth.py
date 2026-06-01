@@ -327,8 +327,8 @@ async def get_current_wims_user(
        to a keycloak_id. If a username row is already linked to a
        different keycloak_id, reject as identity mismatch.
 
-    Also attaches the resolved user dict to request.state so that
-    get_db() can call SET LOCAL wims.current_user_id for RLS enforcement.
+    Returns the resolved user dict; callers that need an RLS-scoped session
+    should use get_db_with_rls() which depends on this function directly.
     """
     keycloak_sub = token_payload.get("sub")
     if not keycloak_sub:
@@ -387,9 +387,6 @@ async def get_current_wims_user(
         "kc_username": token_payload.get("preferred_username"),
         "email": token_payload.get("email", ""),
     }
-
-    # Attach to request.state so get_db() can set the RLS GUC for this transaction
-    request.state.wims_user = user_dict
 
     return user_dict
 

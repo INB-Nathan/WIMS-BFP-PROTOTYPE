@@ -1,4 +1,4 @@
-"""Regional Office API — AFOR Import, Regional Incidents, Stats.
+﻿"""Regional Office API — AFOR Import, Regional Incidents, Stats.
 
 Route handlers are grouped in sub-modules; this file registers them all
 under the /api/regional prefix.
@@ -22,7 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user, get_national_validator, get_regional_encoder
-from database import get_db_with_rls
+from auth import get_db_with_rls
 from services.event_bus import publish_incident_event, publish_incident_event_sync
 from services.afor_import import (
     ALARM_LEVEL_MAP,

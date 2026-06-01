@@ -1,4 +1,4 @@
-"""
+﻿"""
 TDD: New Admin Routes — issues #108, #109, #110.
 
 Covers:
@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 import auth
-from database import get_db_with_rls
+from auth import get_db_with_rls
 from main import app
 
 
