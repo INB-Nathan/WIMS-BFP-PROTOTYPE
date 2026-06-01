@@ -155,6 +155,8 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 
 **6. Auth/RLS test override pattern** — tests that override role-specific dependencies such as `get_regional_encoder` or `get_system_admin` must also override `get_current_wims_user` or `get_db_with_rls` when the route uses an RLS-scoped DB dependency. Reference-table RLS tests use a `wims_app_user` connection instead of the CI postgres superuser so PostgreSQL row-level policies are actually enforced.
 
+**7. RLS init contract tests** — `src/backend/tests/test_rls_init_contract.py` statically guards the database bootstrap path: `wims.current_user_role()` must be defined only by `src/postgres-init/09_rls_helpers.sql`, backend startup repair must not recreate helper functions with ad hoc SQL quoting, and `14a_assign_ncr_to_test_users.sql` must assign NCR to canonical `encoder_ncr` rather than legacy `encoder_test`.
+
 ---
 
 ## CI/CD Pipelines

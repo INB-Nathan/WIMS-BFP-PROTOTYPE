@@ -194,6 +194,16 @@ Attribute access: `station_row.region_id if station_row else None`. Fallback to 
 
 **Wiki updated:** `system-wiki/log.md`. No `gaps/frs-codebase-gap-register.md` update needed (production quality fixes, no FRS alignment change).
 
+## [2026-06-01] fix | RLS helper bootstrap source of truth
+
+- Removed the backend startup duplicate that recreated `wims.current_user_role()`, `wims.current_user_region_id()`, and `wims.current_region_id()` with ad hoc single-quoted SQL bodies; `src/postgres-init/09_rls_helpers.sql` is now the only initializer source for `current_user_role()`.
+- Confirmed `src/postgres-init/14a_assign_ncr_to_test_users.sql` already targets canonical `encoder_ncr` plus `validator_test`; no migration rename was needed.
+- Added static RLS init contract tests to prevent duplicate helper definitions and legacy `encoder_test` NCR assignment from returning.
+
+**Verification:** `python -m pytest tests/test_schema_patch_startup_guard.py tests/test_rls_init_contract.py -q`, `python -m ruff check .`, `python -m ruff format --check .`, and `python -m py_compile src\backend\main.py src\backend\tests\test_schema_patch_startup_guard.py src\backend\tests\test_rls_init_contract.py` pass. Full DB-backed rerun requires the CI/PostGIS service.
+
+**Wiki updates:** Updated `system-wiki/architecture/pwa-tests-cicd.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
 ## [2026-06-01] fix | Auth and RLS integration test dependency overrides
 
 - Updated AI/IDS admin and regional AFOR import tests so role-specific auth overrides also satisfy the canonical `get_current_wims_user` / `get_db_with_rls` dependencies used by RLS-scoped routes.

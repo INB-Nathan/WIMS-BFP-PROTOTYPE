@@ -28,7 +28,6 @@ def test_apply_schema_patches_runs_once_per_process(monkeypatch) -> None:
     calls = {
         "admin_session": 0,
         "ref_rls": 0,
-        "rls_helpers": 0,
         "users_rls": 0,
     }
 
@@ -39,15 +38,11 @@ def test_apply_schema_patches_runs_once_per_process(monkeypatch) -> None:
     def fake_ref_rls(_db) -> None:
         calls["ref_rls"] += 1
 
-    def fake_rls_helpers(_db) -> None:
-        calls["rls_helpers"] += 1
-
     def fake_users_rls(_db) -> None:
         calls["users_rls"] += 1
 
     monkeypatch.setattr(main, "_get_admin_session", fake_get_admin_session)
     monkeypatch.setattr(main, "_apply_ref_table_rls", fake_ref_rls)
-    monkeypatch.setattr(main, "_apply_rls_helpers_security_definer", fake_rls_helpers)
     monkeypatch.setattr(main, "_apply_users_rls", fake_users_rls)
 
     main._reset_schema_patch_state_for_tests()
@@ -60,7 +55,6 @@ def test_apply_schema_patches_runs_once_per_process(monkeypatch) -> None:
     assert calls == {
         "admin_session": 1,
         "ref_rls": 1,
-        "rls_helpers": 1,
         "users_rls": 1,
     }
     assert fake_session.close_count == 1
