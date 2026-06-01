@@ -17,20 +17,41 @@ Expected behavior:
 
 from __future__ import annotations
 
+import os
 import uuid
 
 import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
+import auth
 from auth import get_current_wims_user
-from database import get_db_with_rls, get_session_maker, set_rls_context
+from database import get_db_with_rls, set_rls_context
 from main import app
 
 _ENCODER_UID = uuid.UUID("11111111-1111-4111-8111-111111111111")
 _ANALYST_UID = uuid.UUID("33333333-3333-4333-8333-333333333333")
 
 _NCR_REGION_ID = 1  # seeded by 21_all_regions.sql
+
+
+def _app_database_url() -> str:
+    url = os.environ.get(
+        "SQLALCHEMY_DATABASE_URL",
+        os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/wims_test"),
+    )
+    return url.replace("postgres:postgres@", "wims_app_user:wimsapp@").replace(
+        "postgres:password@", "wims_app_user:wimsapp@"
+    )
+
+
+_AppSessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=create_engine(_app_database_url()),
+)
 
 
 @pytest.fixture(autouse=True)
@@ -79,7 +100,7 @@ def _rls_db_override(user_id: uuid.UUID):
     """
 
     def _override(request: Request):  # noqa: ARG001
-        db = get_session_maker()()
+        db = _AppSessionLocal()
         try:
             set_rls_context(db, user_id)
             yield db
@@ -98,6 +119,7 @@ def _rls_db_override(user_id: uuid.UUID):
 def test_encoder_sees_only_own_region_in_regions():
     app.dependency_overrides[get_current_wims_user] = _enc_override(_NCR_REGION_ID)
     app.dependency_overrides[get_db_with_rls] = _rls_db_override(_ENCODER_UID)
+    app.dependency_overrides[auth.get_db_with_rls] = _rls_db_override(_ENCODER_UID)
     with TestClient(app) as client:
         resp = client.get("/api/ref/regions")
     assert resp.status_code == 200
@@ -111,6 +133,7 @@ def test_encoder_sees_only_own_region_in_regions():
 def test_analyst_sees_all_regions():
     app.dependency_overrides[get_current_wims_user] = _analyst_override()
     app.dependency_overrides[get_db_with_rls] = _rls_db_override(_ANALYST_UID)
+    app.dependency_overrides[auth.get_db_with_rls] = _rls_db_override(_ANALYST_UID)
     with TestClient(app) as client:
         resp = client.get("/api/ref/regions")
     assert resp.status_code == 200
@@ -128,6 +151,7 @@ def test_analyst_sees_all_regions():
 def test_encoder_sees_only_own_region_provinces():
     app.dependency_overrides[get_current_wims_user] = _enc_override(_NCR_REGION_ID)
     app.dependency_overrides[get_db_with_rls] = _rls_db_override(_ENCODER_UID)
+    app.dependency_overrides[auth.get_db_with_rls] = _rls_db_override(_ENCODER_UID)
     with TestClient(app) as client:
         resp = client.get("/api/ref/provinces")
     assert resp.status_code == 200
@@ -142,6 +166,7 @@ def test_encoder_sees_only_own_region_provinces():
 def test_analyst_sees_all_provinces():
     app.dependency_overrides[get_current_wims_user] = _analyst_override()
     app.dependency_overrides[get_db_with_rls] = _rls_db_override(_ANALYST_UID)
+    app.dependency_overrides[auth.get_db_with_rls] = _rls_db_override(_ANALYST_UID)
     with TestClient(app) as client:
         resp = client.get("/api/ref/provinces")
     assert resp.status_code == 200
@@ -163,6 +188,7 @@ def test_encoder_sees_only_own_region_cities():
     # First get encoder's provinces to know which province_ids are valid for NCR
     app.dependency_overrides[get_current_wims_user] = _enc_override(_NCR_REGION_ID)
     app.dependency_overrides[get_db_with_rls] = _rls_db_override(_ENCODER_UID)
+    app.dependency_overrides[auth.get_db_with_rls] = _rls_db_override(_ENCODER_UID)
     with TestClient(app) as client:
         provinces_resp = client.get("/api/ref/provinces")
         cities_resp = client.get("/api/ref/cities")
@@ -180,6 +206,7 @@ def test_encoder_sees_only_own_region_cities():
 def test_analyst_sees_all_cities():
     app.dependency_overrides[get_current_wims_user] = _analyst_override()
     app.dependency_overrides[get_db_with_rls] = _rls_db_override(_ANALYST_UID)
+    app.dependency_overrides[auth.get_db_with_rls] = _rls_db_override(_ANALYST_UID)
     with TestClient(app) as client:
         resp = client.get("/api/ref/cities")
     assert resp.status_code == 200

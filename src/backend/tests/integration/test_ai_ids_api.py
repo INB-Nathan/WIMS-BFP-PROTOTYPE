@@ -13,7 +13,7 @@ Run from project root:
 """
 
 from __future__ import annotations
-from auth import get_system_admin
+from auth import get_current_wims_user, get_db_with_rls, get_system_admin
 from main import app
 
 import os
@@ -68,9 +68,20 @@ def mock_system_admin():
             "user_id": "00000000-0000-0000-0000-000000000001",
         }
 
+    def _mock_db():
+        db = _Session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_current_wims_user] = _mock
     app.dependency_overrides[get_system_admin] = _mock
+    app.dependency_overrides[get_db_with_rls] = _mock_db
     yield
+    app.dependency_overrides.pop(get_current_wims_user, None)
     app.dependency_overrides.pop(get_system_admin, None)
+    app.dependency_overrides.pop(get_db_with_rls, None)
 
 
 @pytest.fixture
