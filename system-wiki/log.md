@@ -3,6 +3,16 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-01] fix | Auth and RLS integration test dependency overrides
+
+- Updated AI/IDS admin and regional AFOR import tests so role-specific auth overrides also satisfy the canonical `get_current_wims_user` / `get_db_with_rls` dependencies used by RLS-scoped routes.
+- Updated reference-table RLS tests to connect as `wims_app_user` instead of the CI postgres superuser, ensuring row-level policies are enforced during assertions.
+- Documented the auth/RLS override pattern in the CI/test infrastructure synthesis page.
+
+**Verification:** `python -m py_compile src\backend\tests\integration\test_ai_ids_api.py src\backend\tests\integration\test_regional_afor_unified_import.py src\backend\tests\test_ref_table_rls.py`, `python -m ruff check .`, and `python -m ruff format --check .` pass. DB-backed integration rerun requires the CI/PostGIS service.
+
+**Wiki updates:** Updated `system-wiki/architecture/pwa-tests-cicd.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
 ## [2026-06-01] fix | Backend startup schema patch guard for CI runtime
 
 - Added a process-local startup guard so FastAPI compatibility schema patches run once per backend Python process instead of once per repeated pytest `TestClient(app)` lifespan.

@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-01
 Total synthesis pages: 32
-Last changes: backend startup schema patches now use a process-local guard to avoid repeated DDL during CI pytest `TestClient` lifespans.
+Last changes: backend auth/RLS integration tests now override canonical user and DB dependencies consistently, with reference RLS tests using `wims_app_user`.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
