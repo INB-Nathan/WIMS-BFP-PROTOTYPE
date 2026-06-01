@@ -13,7 +13,7 @@ import os
 from sqlalchemy import text
 
 from celery_config import celery_app
-from database import get_session
+from database import get_session, SYSTEM_TASK_USER_ID
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ def expire_old_drafts() -> dict[str, int | list[int]]:
 
     Returns a summary dict with the count and IDs of archived incidents.
     """
-    db = get_session()
+    db = get_session(SYSTEM_TASK_USER_ID)
     try:
         result = db.execute(
             text(

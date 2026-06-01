@@ -39,6 +39,17 @@ VALUES (
 )
 ON CONFLICT (user_id) DO NOTHING;
 
+-- Background task service account (SYSTEM_ADMIN role, cross-table access for Celery tasks)
+INSERT INTO wims.users (user_id, keycloak_id, username, role, is_active)
+VALUES (
+    '00000000-0000-0000-0000-000000000002'::uuid,
+    '00000000-0000-0000-0000-000000000002'::uuid,
+    'svc_task',
+    'SYSTEM_ADMIN',
+    TRUE
+)
+ON CONFLICT (user_id) DO NOTHING;
+
 -- Bootstrap Keycloak-backed dev users (deterministic UUIDs matching Keycloak realm)
 INSERT INTO wims.users (user_id, keycloak_id, username, role, assigned_region_id, is_active)
 VALUES

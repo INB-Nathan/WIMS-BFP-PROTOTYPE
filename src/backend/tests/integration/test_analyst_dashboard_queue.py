@@ -25,7 +25,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 import auth
-from database import get_db, get_db_with_rls
+from auth import get_db_with_rls
+from database import get_db
 from main import app
 
 

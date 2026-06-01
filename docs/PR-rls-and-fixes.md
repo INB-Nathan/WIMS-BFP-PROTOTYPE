@@ -102,16 +102,74 @@ This PR delivers three grouped issues from `local docs/issues.md` plus a set of 
 
 ---
 
+---
+
+## Part 3 — Review Fixes (post-merge review)
+
+**Reviewer:** PR #182 three-axis review · 2026-06-01
+
+### Fix 1 — Celery tasks silently returning zero results (BLOCKER)
+
+All four affected tasks were calling `get_session()` without a user UUID, so `wims.current_user_id` GUC was never set and RLS policies returned zero rows.
+
+- **`src/backend/database.py`** — Added `SYSTEM_TASK_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")` constant.
+- **`src/postgres-init/03_users.sql`** — Seeded `svc_task` service account with `SYSTEM_ADMIN` role (ON CONFLICT DO NOTHING).
+- **`src/backend/main.py`** — Added two new startup patches: (1) ensures `svc_task` user exists on existing deployments; (2) transfers ownership of `wims.mv_incident_counts_daily`, `wims.mv_incident_by_region`, `wims.mv_incident_type_distribution` to `wims_app_user` so the non-superuser can run `REFRESH MATERIALIZED VIEW`.
+- **`src/backend/tasks/drafts.py`** — `get_session()` → `get_session(SYSTEM_TASK_USER_ID)`.
+- **`src/backend/tasks/civilian_reports.py`** — Same.
+- **`src/backend/tasks/narrative.py`** — `next(get_db())` (admin URL, resource-leak pattern) → `get_session(SYSTEM_TASK_USER_ID)`.
+- **`src/backend/tasks/analytics_refresh.py`** — `get_session()` → `get_session(SYSTEM_TASK_USER_ID)`; MV ownership patch in `main.py` fixes the REFRESH permission.
+
+### Fix 2 — Vestigial `request.state.wims_user` assignment (High)
+
+`get_current_wims_user` in `auth.py` still set `request.state.wims_user = user_dict` after the refactor to direct `Depends()`. No consumer remained. Removed the assignment and updated the docstring.
+
+### Fix 3 — Validator operational map bypasses RLS (High)
+
+`get_operational_map()` in `map.py` used `Depends(get_db)` (admin URL, no RLS) and a separate dummy `_user` parameter for auth. Replaced both with `Depends(auth.get_db_with_rls)`, which enforces both authentication and region-scoped RLS.
+
+### Fix 4 — Remove fragile `__getattr__` re-export (Medium)
+
+`database.py` used a `PEP 562 __getattr__` hook to lazily re-export `auth.get_db_with_rls`. Import errors deferred to runtime; static analysis blind spot. Removed the `__getattr__` block and updated all 16 import sites from `from database import get_db_with_rls` → `from auth import get_db_with_rls`.
+
+### Fix 5 — Redundant `onInput` on IncidentForm (Low)
+
+`IncidentForm.tsx` had both `onChange` and `onInput` on the `<form>` element doing the same thing (`userEditedDraftRef.current = true`). Removed `onInput`; `onChange` is the standard React pattern.
+
+### Fix 6 — Engine created per call in `_get_admin_session` (Low)
+
+`_get_admin_session()` in `main.py` called `create_engine(admin_url)` on every invocation, creating a new SQLAlchemy engine (and connection pool) each time. Moved to a module-level cached `_startup_admin_engine`.
+
+### Fix 7 — Test override signature mismatch and redundant dual override (Medium)
+
+`test_ref_table_rls.py`: the `_rls_db_override` inner function used `def _override(request: Request):` — a stale artifact from the old `request.state` approach, with an outdated comment. Each test also overrode both `get_db_with_rls` and `auth.get_db_with_rls` (same object via `__getattr__`). Fixed: signature changed to `def _override():`, stale comment removed, `import auth` / `from fastapi import Request` removed, and 6 redundant `auth.get_db_with_rls` override lines removed.
+
+---
+
 ## Files changed
 
 ### Backend
 
 | File | Change |
 |---|---|
-| `src/backend/auth.py` | `get_db_with_rls` depends on `get_current_wims_user` |
-| `src/backend/database.py` | `_AdminSessionLocal` added; `get_db()` uses admin URL |
-| `src/backend/main.py` | `apply_schema_patches()` startup hook; `GET /api/user/me` JIT provisioning |
-| `src/backend/tests/test_ref_table_rls.py` | New — RLS integration tests for ref endpoints |
+| `src/backend/auth.py` | `get_db_with_rls` depends on `get_current_wims_user`; vestigial `request.state.wims_user` removed |
+| `src/backend/database.py` | `_AdminSessionLocal` added; `get_db()` uses admin URL; `SYSTEM_TASK_USER_ID` constant added; `__getattr__` re-export removed |
+| `src/backend/main.py` | `apply_schema_patches()` startup hook; `GET /api/user/me` JIT provisioning; `svc_task` + MV ownership startup patches; `_get_admin_session` engine cached |
+| `src/backend/api/routes/map.py` | `get_operational_map` uses `auth.get_db_with_rls` (RLS enforced) |
+| `src/backend/tasks/drafts.py` | `get_session(SYSTEM_TASK_USER_ID)` — RLS context set |
+| `src/backend/tasks/civilian_reports.py` | `get_session(SYSTEM_TASK_USER_ID)` — RLS context set |
+| `src/backend/tasks/narrative.py` | `get_session(SYSTEM_TASK_USER_ID)` — replaces `next(get_db())` |
+| `src/backend/tasks/analytics_refresh.py` | `get_session(SYSTEM_TASK_USER_ID)` — RLS context set |
+| `src/backend/api/routes/analytics.py` | `from auth import get_db_with_rls` |
+| `src/backend/api/routes/incidents.py` | `from auth import get_db_with_rls` |
+| `src/backend/api/routes/triage.py` | `from auth import get_db_with_rls` |
+| `src/backend/api/routes/regional.py` | `from auth import get_db_with_rls` |
+| `src/backend/api/routes/sessions.py` | `from auth import get_db_with_rls` |
+| `src/backend/api/routes/admin.py` | `from auth import get_db_with_rls` |
+| `src/backend/api/routes/user.py` | `from auth import get_db_with_rls` |
+| `src/backend/api/routes/ref.py` | `from auth import get_db_with_rls` |
+| 8 test files | `from auth import get_db_with_rls` |
+| `src/backend/tests/test_ref_table_rls.py` | New — RLS integration tests; fixed override signatures; redundant overrides removed |
 | `src/backend/tests/test_dev_user_seed_mapping.py` | New — seed mapping drift guard |
 | `src/backend/tests/test_immutable_records.py` | Removed stale `station_code` field |
 | 6 integration/unit test fixtures | `_SessionLocal` → `_AdminSessionLocal` for seed inserts |
@@ -124,7 +182,7 @@ This PR delivers three grouped issues from `local docs/issues.md` plus a set of 
 | `src/postgres-init/43_app_login_role.sql` | New — `wims_app_user` non-superuser login role |
 | `src/postgres-init/09_rls_helpers.sql` | `SECURITY DEFINER` on RLS helper functions |
 | `src/postgres-init/10_rls_policies.sql` | `users_self_or_admin_select` broadened for BFP staff roles |
-| `src/postgres-init/03_users.sql` | 18 canonical encoder seed rows |
+| `src/postgres-init/03_users.sql` | 18 canonical encoder seed rows; `svc_task` SYSTEM_ADMIN service account |
 | `src/postgres-init/14a_assign_ncr_to_test_users.sql` | Updated for canonical usernames |
 | `src/postgres-init/15_validator_workflow.sql` | Updated for canonical usernames |
 | `src/postgres-init/21_all_regions.sql` | All 18 region rows with encoder assignments |
@@ -140,7 +198,7 @@ This PR delivers three grouped issues from `local docs/issues.md` plus a set of 
 | `src/frontend/src/app/dashboard/page.tsx` | Simplified role redirect |
 | `src/frontend/src/app/dashboard/regional/page.tsx` | 1,181 → 965 lines; filter fixes |
 | `src/frontend/src/app/dashboard/validator/page.tsx` | 1,379 → 967 lines; filter fixes; header removed |
-| `src/frontend/src/components/IncidentForm.tsx` | Per-user draft key; `userEditedDraftRef` guard |
+| `src/frontend/src/components/IncidentForm.tsx` | Per-user draft key; `userEditedDraftRef` guard; redundant `onInput` handler removed |
 | `src/frontend/src/components/Sidebar.tsx` | Operational Map in validator sidebar |
 | `src/frontend/src/components/MapPickerInner.tsx` | `, Philippines` stripped from 14 fallbacks |
 | `src/frontend/src/components/validator/` | 6 new files + `types.ts` |
@@ -180,7 +238,7 @@ This PR delivers three grouped issues from `local docs/issues.md` plus a set of 
 
 ### Frontend (Vitest)
 
-22 test files / 147 tests passed. Includes 5 `roleRedirect` tests (3 original + 2 new for cross-role rejection and own-dashboard deep-link).
+22 test files / 150 tests passed. Includes 5 `roleRedirect` tests (3 original + 2 new for cross-role rejection and own-dashboard deep-link).
 
 ---
 
@@ -215,6 +273,8 @@ INFO  Schema patch applied: no_update_verified rule updated ...
 INFO  Schema patch applied: ref_regions/ref_provinces/ref_cities RLS policies
 INFO  Schema patch applied: current_user_role/region_id made SECURITY DEFINER
 INFO  Schema patch applied: wims.users SELECT policy broadened for BFP staff roles
+INFO  Schema patch applied: svc_task system service account ensured
+INFO  Schema patch applied: analytics materialized view ownership transferred to wims_app_user
 ```
 
 To apply Keycloak profile enforcement on a running stack without `down -v`:
@@ -243,6 +303,6 @@ bash scripts/seed-dev-users.sh
 
 ## Known issues / out of scope
 
-- `celery-worker` uses `DATABASE_URL = wims_app_user` with no `DATABASE_ADMIN_URL`. Celery tasks requiring DDL or superuser access are out of scope.
 - 56 pre-existing test failures remain — not regressions. They were in ERROR state before this PR and now surface as assertion failures after fixture plumbing was corrected.
 - Keycloak `UPDATE_PROFILE` / `userProfileConfig` only applies to freshly admin-created users. Dev seed users bypass it by design.
+- `nginx.conf` localhost block uses `$http_origin` for CORS — intentional for local dev; not present in the production HTTPS block.

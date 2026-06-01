@@ -32,10 +32,10 @@ def refresh_materialized_views(concurrent: bool = True) -> dict[str, str]:
     Returns:
         Dict mapping view name to refresh status.
     """
-    from database import get_session
+    from database import get_session, SYSTEM_TASK_USER_ID
 
     results: dict[str, str] = {}
-    with get_session() as db:
+    with get_session(SYSTEM_TASK_USER_ID) as db:
         for mv_name in MV_NAMES:
             full_name = f"wims.{mv_name}"
             mode = "CONCURRENTLY" if concurrent else ""

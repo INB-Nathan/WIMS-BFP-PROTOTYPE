@@ -32,6 +32,10 @@ _AdminSessionLocal: sessionmaker = sessionmaker(
     autocommit=False, autoflush=False, bind=_admin_engine
 )
 
+# System service account for background Celery tasks (SYSTEM_ADMIN, sees all rows).
+# Must match the row seeded in 03_users.sql.
+SYSTEM_TASK_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")
+
 
 def get_engine() -> Engine:
     return _engine
@@ -103,16 +107,3 @@ def get_session(user_id: Optional[uuid.UUID] = None) -> Session:
     return session
 
 
-def __getattr__(name: str):
-    # Lazy re-export: get_db_with_rls lives in auth.py (it depends on
-    # get_current_wims_user which is defined there).  A top-level
-    # "from auth import …" would create a circular import because auth.py
-    # imports from database.  The module __getattr__ hook (PEP 562) defers
-    # the import to the first access, by which time both modules are fully
-    # loaded.  All existing "from database import get_db_with_rls" sites
-    # keep working without any changes.
-    if name == "get_db_with_rls":
-        from auth import get_db_with_rls  # noqa: PLC0415
-
-        return get_db_with_rls
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

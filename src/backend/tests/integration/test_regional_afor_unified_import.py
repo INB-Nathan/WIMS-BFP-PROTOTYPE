@@ -1,4 +1,4 @@
-"""
+﻿"""
 Unified regional AFOR import — structural vs wildland detection, preview, commit.
 
 Requires DATABASE_URL / running Postgres with WIMS schema (same as test_triage_api).
@@ -17,7 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 import auth
-from database import get_db_with_rls
+from auth import get_db_with_rls
 from main import app
 
 

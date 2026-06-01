@@ -5,7 +5,7 @@ import logging
 from celery import shared_task
 from sqlalchemy import text
 
-from database import get_db
+from database import get_session, SYSTEM_TASK_USER_ID
 
 logger = logging.getLogger("wims.narrative")
 
@@ -20,7 +20,7 @@ def batch_generate_narratives(limit: int = 50):
     import asyncio
     from services.ai_service import generate_incident_narrative
 
-    db = next(get_db())
+    db = get_session(SYSTEM_TASK_USER_ID)
     try:
         rows = db.execute(
             text("""
