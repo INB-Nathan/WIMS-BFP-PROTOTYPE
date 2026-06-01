@@ -1,4 +1,4 @@
-﻿"""
+"""
 Security-focused integration tests for /api/analytics.
 
 Covers:
