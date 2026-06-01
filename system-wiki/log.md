@@ -1,5 +1,13 @@
 # System Wiki Log
 
+## [2026-06-02] test | Add frontend profile page tests (#28, #86)
+
+- Created `src/frontend/src/app/profile/__tests__/profile.test.tsx` with 9 tests.
+- Covers: email input renders, current email display, email-change warning, fallback when no email.
+- Covers region display: All Regions (NATIONAL_ANALYST), National (SYSTEM_ADMIN), region ID (REGIONAL_ENCODER), dash (no region).
+- Covers profile save: calls updateMyProfile with email when provided.
+- Uses Vitest + React Testing Library following existing project patterns (analyst dashboard test as reference).
+
 ## [2026-06-02] feat | Enable self-service email editing in profile (#28, #86)
 
 - Added `email: Optional[str]` to `ProfileUpdate` schema in `src/backend/api/routes/user.py`.
