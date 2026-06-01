@@ -3,6 +3,16 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-01] fix | Backend startup schema patch guard for CI runtime
+
+- Added a process-local startup guard so FastAPI compatibility schema patches run once per backend Python process instead of once per repeated pytest `TestClient(app)` lifespan.
+- Added focused backend coverage for the guard, verifying that a second `apply_schema_patches()` call does not reopen the admin DB session or rerun patch helpers.
+- Updated CI/test infrastructure documentation to record the startup guard and clarify that long runtime inside the first backend `Run tests` step should be investigated as test/startup behavior before changing the advisory coverage pass.
+
+**Verification:** `python -m py_compile src\backend\main.py src\backend\tests\test_schema_patch_startup_guard.py`, `python -m ruff check .`, `python -m ruff format --check .`, and `python -m pytest tests/test_schema_patch_startup_guard.py -q` pass.
+
+**Wiki updates:** Updated `system-wiki/architecture/pwa-tests-cicd.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
 ## [2026-05-31] docs | PR RLS and fixes summary updated
 
 - Updated `docs/PR-rls-and-fixes.md` with Codex-authored UI/auth changes: role dashboard redirects, user-scoped manual-entry draft restore, login alert placement, OTP confirmation card refinements, MFA scroll containment, and AFOR Barangay tip alignment.

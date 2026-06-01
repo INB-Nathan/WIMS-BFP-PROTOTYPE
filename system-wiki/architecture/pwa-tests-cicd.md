@@ -1,10 +1,10 @@
 ---
 title: PWA/Offline-First, Tests & CI/CD
 created: 2026-05-16
-updated: 2026-05-31
+updated: 2026-06-01
 type: architecture
 tags: [wims-bfp, pwa, offline-first, testing, ci-cd, service-worker]
-sources: [src/frontend/src/lib/, src/frontend/public/sw.js, .github/workflows/]
+sources: [src/frontend/src/lib/, src/frontend/public/sw.js, src/backend/main.py, src/backend/tests/test_schema_patch_startup_guard.py, .github/workflows/]
 status: draft
 ---
 
@@ -146,6 +146,8 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 
 **4. ci.yml exclusions** — 8 test files explicitly excluded from CI runner: rate-limiting, suricata, infra-config, bootstrap, OTP, schema, RLS policy, SQL quality (need special Docker setup).
 
+**5. Backend startup schema patch guard** — `src/backend/main.py` runs compatibility schema repairs for old containers at FastAPI startup, but guards the routine with a process-local lock/attempt flag so repeated `TestClient(app)` lifespans in pytest do not rerun DDL/RLS patch blocks. `src/backend/tests/test_schema_patch_startup_guard.py` verifies that repeated calls reopen no second admin DB session and rerun no patch helpers.
+
 ---
 
 ## CI/CD Pipelines
@@ -166,6 +168,8 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 | `backend` | ubuntu-latest | Python 3.12, PostGIS + Redis 7 service containers. `ruff check` → `ruff format --check` → `pytest -v --tb=short` (8 test files excluded) |
 | `docker-build` | ubuntu-latest | `docker compose config` validation + `docker compose build --parallel` |
 | `merge-gate` | ubuntu-latest | **Blocks merge** unless migrations, frontend, backend, and docker-build all pass |
+
+The backend job still runs a second advisory coverage pass after the main pytest pass. If backend runtime spikes while the first `Run tests` step is still active, inspect startup/test fixture behavior before changing the coverage step.
 
 ### CD — `.github/workflows/cd.yml`
 

@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-05-31
+Last updated: 2026-06-01
 Total synthesis pages: 32
-Last changes: `docs/PR-rls-and-fixes.md` now records the Codex UI/auth fixes and removes the plain-language RLS explanation block.
+Last changes: backend startup schema patches now use a process-local guard to avoid repeated DDL during CI pytest `TestClient` lifespans.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
