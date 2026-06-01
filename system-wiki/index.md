@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-01
 Total synthesis pages: 32
-Last changes: backend auth/RLS integration tests now override canonical user and DB dependencies consistently, with reference RLS tests using `wims_app_user`.
+Last changes: RLS initialization now keeps `current_user_role()` solely in `09_rls_helpers.sql`, with static tests guarding against startup duplicates and legacy `encoder_test` assignment.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

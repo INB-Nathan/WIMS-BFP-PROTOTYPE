@@ -189,14 +189,6 @@ def apply_schema_patches() -> None:
         db.rollback()
 
     try:
-        _apply_rls_helpers_security_definer(db)
-        db.commit()
-        logger.info("Schema patch applied: current_user_role/region_id made SECURITY DEFINER")
-    except Exception as exc:
-        logger.warning("Schema patch (RLS helpers SECURITY DEFINER) failed (non-fatal): %s", exc)
-        db.rollback()
-
-    try:
         _apply_users_rls(db)
         db.commit()
         logger.info("Schema patch applied: wims.users SELECT policy broadened for BFP staff roles")
@@ -208,33 +200,6 @@ def apply_schema_patches() -> None:
         with _schema_patches_lock:
             _schema_patches_attempted = True
             _schema_patches_in_progress = False
-
-
-def _apply_rls_helpers_security_definer(db) -> None:  # type: ignore[type-arg]
-    """Re-create RLS helper functions as SECURITY DEFINER.
-
-    Without SECURITY DEFINER, current_user_role() queries wims.users, which
-    fires the users RLS policy, which calls current_user_role() → recursion.
-    SECURITY DEFINER makes the function run as its owner (postgres) so the query
-    bypasses RLS.  This is safe: the function only reads the GUC-set user's own row.
-    """
-    for fn, body in (
-        (
-            "current_user_role() RETURNS text LANGUAGE sql STABLE",
-            "SELECT COALESCE(u.role, 'ANONYMOUS'::text) FROM wims.users u "
-            "WHERE u.user_id = wims.current_user_uuid() AND u.is_active = TRUE",
-        ),
-        (
-            "current_user_region_id() RETURNS integer LANGUAGE sql STABLE",
-            "SELECT u.assigned_region_id FROM wims.users u "
-            "WHERE u.user_id = wims.current_user_uuid() AND u.is_active = TRUE",
-        ),
-        (
-            "current_region_id() RETURNS integer LANGUAGE sql STABLE",
-            "SELECT wims.current_user_region_id()",
-        ),
-    ):
-        db.execute(text(f"CREATE OR REPLACE FUNCTION wims.{fn} SECURITY DEFINER AS '{body}'"))
 
 
 def _apply_users_rls(db) -> None:  # type: ignore[type-arg]
