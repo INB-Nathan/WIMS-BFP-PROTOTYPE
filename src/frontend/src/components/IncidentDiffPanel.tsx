@@ -22,8 +22,14 @@ interface IncidentDiffPanelProps {
 
 function formatValue(v: unknown): string {
   if (v === null || v === undefined) return '—';
-  if (typeof v === 'object') return JSON.stringify(v);
-  return String(v);
+  if (typeof v !== 'object') return String(v);
+  // Scalar wrapper objects from JSONB (e.g. {value: "1st Alarm"}) — unwrap them
+  const keys = Object.keys(v as object);
+  if (keys.length === 1) {
+    const inner = (v as Record<string, unknown>)[keys[0]];
+    if (typeof inner !== 'object') return String(inner ?? '—');
+  }
+  return JSON.stringify(v);
 }
 
 export function IncidentDiffPanel({ incidentId }: IncidentDiffPanelProps) {

@@ -12,11 +12,13 @@ import {
   deleteIncident,
   apiFetch,
   ApiRequestError,
+  updateRegionalIncident,
   type RegionalIncidentDetailResponse,
 } from '@/lib/api';
 import dynamic from 'next/dynamic';
 import { UpdateRequestDiffPanel } from '@/components/UpdateRequestDiffPanel';
 import { IncidentDiffPanel } from '@/components/IncidentDiffPanel';
+import { IncidentConflictMergePanel } from '@/components/IncidentConflictMergePanel';
 import type { Incident } from '@/lib/edgeFunctions';
 import { getShortRegionName } from '@/lib/ph-regions';
 
@@ -438,6 +440,13 @@ export default function RegionalIncidentDetailPage() {
   const [missingFieldKeys, setMissingFieldKeys] = useState<string[]>([]);
   const [activeSectionId, setActiveSectionId] = useState<string>(SECTION_NAV_LINKS[0].id);
 
+  // OCC conflict merge state
+  const [conflictData, setConflictData] = useState<{
+    draft: Record<string, unknown>;
+    serverVersion: Record<string, unknown>;
+  } | null>(null);
+  const loadedUpdatedAtRef = useRef<string | null>(null);
+
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
   const isValidator = role === 'NATIONAL_VALIDATOR' || role === 'VALIDATOR';
   const dashboardHref = isValidator ? '/dashboard/validator' : '/dashboard/regional';
@@ -471,6 +480,7 @@ export default function RegionalIncidentDetailPage() {
     try {
       const data = await fetchRegionalIncident(incidentId);
       setDetail(data);
+      loadedUpdatedAtRef.current = data.updated_at ?? null;
       setIsEditing(false);
     } catch (e) {
       setDetail(null);
@@ -1201,12 +1211,38 @@ export default function RegionalIncidentDetailPage() {
           initialData={incidentFormData}
           existingIncidentId={detail.incident_id}
           initialErrors={missingFieldKeys.length > 0 ? missingFieldKeys : undefined}
+          clientUpdatedAt={loadedUpdatedAtRef.current}
+          onConflict={(draft, serverVersion) => {
+            setConflictData({ draft, serverVersion });
+          }}
           onSaved={() => {
             setSaveNotification('Incident saved successfully!');
             setTimeout(() => setSaveNotification(null), 5000);
             setIsEditing(false);
             setMissingFieldKeys([]);
             void load();
+          }}
+        />
+      )}
+
+      {conflictData && detail && (
+        <IncidentConflictMergePanel
+          clientDraft={conflictData.draft}
+          serverVersion={conflictData.serverVersion}
+          onCancel={() => setConflictData(null)}
+          onSubmitMerge={async (merged) => {
+            try {
+              await updateRegionalIncident(detail.incident_id, merged);
+              setConflictData(null);
+              setSaveNotification('Incident saved successfully (merged)!');
+              setTimeout(() => setSaveNotification(null), 5000);
+              setIsEditing(false);
+              void load();
+            } catch (err) {
+              // If even force_update fails (e.g. server error), surface it
+              setSaveNotification(`Merge save failed: ${(err as Error).message}`);
+              setTimeout(() => setSaveNotification(null), 7000);
+            }
           }}
         />
       )}
