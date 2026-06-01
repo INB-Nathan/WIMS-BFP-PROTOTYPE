@@ -3,6 +3,14 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-01] investigation | Frontend tab-switching performance
+
+Investigated sluggishness when switching between dashboard tabs. Root cause is full data re-fetch on every navigation: Next.js App Router remounts page components on route change, all `useEffect` data-fetch chains re-run from scratch with no caching. Three contributing causes identified (P-01, P-02, P-03). Analyst dashboard worst-case: 7 parallel API calls on every mount (`analyst/page.tsx:321-340`). No fix applied in this session — gap documented for a future TanStack Query refactor.
+
+**Verification:** Source inspection of `LayoutShell.tsx`, `AuthContext.tsx`, `dashboard/validator/page.tsx`, `dashboard/regional/page.tsx`, `dashboard/analyst/page.tsx`, and `src/frontend/src/lib/api/` slices. The LayoutShell cache-clear `useEffect` and auth `loading` spinner are one-time-on-mount only; they do not contribute to per-navigation sluggishness.
+
+**Wiki updates:** Added `## Frontend Performance` section to `system-wiki/gaps/ui-ux-gap-register.md`; added `## Data Fetching Pattern` section to `system-wiki/frontend/frontend-infrastructure.md`; added `## Observed: Frontend tab-switching performance` section to `docs/PR-rls-and-fixes.md`. Also created `docs/fix-localhost-hsts.md` and `scripts/Fix-LocalhostHSTS.ps1` for recurring HSTS/localhost access issue.
+
 ## [2026-06-01] fix | RLS helper bootstrap source of truth
 
 - Removed the backend startup duplicate that recreated `wims.current_user_role()`, `wims.current_user_region_id()`, and `wims.current_region_id()` with ad hoc single-quoted SQL bodies; `src/postgres-init/09_rls_helpers.sql` is now the only initializer source for `current_user_role()`.

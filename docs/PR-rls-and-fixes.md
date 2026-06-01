@@ -306,3 +306,27 @@ bash scripts/seed-dev-users.sh
 - 56 pre-existing test failures remain — not regressions. They were in ERROR state before this PR and now surface as assertion failures after fixture plumbing was corrected.
 - Keycloak `UPDATE_PROFILE` / `userProfileConfig` only applies to freshly admin-created users. Dev seed users bypass it by design.
 - `nginx.conf` localhost block uses `$http_origin` for CORS — intentional for local dev; not present in the production HTTPS block.
+
+---
+
+## Observed: Frontend tab-switching performance (out of scope)
+
+Investigated 2026-06-01. Sluggishness when switching between dashboard tabs is caused by three compounding issues — not addressed in this PR.
+
+### Root causes
+
+| # | Cause | Files | Impact |
+|---|---|---|---|
+| P-01 | **Full data re-fetch on every navigation** | `dashboard/validator/page.tsx`, `dashboard/regional/page.tsx`, `dashboard/analyst/page.tsx` | Each sidebar link click unmounts the page component and remounts it, triggering all `useEffect` data-fetch chains from scratch. No cached state survives the navigation. Each page shows a full loading spinner until API calls resolve (300 ms–2 s per switch). |
+| P-02 | **7 parallel API calls on analyst dashboard** | `dashboard/analyst/page.tsx:321-340` | `Promise.all([heatmap, trends, comparative, typeDistribution, responseTime, compareRegions, topN])` fires on every mount. Backend handles the burst but the waterfall adds latency before any content renders. |
+| P-03 | **No client-side request deduplication or caching** | `src/frontend/src/lib/api/` (all slices) | The fetch layer is plain `async` wrappers with no cache, stale-while-revalidate, or deduplication. Identical query params re-hit the backend on every call. |
+
+### What would fix it
+
+The correct fix is adding **TanStack Query (React Query)** as a caching layer:
+- Wrap each page's data-fetch calls in `useQuery` with a stable key (e.g., `['validator-queue', page, statusFilter, regionFilter, dateBounds]`).
+- `staleTime: 60_000` — data stays fresh for 60 s without a re-fetch.
+- Navigation back to a tab renders instantly from cache; background refetch happens silently.
+- Analyst dashboard's 7 concurrent calls become 7 independent queries with shared cache keys — a second visit to the analyst tab does not re-fire any call whose key hasn't changed.
+
+This is a non-trivial cross-cutting refactor (all three dashboard pages + the API slice layer). Tracked in `system-wiki/gaps/ui-ux-gap-register.md` as P-01.

@@ -1,7 +1,7 @@
 ---
 title: Frontend Infrastructure
 created: 2026-05-16
-updated: 2026-05-28
+updated: 2026-06-01
 type: frontend
 tags: [wims-bfp, frontend, components, api-client, auth, utilities]
 sources: [src/frontend/src/app/globals.css, src/frontend/src/context/AuthContext.tsx, src/frontend/src/lib/api.ts, src/frontend/src/lib/afor-utils.ts, src/frontend/src/lib/ph-regions.ts, src/frontend/src/lib/regional-incidents.ts, src/frontend/src/lib/analyst-workflow-transfer.ts, src/frontend/src/lib/edgeFunctions.ts, src/frontend/src/types/api.ts]
@@ -41,6 +41,20 @@ OIDC-based authentication wrapping Keycloak via `oidc-client-ts`. Provides sessi
 - `GET /api/auth/session` is a Next.js route handler that forwards browser cookies to backend `/api/user/me`; its `BACKEND_URL` value is treated as an origin and route paths append `/api/...` explicitly.
 - Local Docker builds inline `NEXT_PUBLIC_API_URL=/api`; authenticated and public API clients therefore use same-origin requests under `https://localhost` instead of `http://localhost/api`.
 - Keycloak startup imports `src/keycloak/import/bfp-realm.json` for the application realm. Because Keycloak creates the `master` realm before import and skips `master-realm.json`, the one-shot `keycloak-bootstrap` service runs `src/keycloak/bootstrap/bootstrap-master-realm.sh` after Keycloak is healthy to patch the master realm admin console redirects.
+
+---
+
+## Data Fetching Pattern (known gap)
+
+**Status:** No caching layer — see [[gaps/ui-ux-gap-register]] P-01.
+
+All dashboard pages fetch data via plain `useEffect` + `useCallback` chains. There is no client-side caching library (no React Query / SWR / TanStack Query). The consequence is:
+
+- Next.js App Router unmounts/remounts page components on every route change. Each remount re-runs all `useEffect` data-fetch hooks, firing fresh API calls even if the user just visited the same page seconds ago.
+- Pages block content render behind a local `loading: true` state until all API calls resolve (typically 300 ms–2 s on a local dev stack).
+- The analyst dashboard is the worst case: `Promise.all` with 7 concurrent calls fires on every mount (`analyst/page.tsx:321-340`).
+
+**Recommended fix:** Replace `useCallback` fetch patterns in each dashboard page with `useQuery` from TanStack Query. A `staleTime` of 60 s means revisiting a tab within a minute renders instantly from cache with a silent background refetch. No API slice changes required — `apiFetch` continues to be the transport.
 
 ---
 
