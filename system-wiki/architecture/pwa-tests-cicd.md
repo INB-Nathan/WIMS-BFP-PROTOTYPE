@@ -4,7 +4,7 @@ created: 2026-05-16
 updated: 2026-06-05
 type: architecture
 tags: [wims-bfp, pwa, offline-first, testing, ci-cd, service-worker]
-sources: [src/frontend/src/lib/, src/frontend/public/sw.js, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py]
+sources: [src/frontend/src/lib/, src/frontend/public/sw.js, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py, src/backend/tests/test_schema_patch_startup_guard.py]
 status: draft
 ---
 
@@ -151,6 +151,8 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 **6. Startup DDL and pytest lock-hang regression (PR #207)**
 `src/backend/main.py` intentionally does not patch `wims.users.email` at FastAPI startup. Migration `src/postgres-init/44_add_email_to_users.sql` owns that column plus the local unique email index for fresh CI databases. Runtime DDL on `wims.users` can block indefinitely when tests hold ordinary SQLAlchemy sessions open: `src/backend/tests/test_immutable_records.py` reads `wims.users` in region fixtures, then creates `TestClient(app)`, which triggers startup before fixture teardown. A startup `ALTER TABLE wims.users ...` queued for `AccessExclusiveLock` behind the open `AccessShareLock`, making CI appear to stop after the preceding fire-location test. Future startup schema patches should avoid user-table DDL or use bounded lock handling.
 
+**5. Backend startup schema patch guard** — `src/backend/main.py` runs compatibility schema repairs for old containers at FastAPI startup, but guards the routine with a process-local lock/attempt flag so repeated `TestClient(app)` lifespans in pytest do not rerun DDL/RLS patch blocks. `src/backend/tests/test_schema_patch_startup_guard.py` verifies that repeated calls reopen no second admin DB session and rerun no patch helpers.
+
 ---
 
 ## CI/CD Pipelines
@@ -172,6 +174,8 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 | `docker-build` | ubuntu-latest | Copies root `.env.example` to `src/.env` for required compose interpolation, then runs `docker compose config` validation + `docker compose build --parallel` |
 | `security-scan` | ubuntu-latest | Copies root `.env.example` to `src/.env`, then runs OWASP ZAP baseline scan + Nmap port scan. Uses `.zap/rules.tsv` to ignore 7 pre-existing WARN alerts (CSP/COEP headers, Keycloak upstream, Next.js informational). Uses `zaproxy/action-baseline@v0.15.0` plus explicit artifact name `zap-scan` to avoid legacy artifact-upload rejection in older ZAP action packaging. `fail_action: true` — only new HIGH/CRITICAL block merge. Stack is brought up with `docker compose -f docker-compose.yml -f docker-compose.ci.yml` to use the HTTP-only `nginx.ci.conf`, avoiding TLS certificate requirements that exist in the local (`nginx.local.conf`) and production (`nginx.conf`) configs. |
 | `merge-gate` | ubuntu-latest | **Blocks merge** unless migrations, frontend, backend, docker-build, and security-scan all pass |
+
+The backend job still runs a second advisory coverage pass after the main pytest pass. If backend runtime spikes while the first `Run tests` step is still active, inspect startup/test fixture behavior before changing the coverage step.
 
 ### CD — `.github/workflows/cd.yml`
 

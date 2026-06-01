@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 import time
 from typing import Annotated
 
@@ -68,6 +69,17 @@ logger = logging.getLogger("wims.rate_limit")
 app = FastAPI(title="WIMS-BFP Backend")
 app.middleware("http")(csrf_middleware)
 
+_schema_patches_attempted = False
+_schema_patches_in_progress = False
+_schema_patches_lock = threading.Lock()
+
+
+def _reset_schema_patch_state_for_tests() -> None:
+    global _schema_patches_attempted, _schema_patches_in_progress
+    with _schema_patches_lock:
+        _schema_patches_attempted = False
+        _schema_patches_in_progress = False
+
 
 def _get_admin_session():
     """Return a superuser session for DDL operations in startup patches.
@@ -109,7 +121,19 @@ def apply_schema_patches() -> None:
     transactions (e.g. test fixtures querying wims.users while TestClient(app)
     triggers startup). The postgres-init migration handles fresh CI databases.
     """
-    db = _get_admin_session()
+    global _schema_patches_attempted, _schema_patches_in_progress
+    with _schema_patches_lock:
+        if _schema_patches_attempted or _schema_patches_in_progress:
+            logger.debug("Schema patches already attempted or in progress; skipping")
+            return
+        _schema_patches_in_progress = True
+
+    try:
+        db = _get_admin_session()
+    except Exception:
+        with _schema_patches_lock:
+            _schema_patches_in_progress = False
+        raise
 
     # Ensure wims_app_user exists — postgres-init only runs on first boot,
     # so existing containers (e.g. VPS) won't have this role until this patch runs.
@@ -188,6 +212,9 @@ def apply_schema_patches() -> None:
         db.rollback()
     finally:
         db.close()
+        with _schema_patches_lock:
+            _schema_patches_attempted = True
+            _schema_patches_in_progress = False
 
 
 def _apply_rls_helpers_security_definer(db) -> None:  # type: ignore[type-arg]
