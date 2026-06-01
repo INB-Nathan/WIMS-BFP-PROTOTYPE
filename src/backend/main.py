@@ -230,7 +230,9 @@ def apply_schema_patches() -> None:
         ):
             db.execute(text(f"ALTER MATERIALIZED VIEW IF EXISTS {mv} OWNER TO wims_app_user"))
         db.commit()
-        logger.info("Schema patch applied: analytics materialized view ownership transferred to wims_app_user")
+        logger.info(
+            "Schema patch applied: analytics materialized view ownership transferred to wims_app_user"
+        )
     except Exception as exc:
         logger.warning("Schema patch (MV ownership) failed (non-fatal): %s", exc)
         db.rollback()

@@ -1,4 +1,4 @@
-﻿"""Regional Office API — AFOR Import, Regional Incidents, Stats.
+"""Regional Office API — AFOR Import, Regional Incidents, Stats.
 
 Route handlers are grouped in sub-modules; this file registers them all
 under the /api/regional prefix.

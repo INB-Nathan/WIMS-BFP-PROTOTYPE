@@ -105,5 +105,3 @@ def get_session(user_id: Optional[uuid.UUID] = None) -> Session:
     if user_id is not None:
         set_rls_context(session, user_id)
     return session
-
-
