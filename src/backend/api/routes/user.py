@@ -45,12 +45,20 @@ class ProfileUpdate(BaseModel):
 
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    # NOTE: email is intentionally excluded from self-service update.
-    # Government email addresses are controlled credentials — only SYSADMIN
-    # may change them via the admin user management endpoints.
+    email: Optional[str] = None
     contact_number: Optional[str] = None  # Stored in Keycloak AND DB
     # Note: no password required here — the JWT token already confirms identity.
     # Password is only needed when changing the password itself.
+
+    @field_validator("email")
+    @classmethod
+    def email_not_blank(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            stripped = v.strip()
+            if not stripped:
+                raise ValueError("Email must not be blank")
+            return stripped
+        return v
 
     @field_validator("first_name", "last_name")
     @classmethod
@@ -102,7 +110,7 @@ def get_my_profile(
     current_user: Annotated[dict, Depends(get_current_wims_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
-    """Retrieve full name and contact number (names from Keycloak, number from DB)."""
+    """Retrieve full profile including email (from Keycloak) and contact_number (from DB)."""
     keycloak_id = current_user["keycloak_id"]
     profile = get_user_profile(keycloak_id)
 
@@ -114,6 +122,10 @@ def get_my_profile(
     if row and row[0]:
         profile["contact_number"] = row[0]
 
+    # Ensure email is present in the response
+    if not profile.get("email"):
+        profile["email"] = current_user.get("email", "")
+
     return profile
 
 
@@ -124,24 +136,23 @@ def update_my_profile(
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """
-    Update the current user's own profile (first_name, last_name, contact_number).
+    Update the current user's own profile (first_name, last_name, email, contact_number).
     Authentication is confirmed by the JWT bearer token — no password re-entry needed.
     Role and region cannot be changed here — contact a System Administrator.
-    Email is read-only (government-controlled credential — SYSADMIN-managed only).
     Changes are reflected immediately in Keycloak.
     """
-    if not any([body.first_name, body.last_name, body.contact_number]):
+    if not any([body.first_name, body.last_name, body.email, body.contact_number]):
         raise HTTPException(status_code=400, detail="No fields to update")
 
     keycloak_id = current_user["keycloak_id"]
 
-    # --- Update Keycloak profile (email excluded — CRIT-0 self-service ban) ---
+    # --- Update Keycloak profile ---
     try:
         update_user_profile(
             keycloak_id,
             first_name=body.first_name,
             last_name=body.last_name,
-            # email intentionally omitted — government email is SYSADMIN-controlled
+            email=body.email,
             contact_number=body.contact_number,
         )
     except KeycloakError as e:
@@ -151,13 +162,17 @@ def update_my_profile(
             detail="Failed to update identity provider profile. Try again later.",
         )
 
-    # --- Sync DB fields (contact_number only — email is SYSADMIN-controlled) ---
-    if body.contact_number:
+    # --- Sync DB fields (contact_number, email) ---
+    if body.contact_number or body.email:
         try:
             update_fields = []
             params = {"uid": current_user["user_id"]}
-            update_fields.append("contact_number = :cnum")
-            params["cnum"] = body.contact_number
+            if body.contact_number:
+                update_fields.append("contact_number = :cnum")
+                params["cnum"] = body.contact_number
+            if body.email:
+                update_fields.append("email = :eml")
+                params["eml"] = body.email
 
             if update_fields:
                 db.execute(

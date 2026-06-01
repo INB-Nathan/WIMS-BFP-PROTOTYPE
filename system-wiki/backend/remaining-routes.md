@@ -236,7 +236,7 @@ Async Redis-based rate limiter. **3 requests per IP per hour**. Key: `public_rat
 
 ### Pydantic Schemas
 
-**`ProfileUpdate`:** first_name, last_name (both non-blank), contact_number (digits-only, min 7). Email NOT included.
+**`ProfileUpdate`:** first_name, last_name (both non-blank), email (non-blank), contact_number (digits-only, min 7). Email is now self-service editable (#28, #86).
 
 **`PasswordChange`:** current_password, new_password (min 8, 1 upper, 1 digit, 1 special), otp_code (optional, for 2FA).
 
@@ -262,7 +262,7 @@ Async Redis-based rate limiter. **3 requests per IP per hour**. Key: `public_rat
 
 **Errors:** 400 (no fields), 502 (Keycloak failure)
 
-**Behavior:** Updates Keycloak first (first_name, last_name, contact_number). Email excluded (SYSADMIN-controlled). After Keycloak success, syncs contact_number to wims.users. On DB sync failure, warns but doesn't roll back (Keycloak is source of truth).
+**Behavior:** Updates Keycloak first (first_name, last_name, email, contact_number). After Keycloak success, syncs email and contact_number to wims.users. On DB sync failure, warns but doesn't roll back (Keycloak is source of truth).
 
 ### `change_my_password()`
 

@@ -200,7 +200,7 @@ export async function createAdminUser(payload: {
 }
 
 /** Fetch current user's profile details */
-export async function fetchMyProfile(): Promise<{ first_name: string; last_name: string; contact_number: string }> {
+export async function fetchMyProfile(): Promise<{ first_name: string; last_name: string; email?: string; contact_number: string }> {
   return apiFetch('/user/me/profile');
 }
 
@@ -208,8 +208,7 @@ export async function fetchMyProfile(): Promise<{ first_name: string; last_name:
 export async function updateMyProfile(payload: {
   first_name?: string;
   last_name?: string;
-  // NOTE: email intentionally excluded — government email is SYSADMIN-controlled only.
-  // Display-only read is handled separately via GET /user/me/profile (future).
+  email?: string;
   contact_number?: string;
 }): Promise<{ status: string; message: string }> {
   return apiFetch('/user/me', {

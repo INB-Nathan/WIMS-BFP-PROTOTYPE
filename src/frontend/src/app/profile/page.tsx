@@ -29,8 +29,8 @@ export default function ProfilePage() {
     // ---------------------------------------------------------------------------
     // Profile form state
     // ---------------------------------------------------------------------------
-    const [profileForm, setProfileForm] = useState({ first_name: '', last_name: '', contact_number: '' });
-    const [currentProfile, setCurrentProfile] = useState<{ first_name: string; last_name: string; contact_number: string } | null>(null);
+    const [profileForm, setProfileForm] = useState({ first_name: '', last_name: '', email: '', contact_number: '' });
+    const [currentProfile, setCurrentProfile] = useState<{ first_name: string; last_name: string; email?: string; contact_number: string } | null>(null);
     const [profileMsg, setProfileMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
     const [savingProfile, setSavingProfile] = useState(false);
     const [contactTouched, setContactTouched] = useState(false);
@@ -58,6 +58,7 @@ export default function ProfilePage() {
                 setCurrentProfile({
                     first_name: data.first_name,
                     last_name: data.last_name,
+                    email: data.email,
                     contact_number: data.contact_number
                 });
             }).catch(e => console.error("Failed to fetch profile", e));
@@ -71,9 +72,10 @@ export default function ProfilePage() {
         setSavingProfile(true);
         setProfileMsg(null);
         try {
-            const payload: { first_name?: string; last_name?: string; contact_number?: string } = {};
+            const payload: { first_name?: string; last_name?: string; email?: string; contact_number?: string } = {};
             if (profileForm.first_name.trim()) payload.first_name = profileForm.first_name.trim();
             if (profileForm.last_name.trim()) payload.last_name = profileForm.last_name.trim();
+            if (profileForm.email.trim()) payload.email = profileForm.email.trim();
             if (profileForm.contact_number.trim()) payload.contact_number = profileForm.contact_number.trim();
             if (Object.keys(payload).length === 0) {
                 setProfileMsg({ type: 'error', text: 'No fields to update.' });
@@ -82,10 +84,11 @@ export default function ProfilePage() {
             }
             await updateMyProfile(payload);
             setProfileMsg({ type: 'success', text: 'Profile updated successfully.' });
-            setProfileForm({ first_name: '', last_name: '', contact_number: '' });
+            setProfileForm({ first_name: '', last_name: '', email: '', contact_number: '' });
             fetchMyProfile().then(data => setCurrentProfile({
                 first_name: data.first_name,
                 last_name: data.last_name,
+                email: data.email,
                 contact_number: data.contact_number
             }));
         } catch (e: unknown) {
@@ -176,7 +179,9 @@ export default function ProfilePage() {
                         <div>
                             <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>Assigned Region</p>
                             <p style={{ color: 'var(--text-primary)' }}>
-                              {typedUser?.role === 'NATIONAL_ANALYST' || typedUser?.role === 'SYSTEM_ADMIN'
+                              {typedUser?.role === 'NATIONAL_ANALYST'
+                                ? 'All Regions'
+                                : typedUser?.role === 'SYSTEM_ADMIN'
                                 ? 'National'
                                 : (typedUser?.assignedRegionId ?? '—')}
                             </p>
@@ -228,6 +233,31 @@ export default function ProfilePage() {
                                 style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--card-bg)', color: 'var(--text-primary)' }}
                             />
                         </div>
+                    </div>
+
+                    <div>
+                        <div className="flex justify-between items-end mb-1">
+                            <label className="block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                                <Mail className="w-3 h-3 inline mr-1" />
+                                Email
+                            </label>
+                            <span className="text-xs" style={{ color: 'var(--text-primary)' }}>
+                                Current: <span className="font-medium">{currentProfile?.email || typedUser?.email || '—'}</span>
+                            </span>
+                        </div>
+                        <input
+                            id="profile-email"
+                            type="email"
+                            value={profileForm.email}
+                            onChange={e => setProfileForm(p => ({ ...p, email: e.target.value }))}
+                            placeholder={currentProfile?.email || typedUser?.email || 'you@bfp.gov.ph'}
+                            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--card-bg)', color: 'var(--text-primary)' }}
+                        />
+                        <p className="text-xs mt-1 flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
+                            <AlertCircle className="w-3 h-3" />
+                            Changing your email may update your login identity/username.
+                        </p>
                     </div>
 
                     <div>

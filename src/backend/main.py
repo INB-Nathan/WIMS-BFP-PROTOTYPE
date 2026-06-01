@@ -81,6 +81,8 @@ def apply_schema_patches() -> None:
     - no_update_verified rule: allows is_archived FALSE→TRUE and TRUE→FALSE on VERIFIED rows
       (migration 41_fix_immutable_rule_for_archive.sql — may not have run on
       existing containers).
+    - email column on wims.users: for self-service profile editing (#28, #86).
+      (migration 44_add_email_to_users.sql — may not have run on existing containers).
     """
     db = get_session_maker()()
     try:
@@ -104,6 +106,15 @@ def apply_schema_patches() -> None:
         )
     except Exception as exc:
         logger.warning("Schema patch failed (non-fatal, will retry on next restart): %s", exc)
+        db.rollback()
+
+    # Migration 44: add email column to wims.users for self-service profile editing.
+    try:
+        db.execute(text("ALTER TABLE wims.users ADD COLUMN IF NOT EXISTS email VARCHAR(255)"))
+        db.commit()
+        logger.info("Schema patch applied: added email column to wims.users")
+    except Exception as exc:
+        logger.warning("Schema patch (email column) failed (non-fatal): %s", exc)
         db.rollback()
     finally:
         db.close()

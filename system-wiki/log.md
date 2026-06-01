@@ -1,5 +1,24 @@
 # System Wiki Log
 
+## [2026-06-02] feat | Enable self-service email editing in profile (#28, #86)
+
+- Added `email: Optional[str]` to `ProfileUpdate` schema in `src/backend/api/routes/user.py`.
+- `update_my_profile()` now passes `email` to Keycloak and syncs to `wims.users`.
+- `get_my_profile()` returns email from Keycloak profile (fallback to user context).
+- Frontend profile page now includes editable email input with warning that changes may update login identity.
+- `NATIONAL_ANALYST` region display changed from "National" to "All Regions".
+- API types in `legacy.ts` updated to include `email` in fetch/update payloads.
+- Added `tests/test_profile_email.py` with 6 tests covering schema, PATCH, and GET routes.
+
+## [2026-06-02] fix | Review fixes applied to email editing branch
+
+- Added `44_add_email_to_users.sql` migration for email column (was missing — UPDATE would fail silently).
+- `main.py` startup patch: `ALTER TABLE wims.users ADD COLUMN IF NOT EXISTS email` for existing containers.
+- `keycloak_admin.py`: `get_user_profile()` now returns email from Keycloak (was never in the dict).
+- `keycloak_admin.py`: updated stale CRIT-0 comment in `update_user_profile()`.
+- `user.py`: added `email_not_blank` validator to `ProfileUpdate.email` field.
+- `remaining-routes.md`: updated ProfileUpdate schema and behavior docs to reflect email support.
+
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
