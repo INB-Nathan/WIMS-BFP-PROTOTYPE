@@ -1,7 +1,7 @@
 ---
 title: UI/UX Gap Register
 created: 2026-05-14
-updated: 2026-05-28 (zoom/OTP/notifications/badges/24H labels batch)
+updated: 2026-06-01 (performance gap P-01 added)
 type: gap
 tags: [wims-bfp, gap, ui-ux, needs-verification]
 sources: [raw/ui-ux, ui-ux/evaluation-loginpage-keycloaksso.md, ui-ux/evaluation-system-admin-hub.md, ui-ux/evaluation-national-analyst.md, src/frontend/src/app/login/page.tsx, src/frontend/src/app/globals.css, src/keycloak/themes/wims-bfp/login/template.ftl, src/keycloak/themes/wims-bfp/login/login-otp.ftl, src/keycloak/themes/wims-bfp/login/login-config-totp.ftl, src/keycloak/themes/wims-bfp/login/resources/css/wims-custom.css, src/frontend/src/components/Sidebar.tsx, src/frontend/src/app/dashboard/regional/page.tsx, src/frontend/src/app/dashboard/validator/page.tsx]
@@ -117,6 +117,18 @@ Code-level HCI/UX issues confirmed by source inspection during a National Analys
 - `barangay_name` in `AnalystIncidentList` drawer `SummaryRow` — always shows "N/A"
 - Sort state not persisted to URL — resets on navigation back to incident list
 - Filter section labeled "Workflow Filters" in `[workflow]/page.tsx` vs "Analysis Filters" in dashboard — inconsistent naming
+
+## Frontend Performance
+
+Investigated 2026-06-01. Sluggish tab-switching across all authenticated dashboard pages.
+
+| # | Issue | Root cause | Files | Status |
+|---|---|---|---|---|
+| P-01 | **Tab-switching sluggishness** — visible loading spinner on every sidebar navigation | Next.js App Router unmounts/remounts page components on route change. Each page re-runs all `useEffect` data-fetch chains from scratch; no cached state survives. Pages block render behind a `loading` state until all API calls resolve (300 ms–2 s per switch). No caching layer (no React Query / SWR). | `dashboard/validator/page.tsx`, `dashboard/regional/page.tsx`, `dashboard/analyst/page.tsx`, `src/frontend/src/lib/api/` | Needs fix — see recommended approach below |
+| P-02 | **Analyst dashboard fires 7 parallel API calls on every mount** | `Promise.all([heatmap, trends, comparative, typeDistribution, responseTime, compareRegions, topN])` at `analyst/page.tsx:321-340` — no deduplication or stale-while-revalidate. | `dashboard/analyst/page.tsx:321-340` | Blocked on P-01 fix |
+| P-03 | **No request deduplication** | Plain `async` wrappers in all API slice files. Identical query params re-hit the backend on every call with no in-flight dedup. | `src/frontend/src/lib/api/` | Blocked on P-01 fix |
+
+**Recommended fix:** Add **TanStack Query (React Query)** as a caching layer. Wrap each page's `useCallback` fetch functions in `useQuery` with a stable key (e.g. `['validator-queue', page, statusFilter, regionFilter, dateBounds]`) and `staleTime: 60_000`. Navigation back to a visited tab renders instantly from cache; a background refetch updates silently. This is a cross-cutting refactor touching all three dashboard pages plus the API slice layer — budget 1–2 sessions.
 
 ## Related
 - [[ui-ux/evaluation-loginpage-keycloaksso]]
