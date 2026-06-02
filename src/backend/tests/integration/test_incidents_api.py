@@ -54,7 +54,7 @@ def mock_user_and_override(client):
             )
 
         async def _async_override():
-            return {"user_id": user_id, "keycloak_id": str(keycloak_id)}
+            return {"user_id": str(user_id), "keycloak_id": str(keycloak_id)}
 
         app.dependency_overrides[get_current_wims_user] = _async_override
 
