@@ -71,6 +71,34 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 ## [2026-05-30] merge | Master conflict resolution for encoder/validator branch
 
+## [2026-06-02] implement | M13b email infrastructure — Jinja2 HTML templates + SMTP + Celery retry task
+
+**FRS reference:** Module 13b — Email Notifications (FRS `#176`)
+
+**Changes implemented:**
+- `src/backend/services/email/sender.py` — pure Jinja2 HTML email rendering (no mrml dependency):
+  - `render_email(template_name, context) -> (subject, html)`: loads `.html.j2` from `services/email/templates/`, extracts subject from `{# subject: ... #}` header, Jinja2-renders body
+  - `send_email_async(to, template, context)`: renders + sends via `aiosmtplib`
+  - `send_email(to, template, context)`: synchronous wrapper for Celery tasks
+  - SMTP config via env: `SMTP_HOST` (default "mailhog"), `SMTP_PORT` (default 1025), `SMTP_FROM` (default "no-reply@bfp.gov.ph"), optional `SMTP_USER`/`SMTP_PASSWORD`
+- `src/backend/services/email/templates/` — 4 email-safe inline-CSS HTML templates with BFP maroon (#8B0000) branding:
+  - `password_reset.html.j2` (vars: full_name, reset_link, expiry_minutes)
+  - `account_locked.html.j2` (vars: full_name, unlock_time, support_contact)
+  - `security_alert.html.j2` (vars: severity, summary, detected_at, dashboard_link)
+  - `weekly_report.html.j2` (vars: week_range, total_incidents, top_region, report_link)
+- `src/backend/tasks/notifications.py`: added `send_email_task` Celery task with `autoretry_for=(Exception,)`, `retry_backoff=True`, `retry_backoff_max=600`, `max_retries=5`; does NOT query RLS tables
+- `src/backend/requirements.txt`: added `aiosmtplib>=3.0.0` (mrml intentionally excluded for build portability)
+- `.env.example`: added `SMTP_HOST=mailhog`, `SMTP_PORT=1025`, `SMTP_FROM=no-reply@bfp.gov.ph`
+- `src/backend/tests/test_email_infra.py`: render tests for all 4 templates, mock aiosmtplib send test, task retry behavior test
+
+**Deferred triggers (follow-up issues):**
+- Keycloak account lockout email → #138
+- Weekly analytics report Celery beat → #176
+- Security alert email on CONFIRM_THREAT HITL action → #176
+
+**Design note:** Uses pure Jinja2 HTML templates (email-safe inline CSS, table-based layout, max-width 600px) instead of mrml to avoid native wheel build failures on python:3.11-slim.
+
+## [2026-05-30] merge | Master conflict resolution for encoder/validator branch
 - Merged `master` into `fix/enc-val-bugs-and-UI` and resolved conflicts in `src/backend/api/routes/regional.py` and `system-wiki/log.md`.
 - Preserved the encoder/validator branch's extracted regional helper architecture instead of reintroducing inline helper definitions from master.
 - Updated `src/backend/services/regional_incidents/helpers.py` so `insert_incident_verification_history()` accepts optional `data_hash` and `sync_status`, keeping the extracted helper compatible with master's M4b verification audit migration.

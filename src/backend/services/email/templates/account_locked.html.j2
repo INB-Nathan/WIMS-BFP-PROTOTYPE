@@ -1,0 +1,55 @@
+{# subject: WIMS-BFP Account Locked — Action Required #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WIMS-BFP Account Locked</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f4;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:24px 16px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#8B0000;padding:24px 32px;text-align:center;">
+              <p style="margin:0;color:#ffffff;font-size:20px;font-weight:bold;">Bureau of Fire Protection</p>
+              <p style="margin:4px 0 0;color:#ffcccc;font-size:14px;">WIMS-BFP Incident Management System</p>
+            </td>
+          </tr>
+          <!-- Body -->
+          <tr>
+            <td style="background-color:#ffffff;padding:40px 32px;">
+              <p style="margin:0 0 16px;font-size:18px;font-weight:bold;color:#8B0000;">Hello, {{ full_name }}!</p>
+              <p style="margin:0 0 16px;font-size:16px;color:#333333;line-height:1.6;">
+                Your WIMS-BFP account has been temporarily locked due to multiple failed login attempts.
+              </p>
+              <table cellpadding="0" cellspacing="0" style="margin:0 0 24px;background-color:#fff3cd;border-left:4px solid #8B0000;padding:16px;border-radius:4px;max-width:100%;">
+                <tr>
+                  <td style="padding:16px;">
+                    <p style="margin:0;font-weight:bold;color:#8B0000;font-size:16px;">Account locked until: {{ unlock_time }}</p>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:0 0 16px;font-size:16px;color:#333333;line-height:1.6;">
+                Please ensure you are using the correct credentials. If you continue to have trouble, contact your system administrator.
+              </p>
+              <p style="margin:0;font-size:16px;font-weight:bold;color:#333333;">Support Contact: {{ support_contact }}</p>
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#f9f9f9;padding:24px 32px;text-align:center;">
+              <p style="margin:0;font-size:12px;color:#999999;line-height:1.6;">
+                Bureau of Fire Protection — WIMS-BFP<br/>
+                This is an automated security alert. Do not ignore this message.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
