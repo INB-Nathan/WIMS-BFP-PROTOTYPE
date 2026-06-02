@@ -96,6 +96,16 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Weekly analytics report Celery beat → #176
 - Security alert email on CONFIRM_THREAT HITL action → #176
 
+## [2026-06-02] fix | M13b CI failure — add jinja2 to requirements.txt
+
+**Root cause:** `services/email/sender.py` imports jinja2 (and aiosmtplib). When `tasks/notifications.py` was updated to wire in `sender`, the chain `from main import app` → `import tasks.notifications` → `from services.email.sender import render_email` pulled jinja2 into the entire app namespace. CI (Python 3.12) failed at collection because `jinja2` was not in `requirements.txt` — only `aiosmtplib` was.
+
+**Fix:** Added `jinja2>=3.1.4` to `src/backend/requirements.txt` (aiosmtplib>=3.0.0 was already present). No other files changed.
+
+**Verification (host, Python 3.9):** `from services.email.sender import render_email, send_email_async` → `email sender import ok`. `python -m pytest tests/ --collect-only -q` → 18 tests collected, 32 errors — all errors are pre-existing unrelated failures (missing `fastapi`, `sqlalchemy`, `pydantic` PEP 604 union syntax on Python 3.9, `cryptography`, etc.); zero jinja2 collection errors remain.
+
+**Note:** Host is Python 3.9; CI is Python 3.12. The jinja2 fix resolves the CI failure. The pre-existing host failures are out of scope for this fix.
+
 **Design note:** Uses pure Jinja2 HTML templates (email-safe inline CSS, table-based layout, max-width 600px) instead of mrml to avoid native wheel build failures on python:3.11-slim.
 
 ## [2026-05-30] merge | Master conflict resolution for encoder/validator branch
