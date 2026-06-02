@@ -73,7 +73,9 @@ class TestPublicReportEndpoint:
 
         class MockDB:
             def execute(self, *args, **kwargs):
-                return _FakeRow(incident_id=999, verification_status="PENDING_VALIDATION", created_at=None)
+                return _FakeRow(
+                    incident_id=999, verification_status="PENDING_VALIDATION", created_at=None
+                )
 
             def commit(self):
                 pass
@@ -110,7 +112,9 @@ class TestPublicReportEndpoint:
                     )
                     return _FakeRow(region_id=42)
                 elif call_count[0] == 2:
-                    return _FakeRow(incident_id=1, verification_status="PENDING_VALIDATION", created_at=None)
+                    return _FakeRow(
+                        incident_id=1, verification_status="PENDING_VALIDATION", created_at=None
+                    )
                 else:
                     return _FakeRow(lat=14.5995, lon=120.9842)
 

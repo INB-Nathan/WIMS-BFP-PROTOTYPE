@@ -1671,6 +1671,9 @@ No schema, auth, or FRS alignment changes.
 - **Wiki updates (Phase 7):** This log, `security/security-baseline.md` (new CSRF Protection section), `gaps/frs-codebase-gap-register.md` (M11b CLOSED entry).
 
 **Verification:** `pytest tests/test_csrf_middleware.py -v` — all 28 tests pass.
+
+## [2026-06-03] ruff format applied to tests/test_public_submission.py
+
 ## [2026-06-02] feat | M11a vulnerability scanning — ZAP baseline + Nmap in CI
 
 - Added `security-scan` job to `.github/workflows/ci.yml` on branch `feat/m11-ci-scanning` (PR target: #172).
