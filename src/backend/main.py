@@ -85,7 +85,9 @@ _STARTUP_ADMIN_URL: str = os.environ.get("DATABASE_ADMIN_URL") or os.environ.get
     "SQLALCHEMY_DATABASE_URL", os.environ.get("DATABASE_URL", "")
 )
 _startup_admin_engine = create_engine(_STARTUP_ADMIN_URL)
-_startup_admin_session_factory = _sessionmaker(autocommit=False, autoflush=False, bind=_startup_admin_engine)
+_startup_admin_session_factory = _sessionmaker(
+    autocommit=False, autoflush=False, bind=_startup_admin_engine
+)
 
 
 def _get_admin_session():
@@ -345,9 +347,7 @@ def _apply_analytics_facts_rls(db) -> None:  # type: ignore[type-arg]
         "aif_staff_update",
         "aif_staff_delete",
     ):
-        db.execute(
-            text(f"DROP POLICY IF EXISTS {policy} ON wims.analytics_incident_facts")
-        )
+        db.execute(text(f"DROP POLICY IF EXISTS {policy} ON wims.analytics_incident_facts"))
 
     db.execute(
         text("""
@@ -393,9 +393,7 @@ def _apply_analytics_facts_rls(db) -> None:  # type: ignore[type-arg]
                 FOR DELETE USING (wims.current_user_role() IN {_write_roles})
         """)
     )
-    db.execute(
-        text("GRANT INSERT, UPDATE, DELETE ON wims.analytics_incident_facts TO wims_app")
-    )
+    db.execute(text("GRANT INSERT, UPDATE, DELETE ON wims.analytics_incident_facts TO wims_app"))
 
 
 app.include_router(incidents.router)

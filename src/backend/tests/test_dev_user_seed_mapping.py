@@ -103,6 +103,6 @@ def test_system_task_user_id_consistent_across_artifacts() -> None:
 
     # Verify database.py actually assigns it to the constant (not just a comment)
     assert re.search(
-        rf'SYSTEM_TASK_USER_ID\s*=.*{re.escape(_UUID)}',
+        rf"SYSTEM_TASK_USER_ID\s*=.*{re.escape(_UUID)}",
         database_py,
     ), "SYSTEM_TASK_USER_ID constant assignment not found in database.py"
