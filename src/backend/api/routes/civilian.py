@@ -32,7 +32,7 @@ from schemas.civilian import (
 
 router = APIRouter(prefix="/api/civilian", tags=["civilian"])
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("wims.civilian")
 
 # Module-level Redis client singleton with connection pooling.
 # Prevents connection leak from per-request redis.from_url() on this
