@@ -3,7 +3,7 @@
 Validates:
 - endpoint un-deprecated and returns 201 on valid submission
 - encoder_id is NULL, status is PENDING_VALIDATION in DB
-- region resolved via nearest-centroid
+- region resolved via nearest fire station (civilian.py pattern)
 - Redis sliding-window rate limit: 4th request within hour -> 429 + Retry-After
 - Pydantic validation rejects malformed payloads before DB write
 
@@ -23,6 +23,29 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from main import app
 
 client = TestClient(app)
+
+
+class _FakeRow:
+    """Behaves like a real SQLAlchemy Row: attribute access, index, unpack."""
+
+    def __init__(self, **fields):
+        object.__setattr__(self, "_fields", fields)
+        object.__setattr__(self, "_values", tuple(fields.values()))
+
+    def __getattr__(self, name):
+        try:
+            return self._fields[name]
+        except KeyError:
+            raise AttributeError(name)
+
+    def __getitem__(self, i):
+        return self._values[i]
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self):
+        return len(self._values)
 
 
 class TestPublicReportEndpoint:
@@ -48,21 +71,9 @@ class TestPublicReportEndpoint:
     def test_submission_creates_row_with_null_encoder_id(self, monkeypatch):
         """DB row must have NULL encoder_id and PENDING_VALIDATION status."""
 
-        class MockRow:
-            incident_id = 999
-            verification_status = "PENDING_VALIDATION"
-            created_at = None
-
-            def __getitem__(self, index):
-                return (999, "PENDING_VALIDATION", None)[index]
-
-        class MockResult:
-            def fetchone(self):
-                return MockRow()
-
         class MockDB:
             def execute(self, *args, **kwargs):
-                return MockResult()
+                return _FakeRow(incident_id=999, verification_status="PENDING_VALIDATION", created_at=None)
 
             def commit(self):
                 pass
@@ -84,33 +95,24 @@ class TestPublicReportEndpoint:
         finally:
             app.dependency_overrides.clear()
 
-    def test_region_resolved_via_nearest_centroid(self, monkeypatch):
-        """Region assignment uses ST_Distance nearest-centroid (not ORDER BY region_id)."""
+    def test_region_resolved_via_nearest_fire_station(self, monkeypatch):
+        """Region assignment uses ORDER BY location <-> on ref_fire_stations (civilian.py pattern)."""
 
-        region_query_called = False
-
-        class MockRow:
-            incident_id = 1
-            verification_status = "PENDING_VALIDATION"
-            created_at = None
-
-        class MockResult:
-            def fetchone(self):
-                nonlocal region_query_called
-                if not region_query_called:
-                    region_query_called = True
-                    return (42,)
-                return MockRow()
-
-            def fetchall(self):
-                return []
+        call_count = [0]
 
         class MockDB:
             def execute(self, sql, params=None):
+                call_count[0] += 1
                 sql_str = str(sql)
-                if "ref_regions" in sql_str and "ST_Distance" in sql_str:
-                    pass
-                return MockResult()
+                if call_count[0] == 1:
+                    assert "ref_fire_stations" in sql_str and "<->" in sql_str, (
+                        f"First query must use ref_fire_stations <->, got: {sql_str[:200]}"
+                    )
+                    return _FakeRow(region_id=42)
+                elif call_count[0] == 2:
+                    return _FakeRow(incident_id=1, verification_status="PENDING_VALIDATION", created_at=None)
+                else:
+                    return _FakeRow(lat=14.5995, lon=120.9842)
 
             def commit(self):
                 pass
@@ -127,7 +129,6 @@ class TestPublicReportEndpoint:
                 json={"latitude": 14.5995, "longitude": 120.9842, "description": "Test"},
             )
             assert resp.status_code == 201, resp.text
-            assert region_query_called, "ref_regions query was not called"
         finally:
             app.dependency_overrides.clear()
 
