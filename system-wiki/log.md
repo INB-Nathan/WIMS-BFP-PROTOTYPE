@@ -1674,6 +1674,8 @@ No schema, auth, or FRS alignment changes.
 
 ## [2026-06-03] ruff format applied to tests/test_public_submission.py
 
+## [2026-06-03] fixed test mocks: result-wrapper + SQL-dispatch MockDB so db.execute().fetchone() works across all four queries
+
 ## [2026-06-02] feat | M11a vulnerability scanning — ZAP baseline + Nmap in CI
 
 - Added `security-scan` job to `.github/workflows/ci.yml` on branch `feat/m11-ci-scanning` (PR target: #172).
