@@ -174,9 +174,9 @@ def update_my_profile(
         try:
             db.execute(
                 text(
-                    "UPDATE wims.users SET email = :eml, updated_at = now() WHERE user_id = :uid"
+                    "UPDATE wims.users SET email = :eml, username = :uname, updated_at = now() WHERE user_id = :uid"
                 ),
-                {"eml": body.email, "uid": current_user["user_id"]},
+                {"eml": body.email, "uname": body.email, "uid": current_user["user_id"]},
             )
             db.commit()
         except Exception:

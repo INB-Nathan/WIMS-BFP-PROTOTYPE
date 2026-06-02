@@ -143,6 +143,8 @@ class TestProfileUpdateWithEmail:
             db_sqls = [str(c[0][0]) for c in calls]
             assert any("contact_number" in s for s in db_sqls), f"contact_number not in: {db_sqls}"
             assert any("email" in s for s in db_sqls), f"email not in: {db_sqls}"
+            # S1: username must also be synced when email changes
+            assert any("username" in s for s in db_sqls), f"username not in: {db_sqls}"
 
     def test_update_email_without_other_fields(self, client: TestClient):
         """Updating only email should work."""

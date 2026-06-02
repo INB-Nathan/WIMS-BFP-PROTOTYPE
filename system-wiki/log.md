@@ -1,5 +1,16 @@
 # System Wiki Log
 
+## [2026-06-02] fix | S1 username sync gap — DB username now synced when email changes
+
+Fixes the S1 finding from single-agent review of `fix/profile-email-and-polish`:
+
+- **S1 — `wims.users.username` not synced when email changes:** When `PATCH /api/user/me` updates email, Keycloak sets `username = email` but the DB sync block only updated `wims.users.email`. Now the DB `UPDATE` also sets `username = :uname`.
+- Added `username` assertion to `test_update_email_syncs_to_db` in `test_profile_email.py`.
+
+**Verification:** Backend syntax check passed (Docker not running for full pytest). Frontend 9/9 profile tests pass.
+
+**Wiki updates:** This log entry. No `gaps/frs-codebase-gap-register.md` update needed.
+
 ## [2026-06-02] fix | Second-pass review fixes — index, dead code, import, wiki
 
 Follow-up fixes from three-axis re-review of `fix/profile-email-and-polish`:
