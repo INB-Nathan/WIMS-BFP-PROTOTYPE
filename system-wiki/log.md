@@ -61,6 +61,21 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Updated `.github/workflows/ci.yml` `security-scan` job to reference `rules_file_name: '.zap/rules.tsv'` in the ZAP baseline action step.
 - Updated `system-wiki/architecture/pwa-tests-cicd.md` to document the `security-scan` job and the ZAP rules file.
 
+## [2026-06-02] fix | M14 test failures — geometry column, MockRow subscript, rate-limit isolation
+
+**Root causes and fixes for 10 failing tests on `feat/m14-public-submission` (PR #320):**
+
+**(A) Wrong geometry column:** `wims.ref_regions` has no geometry column. The ST_Distance query in `public_dmz.py` used `region_geom` which does not exist. Replaced with simple `ORDER BY region_id LIMIT 1` fallback (no PostGIS geometry on ref_regions in current schema). Coordinate-based nearest-centroid is deferred until geometry is added to ref_regions.
+
+**(B) MockRow not subscriptable:** `test_region_resolved_via_nearest_centroid` returns `MockRow()` from `fetchone()` in a tuple context — `region_row[0]` was called on a MockRow instance with no `__getitem__`. Added `__getitem__` to the MockRow class to return positional values matching a real SQLAlchemy Row.
+
+**(C) Rate-limit state bleeds across tests:** The 3/IP/hr Redis limiter counted 127.0.0.1 across the whole test file. Added `flush_public_rate_limit` autouse fixture to `conftest.py` that clears `public_rate_limit:*` keys before each test. Rate-limit tests themselves use random fake IPs and clean up after themselves.
+
+**Files changed:**
+- `src/backend/api/routes/public_dmz.py` — removed `region_geom` from query
+- `src/backend/tests/test_public_submission.py` — added MockRow `__getitem__`
+- `src/backend/tests/conftest.py` — added `flush_public_rate_limit` autouse fixture
+
 ## [2026-06-02] implement | M14 public report endpoint — un-deprecated, nearest-centroid, rate limit, Retry-After
 
 **FRS reference:** Module 14 — Public Submission (FRS `#177`)

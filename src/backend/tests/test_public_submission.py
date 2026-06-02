@@ -53,6 +53,9 @@ class TestPublicReportEndpoint:
             verification_status = "PENDING_VALIDATION"
             created_at = None
 
+            def __getitem__(self, index):
+                return (999, "PENDING_VALIDATION", None)[index]
+
         class MockResult:
             def fetchone(self):
                 return MockRow()
