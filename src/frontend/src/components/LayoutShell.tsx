@@ -19,13 +19,13 @@ export function LayoutShell({ children }: { children: ReactNode }) {
                         .filter((r) => !r.active?.scriptURL?.includes('firebase-messaging-sw'))
                         .map((r) => r.unregister())
                 ))
-                .catch((err) => console.log('SW unregister failed: ', err));
+                .catch(() => {});
         }
 
         if ('caches' in window) {
             caches.keys()
                 .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
-                .catch((err) => console.log('Cache cleanup failed: ', err));
+                .catch(() => {});
         }
     }, []);
 
@@ -55,7 +55,6 @@ export function LayoutShell({ children }: { children: ReactNode }) {
     }, [pathname]);
 
     if (loading) {
-        console.log('[LayoutShell] loading=true - blocking render.');
         return (
             <div className="h-screen flex items-center justify-center bg-theme-surface-subtle">
                 <div className="flex flex-col items-center gap-3">

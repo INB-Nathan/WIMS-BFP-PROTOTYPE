@@ -14,6 +14,9 @@ celery_app = Celery(
         "CELERY_RESULT_BACKEND", os.environ.get("REDIS_URL", "redis://redis:6379/0")
     ),
 )
+
+# Auto-discover task modules instead of side-effect imports in main.py
+celery_app.autodiscover_tasks(['tasks'])
 celery_app.conf.update(
     task_serializer="json",
     accept_content=["json"],

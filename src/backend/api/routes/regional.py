@@ -67,7 +67,6 @@ from schemas.regional import (
 # ── Helpers extracted to services/regional_incidents/helpers.py ──────────────
 from services.regional_incidents.helpers import (
     get_security_provider as _get_security_provider_from_helpers,
-    decrypt_pii_blob as _decrypt_pii_blob,
     normalize_general_category as _normalize_general_category,
     region_text_matches as _region_text_matches,
     generate_reference_number as _generate_reference_number,
@@ -350,11 +349,7 @@ def get_regional_incidents(
         owner_name = r[16]
         caller_name = r[18]
         caller_number = r[19]
-        if r[21] and r[22]:
-            pii_plaintext = _decrypt_pii_blob(r[22], r[21], r[0])
-            owner_name = pii_plaintext.get("owner_name") or owner_name
-            caller_name = pii_plaintext.get("caller_name") or caller_name
-            caller_number = pii_plaintext.get("caller_number") or caller_number
+        has_sensitive_data = bool(r[21] and r[22])
 
         items.append(
             {
@@ -384,6 +379,7 @@ def get_regional_incidents(
                 "city_municipality": r[25],
                 "province_district": r[26],
                 "location_display": _location_display(r[25], r[26], r[27]),
+                "has_sensitive_data": has_sensitive_data,
             }
         )
 

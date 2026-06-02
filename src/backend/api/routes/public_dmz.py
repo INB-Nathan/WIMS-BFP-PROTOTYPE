@@ -35,7 +35,6 @@ _REDIS_EMERGENCY_TTL = 3600
 
 _REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
-
 async def _get_redis():
     """
     Return a request-scoped async Redis client.
@@ -51,7 +50,9 @@ async def _get_redis():
     """
     try:
         pool = aioredis.ConnectionPool.from_url(
-            _REDIS_URL, decode_responses=True, max_connections=5
+            _REDIS_URL, decode_responses=True, max_connections=5,
+            socket_connect_timeout=0.5, socket_timeout=0.5,
+            health_check_interval=30,
         )
         return aioredis.Redis(connection_pool=pool)
     except Exception:
