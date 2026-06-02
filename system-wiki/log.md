@@ -3,6 +3,16 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-02] feat | M7b Suricata custom + OWASP Top 10 rules loaded — closes #155
+
+- Created `src/suricata/rules/suricata.rules` with 15 detection rules (SID 1000001–1000024).
+- 10 OWASP Top 10 signatures: SQLi UNION SELECT, boolean OR 1=1, time-based SQLi, command injection metachar, XSS script tag, XSS event handler, path traversal (literal + encoded), auth brute-force (10 req/min per src), scanner UA detection.
+- 5 BFP-specific signatures: AFOR upload abuse (20 POST/min to /afor), export abuse (15 req/min to /api/analytics export), admin enumeration (30 req/min to /api/admin), region hopping heuristic (40 req/30s to /api/ref/), public report spam (5 POST/hr to public report endpoints).
+- ET Open ruleset (~30k sigs) deferred to #159 (suricata-update weekly cron).
+- `suricata -T` test: "Configuration provided was successfully loaded. Exiting."
+- Live reload: "15 rules successfully loaded, 0 rules failed, 0 rules skipped" — all 15 inspect application layer (HTTP).
+- ET Open rules are loaded separately via suricata-update (#159).
+
 ## [2026-05-30] merge | Master conflict resolution for encoder/validator branch
 
 - Merged `master` into `fix/enc-val-bugs-and-UI` and resolved conflicts in `src/backend/api/routes/regional.py` and `system-wiki/log.md`.
@@ -1459,3 +1469,14 @@ No schema, auth, or FRS alignment changes.
 **Verification:** `curl -I https://wimsbfp.tech/health` returns 200; `curl -I http://wimsbfp.tech/health` returns 301 to HTTPS; nginx mount inspection shows `/etc/letsencrypt -> /etc/letsencrypt` and `src/nginx/nginx.conf -> /etc/nginx/nginx.conf`.
 
 **Wiki updates:** Updated `system-wiki/architecture/infrastructure-config.md`, `system-wiki/operations/local-dev-deploy-guide.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-06-02] feat | M11a vulnerability scanning — ZAP baseline + Nmap in CI
+
+- Added `security-scan` job to `.github/workflows/ci.yml` on branch `feat/m11-ci-scanning` (PR target: #172).
+- Job brings up full `src/` Docker stack (docker compose up -d --build), polls http://localhost until 200 or 180s timeout.
+- Nmap `-sV` scan of localhost; grep checks for unexpected open ports — fail if any port outside allowlist (80, 443, 3000, 8080, 8090) is open.
+- OWASP ZAP baseline scan via `zaproxy/action-baseline@v0.12.0` against `http://localhost`; `fail_action: true` so HIGH/CRITICAL findings block the merge gate.
+- ZAP auto-uploads HTML/JSON report as artifact; nmap report uploaded via `actions/upload-artifact@v4` (if: always()).
+- Stack torn down with `docker compose down -v` (if: always()).
+- `security-scan` added to `merge-gate` `needs:` list — consistent with migrations/backend (no `continue-on-error`).
+- Wiki gap register entry #172 / M11a vulnerability scanning marked CLOSED.

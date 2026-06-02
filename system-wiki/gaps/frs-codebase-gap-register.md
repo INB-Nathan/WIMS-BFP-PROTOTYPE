@@ -29,6 +29,7 @@ This register prevents agents from hallucinating completion. A module is not com
 - Selected-set analytics: Phase 2 backend module — aggregate charts remain filter-scoped; selected IDs drive table/export behavior only.
 
 ## FRS Gap Closures (May 2026 batch)
+- **M11a (OWASP ZAP Baseline + Nmap CI Scanning)**: CLOSED — feat/m11-ci-scanning: `security-scan` job added to `.github/workflows/ci.yml`; brings full Docker stack, runs Nmap port allowlist check, runs ZAP baseline via `zaproxy/action-baseline@v0.12.0` with `fail_action: true`, uploads both reports as artifacts; `security-scan` added to `merge-gate` `needs:` list to block on HIGH/CRITICAL findings. Closes GH #172.
 - **M6a (Narrative/Casualty/Damage Encryption)**: PARTIAL — GH #150: `narrative_report`, `casualty_details`, `estimated_damage_php` added to AES-256-GCM encrypted blob. All write paths updated (commit.py, regional.py, incidents.py). Plaintext columns NULLed for narrative + casualties. Read path decrypts and injects. Attachments (GH #151) and OpenBao KMS (GH #152) still open.
 - **M6-G (XAI Narrative Generation)**: CLOSED — PR #104: narrative endpoint, batch generation, `ai_narrative` columns, Qwen2.5-3B via Ollama.
 - **M6-F (Suricata IDS Integration)**: CLOSED — PR #105: HIGH severity auto-incident creation, duplicate guard, `security_alert_id` FK, service account pre-provisioned.
