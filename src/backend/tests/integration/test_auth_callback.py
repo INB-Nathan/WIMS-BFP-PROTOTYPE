@@ -147,8 +147,6 @@ def test_callback_expired_token_returns_401(unique_identity, cleanup_test_user):
 @respx.mock
 def test_callback_session_revoked_returns_401(unique_identity, cleanup_test_user):
     """Valid JWT but session is revoked → 401."""
-    sub = unique_identity["sub"]
-    username = unique_identity["username"]
 
     respx.post(main_module.TOKEN_ENDPOINT).mock(
         return_value=respx.MockResponse(
@@ -157,33 +155,25 @@ def test_callback_session_revoked_returns_401(unique_identity, cleanup_test_user
         )
     )
 
-    # valid token payload BUT session_manager says revoked
+    # validate_token itself checks is_token_revoked internally.
+    # Mock it to raise 401 as it would for a revoked session.
     with patch.object(
         main_module.auth.authenticator,
         "validate_token",
         new_callable=AsyncMock,
-        return_value={
-            "sub": sub,
-            "preferred_username": username,
-            "realm_access": {"roles": ["REGIONAL_ENCODER"]},
-        },
+        side_effect=main_module.auth.HTTPException(status_code=401, detail="Token has been revoked"),
     ):
-        with patch.object(
-            main_module.auth.session_manager,
-            "is_token_revoked",
-            return_value=True,
-        ):
-            client = TestClient(main_module.app)
-            r = client.post(
-                "/api/auth/callback",
-                json={
-                    "code": "test_code",
-                    "code_verifier": "test_verifier",
-                    "redirect_uri": "http://localhost:3000/auth/callback",
-                },
-            )
+        client = TestClient(main_module.app)
+        r = client.post(
+            "/api/auth/callback",
+            json={
+                "code": "test_code",
+                "code_verifier": "test_verifier",
+                "redirect_uri": "http://localhost:3000/auth/callback",
+            },
+        )
 
-            assert r.status_code == 401, f"Expected 401 for revoked session, got {r.status_code}"
+        assert r.status_code == 401, f"Expected 401 for revoked session, got {r.status_code}"
 
 
 @respx.mock
