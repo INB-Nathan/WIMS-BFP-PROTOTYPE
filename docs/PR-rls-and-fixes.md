@@ -146,6 +146,80 @@ All four affected tasks were calling `get_session()` without a user UUID, so `wi
 
 ---
 
+## Part 4 — Second-pass Review Fixes (2026-06-02)
+
+**Reviewer:** PR #182 three-axis review (second pass) — 2 new P0 blockers + P1–P3 findings
+
+### Fix 1 — Analytics RLS policies incompatible with `wims_app_user` (P0 Blocker)
+
+`11_analytics_facts.sql` used `TO NATIONAL_ANALYST` / `TO REGIONAL_ENCODER` / `TO SYSTEM_ADMIN` — PostgreSQL database roles. `wims_app_user` is not a member of any of them, so `FORCE ROW LEVEL SECURITY` denied all SELECT/INSERT/UPDATE. Analytics dashboards returned empty and `sync_incident_to_analytics` writes failed silently.
+
+- **`src/postgres-init/11_analytics_facts.sql`** — Rewrote all 4 policies to use `wims.current_user_role() IN (...)` pattern (matching `10_rls_policies.sql`). Replaced the `FOR ALL` write policy with separate `aif_staff_insert`, `aif_staff_update`, `aif_staff_delete` policies (FOR ALL would OR-broaden the region-scoped SELECT policies since PostgreSQL ORs multiple policies). Added NATIONAL_ANALYST to write roles (needed because `correct_verified_incident` permits analysts to trigger `sync_incident_to_analytics`). Added DELETE to the `wims_app` GRANT.
+- **`src/backend/main.py`** — Added `_apply_analytics_facts_rls()` helper and a new startup patch block that drops and recreates the analytics_incident_facts policies on existing deployments.
+
+### Fix 2 — `/api/analytics-summary` bypasses RLS (P0 Blocker)
+
+`main.py:get_analytics_summary` used `Depends(get_db)` — the admin superuser — so encoders saw aggregates from all 18 regions.
+
+- **`src/backend/main.py`** — Replaced `Depends(get_db)` + separate `_user` auth param with `Depends(auth.get_db_with_rls)`. Auth is now enforced inside `get_db_with_rls`.
+
+### Fix 3 — nginx CORS mirrors `$http_origin` on production HTTPS block (P1 Security)
+
+Open CORS echo with `Access-Control-Allow-Credentials: true` on the production block allowed any origin to make credentialed requests.
+
+- **`src/nginx/nginx.conf`** — Production HTTPS `location /api/` block now uses an origin whitelist (`wimsbfp.tech`, `wims.bfp.gov.ph`) via a `$cors_origin` variable. OPTIONS preflight block updated to match. Localhost block annotated as dev-only.
+
+### Fix 4 — `NATIONAL_VALIDATOR` region-guard removed (P1 Quality)
+
+`dashboard/page.tsx` guarded `REGIONAL_ENCODER` against missing `assignedRegionId` but silently dropped validators into an empty queue if their region was unset.
+
+- **`src/frontend/src/app/dashboard/page.tsx`** — Added `NATIONAL_VALIDATOR` arm to the useEffect redirect, showing the same "No region assigned" error.
+
+### Fix 5 — `SET LOCAL` ephemerality after `db.commit()` (P1 Correctness)
+
+Three handlers called `sync_incident_to_analytics` after a mid-handler `db.commit()`. `SET LOCAL` resets on commit, so the sync ran without `wims.current_user_id` set and the write policy denied the INSERT.
+
+- **`src/backend/api/routes/incidents.py`** — Added `set_rls_context(db, uuid.UUID(user_id))` before the sync in `create_incident` (after commit at line 481) and `upload_bundle` (after commit at line 350). Imported `set_rls_context` from `database`.
+- **`src/backend/api/routes/regional.py`** — Added `set_rls_context(db, corrector_user_id)` before the sync in `correct_verified_incident` (after commit at line 2308). Imported `set_rls_context` from `database`.
+
+### Fix 6 — Stale docstring in `auth.py` (P2 Standards)
+
+`get_db_with_rls` docstring still said "Re-exported from database.py for backward-compatible imports."
+
+- **`src/backend/auth.py`** — Updated line to "All consumers import from auth directly."
+
+### Fix 7 — `_get_admin_session()` creates sessionmaker per call (P2 Standards)
+
+`_sessionmaker(...)` was called on every `_get_admin_session()` invocation, creating a new factory each time.
+
+- **`src/backend/main.py`** — Added module-level `_startup_admin_session_factory`. `_get_admin_session()` now calls `_startup_admin_session_factory()`.
+
+### Fix 8 — Fragile test URL rewriting (P2 Standards)
+
+`test_ref_table_rls.py` rewrote credentials via two `str.replace` calls that would silently produce a broken URL if the format changed.
+
+- **`src/backend/tests/test_ref_table_rls.py`** — Replaced with `urllib.parse` approach. Reads `WIMS_APP_DATABASE_URL` env var directly if set; otherwise rewrites via `urlparse`/`urlunparse`.
+
+### Fix 9 — SQL string interpolation in `ref.py` (P3 Security)
+
+`province_ids` list was joined into a SQL string instead of using named bind parameters.
+
+- **`src/backend/api/routes/ref.py`** — Uses `:pid_0, :pid_1, ...` named parameters via `text(f"... IN ({placeholders})")` + params dict.
+
+### Fix 10 — Narrative AI calls serialized (P3 Performance)
+
+`batch_generate_narratives` spawned a new event loop per incident with `asyncio.run()` in a loop.
+
+- **`src/backend/tasks/narrative.py`** — Replaced with a single `asyncio.run(_generate_all())` using `asyncio.gather()`, processing all incidents concurrently.
+
+### Fix 11 — `SYSTEM_TASK_USER_ID` cross-artifact drift guard (P2 Maintainability)
+
+The UUID `00000000-0000-0000-0000-000000000002` appeared in `database.py`, `03_users.sql`, and `main.py` with no contract test to catch drift.
+
+- **`src/backend/tests/test_dev_user_seed_mapping.py`** — Added `test_system_task_user_id_consistent_across_artifacts()` that asserts the UUID is present and correctly assigned in all three artifacts.
+
+---
+
 ## Files changed
 
 ### Backend

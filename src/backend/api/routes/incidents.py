@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 import auth
 from auth import get_current_wims_user, get_analyst_or_admin
 from auth import get_db_with_rls
+from database import set_rls_context
 from schemas.incident import IncidentCreate, IncidentResponse
 from services.analytics.filters import append_common_filters, build_analytics_filters
 from services.analytics_read_model import sync_incident_to_analytics
@@ -355,6 +356,8 @@ def upload_incident_bundle(
             status_code=500, detail=f"upload-bundle commit failed: {type(e).__name__}"
         ) from None
 
+    # SET LOCAL resets on commit; re-apply RLS context before the analytics sync loop.
+    set_rls_context(db, uuid.UUID(user_id))
     for iid in incident_ids:
         try:
             sync_incident_to_analytics(db, iid)
@@ -483,6 +486,8 @@ def create_incident(
     if row is None:
         raise HTTPException(status_code=500, detail="Failed to create incident")
 
+    # SET LOCAL resets on commit; re-apply RLS context before the analytics sync.
+    set_rls_context(db, uuid.UUID(user_id))
     incident_id = row[0]
     sync_incident_to_analytics(db, incident_id)
     db.commit()

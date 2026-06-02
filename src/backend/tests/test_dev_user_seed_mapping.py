@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -82,3 +83,26 @@ def test_keycloak_realm_exports_have_login_ready_dev_encoders() -> None:
             assert user["realmRoles"] == ["REGIONAL_ENCODER"]
             assert user["credentials"][0]["value"] == "Password123!"
             assert user["credentials"][0]["temporary"] is False
+
+
+def test_system_task_user_id_consistent_across_artifacts() -> None:
+    """Guard against drift of the svc_task UUID across database.py, 03_users.sql, and main.py.
+
+    If any artifact uses a different UUID, Celery tasks will set the wrong RLS GUC and
+    current_user_role() will return ANONYMOUS, silently breaking all analytics syncs.
+    """
+    _UUID = "00000000-0000-0000-0000-000000000002"
+
+    database_py = (REPO_ROOT / "src" / "backend" / "database.py").read_text(encoding="utf-8")
+    users_sql = (REPO_ROOT / "src" / "postgres-init" / "03_users.sql").read_text(encoding="utf-8")
+    main_py = (REPO_ROOT / "src" / "backend" / "main.py").read_text(encoding="utf-8")
+
+    assert _UUID in database_py, f"SYSTEM_TASK_USER_ID {_UUID!r} not found in database.py"
+    assert _UUID in users_sql, f"svc_task UUID {_UUID!r} not found in 03_users.sql"
+    assert _UUID in main_py, f"svc_task upsert UUID {_UUID!r} not found in main.py startup patch"
+
+    # Verify database.py actually assigns it to the constant (not just a comment)
+    assert re.search(
+        rf'SYSTEM_TASK_USER_ID\s*=.*{re.escape(_UUID)}',
+        database_py,
+    ), "SYSTEM_TASK_USER_ID constant assignment not found in database.py"

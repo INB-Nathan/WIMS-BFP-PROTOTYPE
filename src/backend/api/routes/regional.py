@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user, get_national_validator, get_regional_encoder
 from auth import get_db_with_rls
+from database import set_rls_context
 from services.event_bus import publish_incident_event, publish_incident_event_sync
 from services.afor_import import (
     ALARM_LEVEL_MAP,
@@ -2314,6 +2315,8 @@ async def correct_verified_incident(
         raise HTTPException(status_code=500, detail=str(e))
 
     try:
+        # SET LOCAL resets on commit; re-apply RLS context before the analytics sync.
+        set_rls_context(db, corrector_user_id)
         sync_incident_to_analytics(db, inc_id)
         db.commit()
     except Exception as e:

@@ -389,7 +389,7 @@ def get_db_with_rls(
     approach required the override to set request.state as a side effect, which
     lambda overrides never did.
 
-    Re-exported from database.py for backward-compatible imports.
+    All consumers import from auth directly (from auth import get_db_with_rls).
     """
     db = _SessionLocal()
     try:

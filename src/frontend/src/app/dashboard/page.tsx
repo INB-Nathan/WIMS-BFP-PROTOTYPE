@@ -49,6 +49,13 @@ export default function DashboardPage() {
             } else {
                 setRedirectError('No region assigned to your account. Contact your administrator.');
             }
+        } else if (!loading && role === 'NATIONAL_VALIDATOR') {
+            // NATIONAL_VALIDATOR also requires an assigned region (RLS scopes their view)
+            if (assignedRegionId) {
+                router.replace(defaultRouteForRole(role));
+            } else {
+                setRedirectError('No region assigned to your account. Contact your administrator.');
+            }
         } else if (!loading && role) {
             const route = defaultRouteForRole(role);
             if (route !== '/dashboard') router.replace(route);
