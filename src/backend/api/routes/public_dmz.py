@@ -35,6 +35,7 @@ _REDIS_EMERGENCY_TTL = 3600
 
 _REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
+
 async def _get_redis():
     """
     Return a request-scoped async Redis client.
