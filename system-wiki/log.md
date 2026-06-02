@@ -3,6 +3,23 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-03] fix | M14 region resolution — nearest ref_fire_stations (civilian.py pattern)
+
+**Root cause:** `wims.ref_regions` has NO PostGIS geometry column — only `region_id, region_name, region_code`. PostGIS `GEOGRAPHY(POINT,4326)` lives ONLY on `wims.ref_fire_stations.location`. The `region_geom` column never existed; `ORDER BY region_id` was a dumb fallback. `civilian.py`'s `_resolve_nearest()` resolves region by finding the nearest fire station and reading its `region_id` attribute — matching approach inlines here.
+
+**Fix (`src/backend/api/routes/public_dmz.py`):** Replaced region resolution with:
+```sql
+SELECT region_id FROM wims.ref_fire_stations
+ORDER BY location <-> ST_GeogFromText(:wkt) LIMIT 1
+```
+Attribute access: `station_row.region_id if station_row else None`. Fallback to `ref_regions ORDER BY region_id LIMIT 1` with attribute access if no stations found.
+
+**Fix (`src/backend/tests/test_public_submission.py`):** Added module-level `_FakeRow` class (attribute access + index + unpack), replacing all per-test `MockRow` classes. `test_region_resolved_via_nearest_fire_station` asserts first `execute()` call uses `ref_fire_stations` with `<->` operator. `test_submission_creates_row_with_null_encoder_id` uses `_FakeRow(incident_id=..., verification_status=..., created_at=...)`.
+
+**`src/postgres-init/32_ref_fire_stations.sql` seeds ref_fire_stations with all 237+ PH fire stations and their `location GEOGRAPHY(POINT, 4326)` — no migration needed for live integration tests.** `ref_regions` fallback handles thin-seed DB edge case.
+
+**Deferred:** Polygon geometry on `ref_regions` would enable true centroid-based resolution. Currently via nearest fire station — acceptable per FRS M14 functional spec.
+
 ## [2026-06-02] fix | M14 test failures — geometry column, MockRow subscript, rate-limit isolation
 
 **Root causes and fixes for 10 failing tests on `feat/m14-public-submission` (PR #320):**

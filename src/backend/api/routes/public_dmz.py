@@ -135,35 +135,39 @@ def submit_public_incident(
     - NO wims.current_user_id RLS context set (encoder_id = NULL)
     - Redis rate limiting: 3 submissions per IP per hour
     - verification_status = 'PENDING_VALIDATION' (awaiting NATIONAL_VALIDATOR review)
-    - region_id resolved from coordinates (nearest ref_region centroid)
+    - region_id resolved via nearest ref_fire_stations (location <-> wkt) — ref_regions has no PostGIS geometry
     - import_batch_id = NULL (no batch association)
     """
     wkt = f"SRID=4326;POINT({body.longitude} {body.latitude})"
 
     # ---------------------------------------------------------------------------
-    # Step 1: Resolve region_id from coordinates via nearest-centroid heuristic.
+    # Step 1: Resolve region_id via nearest fire station (civilian.py pattern).
+    # ref_fire_stations.location is GEOGRAPHY(POINT,4326); ref_regions has no
+    # geometry.  ORDER BY location <-> finds the physically nearest station.
     # ---------------------------------------------------------------------------
-    region_row = db.execute(
+    station_row = db.execute(
         text("""
             SELECT region_id
-            FROM wims.ref_regions
-            ORDER BY region_id
+            FROM wims.ref_fire_stations
+            ORDER BY location <-> ST_GeogFromText(:wkt)
             LIMIT 1
         """),
+        {"wkt": wkt},
     ).fetchone()
 
-    if region_row is None:
-        region_row = db.execute(
+    region_id = station_row.region_id if station_row else None
+
+    if region_id is None:
+        fallback = db.execute(
             text("SELECT region_id FROM wims.ref_regions ORDER BY region_id LIMIT 1")
         ).fetchone()
+        region_id = fallback.region_id if fallback else None
 
-    if region_row is None:
+    if region_id is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="No ref_regions seed data found — cannot route public incident",
+            detail="No region reference data found — cannot route public incident",
         )
-
-    region_id = region_row[0]
 
     # ---------------------------------------------------------------------------
     # Step 2: Insert into fire_incidents — encoder_id intentionally NULL.
