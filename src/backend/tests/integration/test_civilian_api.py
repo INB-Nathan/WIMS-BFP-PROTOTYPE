@@ -40,10 +40,27 @@ def db_session():
 
 @pytest.fixture(autouse=True)
 def _clean_redis():
-    """Ensure a clean Redis state before every test that touches report-clusters."""
+    """Ensure clean Redis and PostgreSQL state before every test.
+
+    Redis: flush all keys so no cached data crosses test boundaries.
+    PostgreSQL: delete from cluster/report tables so inserted data
+    from one test does not pollute the 60-minute window queries of the next.
+    """
     r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
     r.flushdb()
     r.close()
+
+    db = _SessionLocal()
+    try:
+        # Delete in FK-safe order: members → clusters → reports
+        # NOTE: wims.users is intentionally excluded — seed users have FK
+        # references from incident_verification_history and other tables.
+        db.execute(text("DELETE FROM wims.citizen_report_cluster_members"))
+        db.execute(text("DELETE FROM wims.citizen_report_clusters"))
+        db.execute(text("DELETE FROM wims.citizen_reports"))
+        db.commit()
+    finally:
+        db.close()
 
 
 def _payload(**overrides):
