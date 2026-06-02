@@ -48,6 +48,43 @@ class _FakeRow:
         return len(self._values)
 
 
+class _FakeResult:
+    def __init__(self, row=None, rows=None):
+        self._row = row
+        self._rows = rows or []
+
+    def fetchone(self):
+        return self._row
+
+    def fetchall(self):
+        return self._rows
+
+
+class _MockDB:
+    def __init__(self):
+        self.executed_sql = []
+
+    def execute(self, statement, params=None):
+        sql = str(statement)
+        self.executed_sql.append(sql)
+        if "ref_fire_stations" in sql:
+            return _FakeResult(row=_FakeRow(region_id=42))
+        if "ref_regions" in sql:
+            return _FakeResult(row=_FakeRow(region_id=1))
+        if "RETURNING" in sql or "INSERT" in sql:
+            return _FakeResult(
+                row=_FakeRow(
+                    incident_id=999, verification_status="PENDING_VALIDATION", created_at=None
+                )
+            )
+        if "ST_Y" in sql or "ST_X" in sql:
+            return _FakeResult(row=_FakeRow(lat=14.5995, lon=120.9842))
+        return _FakeResult(row=None)
+
+    def commit(self):
+        pass
+
+
 class TestPublicReportEndpoint:
     """POST /api/v1/public/report"""
 
@@ -71,19 +108,10 @@ class TestPublicReportEndpoint:
     def test_submission_creates_row_with_null_encoder_id(self, monkeypatch):
         """DB row must have NULL encoder_id and PENDING_VALIDATION status."""
 
-        class MockDB:
-            def execute(self, *args, **kwargs):
-                return _FakeRow(
-                    incident_id=999, verification_status="PENDING_VALIDATION", created_at=None
-                )
-
-            def commit(self):
-                pass
-
         from database import get_db
 
         def override_get_db():
-            yield MockDB()
+            yield _MockDB()
 
         app.dependency_overrides[get_db] = override_get_db
         try:
@@ -100,31 +128,12 @@ class TestPublicReportEndpoint:
     def test_region_resolved_via_nearest_fire_station(self, monkeypatch):
         """Region assignment uses ORDER BY location <-> on ref_fire_stations (civilian.py pattern)."""
 
-        call_count = [0]
-
-        class MockDB:
-            def execute(self, sql, params=None):
-                call_count[0] += 1
-                sql_str = str(sql)
-                if call_count[0] == 1:
-                    assert "ref_fire_stations" in sql_str and "<->" in sql_str, (
-                        f"First query must use ref_fire_stations <->, got: {sql_str[:200]}"
-                    )
-                    return _FakeRow(region_id=42)
-                elif call_count[0] == 2:
-                    return _FakeRow(
-                        incident_id=1, verification_status="PENDING_VALIDATION", created_at=None
-                    )
-                else:
-                    return _FakeRow(lat=14.5995, lon=120.9842)
-
-            def commit(self):
-                pass
-
         from database import get_db
 
+        mock_db = _MockDB()
+
         def override_get_db():
-            yield MockDB()
+            yield mock_db
 
         app.dependency_overrides[get_db] = override_get_db
         try:
@@ -133,6 +142,9 @@ class TestPublicReportEndpoint:
                 json={"latitude": 14.5995, "longitude": 120.9842, "description": "Test"},
             )
             assert resp.status_code == 201, resp.text
+            assert any("ref_fire_stations" in s and "<->" in s for s in mock_db.executed_sql), (
+                f"Station query not found in executed SQL: {mock_db.executed_sql}"
+            )
         finally:
             app.dependency_overrides.clear()
 

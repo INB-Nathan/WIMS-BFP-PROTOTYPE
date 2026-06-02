@@ -1508,3 +1508,4 @@ No schema, auth, or FRS alignment changes.
 
 **Wiki updates:** Updated `system-wiki/architecture/infrastructure-config.md`, `system-wiki/operations/local-dev-deploy-guide.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
 ## [2026-06-03] ruff format applied to tests/test_public_submission.py
+## [2026-06-03] fixed test mocks: result-wrapper + SQL-dispatch MockDB so db.execute().fetchone() works across all four queries
