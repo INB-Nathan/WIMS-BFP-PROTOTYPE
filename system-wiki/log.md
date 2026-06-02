@@ -39,6 +39,26 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `src/backend/services/event_bus.py`: Added module-level sync `ConnectionPool` (`_sync_pool`) shared across `publish_*_sync()` functions (lines ~247, 285, 322). Added module-level async `ConnectionPool` (`_async_pool`) shared via `_get_async_pool()` reused in `_ensure_pub()`/`_ensure_sub()`.
 - `src/backend/api/routes/public_dmz.py`: Replaced per-request `aioredis.from_url` in `_get_redis()` with module-level `ConnectionPool` (`_redis_pool`, max_connections=20) via `_get_redis_pool()`. No behavioral change — only connection reuse.
 
+## [2026-06-02] fix | Redis connection pooling, timeouts, error logging, test cleanup for report-clusters endpoint
+
+**Session context:** Applied production-quality fixes from three-axis review of issues #127/#128.
+
+**Fixes:**
+- **P1 — Redis connection leak:** Replaced per-request `redis.from_url()` with module-level `_get_redis()` singleton using connection pooling, `socket_connect_timeout=0.5`, `socket_timeout=0.5`, and `health_check_interval=30`.
+- **P2 — No Redis timeouts:** Added `socket_connect_timeout=0.5` and `socket_timeout=0.5` to prevent requests from hanging under Redis failure.
+- **P3 — Bare `except Exception: pass`:** Added `logger.warning(...)` with `exc_info=True` to all three previously-silent except blocks.
+- **P4 — 15× `import redis` in test function bodies:** Moved to single module-level import at `test_civilian_api.py:15`.
+- **P5 — 15× Redis FLUSHDB boilerplate:** Replaced ~70 lines of repeated setup with `autouse` `_clean_redis` fixture.
+- **P6 — Truncation test:** Renamed `test_get_report_clusters_truncation_flag` → `test_get_report_clusters_returns_truncated_false_when_under_cap`, removed dead `monkeypatch` parameter.
+
+**Verification:** `ruff check .` passes; `ruff format --check .` passes; frontend `npx vitest run` 145/145 pass (no regressions).
+
+**Files:** `src/backend/api/routes/civilian.py`, `src/backend/tests/integration/test_civilian_api.py`.
+
+**Wiki updated:** `system-wiki/log.md`. No `gaps/frs-codebase-gap-register.md` update needed (production quality fixes, no FRS alignment change).
+
+## [2026-05-30] merge | Master conflict resolution for encoder/validator branch
+
 - Merged `master` into `fix/enc-val-bugs-and-UI` and resolved conflicts in `src/backend/api/routes/regional.py` and `system-wiki/log.md`.
 - Preserved the encoder/validator branch's extracted regional helper architecture instead of reintroducing inline helper definitions from master.
 - Updated `src/backend/services/regional_incidents/helpers.py` so `insert_incident_verification_history()` accepts optional `data_hash` and `sync_status`, keeping the extracted helper compatible with master's M4b verification audit migration.

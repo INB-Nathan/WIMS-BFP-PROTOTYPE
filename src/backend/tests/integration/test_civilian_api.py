@@ -12,6 +12,7 @@ import sys
 import uuid
 
 import pytest
+import redis
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -35,6 +36,14 @@ def db_session():
         yield db
     finally:
         db.close()
+
+
+@pytest.fixture(autouse=True)
+def _clean_redis():
+    """Ensure a clean Redis state before every test that touches report-clusters."""
+    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
+    r.flushdb()
+    r.close()
 
 
 def _payload(**overrides):
@@ -281,11 +290,9 @@ def _insert_cluster(db: Session, report_ids: list[int]) -> int:
 
 
 def test_get_report_clusters_cache_and_stale_fallback(client, db_session):
-    import redis
     from unittest import mock
 
     r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
-    r.flushdb()
 
     report_ids = [_insert_report(db_session, status="PENDING") for _ in range(3)]
     linked_id = _insert_report(db_session, status="LINKED")
@@ -346,10 +353,6 @@ def test_get_report_clusters_cache_and_stale_fallback(client, db_session):
 
 def test_get_report_clusters_national_mode(client, db_session):
     """National mode (no lat/lon): min 10 reports, cap 25, no center."""
-    import redis
-
-    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
-    r.flushdb()
 
     # Need 10+ reports to meet national minimum
     report_ids = [_insert_report(db_session, status="PENDING") for _ in range(12)]
@@ -369,10 +372,6 @@ def test_get_report_clusters_national_mode(client, db_session):
 
 def test_get_report_clusters_national_below_threshold_returns_empty(client, db_session):
     """National mode with fewer than 10 reports returns empty areas."""
-    import redis
-
-    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
-    r.flushdb()
 
     report_ids = [_insert_report(db_session, status="PENDING") for _ in range(5)]
     _insert_cluster(db_session, report_ids)
@@ -386,10 +385,6 @@ def test_get_report_clusters_national_below_threshold_returns_empty(client, db_s
 
 def test_get_report_clusters_local_mode(client, db_session):
     """Local mode (lat/lon): min 3 reports, cap 50, center returned."""
-    import redis
-
-    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
-    r.flushdb()
 
     report_ids = [_insert_report(db_session, status="PENDING") for _ in range(4)]
     _insert_cluster(db_session, report_ids)
@@ -407,10 +402,6 @@ def test_get_report_clusters_local_mode(client, db_session):
 
 def test_get_report_clusters_local_below_threshold_returns_empty(client, db_session):
     """Local mode with fewer than 3 reports returns empty areas."""
-    import redis
-
-    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
-    r.flushdb()
 
     report_ids = [_insert_report(db_session, status="PENDING") for _ in range(2)]
     _insert_cluster(db_session, report_ids)
@@ -424,10 +415,6 @@ def test_get_report_clusters_local_below_threshold_returns_empty(client, db_sess
 
 def test_get_report_clusters_excludes_terminal_report_statuses(client, db_session):
     """Reports with ACTIONED or REJECTED_* statuses are excluded from areas."""
-    import redis
-
-    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
-    r.flushdb()
 
     # Reports in terminal statuses — should be excluded
     actioned = _insert_report(db_session, status="ACTIONED")
@@ -453,10 +440,6 @@ def test_get_report_clusters_excludes_terminal_report_statuses(client, db_sessio
 
 def test_get_report_clusters_excludes_closed_actioned_clusters(client, db_session):
     """Clusters with CLUSTER_ACTIONED or CLUSTER_CLOSED status are excluded."""
-    import redis
-
-    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
-    r.flushdb()
 
     report_ids = [_insert_report(db_session, status="PENDING") for _ in range(4)]
     cluster_id = _insert_cluster(db_session, report_ids)
@@ -478,10 +461,6 @@ def test_get_report_clusters_excludes_closed_actioned_clusters(client, db_sessio
 
 def test_get_report_clusters_includes_pending_under_review_linked(client, db_session):
     """Count pressure includes PENDING, UNDER_REVIEW, and LINKED statuses."""
-    import redis
-
-    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
-    r.flushdb()
 
     pending_reports = [_insert_report(db_session, status="PENDING") for _ in range(2)]
     under_review = _insert_report(db_session, status="UNDER_REVIEW")
@@ -499,10 +478,6 @@ def test_get_report_clusters_includes_pending_under_review_linked(client, db_ses
 
 def test_get_report_clusters_privacy_fields_absent(client, db_session):
     """Response must not leak raw IDs, exact counts, timestamps, or sensitive data."""
-    import redis
-
-    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
-    r.flushdb()
 
     report_ids = [_insert_report(db_session, status="PENDING") for _ in range(4)]
     _insert_cluster(db_session, report_ids)
@@ -548,10 +523,6 @@ def test_get_report_clusters_privacy_fields_absent(client, db_session):
 
 def test_get_report_clusters_count_and_age_buckets(client, db_session):
     """Count bucket uses relative ranges; age bucket uses relative time windows."""
-    import redis
-
-    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
-    r.flushdb()
 
     report_ids = [_insert_report(db_session, status="PENDING") for _ in range(7)]
     _insert_cluster(db_session, report_ids)
@@ -573,10 +544,6 @@ def test_get_report_clusters_count_and_age_buckets(client, db_session):
 
 def test_get_report_clusters_dynamic_radius_bounds(client, db_session):
     """Dynamic radius must be in [100, 1000], rounded up to 100m increments."""
-    import redis
-
-    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
-    r.flushdb()
 
     report_ids = [_insert_report(db_session, status="PENDING") for _ in range(4)]
     _insert_cluster(db_session, report_ids)
@@ -594,10 +561,6 @@ def test_get_report_clusters_dynamic_radius_bounds(client, db_session):
 
 def test_get_report_clusters_area_id_is_ephemeral(client, db_session):
     """area_id must be a derived hash, not the raw cluster_id."""
-    import redis
-
-    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
-    r.flushdb()
 
     report_ids = [_insert_report(db_session, status="PENDING") for _ in range(4)]
     _insert_cluster(db_session, report_ids)
@@ -621,12 +584,8 @@ def test_get_report_clusters_area_id_is_ephemeral(client, db_session):
         assert area["area_id"] != str(raw_id)
 
 
-def test_get_report_clusters_truncation_flag(client, db_session, monkeypatch):
-    """When results exceed the cap, truncated flag must be set."""
-    import redis
-
-    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
-    r.flushdb()
+def test_get_report_clusters_returns_truncated_false_when_under_cap(client, db_session):
+    """With fewer clusters than the cap, truncated flag is False."""
 
     # Monkey-patch the endpoint's max_results to 2 for this test
     # We create 3 clusters, each meeting the min threshold
@@ -651,10 +610,6 @@ def test_get_report_clusters_truncation_flag(client, db_session, monkeypatch):
 
 def test_get_report_clusters_requires_active_report_in_cluster(client, db_session):
     """A cluster with only terminal-status reports (no active) is excluded."""
-    import redis
-
-    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
-    r.flushdb()
 
     # Create one cluster with pending (active) reports + one cluster with only rejected (terminal)
     pending_ids = [_insert_report(db_session, status="PENDING") for _ in range(4)]
@@ -677,10 +632,6 @@ def test_get_report_clusters_requires_active_report_in_cluster(client, db_sessio
 
 def test_get_report_clusters_response_has_required_top_level_fields(client, db_session):
     """Verify all required top-level fields are present in the response."""
-    import redis
-
-    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
-    r.flushdb()
 
     report_ids = [_insert_report(db_session, status="PENDING") for _ in range(4)]
     _insert_cluster(db_session, report_ids)
