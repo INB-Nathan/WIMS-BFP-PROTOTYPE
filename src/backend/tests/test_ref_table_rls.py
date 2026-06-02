@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from urllib.parse import urlparse, urlunparse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -36,13 +37,23 @@ _NCR_REGION_ID = 1  # seeded by 21_all_regions.sql
 
 
 def _app_database_url() -> str:
+    """Build the wims_app_user connection URL from the environment.
+
+    Reads WIMS_APP_DATABASE_URL directly if set, otherwise rewrites the admin URL
+    using urllib.parse so we don't depend on specific credential string patterns.
+    """
+    direct = os.environ.get("WIMS_APP_DATABASE_URL")
+    if direct:
+        return direct
     url = os.environ.get(
         "SQLALCHEMY_DATABASE_URL",
         os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/wims_test"),
     )
-    return url.replace("postgres:postgres@", "wims_app_user:wimsapp@").replace(
-        "postgres:password@", "wims_app_user:wimsapp@"
-    )
+    parsed = urlparse(url)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 5432
+    db = parsed.path.lstrip("/") or "wims_test"
+    return urlunparse(parsed._replace(netloc=f"wims_app_user:wimsapp@{host}:{port}", path=f"/{db}"))
 
 
 _AppSessionLocal = sessionmaker(

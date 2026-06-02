@@ -85,6 +85,7 @@ _STARTUP_ADMIN_URL: str = os.environ.get("DATABASE_ADMIN_URL") or os.environ.get
     "SQLALCHEMY_DATABASE_URL", os.environ.get("DATABASE_URL", "")
 )
 _startup_admin_engine = create_engine(_STARTUP_ADMIN_URL)
+_startup_admin_session_factory = _sessionmaker(autocommit=False, autoflush=False, bind=_startup_admin_engine)
 
 
 def _get_admin_session():
@@ -95,7 +96,7 @@ def _get_admin_session():
     the table owner or superuser — use DATABASE_ADMIN_URL for those ops.
     Falls back to the regular DATABASE_URL if the admin URL is not set.
     """
-    return _sessionmaker(autocommit=False, autoflush=False, bind=_startup_admin_engine)()
+    return _startup_admin_session_factory()
 
 
 @app.on_event("startup")
@@ -117,6 +118,8 @@ def apply_schema_patches() -> None:
       SYSTEM_ADMIN role for cross-table RLS access (seeded in 03_users.sql for new installs).
     - Analytics MV ownership: transfers wims.mv_* materialized view ownership to
       wims_app_user so the non-superuser can run REFRESH MATERIALIZED VIEW.
+    - analytics_incident_facts RLS: rewrites policies from TO <role> (PG database roles) to
+      wims.current_user_role() IN (...) so wims_app_user is subject to the correct policies.
 
     Uses DATABASE_ADMIN_URL (superuser) because CREATE RULE / CREATE POLICY /
     ALTER TABLE require the table owner; wims_app_user (the runtime role) is not
@@ -244,6 +247,17 @@ def apply_schema_patches() -> None:
         logger.warning("Schema patch (MV ownership) failed (non-fatal): %s", exc)
         db.rollback()
 
+    try:
+        _apply_analytics_facts_rls(db)
+        db.commit()
+        logger.info(
+            "Schema patch applied: analytics_incident_facts RLS policies rewritten "
+            "to use current_user_role() (removed incompatible TO <role> syntax)"
+        )
+    except Exception as exc:
+        logger.warning("Schema patch (analytics_facts RLS) failed (non-fatal): %s", exc)
+        db.rollback()
+
     finally:
         db.close()
         with _schema_patches_lock:
@@ -306,6 +320,81 @@ def _apply_ref_table_rls(db) -> None:  # type: ignore[type-arg]
                 )
             )
         """)
+    )
+
+
+def _apply_analytics_facts_rls(db) -> None:  # type: ignore[type-arg]
+    """Rewrite analytics_incident_facts RLS policies from TO <role> to current_user_role() IN (...).
+
+    TO <role> addresses PostgreSQL database roles; wims_app_user inherits from wims_app, not from
+    NATIONAL_ANALYST / REGIONAL_ENCODER / etc. FORCE ROW LEVEL SECURITY therefore denies everything.
+
+    Write policies are split into separate INSERT/UPDATE/DELETE (not FOR ALL) to avoid OR-broadening
+    the region-scoped SELECT policies — PostgreSQL ORs multiple policies for the same command.
+    NATIONAL_ANALYST is included in write policies because correct_verified_incident permits analysts
+    to modify incidents and trigger sync_incident_to_analytics.
+    """
+    _write_roles = "('REGIONAL_ENCODER', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST', 'SYSTEM_ADMIN')"
+    for policy in (
+        "aif_national_analyst_read",
+        "aif_regional_read",
+        "aif_validator_read",
+        "aif_system_admin_all",
+        "aif_staff_write",
+        "aif_staff_insert",
+        "aif_staff_update",
+        "aif_staff_delete",
+    ):
+        db.execute(
+            text(f"DROP POLICY IF EXISTS {policy} ON wims.analytics_incident_facts")
+        )
+
+    db.execute(
+        text("""
+            CREATE POLICY aif_national_analyst_read ON wims.analytics_incident_facts
+                FOR SELECT USING (wims.current_user_role() IN ('NATIONAL_ANALYST', 'SYSTEM_ADMIN'))
+        """)
+    )
+    db.execute(
+        text("""
+            CREATE POLICY aif_regional_read ON wims.analytics_incident_facts
+                FOR SELECT USING (
+                    wims.current_user_role() = 'REGIONAL_ENCODER'
+                    AND region_id = wims.current_user_region_id()
+                )
+        """)
+    )
+    db.execute(
+        text("""
+            CREATE POLICY aif_validator_read ON wims.analytics_incident_facts
+                FOR SELECT USING (
+                    wims.current_user_role() = 'NATIONAL_VALIDATOR'
+                    AND region_id = wims.current_user_region_id()
+                )
+        """)
+    )
+    db.execute(
+        text(f"""
+            CREATE POLICY aif_staff_insert ON wims.analytics_incident_facts
+                FOR INSERT WITH CHECK (wims.current_user_role() IN {_write_roles})
+        """)
+    )
+    db.execute(
+        text(f"""
+            CREATE POLICY aif_staff_update ON wims.analytics_incident_facts
+                FOR UPDATE
+                USING (wims.current_user_role() IN {_write_roles})
+                WITH CHECK (wims.current_user_role() IN {_write_roles})
+        """)
+    )
+    db.execute(
+        text(f"""
+            CREATE POLICY aif_staff_delete ON wims.analytics_incident_facts
+                FOR DELETE USING (wims.current_user_role() IN {_write_roles})
+        """)
+    )
+    db.execute(
+        text("GRANT INSERT, UPDATE, DELETE ON wims.analytics_incident_facts TO wims_app")
     )
 
 
@@ -671,8 +760,7 @@ class AnalyticsSummaryRequest(BaseModel):
 @app.post("/api/analytics-summary")
 async def get_analytics_summary(
     body: AnalyticsSummaryRequest,
-    _user: Annotated[dict, Depends(auth.get_current_wims_user)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(auth.get_db_with_rls)],
 ):
     """
     Dashboard summary counts — reads fire_incidents directly so that

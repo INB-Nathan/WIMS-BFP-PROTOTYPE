@@ -38,13 +38,21 @@ def batch_generate_narratives(limit: int = 50):
         incident_ids = [r[0] for r in rows]
         logger.info("batch_generate_narratives: %d incidents to process", len(incident_ids))
 
-        for iid in incident_ids:
-            try:
-                asyncio.run(generate_incident_narrative(iid, db))
+        if not incident_ids:
+            return {"processed": 0}
+
+        async def _generate_all():
+            return await asyncio.gather(
+                *[generate_incident_narrative(iid, db) for iid in incident_ids],
+                return_exceptions=True,
+            )
+
+        results = asyncio.run(_generate_all())
+        for iid, result in zip(incident_ids, results):
+            if isinstance(result, Exception):
+                logger.warning("Failed to generate narrative for incident %s: %s", iid, result)
+            else:
                 logger.info("Narrative generated for incident %s", iid)
-            except Exception as e:
-                logger.warning("Failed to generate narrative for incident %s: %s", iid, e)
-                continue
 
         return {"processed": len(incident_ids)}
 
