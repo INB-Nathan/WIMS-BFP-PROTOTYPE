@@ -90,7 +90,7 @@ export default function ProfilePage() {
                 last_name: data.last_name,
                 email: data.email,
                 contact_number: data.contact_number
-            }));
+            })).catch(e => console.error("Failed to refresh profile after save", e));
         } catch (e: unknown) {
             setProfileMsg({ type: 'error', text: (e as { message?: string })?.message ?? 'Update failed.' });
         } finally {

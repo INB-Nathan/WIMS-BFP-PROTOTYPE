@@ -1,5 +1,19 @@
 # System Wiki Log
 
+## [2026-06-02] fix | Review fixes for profile email branch (#28, #86)
+
+Applied fixes from three-axis review of `fix/profile-email-and-polish`:
+
+- **P1 — Dead-code email fallback:** Added `email` to `user_dict` in `get_current_wims_user()` (`auth.py:370`) from the JWT token payload, so the fallback in `GET /user/me/profile` now has a real value.
+- **P1 — Email format validation:** Replaced `email_not_blank` validator with Pydantic `EmailStr` in `ProfileUpdate` schema; `email-validator>=2.0.0` was already in `requirements.txt`.
+- **P2 — DB sync partial status:** Split `contact_number` and `email` DB sync into independent try/except blocks; returns `{"status": "partial", ...}` when DB sync fails instead of silently swallowing the failure.
+- **P3 — Email column index:** Added `CREATE INDEX IF NOT EXISTS idx_users_email ON wims.users(email)` to `44_add_email_to_users.sql`.
+- **P3 — Profile re-fetch error handling:** Added `.catch()` to `fetchMyProfile().then()` after profile save in `profile/page.tsx`.
+- **P4 — API type fix:** Changed `email?: string` to `email: string` in `fetchMyProfile()` return type in `legacy.ts`.
+- Added 2 new backend tests: invalid email format rejection, DB sync failure partial status.
+
+**Verification:** Backend 10/10 passed. Frontend 154/154 passed across 22 test files.
+
 ## [2026-06-02] test | Add frontend profile page tests (#28, #86)
 
 - Created `src/frontend/src/app/profile/__tests__/profile.test.tsx` with 9 tests.

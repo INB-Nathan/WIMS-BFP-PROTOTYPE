@@ -78,6 +78,26 @@ class TestProfileEmailSchema:
         assert payload.last_name is None
         assert payload.contact_number is None
 
+    def test_email_rejects_invalid_format(self):
+        """EmailStr should reject malformed email addresses."""
+        from api.routes.user import ProfileUpdate
+        from pydantic import ValidationError
+
+        # Valid email should work
+        payload = ProfileUpdate(email="valid@bfp.gov.ph")
+        assert payload.email == "valid@bfp.gov.ph"
+
+        # Invalid email should raise ValidationError
+        with pytest.raises(ValidationError):
+            ProfileUpdate(email="notanemail")
+
+        with pytest.raises(ValidationError):
+            ProfileUpdate(email="missing-domain@")
+
+        # Blank/whitespace email should also be rejected by EmailStr
+        with pytest.raises(ValidationError):
+            ProfileUpdate(email="   ")
+
 
 # ── PATCH /api/user/me tests ─────────────────────────────────────────────────
 
@@ -119,11 +139,11 @@ class TestProfileUpdateWithEmail:
             )
 
             assert response.status_code == 200
-            # DB execute should have been called with email and contact_number updates
+            # DB execute calls are independent per field — contact_number first, then email
             calls = mock_db.execute.call_args_list
-            db_sql = str(calls[-1][0][0])
-            assert "email" in db_sql
-            assert "contact_number" in db_sql
+            db_sqls = [str(c[0][0]) for c in calls]
+            assert any("contact_number" in s for s in db_sqls), f"contact_number not in: {db_sqls}"
+            assert any("email" in s for s in db_sqls), f"email not in: {db_sqls}"
 
     def test_update_email_without_other_fields(self, client: TestClient):
         """Updating only email should work."""
@@ -177,3 +197,25 @@ class TestProfileUpdateWithEmail:
             assert response.status_code == 200
             data = response.json()
             assert data.get("email") == "analyst@bfp.gov.ph"
+
+    def test_update_email_db_sync_failure_returns_partial(self, client: TestClient):
+        """When DB sync fails after Keycloak update, return partial status."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
+        mock_db = _get_db_session()
+        mock_db.execute.side_effect = Exception("DB connection lost")
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        with (
+            patch("api.routes.user.update_user_profile") as mock_kc_update,
+            patch("api.routes.user.logger"),
+        ):
+            mock_kc_update.return_value = None
+            response = client.patch(
+                "/api/user/me",
+                json={"email": "new@bfp.gov.ph"},
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "partial"
+            assert "database sync failed" in data["message"].lower()

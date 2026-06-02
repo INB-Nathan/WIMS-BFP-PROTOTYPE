@@ -11,7 +11,7 @@ import logging
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, EmailStr, field_validator
 from keycloak.exceptions import KeycloakError
 
 from auth import get_current_wims_user
@@ -45,20 +45,10 @@ class ProfileUpdate(BaseModel):
 
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    email: Optional[str] = None
+    email: Optional[EmailStr] = None
     contact_number: Optional[str] = None  # Stored in Keycloak AND DB
     # Note: no password required here — the JWT token already confirms identity.
     # Password is only needed when changing the password itself.
-
-    @field_validator("email")
-    @classmethod
-    def email_not_blank(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None:
-            stripped = v.strip()
-            if not stripped:
-                raise ValueError("Email must not be blank")
-            return stripped
-        return v
 
     @field_validator("first_name", "last_name")
     @classmethod
@@ -163,30 +153,44 @@ def update_my_profile(
         )
 
     # --- Sync DB fields (contact_number, email) ---
-    if body.contact_number or body.email:
+    db_sync_failed = False
+    if body.contact_number:
         try:
-            update_fields = []
-            params = {"uid": current_user["user_id"]}
-            if body.contact_number:
-                update_fields.append("contact_number = :cnum")
-                params["cnum"] = body.contact_number
-            if body.email:
-                update_fields.append("email = :eml")
-                params["eml"] = body.email
-
-            if update_fields:
-                db.execute(
-                    text(
-                        f"UPDATE wims.users SET {', '.join(update_fields)}, updated_at = now() WHERE user_id = :uid"
-                    ),
-                    params,
-                )
-                db.commit()
+            db.execute(
+                text(
+                    "UPDATE wims.users SET contact_number = :cnum, updated_at = now() WHERE user_id = :uid"
+                ),
+                {"cnum": body.contact_number, "uid": current_user["user_id"]},
+            )
+            db.commit()
         except Exception:
             db.rollback()
-            logger.exception(f"DB sync failed for user {current_user['user_id']}")
-            logger.warning("Keycloak updated but DB sync failed")
+            db_sync_failed = True
+            logger.exception(
+                f"DB contact_number sync failed for user {current_user['user_id']}"
+            )
 
+    if body.email:
+        try:
+            db.execute(
+                text(
+                    "UPDATE wims.users SET email = :eml, updated_at = now() WHERE user_id = :uid"
+                ),
+                {"eml": body.email, "uid": current_user["user_id"]},
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+            db_sync_failed = True
+            logger.exception(
+                f"DB email sync failed for user {current_user['user_id']}"
+            )
+
+    if db_sync_failed:
+        return {
+            "status": "partial",
+            "message": "Profile updated in authentication system, but database sync failed. Contact support if your email or contact number is missing from your profile.",
+        }
     return {"status": "ok", "message": "Profile updated successfully"}
 
 

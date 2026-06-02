@@ -200,7 +200,7 @@ export async function createAdminUser(payload: {
 }
 
 /** Fetch current user's profile details */
-export async function fetchMyProfile(): Promise<{ first_name: string; last_name: string; email?: string; contact_number: string }> {
+export async function fetchMyProfile(): Promise<{ first_name: string; last_name: string; email: string; contact_number: string }> {
   return apiFetch('/user/me/profile');
 }
 
