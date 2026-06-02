@@ -1,0 +1,7 @@
+10038	IGNORE	CSP header (frontend) — deferred to nginx security-header hardening (#182)
+90004	IGNORE	Cross-Origin-Embedder-Policy (frontend) — deferred to nginx hardening (#182)
+10109	IGNORE	Modern Web Application — informational (SPA detection)
+10049	IGNORE	Non-Storable Content — informational, mostly 404 probes
+10055	IGNORE	CSP no-fallback — Keycloak account console (third-party, out of WIMS scope)
+10063	IGNORE	Permissions-Policy — Keycloak account console (third-party)
+10096	IGNORE	Unix timestamp disclosure — Keycloak bundled JS (third-party)
