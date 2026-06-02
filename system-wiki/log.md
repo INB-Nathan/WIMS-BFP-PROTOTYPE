@@ -71,6 +71,33 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 ## [2026-05-30] merge | Master conflict resolution for encoder/validator branch
 
+## [2026-06-03] fix | M13b test_email_infra — relative path + leak-proof sys.modules mock
+
+**Root causes and fixes:**
+
+**Bug 1 — hardcoded Windows absolute path:** `TestEmailServiceTask` used `"E:/WIMS-GIT/WIMS-BFP-PROTOTYPE/src/backend/tasks/notifications.py"` directly in both test methods. On Linux CI this causes `FileNotFoundError`. Fixed: added `from pathlib import Path` and a module-level constant:
+```python
+_NOTIFICATIONS_PATH = str(Path(__file__).resolve().parents[1] / "tasks" / "notifications.py")
+```
+`parents[1]` = `backend/` from `tests/`, so the path works on any OS.
+
+**Bug 2 — sys.modules mock leaks into later tests:** Both `TestEmailServiceTask` methods set `sys.modules[mod] = MagicMock()` before loading, but cleanup `sys.modules.pop(mod, None)` was a **trailing statement** outside any `try/finally`. If `FileNotFoundError` (or any assertion failure inside the load) aborted the test, `sqlalchemy`'s MagicMock remained in `sys.modules` — causing `test_immutable_records::test_66` to fail with `can't adapt type 'MagicMock'`. Fixed: wrapped the entire mock-load-assert block in `try/finally` with **restore** (not just pop):
+```python
+saved = {m: sys.modules.get(m) for m in mods}
+try:
+    for m in mods:
+        sys.modules[m] = MagicMock()
+    # load and test...
+finally:
+    for m in mods:
+        if saved[m] is None:
+            sys.modules.pop(m, None)
+        else:
+            sys.modules[m] = saved[m]
+```
+
+**Files changed:** `src/backend/tests/test_email_infra.py` only.
+
 ## [2026-06-02] implement | M13b email infrastructure — Jinja2 HTML templates + SMTP + Celery retry task
 
 **FRS reference:** Module 13b — Email Notifications (FRS `#176`)

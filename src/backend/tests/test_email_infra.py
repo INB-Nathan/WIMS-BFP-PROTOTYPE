@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from services.email.sender import render_email
+
+_NOTIFICATIONS_PATH = str(Path(__file__).resolve().parents[1] / "tasks" / "notifications.py")
 
 
 class TestRenderEmail:
@@ -131,54 +134,21 @@ class TestEmailServiceTask:
         from unittest.mock import MagicMock, patch
         import sys
 
-        for mod in ("sqlalchemy", "celery_config", "database"):
-            sys.modules[mod] = MagicMock()
+        mods = ("sqlalchemy", "celery_config", "database")
+        saved = {m: sys.modules.get(m) for m in mods}
+        try:
+            for m in mods:
+                sys.modules[m] = MagicMock()
 
-        spec = importlib.util.spec_from_file_location(
-            "notifications_tasks",
-            "E:/WIMS-GIT/WIMS-BFP-PROTOTYPE/src/backend/tasks/notifications.py",
-        )
-        module = importlib.util.module_from_spec(spec)  # type: ignore[assignment]
-        spec.loader.exec_module(module)  # type: ignore[union-attr]
-
-        _send_email_mock = MagicMock()
-        with patch.object(module, "_send_email", _send_email_mock):
-            module._send_email(
-                "admin@bfp.gov.ph",
-                "security_alert",
-                {
-                    "severity": "CRITICAL",
-                    "summary": "Brute force attack detected",
-                    "detected_at": "2026-06-02 08:00:00 UTC",
-                    "dashboard_link": "https://wimsbfp.tech/admin/system",
-                },
+            spec = importlib.util.spec_from_file_location(
+                "notifications_tasks",
+                _NOTIFICATIONS_PATH,
             )
-            assert _send_email_mock.called
+            module = importlib.util.module_from_spec(spec)  # type: ignore[assignment]
+            spec.loader.exec_module(module)  # type: ignore[union-attr]
 
-        for mod in ("sqlalchemy", "celery_config", "database"):
-            sys.modules.pop(mod, None)
-
-    def test_send_email_task_raises_on_sender_failure(self) -> None:
-        import importlib.util
-        from unittest.mock import MagicMock, patch
-        import sys
-
-        for mod in ("sqlalchemy", "celery_config", "database"):
-            sys.modules[mod] = MagicMock()
-
-        spec = importlib.util.spec_from_file_location(
-            "notifications_tasks",
-            "E:/WIMS-GIT/WIMS-BFP-PROTOTYPE/src/backend/tasks/notifications.py",
-        )
-        module = importlib.util.module_from_spec(spec)  # type: ignore[assignment]
-        spec.loader.exec_module(module)  # type: ignore[union-attr]
-
-        with patch.object(
-            module,
-            "_send_email",
-            side_effect=Exception("SMTP down"),
-        ):
-            with pytest.raises(Exception, match="SMTP down"):
+            _send_email_mock = MagicMock()
+            with patch.object(module, "_send_email", _send_email_mock):
                 module._send_email(
                     "admin@bfp.gov.ph",
                     "security_alert",
@@ -189,6 +159,51 @@ class TestEmailServiceTask:
                         "dashboard_link": "https://wimsbfp.tech/admin/system",
                     },
                 )
+                assert _send_email_mock.called
+        finally:
+            for m in mods:
+                if saved[m] is None:
+                    sys.modules.pop(m, None)
+                else:
+                    sys.modules[m] = saved[m]
 
-        for mod in ("sqlalchemy", "celery_config", "database"):
-            sys.modules.pop(mod, None)
+    def test_send_email_task_raises_on_sender_failure(self) -> None:
+        import importlib.util
+        from unittest.mock import MagicMock, patch
+        import sys
+
+        mods = ("sqlalchemy", "celery_config", "database")
+        saved = {m: sys.modules.get(m) for m in mods}
+        try:
+            for m in mods:
+                sys.modules[m] = MagicMock()
+
+            spec = importlib.util.spec_from_file_location(
+                "notifications_tasks",
+                _NOTIFICATIONS_PATH,
+            )
+            module = importlib.util.module_from_spec(spec)  # type: ignore[assignment]
+            spec.loader.exec_module(module)  # type: ignore[union-attr]
+
+            with patch.object(
+                module,
+                "_send_email",
+                side_effect=Exception("SMTP down"),
+            ):
+                with pytest.raises(Exception, match="SMTP down"):
+                    module._send_email(
+                        "admin@bfp.gov.ph",
+                        "security_alert",
+                        {
+                            "severity": "CRITICAL",
+                            "summary": "Brute force attack detected",
+                            "detected_at": "2026-06-02 08:00:00 UTC",
+                            "dashboard_link": "https://wimsbfp.tech/admin/system",
+                        },
+                    )
+        finally:
+            for m in mods:
+                if saved[m] is None:
+                    sys.modules.pop(m, None)
+                else:
+                    sys.modules[m] = saved[m]
