@@ -1,5 +1,6 @@
 # Standalone logic verification for regional.py BfpXlsxParser fix
 
+
 class BfpXlsxParser:
     def __init__(self, ws):
         self.ws = ws
@@ -9,13 +10,13 @@ class BfpXlsxParser:
 
     def _is_marked(self, coord: str) -> bool:
         val = str(self.get(coord)).strip().lower() if self.get(coord) else ""
-        return val in ['x', '1', 'true', 'v', '✓', '✔', '/']
+        return val in ["x", "1", "true", "v", "✓", "✔", "/"]
 
     def parse(self) -> dict:
         responder_type = "First Responder"
         if self._is_marked("B21"):
             responder_type = "Augmenting Team"
-        
+
         fire_station = self.get("D20") or self.get("D21")
 
         data = {
@@ -24,7 +25,7 @@ class BfpXlsxParser:
             "classification": "Structural",
             "extent_of_damage": "",
         }
-        
+
         # Classification refine
         if self._is_marked("B49"):
             data["classification"] = "Non-Structural"
@@ -44,7 +45,7 @@ class BfpXlsxParser:
             "B58": "Confined to Room",
             "B59": "Confined to Structure or Property",
             "B60": "Total Loss",
-            "B61": "Extended Beyond Structure or Property"
+            "B61": "Extended Beyond Structure or Property",
         }
         for coord, label in extent_labels.items():
             if self._is_marked(coord):
@@ -53,10 +54,11 @@ class BfpXlsxParser:
 
         return data
 
+
 # Verification
 def test():
     print("--- STANDALONE VERIFICATION ---")
-    
+
     # Test 1: '/' marker
     ws1 = {"B21": "/", "D21": "Station B", "B50": "x", "B60": "✓"}
     data1 = BfpXlsxParser(ws1).parse()
@@ -79,6 +81,7 @@ def test():
     print("Test 3 Passed: Dropdown prompt cleaned up.")
 
     print("\nALL STANDALONE TESTS PASSED.")
+
 
 if __name__ == "__main__":
     test()
