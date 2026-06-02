@@ -1507,3 +1507,4 @@ No schema, auth, or FRS alignment changes.
 **Verification:** `curl -I https://wimsbfp.tech/health` returns 200; `curl -I http://wimsbfp.tech/health` returns 301 to HTTPS; nginx mount inspection shows `/etc/letsencrypt -> /etc/letsencrypt` and `src/nginx/nginx.conf -> /etc/nginx/nginx.conf`.
 
 **Wiki updates:** Updated `system-wiki/architecture/infrastructure-config.md`, `system-wiki/operations/local-dev-deploy-guide.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+## [2026-06-03] ruff format applied to tests/test_public_submission.py
