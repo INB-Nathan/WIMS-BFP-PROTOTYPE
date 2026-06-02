@@ -147,11 +147,9 @@ def submit_public_incident(
         text("""
             SELECT region_id
             FROM wims.ref_regions
-            WHERE region_geom IS NOT NULL
-            ORDER BY ST_Distance(region_geom::geography, ST_GeogFromText(:wkt)::geography)
+            ORDER BY region_id
             LIMIT 1
         """),
-        {"wkt": wkt},
     ).fetchone()
 
     if region_row is None:
