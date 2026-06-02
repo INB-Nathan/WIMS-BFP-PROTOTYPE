@@ -74,3 +74,4 @@ def _disable_csrf():
     os.environ["WIMS_CSRF_DISABLED"] = "1"
     yield
     os.environ.pop("WIMS_CSRF_DISABLED", None)
+
