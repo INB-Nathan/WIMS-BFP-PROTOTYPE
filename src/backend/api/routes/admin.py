@@ -1,5 +1,5 @@
 """System Admin API — Identity, Security Telemetry, Audit Oversight.
-All endpoints protected by get_system_admin. No DELETE endpoints (Immutability Law)."""
+All endpoints protected by get_system_admin. No incident DELETE endpoints (Immutability Law)."""
 
 import json
 import logging

@@ -2,6 +2,7 @@ import os
 import time
 import uuid
 import logging
+import asyncio
 from typing import Annotated, Optional, Dict, Any
 from jose import jwt, jwk, JWTError
 import httpx
@@ -215,7 +216,7 @@ class KeycloakAuthenticator:
                     # --- Instant Revocation Check ---
                     sub = payload.get("sub")
                     iat = payload.get("iat")
-                    if sub and iat and session_manager.is_token_revoked(sub, iat):
+                    if sub and iat and await asyncio.to_thread(session_manager.is_token_revoked, sub, iat):
                         logger.warning(f"Rejecting revoked token for user sub={sub}")
                         raise HTTPException(
                             status_code=401,

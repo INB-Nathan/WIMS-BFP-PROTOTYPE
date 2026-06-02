@@ -43,15 +43,14 @@ def list_user_sessions(
     return {"sessions": sessions}
 
 
-@router.delete("/sessions/{user_id}/{session_id}")
-def terminate_user_session(
+@router.delete("/sessions/{user_id}")
+def terminate_user_sessions(
     user_id: str,
-    session_id: str,
     _admin: Annotated[dict, Depends(get_system_admin)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """
-    Terminate sessions for a user (by internal WIMS user_id). Admin only.
+    Terminate all sessions for a user (by internal WIMS user_id). Admin only.
     Note: python-keycloak does not expose a single-session revoke endpoint,
     so this terminates ALL sessions for the user.
     """

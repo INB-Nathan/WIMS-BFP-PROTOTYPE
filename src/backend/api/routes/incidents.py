@@ -114,6 +114,8 @@ def upload_incident_bundle(
 
     batch_id = int(batch_row[0])
     incident_ids: list[int] = []
+    results: dict[str, list] = {"imported": [], "failed": []}
+    i = 0
 
     def _safe_int(v: Any, default: int = 0) -> int:
         try:
@@ -131,6 +133,7 @@ def upload_incident_bundle(
         if not isinstance(item, dict):
             continue
 
+        i += 1
         ns = item.get("incident_nonsensitive_details") or {}
         sens = item.get("incident_sensitive_details") or {}
         if not isinstance(ns, dict):
@@ -180,10 +183,11 @@ def upload_incident_bundle(
         ).fetchone()
 
         if not inc_row:
+            results["failed"].append({"index": i, "reason": "Failed to insert incident row"})
             continue
 
         incident_id = int(inc_row[0])
-        incident_ids.append(incident_id)
+        results["imported"].append(incident_id)
 
         db.execute(
             text(
@@ -355,7 +359,7 @@ def upload_incident_bundle(
             status_code=500, detail=f"upload-bundle commit failed: {type(e).__name__}"
         ) from None
 
-    for iid in incident_ids:
+    for iid in results["imported"]:
         try:
             sync_incident_to_analytics(db, iid)
         except Exception:
@@ -365,8 +369,10 @@ def upload_incident_bundle(
     return {
         "status": "ok",
         "batch_id": batch_id,
-        "incident_ids": incident_ids,
-        "message": f"Committed {len(incident_ids)} incident(s).",
+        "imported": results["imported"],
+        "incident_ids": results["imported"],
+        "failed": results["failed"],
+        "message": f"Committed {len(results['imported'])} incident(s), {len(results['failed'])} failed.",
     }
 
 
@@ -410,13 +416,14 @@ async def upload_attachment(
 
     # 3. Record in DB
     try:
-        db.execute(
+        att_row = db.execute(
             text("""
                 INSERT INTO wims.incident_attachments (
                     incident_id, file_name, storage_path, mime_type, file_hash_sha256, uploaded_by
                 ) VALUES (
                     :iid, :fname, :path, :mime, :hash, :uid
                 )
+                RETURNING attachment_id
             """),
             {
                 "iid": incident_id,
@@ -426,7 +433,8 @@ async def upload_attachment(
                 "hash": sha256_hash.hexdigest(),
                 "uid": user["user_id"],
             },
-        )
+        ).fetchone()
+        attachment_id = int(att_row[0])
         db.commit()
     except Exception:
         db.rollback()
@@ -437,7 +445,7 @@ async def upload_attachment(
 
     return {
         "status": "ok",
-        "attachment_id": incident_id,  # Serial ID, but we don't have it immediately without RETURNING
+        "attachment_id": attachment_id,
         "message": "Attachment uploaded successfully",
     }
 
