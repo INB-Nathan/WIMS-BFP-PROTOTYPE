@@ -191,7 +191,7 @@ class KeycloakAuthenticator:
                 try:
                     public_key = jwk.construct(key_data)
                     if not hasattr(public_key, "to_pem"):
-                        raise ValueError(
+                        raise JWTError(
                             f"JWK key {key_data.get('kid', 'unknown')} does not support PEM export"
                         )
                     pem_key = public_key.to_pem().decode("utf-8")
@@ -249,7 +249,7 @@ class KeycloakAuthenticator:
                 try:
                     public_key = jwk.construct(key_data)
                     if not hasattr(public_key, "to_pem"):
-                        raise ValueError(
+                        raise JWTError(
                             f"JWK key {key_data.get('kid', 'unknown')} does not support PEM export"
                         )
                     pem_key = public_key.to_pem().decode("utf-8")

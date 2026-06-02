@@ -124,7 +124,7 @@ services:
     build: ./backend
     container_name: wims-backend
     environment:
-      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/wims
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?error}@postgres:5432/wims
       - PYTHONPATH=/app
       - REDIS_URL=redis://redis:6379/0
       - KEYCLOAK_REALM_URL=http://keycloak:8080/auth/realms/bfp
@@ -163,7 +163,7 @@ services:
     container_name: wims-celery-worker
     command: celery -A main.celery_app worker --beat --loglevel=info
     environment:
-      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/wims
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?error}@postgres:5432/wims
       - REDIS_URL=redis://redis:6379/0
       - KEYCLOAK_REALM_URL=http://keycloak:8080/auth/realms/bfp
       - OLLAMA_URL=http://ollama:11434
