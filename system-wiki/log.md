@@ -3,6 +3,8 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-03] style | M14: add trailing newline to test_public_submission.py (W292 lint fix)
+
 ## [2026-06-03] fix | M14 region resolution — nearest ref_fire_stations (civilian.py pattern)
 
 **Root cause:** `wims.ref_regions` has NO PostGIS geometry column — only `region_id, region_name, region_code`. PostGIS `GEOGRAPHY(POINT,4326)` lives ONLY on `wims.ref_fire_stations.location`. The `region_geom` column never existed; `ORDER BY region_id` was a dumb fallback. `civilian.py`'s `_resolve_nearest()` resolves region by finding the nearest fire station and reading its `region_id` attribute — matching approach inlines here.
