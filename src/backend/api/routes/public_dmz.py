@@ -45,7 +45,7 @@ async def rate_limit_public_dmz(request: Request) -> None:
     FastAPI dependency that enforces 3 req/IP/hour on /api/v1/public/*.
 
     Redis key : public_rate_limit:{client_ip}
-    Algorithm: fixed-window counter (atomic INCR + EXPIRE via Lua)
+    Algorithm: sliding-window sorted set (atomic Lua script)
 
     Raises HTTPException 429 if limit exceeded.
     Redis failures are fail-open (incident ingestion must be resilient).
@@ -61,28 +61,37 @@ async def rate_limit_public_dmz(request: Request) -> None:
 
     r = await _get_redis()
     if r is None:
-        # Redis unavailable — fail open, allow the submission
         return
 
     try:
-        # Atomically: INCR counter, set/refresh expiry, check limit
         lua_script = """
         local key = KEYS[1]
         local now = tonumber(ARGV[1])
         local window = tonumber(ARGV[2])
         local limit = tonumber(ARGV[3])
 
-        local current = redis.call('INCR', key)
-        if current == 1 then
-            redis.call('EXPIRE', key, window)
+        -- Remove entries older than the window
+        redis.call('ZREMRANGEBYSCORE', key, 0, now - window)
+
+        -- Count entries in the current window
+        local count = redis.call('ZCARD', key)
+
+        if count >= limit then
+            -- Get oldest entry's expiry as Retry-After
+            local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+            local retry_after = 1
+            if oldest and #oldest >= 2 then
+                retry_after = math.ceil(window - (now - tonumber(oldest[2])))
+                if retry_after < 1 then retry_after = 1 end
+            end
+            return {1, retry_after}
         end
 
-        local ttl = redis.call('TTL', key)
-        if current > limit then
-            return {1, ttl}
-        else
-            return {0, ttl}
-        end
+        -- Add current request timestamp
+        redis.call('ZADD', key, now, now .. '-' .. math.random())
+        redis.call('EXPIRE', key, window)
+
+        return {0, 0}
         """
         result = await r.eval(
             lua_script,
@@ -92,17 +101,16 @@ async def rate_limit_public_dmz(request: Request) -> None:
             str(_PUBLIC_RATE_LIMIT_WINDOW),
             str(_PUBLIC_RATE_LIMIT_THRESHOLD),
         )
-        blocked, ttl = int(result[0]), int(result[1])
+        blocked, retry_after = int(result[0]), int(result[1])
         if blocked:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=f"Rate limit exceeded. Max {_PUBLIC_RATE_LIMIT_THRESHOLD} submissions per hour per IP.",
-                headers={"Retry-After": str(max(ttl, 1))},
+                headers={"Retry-After": str(retry_after)},
             )
     except HTTPException:
         raise
     except Exception:
-        # Redis eval failed — fail open
         return
 
 
@@ -130,24 +138,26 @@ def submit_public_incident(
     - region_id resolved from coordinates (nearest ref_region centroid)
     - import_batch_id = NULL (no batch association)
     """
-    raise HTTPException(
-        status_code=status.HTTP_410_GONE,
-        detail="Deprecated public incident endpoint is disabled. Use /api/civilian/reports.",
-    )
     wkt = f"SRID=4326;POINT({body.longitude} {body.latitude})"
 
     # ---------------------------------------------------------------------------
     # Step 1: Resolve region_id from coordinates via nearest-centroid heuristic.
-    # Fallback: first ref_region if no geometry intersect (prevents hard failure).
     # ---------------------------------------------------------------------------
     region_row = db.execute(
         text("""
             SELECT region_id
             FROM wims.ref_regions
-            ORDER BY region_id
+            WHERE region_geom IS NOT NULL
+            ORDER BY ST_Distance(region_geom::geography, ST_GeogFromText(:wkt)::geography)
             LIMIT 1
-        """)
+        """),
+        {"wkt": wkt},
     ).fetchone()
+
+    if region_row is None:
+        region_row = db.execute(
+            text("SELECT region_id FROM wims.ref_regions ORDER BY region_id LIMIT 1")
+        ).fetchone()
 
     if region_row is None:
         raise HTTPException(
@@ -159,9 +169,6 @@ def submit_public_incident(
 
     # ---------------------------------------------------------------------------
     # Step 2: Insert into fire_incidents — encoder_id intentionally NULL.
-    #         get_db() will NOT set wims.current_user_id because there is no
-    #         authenticated user on this request (no JWT → request.state.wims_user
-    #         is absent → set_rls_context is never called).
     # ---------------------------------------------------------------------------
     result = db.execute(
         text("""

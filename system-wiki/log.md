@@ -3,6 +3,20 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-02] implement | M14 public report endpoint — un-deprecated, nearest-centroid, rate limit, Retry-After
+
+**FRS reference:** Module 14 — Public Submission (FRS `#177`)
+
+**Changes implemented (`src/backend/api/routes/public_dmz.py`):**
+- `POST /api/v1/public/report`: restored from 410 deprecation to active endpoint
+- Region resolution: replaced `ORDER BY region_id LIMIT 1` fallback with proper `ST_Distance` nearest-centroid using `ref_fire_stations` centroids and PostGIS KNN operator
+- Rate limiting: Redis sliding-window 3 req/IP/hour on the public endpoint
+- HTTP 429 response includes `Retry-After` header with seconds until reset
+- Writes to `wims.fire_incidents` with `encoder_id = NULL`, `verification_status = 'PENDING_VALIDATION'`
+- No Keycloak JWT required, no RLS context set
+
+**Test file added:** `src/backend/tests/test_public_submission.py` — validates 201 response, NULL encoder_id, PENDING_VALIDATION status, rate limit 429, Retry-After header.
+
 ## [2026-05-30] merge | Master conflict resolution for encoder/validator branch
 
 - Merged `master` into `fix/enc-val-bugs-and-UI` and resolved conflicts in `src/backend/api/routes/regional.py` and `system-wiki/log.md`.
