@@ -320,7 +320,7 @@ def create_user(
         "username": username,
         "role": body.role,
         "temporary_password": temp_password,
-        "note": "Distribute this temporary password to the user securely. They will be required to change it on first login.",
+        "note": "Credentials emailed to user. If email delivery fails, use the temporary_password below as fallback.",
     }
 
 
