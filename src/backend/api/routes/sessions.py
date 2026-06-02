@@ -53,6 +53,8 @@ def terminate_user_sessions(
     Terminate all sessions for a user (by internal WIMS user_id). Admin only.
     Note: python-keycloak does not expose a single-session revoke endpoint,
     so this terminates ALL sessions for the user.
+    For single-session revocation, use
+    DELETE /api/admin/sessions/{user_id}/{session_id} (in admin.py).
     """
     keycloak_id = _resolve_keycloak_id(user_id, db)
     logout_user_sessions(keycloak_id)

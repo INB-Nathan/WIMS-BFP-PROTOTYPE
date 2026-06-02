@@ -113,7 +113,6 @@ def upload_incident_bundle(
         raise HTTPException(status_code=500, detail="Failed to create import batch")
 
     batch_id = int(batch_row[0])
-    incident_ids: list[int] = []
     results: dict[str, list] = {"imported": [], "failed": []}
     i = 0
 
@@ -434,6 +433,8 @@ async def upload_attachment(
                 "uid": user["user_id"],
             },
         ).fetchone()
+        if att_row is None:
+            raise HTTPException(status_code=500, detail="Attachment insert returned no row")
         attachment_id = int(att_row[0])
         db.commit()
     except Exception:
