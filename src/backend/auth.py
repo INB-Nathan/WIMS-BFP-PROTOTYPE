@@ -190,11 +190,14 @@ class KeycloakAuthenticator:
             for key_data in candidate_keys:
                 try:
                     public_key = jwk.construct(key_data)
+                    if not hasattr(public_key, "to_pem"):
+                        raise ValueError(
+                            f"JWK key {key_data.get('kid', 'unknown')} does not support PEM export"
+                        )
+                    pem_key = public_key.to_pem().decode("utf-8")
                     payload = jwt.decode(
                         token,
-                        public_key.to_pem().decode()
-                        if hasattr(public_key, "to_pem")
-                        else public_key,
+                        pem_key,
                         algorithms=["RS256"],
                         audience=AUDIENCE,
                         issuer=KEYCLOAK_ISSUER,
@@ -245,11 +248,14 @@ class KeycloakAuthenticator:
             for key_data in refreshed_keys:
                 try:
                     public_key = jwk.construct(key_data)
+                    if not hasattr(public_key, "to_pem"):
+                        raise ValueError(
+                            f"JWK key {key_data.get('kid', 'unknown')} does not support PEM export"
+                        )
+                    pem_key = public_key.to_pem().decode("utf-8")
                     payload = jwt.decode(
                         token,
-                        public_key.to_pem().decode()
-                        if hasattr(public_key, "to_pem")
-                        else public_key,
+                        pem_key,
                         algorithms=["RS256"],
                         audience=AUDIENCE,
                         issuer=KEYCLOAK_ISSUER,

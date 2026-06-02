@@ -10,7 +10,7 @@ services:
     container_name: wims-postgres
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?error}
       POSTGRES_DB: wims
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -61,9 +61,9 @@ services:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
       KC_DB_USERNAME: keycloak
-      KC_DB_PASSWORD: secret
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:?error}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:?error}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?error}
       KC_HTTP_RELATIVE_PATH: /auth
       KC_PROXY: edge
       KC_PROXY_HEADERS: xforwarded
@@ -96,8 +96,8 @@ services:
       - ./keycloak/bootstrap:/opt/keycloak/bootstrap:ro
     environment:
       KEYCLOAK_URL: http://keycloak:8080/auth
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:?error}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?error}
     networks:
       - wims_internal
     depends_on:
@@ -124,7 +124,7 @@ services:
     build: ./backend
     container_name: wims-backend
     environment:
-      - DATABASE_URL=postgresql://postgres:password@postgres:5432/wims
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/wims
       - PYTHONPATH=/app
       - REDIS_URL=redis://redis:6379/0
       - KEYCLOAK_REALM_URL=http://keycloak:8080/auth/realms/bfp
@@ -133,8 +133,8 @@ services:
       - KEYCLOAK_AUDIENCE=wims-web
       - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-}
       - KEYCLOAK_ADMIN_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
-      - KEYCLOAK_ADMIN_USER=admin
-      - KEYCLOAK_ADMIN_PASSWORD=admin
+      - KEYCLOAK_ADMIN_USER=${KEYCLOAK_ADMIN:?error}
+      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD:?error}
       - OLLAMA_URL=http://ollama:11434
       - AFOR_TEMPLATE_PATH=/app/AFOR-FORMATTED.xlsx
       - CSRF_TRUSTED_ORIGINS=http://localhost,https://localhost,http://127.0.0.1,http://127.0.0.1:3000
@@ -163,7 +163,7 @@ services:
     container_name: wims-celery-worker
     command: celery -A main.celery_app worker --beat --loglevel=info
     environment:
-      - DATABASE_URL=postgresql://postgres:password@postgres:5432/wims
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/wims
       - REDIS_URL=redis://redis:6379/0
       - KEYCLOAK_REALM_URL=http://keycloak:8080/auth/realms/bfp
       - OLLAMA_URL=http://ollama:11434
@@ -192,13 +192,13 @@ services:
         NEXT_PUBLIC_BASE_URL: http://localhost
         NEXT_PUBLIC_OIDC_REDIRECT_URI: http://localhost/callback
         NEXT_PUBLIC_OIDC_AUTHORITY: /auth/realms/bfp
-        NEXT_PUBLIC_FIREBASE_API_KEY: AIzaSyArd0EsgwC1HqK51ijF1SFM4na4ABGb6Kg
-        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: wims-bfp.firebaseapp.com
-        NEXT_PUBLIC_FIREBASE_PROJECT_ID: wims-bfp
-        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: wims-bfp.firebasestorage.app
-        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "465171995576"
-        NEXT_PUBLIC_FIREBASE_APP_ID: "1:465171995576:web:9aa2403d8f6b9c4bb50d4d"
-        NEXT_PUBLIC_FIREBASE_VAPID_KEY: BLzOwjh0pc6cwguOw84zE6uyXmL-JnYUw6iMVsi1j7EN9jmKVNDn88TKBGjxU4SXK4n4kccxRRZB2UN0yMhXL0k
+        NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY:?error}
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:-wims-bfp.firebaseapp.com}
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID:-wims-bfp}
+        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET:-wims-bfp.firebasestorage.app}
+        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:-465171995576}
+        NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID:-1:465171995576:web:9aa2403d8f6b9c4bb50d4d}
+        NEXT_PUBLIC_FIREBASE_VAPID_KEY: ${NEXT_PUBLIC_FIREBASE_VAPID_KEY:?error}
     container_name: wims-frontend
     environment:
       - NEXT_PUBLIC_API_URL=/api
@@ -209,13 +209,13 @@ services:
       - NEXT_PUBLIC_OIDC_CLIENT_ID=wims-web
       - NEXT_PUBLIC_APP_URL=http://localhost
       - BACKEND_URL=http://backend:8000
-      - NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSyArd0EsgwC1HqK51ijF1SFM4na4ABGb6Kg
-      - NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=wims-bfp.firebaseapp.com
-      - NEXT_PUBLIC_FIREBASE_PROJECT_ID=wims-bfp
-      - NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=wims-bfp.firebasestorage.app
-      - NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=465171995576
-      - NEXT_PUBLIC_FIREBASE_APP_ID=1:465171995576:web:9aa2403d8f6b9c4bb50d4d
-      - NEXT_PUBLIC_FIREBASE_VAPID_KEY=BLzOwjh0pc6cwguOw84zE6uyXmL-JnYUw6iMVsi1j7EN9jmKVNDn88TKBGjxU4SXK4n4kccxRRZB2UN0yMhXL0k
+      - NEXT_PUBLIC_FIREBASE_API_KEY=${NEXT_PUBLIC_FIREBASE_API_KEY:?error}
+      - NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:-wims-bfp.firebaseapp.com}
+      - NEXT_PUBLIC_FIREBASE_PROJECT_ID=${NEXT_PUBLIC_FIREBASE_PROJECT_ID:-wims-bfp}
+      - NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET:-wims-bfp.firebasestorage.app}
+      - NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:-465171995576}
+      - NEXT_PUBLIC_FIREBASE_APP_ID=${NEXT_PUBLIC_FIREBASE_APP_ID:-1:465171995576:web:9aa2403d8f6b9c4bb50d4d}
+      - NEXT_PUBLIC_FIREBASE_VAPID_KEY=${NEXT_PUBLIC_FIREBASE_VAPID_KEY:?error}
     networks:
       - wims_internal
     depends_on:
