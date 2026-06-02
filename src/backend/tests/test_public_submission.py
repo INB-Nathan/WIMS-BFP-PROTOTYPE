@@ -16,6 +16,8 @@ import os
 import sys
 import uuid
 
+from datetime import datetime, timezone
+
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -74,7 +76,9 @@ class _MockDB:
         if "RETURNING" in sql or "INSERT" in sql:
             return _FakeResult(
                 row=_FakeRow(
-                    incident_id=999, verification_status="PENDING_VALIDATION", created_at=None
+                    incident_id=999,
+                    verification_status="PENDING_VALIDATION",
+                    created_at=datetime(2026, 6, 3, 12, 0, 0, tzinfo=timezone.utc),
                 )
             )
         if "ST_Y" in sql or "ST_X" in sql:
