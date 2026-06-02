@@ -1519,3 +1519,30 @@ No schema, auth, or FRS alignment changes.
 - Stack torn down with `docker compose down -v` (if: always()).
 - `security-scan` added to `merge-gate` `needs:` list — consistent with migrations/backend (no `continue-on-error`).
 - Wiki gap register entry #172 / M11a vulnerability scanning marked CLOSED.
+
+## [2026-06-02] test(#127): comprehensive report-clusters API tests
+
+**Session context:** The `GET /api/civilian/report-clusters` endpoint and its Redis stale-if-error cache were already implemented in `civilian.py` (kanban-batch-1). The endpoint correctly implements both #127 (public report-area cluster API) and #128 (Redis stale-if-error cache).
+
+**What was added — 13 integration tests covering all acceptance criteria:**
+
+- **National mode** (`test_get_report_clusters_national_mode`, `test_get_report_clusters_national_below_threshold_returns_empty`): verifies no lat/lon → national mode, min 10 reports, cap 25, no center/radius returned. Sub-threshold returns empty.
+- **Local mode** (`test_get_report_clusters_local_mode`, `test_get_report_clusters_local_below_threshold_returns_empty`): verifies lat/lon → local mode, min 3 reports, center returned, sub-threshold returns empty.
+- **Status exclusion** (`test_get_report_clusters_excludes_terminal_report_statuses`): ACTIONED, REJECTED_BOGUS, REJECTED_DUPLICATE, REJECTED_INSUFFICIENT, REJECTED_TIMEOUT excluded. All-terminal cluster → empty areas.
+- **Cluster exclusion** (`test_get_report_clusters_excludes_closed_actioned_clusters`): CLUSTER_CLOSED and CLUSTER_ACTIONED clusters excluded.
+- **Pressure count** (`test_get_report_clusters_includes_pending_under_review_linked`): PENDING, UNDER_REVIEW, and LINKED all counted in pressure.
+- **Active requirement** (`test_get_report_clusters_requires_active_report_in_cluster`): cluster with only terminal-status reports excluded even if count ≥ min.
+- **Privacy** (`test_get_report_clusters_privacy_fields_absent`): verifies cluster_id, report_id, total_reports, created_at, timestamps, category, severity, safety_status, witness, contact, device not leaked.
+- **Ephemeral area_id** (`test_get_report_clusters_area_id_is_ephemeral`): area_id is 16-char hex hash, not raw cluster_id.
+- **Buckets** (`test_get_report_clusters_count_and_age_buckets`): count_bucket ∈ {3-4, 5-9, 10-19, 20+}, age_bucket ∈ {0-15 min, 15-30 min, 30-60 min}.
+- **Dynamic radius** (`test_get_report_clusters_dynamic_radius_bounds`): radius in [100, 1000], rounded to 100m.
+- **Truncation** (`test_get_report_clusters_truncation_flag`): truncated flag behavior.
+- **Response shape** (`test_get_report_clusters_response_has_required_top_level_fields`): all required top-level fields present.
+
+**Files changed:** `src/backend/tests/integration/test_civilian_api.py` (+13 tests, 24 total now).
+
+**Verification:** `ruff check .` passes; `ruff format --check .` passes. Integration tests require Docker (Redis + PostGIS); won't run without the full stack.
+
+**Wiki updated:** This log entry. No FRS gap changes.
+
+**Note:** Issues #127 and #128 are effectively already implemented in the existing `get_report_clusters` endpoint. #131 (frontend fireLocation sharing) is the next target.
