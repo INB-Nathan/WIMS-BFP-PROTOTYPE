@@ -166,9 +166,7 @@ def update_my_profile(
         except Exception:
             db.rollback()
             db_sync_failed = True
-            logger.exception(
-                f"DB contact_number sync failed for user {current_user['user_id']}"
-            )
+            logger.exception(f"DB contact_number sync failed for user {current_user['user_id']}")
 
     if body.email:
         try:
@@ -182,9 +180,7 @@ def update_my_profile(
         except Exception:
             db.rollback()
             db_sync_failed = True
-            logger.exception(
-                f"DB email sync failed for user {current_user['user_id']}"
-            )
+            logger.exception(f"DB email sync failed for user {current_user['user_id']}")
 
     if db_sync_failed:
         return {

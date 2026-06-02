@@ -43,7 +43,7 @@ function mockAnalystUser(overrides: Record<string, unknown> = {}) {
       role: 'NATIONAL_ANALYST',
       assignedRegionId: null,
       ...overrides,
-    } as any,
+    } as unknown as Record<string, unknown>,
     loading: false,
     loggingOut: false,
     isAuthenticated: true,
