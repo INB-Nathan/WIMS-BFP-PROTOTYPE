@@ -111,8 +111,9 @@ def apply_schema_patches() -> None:
     # Migration 44: add email column to wims.users for self-service profile editing.
     try:
         db.execute(text("ALTER TABLE wims.users ADD COLUMN IF NOT EXISTS email VARCHAR(255)"))
+        db.execute(text("CREATE INDEX IF NOT EXISTS idx_users_email ON wims.users(email)"))
         db.commit()
-        logger.info("Schema patch applied: added email column to wims.users")
+        logger.info("Schema patch applied: added email column and index to wims.users")
     except Exception as exc:
         logger.warning("Schema patch (email column) failed (non-fatal): %s", exc)
         db.rollback()

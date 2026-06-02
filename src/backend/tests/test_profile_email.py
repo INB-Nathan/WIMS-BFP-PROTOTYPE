@@ -118,7 +118,6 @@ class TestProfileUpdateWithEmail:
 
             assert response.status_code == 200
             mock_kc_update.assert_called_once()
-            _, kwargs = mock_kc_update.call_args if mock_kc_update.call_args else ({}, {})
             call_kwargs = mock_kc_update.call_args.kwargs
             assert call_kwargs.get("email") == "new@bfp.gov.ph"
 

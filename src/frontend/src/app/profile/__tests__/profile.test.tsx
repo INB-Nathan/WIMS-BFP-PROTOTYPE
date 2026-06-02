@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import ProfilePage from '../page';
 
 const mockReplace = vi.fn();
@@ -178,7 +179,6 @@ describe('ProfilePage', () => {
   // ---------------------------------------------------------------------------
   describe('profile save', () => {
     it('calls updateMyProfile with email when provided', async () => {
-      const { userEvent } = await import('@testing-library/user-event');
       const user = userEvent.setup();
 
       render(<ProfilePage />);

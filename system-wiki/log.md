@@ -1,5 +1,18 @@
 # System Wiki Log
 
+## [2026-06-02] fix | Second-pass review fixes — index, dead code, import, wiki
+
+Follow-up fixes from three-axis re-review of `fix/profile-email-and-polish`:
+
+- Added `CREATE INDEX IF NOT EXISTS idx_users_email ON wims.users(email)` to `apply_schema_patches()` in `main.py` so startup schema patch mirrors the migration script.
+- Removed dead `_, kwargs = ...` assignment in `test_profile_email.py` (overwritten on next line, unreachable branch).
+- Converted dynamic `await import('@testing-library/user-event')` to static top-level `import userEvent` in `profile.test.tsx` (matches project convention).
+- Updated `remaining-routes.md` `ProfileUpdate` description from "non-blank" to `Optional[EmailStr]`.
+
+**Verification:** Frontend 9/9 profile tests pass. Backend tests skipped (Docker not running); both Python files compile clean.
+
+**Wiki updates:** Updated `remaining-routes.md` and this log. No `gaps/frs-codebase-gap-register.md` update needed.
+
 ## [2026-06-02] fix | Review fixes for profile email branch (#28, #86)
 
 Applied fixes from three-axis review of `fix/profile-email-and-polish`:

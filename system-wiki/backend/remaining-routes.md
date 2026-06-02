@@ -236,7 +236,7 @@ Async Redis-based rate limiter. **3 requests per IP per hour**. Key: `public_rat
 
 ### Pydantic Schemas
 
-**`ProfileUpdate`:** first_name, last_name (both non-blank), email (non-blank), contact_number (digits-only, min 7). Email is now self-service editable (#28, #86).
+**`ProfileUpdate`:** first_name, last_name (both non-blank), email (`Optional[EmailStr]` — omit or provide valid email format), contact_number (digits-only, min 7). Email is now self-service editable (#28, #86).
 
 **`PasswordChange`:** current_password, new_password (min 8, 1 upper, 1 digit, 1 special), otp_code (optional, for 2FA).
 
