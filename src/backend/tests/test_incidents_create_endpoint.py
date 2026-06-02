@@ -8,7 +8,7 @@ from api.routes.incidents import create_incident
 from schemas.incident import IncidentCreate
 
 
-def test_create_incident_accepts_uuid_encoder_id_from_db(monkeypatch):
+def test_create_incident_converts_uuid_encoder_id_to_string(monkeypatch):
     user_id = uuid.uuid4()
     created_at = datetime.now(timezone.utc)
 
@@ -16,7 +16,7 @@ def test_create_incident_accepts_uuid_encoder_id_from_db(monkeypatch):
     region_result.fetchone.return_value = (1,)
 
     insert_result = MagicMock()
-    insert_result.fetchone.return_value = (123, "ignored", user_id, "PENDING", created_at)
+    insert_result.fetchone.return_value = (123, "unused_location", user_id, "PENDING", created_at)
 
     coord_result = MagicMock()
     coord_result.fetchone.return_value = (14.5995, 120.9842)
