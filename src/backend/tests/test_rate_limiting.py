@@ -105,8 +105,7 @@ class TestRateLimiting:
 
         # If there are no 429s at all, the rate limiter is missing — fail hard.
         assert len(throttled) > 0, (
-            "No HTTP 429 responses received.  The callback endpoint is completely "
-            "unthrottled."
+            "No HTTP 429 responses received.  The callback endpoint is completely unthrottled."
         )
 
         for i, resp in enumerate(throttled):
@@ -132,9 +131,7 @@ class TestRateLimiting:
 
         allowed = [r for r in responses if r.status_code != 429]
 
-        assert len(allowed) > 0, (
-            "Zero non-429 responses — cannot verify auth rejection behaviour."
-        )
+        assert len(allowed) > 0, "Zero non-429 responses — cannot verify auth rejection behaviour."
 
         for i, resp in enumerate(allowed):
             assert resp.status_code >= 400, (
