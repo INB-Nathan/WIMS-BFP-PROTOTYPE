@@ -1,9 +1,9 @@
 ---
 title: Backend Utilities & Celery Tasks
 created: 2026-05-16
-updated: 2026-05-19
+updated: 2026-06-03
 type: backend
-tags: [wims-bfp, backend, utils, crypto, audit, session, backup, celery, exports]
+tags: [wims-bfp, backend, utils, crypto, audit, session, backup, celery, exports, email, notifications]
 sources: [src/backend/utils/, src/backend/tasks/]
 status: draft
 ---
@@ -154,3 +154,48 @@ All tasks use `@celery_app.task(bind=True)` — `self.request.id` provides the C
 - No cleanup mechanism — files accumulate in EXPORT_DIR. Path persisted in `analytics_export_log`.
 
 **Docker note:** `EXPORT_DIR` is set to `/app/storage/exports` in docker-compose. The directory is created in the Dockerfile image layers before the volume is mounted, so it retains `appuser:appuser` ownership and is writable by the Celery worker at runtime.
+
+### `notifications.py` — Push & Email Notifications (M13b)
+
+**File:** `src/backend/tasks/notifications.py`
+
+Two Celery tasks for FCM push notifications and email delivery.
+
+#### `send_status_notification` (FCM push)
+
+| Attribute | Value |
+|---|---|
+| Name | `tasks.notifications.send_status_notification` |
+| Binding | `bind=True` (`self` parameter) |
+| Max retries | 3, 30s delay |
+
+Dispatches FCM push notifications to all registered tokens for a citizen report. Cleans stale (`UnregisteredError`) tokens. Uses `_STATUS_LABELS` mapping for human-readable notification titles.
+
+#### `send_email_task` (Email delivery — M13b)
+
+| Attribute | Value |
+|---|---|
+| Name | `tasks.notifications.send_email` |
+| Binding | `bind=True` (`self` parameter) |
+| Retry exceptions | `aiosmtplib.SMTPException`, `ConnectionError`, `TimeoutError`, `OSError` (transient only) |
+| Max retries | 5, exponential backoff up to 600s |
+
+Renders a Jinja2 HTML template and sends it via `services.email.sender.send_email()`. Permanent failures (template/context/type errors) are not retried and fail immediately. Uses `self.request.retries` and `self.max_retries` for retry logging. Does NOT query RLS tables.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `self` | Task instance | Bound Celery task (bind=True) |
+| `to` | `str \| list[str]` | Recipient email address(es) |
+| `template_name` | `str` | Template name without `.html.j2` extension |
+| `context` | `dict` | Jinja2 template variable dictionary |
+
+**Returns:** `{"ok": True, "to": ..., "template": ...}` on success.
+
+**Deferred triggers** (not wired in this PR):
+- Keycloak account lockout (#138)
+- Weekly analytics report Celery beat (#176)
+- Security alert email on CONFIRM_THREAT HITL action (#176)
+
+**Import:** Explicitly registered in `main.py` via `import tasks.notifications`.

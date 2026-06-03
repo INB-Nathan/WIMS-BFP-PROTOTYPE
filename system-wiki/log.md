@@ -15,6 +15,23 @@ Format: `## [YYYY-MM-DD] action | subject`
 - **Wiki updated:** `system-wiki/subsystems/civilian-reporting-phase2.md` updated frontmatter date, cache behavior section (pool bounding, thread-safety, warning log keys, count guard), and test coverage section (fixture rename, Redis hygiene).
 - **Verification:** `ruff check` + `ruff format --check` pass on both changed files. `git diff --check` clean. All 25 pytest tests pass (15 report-clusters + 10 submission tests).
 
+## [2026-06-03] fix | PR #211 M13b email infra — bound task + retry + STARTTLS + plain-text + tests
+
+**PR #211 review fixes applied:**
+
+- **Critical — `send_email_task` bound task signature:** Added `self` as first parameter (matching `bind=True` decorator). Changed retry logging from module-level proxy (`send_email_task.request.retries`, `celery_app.tasks["..."].max_retries`) to `self.request.retries` and `self.max_retries`.
+- **Critical — Tests exercise Celery task path:** `TestEmailServiceTask` now calls `module.send_email_task.run(...)` with a real Celery app (memory broker, eager mode) instead of calling `module._send_email(...)` directly. This exercises the `bind=True` self parameter and would catch the signature mismatch.
+- **Retry exceptions narrowed:** `autoretry_for` changed from `(Exception,)` to `(aiosmtplib.SMTPException, ConnectionError, TimeoutError, OSError)` — transient SMTP/network failures only. Permanent template/context/type errors fail fast.
+- **STARTTLS configurable:** Added `SMTP_STARTTLS` env var (default `false` for MailHog/dev). Passed to `aiosmtplib.send(start_tls=SMTP_STARTTLS)`. Added entry to `.env.example`.
+- **Plain-text alternative body:** Added `_html_to_plain_text()` helper; `send_email_async` now adds `msg.add_alternative(plain_text, subtype="plain")` for multipart/alternative emails.
+- **Render error logging:** Moved `render_email()` call inside `try/except` in `send_email_async` with dedicated `logger.error("Failed to render email template...")`.
+- **Subject caching:** Added `_subject_raw_cache` dict so `_load_subject()` reads template files only once per template name.
+- **Task import explicit:** Added `import tasks.notifications` to `main.py` alongside other task imports.
+- **Security alert color:** Changed unknown-severity CSS fallthrough from green `#2ecc71` to neutral gray `#95a5a6`.
+- **Validation:** 8/8 email infra tests pass; 37/37 combined (email + CSRF) tests pass. Syntax compile-checked.
+
+**Files changed:** `tasks/notifications.py`, `services/email/sender.py`, `tests/test_email_infra.py`, `.env.example`, `main.py`, `services/email/templates/security_alert.html.j2`
+
 ## [2026-06-03] fix | PR #223 CI security-scan startup — CI-only HTTP nginx config
 
 - **Root cause:** PR #223 changed `src/nginx/nginx.local.conf` from HTTP-only to HTTPS (HTTP→HTTPS redirect + TLS server block requiring `/etc/letsencrypt/live/wimsbfp.tech/` certs). The `docker-compose.override.yml` (auto-loaded by plain `docker compose up`) mounts `nginx.local.conf` but provides no cert volume. The GitHub Actions `security-scan` job ran plain `docker compose up -d --build`, so nginx failed to start because cert files were missing. The health-poller timed out at 180s before Nmap/ZAP could run.
@@ -71,6 +88,71 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 ## [2026-05-30] merge | Master conflict resolution for encoder/validator branch
 
+## [2026-06-03] fix | M13b test_email_infra — relative path + leak-proof sys.modules mock
+
+**Root causes and fixes:**
+
+**Bug 1 — hardcoded Windows absolute path:** `TestEmailServiceTask` used `"E:/WIMS-GIT/WIMS-BFP-PROTOTYPE/src/backend/tasks/notifications.py"` directly in both test methods. On Linux CI this causes `FileNotFoundError`. Fixed: added `from pathlib import Path` and a module-level constant:
+```python
+_NOTIFICATIONS_PATH = str(Path(__file__).resolve().parents[1] / "tasks" / "notifications.py")
+```
+`parents[1]` = `backend/` from `tests/`, so the path works on any OS.
+
+**Bug 2 — sys.modules mock leaks into later tests:** Both `TestEmailServiceTask` methods set `sys.modules[mod] = MagicMock()` before loading, but cleanup `sys.modules.pop(mod, None)` was a **trailing statement** outside any `try/finally`. If `FileNotFoundError` (or any assertion failure inside the load) aborted the test, `sqlalchemy`'s MagicMock remained in `sys.modules` — causing `test_immutable_records::test_66` to fail with `can't adapt type 'MagicMock'`. Fixed: wrapped the entire mock-load-assert block in `try/finally` with **restore** (not just pop):
+```python
+saved = {m: sys.modules.get(m) for m in mods}
+try:
+    for m in mods:
+        sys.modules[m] = MagicMock()
+    # load and test...
+finally:
+    for m in mods:
+        if saved[m] is None:
+            sys.modules.pop(m, None)
+        else:
+            sys.modules[m] = saved[m]
+```
+
+**Files changed:** `src/backend/tests/test_email_infra.py` only.
+
+## [2026-06-02] implement | M13b email infrastructure — Jinja2 HTML templates + SMTP + Celery retry task
+
+**FRS reference:** Module 13b — Email Notifications (FRS `#176`)
+
+**Changes implemented:**
+- `src/backend/services/email/sender.py` — pure Jinja2 HTML email rendering (no mrml dependency):
+  - `render_email(template_name, context) -> (subject, html)`: loads `.html.j2` from `services/email/templates/`, extracts subject from `{# subject: ... #}` header, Jinja2-renders body
+  - `send_email_async(to, template, context)`: renders + sends via `aiosmtplib`
+  - `send_email(to, template, context)`: synchronous wrapper for Celery tasks
+  - SMTP config via env: `SMTP_HOST` (default "mailhog"), `SMTP_PORT` (default 1025), `SMTP_FROM` (default "no-reply@bfp.gov.ph"), optional `SMTP_USER`/`SMTP_PASSWORD`
+- `src/backend/services/email/templates/` — 4 email-safe inline-CSS HTML templates with BFP maroon (#8B0000) branding:
+  - `password_reset.html.j2` (vars: full_name, reset_link, expiry_minutes)
+  - `account_locked.html.j2` (vars: full_name, unlock_time, support_contact)
+  - `security_alert.html.j2` (vars: severity, summary, detected_at, dashboard_link)
+  - `weekly_report.html.j2` (vars: week_range, total_incidents, top_region, report_link)
+- `src/backend/tasks/notifications.py`: added `send_email_task` Celery task with `autoretry_for=(Exception,)`, `retry_backoff=True`, `retry_backoff_max=600`, `max_retries=5`; does NOT query RLS tables
+- `src/backend/requirements.txt`: added `aiosmtplib>=3.0.0` (mrml intentionally excluded for build portability)
+- `.env.example`: added `SMTP_HOST=mailhog`, `SMTP_PORT=1025`, `SMTP_FROM=no-reply@bfp.gov.ph`
+- `src/backend/tests/test_email_infra.py`: render tests for all 4 templates, mock aiosmtplib send test, task retry behavior test
+
+**Deferred triggers (follow-up issues):**
+- Keycloak account lockout email → #138
+- Weekly analytics report Celery beat → #176
+- Security alert email on CONFIRM_THREAT HITL action → #176
+
+## [2026-06-02] fix | M13b CI failure — add jinja2 to requirements.txt
+
+**Root cause:** `services/email/sender.py` imports jinja2 (and aiosmtplib). When `tasks/notifications.py` was updated to wire in `sender`, the chain `from main import app` → `import tasks.notifications` → `from services.email.sender import render_email` pulled jinja2 into the entire app namespace. CI (Python 3.12) failed at collection because `jinja2` was not in `requirements.txt` — only `aiosmtplib` was.
+
+**Fix:** Added `jinja2>=3.1.4` to `src/backend/requirements.txt` (aiosmtplib>=3.0.0 was already present). No other files changed.
+
+**Verification (host, Python 3.9):** `from services.email.sender import render_email, send_email_async` → `email sender import ok`. `python -m pytest tests/ --collect-only -q` → 18 tests collected, 32 errors — all errors are pre-existing unrelated failures (missing `fastapi`, `sqlalchemy`, `pydantic` PEP 604 union syntax on Python 3.9, `cryptography`, etc.); zero jinja2 collection errors remain.
+
+**Note:** Host is Python 3.9; CI is Python 3.12. The jinja2 fix resolves the CI failure. The pre-existing host failures are out of scope for this fix.
+
+**Design note:** Uses pure Jinja2 HTML templates (email-safe inline CSS, table-based layout, max-width 600px) instead of mrml to avoid native wheel build failures on python:3.11-slim.
+
+## [2026-05-30] merge | Master conflict resolution for encoder/validator branch
 - Merged `master` into `fix/enc-val-bugs-and-UI` and resolved conflicts in `src/backend/api/routes/regional.py` and `system-wiki/log.md`.
 - Preserved the encoder/validator branch's extracted regional helper architecture instead of reintroducing inline helper definitions from master.
 - Updated `src/backend/services/regional_incidents/helpers.py` so `insert_incident_verification_history()` accepts optional `data_hash` and `sync_status`, keeping the extracted helper compatible with master's M4b verification audit migration.

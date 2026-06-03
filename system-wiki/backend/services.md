@@ -1,9 +1,9 @@
 ---
 title: Backend Services
 created: 2026-05-16
-updated: 2026-05-24
+updated: 2026-06-03
 type: backend
-tags: [wims-bfp, backend, services, analytics, keycloak, duplicate-detection, civilian-triage, ai, xai]
+tags: [wims-bfp, backend, services, analytics, keycloak, duplicate-detection, civilian-triage, ai, xai, email]
 sources: [src/backend/services/]
 status: draft
 ---
@@ -274,3 +274,45 @@ Ingests Suricata EVE JSON log files into `wims.security_threat_logs`.
 | `eve_to_threat_log_row(eve_dict: dict, log_id) -> dict` | Maps EVE dict to threat log schema (source_ip, dest_ip, suricata_sid, severity, raw_payload truncation to 65535 chars) |
 | `_insert_row(db, row: dict)` | INSERT INTO security_threat_logs via raw SQL text(). Rolls back on error, logs WARNING |
 | `ingest_eve_file(db, file_path: str) -> tuple[int,int]` | Reads entire EVE file, parses each non-empty line, inserts matching alert events. Returns (parsed_count, inserted_count) |
+
+---
+
+## Email Service (M13b)
+
+**File:** `src/backend/services/email/sender.py`
+
+Jinja2 HTML email rendering and SMTP delivery via aiosmtplib.
+
+**Environment config:**
+
+| Variable | Default | Description |
+|---|---|---|
+| `SMTP_HOST` | `mailhog` | SMTP server hostname |
+| `SMTP_PORT` | `1025` | SMTP server port |
+| `SMTP_FROM` | `no-reply@bfp.gov.ph` | From address |
+| `SMTP_USER` | `""` | SMTP auth username (optional) |
+| `SMTP_PASSWORD` | `""` | SMTP auth password (optional) |
+| `SMTP_STARTTLS` | `false` | Enable STARTTLS (`true`/`1`/`yes` for production relays) |
+
+**Functions:**
+
+| Function | Signature | Returns | Description |
+|---|---|---|---|
+| `render_email(template_name, context)` | `(str, dict)` | `tuple[str, str]` | Loads `.html.j2` template, extracts subject from `{# subject: ... #}` header, renders body. Returns `(subject, html)`. |
+| `send_email_async(to, template_name, context)` | `(str\|list[str], str, dict)` | `None` | Renders template (with error logging), creates multipart/alternative message (HTML + plain-text), sends via aiosmtplib. Template render errors are logged and re-raised. |
+| `send_email(to, template_name, context)` | `(str\|list[str], str, dict)` | `None` | Synchronous wrapper for Celery tasks via `asyncio.run()`. |
+| `_load_subject(template_name, context)` | `(str, dict)` | `str` | Extracts and renders subject line from template header. Caches raw subject string per template name. |
+| `_html_to_plain_text(html)` | `str` | `str` | Converts HTML body to plain text for multipart/alternative emails. |
+
+**Templates:** 4 `.html.j2` files in `services/email/templates/`:
+
+| Template | Context Variables | Subject |
+|---|---|---|
+| `password_reset` | `full_name`, `reset_link`, `expiry_minutes` | "Reset your WIMS-BFP password" |
+| `account_locked` | `full_name`, `unlock_time`, `support_contact` | "WIMS-BFP Account Locked — Action Required" |
+| `security_alert` | `severity`, `summary`, `detected_at`, `dashboard_link` | "[{{ severity\|upper }}] WIMS-BFP Security Alert — Action Required" |
+| `weekly_report` | `week_range`, `total_incidents`, `top_region`, `report_link` | "WIMS-BFP Weekly Report: {{ week_range }}" |
+
+All templates use table-based layout, inline CSS, 600px max width, and BFP maroon `#8B0000` branding. The security alert template uses severity-aware CSS: critical→dark red, high→red, medium→orange, else→neutral gray `#95a5a6`.
+
+**Associated Celery task:** `tasks.notifications.send_email_task` (see [[utilities-and-tasks]]).

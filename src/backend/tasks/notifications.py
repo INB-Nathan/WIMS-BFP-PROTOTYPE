@@ -6,10 +6,12 @@ import json
 import logging
 import os
 
+import aiosmtplib
 from sqlalchemy import text
 
 from celery_config import celery_app
 from database import get_session
+from services.email.sender import send_email as _send_email
 
 logger = logging.getLogger(__name__)
 
@@ -147,3 +149,54 @@ def send_status_notification(self, report_id: int, new_status: str) -> dict:
         failed,
     )
     return {"sent": sent, "failed": failed, "report_id": report_id}
+
+
+# =============================================================================
+# Email tasks (M13b) — deferred triggers: Keycloak lockout (#138), weekly
+# analytics report, security alert (#176). Event wiring is out of scope here.
+# =============================================================================
+
+
+@celery_app.task(
+    bind=True,
+    name="tasks.notifications.send_email",
+    autoretry_for=(aiosmtplib.SMTPException, ConnectionError, TimeoutError, OSError),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    max_retries=5,
+)
+def send_email_task(
+    self,
+    to: str | list[str],
+    template_name: str,
+    context: dict,
+) -> dict:
+    """Render and send a templated email asynchronously.
+
+    Args:
+        to: Recipient email address (or list of addresses).
+        template_name: Name of a Jinja2 HTML template in services/email/templates/
+                      (without the .html.j2 extension).
+        context: Jinja2 template variable dictionary.
+
+    Raises:
+        Retries with exponential backoff on transient SMTP/network exceptions
+        (max 5 retries, up to 10 minutes between attempts).
+        Permanent failures (template/context/type errors) fail fast.
+        Does NOT query RLS tables.
+    """
+    try:
+        _send_email(to, template_name, context)
+        logger.info("Email sent via send_email_task: to=%s template=%s", to, template_name)
+        return {"ok": True, "to": to, "template": template_name}
+    except Exception as exc:
+        remaining = self.max_retries - self.request.retries
+        logger.warning(
+            "send_email_task failed for to=%s template=%s: %s — retry %d/%d",
+            to,
+            template_name,
+            exc,
+            remaining,
+            self.max_retries,
+        )
+        raise
