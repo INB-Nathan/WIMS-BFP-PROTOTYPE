@@ -1,14 +1,14 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-05-30
+Last updated: 2026-06-03
 Total synthesis pages: 32
-Last changes: VPS nginx TLS recovery was clarified with explicit production Compose commands and Make targets. Public Fire Report Areas implementation contract was repaired and localhost nginx moved to a local-only override. Archived encoder/validator incidents can be opened from archive views, restored with unarchive actions, and pass the verified-row immutability rule in both archive directions.
+Last changes: PR #214 fix-before-merge pass aligned CI/deploy Keycloak defaults to `wims-web`, pinned nginx, updated auth callback rate-limit docs/tests, documented local HTTP-only nginx development, and refreshed Suricata/nginx image references.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
 - [[mocs/system-map]] — primary map of content and routing entry point.
 - [[operations/agent-routing-guide]] — which page an agent should read before touching each subsystem.
-- [[operations/local-dev-deploy-guide]] — clean-slate local deployment on Windows: one-time SSL setup, known pitfalls (CRLF scripts, missing cert, password policy), seed users, verification.
+- [[operations/local-dev-deploy-guide]] — clean-slate local deployment on Windows: local HTTP-only nginx override, known pitfalls (CRLF scripts, accidental production TLS config, password policy), seed users, verification.
 
 ## Architecture
 - [[architecture/system-overview]] — Dockerized full-stack architecture, runtime services, and evidence sources.

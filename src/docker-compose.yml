@@ -235,7 +235,7 @@ services:
 
   # --- Edge Gateway ---
   nginx-gateway:
-    image: nginx:alpine
+    image: nginx:1.27.3-alpine
     container_name: wims-nginx-gateway
     ports:
       - "80:80"

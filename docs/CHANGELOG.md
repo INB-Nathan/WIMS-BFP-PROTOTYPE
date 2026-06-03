@@ -130,7 +130,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   - `GET/PATCH /api/admin/users` — user management (SYSTEM_ADMIN)
   - `GET/PATCH/POST /api/admin/security-logs` — threat log management with AI analysis
   - `GET /api/admin/audit-logs` — paginated audit trail
-  - Rate-limiting middleware on `POST /api/auth/login` (Redis sliding window)
+  - Rate-limiting middleware on the auth callback flow (now `POST /api/auth/callback`, Redis sliding window)
 - **Supabase Edge Functions:** `analytics-summary`, `commit-incident`, `conflict-detection`, `security-event-action`, `upload-bundle`
 - **Frontend pages:** Dashboard, incidents list/create/import/triage, incident detail with conflict detection, public report form, admin system hub, operations center (`/home`)
 - **Database schema:** `wims` schema with PostGIS geography columns, soft-delete support, chain-of-custody audit trails, geographic reference tables (regions/provinces/cities/barangays)
