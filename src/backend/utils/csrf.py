@@ -35,34 +35,29 @@ DEFAULT_ORIGINS: set[str] = {
 
 
 def _normalize_origin(raw: str) -> str:
-    """Extract scheme + netloc from a URL, stripping path/query/fragment."""
+    """Extract scheme + netloc, lowercased, with default ports stripped.
+
+    Default ports (:443 for https, :80 for http) are removed so that
+    https://example.com:443 matches https://example.com in the allowlist.
+    Non-default ports (:3000, :8000, :8443) are preserved.
+    """
     parsed = urlparse(raw)
-    return f"{parsed.scheme}://{parsed.netloc}"
+    scheme = parsed.scheme.lower()
+    netloc = parsed.netloc.lower()
+    if scheme == "https" and netloc.endswith(":443"):
+        netloc = netloc[:-4]
+    elif scheme == "http" and netloc.endswith(":80"):
+        netloc = netloc[:-3]
+    return f"{scheme}://{netloc}"
 
 
 def _build_allowlist() -> set[str]:
-    """Build trusted origin set from environment, falling back to defaults."""
+    """Build trusted origin set from CSRF_TRUSTED_ORIGINS env var, falling back to defaults."""
     env = os.environ.get("CSRF_TRUSTED_ORIGINS", "")
     if env:
         origins = {_normalize_origin(o.strip()) for o in env.split(",") if o.strip()}
         if origins:
             return origins
-
-    trusted_host = os.environ.get("CSRF_TRUSTED_HOST", "")
-    if trusted_host:
-        # Strip scheme, port, and path — yield a bare hostname like "wimsbfp.tech"
-        # urlparse requires a scheme to parse hostname correctly; inject a dummy
-        # one when missing so netloc is populated instead of path.
-        raw = trusted_host
-        if "://" not in raw:
-            raw = "//" + raw
-        parsed = urlparse(raw)
-        stripped = parsed.hostname or trusted_host
-        origins: set[str] = set()
-        for scheme in ("https", "http"):
-            origins.add(f"{scheme}://{stripped}")
-        return origins | DEFAULT_ORIGINS
-
     return DEFAULT_ORIGINS
 
 

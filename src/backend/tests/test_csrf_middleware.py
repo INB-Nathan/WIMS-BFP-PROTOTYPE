@@ -63,10 +63,22 @@ class TestOriginNormalization:
         assert _normalize_origin("http://localhost:3000") == "http://localhost:3000"
 
     def test_https_localhost(self):
-        assert _normalize_origin("https://localhost:443") == "https://localhost:443"
+        assert _normalize_origin("https://localhost:443") == "https://localhost"
 
     def test_handles_evil_domain(self):
         assert _normalize_origin("https://evil.com:8080/path") == "https://evil.com:8080"
+
+    def test_strips_default_https_port(self):
+        assert _normalize_origin("https://example.com:443") == "https://example.com"
+
+    def test_strips_default_http_port(self):
+        assert _normalize_origin("http://example.com:80") == "http://example.com"
+
+    def test_lowercases_scheme_and_host(self):
+        assert _normalize_origin("HTTPS://Example.COM/path") == "https://example.com"
+
+    def test_preserves_non_default_port_8443(self):
+        assert _normalize_origin("https://example.com:8443") == "https://example.com:8443"
 
 
 # ---------------------------------------------------------------------------
@@ -85,18 +97,9 @@ class TestAllowlistBuilder:
     def test_falls_back_to_defaults(self):
         with pytest.MonkeyPatch.context() as mp:
             mp.delenv("CSRF_TRUSTED_ORIGINS", raising=False)
-            mp.delenv("CSRF_TRUSTED_HOST", raising=False)
             result = _build_allowlist()
         assert "http://localhost" in result
         assert "https://localhost" in result
-
-    def test_from_csrf_trusted_host(self):
-        with pytest.MonkeyPatch.context() as mp:
-            mp.delenv("CSRF_TRUSTED_ORIGINS", raising=False)
-            mp.setenv("CSRF_TRUSTED_HOST", "wimsbfp.tech")
-            result = _build_allowlist()
-        assert "https://wimsbfp.tech" in result
-        assert "http://wimsbfp.tech" in result
 
 
 # ---------------------------------------------------------------------------
@@ -117,11 +120,12 @@ class TestSafeMethods:
         resp = CLIENT.options("/health", headers={})
         assert resp.status_code in (200, 405)
 
-    def test_get_to_state_changing_route(self):
-        """GET on a state-changing route (not safe-method exempt) — middleware should NOT block."""
-        # GET /api/auth/login doesn't exist but should bypass CSRF
-        resp = CLIENT.get("/api/auth/login", headers={})
-        assert resp.status_code != 403  # Not CSRF-blocked
+    def test_get_with_bad_origin_still_passes(self):
+        """GET to /health with a clearly invalid Origin must still return 200.
+        If CSRF middleware blocked GET, we'd get 403 — but GET/HEAD/OPTIONS
+        are exempt safe methods."""
+        resp = CLIENT.get("/health", headers={"origin": "https://evil.com"})
+        assert resp.status_code == 200
 
 
 # ---------------------------------------------------------------------------

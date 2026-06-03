@@ -13,7 +13,7 @@ function backendUrl(path: string): string {
 
 export async function GET(req: NextRequest) {
   try {
-    // Forward the browser's access_token cookie to the backend.
+    // Forward the browser's __Host-access_token cookie to the backend.
     // Without this the backend sees an unauthenticated request and returns 401,
     // causing the login loop on every page load.
     const cookieHeader = req.headers.get('cookie') || '';
