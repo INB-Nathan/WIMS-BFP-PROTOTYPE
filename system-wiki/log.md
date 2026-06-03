@@ -3,6 +3,55 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-03] style | M14: add trailing newline to test_public_submission.py (W292 lint fix)
+
+## [2026-06-03] fix | M14 region resolution — nearest ref_fire_stations (civilian.py pattern)
+
+**Root cause:** `wims.ref_regions` has NO PostGIS geometry column — only `region_id, region_name, region_code`. PostGIS `GEOGRAPHY(POINT,4326)` lives ONLY on `wims.ref_fire_stations.location`. The `region_geom` column never existed; `ORDER BY region_id` was a dumb fallback. `civilian.py`'s `_resolve_nearest()` resolves region by finding the nearest fire station and reading its `region_id` attribute — matching approach inlines here.
+
+**Fix (`src/backend/api/routes/public_dmz.py`):** Replaced region resolution with:
+```sql
+SELECT region_id FROM wims.ref_fire_stations
+ORDER BY location <-> ST_GeogFromText(:wkt) LIMIT 1
+```
+Attribute access: `station_row.region_id if station_row else None`. Fallback to `ref_regions ORDER BY region_id LIMIT 1` with attribute access if no stations found.
+
+**Fix (`src/backend/tests/test_public_submission.py`):** Added module-level `_FakeRow` class (attribute access + index + unpack), replacing all per-test `MockRow` classes. `test_region_resolved_via_nearest_fire_station` asserts first `execute()` call uses `ref_fire_stations` with `<->` operator. `test_submission_creates_row_with_null_encoder_id` uses `_FakeRow(incident_id=..., verification_status=..., created_at=...)`.
+
+**`src/postgres-init/32_ref_fire_stations.sql` seeds ref_fire_stations with all 237+ PH fire stations and their `location GEOGRAPHY(POINT, 4326)` — no migration needed for live integration tests.** `ref_regions` fallback handles thin-seed DB edge case.
+
+**Deferred:** Polygon geometry on `ref_regions` would enable true centroid-based resolution. Currently via nearest fire station — acceptable per FRS M14 functional spec.
+
+## [2026-06-02] fix | M14 test failures — geometry column, MockRow subscript, rate-limit isolation
+
+**Root causes and fixes for 10 failing tests on `feat/m14-public-submission` (PR #320):**
+
+**(A) Wrong geometry column:** `wims.ref_regions` has no geometry column. The ST_Distance query in `public_dmz.py` used `region_geom` which does not exist. Replaced with simple `ORDER BY region_id LIMIT 1` fallback (no PostGIS geometry on ref_regions in current schema). Coordinate-based nearest-centroid is deferred until geometry is added to ref_regions.
+
+**(B) MockRow not subscriptable:** `test_region_resolved_via_nearest_centroid` returns `MockRow()` from `fetchone()` in a tuple context — `region_row[0]` was called on a MockRow instance with no `__getitem__`. Added `__getitem__` to the MockRow class to return positional values matching a real SQLAlchemy Row.
+
+**(C) Rate-limit state bleeds across tests:** The 3/IP/hr Redis limiter counted 127.0.0.1 across the whole test file. Added `flush_public_rate_limit` autouse fixture to `conftest.py` that clears `public_rate_limit:*` keys before each test. Rate-limit tests themselves use random fake IPs and clean up after themselves.
+
+**Files changed:**
+- `src/backend/api/routes/public_dmz.py` — removed `region_geom` from query
+- `src/backend/tests/test_public_submission.py` — added MockRow `__getitem__`
+- `src/backend/tests/conftest.py` — added `flush_public_rate_limit` autouse fixture
+
+## [2026-06-02] implement | M14 public report endpoint — un-deprecated, nearest-centroid, rate limit, Retry-After
+
+**FRS reference:** Module 14 — Public Submission (FRS `#177`)
+
+**Changes implemented (`src/backend/api/routes/public_dmz.py`):**
+- `POST /api/v1/public/report`: restored from 410 deprecation to active endpoint
+- Region resolution: replaced `ORDER BY region_id LIMIT 1` fallback with proper `ST_Distance` nearest-centroid using `ref_fire_stations` centroids and PostGIS KNN operator
+- Rate limiting: Redis sliding-window 3 req/IP/hour on the public endpoint
+- HTTP 429 response includes `Retry-After` header with seconds until reset
+- Writes to `wims.fire_incidents` with `encoder_id = NULL`, `verification_status = 'PENDING_VALIDATION'`
+- No Keycloak JWT required, no RLS context set
+
+**Test file added:** `src/backend/tests/test_public_submission.py` — validates 201 response, NULL encoder_id, PENDING_VALIDATION status, rate limit 429, Retry-After header.
+
+## [2026-05-30] merge | Master conflict resolution for encoder/validator branch
 ## [2026-06-03] fix | PR #214 infra/auth config review fixes
 
 - Updated the manual auth rate-limit test to target the real `POST /api/auth/callback` protected path instead of the stale `/api/auth/login` stub.
@@ -1484,6 +1533,9 @@ No schema, auth, or FRS alignment changes.
 **Verification:** `curl -I https://wimsbfp.tech/health` returns 200; `curl -I http://wimsbfp.tech/health` returns 301 to HTTPS; nginx mount inspection shows `/etc/letsencrypt -> /etc/letsencrypt` and `src/nginx/nginx.conf -> /etc/nginx/nginx.conf`.
 
 **Wiki updates:** Updated `system-wiki/architecture/infrastructure-config.md`, `system-wiki/operations/local-dev-deploy-guide.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+## [2026-06-03] ruff format applied to tests/test_public_submission.py
+## [2026-06-03] fixed test mocks: result-wrapper + SQL-dispatch MockDB so db.execute().fetchone() works across all four queries
+## [2026-06-03] mock RETURNING row now supplies a real created_at datetime to satisfy PublicIncidentResponse
 
 ## [2026-06-02] feat | M11a vulnerability scanning — ZAP baseline + Nmap in CI
 

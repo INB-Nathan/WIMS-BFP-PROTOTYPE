@@ -84,7 +84,7 @@ async def rate_limit_public_dmz(request: Request) -> None:
         local limit = tonumber(ARGV[3])
 
         -- Remove entries older than the window
-        redis.call('ZREMRANGEBYSCORE', key, '-inf', now - window)
+        redis.call('ZREMRANGEBYSCORE', key, 0, now - window)
 
         -- Count entries in the current window
         local count = redis.call('ZCARD', key)
