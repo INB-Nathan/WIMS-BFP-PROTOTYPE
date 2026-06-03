@@ -154,7 +154,11 @@ All endpoints require `get_analyst_or_admin` and use `get_db_with_rls`. They del
 
 ### `rate_limit_public_dmz()` (dependency)
 
-Async Redis-based rate limiter. **3 requests per IP per hour**. Key: `ratelimit:public_dmz:{ip}`. Sets `X-RateLimit-*` response headers. **Fail-open** on Redis unreachable (503 → allows through). Errors: 429 (exceeded).
+Async Redis-based rate limiter. **3 requests per IP per hour**. Key: `public_rate_limit:{ip}`. **Fail-open** on Redis unreachable (allows through). Errors: 429 (exceeded) with `Retry-After` header.
+
+**Connection model:** Creates a fresh `ConnectionPool` per call (no global pool caching) and closes the Redis client/pool after the Lua script runs, so the dependency works safely across asyncio event loops without accumulating idle sockets. This is important for FastAPI `TestClient`, which creates a new loop per request.
+
+**Lua script:** Sliding-window sorted set. Prunes entries older than the window via `ZREMRANGEBYSCORE`, counts via `ZCARD`, returns `{1, retry_after}` when count >= threshold, else records the request via `ZADD` with TTL.
 
 ### `submit_public_incident()`
 

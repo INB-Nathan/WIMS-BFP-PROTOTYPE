@@ -1715,3 +1715,33 @@ No schema, auth, or FRS alignment changes.
 **Wiki updated:** This log entry. No FRS gap changes.
 
 **Note:** Issues #127 and #128 are effectively already implemented in the existing `get_report_clusters` endpoint. #131 (frontend fireLocation sharing) is the next target.
+
+## [2026-06-03] fix | PR #210 M14 public submission rate limiter — cross-event-loop pool crash
+
+**Root cause:** `_get_redis()` cached a global `ConnectionPool` created on the first request's event loop. FastAPI `TestClient` creates a *new* event loop per request, so subsequent requests failed with `RuntimeError: Future attached to a different loop` when borrowing a connection from the cached pool. The error was silently caught by `except Exception: return` (fail-open), causing all rate-limit requests to return 201 instead of the 4th request returning 429.
+
+**Fix (`src/backend/api/routes/public_dmz.py`):**
+- Removed the module-level `_redis_pool` global and `_get_redis_pool()` function.
+- `_get_redis()` now creates a fresh `ConnectionPool` per call (max_connections=5). Pool creation is lightweight — no TCP until the first command. Production uvicorn uses a single event loop, so the per-call overhead is negligible.
+- Retained the existing Lua script logic (sliding-window sorted set with `ZREMRANGEBYSCORE 0`).
+
+**Fix (`src/backend/tests/conftest.py`):**
+- Added `os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")` at module level to set a usable default before `public_dmz.py` is imported. Docker Compose and CI set `REDIS_URL` explicitly, so `setdefault` is a no-op there.
+
+**Fix (`src/backend/tests/test_public_submission.py`):**
+- Changed both test Redis client fallback URLs from `redis://redis:6379/0` (Docker hostname, unresolvable from the host) to `redis://localhost:6379/0` for consistency with conftest.
+
+**Validation:**
+- `pytest tests/test_public_submission.py -v` — 9/9 passed (including both rate-limit tests).
+- `ruff format --check` — all 3 changed files clean.
+- `git status --short` — no conflict markers.
+
+**Wiki updated:** This log; `backend/remaining-routes.md` (rate-limit connection model, Lua summary, key naming). No FRS gap change (connection pool model is an implementation detail, not a requirement change).
+
+## [2026-06-03] fix | PR #210 M14 public submission rate limiter — close per-request Redis pools
+
+**Follow-up validation finding:** The cross-event-loop fix correctly removed the global async Redis pool, but a fresh per-call pool must also be closed after the Lua script runs to avoid accumulating idle sockets under sustained public submissions.
+
+**Fix (`src/backend/api/routes/public_dmz.py`):** `rate_limit_public_dmz()` now closes the request-scoped Redis client and its connection pool in a guarded `finally` block via `await r.aclose(close_connection_pool=True)`. This preserves fail-open behavior for Redis errors while preventing resource leakage after successful or rate-limited requests.
+
+**Wiki updated:** `backend/remaining-routes.md` now records that the public DMZ rate limiter uses a per-call pool and closes it after script execution. No FRS gap change.

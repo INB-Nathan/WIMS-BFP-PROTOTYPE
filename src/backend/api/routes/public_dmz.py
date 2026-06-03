@@ -33,21 +33,24 @@ _REDIS_EMERGENCY_TTL = 3600
 
 _REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
-_redis_pool: aioredis.ConnectionPool | None = None
-
-
-async def _get_redis_pool() -> aioredis.ConnectionPool:
-    global _redis_pool
-    if _redis_pool is None:
-        _redis_pool = aioredis.ConnectionPool.from_url(
-            _REDIS_URL, decode_responses=True, max_connections=20
-        )
-    return _redis_pool
-
 
 async def _get_redis():
+    """
+    Return a request-scoped async Redis client.
+
+    Each call creates a fresh ConnectionPool to avoid cross-event-loop
+    failures when the rate limiter is called from different asyncio event
+    loops (e.g. FastAPI TestClient creates a new loop per request).
+    Caching the pool globally would bind it to the first request's event
+    loop, causing RuntimeError on subsequent requests in different loops.
+
+    The caller closes the client/pool after the rate-limit script runs so
+    per-request pools do not accumulate idle sockets.
+    """
     try:
-        pool = await _get_redis_pool()
+        pool = aioredis.ConnectionPool.from_url(
+            _REDIS_URL, decode_responses=True, max_connections=5
+        )
         return aioredis.Redis(connection_pool=pool)
     except Exception:
         return None
@@ -125,6 +128,11 @@ async def rate_limit_public_dmz(request: Request) -> None:
         raise
     except Exception:
         return
+    finally:
+        try:
+            await r.aclose(close_connection_pool=True)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------

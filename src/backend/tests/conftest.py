@@ -5,6 +5,11 @@ from dotenv import load_dotenv
 
 load_dotenv()  # Load .env for local test runs against Docker containers
 
+# Set a usable default REDIS_URL for local pytest runs (Docker hostname "redis"
+# does not resolve from the bare-metal host).  Docker Compose and CI set
+# REDIS_URL explicitly via environment, so setdefault is a no-op there.
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+
 # Deterministic local/test AES-256 key. Production and deployed CI should still
 # inject WIMS_MASTER_KEY explicitly; this fallback keeps local pytest runs stable.
 TEST_WIMS_MASTER_KEY = "76/kA0LVDzvX/mQWIxx3UJZl0SrTSIO/k0KdRMdRxCU="

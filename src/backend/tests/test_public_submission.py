@@ -194,7 +194,7 @@ class TestPublicReportRateLimit:
         import redis
 
         r = redis.from_url(
-            os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True
+            os.environ.get("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True
         )
         test_ip = f"198.51.{uuid.uuid4().hex[:4]}.{uuid.uuid4().hex[:4]}"
         key = f"public_rate_limit:{test_ip}"
@@ -240,7 +240,7 @@ class TestPublicReportRateLimit:
         import redis
 
         r = redis.from_url(
-            os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True
+            os.environ.get("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True
         )
         r.delete(f"public_rate_limit:{ip_a}")
         r.delete(f"public_rate_limit:{ip_b}")
