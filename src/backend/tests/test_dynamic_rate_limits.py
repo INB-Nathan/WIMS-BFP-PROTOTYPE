@@ -4,6 +4,8 @@ Task: Dynamic Rate Limit Configuration — #47.
 Red State: GET/PATCH /api/admin/rate-limits endpoints do not exist.
 Green State: GET returns current config, PATCH updates it.
 Config is stored in Redis hash key rate_limit_config:{tier}.
+The legacy tier label is "login" for API compatibility; it represents the
+current auth callback rate-limit policy.
 """
 
 import pytest

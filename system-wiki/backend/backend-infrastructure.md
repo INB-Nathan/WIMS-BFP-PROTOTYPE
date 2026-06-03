@@ -1,7 +1,7 @@
 ---
 title: Backend Infrastructure — Auth, Database, Entry Point, Models, Schemas, Celery
 created: 2026-05-16
-updated: 2026-05-16
+updated: 2026-06-03
 type: backend
 tags: [wims-bfp, backend, auth, database, models, schemas, celery, infrastructure]
 sources: [src/backend/auth.py, src/backend/database.py, src/backend/main.py, src/backend/models/, src/backend/schemas/, src/backend/celery_config.py]
@@ -103,7 +103,7 @@ No explicit middleware/lifespan/exception handlers configured in this file.
 
 ### Rate Limiter
 
-Lua-based sliding window on `POST /api/auth/login`. Key: `rate_limit:{client_ip}`. Config: `RATE_LIMIT_THRESHOLD=5`, `WINDOW_SECONDS=900` (15 min). Returns 429 with Retry-After header. Fail-open on Redis down.
+Lua-based sliding window on `POST /api/auth/callback`. Key: `rate_limit:{client_ip}`. Config: `RATE_LIMIT_THRESHOLD=5`, `WINDOW_SECONDS=900` (15 min). Returns 429 with Retry-After header. Fail-open on Redis down. In the normal browser path, Next.js `/api/auth/sync` forwards nginx-provided client IP headers to preserve per-client limiter granularity before calling the backend callback.
 
 ### Route Registration
 

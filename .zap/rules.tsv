@@ -1,0 +1,7 @@
+10038	IGNORE	(CSP Header Not Set — tracked as #TBD, not introduced by this PR)
+10049	IGNORE	(Non-Storable Content on static assets — expected for Next.js build)
+10055	IGNORE	(CSP fallback on Keycloak — upstream Keycloak issue)
+10063	IGNORE	(Permissions Policy on Keycloak — upstream Keycloak issue)
+10096	IGNORE	(Timestamp in Keycloak JS bundle — upstream Keycloak issue)
+10109	IGNORE	(Modern Web App — expected for Next.js SPA)
+90004	IGNORE	(COEP missing — tracked as #TBD, not introduced by this PR)

@@ -502,7 +502,7 @@ def create_incident(
         incident_id=incident_id,
         latitude=lat,
         longitude=lon,
-        encoder_id=row[2],
+        encoder_id=str(row[2]) if row[2] is not None else None,
         status=row[3],
         created_at=row[4],
     )

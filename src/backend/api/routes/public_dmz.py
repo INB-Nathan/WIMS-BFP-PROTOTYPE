@@ -25,17 +25,29 @@ router = APIRouter(prefix="/api/v1/public", tags=["public-dmz"])
 
 
 # ---------------------------------------------------------------------------
-# Redis Rate Limiter — 3 req/IP/hour (strictly tighter than /api/auth/login)
+# Redis Rate Limiter — 3 req/IP/hour (stricter than the auth callback limiter)
 # ---------------------------------------------------------------------------
 _PUBLIC_RATE_LIMIT_WINDOW = 3600  # 1 hour in seconds
 _PUBLIC_RATE_LIMIT_THRESHOLD = 3  # max 3 submissions per IP per hour
 
 _REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
+_redis_pool: aioredis.ConnectionPool | None = None
+
+
+async def _get_redis_pool() -> aioredis.ConnectionPool:
+    global _redis_pool
+    if _redis_pool is None:
+        _redis_pool = aioredis.ConnectionPool.from_url(
+            _REDIS_URL, decode_responses=True, max_connections=20
+        )
+    return _redis_pool
+
 
 async def _get_redis():
     try:
-        return await aioredis.from_url(_REDIS_URL, decode_responses=True)
+        pool = await _get_redis_pool()
+        return aioredis.Redis(connection_pool=pool)
     except Exception:
         return None
 
