@@ -183,7 +183,9 @@ def change_my_password(
     """
     Change the current user's own password.
     The current password is verified against Keycloak before allowing the change.
-    Uses bfp-client (public, DAG-enabled) — the same client the browser uses to authenticate.
+    Uses bfp-client (public, Direct Grant-enabled), retained separately from the
+    browser PKCE client (wims-web) because password verification requires the
+    Resource Owner Password Credentials grant.
     """
     keycloak_id = current_user["keycloak_id"]
 
@@ -195,8 +197,9 @@ def change_my_password(
     except Exception:
         target_username = current_user.get("kc_username") or current_user["username"]
 
-    # Verify current password using bfp-client (public, directAccessGrantsEnabled=true)
-    # This matches exactly how the browser authenticates the user
+    # Verify current password using bfp-client (public, directAccessGrantsEnabled=true).
+    # Do not replace with KEYCLOAK_CLIENT_ID/wims-web: the web client uses PKCE,
+    # while this server-side verification path needs Direct Grant.
     kc_openid = KeycloakOpenID(
         server_url=_KC_BASE_URL,
         realm_name=_KC_REALM,

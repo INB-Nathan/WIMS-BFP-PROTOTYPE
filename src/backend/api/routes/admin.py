@@ -81,6 +81,8 @@ def _apply_backup_retention() -> None:
             continue
 
 
+# Legacy admin/API tier label retained for compatibility. The historical
+# "login" tier now represents the auth callback flow guarded by main.py.
 RATE_LIMIT_CONFIG_KEY = "rate_limit_config:login"
 RATE_LIMIT_DEFAULTS = {"window_seconds": 900, "threshold": 5}
 
@@ -1156,7 +1158,7 @@ async def restore_backup(
 def get_rate_limits(
     current_user: dict = Depends(get_system_admin),
 ):
-    """Return current rate limit config for all tiers."""
+    """Return auth-flow rate limit config using the legacy ``login`` tier label."""
     r = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
     try:
         config = r.hgetall(RATE_LIMIT_CONFIG_KEY)
@@ -1183,7 +1185,7 @@ def update_rate_limits(
     current_user: dict = Depends(get_system_admin),
     db: Session = Depends(get_db_with_rls),
 ):
-    """Update rate limit config for a tier. Takes effect immediately without restart."""
+    """Update rate limit config for the legacy ``login`` auth-flow tier."""
     config_key = f"rate_limit_config:{body.tier}"
     updated_at = str(time.time())
 

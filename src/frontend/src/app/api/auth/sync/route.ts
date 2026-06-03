@@ -10,6 +10,23 @@ function backendUrl(path: string): string {
   return `${BACKEND_URL.replace(/\/$/, '')}${path}`;
 }
 
+function trustedClientIp(req: NextRequest): string | null {
+  const realIp = req.headers.get('x-real-ip')?.trim();
+  if (realIp) {
+    return realIp;
+  }
+
+  const forwardedFor = req.headers.get('x-forwarded-for');
+  if (!forwardedFor) {
+    return null;
+  }
+
+  // Nginx appends the immediate remote address to X-Forwarded-For. Forward only
+  // that trusted hop instead of relaying a client-supplied chain that the
+  // backend rate limiter would treat as authoritative.
+  return forwardedFor.split(',').pop()?.trim() || null;
+}
+
 const ACCESS_TOKEN_COOKIE_MAX_AGE = 5 * 60; // 5 minutes: match Keycloak accessTokenLifespan
 const REFRESH_TOKEN_COOKIE_MAX_AGE = 8 * 60 * 60; // 8 hours: match SSO session max
 
@@ -49,9 +66,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const callbackHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    const clientIp = trustedClientIp(req);
+    if (clientIp) {
+      callbackHeaders['X-Real-IP'] = clientIp;
+      callbackHeaders['X-Forwarded-For'] = clientIp;
+    }
+
     const res = await fetch(backendUrl('/api/auth/callback'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: callbackHeaders,
       body: JSON.stringify({ code, code_verifier, redirect_uri }),
     });
 

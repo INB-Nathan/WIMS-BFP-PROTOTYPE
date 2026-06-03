@@ -142,7 +142,7 @@ Unique static analysis pattern. Uses `inspect.getsource()` to capture route func
 Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database needed. Tests: column allowlist filtering, Celery task dispatch, argument deduplication, role rejection, file I/O verification with `csv.DictReader`.
 
 **3. Integration Tests (`test_keycloak_password_reset.py`)**
-~750 lines, full e2e against live services. Patterns: fixture-based prerequisites (auto-skip if Keycloak unreachable), resource setup/teardown, helper functions for API interaction, MailHog email extraction. Tests pre-flight config (5) + full e2e flow (4) including OWASP user enumeration prevention, single-use token enforcement.
+~750 lines, full e2e against live services. Patterns: fixture-based prerequisites (auto-skip if Keycloak unreachable), resource setup/teardown, helper functions for API interaction, MailHog email extraction. Tests pre-flight config (5) + full e2e flow (4) including OWASP user enumeration prevention, single-use token enforcement. The test uses `KEYCLOAK_PASSWORD_RESET_CLIENT_ID` (default `bfp-client`) for Direct Grant-specific checks so CI/global backend auth defaults can remain `wims-web`/`wims-web`.
 
 **4. ci.yml exclusions** — 8 test files explicitly excluded from CI runner: rate-limiting, suricata, infra-config, bootstrap, OTP, schema, RLS policy, SQL quality (need special Docker setup).
 
@@ -163,7 +163,7 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 | `security-audit` | ubuntu-latest | `pip-audit` + `npm audit --omit=dev` (continue-on-error) |
 | `migrations` | ubuntu-latest | PostGIS 15-3.4 service container, applies all .sql files in lexical order, asserts schema |
 | `frontend` | ubuntu-latest | Node 20, `npm ci` → `npm run lint` → `npx vitest run` → `npm run build` |
-| `backend` | ubuntu-latest | Python 3.12, PostGIS + Redis 7 service containers. `ruff check` → `ruff format --check` → `pytest -v --tb=short` (8 test files excluded) |
+| `backend` | ubuntu-latest | Python 3.12, PostGIS + Redis 7 service containers. `KEYCLOAK_CLIENT_ID`/`KEYCLOAK_AUDIENCE` are set to `wims-web`/`wims-web`; Direct Grant tests scope `bfp-client` separately. `ruff check` → `ruff format --check` → `pytest -v --tb=short` (8 test files excluded) |
 | `docker-build` | ubuntu-latest | `docker compose config` validation + `docker compose build --parallel` |
 | `security-scan` | ubuntu-latest | OWASP ZAP baseline scan + Nmap port scan. Uses `.zap/rules.tsv` to ignore 7 pre-existing WARN alerts (CSP/COEP headers, Keycloak upstream, Next.js informational). Uses `zaproxy/action-baseline@v0.15.0` plus explicit artifact name `zap-scan` to avoid legacy artifact-upload rejection in older ZAP action packaging. `fail_action: true` — only new HIGH/CRITICAL block merge. |
 | `merge-gate` | ubuntu-latest | **Blocks merge** unless migrations, frontend, backend, docker-build, and security-scan all pass |
@@ -183,9 +183,9 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 
 **Trigger:** Push to `master` only
 
-The deploy workflow has a `ci` gate before SSH deployment. The backend test step runs on the GitHub runner, so it must use GitHub Actions service containers rather than Docker Compose service DNS names. The gate now provisions PostGIS (`localhost:5432`) and Redis (`localhost:6379`), initializes `wims_test` by applying `src/postgres-init/*.sql` in lexical order, and runs the same backend pytest exclusion set used by `.github/workflows/ci.yml`.
+The deploy workflow has a `ci` gate before SSH deployment. The backend test step runs on the GitHub runner, so it must use GitHub Actions service containers rather than Docker Compose service DNS names. The gate now provisions PostGIS (`localhost:5432`) and Redis (`localhost:6379`), initializes `wims_test` by applying `src/postgres-init/*.sql` in lexical order, sets backend auth envs to `wims-web`/`wims-web`, and runs the same backend pytest exclusion set used by `.github/workflows/ci.yml`.
 
-The SSH deployment step exports production secrets such as `DATABASE_URL`, `REDIS_URL`, Keycloak settings, and `WIMS_MASTER_KEY`, then updates `/opt/wims-bfp` from `origin/master` with `git fetch` + `git checkout -B master origin/master`. This avoids ambiguous `git pull` behavior on a VPS checkout after a force-updated remote. It performs a pre-deploy database connectivity check from the backend container before rebuilding and restarting the backend service. The rollback-tag step uses Docker's quiet image output directly, avoiding a `jq` dependency on the VPS.
+The SSH deployment step exports production secrets such as `DATABASE_URL`, `REDIS_URL`, Keycloak realm URL, and `WIMS_MASTER_KEY`, plus the non-secret web OIDC defaults `KEYCLOAK_CLIENT_ID=wims-web` and `KEYCLOAK_AUDIENCE=wims-web`; then it updates `/opt/wims-bfp` from `origin/master` with `git fetch` + `git checkout -B master origin/master`. This avoids ambiguous `git pull` behavior on a VPS checkout after a force-updated remote. It performs a pre-deploy database connectivity check from the backend container before rebuilding and restarting the backend service. The rollback-tag step uses Docker's quiet image output directly, avoiding a `jq` dependency on the VPS.
 
 Post-restart health polling uses a 15-second settle delay plus 45 iterations × 2s = 90s total capacity. The health check is performed inside the `wims-backend` container using Python/httpx against `http://localhost:8000/health` (the backend's actual route). This avoids depending on curl being installed in the container, bypasses the nginx proxy (which forwards the full `/api/health` path, causing 404 since the backend route is `/health`), and checks the backend directly from within its own network namespace. The `/health` endpoint is served directly by nginx at line 16 of `nginx.conf` for external uptime monitors.
 

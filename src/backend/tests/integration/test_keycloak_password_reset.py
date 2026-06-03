@@ -47,7 +47,10 @@ KEYCLOAK_ADMIN_URL = os.environ.get("KEYCLOAK_ADMIN_URL", "http://localhost:8080
 KEYCLOAK_ADMIN_USER = os.environ.get("KEYCLOAK_ADMIN_USER", "admin")
 KEYCLOAK_ADMIN_PASSWORD = os.environ.get("KEYCLOAK_ADMIN_PASSWORD", "admin")
 KEYCLOAK_REALM = os.environ.get("KEYCLOAK_REALM", "bfp")
-KEYCLOAK_CLIENT_ID = os.environ.get("KEYCLOAK_CLIENT_ID", "bfp-client")
+# Password-reset verification uses a Direct Grant-enabled client. Keep this
+# scoped to the password-reset tests instead of reusing the web OIDC
+# KEYCLOAK_CLIENT_ID, which defaults to the PKCE-only wims-web client.
+KEYCLOAK_CLIENT_ID = os.environ.get("KEYCLOAK_PASSWORD_RESET_CLIENT_ID", "bfp-client")
 
 MAILHOG_API_URL = os.environ.get("MAILHOG_API_URL", "http://localhost:8025")
 
@@ -348,7 +351,7 @@ class TestForgotPasswordConfiguration:
         When resetPasswordAllowed=true, the login page must contain
         a 'Forgot Password?' link pointing to the reset-credentials flow.
         """
-        # Fetch the login page for the bfp-client
+        # Fetch the login page for the Direct Grant password-reset client
         r = httpx.get(
             f"{REALM_URL}/protocol/openid-connect/auth",
             params={
