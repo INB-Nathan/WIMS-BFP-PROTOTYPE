@@ -2,7 +2,7 @@
 
 GET /api/events/stream?channels=incident,verification
 
-Requires valid access_token cookie (same auth as all API routes).
+Requires valid __Host-access_token cookie (same auth as all API routes).
 Subscribes to Redis pub/sub channels and streams real-time events to the
 client as SSE text/event-stream messages.
 
@@ -81,7 +81,7 @@ async def event_stream(
 ):
     """SSE streaming endpoint.
 
-    Authenticates via access_token cookie, then subscribes to Redis pub/sub
+    Authenticates via __Host-access_token cookie, then subscribes to Redis pub/sub
     and streams events to the client as SSE.
 
     The client should use EventSource with withCredentials: true.

@@ -188,6 +188,16 @@ class TestPostOriginValidation:
         )
         assert resp.status_code == 401  # stub auth, not CSRF block
 
+    def test_post_accepted_https_default_port(self):
+        """POST from https://localhost:443 → port stripped, origin matches.
+        Browsers may send the default port in the Origin header."""
+        resp = CLIENT.post(
+            "/api/auth/login",
+            json={},
+            headers={"origin": "https://localhost:443"},
+        )
+        assert resp.status_code == 401  # stub auth, not CSRF block
+
 
 # ---------------------------------------------------------------------------
 # Integration: PUT, PATCH, DELETE

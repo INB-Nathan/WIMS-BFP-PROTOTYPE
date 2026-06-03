@@ -1470,8 +1470,8 @@ No schema, auth, or FRS alignment changes.
 - **CSRF middleware (Phase 2):** `src/backend/utils/csrf.py` — `csrf_middleware` registered in `main.py` via `app.middleware("http")`. Validates Origin/Referer on POST/PUT/PATCH/DELETE against configurable allowlist. GET/HEAD/OPTIONS bypassed. Logs block events at WARNING level.
 - **Nginx CORS restriction (Phase 3):** `Access-Control-Allow-Origin` changed from `$http_origin` (reflected any origin) to `$scheme://$host` in both `nginx.conf` and `nginx.local.conf`.
 - **Docker env vars (Phase 4):** `CSRF_TRUSTED_ORIGINS` in `docker-compose.yml` and `docker-compose.prod.yml`.
-- **Test suite (Phase 5):** `tests/test_csrf_middleware.py` — 25 test cases covering origin normalization, allowlist builder, safe method bypass, invalid/missing Origin, valid Origin, Referer fallback, PUT/PATCH/DELETE variants, and VPS production origin.
+- **Test suite (Phase 5):** `tests/test_csrf_middleware.py` — 28 test cases covering origin normalization, allowlist builder, safe method bypass, invalid/missing Origin, valid Origin, Referer fallback, PUT/PATCH/DELETE variants, and VPS production origin.
 - **Pen-test checklist (Phase 6):** `docs/pentest/CSRF-CHECKLIST.md` — cookie attributes, Origin validation steps, cross-origin attack simulation, CORS, OIDC flow integrity, and test coverage verification.
 - **Wiki updates (Phase 7):** This log, `security/security-baseline.md` (new CSRF Protection section), `gaps/frs-codebase-gap-register.md` (M11b CLOSED entry).
 
-**Verification:** `pytest tests/test_csrf_middleware.py -v` — all 25 tests pass.
+**Verification:** `pytest tests/test_csrf_middleware.py -v` — all 28 tests pass.
