@@ -3,6 +3,11 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-03] fix | CI security scan — ZAP artifact name compatibility
+
+- Updated `.github/workflows/ci.yml` `security-scan` ZAP baseline action to set `artifact_name: 'zap-scan'`, avoiding the legacy `zaproxy/action-baseline@v0.12.0` default `zap_scan` artifact name that GitHub's artifact backend rejected during upload.
+- Updated `system-wiki/architecture/pwa-tests-cicd.md` to document the explicit ZAP artifact name override.
+
 ## [2026-06-03] fix | CI security scan — ZAP rules file for pre-existing WARN alerts
 
 - Created `.zap/rules.tsv` with 7 IGNORE entries for pre-existing ZAP WARN alerts (IDs: 10038, 10049, 10055, 10063, 10096, 10109, 90004). These are configuration gaps (missing CSP/COEP on nginx, upstream Keycloak issues, Next.js informational flags) that predate PR #208.

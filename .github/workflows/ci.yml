@@ -326,6 +326,7 @@ jobs:
           fail_action: true
           allow_issue_writing: false
           rules_file_name: '.zap/rules.tsv'
+          artifact_name: 'zap-scan'
 
       - name: Upload nmap report
         uses: actions/upload-artifact@v4
