@@ -3,8 +3,6 @@ Tests for CSRF protection middleware (__Host- cookies + Origin/Referer validatio
 Module 11b — Penetration Testing Scope: CSRF.
 """
 
-import os
-
 import pytest
 from fastapi.testclient import TestClient
 from main import app
