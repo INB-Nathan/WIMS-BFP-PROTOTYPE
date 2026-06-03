@@ -3,6 +3,12 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-03] fix | CI security scan — ZAP rules file for pre-existing WARN alerts
+
+- Created `.zap/rules.tsv` with 7 IGNORE entries for pre-existing ZAP WARN alerts (IDs: 10038, 10049, 10055, 10063, 10096, 10109, 90004). These are configuration gaps (missing CSP/COEP on nginx, upstream Keycloak issues, Next.js informational flags) that predate PR #208.
+- Updated `.github/workflows/ci.yml` `security-scan` job to reference `rules_file_name: '.zap/rules.tsv'` in the ZAP baseline action step.
+- Updated `system-wiki/architecture/pwa-tests-cicd.md` to document the `security-scan` job and the ZAP rules file.
+
 ## [2026-06-02] hygiene | env hygiene (#205 key placeholder, #194 audience) + Redis connection pooling (#195)
 
 - `.env.example`: Replaced real `WIMS_MASTER_KEY` value with `REPLACE_WITH_REAL_BASE64_32BYTE_KEY` placeholder; added generation comment.

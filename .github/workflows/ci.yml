@@ -325,6 +325,7 @@ jobs:
           target: 'http://localhost'
           fail_action: true
           allow_issue_writing: false
+          rules_file_name: '.zap/rules.tsv'
 
       - name: Upload nmap report
         uses: actions/upload-artifact@v4
