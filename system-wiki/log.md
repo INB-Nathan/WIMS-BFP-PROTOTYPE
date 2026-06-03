@@ -1,5 +1,25 @@
 # System Wiki Log
 
+## [2026-06-04] docs | Record PR #207 pytest lock-hang invariant in synthesis
+
+Updated `system-wiki/architecture/pwa-tests-cicd.md` and `system-wiki/index.md` after the PR #207 backend hang fix. The testing/CI synthesis now records that `src/backend/main.py` must not run startup DDL on `wims.users.email`; `src/postgres-init/44_add_email_to_users.sql` owns that schema change, and runtime DDL can block behind open SQLAlchemy test sessions in `src/backend/tests/test_immutable_records.py`. No gap-register update needed; this is CI/test-infrastructure behavior, not an FRS alignment change.
+
+## [2026-06-04] fix | Backend pytest hang — remove email DDL from startup (PR #207)
+
+**Root cause:** `apply_schema_patches()` in `main.py` ran `ALTER TABLE wims.users ADD COLUMN IF NOT EXISTS email` at startup. This required `AccessExclusiveLock` on `wims.users`. The `test_immutable_records.py` `db()` fixture opened a session with `autocommit=False`, which held an `AccessShareLock` from `SELECT` queries during `encoder_region`/`validator_region` fixture setup. When `verified_incident` fixture created `TestClient(app)`, startup tried the DDL, which queued behind the existing lock indefinitely — hanging pytest/CI.
+
+**Fix:** Removed the email DDL block from `apply_schema_patches()`. Migration `44_add_email_to_users.sql` already runs on CI's fresh database initialization (mounted into `/docker-entrypoint-initdb.d/`). The `no_update_verified` rule patch remains — it operates on `wims.fire_incidents`, not `wims.users`, so no lock conflict with the test fixtures.
+
+**Files changed:** `src/backend/main.py` — removed ~10 lines of email DDL, updated docstring with rationale.
+
+**Verification:**
+- Reproduction command (previously hung): `docker compose run --rm --no-deps backend pytest tests/test_dynamic_rate_limits.py tests/test_fire_incident_location.py tests/test_immutable_records.py::test_84_verified_incident_appears_in_analytics -vv -s --tb=short` → 17 passed in 4.35s.
+- Full immutable records: `pytest tests/test_immutable_records.py` → 7 passed in 5.57s.
+- Profile email tests: `pytest tests/test_profile_email.py` → 10 passed in 2.78s.
+- `ruff check` + `ruff format --check` clean on touched file.
+
+**Wiki updates:** This log entry. No `gaps/frs-codebase-gap-register.md` update needed (CI hang fix, not FRS alignment change).
+
 ## [2026-06-02] fix | S1 username sync gap — DB username now synced when email changes
 
 Fixes the S1 finding from single-agent review of `fix/profile-email-and-polish`:
