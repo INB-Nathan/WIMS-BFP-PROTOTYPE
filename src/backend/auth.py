@@ -291,9 +291,10 @@ async def get_current_user(request: Request):
     """
     Extract and validate the access_token from HttpOnly cookies only.
     The Authorization header is NOT consulted — HttpOnly cookies are the
-    sole token transport to prevent XSS-driven token theft (CSRF mitigation).
+    sole token transport (XSS-resistant). CSRF is mitigated by SameSite=Strict,
+    __Host- cookie prefix, and Origin/Referer middleware.
     """
-    token = request.cookies.get("access_token")
+    token = request.cookies.get("__Host-access_token")
     if not token:
         raise HTTPException(status_code=401, detail="Authentication credentials missing")
 

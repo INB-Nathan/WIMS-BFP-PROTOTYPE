@@ -3,6 +3,15 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-03] fix | PR #223 CI security-scan startup — CI-only HTTP nginx config
+
+- **Root cause:** PR #223 changed `src/nginx/nginx.local.conf` from HTTP-only to HTTPS (HTTP→HTTPS redirect + TLS server block requiring `/etc/letsencrypt/live/wimsbfp.tech/` certs). The `docker-compose.override.yml` (auto-loaded by plain `docker compose up`) mounts `nginx.local.conf` but provides no cert volume. The GitHub Actions `security-scan` job ran plain `docker compose up -d --build`, so nginx failed to start because cert files were missing. The health-poller timed out at 180s before Nmap/ZAP could run.
+- **Fix:** Created `src/nginx/nginx.ci.conf` (HTTP-only nginx config — port 80, no TLS, no certs required, preserves PR #223's `$scheme://$host` CORS hardening) and `src/docker-compose.ci.yml` (mounts `nginx.ci.conf` instead of `nginx.local.conf`). Updated `.github/workflows/ci.yml` `security-scan` job to bring up the stack with `docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build` and tear down with the same file list. The CI now uses a plain HTTP path that does not depend on TLS certificates.
+- **Local dev impact:** The local override still loads `nginx.local.conf` (HTTPS) and now mounts `src/.ssl` to `/etc/letsencrypt`, so developers can generate self-signed certs once and then use plain `docker compose up`. Developers who do not need HTTPS locally can use the CI compose path (`-f docker-compose.yml -f docker-compose.ci.yml`). Updated `system-wiki/operations/local-dev-deploy-guide.md` Section 1 and Pitfall 2 to document both paths.
+- **CI docs:** Updated `system-wiki/architecture/pwa-tests-cicd.md` to note the CI-specific compose override.
+- **Gap register:** No change — M11b remains CLOSED; this is an infrastructure/CI wiring fix.
+- **Verification:** `docker compose -f docker-compose.yml -f docker-compose.ci.yml config --quiet` passes; `git diff --check` clean.
+
 ## [2026-06-03] fix | PR #214 infra/auth config review fixes
 
 - Updated the manual auth rate-limit test to target the real `POST /api/auth/callback` protected path instead of the stale `/api/auth/login` stub.
@@ -1485,6 +1494,21 @@ No schema, auth, or FRS alignment changes.
 
 **Wiki updates:** Updated `system-wiki/architecture/infrastructure-config.md`, `system-wiki/operations/local-dev-deploy-guide.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
 
+## [2026-06-03] implement | M11b CSRF protection — SameSite=Strict, __Host- prefix, Origin/Referer middleware, CORS restrictions
+
+**FRS reference:** Module 11b — Penetration Testing Scope: CSRF (FRS `frs-penentrationtestingandsecurityvalidation.md` 11.b.i.e)
+
+**Changes implemented:**
+
+- **Cookie hardening (Phase 1):** `__Host-` prefix + `Secure` + `SameSite=Strict` on `__Host-access_token` and `__Host-refresh_token` cookies across 4 route handlers: `sync/route.ts`, `refresh/route.ts`, `logout/route.ts`, and backend `auth.py` read path.
+- **CSRF middleware (Phase 2):** `src/backend/utils/csrf.py` — `csrf_middleware` registered in `main.py` via `app.middleware("http")`. Validates Origin/Referer on POST/PUT/PATCH/DELETE against configurable allowlist. GET/HEAD/OPTIONS bypassed. Logs block events at WARNING level.
+- **Nginx CORS restriction (Phase 3):** `Access-Control-Allow-Origin` changed from `$http_origin` (reflected any origin) to `$scheme://$host` in both `nginx.conf` and `nginx.local.conf`.
+- **Docker env vars (Phase 4):** `CSRF_TRUSTED_ORIGINS` in `docker-compose.yml` and `docker-compose.prod.yml`.
+- **Test suite (Phase 5):** `tests/test_csrf_middleware.py` — 28 test cases covering origin normalization, allowlist builder, safe method bypass, invalid/missing Origin, valid Origin, Referer fallback, PUT/PATCH/DELETE variants, and VPS production origin.
+- **Pen-test checklist (Phase 6):** `docs/pentest/CSRF-CHECKLIST.md` — cookie attributes, Origin validation steps, cross-origin attack simulation, CORS, OIDC flow integrity, and test coverage verification.
+- **Wiki updates (Phase 7):** This log, `security/security-baseline.md` (new CSRF Protection section), `gaps/frs-codebase-gap-register.md` (M11b CLOSED entry).
+
+**Verification:** `pytest tests/test_csrf_middleware.py -v` — all 28 tests pass.
 ## [2026-06-02] feat | M11a vulnerability scanning — ZAP baseline + Nmap in CI
 
 - Added `security-scan` job to `.github/workflows/ci.yml` on branch `feat/m11-ci-scanning` (PR target: #172).

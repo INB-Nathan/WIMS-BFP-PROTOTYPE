@@ -1,0 +1,17 @@
+# CI override for GitHub Actions security-scan and any automated Compose workflow
+# that must not require TLS certificates.
+#
+# This file deliberately supersedes docker-compose.override.yml (the local-dev
+# HTTP→HTTPS nginx.local.conf mount) and instead mounts the HTTP-only
+# nginx.ci.conf so nginx starts without needing /etc/letsencrypt certificates.
+#
+# Usage (from src/):
+#   docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build
+#
+# The base docker-compose.yml also mounts nginx.conf (production TLS), but the
+# ci override is listed after docker-compose.yml and its nginx config mount
+# takes precedence.
+services:
+  nginx-gateway:
+    volumes:
+      - ./nginx/nginx.ci.conf:/etc/nginx/nginx.conf:ro

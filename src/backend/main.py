@@ -58,12 +58,14 @@ from api.routes.geocode import router as geocode_router
 
 # WIMS role resolution — canonical source in auth.py
 from auth import resolve_wims_role_from_token as _resolve_role_from_token
+from utils.csrf import csrf_middleware
 
 
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
 app = FastAPI(title="WIMS-BFP Backend")
+app.middleware("http")(csrf_middleware)
 
 
 @app.on_event("startup")

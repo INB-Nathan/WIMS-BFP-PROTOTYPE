@@ -47,13 +47,40 @@ If all containers are green and `{"status":"ok","via":"nginx-gateway"}` is retur
 
 ### 1. Local nginx mode
 
-Local development no longer requires generating self-signed certificates just to satisfy the base Compose file. The base `src/docker-compose.yml` keeps only the nginx config mount, and the automatically loaded `src/docker-compose.override.yml` swaps in `src/nginx/nginx.local.conf`, which serves HTTP on port 80 without TLS certificate paths. Production TLS certs are mounted only by `src/docker-compose.prod.yml` or an explicit deployment override.
+Local development now serves HTTPS via self-signed certificates. The base `src/docker-compose.yml` mounts `src/nginx/nginx.conf` (production TLS), but the automatically loaded `src/docker-compose.override.yml` swaps in `src/nginx/nginx.local.conf`, which provides an HTTP→HTTPS redirect and a TLS server block requiring self-signed certs at `/etc/letsencrypt/live/wimsbfp.tech/`. Production TLS certs (real Let's Encrypt) are mounted only by `src/docker-compose.prod.yml`.
 
-Do not add `LETSENCRYPT_DIR=./.ssl` to `src/.env` for routine local development. If nginx fails locally with `cannot load certificate "/etc/letsencrypt/live/wimsbfp.tech/fullchain.pem"`, it is using the production nginx config by mistake; recreate with plain `docker compose up -d` from `src/` so the local override is loaded, or remove any explicit production compose flags.
+**Before first `docker compose up`, generate self-signed certificates:**
+
+```bash
+# From repo root
+mkdir -p src/.ssl/live/wimsbfp.tech
+MSYS_NO_PATHCONV=1 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout src/.ssl/live/wimsbfp.tech/privkey.pem \
+  -out src/.ssl/live/wimsbfp.tech/fullchain.pem \
+  -subj "/CN=localhost" \
+  -addext "subjectAltName=DNS:localhost,DNS:wimsbfp.tech"
+```
+
+The default local override mounts `src/.ssl` into `/etc/letsencrypt`, so after generating the certs plain local Compose works:
+
+```bash
+cd src && docker compose up -d --build
+```
+
+If you do not need local HTTPS (e.g., rapid UI-only development without Secure cookie testing), use the CI compose file which provides a plain HTTP nginx config:
+
+```bash
+cd src && docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build
+```
+
+Do not add `LETSENCRYPT_DIR=./.ssl` to `src/.env` for routine local development. If nginx fails locally with `cannot load certificate "/etc/letsencrypt/live/wimsbfp.tech/fullchain.pem"`, ensure certs are generated and mounted, or use the CI HTTP-only compose path.
+
+> **Why `MSYS_NO_PATHCONV=1`?** Git Bash on Windows converts leading `/` to a Windows drive path (e.g., `/CN=localhost` → `C:\Program Files\Git\CN=localhost`). The env var disables that conversion for the single command.
 
 ### 2. Clean-slate build
 
 ```bash
+# after generating src/.ssl/live/wimsbfp.tech/fullchain.pem and privkey.pem
 cd src && docker compose down -v   # wipes volumes (DB, Ollama, attachments)
 cd src && docker compose build --no-cache
 cd src && docker compose up -d
@@ -124,15 +151,30 @@ sed -i 's/\r//' src/backend/wait-for-db.sh
 
 **Symptom:** `docker compose ps -a` shows `wims-nginx-gateway Exited (1)` and logs mention `/etc/letsencrypt/live/wimsbfp.tech/fullchain.pem`.
 
-**Root cause:** The local stack is loading the production TLS nginx config instead of the local HTTP-only override. The base compose no longer mounts Let's Encrypt certificates; `src/docker-compose.prod.yml` is the only committed compose file that mounts `/etc/letsencrypt`.
+**Root cause:** The local override (`docker-compose.override.yml`) now mounts `nginx.local.conf`, which includes a TLS server block requiring self-signed certificates at `/etc/letsencrypt/live/wimsbfp.tech/`. If `src/.ssl` does not contain the expected certificate files, nginx cannot start.
 
-**Fix:** for local development, run plain Compose from `src/` so `docker-compose.override.yml` mounts `src/nginx/nginx.local.conf`:
+**Fix:** either (a) generate self-signed certs for the default local HTTPS path, or (b) use the HTTP-only CI compose path:
+
+**Option A — Local HTTPS with self-signed certs:**
 
 ```bash
-cd src && docker compose up -d --force-recreate nginx-gateway
+# Generate certs once (from repo root):
+mkdir -p src/.ssl/live/wimsbfp.tech
+MSYS_NO_PATHCONV=1 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout src/.ssl/live/wimsbfp.tech/privkey.pem \
+  -out src/.ssl/live/wimsbfp.tech/fullchain.pem \
+  -subj "/CN=localhost" \
+  -addext "subjectAltName=DNS:localhost,DNS:wimsbfp.tech"
+cd src && docker compose up -d --build
 ```
 
-If you intentionally need the production TLS config, use the production command with a real `LETSENCRYPT_DIR` as described below instead of generating repo-local self-signed certs.
+**Option B — Plain HTTP (no certs needed):**
+
+```bash
+cd src && docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build
+```
+
+If you intentionally need the production TLS config (real Let's Encrypt certs), use the production command with a real `LETSENCRYPT_DIR` as described below.
 
 ### Pitfall 3 — `seed-dev-users.sh` fails with password policy error
 

@@ -30,6 +30,13 @@ function trustedClientIp(req: NextRequest): string | null {
 const ACCESS_TOKEN_COOKIE_MAX_AGE = 5 * 60; // 5 minutes: match Keycloak accessTokenLifespan
 const REFRESH_TOKEN_COOKIE_MAX_AGE = 8 * 60 * 60; // 8 hours: match SSO session max
 
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: true,
+  sameSite: 'strict' as const,
+  path: '/',
+};
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -37,22 +44,15 @@ export async function POST(req: NextRequest) {
 
     // Accept access_token from client-side signinCallback() flow
     if (access_token) {
-      const IS_PROD = process.env.NODE_ENV === 'production';
       const response = NextResponse.json({ user_id: 'ok' });
-      response.cookies.set('access_token', access_token, {
-        httpOnly: true,
-        secure: IS_PROD,
-        sameSite: 'lax',
-        path: '/',
+      response.cookies.set('__Host-access_token', access_token, {
+        ...COOKIE_OPTIONS,
         maxAge: ACCESS_TOKEN_COOKIE_MAX_AGE,
       });
       const { refresh_token: refreshToken } = body as { refresh_token?: string };
       if (refreshToken) {
-        response.cookies.set('refresh_token', refreshToken, {
-          httpOnly: true,
-          secure: IS_PROD,
-          sameSite: 'lax',
-          path: '/',
+        response.cookies.set('__Host-refresh_token', refreshToken, {
+          ...COOKIE_OPTIONS,
           maxAge: REFRESH_TOKEN_COOKIE_MAX_AGE,
         });
       }
@@ -100,19 +100,13 @@ export async function POST(req: NextRequest) {
     }
 
     const response = NextResponse.json({ user_id: data.user_id });
-    response.cookies.set('access_token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
+    response.cookies.set('__Host-access_token', token, {
+      ...COOKIE_OPTIONS,
       maxAge: ACCESS_TOKEN_COOKIE_MAX_AGE,
     });
     if (data.refresh_token) {
-      response.cookies.set('refresh_token', data.refresh_token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
+      response.cookies.set('__Host-refresh_token', data.refresh_token, {
+        ...COOKIE_OPTIONS,
         maxAge: REFRESH_TOKEN_COOKIE_MAX_AGE,
       });
     }

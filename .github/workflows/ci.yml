@@ -276,7 +276,7 @@ jobs:
 
       - name: Bring up the stack
         working-directory: src
-        run: docker compose up -d --build
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build
 
       - name: Wait for nginx/frontend to be healthy
         run: |
@@ -339,7 +339,7 @@ jobs:
       - name: Tear down stack
         working-directory: src
         if: always()
-        run: docker compose down -v
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
 
   # ===========================================================================
   # MERGE GATE — all critical jobs must pass
