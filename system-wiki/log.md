@@ -61,6 +61,54 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Updated `.github/workflows/ci.yml` `security-scan` job to reference `rules_file_name: '.zap/rules.tsv'` in the ZAP baseline action step.
 - Updated `system-wiki/architecture/pwa-tests-cicd.md` to document the `security-scan` job and the ZAP rules file.
 
+## [2026-06-03] style | M14: add trailing newline to test_public_submission.py (W292 lint fix)
+
+## [2026-06-03] fix | M14 region resolution — nearest ref_fire_stations (civilian.py pattern)
+
+**Root cause:** `wims.ref_regions` has NO PostGIS geometry column — only `region_id, region_name, region_code`. PostGIS `GEOGRAPHY(POINT,4326)` lives ONLY on `wims.ref_fire_stations.location`. The `region_geom` column never existed; `ORDER BY region_id` was a dumb fallback. `civilian.py`'s `_resolve_nearest()` resolves region by finding the nearest fire station and reading its `region_id` attribute — matching approach inlines here.
+
+**Fix (`src/backend/api/routes/public_dmz.py`):** Replaced region resolution with:
+```sql
+SELECT region_id FROM wims.ref_fire_stations
+ORDER BY location <-> ST_GeogFromText(:wkt) LIMIT 1
+```
+Attribute access: `station_row.region_id if station_row else None`. Fallback to `ref_regions ORDER BY region_id LIMIT 1` with attribute access if no stations found.
+
+**Fix (`src/backend/tests/test_public_submission.py`):** Added module-level `_FakeRow` class (attribute access + index + unpack), replacing all per-test `MockRow` classes. `test_region_resolved_via_nearest_fire_station` asserts first `execute()` call uses `ref_fire_stations` with `<->` operator. `test_submission_creates_row_with_null_encoder_id` uses `_FakeRow(incident_id=..., verification_status=..., created_at=...)`.
+
+**`src/postgres-init/32_ref_fire_stations.sql` seeds ref_fire_stations with all 237+ PH fire stations and their `location GEOGRAPHY(POINT, 4326)` — no migration needed for live integration tests.** `ref_regions` fallback handles thin-seed DB edge case.
+
+**Deferred:** Polygon geometry on `ref_regions` would enable true centroid-based resolution. Currently via nearest fire station — acceptable per FRS M14 functional spec.
+
+## [2026-06-02] fix | M14 test failures — geometry column, MockRow subscript, rate-limit isolation
+
+**Root causes and fixes for 10 failing tests on `feat/m14-public-submission` (PR #320):**
+
+**(A) Wrong geometry column:** `wims.ref_regions` has no geometry column. The ST_Distance query in `public_dmz.py` used `region_geom` which does not exist. Replaced with simple `ORDER BY region_id LIMIT 1` fallback (no PostGIS geometry on ref_regions in current schema). Coordinate-based nearest-centroid is deferred until geometry is added to ref_regions.
+
+**(B) MockRow not subscriptable:** `test_region_resolved_via_nearest_centroid` returns `MockRow()` from `fetchone()` in a tuple context — `region_row[0]` was called on a MockRow instance with no `__getitem__`. Added `__getitem__` to the MockRow class to return positional values matching a real SQLAlchemy Row.
+
+**(C) Rate-limit state bleeds across tests:** The 3/IP/hr Redis limiter counted 127.0.0.1 across the whole test file. Added `flush_public_rate_limit` autouse fixture to `conftest.py` that clears `public_rate_limit:*` keys before each test. Rate-limit tests themselves use random fake IPs and clean up after themselves.
+
+**Files changed:**
+- `src/backend/api/routes/public_dmz.py` — removed `region_geom` from query
+- `src/backend/tests/test_public_submission.py` — added MockRow `__getitem__`
+- `src/backend/tests/conftest.py` — added `flush_public_rate_limit` autouse fixture
+
+## [2026-06-02] implement | M14 public report endpoint — un-deprecated, nearest-centroid, rate limit, Retry-After
+
+**FRS reference:** Module 14 — Public Submission (FRS `#177`)
+
+**Changes implemented (`src/backend/api/routes/public_dmz.py`):**
+- `POST /api/v1/public/report`: restored from 410 deprecation to active endpoint
+- Region resolution: replaced `ORDER BY region_id LIMIT 1` fallback with proper `ST_Distance` nearest-centroid using `ref_fire_stations` centroids and PostGIS KNN operator
+- Rate limiting: Redis sliding-window 3 req/IP/hour on the public endpoint
+- HTTP 429 response includes `Retry-After` header with seconds until reset
+- Writes to `wims.fire_incidents` with `encoder_id = NULL`, `verification_status = 'PENDING_VALIDATION'`
+- No Keycloak JWT required, no RLS context set
+
+**Test file added:** `src/backend/tests/test_public_submission.py` — validates 201 response, NULL encoder_id, PENDING_VALIDATION status, rate limit 429, Retry-After header.
+
 ## [2026-06-02] hygiene | env hygiene (#205 key placeholder, #194 audience) + Redis connection pooling (#195)
 
 - `.env.example`: Replaced real `WIMS_MASTER_KEY` value with `REPLACE_WITH_REAL_BASE64_32BYTE_KEY` placeholder; added generation comment.
@@ -1623,6 +1671,13 @@ No schema, auth, or FRS alignment changes.
 - **Wiki updates (Phase 7):** This log, `security/security-baseline.md` (new CSRF Protection section), `gaps/frs-codebase-gap-register.md` (M11b CLOSED entry).
 
 **Verification:** `pytest tests/test_csrf_middleware.py -v` — all 28 tests pass.
+
+## [2026-06-03] ruff format applied to tests/test_public_submission.py
+
+## [2026-06-03] fixed test mocks: result-wrapper + SQL-dispatch MockDB so db.execute().fetchone() works across all four queries
+
+## [2026-06-03] mock RETURNING row now supplies a real created_at datetime to satisfy PublicIncidentResponse
+
 ## [2026-06-02] feat | M11a vulnerability scanning — ZAP baseline + Nmap in CI
 
 - Added `security-scan` job to `.github/workflows/ci.yml` on branch `feat/m11-ci-scanning` (PR target: #172).
@@ -1660,3 +1715,48 @@ No schema, auth, or FRS alignment changes.
 **Wiki updated:** This log entry. No FRS gap changes.
 
 **Note:** Issues #127 and #128 are effectively already implemented in the existing `get_report_clusters` endpoint. #131 (frontend fireLocation sharing) is the next target.
+
+## [2026-06-03] fix | PR #210 M14 public submission rate limiter — cross-event-loop pool crash
+
+**Root cause:** `_get_redis()` cached a global `ConnectionPool` created on the first request's event loop. FastAPI `TestClient` creates a *new* event loop per request, so subsequent requests failed with `RuntimeError: Future attached to a different loop` when borrowing a connection from the cached pool. The error was silently caught by `except Exception: return` (fail-open), causing all rate-limit requests to return 201 instead of the 4th request returning 429.
+
+**Fix (`src/backend/api/routes/public_dmz.py`):**
+- Removed the module-level `_redis_pool` global and `_get_redis_pool()` function.
+- `_get_redis()` now creates a fresh `ConnectionPool` per call (max_connections=5). Pool creation is lightweight — no TCP until the first command. Production uvicorn uses a single event loop, so the per-call overhead is negligible.
+- Retained the existing Lua script logic (sliding-window sorted set with `ZREMRANGEBYSCORE 0`).
+
+**Fix (`src/backend/tests/conftest.py`):**
+- Added `os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")` at module level to set a usable default before `public_dmz.py` is imported. Docker Compose and CI set `REDIS_URL` explicitly, so `setdefault` is a no-op there.
+
+**Fix (`src/backend/tests/test_public_submission.py`):**
+- Changed both test Redis client fallback URLs from `redis://redis:6379/0` (Docker hostname, unresolvable from the host) to `redis://localhost:6379/0` for consistency with conftest.
+
+**Validation:**
+- `pytest tests/test_public_submission.py -v` — 9/9 passed (including both rate-limit tests).
+- `ruff format --check` — all 3 changed files clean.
+- `git status --short` — no conflict markers.
+
+**Wiki updated:** This log; `backend/remaining-routes.md` (rate-limit connection model, Lua summary, key naming). No FRS gap change (connection pool model is an implementation detail, not a requirement change).
+
+## [2026-06-03] fix | PR #210 M14 public submission rate limiter — close per-request Redis pools
+
+**Follow-up validation finding:** The cross-event-loop fix correctly removed the global async Redis pool, but a fresh per-call pool must also be closed after the Lua script runs to avoid accumulating idle sockets under sustained public submissions.
+
+**Fix (`src/backend/api/routes/public_dmz.py`):** `rate_limit_public_dmz()` now closes the request-scoped Redis client and its connection pool in a guarded `finally` block via `await r.aclose(close_connection_pool=True)`. This preserves fail-open behavior for Redis errors while preventing resource leakage after successful or rate-limited requests.
+
+**Wiki updated:** `backend/remaining-routes.md` now records that the public DMZ rate limiter uses a per-call pool and closes it after script execution. No FRS gap change.
+
+## [2026-06-03] fix(M14) | address public DMZ PR #210 review findings
+
+**Changes implemented:**
+
+- **CSRF exemption for public DMZ:** `src/backend/utils/csrf.py` now exempts the `/api/v1/public/` path prefix from Origin/Referer validation. The public DMZ endpoint is unauthenticated (no Keycloak JWT, no cookie dependency) and protected by rate limiting + Pydantic validation; CSRF validation is not meaningful there. All other auth/session/admin routes still require trusted Origin/Referer.
+- **Redis fail-open logging:** `src/backend/api/routes/public_dmz.py` now imports `logging` and logs warnings via `wims.public_dmz` logger when Redis connection creation fails in `_get_redis()` and when Lua eval/rate-limit execution fails in `rate_limit_public_dmz()`. Intentional 429 responses are not logged.
+- **Coordinate query guard:** Added `coord_row is None` check after PostGIS coordinate SELECT; raises HTTP 500 `"Failed to retrieve inserted incident coordinates"` instead of allowing uncaught `TypeError`.
+- **Test cleanup (`src/backend/tests/test_public_submission.py`):** Removed redundant `import sys`/`sys.path.insert`, moved `import redis` to module level, removed unused `monkeypatch` parameters from 4 test methods, mocked `test_valid_submission_returns_201` with `_MockDB`/dependency overrides, switched rate-limit test IPs to valid RFC 5737 TEST-NET addresses (`203.0.113.<n>`), added 4 fallback/error-path tests (station→region fallback, both empty→500, INSERT no row→500, coordinate no row→500).
+- **CSRF tests (`src/backend/tests/test_csrf_middleware.py`):** Added `TestPublicDmzCsrfExemption` class: `test_public_dmz_post_without_origin_not_blocked_by_csrf` verifies POST to `/api/v1/public/report` without Origin/Referer does not return 403; `test_auth_post_without_origin_still_blocked` verifies auth endpoints still blocked.
+- **Wiki updates:** Updated `subsystems/civilian-reporting-phase2.md` (Public DMZ Boundary restored, CSRF-exempt), `security/security-baseline.md` (CSRF exemption for public DMZ), `backend/remaining-routes.md` (logging + coord guard), and this log.
+
+**Verification:** `pytest tests/test_public_submission.py -v` 13/13 passed; `pytest tests/test_csrf_middleware.py -v` 31/31 passed; `ruff format --check .` and `ruff check .` passed; `git diff --check` clean.
+
+**Wiki updated:** Yes — see above. No `gaps/frs-codebase-gap-register.md` update needed; no FRS gap changed.

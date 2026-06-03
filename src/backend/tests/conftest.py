@@ -5,6 +5,11 @@ from dotenv import load_dotenv
 
 load_dotenv()  # Load .env for local test runs against Docker containers
 
+# Set a usable default REDIS_URL for local pytest runs (Docker hostname "redis"
+# does not resolve from the bare-metal host).  Docker Compose and CI set
+# REDIS_URL explicitly via environment, so setdefault is a no-op there.
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+
 # Deterministic local/test AES-256 key. Production and deployed CI should still
 # inject WIMS_MASTER_KEY explicitly; this fallback keeps local pytest runs stable.
 TEST_WIMS_MASTER_KEY = "76/kA0LVDzvX/mQWIxx3UJZl0SrTSIO/k0KdRMdRxCU="
@@ -33,37 +38,33 @@ def pytest_configure(config):
 
 
 # =============================================================================
-# Rate-limit flushing
+# Public DMZ rate-limit test isolation
 # =============================================================================
 
-try:
-    import pytest_asyncio
-    import redis.asyncio as aioredis
 
-    @pytest_asyncio.fixture(autouse=True)
-    async def flush_rate_limits():
-        """Ensure each test starts with a clean Redis bucket."""
-        if os.environ.get("PYTEST_FLUSH_REDIS") != "1":
-            return
-        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-        try:
-            client = await aioredis.from_url(
-                redis_url,
-                decode_responses=True,
-                socket_connect_timeout=0.2,
-                socket_timeout=0.2,
-            )
-            await client.flushdb()
-            await client.aclose()
-        except Exception:
-            pass  # CI environments without Redis skip silently
+@pytest.fixture(autouse=True)
+def flush_public_rate_limit():
+    """Clear Redis public rate-limit keys before each test.
 
-except ImportError:
+    Without this, tests that run before the dedicated rate-limit tests
+    (test_rate_limit_exceeded_returns_429_with_retry_after_header,
+     test_different_ips_independent_rate_limits) spend the 3-request budget
+    for 127.0.0.1, causing subsequent validation tests to get 429 instead of 422.
+    """
+    try:
+        import redis as redis_sync
+    except ImportError:
+        return  # no redis package — skip silently
 
-    @pytest.fixture(autouse=True)
-    def flush_rate_limits():
-        """No-op when pytest_asyncio/redis not installed."""
-        return None
+    try:
+        r = redis_sync.from_url(
+            os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
+            decode_responses=True,
+        )
+        for key in r.keys("public_rate_limit:*"):
+            r.delete(key)
+    except Exception:
+        pass  # no Redis running — skip silently
 
 
 # =============================================================================
