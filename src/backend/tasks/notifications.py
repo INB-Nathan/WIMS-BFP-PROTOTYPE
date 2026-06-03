@@ -6,6 +6,7 @@ import json
 import logging
 import os
 
+import aiosmtplib
 from sqlalchemy import text
 
 from celery_config import celery_app
@@ -159,12 +160,13 @@ def send_status_notification(self, report_id: int, new_status: str) -> dict:
 @celery_app.task(
     bind=True,
     name="tasks.notifications.send_email",
-    autoretry_for=(Exception,),
+    autoretry_for=(aiosmtplib.SMTPException, ConnectionError, TimeoutError, OSError),
     retry_backoff=True,
     retry_backoff_max=600,
     max_retries=5,
 )
 def send_email_task(
+    self,
     to: str | list[str],
     template_name: str,
     context: dict,
@@ -178,21 +180,23 @@ def send_email_task(
         context: Jinja2 template variable dictionary.
 
     Raises:
-        Retries with exponential backoff on any exception (max 5 retries,
-        up to 10 minutes between attempts). Does NOT query RLS tables.
+        Retries with exponential backoff on transient SMTP/network exceptions
+        (max 5 retries, up to 10 minutes between attempts).
+        Permanent failures (template/context/type errors) fail fast.
+        Does NOT query RLS tables.
     """
     try:
         _send_email(to, template_name, context)
         logger.info("Email sent via send_email_task: to=%s template=%s", to, template_name)
         return {"ok": True, "to": to, "template": template_name}
     except Exception as exc:
+        remaining = self.max_retries - self.request.retries
         logger.warning(
             "send_email_task failed for to=%s template=%s: %s — retry %d/%d",
             to,
             template_name,
             exc,
-            celery_app.tasks["tasks.notifications.send_email"].max_retries
-            - send_email_task.request.retries,
-            send_email_task.request.retries,
+            remaining,
+            self.max_retries,
         )
         raise

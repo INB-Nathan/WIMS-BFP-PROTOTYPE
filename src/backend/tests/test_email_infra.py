@@ -125,20 +125,39 @@ class TestSendEmail:
 class TestEmailServiceTask:
     """Test the Celery send_email_task via importlib with mocked sqlalchemy.
 
-    The task uses @celery_app.task() decorator (requires full Celery setup).
-    We load the module with mocked deps and test _send_email directly.
+    We load the module with a real Celery app (memory broker, eager mode)
+    so the @celery_app.task(bind=True) decorator properly creates a bound
+    task.  send_email_task.run(...) exercises the bound-task self parameter.
+    _send_email is patched to avoid real SMTP dispatch.
     """
+
+    @staticmethod
+    def _make_test_celery_app():
+        """Create a Celery app suitable for unit tests (no broker needed)."""
+        from celery import Celery
+        return Celery(
+            "test_wims",
+            broker="memory://",
+            backend="cache+memory://",
+            task_always_eager=True,
+        )
 
     def test_send_email_task_calls_sender_on_success(self) -> None:
         import importlib.util
         from unittest.mock import MagicMock, patch
         import sys
 
-        mods = ("sqlalchemy", "celery_config", "database")
+        test_app = self._make_test_celery_app()
+        mods = ("sqlalchemy", "database")
         saved = {m: sys.modules.get(m) for m in mods}
+        saved_celery = sys.modules.get("celery_config")
         try:
             for m in mods:
                 sys.modules[m] = MagicMock()
+            # Provide a real Celery app so @celery_app.task() decorator works
+            celery_mock = MagicMock()
+            celery_mock.celery_app = test_app
+            sys.modules["celery_config"] = celery_mock
 
             spec = importlib.util.spec_from_file_location(
                 "notifications_tasks",
@@ -149,7 +168,7 @@ class TestEmailServiceTask:
 
             _send_email_mock = MagicMock()
             with patch.object(module, "_send_email", _send_email_mock):
-                module._send_email(
+                result = module.send_email_task.run(
                     "admin@bfp.gov.ph",
                     "security_alert",
                     {
@@ -160,23 +179,37 @@ class TestEmailServiceTask:
                     },
                 )
                 assert _send_email_mock.called
+                assert result == {
+                    "ok": True,
+                    "to": "admin@bfp.gov.ph",
+                    "template": "security_alert",
+                }
         finally:
             for m in mods:
                 if saved[m] is None:
                     sys.modules.pop(m, None)
                 else:
                     sys.modules[m] = saved[m]
+            if saved_celery is None:
+                sys.modules.pop("celery_config", None)
+            else:
+                sys.modules["celery_config"] = saved_celery
 
     def test_send_email_task_raises_on_sender_failure(self) -> None:
         import importlib.util
         from unittest.mock import MagicMock, patch
         import sys
 
-        mods = ("sqlalchemy", "celery_config", "database")
+        test_app = self._make_test_celery_app()
+        mods = ("sqlalchemy", "database")
         saved = {m: sys.modules.get(m) for m in mods}
+        saved_celery = sys.modules.get("celery_config")
         try:
             for m in mods:
                 sys.modules[m] = MagicMock()
+            celery_mock = MagicMock()
+            celery_mock.celery_app = test_app
+            sys.modules["celery_config"] = celery_mock
 
             spec = importlib.util.spec_from_file_location(
                 "notifications_tasks",
@@ -191,7 +224,7 @@ class TestEmailServiceTask:
                 side_effect=Exception("SMTP down"),
             ):
                 with pytest.raises(Exception, match="SMTP down"):
-                    module._send_email(
+                    module.send_email_task.run(
                         "admin@bfp.gov.ph",
                         "security_alert",
                         {
@@ -207,3 +240,7 @@ class TestEmailServiceTask:
                     sys.modules.pop(m, None)
                 else:
                     sys.modules[m] = saved[m]
+            if saved_celery is None:
+                sys.modules.pop("celery_config", None)
+            else:
+                sys.modules["celery_config"] = saved_celery

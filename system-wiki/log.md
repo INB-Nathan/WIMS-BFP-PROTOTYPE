@@ -15,6 +15,23 @@ Format: `## [YYYY-MM-DD] action | subject`
 - **Wiki updated:** `system-wiki/subsystems/civilian-reporting-phase2.md` updated frontmatter date, cache behavior section (pool bounding, thread-safety, warning log keys, count guard), and test coverage section (fixture rename, Redis hygiene).
 - **Verification:** `ruff check` + `ruff format --check` pass on both changed files. `git diff --check` clean. All 25 pytest tests pass (15 report-clusters + 10 submission tests).
 
+## [2026-06-03] fix | PR #211 M13b email infra — bound task + retry + STARTTLS + plain-text + tests
+
+**PR #211 review fixes applied:**
+
+- **Critical — `send_email_task` bound task signature:** Added `self` as first parameter (matching `bind=True` decorator). Changed retry logging from module-level proxy (`send_email_task.request.retries`, `celery_app.tasks["..."].max_retries`) to `self.request.retries` and `self.max_retries`.
+- **Critical — Tests exercise Celery task path:** `TestEmailServiceTask` now calls `module.send_email_task.run(...)` with a real Celery app (memory broker, eager mode) instead of calling `module._send_email(...)` directly. This exercises the `bind=True` self parameter and would catch the signature mismatch.
+- **Retry exceptions narrowed:** `autoretry_for` changed from `(Exception,)` to `(aiosmtplib.SMTPException, ConnectionError, TimeoutError, OSError)` — transient SMTP/network failures only. Permanent template/context/type errors fail fast.
+- **STARTTLS configurable:** Added `SMTP_STARTTLS` env var (default `false` for MailHog/dev). Passed to `aiosmtplib.send(start_tls=SMTP_STARTTLS)`. Added entry to `.env.example`.
+- **Plain-text alternative body:** Added `_html_to_plain_text()` helper; `send_email_async` now adds `msg.add_alternative(plain_text, subtype="plain")` for multipart/alternative emails.
+- **Render error logging:** Moved `render_email()` call inside `try/except` in `send_email_async` with dedicated `logger.error("Failed to render email template...")`.
+- **Subject caching:** Added `_subject_raw_cache` dict so `_load_subject()` reads template files only once per template name.
+- **Task import explicit:** Added `import tasks.notifications` to `main.py` alongside other task imports.
+- **Security alert color:** Changed unknown-severity CSS fallthrough from green `#2ecc71` to neutral gray `#95a5a6`.
+- **Validation:** 8/8 email infra tests pass; 37/37 combined (email + CSRF) tests pass. Syntax compile-checked.
+
+**Files changed:** `tasks/notifications.py`, `services/email/sender.py`, `tests/test_email_infra.py`, `.env.example`, `main.py`, `services/email/templates/security_alert.html.j2`
+
 ## [2026-06-03] fix | PR #223 CI security-scan startup — CI-only HTTP nginx config
 
 - **Root cause:** PR #223 changed `src/nginx/nginx.local.conf` from HTTP-only to HTTPS (HTTP→HTTPS redirect + TLS server block requiring `/etc/letsencrypt/live/wimsbfp.tech/` certs). The `docker-compose.override.yml` (auto-loaded by plain `docker compose up`) mounts `nginx.local.conf` but provides no cert volume. The GitHub Actions `security-scan` job ran plain `docker compose up -d --build`, so nginx failed to start because cert files were missing. The health-poller timed out at 180s before Nmap/ZAP could run.
