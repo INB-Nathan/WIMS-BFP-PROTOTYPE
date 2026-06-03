@@ -1469,9 +1469,9 @@ No schema, auth, or FRS alignment changes.
 - **Cookie hardening (Phase 1):** `__Host-` prefix + `Secure` + `SameSite=Strict` on `__Host-access_token` and `__Host-refresh_token` cookies across 4 route handlers: `sync/route.ts`, `refresh/route.ts`, `logout/route.ts`, and backend `auth.py` read path.
 - **CSRF middleware (Phase 2):** `src/backend/utils/csrf.py` — `CSRFMiddleware` registered in `main.py`. Validates Origin/Referer on POST/PUT/PATCH/DELETE against configurable allowlist. GET/HEAD/OPTIONS bypassed. Logs block events at WARNING level.
 - **Nginx CORS restriction (Phase 3):** `Access-Control-Allow-Origin` changed from `$http_origin` (reflected any origin) to `$scheme://$host` in both `nginx.conf` and `nginx.local.conf`.
-- **Docker env vars (Phase 4):** `CSRF_TRUSTED_ORIGINS` in `docker-compose.yml`, `CSRF_TRUSTED_HOST` in `docker-compose.prod.yml`.
-- **Test suite (Phase 5):** `tests/test_csrf_middleware.py` — 20 test cases covering origin normalization, allowlist builder, safe method bypass, invalid/missing Origin, valid Origin, Referer fallback, PUT/PATCH/DELETE variants, and VPS production origin.
+- **Docker env vars (Phase 4):** `CSRF_TRUSTED_ORIGINS` in `docker-compose.yml` and `docker-compose.prod.yml`.
+- **Test suite (Phase 5):** `tests/test_csrf_middleware.py` — 25 test cases covering origin normalization, allowlist builder, safe method bypass, invalid/missing Origin, valid Origin, Referer fallback, PUT/PATCH/DELETE variants, and VPS production origin.
 - **Pen-test checklist (Phase 6):** `docs/pentest/CSRF-CHECKLIST.md` — cookie attributes, Origin validation steps, cross-origin attack simulation, CORS, OIDC flow integrity, and test coverage verification.
 - **Wiki updates (Phase 7):** This log, `security/security-baseline.md` (new CSRF Protection section), `gaps/frs-codebase-gap-register.md` (M11b CLOSED entry).
 
-**Verification:** `pytest tests/test_csrf_middleware.py -v` — all 20 tests pass.
+**Verification:** `pytest tests/test_csrf_middleware.py -v` — all 25 tests pass.

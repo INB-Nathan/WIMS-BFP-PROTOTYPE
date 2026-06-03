@@ -47,11 +47,14 @@ def _build_allowlist() -> set[str]:
 
     trusted_host = os.environ.get("CSRF_TRUSTED_HOST", "")
     if trusted_host:
-        # Strip any accidental scheme prefix — CSRF_TRUSTED_HOST should be bare hostname
-        stripped = _normalize_origin(trusted_host) if "://" in trusted_host else trusted_host
-        # Also strip port and path from the normalized value
-        if "://" in stripped:
-            stripped = stripped.split("://", 1)[1]
+        # Strip scheme, port, and path — yield a bare hostname like "wimsbfp.tech"
+        # urlparse requires a scheme to parse hostname correctly; inject a dummy
+        # one when missing so netloc is populated instead of path.
+        raw = trusted_host
+        if "://" not in raw:
+            raw = "//" + raw
+        parsed = urlparse(raw)
+        stripped = parsed.hostname or trusted_host
         origins: set[str] = set()
         for scheme in ("https", "http"):
             origins.add(f"{scheme}://{stripped}")
