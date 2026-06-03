@@ -2,16 +2,19 @@
 
 import hashlib
 import json
+import logging
 import math
 import os
-import redis
+import threading
 from typing import Annotated
 
+import redis
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import get_db
+
 from schemas.civilian import (
     CivilianReportAppend,
     CivilianReportCreate,
@@ -29,6 +32,38 @@ from schemas.civilian import (
 )
 
 router = APIRouter(prefix="/api/civilian", tags=["civilian"])
+
+logger = logging.getLogger("wims.civilian")
+
+# Module-level Redis client singleton with connection pooling.
+# Prevents connection leak from per-request redis.from_url() on this
+# public unauthenticated endpoint.
+_redis_client: redis.Redis | None = None
+_redis_lock = threading.Lock()
+
+
+def _get_redis() -> redis.Redis:
+    """Return the module-level Redis client singleton.
+
+    Uses double-checked locking to avoid a startup race where multiple
+    threads could create concurrent connections before the global
+    reference is published. Under CPython GIL the window is narrow,
+    but the lock eliminates it entirely.
+    """
+    global _redis_client
+    if _redis_client is None:
+        with _redis_lock:
+            if _redis_client is None:
+                _redis_client = redis.from_url(
+                    os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+                    decode_responses=True,
+                    socket_connect_timeout=0.5,
+                    socket_timeout=0.5,
+                    health_check_interval=30,
+                    max_connections=10,
+                )
+    return _redis_client
+
 
 REJECTION_GUIDANCE = {
     "REJECTED_BOGUS": "If this is a real emergency, call 911 or your nearest BFP station.",
@@ -552,6 +587,8 @@ def register_notification(
 
 
 def _get_count_bucket(count: int) -> str:
+    if count < 3:
+        raise ValueError(f"unexpected cluster report count {count} (min 3 required)")
     if count < 5:
         return "3-4"
     elif count < 10:
@@ -630,16 +667,15 @@ def get_report_clusters(
         cache_key = "wims:civilian:report-clusters:v1:national:w60:min10"
 
     try:
-        redis_client = redis.from_url(
-            os.environ.get("REDIS_URL", "redis://redis:6379/0"),
-            decode_responses=True,
-        )
+        redis_client = _get_redis()
         fresh = redis_client.get(cache_key)
         if fresh:
             data = json.loads(fresh)
             return ReportClusterResponse(**data)
     except Exception:
-        pass
+        logger.warning(
+            "Redis cache fresh-read failed for report-clusters key=%s", cache_key, exc_info=True
+        )
 
     try:
         sql = f"""
@@ -731,11 +767,14 @@ def get_report_clusters(
                 redis_client.setex(cache_key, 60, dumped)
                 redis_client.setex(f"{cache_key}:stale", 600, dumped)
         except Exception:
-            pass
+            logger.warning(
+                "Redis cache write failed for report-clusters key=%s", cache_key, exc_info=True
+            )
 
         return resp
 
     except Exception:
+        logger.warning("report-clusters DB query failed", exc_info=True)
         try:
             stale = redis_client.get(f"{cache_key}:stale") if redis_client else None
             if stale:
@@ -743,7 +782,9 @@ def get_report_clusters(
                 data["stale"] = True
                 return ReportClusterResponse(**data)
         except Exception:
-            pass
+            logger.warning(
+                "Stale cache read failed for report-clusters key=%s:stale", cache_key, exc_info=True
+            )
 
         return ReportClusterResponse(
             mode=mode,

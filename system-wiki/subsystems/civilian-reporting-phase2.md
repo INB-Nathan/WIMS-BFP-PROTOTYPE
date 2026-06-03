@@ -1,7 +1,7 @@
 ---
 title: Civilian Reporting Phase 2 — Subsystem Deep-Dive
 created: 2026-05-20
-updated: 2026-05-27
+updated: 2026-06-03
 type: subsystem
 tags: [wims-bfp, subsystem, civilian-reporting, triage, validation, public-dmz, cluster, merge, map]
 sources: [system-wiki/prd/civilian-reporting-phase-2.md, system-wiki/decisions/0001-civilian-reporting-overhaul.md, src/backend/api/routes/triage.py, src/backend/api/routes/civilian.py, src/backend/api/routes/ref.py, src/backend/api/routes/public_dmz.py, src/backend/tasks/civilian_reports.py, src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/app/page.tsx, src/frontend/src/app/tracking/page.tsx]
@@ -154,7 +154,7 @@ Public root-map projection for **Public Fire Report Areas**. This is unauthentic
 - Each area exposes only ephemeral `area_id`, exact centroid, dynamic meter radius, report count bucket, and age bucket.
 - It never exposes raw `cluster_id`, `report_id`, exact report count, exact timestamps, category breakdown, validator severity, life-safety status, witness/contact/device/IP data, or station-per-cluster context.
 
-**Cache behavior**: Redis cache-aside. Fresh responses live for 60 seconds; stale fallback lives for 10 minutes. If DB query fails and stale cache exists, response returns `stale: true`; otherwise it returns an empty degraded response.
+**Cache behavior**: Redis cache-aside with bounded connection pool (`max_connections=10`, double-checked locking for thread-safe singleton init). Fresh responses live for 60 seconds; stale fallback lives for 10 minutes. If DB query fails and stale cache exists, response returns `stale: true`; otherwise it returns an empty degraded response. Warning logs include the cache key for diagnostics. `_get_count_bucket()` raises `ValueError` for counts below 3 as defense-in-depth (SQL `WHERE total_reports >= :min_reports` already prevents this in normal operation).
 
 ## Public Reference API
 
@@ -366,6 +366,8 @@ interface MergeCandidateEntry {
 ## Test Coverage
 
 **Backend** (`src/backend/tests/integration/test_civilian_api.py`, `test_triage_queue.py`):
+
+All tests use an `autouse=True` `_clean_state` fixture that flushes Redis and deletes from `citizen_report_cluster_members`, `citizen_report_clusters`, and `citizen_reports` in FK-safe order before each test. Redis clients created in tests use `socket_connect_timeout=0.5`/`socket_timeout=0.5` and are closed with `try/finally`. The cache test uses `scan_iter` instead of `KEYS` to avoid O(N) keyspace scans.
 
 | Test class | Coverage |
 |---|---|
