@@ -207,8 +207,8 @@ RATE_LIMIT_THRESHOLD = 5
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     """Sliding-window rate limiter applied before every request."""
-    # Only rate-limit the login endpoint
-    if request.url.path != "/api/auth/login" or request.method != "POST":
+    # Rate-limit the PKCE callback endpoint (real auth flow)
+    if request.url.path != "/api/auth/callback" or request.method != "POST":
         return await call_next(request)
 
     r = await _get_redis()

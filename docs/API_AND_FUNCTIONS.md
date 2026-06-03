@@ -8,8 +8,8 @@ Source of truth: `src/backend/main.py` and `src/backend/api/routes/*.py`
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| POST | `/api/auth/login` | Public | Stub login endpoint; guarded by Redis sliding-window middleware. |
-| POST | `/api/auth/callback` | Public | Exchanges PKCE code with Keycloak and upserts user in `wims.users`. |
+| POST | `/api/auth/login` | Public | Stub login endpoint; always returns 401. |
+| POST | `/api/auth/callback` | Public | Exchanges PKCE code with Keycloak, upserts user in `wims.users`, and is guarded by Redis sliding-window rate limiting. |
 | GET | `/api/user/me` | JWT (`get_current_user`) | Returns merged token + user profile payload; provisions user on first access if needed. |
 | POST | `/api/auth/verify-session` | Public | Validates a pre-obtained access token and enforces concurrent session limits. Used by Next.js sync route. |
 
@@ -122,5 +122,5 @@ Source: `src/frontend/src/app/`
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/auth/session` | Resolves current user session by forwarding cookie to backend `/api/user/me`. |
-| POST | `/api/auth/sync` | Sets HttpOnly `access_token` cookie; also supports code exchange forwarding to backend callback. |
+| POST | `/api/auth/sync` | Sets HttpOnly `access_token` cookie; also supports code exchange forwarding to backend callback with trusted proxy client-IP headers for backend rate limiting. |
 | POST | `/api/auth/logout` | Clears auth cookies (`access_token`, `refresh_token`). |

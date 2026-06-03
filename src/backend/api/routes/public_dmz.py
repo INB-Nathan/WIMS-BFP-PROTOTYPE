@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api/v1/public", tags=["public-dmz"])
 
 
 # ---------------------------------------------------------------------------
-# Redis Rate Limiter — 3 req/IP/hour (strictly tighter than /api/auth/login)
+# Redis Rate Limiter — 3 req/IP/hour (stricter than the auth callback limiter)
 # ---------------------------------------------------------------------------
 _PUBLIC_RATE_LIMIT_WINDOW = 3600  # 1 hour in seconds
 _PUBLIC_RATE_LIMIT_THRESHOLD = 3  # max 3 submissions per IP per hour

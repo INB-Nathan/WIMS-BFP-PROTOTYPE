@@ -24,3 +24,9 @@ services:
       - NEXT_PUBLIC_OIDC_AUTHORITY=${PUBLIC_BASE_URL}/auth/realms/bfp
       - NEXT_PUBLIC_APP_URL=${PUBLIC_BASE_URL}
       - BACKEND_URL=http://backend:8000
+
+  # Production TLS certs — not available in local dev (override swaps nginx.conf).
+  # nginx.conf mount is in the base compose file; this file only adds production certs.
+  nginx-gateway:
+    volumes:
+      - ${LETSENCRYPT_DIR:-/opt/wims-bfp/letsencrypt}:/etc/letsencrypt:ro

@@ -106,7 +106,7 @@ services:
     restart: "no"
 
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.5.1
     container_name: wims-ollama
     volumes:
       - ollama_data:/root/.ollama
@@ -222,7 +222,7 @@ services:
       - backend
 
   wims-suricata:
-    image: jasonish/suricata:latest
+    image: jasonish/suricata:7.0.5
     container_name: wims-suricata
     restart: unless-stopped
     # In a real production environment, you use network_mode: "host"
@@ -236,14 +236,14 @@ services:
 
   # --- Edge Gateway ---
   nginx-gateway:
-    image: nginx:alpine
+    image: nginx:1.27.3-alpine
     container_name: wims-nginx-gateway
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ${LETSENCRYPT_DIR:-/opt/wims-bfp/letsencrypt}:/etc/letsencrypt:ro
+      # TLS certificates are production-only — mount via docker-compose.prod.yml or deployment override
     networks:
       - wims_internal
     depends_on:

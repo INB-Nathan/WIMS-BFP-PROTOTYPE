@@ -1,7 +1,7 @@
 ---
 title: Local Dev Deployment Guide
 created: 2026-05-27
-updated: 2026-05-30
+updated: 2026-06-03
 type: operations
 tags: [wims-bfp, docker, deployment, local-dev, windows, troubleshooting]
 sources: [src/docker-compose.yml, src/nginx/nginx.conf, src/keycloak/bootstrap/bootstrap-master-realm.sh, scripts/seed-dev-users.sh, CLAUDE.md]
@@ -17,29 +17,20 @@ This page exists to prevent future agents from rediscovering the same pitfalls w
 ## TL;DR — The Correct Sequence
 
 ```bash
-# 1. One-time local SSL setup (only needed on first clone or after volume wipe)
-#    Skip if src/.ssl/live/wimsbfp.tech/fullchain.pem already exists.
-mkdir -p src/.ssl/live/wimsbfp.tech
-MSYS_NO_PATHCONV=1 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-  -keyout src/.ssl/live/wimsbfp.tech/privkey.pem \
-  -out src/.ssl/live/wimsbfp.tech/fullchain.pem \
-  -subj "/CN=localhost"
-echo "LETSENCRYPT_DIR=./.ssl" >> src/.env
-
-# 2. Fresh build (from repo root, not src/)
+# 1. Fresh build (from repo root, not src/)
 cd src && docker compose down -v
 cd src && docker compose build --no-cache
 cd src && docker compose up -d
 
-# 3. Wait for stack to stabilize, then seed dev users
+# 2. Wait for stack to stabilize, then seed dev users
 #    (run from project root, not src/)
 bash scripts/seed-dev-users.sh
 
-# 4. Verify
-curl -sk https://localhost/health
+# 3. Verify
+curl -s http://localhost/health
 ```
 
-If all containers are green and `{"status":"ok","via":"nginx-gateway"}` is returned, the stack is up. Dev users are available at `https://localhost` with password **`Password123!`**.
+If all containers are green and `{"status":"ok","via":"nginx-gateway"}` is returned, the local HTTP stack is up. Dev users are available at `http://localhost` with password **`Password123!`**.
 
 ---
 
@@ -48,14 +39,13 @@ If all containers are green and `{"status":"ok","via":"nginx-gateway"}` is retur
 | Tool | Notes |
 |------|-------|
 | Docker Desktop | Must be running. WSL2 backend recommended. |
-| `openssl` | Comes with Git for Windows; run from Git Bash. |
 | `bash` | Git Bash or WSL2 shell for the seed script. |
 
 ---
 
 ## Step-by-Step
 
-### 1. One-time SSL cert setup (local dev only)
+### 1. Local nginx mode
 
 Local development now serves HTTPS via self-signed certificates. The base `src/docker-compose.yml` mounts `src/nginx/nginx.conf` (production TLS), but the automatically loaded `src/docker-compose.override.yml` swaps in `src/nginx/nginx.local.conf`, which provides an HTTP→HTTPS redirect and a TLS server block requiring self-signed certs at `/etc/letsencrypt/live/wimsbfp.tech/`. Production TLS certs (real Let's Encrypt) are mounted only by `src/docker-compose.prod.yml`.
 
@@ -127,9 +117,9 @@ Password for all: **`Password123!`**
 ### 4. Verify
 
 ```bash
-curl -sk https://localhost/health          # nginx: {"status":"ok","via":"nginx-gateway"}
-curl -sk https://localhost/ -o /dev/null -w "%{http_code}\n"  # 200 (frontend)
-curl -sk https://localhost/api/incidents -o /dev/null -w "%{http_code}\n"  # 401 (backend auth guard)
+curl -s http://localhost/health          # nginx: {"status":"ok","via":"nginx-gateway"}
+curl -s http://localhost/ -o /dev/null -w "%{http_code}\n"  # 200 (frontend)
+curl -s http://localhost/api/incidents -o /dev/null -w "%{http_code}\n"  # 401 (backend auth guard)
 curl -sk http://localhost:8080/auth/realms/bfp/.well-known/openid-configuration -o /dev/null -w "%{http_code}\n"  # 200 (Keycloak)
 ```
 
@@ -157,9 +147,9 @@ sed -i 's/\r//' src/backend/wait-for-db.sh
 
 **What success looks like:** `wims-keycloak-bootstrap` logs end with `Keycloak master realm bootstrap complete` and the container exits 0. The `set: -: invalid option` lines that appear above it are from a previous failed run; docker compose logs aggregate across restarts.
 
-### Pitfall 2 — `wims-nginx-gateway` exits 1
+### Pitfall 2 — `wims-nginx-gateway` exits 1 with missing certificate errors
 
-**Symptom:** `docker compose ps -a` shows `wims-nginx-gateway Exited (1)`. Ports 80/443 are not open.
+**Symptom:** `docker compose ps -a` shows `wims-nginx-gateway Exited (1)` and logs mention `/etc/letsencrypt/live/wimsbfp.tech/fullchain.pem`.
 
 **Root cause:** The local override (`docker-compose.override.yml`) now mounts `nginx.local.conf`, which includes a TLS server block requiring self-signed certificates at `/etc/letsencrypt/live/wimsbfp.tech/`. If `src/.ssl` does not contain the expected certificate files, nginx cannot start.
 

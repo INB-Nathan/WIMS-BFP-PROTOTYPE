@@ -23,10 +23,10 @@ KEYCLOAK_REALM_URL = os.environ.get(
     os.environ.get("KEYCLOAK_URL", "http://localhost:8080/auth/realms/bfp"),
 )
 KEYCLOAK_URL = os.environ.get("NEXT_PUBLIC_AUTH_API_URL", KEYCLOAK_REALM_URL)
-CLIENT_ID = os.environ.get("KEYCLOAK_CLIENT_ID", "bfp-client")
+CLIENT_ID = os.environ.get("KEYCLOAK_CLIENT_ID", "wims-web")
 # audience is what Keycloak puts in the token's "aud" claim — must match CLIENT_ID.
 # If KEYCLOAK_AUDIENCE is unset, default to the CLIENT_ID so they stay in sync.
-AUDIENCE = os.environ.get("KEYCLOAK_AUDIENCE", os.environ.get("KEYCLOAK_CLIENT_ID", "bfp-client"))
+AUDIENCE = os.environ.get("KEYCLOAK_AUDIENCE", os.environ.get("KEYCLOAK_CLIENT_ID", "wims-web"))
 JWKS_CACHE_TTL_SECONDS = (
     60  # 60 seconds — Keycloak key rotation typically hourly/daily; balance freshness vs latency
 )

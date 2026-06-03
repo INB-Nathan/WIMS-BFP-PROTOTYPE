@@ -20,6 +20,7 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Updated `src/frontend/src/app/api/auth/sync/route.ts` to forward trusted nginx client-IP headers to backend `/api/auth/callback` so Redis callback rate limiting keys by end-user IP rather than the frontend container.
 - Repaired local-dev docs to remove obsolete self-signed-cert setup for base compose and documented the production-only TLS mount split.
 - Clarified that the admin `rate_limit_config:login` key/tier is a legacy compatibility label for the auth callback flow.
+
 ## [2026-06-03] fix | CI security scan — ZAP artifact upload compatibility
 
 - Updated `.github/workflows/ci.yml` `security-scan` ZAP baseline action to set `artifact_name: 'zap-scan'` and bump `zaproxy/action-baseline` from `v0.12.0` to `v0.15.0`, avoiding the legacy action packaging that failed during GitHub artifact container creation.

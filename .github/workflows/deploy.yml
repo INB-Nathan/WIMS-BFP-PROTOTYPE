@@ -12,8 +12,8 @@ jobs:
       NEXT_PUBLIC_AUTH_API_URL: ${{ vars.NEXT_PUBLIC_AUTH_API_URL }}
       NEXT_PUBLIC_BASE_URL: ${{ vars.NEXT_PUBLIC_BASE_URL }}
       KEYCLOAK_REALM_URL: "http://localhost:8080/auth/realms/bfp"
-      KEYCLOAK_CLIENT_ID: "bfp-client"
-      KEYCLOAK_AUDIENCE: "account"
+      KEYCLOAK_CLIENT_ID: "wims-web"
+      KEYCLOAK_AUDIENCE: "wims-web"
       DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/wims_test"
       REDIS_URL: "redis://localhost:6379/0"
       WIMS_MASTER_KEY: ${{ secrets.WIMS_MASTER_KEY }}
@@ -104,8 +104,8 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       REDIS_URL: ${{ secrets.REDIS_URL }}
       KEYCLOAK_REALM_URL: ${{ secrets.KEYCLOAK_REALM_URL }}
-      KEYCLOAK_CLIENT_ID: ${{ secrets.KEYCLOAK_CLIENT_ID }}
-      KEYCLOAK_AUDIENCE: ${{ secrets.KEYCLOAK_AUDIENCE }}
+      KEYCLOAK_CLIENT_ID: "wims-web"
+      KEYCLOAK_AUDIENCE: "wims-web"
       WIMS_MASTER_KEY: ${{ secrets.WIMS_MASTER_KEY }}
       FIREBASE_CREDENTIALS_PATH: ${{ secrets.FIREBASE_CREDENTIALS_PATH }}
       KEYCLOAK_ADMIN_PASSWORD: ${{ secrets.KEYCLOAK_ADMIN_PASSWORD }}

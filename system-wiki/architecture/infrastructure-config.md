@@ -1,7 +1,7 @@
 ---
 title: Infrastructure Configuration
 created: 2026-05-16
-updated: 2026-05-30
+updated: 2026-06-03
 type: architecture
 tags: [wims-bfp, docker, nginx, suricata, keycloak, infrastructure]
 sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/nginx/, src/suricata/, src/keycloak/bfp-realm.json]
@@ -31,8 +31,8 @@ status: draft
 | keycloak-bootstrap | wims-keycloak-bootstrap | `quay.io/keycloak/keycloak:24.0.0` | (one-shot, no ports) |
 | backend | wims-backend | Dockerfile at `./backend/Dockerfile` (python:3.11-slim) | 8000 (internal) |
 | frontend | wims-frontend | `./frontend/Dockerfile` (Next.js) | 3000 (internal) |
-| wims-suricata | wims-suricata | `jasonish/suricata:latest` | (none) |
-| nginx-gateway | wims-nginx-gateway | `nginx:alpine` | 80, 443 |
+| wims-suricata | wims-suricata | `jasonish/suricata:7.0.5` | (none) |
+| nginx-gateway | wims-nginx-gateway | `nginx:1.27.3-alpine` | 80, 443 |
 
 **Health checks:** postgres (`pg_isready -U postgres -d wims`, interval 5s), redis (`redis-cli ping`, interval 5s). Backend depends on both service_healthy.
 
@@ -96,9 +96,9 @@ Use explicit `-f` flags on the VPS. Plain `docker compose up` auto-loads `docker
 
 **Current certificate state:** `src/nginx/nginx.conf` expects `/etc/letsencrypt/live/wimsbfp.tech/fullchain.pem` and `privkey.pem`. A Let’s Encrypt certificate for `wimsbfp.tech` was issued on the VPS on 2026-05-26 and certbot renewal is installed with an nginx reload hook.
 
-**TLS mount:** `src/docker-compose.yml` parameterizes the certificate bind as `${LETSENCRYPT_DIR:-/opt/wims-bfp/letsencrypt}:/etc/letsencrypt:ro`. On the VPS, `src/.env.production` sets `LETSENCRYPT_DIR=/etc/letsencrypt`, so `wims-nginx-gateway` receives the host certificate tree directly. Do not replace this with a repo-local symlink directory; Docker bind mounts expose the directory itself, so mounting `/opt/wims-bfp/letsencrypt` when it only contains `letsencrypt -> /etc/letsencrypt` hides the expected `/etc/letsencrypt/live/<domain>/...` paths from nginx.
+**TLS mount:** `src/docker-compose.yml` no longer mounts certificate paths in the dev-neutral base service. Production TLS is added only by `src/docker-compose.prod.yml`, which binds `${LETSENCRYPT_DIR:-/opt/wims-bfp/letsencrypt}:/etc/letsencrypt:ro` for `wims-nginx-gateway`. On the VPS, `src/.env.production` sets `LETSENCRYPT_DIR=/etc/letsencrypt`, so the gateway receives the host certificate tree directly. Do not replace this with a repo-local symlink directory; Docker bind mounts expose the directory itself, so mounting `/opt/wims-bfp/letsencrypt` when it only contains `letsencrypt -> /etc/letsencrypt` hides the expected `/etc/letsencrypt/live/<domain>/...` paths from nginx.
 
-**Frontend/auth env:** `docker-compose.prod.yml` sets browser-facing frontend build/runtime variables to the public HTTPS origin (`${PUBLIC_BASE_URL}`) or relative paths (`/api`, `/auth`). The development compose file also uses relative `/api` and `/auth` for browser-facing access, so local HTTPS desk checks stay same-origin and avoid CORS preflight redirects from `https://localhost` to `http://localhost/api`. The Next.js server-side auth routes use `BACKEND_URL=http://backend:8000` in both development and production, and route handlers append `/api/...` explicitly. Keycloak advertises `KC_HOSTNAME_URL=${PUBLIC_BASE_URL}/auth` in production to keep OIDC discovery issuer/endpoints aligned with the nginx `/auth/` proxy path.
+**Frontend/auth env:** `docker-compose.prod.yml` sets browser-facing frontend build/runtime variables to the public HTTPS origin (`${PUBLIC_BASE_URL}`) or relative paths (`/api`, `/auth`). The development compose file also uses relative `/api` and `/auth` for browser-facing access, so local HTTP desk checks stay same-origin and avoid CORS preflight redirects. The Next.js server-side auth routes use `BACKEND_URL=http://backend:8000` in both development and production, and route handlers append `/api/...` explicitly. Keycloak advertises `KC_HOSTNAME_URL=${PUBLIC_BASE_URL}/auth` in production to keep OIDC discovery issuer/endpoints aligned with the nginx `/auth/` proxy path. For `POST /api/auth/sync`, the route forwards nginx-provided `X-Real-IP`/sanitized `X-Forwarded-For` to backend `POST /api/auth/callback` so backend Redis rate limiting keys by end-user IP rather than by the frontend container.
 
 **Route Table:**
 
@@ -127,7 +127,7 @@ Use explicit `-f` flags on the VPS. Plain `docker compose up` auto-loads `docker
 
 ## Suricata IDS
 
-**Container:** `jasonish/suricata:latest` with `-i eth0`
+**Container:** `jasonish/suricata:7.0.5` with `-i eth0`
 
 **Directories:**
 - `src/suricata/logs/` → `/var/log/suricata/` — EVE JSON output, fast.log, stats.log

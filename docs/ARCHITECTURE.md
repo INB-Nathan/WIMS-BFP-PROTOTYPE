@@ -65,7 +65,7 @@ This aligns with glossary terms: civilian intake, validator-centered verificatio
 
 ## Security-Relevant Mechanics
 
-- Login rate limiting is implemented in backend middleware for `POST /api/auth/login` using a Redis Lua sliding-window script.
+- Auth-flow rate limiting is implemented in backend middleware for `POST /api/auth/callback` using a Redis Lua sliding-window script; the user-facing Next.js `/api/auth/sync` route forwards trusted proxy client-IP headers before calling the backend callback.
 - Suricata logs are mounted into worker-accessible paths and ingested by task modules.
 - No hard-delete admin endpoint is defined in admin route modules; updates are mutation-oriented (user/log state updates and audit readout).
 - PII fields (`caller_name`, `caller_number`, `owner_name`, `street_address`) are encrypted at rest using AES-256-GCM via `utils/crypto.py`. Plaintext PII columns are always `NULL` for new writes.
