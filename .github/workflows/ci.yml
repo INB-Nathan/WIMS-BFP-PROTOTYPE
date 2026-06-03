@@ -264,25 +264,105 @@ jobs:
         run: docker compose build --parallel
 
   # ===========================================================================
+  # SECURITY SCAN — OWASP ZAP baseline + Nmap port scan (blocks on HIGH/CRITICAL)
+  # ===========================================================================
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Bring up the stack
+        working-directory: src
+        run: docker compose up -d --build
+
+      - name: Wait for nginx/frontend to be healthy
+        run: |
+          for i in $(seq 1 36); do
+            if curl -sf http://localhost > /dev/null 2>&1; then
+              echo "Frontend healthy after ${i} attempts"
+              exit 0
+            fi
+            echo "Waiting for frontend... ($i/36)"
+            sleep 5
+          done
+          echo "Frontend failed to become healthy in 180s"
+          exit 1
+
+      - name: Install nmap
+        run: sudo apt-get update && sudo apt-get install -y nmap
+
+      - name: Nmap port scan
+        run: nmap -sV -oN nmap-report.txt localhost
+
+      - name: Check for unexpected open ports
+        run: |
+          ALLOWED_PORTS="80/tcp 443/tcp 3000/tcp 8080/tcp 8090/tcp"
+          echo "Scanning for unexpected ports..."
+          UNEXPECTED=$(grep -E "^\d+/tcp" nmap-report.txt | while read line; do
+            PORT=$(echo "$line" | awk '{print $1}')
+            STATE=$(echo "$line" | awk '{print $2}')
+            if [ "$STATE" = "open" ]; then
+              if ! echo "$ALLOWED_PORTS" | grep -q "$PORT"; then
+                echo "$PORT"
+              fi
+            fi
+          done)
+          if [ -n "$UNEXPECTED" ]; then
+            echo "ERROR: Unexpected open ports detected:"
+            echo "$UNEXPECTED"
+            echo "Allowed ports: 80, 443, 3000, 8080, 8090"
+            cat nmap-report.txt
+            exit 1
+          fi
+          echo "Port scan passed — no unexpected open ports."
+
+      - name: OWASP ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.15.0
+        with:
+          target: 'http://localhost'
+          fail_action: true
+          allow_issue_writing: false
+          rules_file_name: '.zap/rules.tsv'
+          artifact_name: 'zap-scan'
+
+      - name: Upload nmap report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nmap-report
+          path: nmap-report.txt
+          retention-days: 7
+
+      - name: Tear down stack
+        working-directory: src
+        if: always()
+        run: docker compose down -v
+
+  # ===========================================================================
   # MERGE GATE — all critical jobs must pass
   # ===========================================================================
   merge-gate:
     name: Merge Gate
     runs-on: ubuntu-latest
-    needs: [migrations, frontend, backend, docker-build]
+    needs: [migrations, frontend, backend, docker-build, security-scan]
     if: always()
 
     steps:
       - name: Check results
         run: |
-          echo "Migrations:  ${{ needs.migrations.result }}"
-          echo "Frontend:    ${{ needs.frontend.result }}"
-          echo "Backend:     ${{ needs.backend.result }}"
-          echo "Docker:      ${{ needs.docker-build.result }}"
+          echo "Migrations:     ${{ needs.migrations.result }}"
+          echo "Frontend:       ${{ needs.frontend.result }}"
+          echo "Backend:        ${{ needs.backend.result }}"
+          echo "Docker:         ${{ needs.docker-build.result }}"
+          echo "Security Scan:  ${{ needs.security-scan.result }}"
           if [[ "${{ needs.migrations.result }}" != "success" ]] || \
              [[ "${{ needs.frontend.result }}" != "success" ]] || \
              [[ "${{ needs.backend.result }}" != "success" ]] || \
-             [[ "${{ needs.docker-build.result }}" != "success" ]]; then
+             [[ "${{ needs.docker-build.result }}" != "success" ]] || \
+             [[ "${{ needs.security-scan.result }}" != "success" ]]; then
             echo "One or more critical jobs failed. Merge blocked."
             exit 1
           fi

@@ -1,0 +1,22 @@
+# WIMS-BFP Custom Detection Rules — SID range 1000000-1000999
+# M7b (#155): OWASP Top 10 + BFP-specific signatures.
+# ET Open ruleset is loaded separately via suricata-update (#159).
+
+# ===== OWASP Top 10 =====
+alert http any any -> any any (msg:"WIMS OWASP A03 SQLi UNION SELECT"; flow:established,to_server; http.uri; content:"union"; nocase; content:"select"; nocase; distance:0; within:100; classtype:web-application-attack; sid:1000001; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A03 SQLi boolean OR 1=1"; flow:established,to_server; http.uri; pcre:"/or\s+1\s*=\s*1/i"; classtype:web-application-attack; sid:1000002; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A03 SQLi time-based"; flow:established,to_server; http.uri; pcre:"/(sleep|benchmark|waitfor\s+delay)\s*\(/i"; classtype:web-application-attack; sid:1000003; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A03 Command Injection metachar"; flow:established,to_server; http.uri; pcre:"/(\;|\|\||\&\&|`|\$\()/"; classtype:web-application-attack; sid:1000004; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A03 XSS script tag"; flow:established,to_server; http.uri; content:"<script"; nocase; classtype:web-application-attack; sid:1000005; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A03 XSS event handler"; flow:established,to_server; http.uri; pcre:"/on(error|load|mouseover|click)\s*=/i"; classtype:web-application-attack; sid:1000006; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A01 Path Traversal"; flow:established,to_server; http.uri; content:"../"; classtype:web-application-attack; sid:1000007; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A01 Path Traversal encoded"; flow:established,to_server; http.uri; content:"%2e%2e%2f"; nocase; classtype:web-application-attack; sid:1000008; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A07 Auth brute-force"; flow:established,to_server; http.uri; content:"/api/auth"; nocase; detection_filter:track by_src, count 10, seconds 60; classtype:attempted-recon; sid:1000009; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A06 Scanner User-Agent"; flow:established,to_server; http.user_agent; pcre:"/(sqlmap|nikto|nmap|masscan|nuclei)/i"; classtype:attempted-recon; sid:1000010; rev:1;)
+
+# ===== BFP-specific =====
+alert http any any -> any any (msg:"WIMS BFP AFOR upload abuse"; flow:established,to_server; http.method; content:"POST"; http.uri; content:"/afor"; nocase; detection_filter:track by_src, count 20, seconds 60; classtype:policy-violation; sid:1000020; rev:1;)
+alert http any any -> any any (msg:"WIMS BFP Export abuse"; flow:established,to_server; http.uri; content:"/api/analytics"; nocase; content:"export"; nocase; detection_filter:track by_src, count 15, seconds 60; classtype:policy-violation; sid:1000021; rev:1;)
+alert http any any -> any any (msg:"WIMS BFP Admin enumeration"; flow:established,to_server; http.uri; content:"/api/admin"; nocase; detection_filter:track by_src, count 30, seconds 60; classtype:attempted-recon; sid:1000022; rev:1;)
+alert http any any -> any any (msg:"WIMS BFP Region hopping heuristic"; flow:established,to_server; http.uri; content:"/api/ref/"; nocase; detection_filter:track by_src, count 40, seconds 30; classtype:policy-violation; sid:1000023; rev:1;)
+alert http any any -> any any (msg:"WIMS BFP Public report spam"; flow:established,to_server; http.method; content:"POST"; http.uri; pcre:"/\/api\/(v1\/public\/report|civilian\/reports)/"; detection_filter:track by_src, count 5, seconds 3600; classtype:policy-violation; sid:1000024; rev:1;)
