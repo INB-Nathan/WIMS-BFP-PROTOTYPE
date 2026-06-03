@@ -82,6 +82,14 @@ Recent history uses Conventional Commit-style subjects, often with issue referen
 
 Pull requests should include a short problem/solution summary, linked issues, test results, and screenshots for visible UI changes. Call out schema, auth, environment, or data-volume impacts explicitly. Never commit real secrets; Docker Compose values are development defaults only.
 
+## CI Pre-flight
+
+Before pushing or opening a PR, run the full CI pre-flight routine defined in
+`docs/agents/ci-preflight.md`. The four blocking gates are: backend ruff lint,
+backend ruff format, backend pytest, and frontend lint/test/build.
+The single most common blocker is `ruff format` — always run `ruff format .`
+(auto-fix) before committing Python changes.
+
 ## Before Final Response Checklist
 
 - Relevant tests/checks were run, or skipped with a clear reason.
