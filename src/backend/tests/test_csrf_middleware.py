@@ -45,6 +45,19 @@ def _enable_csrf(monkeypatch: pytest.MonkeyPatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _disable_public_dmz_rate_limiter(monkeypatch: pytest.MonkeyPatch):
+    """Mock public DMZ Redis unavailable so the rate-limiter fail-opens.
+    The public DMZ endpoint has its own _get_redis (in public_dmz.py, not main.py).
+    """
+
+    async def _mock_redis_unavailable():
+        return None
+
+    monkeypatch.setattr("api.routes.public_dmz._get_redis", _mock_redis_unavailable)
+    yield
+
+
 CLIENT = TestClient(app)
 
 # ---------------------------------------------------------------------------
@@ -283,3 +296,37 @@ class TestProductionOrigin:
                 headers={"origin": "https://wimsbfp.tech:8443"},
             )
         assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Integration: public DMZ exemption — zero-trust endpoint bypasses CSRF
+# ---------------------------------------------------------------------------
+
+
+class TestPublicDmzCsrfExemption:
+    def test_public_dmz_post_without_origin_not_blocked_by_csrf(self):
+        """POST /api/v1/public/report without Origin/Referer must NOT return 403.
+        The public DMZ is unauthenticated/no-cookie; CSRF is not meaningful.
+        Without a DB mock the request will hit the real DB and likely get 500,
+        but it must NOT be a CSRF 403."""
+        resp = CLIENT.post(
+            "/api/v1/public/report",
+            json={
+                "latitude": 14.5995,
+                "longitude": 120.9842,
+                "description": "Test no origin",
+            },
+            headers={},
+        )
+        assert resp.status_code != 403, f"Public DMZ should be CSRF-exempt but got 403: {resp.text}"
+
+    def test_auth_post_without_origin_still_blocked(self):
+        """POST /api/auth/login without Origin/Referer must still return 403.
+        The CSRF exemption only applies to public DMZ paths."""
+        resp = CLIENT.post(
+            "/api/auth/login",
+            json={},
+            headers={},
+        )
+        assert resp.status_code == 403
+        assert "CSRF validation failed" in resp.text

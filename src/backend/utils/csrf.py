@@ -24,6 +24,10 @@ logger = logging.getLogger("wims.csrf")
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
+# Zero-trust public DMZ paths are unauthenticated/no-cookie by design;
+# CSRF Origin/Referer validation is not meaningful for these routes.
+_CSRF_EXEMPT_PATH_PREFIXES: tuple[str, ...] = ("/api/v1/public/",)
+
 DEFAULT_ORIGINS: set[str] = {
     "http://localhost",
     "https://localhost",
@@ -84,6 +88,11 @@ async def csrf_middleware(request, call_next):
         return await call_next(request)
 
     if request.method in SAFE_METHODS:
+        return await call_next(request)
+
+    # Unauthenticated zero-trust public DMZ endpoints are exempt from CSRF
+    # (no cookie-auth dependency; protected by rate limiting + Pydantic validation).
+    if request.url.path.startswith(_CSRF_EXEMPT_PATH_PREFIXES):
         return await call_next(request)
 
     origin = request.headers.get("origin")

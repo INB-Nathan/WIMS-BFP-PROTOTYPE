@@ -1745,3 +1745,18 @@ No schema, auth, or FRS alignment changes.
 **Fix (`src/backend/api/routes/public_dmz.py`):** `rate_limit_public_dmz()` now closes the request-scoped Redis client and its connection pool in a guarded `finally` block via `await r.aclose(close_connection_pool=True)`. This preserves fail-open behavior for Redis errors while preventing resource leakage after successful or rate-limited requests.
 
 **Wiki updated:** `backend/remaining-routes.md` now records that the public DMZ rate limiter uses a per-call pool and closes it after script execution. No FRS gap change.
+
+## [2026-06-03] fix(M14) | address public DMZ PR #210 review findings
+
+**Changes implemented:**
+
+- **CSRF exemption for public DMZ:** `src/backend/utils/csrf.py` now exempts the `/api/v1/public/` path prefix from Origin/Referer validation. The public DMZ endpoint is unauthenticated (no Keycloak JWT, no cookie dependency) and protected by rate limiting + Pydantic validation; CSRF validation is not meaningful there. All other auth/session/admin routes still require trusted Origin/Referer.
+- **Redis fail-open logging:** `src/backend/api/routes/public_dmz.py` now imports `logging` and logs warnings via `wims.public_dmz` logger when Redis connection creation fails in `_get_redis()` and when Lua eval/rate-limit execution fails in `rate_limit_public_dmz()`. Intentional 429 responses are not logged.
+- **Coordinate query guard:** Added `coord_row is None` check after PostGIS coordinate SELECT; raises HTTP 500 `"Failed to retrieve inserted incident coordinates"` instead of allowing uncaught `TypeError`.
+- **Test cleanup (`src/backend/tests/test_public_submission.py`):** Removed redundant `import sys`/`sys.path.insert`, moved `import redis` to module level, removed unused `monkeypatch` parameters from 4 test methods, mocked `test_valid_submission_returns_201` with `_MockDB`/dependency overrides, switched rate-limit test IPs to valid RFC 5737 TEST-NET addresses (`203.0.113.<n>`), added 4 fallback/error-path tests (station→region fallback, both empty→500, INSERT no row→500, coordinate no row→500).
+- **CSRF tests (`src/backend/tests/test_csrf_middleware.py`):** Added `TestPublicDmzCsrfExemption` class: `test_public_dmz_post_without_origin_not_blocked_by_csrf` verifies POST to `/api/v1/public/report` without Origin/Referer does not return 403; `test_auth_post_without_origin_still_blocked` verifies auth endpoints still blocked.
+- **Wiki updates:** Updated `subsystems/civilian-reporting-phase2.md` (Public DMZ Boundary restored, CSRF-exempt), `security/security-baseline.md` (CSRF exemption for public DMZ), `backend/remaining-routes.md` (logging + coord guard), and this log.
+
+**Verification:** `pytest tests/test_public_submission.py -v` 13/13 passed; `pytest tests/test_csrf_middleware.py -v` 31/31 passed; `ruff format --check .` and `ruff check .` passed; `git diff --check` clean.
+
+**Wiki updated:** Yes — see above. No `gaps/frs-codebase-gap-register.md` update needed; no FRS gap changed.

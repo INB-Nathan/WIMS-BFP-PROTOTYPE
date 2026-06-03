@@ -160,6 +160,10 @@ Async Redis-based rate limiter. **3 requests per IP per hour**. Key: `public_rat
 
 **Lua script:** Sliding-window sorted set. Prunes entries older than the window via `ZREMRANGEBYSCORE`, counts via `ZCARD`, returns `{1, retry_after}` when count >= threshold, else records the request via `ZADD` with TTL.
 
+**Logging:** Redis connection failures and Lua eval exceptions are logged at WARNING level (`wims.public_dmz` logger) before fail-open return. Intentional 429 rate-limit responses (raised as `HTTPException`) are not logged by the rate limiter.
+
+**Coordinate guard:** After the PostGIS coordinate SELECT, a `coord_row is None` check raises HTTP 500 `"Failed to retrieve inserted incident coordinates"` instead of allowing an uncaught `TypeError`.
+
 ### `submit_public_incident()`
 
 **Route:** `POST /report` (status 201)  

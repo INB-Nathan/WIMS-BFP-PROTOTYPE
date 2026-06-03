@@ -169,12 +169,23 @@ Returns `emergency_number: "911"` and all BFP station names/coordinates. It does
 
 `src/backend/api/routes/public_dmz.py`:
 
-- `POST /api/v1/public/report` → **410 Gone** (legacy deprecated)
+- `POST /api/v1/public/report` → **201 Created** (restored by PR #210 — see below)
 - `PATCH /api/v1/public/report/{report_id}` → **410 Gone** (legacy deprecated)
 - Legacy triage promotion: `POST /api/triage/{report_id}/promote` → **410 Gone**
 - Legacy bulk promotion: `POST /api/triage/bulk-promote` → **410 Gone**
 
-The civilian staging layer cannot create `fire_incidents` through the public API or the deprecated promotion routes.
+### Restored Public Report Endpoint (PR #210 / FRS M14)
+
+`POST /api/v1/public/report` was restored as the zero-trust unauthenticated public DMZ incident submission endpoint:
+
+- **No auth required** — no Keycloak JWT, no cookie dependency.
+- **Redis sliding-window rate limit** — 3 requests per IP per hour, enforced via atomic Lua script (sorted-set `ZREMRANGEBYSCORE` + `ZCARD` + `ZADD`). Returns HTTP 429 with `Retry-After` header when exceeded.
+- **Fail-open** — Redis connection or eval failures let the request through (logged at WARNING).
+- **Region resolution** — nearest `ref_fire_stations` via PostGIS `<->` KNN (same pattern as `civilian.py`); falls back to `ref_regions ORDER BY region_id LIMIT 1` when no stations match. Returns HTTP 500 if both fail.
+- **PENDING_VALIDATION insert** — `INSERT INTO wims.fire_incidents` with `encoder_id=NULL`, `import_batch_id=NULL`, `verification_status='PENDING_VALIDATION'`.
+- **CSRF exempt** — the public DMZ path prefix (`/api/v1/public/`) is explicitly excluded from CSRF Origin/Referer validation since the endpoint is unauthenticated and protected by rate limiting + Pydantic validation.
+
+The civilian staging layer (`citizen_reports`) and the public DMZ (`fire_incidents`) are now parallel intake paths: public reporters can submit directly to `fire_incidents` via the DMZ, or use the structured `citizen_reports` flow via `/api/civilian/reports`.
 
 ## Triage Queue — Phase 2 API
 

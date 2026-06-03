@@ -9,6 +9,7 @@ encoder_id left NULL, region_id resolved from coordinates.
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from typing import Annotated
@@ -23,6 +24,7 @@ from schemas.public_incident import PublicIncidentCreate, PublicIncidentResponse
 
 router = APIRouter(prefix="/api/v1/public", tags=["public-dmz"])
 
+logger = logging.getLogger("wims.public_dmz")
 
 # ---------------------------------------------------------------------------
 # Redis Rate Limiter — 3 req/IP/hour (stricter than the auth callback limiter)
@@ -53,6 +55,10 @@ async def _get_redis():
         )
         return aioredis.Redis(connection_pool=pool)
     except Exception:
+        logger.warning(
+            "Redis connection failed at %s — rate limiting disabled for this request",
+            _REDIS_URL,
+        )
         return None
 
 
@@ -127,6 +133,7 @@ async def rate_limit_public_dmz(request: Request) -> None:
     except HTTPException:
         raise
     except Exception:
+        logger.warning("Redis eval failed for key=%s — allowing request through (fail-open)", key)
         return
     finally:
         try:
@@ -225,6 +232,12 @@ def submit_public_incident(
         """),
         {"id": incident_id},
     ).fetchone()
+
+    if coord_row is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve inserted incident coordinates",
+        )
 
     lat = float(coord_row[0])
     lon = float(coord_row[1])
