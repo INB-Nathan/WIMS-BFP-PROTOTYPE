@@ -5,12 +5,18 @@ const KEYCLOAK_TOKEN_URL = process.env.NEXT_PUBLIC_AUTH_API_URL
   : null;
 
 const CLIENT_ID = process.env.NEXT_PUBLIC_OIDC_CLIENT_ID || 'wims-web';
-const IS_PROD = process.env.NODE_ENV === 'production';
 const ACCESS_TOKEN_COOKIE_MAX_AGE = 5 * 60; // 5 minutes: match Keycloak accessTokenLifespan
 const REFRESH_TOKEN_COOKIE_MAX_AGE = 8 * 60 * 60; // 8 hours: match SSO session max
 
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: true,
+  sameSite: 'strict' as const,
+  path: '/',
+};
+
 export async function POST(req: NextRequest) {
-  const refreshToken = req.cookies.get('refresh_token')?.value;
+  const refreshToken = req.cookies.get('__Host-refresh_token')?.value;
   if (!refreshToken) {
     return NextResponse.json({ error: 'No refresh token' }, { status: 401 });
   }
@@ -32,26 +38,20 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       const response = NextResponse.json({ error: 'Refresh failed' }, { status: 401 });
-      response.cookies.set('access_token', '', { maxAge: 0, path: '/' });
-      response.cookies.set('refresh_token', '', { maxAge: 0, path: '/' });
+      response.cookies.set('__Host-access_token', '', { maxAge: 0, path: '/' });
+      response.cookies.set('__Host-refresh_token', '', { maxAge: 0, path: '/' });
       return response;
     }
 
     const data = await res.json();
     const response = NextResponse.json({ ok: true });
-    response.cookies.set('access_token', data.access_token, {
-      httpOnly: true,
-      secure: IS_PROD,
-      sameSite: 'lax',
-      path: '/',
+    response.cookies.set('__Host-access_token', data.access_token, {
+      ...COOKIE_OPTIONS,
       maxAge: ACCESS_TOKEN_COOKIE_MAX_AGE,
     });
     if (data.refresh_token) {
-      response.cookies.set('refresh_token', data.refresh_token, {
-        httpOnly: true,
-        secure: IS_PROD,
-        sameSite: 'lax',
-        path: '/',
+      response.cookies.set('__Host-refresh_token', data.refresh_token, {
+        ...COOKIE_OPTIONS,
         maxAge: REFRESH_TOKEN_COOKIE_MAX_AGE,
       });
     }

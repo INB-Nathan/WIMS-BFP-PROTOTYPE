@@ -28,7 +28,7 @@ describe('Session Route — SYSTEM_ADMIN role mapping', () => {
     vi.stubGlobal('fetch', mockFetch);
 
     const req = new NextRequest('http://localhost/api/auth/session', {
-      headers: { cookie: 'access_token=foo' },
+      headers: { cookie: '__Host-access_token=foo' },
     });
 
     const res = await GET(req);

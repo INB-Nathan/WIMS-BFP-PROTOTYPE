@@ -64,3 +64,17 @@ except ImportError:
     def flush_rate_limits():
         """No-op when pytest_asyncio/redis not installed."""
         return None
+
+
+# =============================================================================
+# CSRF middleware: disabled by default in test suite
+# =============================================================================
+# Existing tests send POST/PUT/PATCH/DELETE without Origin/Referer headers.
+# To keep them passing, disable CSRF enforcement globally and let the
+# dedicated test_csrf_middleware.py re-enable it per-test via MonkeyPatch.
+@pytest.fixture(autouse=True)
+def _disable_csrf():
+    """Globally disable CSRF middleware for all non-CSRF tests."""
+    os.environ["WIMS_CSRF_DISABLED"] = "1"
+    yield
+    os.environ.pop("WIMS_CSRF_DISABLED", None)

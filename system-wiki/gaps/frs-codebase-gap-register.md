@@ -39,6 +39,7 @@ This register prevents agents from hallucinating completion. A module is not com
 - **M2b (Offline CRUD — IndexedDB Queue Lifecycle)**: CLOSED — `offlineStore.ts` provides `getQueuedIncident`, `updateQueuedIncident`, `deleteQueuedIncident`, `markSynced`, `getPendingIncidents`; `syncEngine.ts` `syncPendingIncidents` POSTs pending items to backend, marks synced on success, returns `SyncResult { synced, failed, errors }`; closes ISSUE#140.
 - **M2c (Sync Toast Notifications)**: CLOSED — `useAutoSync.ts` `doSync()` dispatches `toast.success`/`toast.warning`/`toast.error` based on `SyncResult` counts; `sonner` added to `package.json`; `<Toaster />` mounted in `layout.tsx`; closes ISSUE#142.
 - **M4b (Verification Audit Hash + Sync Status)**: CLOSED — `40_verification_audit_fields.sql` adds `data_hash TEXT` (SHA-256) and `sync_status TEXT` to `wims.incident_verification_history`; trigger `_insert_incident_verification_history` computes hash on insert; stored procedure `verify_incident_command` records sync status; closes ISSUE#145.
+- **M11b (CSRF Protection)**: CLOSED — SameSite=Strict + `__Host-` prefix on auth cookies (`sync/route.ts`, `refresh/route.ts`, `logout/route.ts`, `auth.py`), Origin/Referer validation middleware (`utils/csrf.py` + registered in `main.py`), nginx CORS restricted to `$scheme://$host`, Docker env vars (`CSRF_TRUSTED_ORIGINS`/`CSRF_TRUSTED_HOST`), CSRF test suite (`tests/test_csrf_middleware.py`), and pen-test checklist (`docs/pentest/CSRF-CHECKLIST.md`).
 
 ## Related
 - [[concepts/frs-module-map]]

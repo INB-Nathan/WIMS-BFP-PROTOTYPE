@@ -1459,3 +1459,19 @@ No schema, auth, or FRS alignment changes.
 **Verification:** `curl -I https://wimsbfp.tech/health` returns 200; `curl -I http://wimsbfp.tech/health` returns 301 to HTTPS; nginx mount inspection shows `/etc/letsencrypt -> /etc/letsencrypt` and `src/nginx/nginx.conf -> /etc/nginx/nginx.conf`.
 
 **Wiki updates:** Updated `system-wiki/architecture/infrastructure-config.md`, `system-wiki/operations/local-dev-deploy-guide.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-06-03] implement | M11b CSRF protection — SameSite=Strict, __Host- prefix, Origin/Referer middleware, CORS restrictions
+
+**FRS reference:** Module 11b — Penetration Testing Scope: CSRF (FRS `frs-penentrationtestingandsecurityvalidation.md` 11.b.i.e)
+
+**Changes implemented:**
+
+- **Cookie hardening (Phase 1):** `__Host-` prefix + `Secure` + `SameSite=Strict` on `__Host-access_token` and `__Host-refresh_token` cookies across 4 route handlers: `sync/route.ts`, `refresh/route.ts`, `logout/route.ts`, and backend `auth.py` read path.
+- **CSRF middleware (Phase 2):** `src/backend/utils/csrf.py` — `CSRFMiddleware` registered in `main.py`. Validates Origin/Referer on POST/PUT/PATCH/DELETE against configurable allowlist. GET/HEAD/OPTIONS bypassed. Logs block events at WARNING level.
+- **Nginx CORS restriction (Phase 3):** `Access-Control-Allow-Origin` changed from `$http_origin` (reflected any origin) to `$scheme://$host` in both `nginx.conf` and `nginx.local.conf`.
+- **Docker env vars (Phase 4):** `CSRF_TRUSTED_ORIGINS` in `docker-compose.yml`, `CSRF_TRUSTED_HOST` in `docker-compose.prod.yml`.
+- **Test suite (Phase 5):** `tests/test_csrf_middleware.py` — 20 test cases covering origin normalization, allowlist builder, safe method bypass, invalid/missing Origin, valid Origin, Referer fallback, PUT/PATCH/DELETE variants, and VPS production origin.
+- **Pen-test checklist (Phase 6):** `docs/pentest/CSRF-CHECKLIST.md` — cookie attributes, Origin validation steps, cross-origin attack simulation, CORS, OIDC flow integrity, and test coverage verification.
+- **Wiki updates (Phase 7):** This log, `security/security-baseline.md` (new CSRF Protection section), `gaps/frs-codebase-gap-register.md` (M11b CLOSED entry).
+
+**Verification:** `pytest tests/test_csrf_middleware.py -v` — all 20 tests pass.
