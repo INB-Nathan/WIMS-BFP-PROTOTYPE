@@ -3,10 +3,10 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
-## [2026-06-03] fix | CI security scan — ZAP artifact name compatibility
+## [2026-06-03] fix | CI security scan — ZAP artifact upload compatibility
 
-- Updated `.github/workflows/ci.yml` `security-scan` ZAP baseline action to set `artifact_name: 'zap-scan'`, avoiding the legacy `zaproxy/action-baseline@v0.12.0` default `zap_scan` artifact name that GitHub's artifact backend rejected during upload.
-- Updated `system-wiki/architecture/pwa-tests-cicd.md` to document the explicit ZAP artifact name override.
+- Updated `.github/workflows/ci.yml` `security-scan` ZAP baseline action to set `artifact_name: 'zap-scan'` and bump `zaproxy/action-baseline` from `v0.12.0` to `v0.15.0`, avoiding the legacy action packaging that failed during GitHub artifact container creation.
+- Updated `system-wiki/architecture/pwa-tests-cicd.md` to document the explicit ZAP artifact name override and action version compatibility fix.
 
 ## [2026-06-03] fix | CI security scan — ZAP rules file for pre-existing WARN alerts
 

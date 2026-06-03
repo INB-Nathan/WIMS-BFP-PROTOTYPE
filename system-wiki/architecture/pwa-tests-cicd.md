@@ -165,7 +165,7 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 | `frontend` | ubuntu-latest | Node 20, `npm ci` → `npm run lint` → `npx vitest run` → `npm run build` |
 | `backend` | ubuntu-latest | Python 3.12, PostGIS + Redis 7 service containers. `ruff check` → `ruff format --check` → `pytest -v --tb=short` (8 test files excluded) |
 | `docker-build` | ubuntu-latest | `docker compose config` validation + `docker compose build --parallel` |
-| `security-scan` | ubuntu-latest | OWASP ZAP baseline scan + Nmap port scan. Uses `.zap/rules.tsv` to ignore 7 pre-existing WARN alerts (CSP/COEP headers, Keycloak upstream, Next.js informational). Sets ZAP artifact name to `zap-scan` to avoid the legacy action default `zap_scan` artifact-upload rejection. `fail_action: true` — only new HIGH/CRITICAL block merge. |
+| `security-scan` | ubuntu-latest | OWASP ZAP baseline scan + Nmap port scan. Uses `.zap/rules.tsv` to ignore 7 pre-existing WARN alerts (CSP/COEP headers, Keycloak upstream, Next.js informational). Uses `zaproxy/action-baseline@v0.15.0` plus explicit artifact name `zap-scan` to avoid legacy artifact-upload rejection in older ZAP action packaging. `fail_action: true` — only new HIGH/CRITICAL block merge. |
 | `merge-gate` | ubuntu-latest | **Blocks merge** unless migrations, frontend, backend, docker-build, and security-scan all pass |
 
 ### CD — `.github/workflows/cd.yml`
