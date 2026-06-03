@@ -29,6 +29,7 @@ router = APIRouter(prefix="/api/v1/public", tags=["public-dmz"])
 # ---------------------------------------------------------------------------
 _PUBLIC_RATE_LIMIT_WINDOW = 3600  # 1 hour in seconds
 _PUBLIC_RATE_LIMIT_THRESHOLD = 3  # max 3 submissions per IP per hour
+_REDIS_EMERGENCY_TTL = 3600
 
 _REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
