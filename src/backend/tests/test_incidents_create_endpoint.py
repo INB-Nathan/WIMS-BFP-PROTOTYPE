@@ -1,3 +1,11 @@
+"""Regression test for the fix in create_incident: encoder_id from the DB INSERT
+RETURNING clause is a UUID object, but IncidentResponse expects a UUID | None.
+The route layer now converts it with str() before passing to the response model.
+
+This test proves the round-trip: a UUID encoder_id from mock DB row[2] is
+accepted by IncidentResponse without a Pydantic validation error.
+"""
+
 from __future__ import annotations
 
 import uuid
