@@ -135,6 +135,7 @@ class TestEmailServiceTask:
     def _make_test_celery_app():
         """Create a Celery app suitable for unit tests (no broker needed)."""
         from celery import Celery
+
         return Celery(
             "test_wims",
             broker="memory://",

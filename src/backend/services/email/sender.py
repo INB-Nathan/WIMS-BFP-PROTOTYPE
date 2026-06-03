@@ -67,7 +67,7 @@ def _load_subject(template_name: str, context: dict[str, Any]) -> str:
             if stripped.startswith("{#"):
                 inner = stripped[2:].split("#}")[0].strip()
                 if inner.lower().startswith("subject:"):
-                    _subject_raw_cache[template_name] = inner[len("subject:"):].strip()
+                    _subject_raw_cache[template_name] = inner[len("subject:") :].strip()
                     break
         if template_name not in _subject_raw_cache:
             _subject_raw_cache[template_name] = ""
