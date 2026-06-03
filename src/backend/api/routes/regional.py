@@ -1625,8 +1625,10 @@ def update_incident(
     if body.client_updated_at and not body.force_update:
         server_ts = incident[2]  # updated_at column
         if server_ts:
+
             def _as_utc(dt: datetime) -> datetime:
                 return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
             if _as_utc(server_ts) > _as_utc(body.client_updated_at):
                 raise HTTPException(
                     status_code=409,
@@ -2651,9 +2653,18 @@ def get_incident_diff(
     # type drift between submitted_snapshot (JSONB) and the live VARCHAR columns
     # (e.g. snapshot may store alarm_level as an integer code, DB stores a label string).
     _SCALAR_DIFF_FIELDS = {
-        "alarm_level", "general_category", "sub_category", "specific_type",
-        "occupancy_type", "responder_type", "fire_origin", "extent_of_damage",
-        "stage_of_fire", "fire_station_name", "recommendations", "notification_dt",
+        "alarm_level",
+        "general_category",
+        "sub_category",
+        "specific_type",
+        "occupancy_type",
+        "responder_type",
+        "fire_origin",
+        "extent_of_damage",
+        "stage_of_fire",
+        "fire_station_name",
+        "recommendations",
+        "notification_dt",
     }
 
     def _norm_diff(v: Any) -> Any:

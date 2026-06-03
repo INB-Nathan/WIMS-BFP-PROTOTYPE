@@ -92,6 +92,7 @@ def mock_encoder(encoder_user):
             "role": "REGIONAL_ENCODER",
             "assigned_region_id": encoder_user["region_id"],
         }
+
     return _mock
 
 
@@ -103,6 +104,7 @@ def mock_validator(validator_user):
             "keycloak_id": str(uuid.uuid4()),
             "role": "NATIONAL_VALIDATOR",
         }
+
     return _mock
 
 
