@@ -13,10 +13,12 @@ from utils.csrf import _normalize_origin, _build_allowlist
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _reset_csrf_cache():
     """Force csrf module to rebuild its allowlist from current env on next request."""
     import utils.csrf as m
+
     m._allowed_origins = None
     yield
     m._allowed_origins = None
@@ -28,8 +30,10 @@ def _disable_rate_limiter(monkeypatch: pytest.MonkeyPatch):
     Without this, repeated POSTs to /api/auth/login hit the sliding-window
     threshold (5 req/15min) and return 429 instead of the expected CSRF or auth response.
     """
+
     async def _mock_redis_unavailable():
         return None
+
     monkeypatch.setattr("main._get_redis", _mock_redis_unavailable)
     yield
 
@@ -46,6 +50,7 @@ CLIENT = TestClient(app)
 # ---------------------------------------------------------------------------
 # Unit: URL normalization
 # ---------------------------------------------------------------------------
+
 
 class TestOriginNormalization:
     def test_strips_path(self):
@@ -67,6 +72,7 @@ class TestOriginNormalization:
 # ---------------------------------------------------------------------------
 # Unit: allowlist builder
 # ---------------------------------------------------------------------------
+
 
 class TestAllowlistBuilder:
     def test_from_csrf_trusted_origins(self):
@@ -97,6 +103,7 @@ class TestAllowlistBuilder:
 # Integration: safe methods bypass
 # ---------------------------------------------------------------------------
 
+
 class TestSafeMethods:
     def test_get_bypasses_csrf(self):
         resp = CLIENT.get("/health", headers={})
@@ -120,6 +127,7 @@ class TestSafeMethods:
 # ---------------------------------------------------------------------------
 # Integration: POST with Origin validation
 # ---------------------------------------------------------------------------
+
 
 class TestPostOriginValidation:
     def test_post_rejected_without_origin(self):
@@ -181,6 +189,7 @@ class TestPostOriginValidation:
 # Integration: PUT, PATCH, DELETE
 # ---------------------------------------------------------------------------
 
+
 class TestOtherUnsafeMethods:
     def test_put_rejected_invalid_origin(self):
         """PUT with invalid origin → 403"""
@@ -231,12 +240,14 @@ class TestOtherUnsafeMethods:
 # Integration: VPS production origin
 # ---------------------------------------------------------------------------
 
+
 class TestProductionOrigin:
     def test_post_accepted_vps_origin(self):
         """POST from https://wimsbfp.tech when configured as trusted → passes CSRF"""
         with pytest.MonkeyPatch.context() as mp:
             mp.setenv("CSRF_TRUSTED_ORIGINS", "https://wimsbfp.tech")
             import utils.csrf as m
+
             m._allowed_origins = None
             resp = CLIENT.post(
                 "/api/auth/login",
@@ -250,6 +261,7 @@ class TestProductionOrigin:
         with pytest.MonkeyPatch.context() as mp:
             mp.setenv("CSRF_TRUSTED_ORIGINS", "https://wimsbfp.tech")
             import utils.csrf as m
+
             m._allowed_origins = None
             resp = CLIENT.post(
                 "/api/auth/login",
