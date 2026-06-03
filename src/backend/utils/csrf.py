@@ -6,15 +6,18 @@ matches a configured trusted origin. GET/HEAD/OPTIONS are exempt (safe methods
 per RFC 7231).
 
 Usage:
-    from utils.csrf import CSRFMiddleware
-    app.add_middleware(CSRFMiddleware)
+    from utils.csrf import csrf_middleware
+    app.middleware("http")(csrf_middleware)
+
+NOTE: This is a plain @app.middleware("http") function, NOT a BaseHTTPMiddleware
+class. BaseHTTPMiddleware buffers streaming responses (SSE at /api/events/stream),
+so this signature preserves real-time push.
 """
 
 import logging
 import os
 from urllib.parse import urlparse
 
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 logger = logging.getLogger("wims.csrf")
@@ -73,49 +76,50 @@ def _get_allowlist() -> set[str]:
     return _allowed_origins
 
 
-class CSRFMiddleware(BaseHTTPMiddleware):
+async def csrf_middleware(request, call_next):
     """FastAPI middleware that rejects state-changing requests with untrusted Origin/Referer.
 
     Disable at runtime by setting WIMS_CSRF_DISABLED=1 in the environment
     (used during unit tests that do not set Origin/Referer).
+
+    NOTE: Plain async function — NOT a BaseHTTPMiddleware class — so it does not
+    buffer StreamingResponse bodies (preserves SSE at /api/events/stream).
     """
-
-    async def dispatch(self, request, call_next):
-        if os.environ.get("WIMS_CSRF_DISABLED") == "1":
-            return await call_next(request)
-
-        if request.method in SAFE_METHODS:
-            return await call_next(request)
-
-        origin = request.headers.get("origin")
-        referer = request.headers.get("referer")
-
-        source = origin or referer
-        if not source:
-            logger.warning(
-                "CSRF blocked — missing origin header | method=%s path=%s",
-                request.method,
-                request.url.path,
-            )
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "CSRF validation failed: missing origin header"},
-            )
-
-        allowlist = _get_allowlist()
-        normalized = _normalize_origin(source)
-
-        if normalized not in allowlist:
-            logger.warning(
-                "CSRF blocked — untrusted origin | origin=%s normalized=%s method=%s path=%s",
-                source,
-                normalized,
-                request.method,
-                request.url.path,
-            )
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "CSRF validation failed: untrusted origin"},
-            )
-
+    if os.environ.get("WIMS_CSRF_DISABLED") == "1":
         return await call_next(request)
+
+    if request.method in SAFE_METHODS:
+        return await call_next(request)
+
+    origin = request.headers.get("origin")
+    referer = request.headers.get("referer")
+
+    source = origin or referer
+    if not source:
+        logger.warning(
+            "CSRF blocked — missing origin header | method=%s path=%s",
+            request.method,
+            request.url.path,
+        )
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "CSRF validation failed: missing origin header"},
+        )
+
+    allowlist = _get_allowlist()
+    normalized = _normalize_origin(source)
+
+    if normalized not in allowlist:
+        logger.warning(
+            "CSRF blocked — untrusted origin | origin=%s normalized=%s method=%s path=%s",
+            source,
+            normalized,
+            request.method,
+            request.url.path,
+        )
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "CSRF validation failed: untrusted origin"},
+        )
+
+    return await call_next(request)

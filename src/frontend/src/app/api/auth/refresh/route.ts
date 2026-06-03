@@ -38,8 +38,8 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       const response = NextResponse.json({ error: 'Refresh failed' }, { status: 401 });
-      response.cookies.set('__Host-access_token', '', { maxAge: 0, path: '/' });
-      response.cookies.set('__Host-refresh_token', '', { maxAge: 0, path: '/' });
+      response.cookies.set('__Host-access_token', '', { ...COOKIE_OPTIONS, maxAge: 0 });
+      response.cookies.set('__Host-refresh_token', '', { ...COOKIE_OPTIONS, maxAge: 0 });
       return response;
     }
 
