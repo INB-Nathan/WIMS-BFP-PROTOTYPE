@@ -3,6 +3,23 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-03] fix | PR #223 CI security-scan startup — CI-only HTTP nginx config
+
+- **Root cause:** PR #223 changed `src/nginx/nginx.local.conf` from HTTP-only to HTTPS (HTTP→HTTPS redirect + TLS server block requiring `/etc/letsencrypt/live/wimsbfp.tech/` certs). The `docker-compose.override.yml` (auto-loaded by plain `docker compose up`) mounts `nginx.local.conf` but provides no cert volume. The GitHub Actions `security-scan` job ran plain `docker compose up -d --build`, so nginx failed to start because cert files were missing. The health-poller timed out at 180s before Nmap/ZAP could run.
+- **Fix:** Created `src/nginx/nginx.ci.conf` (HTTP-only nginx config — port 80, no TLS, no certs required, preserves PR #223's `$scheme://$host` CORS hardening) and `src/docker-compose.ci.yml` (mounts `nginx.ci.conf` instead of `nginx.local.conf`). Updated `.github/workflows/ci.yml` `security-scan` job to bring up the stack with `docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build` and tear down with the same file list. The CI now uses a plain HTTP path that does not depend on TLS certificates.
+- **Local dev impact:** The local override still loads `nginx.local.conf` (HTTPS) and now mounts `src/.ssl` to `/etc/letsencrypt`, so developers can generate self-signed certs once and then use plain `docker compose up`. Developers who do not need HTTPS locally can use the CI compose path (`-f docker-compose.yml -f docker-compose.ci.yml`). Updated `system-wiki/operations/local-dev-deploy-guide.md` Section 1 and Pitfall 2 to document both paths.
+- **CI docs:** Updated `system-wiki/architecture/pwa-tests-cicd.md` to note the CI-specific compose override.
+- **Gap register:** No change — M11b remains CLOSED; this is an infrastructure/CI wiring fix.
+- **Verification:** `docker compose -f docker-compose.yml -f docker-compose.ci.yml config --quiet` passes; `git diff --check` clean.
+
+## [2026-06-03] fix | PR #214 infra/auth config review fixes
+
+- Updated the manual auth rate-limit test to target the real `POST /api/auth/callback` protected path instead of the stale `/api/auth/login` stub.
+- Aligned CI/deploy backend auth env defaults to `KEYCLOAK_CLIENT_ID=wims-web` and `KEYCLOAK_AUDIENCE=wims-web`; scoped Direct Grant password-reset verification to `KEYCLOAK_PASSWORD_RESET_CLIENT_ID` (`bfp-client` by default).
+- Pinned `nginx-gateway` to `nginx:1.27.3-alpine` and refreshed Suricata/nginx image references in `architecture/infrastructure-config.md`.
+- Updated `src/frontend/src/app/api/auth/sync/route.ts` to forward trusted nginx client-IP headers to backend `/api/auth/callback` so Redis callback rate limiting keys by end-user IP rather than the frontend container.
+- Repaired local-dev docs to remove obsolete self-signed-cert setup for base compose and documented the production-only TLS mount split.
+- Clarified that the admin `rate_limit_config:login` key/tier is a legacy compatibility label for the auth callback flow.
 ## [2026-06-03] fix | CI security scan — ZAP artifact upload compatibility
 
 - Updated `.github/workflows/ci.yml` `security-scan` ZAP baseline action to set `artifact_name: 'zap-scan'` and bump `zaproxy/action-baseline` from `v0.12.0` to `v0.15.0`, avoiding the legacy action packaging that failed during GitHub artifact container creation.

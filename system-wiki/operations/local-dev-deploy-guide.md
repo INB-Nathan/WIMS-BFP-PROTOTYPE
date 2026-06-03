@@ -57,35 +57,40 @@ If all containers are green and `{"status":"ok","via":"nginx-gateway"}` is retur
 
 ### 1. One-time SSL cert setup (local dev only)
 
-`src/docker-compose.yml` mounts `${LETSENCRYPT_DIR:-/opt/wims-bfp/letsencrypt}` into the nginx container as `/etc/letsencrypt`. On the VPS this path holds the real Let's Encrypt cert. Locally, neither the default `/opt/wims-bfp/letsencrypt` path nor the cert exist, so nginx exits immediately with:
+Local development now serves HTTPS via self-signed certificates. The base `src/docker-compose.yml` mounts `src/nginx/nginx.conf` (production TLS), but the automatically loaded `src/docker-compose.override.yml` swaps in `src/nginx/nginx.local.conf`, which provides an HTTP→HTTPS redirect and a TLS server block requiring self-signed certs at `/etc/letsencrypt/live/wimsbfp.tech/`. Production TLS certs (real Let's Encrypt) are mounted only by `src/docker-compose.prod.yml`.
 
-```
-cannot load certificate "/etc/letsencrypt/live/wimsbfp.tech/fullchain.pem"
-```
-
-**Fix:** generate a self-signed cert and point the env var at it:
+**Before first `docker compose up`, generate self-signed certificates:**
 
 ```bash
+# From repo root
 mkdir -p src/.ssl/live/wimsbfp.tech
 MSYS_NO_PATHCONV=1 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   -keyout src/.ssl/live/wimsbfp.tech/privkey.pem \
   -out src/.ssl/live/wimsbfp.tech/fullchain.pem \
-  -subj "/CN=localhost"
+  -subj "/CN=localhost" \
+  -addext "subjectAltName=DNS:localhost,DNS:wimsbfp.tech"
 ```
 
-Then add to `src/.env`:
+The default local override mounts `src/.ssl` into `/etc/letsencrypt`, so after generating the certs plain local Compose works:
 
-```
-LETSENCRYPT_DIR=./.ssl
+```bash
+cd src && docker compose up -d --build
 ```
 
-`src/.ssl/` is gitignored. Run this once per machine. The cert lasts 365 days.
+If you do not need local HTTPS (e.g., rapid UI-only development without Secure cookie testing), use the CI compose file which provides a plain HTTP nginx config:
+
+```bash
+cd src && docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build
+```
+
+Do not add `LETSENCRYPT_DIR=./.ssl` to `src/.env` for routine local development. If nginx fails locally with `cannot load certificate "/etc/letsencrypt/live/wimsbfp.tech/fullchain.pem"`, ensure certs are generated and mounted, or use the CI HTTP-only compose path.
 
 > **Why `MSYS_NO_PATHCONV=1`?** Git Bash on Windows converts leading `/` to a Windows drive path (e.g., `/CN=localhost` → `C:\Program Files\Git\CN=localhost`). The env var disables that conversion for the single command.
 
 ### 2. Clean-slate build
 
 ```bash
+# after generating src/.ssl/live/wimsbfp.tech/fullchain.pem and privkey.pem
 cd src && docker compose down -v   # wipes volumes (DB, Ollama, attachments)
 cd src && docker compose build --no-cache
 cd src && docker compose up -d
@@ -156,24 +161,30 @@ sed -i 's/\r//' src/backend/wait-for-db.sh
 
 **Symptom:** `docker compose ps -a` shows `wims-nginx-gateway Exited (1)`. Ports 80/443 are not open.
 
-**Root cause:** `src/nginx/nginx.conf` requires TLS certs at `/etc/letsencrypt/live/wimsbfp.tech/fullchain.pem`. The compose file mounts `${LETSENCRYPT_DIR:-/opt/wims-bfp/letsencrypt}` — on a dev machine neither the env var nor the default path holds real certs.
+**Root cause:** The local override (`docker-compose.override.yml`) now mounts `nginx.local.conf`, which includes a TLS server block requiring self-signed certificates at `/etc/letsencrypt/live/wimsbfp.tech/`. If `src/.ssl` does not contain the expected certificate files, nginx cannot start.
 
-**Fix:** do the one-time SSL setup in step 1 above. If you've already done it, check:
+**Fix:** either (a) generate self-signed certs for the default local HTTPS path, or (b) use the HTTP-only CI compose path:
+
+**Option A — Local HTTPS with self-signed certs:**
 
 ```bash
-ls src/.ssl/live/wimsbfp.tech/      # fullchain.pem and privkey.pem must exist
-grep LETSENCRYPT_DIR src/.env        # must be present and point to ./.ssl
+# Generate certs once (from repo root):
+mkdir -p src/.ssl/live/wimsbfp.tech
+MSYS_NO_PATHCONV=1 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout src/.ssl/live/wimsbfp.tech/privkey.pem \
+  -out src/.ssl/live/wimsbfp.tech/fullchain.pem \
+  -subj "/CN=localhost" \
+  -addext "subjectAltName=DNS:localhost,DNS:wimsbfp.tech"
+cd src && docker compose up -d --build
 ```
 
-If the env var is missing from `src/.env`, add it:
+**Option B — Plain HTTP (no certs needed):**
 
+```bash
+cd src && docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build
 ```
-LETSENCRYPT_DIR=./.ssl
-```
 
-Then restart just nginx: `cd src && docker compose up -d nginx-gateway`.
-
-> **Note:** `src/.ssl/` is gitignored and not committed. Each developer machine needs to run the `openssl` command once. The cert is self-signed so browsers will warn — accept the exception for `https://localhost`.
+If you intentionally need the production TLS config (real Let's Encrypt certs), use the production command with a real `LETSENCRYPT_DIR` as described below.
 
 ### Pitfall 3 — `seed-dev-users.sh` fails with password policy error
 
