@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import os
+import threading
 from typing import Annotated
 
 import redis
@@ -38,18 +39,29 @@ logger = logging.getLogger("wims.civilian")
 # Prevents connection leak from per-request redis.from_url() on this
 # public unauthenticated endpoint.
 _redis_client: redis.Redis | None = None
+_redis_lock = threading.Lock()
 
 
 def _get_redis() -> redis.Redis:
+    """Return the module-level Redis client singleton.
+
+    Uses double-checked locking to avoid a startup race where multiple
+    threads could create concurrent connections before the global
+    reference is published. Under CPython GIL the window is narrow,
+    but the lock eliminates it entirely.
+    """
     global _redis_client
     if _redis_client is None:
-        _redis_client = redis.from_url(
-            os.environ.get("REDIS_URL", "redis://redis:6379/0"),
-            decode_responses=True,
-            socket_connect_timeout=0.5,
-            socket_timeout=0.5,
-            health_check_interval=30,
-        )
+        with _redis_lock:
+            if _redis_client is None:
+                _redis_client = redis.from_url(
+                    os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+                    decode_responses=True,
+                    socket_connect_timeout=0.5,
+                    socket_timeout=0.5,
+                    health_check_interval=30,
+                    max_connections=10,
+                )
     return _redis_client
 
 
@@ -575,6 +587,8 @@ def register_notification(
 
 
 def _get_count_bucket(count: int) -> str:
+    if count < 3:
+        raise ValueError(f"unexpected cluster report count {count} (min 3 required)")
     if count < 5:
         return "3-4"
     elif count < 10:
@@ -659,7 +673,9 @@ def get_report_clusters(
             data = json.loads(fresh)
             return ReportClusterResponse(**data)
     except Exception:
-        logger.warning("Redis cache fresh-read failed for report-clusters", exc_info=True)
+        logger.warning(
+            "Redis cache fresh-read failed for report-clusters key=%s", cache_key, exc_info=True
+        )
 
     try:
         sql = f"""
@@ -751,7 +767,9 @@ def get_report_clusters(
                 redis_client.setex(cache_key, 60, dumped)
                 redis_client.setex(f"{cache_key}:stale", 600, dumped)
         except Exception:
-            logger.warning("Redis cache write failed for report-clusters", exc_info=True)
+            logger.warning(
+                "Redis cache write failed for report-clusters key=%s", cache_key, exc_info=True
+            )
 
         return resp
 
@@ -764,7 +782,9 @@ def get_report_clusters(
                 data["stale"] = True
                 return ReportClusterResponse(**data)
         except Exception:
-            logger.warning("Stale cache read failed for report-clusters", exc_info=True)
+            logger.warning(
+                "Stale cache read failed for report-clusters key=%s:stale", cache_key, exc_info=True
+            )
 
         return ReportClusterResponse(
             mode=mode,

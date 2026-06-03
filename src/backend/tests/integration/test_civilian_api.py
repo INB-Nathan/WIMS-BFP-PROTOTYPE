@@ -39,14 +39,19 @@ def db_session():
 
 
 @pytest.fixture(autouse=True)
-def _clean_redis():
+def _clean_state():
     """Ensure clean Redis and PostgreSQL state before every test.
 
     Redis: flush all keys so no cached data crosses test boundaries.
     PostgreSQL: delete from cluster/report tables so inserted data
     from one test does not pollute the 60-minute window queries of the next.
     """
-    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
+    r = redis.from_url(
+        os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+        decode_responses=True,
+        socket_connect_timeout=0.5,
+        socket_timeout=0.5,
+    )
     r.flushdb()
     r.close()
 
@@ -309,60 +314,68 @@ def _insert_cluster(db: Session, report_ids: list[int]) -> int:
 def test_get_report_clusters_cache_and_stale_fallback(client, db_session):
     from unittest import mock
 
-    r = redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
+    r = redis.from_url(
+        os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+        decode_responses=True,
+        socket_connect_timeout=0.5,
+        socket_timeout=0.5,
+    )
 
-    report_ids = [_insert_report(db_session, status="PENDING") for _ in range(3)]
-    linked_id = _insert_report(db_session, status="LINKED")
-    _insert_cluster(db_session, [*report_ids, linked_id])
+    try:
+        report_ids = [_insert_report(db_session, status="PENDING") for _ in range(3)]
+        linked_id = _insert_report(db_session, status="LINKED")
+        _insert_cluster(db_session, [*report_ids, linked_id])
 
-    # 1. Fresh DB hit
-    resp1 = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
-    assert resp1.status_code == 200
-    data1 = resp1.json()
-    assert data1["mode"] == "local"
-    assert data1["radius_m"] == 10000
-    assert data1["min_reports"] == 3
-    assert len(data1["areas"]) >= 1
-    area = data1["areas"][0]
-    assert area["count_bucket"] == "3-4"
-    assert area["radius_m"] == 100
-    assert "area_id" in area
-    assert "cluster_id" not in area
-    assert "report_id" not in area
-    assert "total_reports" not in area
-    assert data1.get("stale") is False
-    assert data1.get("degraded") is False
+        # 1. Fresh DB hit
+        resp1 = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
+        assert resp1.status_code == 200
+        data1 = resp1.json()
+        assert data1["mode"] == "local"
+        assert data1["radius_m"] == 10000
+        assert data1["min_reports"] == 3
+        assert len(data1["areas"]) >= 1
+        area = data1["areas"][0]
+        assert area["count_bucket"] == "3-4"
+        assert area["radius_m"] == 100
+        assert "area_id" in area
+        assert "cluster_id" not in area
+        assert "report_id" not in area
+        assert "total_reports" not in area
+        assert data1.get("stale") is False
+        assert data1.get("degraded") is False
 
-    # 2. Cache hit (DB not called)
-    with mock.patch("sqlalchemy.orm.Session.execute") as mock_exec:
-        resp2 = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
-        assert resp2.status_code == 200
-        assert mock_exec.call_count == 0
-        assert resp2.json()["areas"] == data1["areas"]
+        # 2. Cache hit (DB not called)
+        with mock.patch("sqlalchemy.orm.Session.execute") as mock_exec:
+            resp2 = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
+            assert resp2.status_code == 200
+            assert mock_exec.call_count == 0
+            assert resp2.json()["areas"] == data1["areas"]
 
-    # 3. DB fails, fresh cache expired -> serve stale
-    # Clear fresh cache, leave stale
-    for key in r.keys("wims:civilian:report-clusters:v1:local:*"):
-        if not key.endswith(":stale"):
-            r.delete(key)
+        # 3. DB fails, fresh cache expired -> serve stale
+        # Clear fresh cache, leave stale
+        for key in r.scan_iter(match="wims:civilian:report-clusters:v1:local:*"):
+            if not key.endswith(":stale"):
+                r.delete(key)
 
-    with mock.patch("sqlalchemy.orm.Session.execute", side_effect=Exception("DB dead")):
-        resp3 = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
-        assert resp3.status_code == 200
-        data3 = resp3.json()
-        assert data3["stale"] is True
-        assert data3["degraded"] is False
-        assert len(data3["areas"]) >= 1
+        with mock.patch("sqlalchemy.orm.Session.execute", side_effect=Exception("DB dead")):
+            resp3 = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
+            assert resp3.status_code == 200
+            data3 = resp3.json()
+            assert data3["stale"] is True
+            assert data3["degraded"] is False
+            assert len(data3["areas"]) >= 1
 
-    # 4. DB fails, no stale cache -> degraded
-    r.flushdb()
-    with mock.patch("sqlalchemy.orm.Session.execute", side_effect=Exception("DB dead")):
-        resp4 = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
-        assert resp4.status_code == 200
-        data4 = resp4.json()
-        assert data4["stale"] is False
-        assert data4["degraded"] is True
-        assert len(data4["areas"]) == 0
+        # 4. DB fails, no stale cache -> degraded
+        r.flushdb()
+        with mock.patch("sqlalchemy.orm.Session.execute", side_effect=Exception("DB dead")):
+            resp4 = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
+            assert resp4.status_code == 200
+            data4 = resp4.json()
+            assert data4["stale"] is False
+            assert data4["degraded"] is True
+            assert len(data4["areas"]) == 0
+    finally:
+        r.close()
 
 
 # ── Issue #127: comprehensive report-clusters endpoint tests ──────────────────
@@ -604,25 +617,15 @@ def test_get_report_clusters_area_id_is_ephemeral(client, db_session):
 def test_get_report_clusters_returns_truncated_false_when_under_cap(client, db_session):
     """With fewer clusters than the cap, truncated flag is False."""
 
-    # Monkey-patch the endpoint's max_results to 2 for this test
-    # We create 3 clusters, each meeting the min threshold
     for _ in range(3):
         report_ids = [_insert_report(db_session, status="PENDING") for _ in range(4)]
         _insert_cluster(db_session, report_ids)
 
-    # Without monkeypatch, we check truncation naturally if many clusters exist.
     # With only 3 clusters and cap 50 (local), truncation should be False.
     resp = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
     assert resp.status_code == 200
     data = resp.json()
-    # 3 clusters < 50 cap → truncated should be False
     assert data["truncated"] is False
-
-    # For national mode with 3 clusters and cap 25 → truncated should be False
-    resp_nat = client.get("/api/civilian/report-clusters")
-    assert resp_nat.status_code == 200
-    # National mode requires min 10 reports per cluster; with only 4 per cluster, none qualify
-    # Not a reliable truncation test for national; skip assertion on areas length
 
 
 def test_get_report_clusters_requires_active_report_in_cluster(client, db_session):

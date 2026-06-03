@@ -3,6 +3,18 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-03] fix | PR #212 review fixes — Redis pool bounding, thread-safety, test hygiene
+
+- **Redis connection pool:** Added `max_connections=10` to `_get_redis()` in `civilian.py`, matching `map.py`'s bounded-pool pattern. Prevents unbounded connection growth under load.
+- **Thread-safety:** Added `threading.Lock` with double-checked locking around `_get_redis()` singleton initialization. Eliminates the narrow startup race where multiple threads could create concurrent connections before the global reference is published.
+- **Warning log diagnostics:** Added `cache_key` to all three `logger.warning(...)` calls in `civilian.py` (fresh-read, write, stale read) for production debugging. `exc_info=True` retained.
+- **Count bucket guard:** Added `ValueError` for `_get_count_bucket(count < 3)` as defense-in-depth (SQL already enforces `total_reports >= :min_reports`).
+- **Test fixture rename:** Renamed `_clean_redis` fixture to `_clean_state` since it flushes Redis *and* deletes from 3 PostgreSQL tables. Added `socket_connect_timeout=0.5`/`socket_timeout=0.5` to the fixture's Redis client.
+- **Test Redis hygiene:** Wrapped the pre-existing Redis client in `test_get_report_clusters_cache_and_stale_fallback` in `try/finally` so `r.close()` always runs. Added `socket_connect_timeout`/`socket_timeout`. Replaced `r.keys()` with `r.scan_iter(match=...)` to avoid O(N) keyspace scans.
+- **Dead test code removed:** Removed the national-mode request in `test_get_report_clusters_returns_truncated_false_when_under_cap` that only asserted `status_code == 200` without testing truncation (comments admitted it was not reliable). Removed stale monkey-patch comments.
+- **Wiki updated:** `system-wiki/subsystems/civilian-reporting-phase2.md` updated frontmatter date, cache behavior section (pool bounding, thread-safety, warning log keys, count guard), and test coverage section (fixture rename, Redis hygiene).
+- **Verification:** `ruff check` + `ruff format --check` pass on both changed files. `git diff --check` clean. All 25 pytest tests pass (15 report-clusters + 10 submission tests).
+
 ## [2026-06-03] fix | PR #223 CI security-scan startup — CI-only HTTP nginx config
 
 - **Root cause:** PR #223 changed `src/nginx/nginx.local.conf` from HTTP-only to HTTPS (HTTP→HTTPS redirect + TLS server block requiring `/etc/letsencrypt/live/wimsbfp.tech/` certs). The `docker-compose.override.yml` (auto-loaded by plain `docker compose up`) mounts `nginx.local.conf` but provides no cert volume. The GitHub Actions `security-scan` job ran plain `docker compose up -d --build`, so nginx failed to start because cert files were missing. The health-poller timed out at 180s before Nmap/ZAP could run.
