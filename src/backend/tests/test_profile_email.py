@@ -9,11 +9,13 @@ Covers:
 """
 
 import pytest
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
+from keycloak.exceptions import KeycloakError
 
 import auth
-from database import get_db_with_rls, get_db
+from database import get_db_with_rls
 from main import app
 
 
@@ -36,6 +38,7 @@ def mock_analyst_user():
         "user_id": "c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
         "keycloak_id": "kid-analyst",
         "username": "analyst",
+        "kc_username": "analyst@bfp.gov.ph",
         "role": "NATIONAL_ANALYST",
         "email": "analyst@bfp.gov.ph",
     }
@@ -45,6 +48,19 @@ def _get_db_session():
     db = MagicMock()
     db.execute.return_value.fetchone.return_value = ("09171234567",)
     return db
+
+
+@contextmanager
+def _verified_current_password(username="analyst@bfp.gov.ph"):
+    with (
+        patch("api.routes.user._get_admin_client") as mock_get_admin,
+        patch("api.routes.user.KeycloakOpenID") as mock_keycloak_openid,
+    ):
+        admin = mock_get_admin.return_value
+        admin.get_user.return_value = {"username": username}
+        oidc = mock_keycloak_openid.return_value
+        oidc.token.return_value = {"access_token": "verified"}
+        yield mock_get_admin, mock_keycloak_openid, oidc
 
 
 # ── ProfileUpdate schema tests ───────────────────────────────────────────────
@@ -74,6 +90,7 @@ class TestProfileEmailSchema:
 
         payload = ProfileUpdate()
         assert payload.email is None
+        assert payload.current_password is None
         assert payload.first_name is None
         assert payload.last_name is None
         assert payload.contact_number is None
@@ -98,6 +115,23 @@ class TestProfileEmailSchema:
         with pytest.raises(ValidationError):
             ProfileUpdate(email="   ")
 
+        with pytest.raises(ValidationError):
+            ProfileUpdate(email="")
+
+    def test_contact_number_matches_frontend_format(self):
+        """Backend contact number validation should match frontend ^09\\d{9}$ regex."""
+        from api.routes.user import ProfileUpdate
+        from pydantic import ValidationError
+
+        payload = ProfileUpdate(contact_number="09171234567")
+        assert payload.contact_number == "09171234567"
+
+        with pytest.raises(ValidationError):
+            ProfileUpdate(contact_number="1234567")
+
+        with pytest.raises(ValidationError):
+            ProfileUpdate(contact_number="+639171234567")
+
 
 # ── PATCH /api/user/me tests ─────────────────────────────────────────────────
 
@@ -110,16 +144,25 @@ class TestProfileUpdateWithEmail:
         app.dependency_overrides[get_db_with_rls] = lambda: mock_db
 
         with (
+            _verified_current_password() as (_, mock_keycloak_openid, oidc),
             patch("api.routes.user.update_user_profile") as mock_kc_update,
             patch("api.routes.user.logger"),
         ):
             mock_kc_update.return_value = None
-            response = client.patch("/api/user/me", json={"email": "new@bfp.gov.ph"})
+            response = client.patch(
+                "/api/user/me",
+                json={"email": "new@bfp.gov.ph", "current_password": "CorrectPassword1!"},
+            )
 
             assert response.status_code == 200
+            mock_keycloak_openid.assert_called_once()
+            oidc.token.assert_called_once_with(
+                username="analyst@bfp.gov.ph", password="CorrectPassword1!"
+            )
             mock_kc_update.assert_called_once()
             call_kwargs = mock_kc_update.call_args.kwargs
             assert call_kwargs.get("email") == "new@bfp.gov.ph"
+            assert "current_password" not in call_kwargs
 
     def test_update_email_syncs_to_db(self, client: TestClient):
         """Email should be written to wims.users along with contact_number."""
@@ -128,13 +171,18 @@ class TestProfileUpdateWithEmail:
         app.dependency_overrides[get_db_with_rls] = lambda: mock_db
 
         with (
+            _verified_current_password(),
             patch("api.routes.user.update_user_profile") as mock_kc_update,
             patch("api.routes.user.logger"),
         ):
             mock_kc_update.return_value = None
             response = client.patch(
                 "/api/user/me",
-                json={"email": "new@bfp.gov.ph", "contact_number": "09181112233"},
+                json={
+                    "email": "new@bfp.gov.ph",
+                    "current_password": "CorrectPassword1!",
+                    "contact_number": "09181112233",
+                },
             )
 
             assert response.status_code == 200
@@ -153,11 +201,18 @@ class TestProfileUpdateWithEmail:
         app.dependency_overrides[get_db_with_rls] = lambda: mock_db
 
         with (
+            _verified_current_password(),
             patch("api.routes.user.update_user_profile") as mock_kc_update,
             patch("api.routes.user.logger"),
         ):
             mock_kc_update.return_value = None
-            response = client.patch("/api/user/me", json={"email": "analyst-updated@bfp.gov.ph"})
+            response = client.patch(
+                "/api/user/me",
+                json={
+                    "email": "analyst-updated@bfp.gov.ph",
+                    "current_password": "CorrectPassword1!",
+                },
+            )
 
             assert response.status_code == 200
             assert mock_kc_update.call_args.kwargs.get("email") == "analyst-updated@bfp.gov.ph"
@@ -173,7 +228,7 @@ class TestProfileUpdateWithEmail:
                 "email": "analyst@bfp.gov.ph",
             }
             mock_db = _get_db_session()
-            app.dependency_overrides[get_db] = lambda: mock_db
+            app.dependency_overrides[get_db_with_rls] = lambda: mock_db
 
             response = client.get("/api/user/me/profile")
 
@@ -191,13 +246,87 @@ class TestProfileUpdateWithEmail:
                 "last_name": "Lyst",
             }
             mock_db = _get_db_session()
-            app.dependency_overrides[get_db] = lambda: mock_db
+            app.dependency_overrides[get_db_with_rls] = lambda: mock_db
 
             response = client.get("/api/user/me/profile")
 
             assert response.status_code == 200
             data = response.json()
             assert data.get("email") == "analyst@bfp.gov.ph"
+
+    def test_update_email_requires_current_password(self, client: TestClient):
+        """Email/login identity changes require step-up current-password verification."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
+        mock_db = _get_db_session()
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        with patch("api.routes.user.update_user_profile") as mock_kc_update:
+            response = client.patch("/api/user/me", json={"email": "new@bfp.gov.ph"})
+
+            assert response.status_code == 400
+            assert "current password" in response.json()["detail"].lower()
+            mock_kc_update.assert_not_called()
+
+    def test_update_email_invalid_current_password_returns_401(self, client: TestClient):
+        """Invalid current password should block email changes before Keycloak update."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
+        mock_db = _get_db_session()
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        with (
+            _verified_current_password() as (_, _, oidc),
+            patch("api.routes.user.update_user_profile") as mock_kc_update,
+            patch("api.routes.user.logger"),
+        ):
+            oidc.token.side_effect = KeycloakError(error_message="invalid credentials")
+            response = client.patch(
+                "/api/user/me",
+                json={"email": "new@bfp.gov.ph", "current_password": "WrongPassword1!"},
+            )
+
+            assert response.status_code == 401
+            assert "current password" in response.json()["detail"].lower()
+            mock_kc_update.assert_not_called()
+
+    def test_update_profile_keycloak_failure_returns_502(self, client: TestClient):
+        """Keycloak profile update errors should return 502."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
+        mock_db = _get_db_session()
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        with (
+            patch("api.routes.user.update_user_profile") as mock_kc_update,
+            patch("api.routes.user.logger"),
+        ):
+            mock_kc_update.side_effect = KeycloakError(error_message="keycloak down")
+            response = client.patch("/api/user/me", json={"first_name": "Ana"})
+
+            assert response.status_code == 502
+            assert "identity provider" in response.json()["detail"].lower()
+
+    def test_update_profile_empty_body_returns_400(self, client: TestClient):
+        """Route-level empty PATCH body should return 400 No fields to update."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
+        mock_db = _get_db_session()
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        response = client.patch("/api/user/me", json={})
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "No fields to update"
+
+    def test_update_profile_empty_email_string_is_rejected(self, client: TestClient):
+        """Route-level empty string email should be rejected by EmailStr validation."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
+        mock_db = _get_db_session()
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        response = client.patch(
+            "/api/user/me",
+            json={"email": "", "current_password": "CorrectPassword1!"},
+        )
+
+        assert response.status_code == 422
 
     def test_update_email_db_sync_failure_returns_partial(self, client: TestClient):
         """When DB sync fails after Keycloak update, return partial status."""
@@ -207,16 +336,42 @@ class TestProfileUpdateWithEmail:
         app.dependency_overrides[get_db_with_rls] = lambda: mock_db
 
         with (
+            _verified_current_password(),
             patch("api.routes.user.update_user_profile") as mock_kc_update,
             patch("api.routes.user.logger"),
         ):
             mock_kc_update.return_value = None
             response = client.patch(
                 "/api/user/me",
-                json={"email": "new@bfp.gov.ph"},
+                json={"email": "new@bfp.gov.ph", "current_password": "CorrectPassword1!"},
             )
 
             assert response.status_code == 200
             data = response.json()
             assert data["status"] == "partial"
             assert "database sync failed" in data["message"].lower()
+
+
+class TestKeycloakProfileUpdate:
+    def test_contact_number_update_merges_existing_attributes(self):
+        """Updating contact_number must not replace unrelated Keycloak attributes."""
+        from services.keycloak_admin import update_user_profile
+
+        with patch("services.keycloak_admin._get_admin_client") as mock_get_admin:
+            admin = mock_get_admin.return_value
+            admin.get_user.return_value = {
+                "attributes": {
+                    "station_id": ["42"],
+                    "mfa_enrolled": ["true"],
+                }
+            }
+
+            update_user_profile("kid-analyst", contact_number="09171234567")
+
+            admin.update_user.assert_called_once()
+            payload = admin.update_user.call_args.kwargs["payload"]
+            assert payload["attributes"] == {
+                "station_id": ["42"],
+                "mfa_enrolled": ["true"],
+                "contact_number": ["09171234567"],
+            }

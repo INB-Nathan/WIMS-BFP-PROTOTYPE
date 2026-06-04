@@ -71,6 +71,7 @@ describe('ProfilePage', () => {
     vi.clearAllMocks();
     mockAnalystUser();
     mockProfileResponse();
+    mockUpdateMyProfile.mockResolvedValue({ status: 'ok', message: 'Profile updated successfully' });
   });
 
   // ---------------------------------------------------------------------------
@@ -103,7 +104,7 @@ describe('ProfilePage', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText(/changing your email may update your login identity/i),
+          screen.getByText(/changing your email updates your login identity/i),
         ).toBeInTheDocument();
       });
     });
@@ -191,14 +192,60 @@ describe('ProfilePage', () => {
       await user.clear(emailInput);
       await user.type(emailInput, 'new.email@bfp.gov.ph');
 
+      const passwordInput = document.getElementById('profile-email-current-password') as HTMLInputElement;
+      await user.type(passwordInput, 'CorrectPassword1!');
+
       const saveBtn = screen.getByText(/save changes/i);
       await user.click(saveBtn);
 
       await waitFor(() => {
         expect(mockUpdateMyProfile).toHaveBeenCalledWith(
-          expect.objectContaining({ email: 'new.email@bfp.gov.ph' }),
+          expect.objectContaining({
+            email: 'new.email@bfp.gov.ph',
+            current_password: 'CorrectPassword1!',
+          }),
         );
       });
+    });
+
+    it('requires current password when saving an email change', async () => {
+      const user = userEvent.setup();
+
+      render(<ProfilePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/all regions/i)).toBeInTheDocument();
+      });
+
+      const emailInput = document.getElementById('profile-email') as HTMLInputElement;
+      await user.type(emailInput, 'new.email@bfp.gov.ph');
+      await user.click(screen.getByText(/save changes/i));
+
+      expect(mockUpdateMyProfile).not.toHaveBeenCalled();
+      expect(screen.getByText(/current password is required/i)).toBeInTheDocument();
+    });
+
+    it('shows backend partial update message instead of unconditional success', async () => {
+      const user = userEvent.setup();
+      mockUpdateMyProfile.mockResolvedValueOnce({
+        status: 'partial',
+        message: 'Profile updated in authentication system, but database sync failed.',
+      });
+
+      render(<ProfilePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/all regions/i)).toBeInTheDocument();
+      });
+
+      const contactInput = document.getElementById('profile-contact') as HTMLInputElement;
+      await user.type(contactInput, '09189990000');
+      await user.click(screen.getByText(/save changes/i));
+
+      await waitFor(() => {
+        expect(screen.getByText(/database sync failed/i)).toBeInTheDocument();
+      });
+      expect(screen.queryByText('Profile updated successfully.')).not.toBeInTheDocument();
     });
   });
 });

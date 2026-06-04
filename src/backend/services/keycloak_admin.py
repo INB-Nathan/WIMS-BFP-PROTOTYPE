@@ -213,7 +213,12 @@ def update_user_profile(
         payload["email"] = email
         payload["username"] = email  # keep username = email in sync
     if contact_number is not None:
-        payload["attributes"] = {"contact_number": [contact_number]}
+        user = adm.get_user(keycloak_id)
+        existing_attributes = user.get("attributes") or {}
+        payload["attributes"] = {
+            **existing_attributes,
+            "contact_number": [contact_number],
+        }
 
     if not payload:
         return

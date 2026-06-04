@@ -29,7 +29,7 @@ export default function ProfilePage() {
     // ---------------------------------------------------------------------------
     // Profile form state
     // ---------------------------------------------------------------------------
-    const [profileForm, setProfileForm] = useState({ first_name: '', last_name: '', email: '', contact_number: '' });
+    const [profileForm, setProfileForm] = useState({ first_name: '', last_name: '', email: '', current_password: '', contact_number: '' });
     const [currentProfile, setCurrentProfile] = useState<{ first_name: string; last_name: string; email?: string; contact_number: string } | null>(null);
     const [profileMsg, setProfileMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
     const [savingProfile, setSavingProfile] = useState(false);
@@ -72,19 +72,35 @@ export default function ProfilePage() {
         setSavingProfile(true);
         setProfileMsg(null);
         try {
-            const payload: { first_name?: string; last_name?: string; email?: string; contact_number?: string } = {};
+            const payload: { first_name?: string; last_name?: string; email?: string; current_password?: string; contact_number?: string } = {};
             if (profileForm.first_name.trim()) payload.first_name = profileForm.first_name.trim();
             if (profileForm.last_name.trim()) payload.last_name = profileForm.last_name.trim();
-            if (profileForm.email.trim()) payload.email = profileForm.email.trim();
+            if (profileForm.email.trim()) {
+                if (!profileForm.current_password.trim()) {
+                    setProfileMsg({ type: 'error', text: 'Current password is required to change your email/login identity.' });
+                    setSavingProfile(false);
+                    return;
+                }
+                payload.email = profileForm.email.trim();
+                payload.current_password = profileForm.current_password;
+            }
             if (profileForm.contact_number.trim()) payload.contact_number = profileForm.contact_number.trim();
             if (Object.keys(payload).length === 0) {
                 setProfileMsg({ type: 'error', text: 'No fields to update.' });
                 setSavingProfile(false);
                 return;
             }
-            await updateMyProfile(payload);
-            setProfileMsg({ type: 'success', text: 'Profile updated successfully.' });
-            setProfileForm({ first_name: '', last_name: '', email: '', contact_number: '' });
+            const result = await updateMyProfile(payload);
+            if (result.status === 'partial') {
+                setProfileMsg({ type: 'error', text: result.message || 'Profile update partially completed. Contact support if details are missing.' });
+                setProfileForm(p => ({ ...p, current_password: '' }));
+            } else if (result.status === 'ok') {
+                setProfileMsg({ type: 'success', text: result.message || 'Profile updated successfully.' });
+                setProfileForm({ first_name: '', last_name: '', email: '', current_password: '', contact_number: '' });
+            } else {
+                setProfileMsg({ type: 'error', text: result.message || 'Profile update returned an unexpected status.' });
+                setProfileForm(p => ({ ...p, current_password: '' }));
+            }
             fetchMyProfile().then(data => setCurrentProfile({
                 first_name: data.first_name,
                 last_name: data.last_name,
@@ -256,8 +272,24 @@ export default function ProfilePage() {
                         />
                         <p className="text-xs mt-1 flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
                             <AlertCircle className="w-3 h-3" />
-                            Changing your email may update your login identity/username.
+                            Changing your email updates your login identity/username and requires your current password.
                         </p>
+                        {profileForm.email.trim() && (
+                            <div className="mt-3">
+                                <label className="block text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                                    Current Password for Email Change
+                                </label>
+                                <input
+                                    id="profile-email-current-password"
+                                    type="password"
+                                    value={profileForm.current_password}
+                                    onChange={e => setProfileForm(p => ({ ...p, current_password: e.target.value }))}
+                                    placeholder="Enter current password to change email"
+                                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--card-bg)', color: 'var(--text-primary)' }}
+                                />
+                            </div>
+                        )}
                     </div>
 
                     <div>

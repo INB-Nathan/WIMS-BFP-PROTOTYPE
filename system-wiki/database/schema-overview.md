@@ -1,7 +1,7 @@
 ---
 title: Database Schema Overview
 created: 2026-05-14
-updated: 2026-05-14
+updated: 2026-06-04
 type: database
 tags: [wims-bfp, database, schema, rls, audit-log, implementation-map]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/postgres-init]
@@ -18,7 +18,7 @@ PostgreSQL/PostGIS schema is bootstrapped by ordered SQL files in `src/postgres-
 | `wims.ref_provinces` | `02_ref_geography.sql` |
 | `wims.ref_cities` | `02_ref_geography.sql` |
 | `wims.ref_barangays` | `02_ref_geography.sql` |
-| `wims.users` | `03_users.sql` |
+| `wims.users` | `03_users.sql`; email column/unique local email index in `44_add_email_to_users.sql` |
 | `wims.data_import_batches` | `04_import_incidents.sql` |
 | `wims.fire_incidents` | `04_import_incidents.sql` |
 | `wims.citizen_reports` | `05_citizen_reports.sql` |
@@ -45,7 +45,7 @@ PostgreSQL/PostGIS schema is bootstrapped by ordered SQL files in `src/postgres-
 
 ## Schema Clusters
 - Reference geography: `wims.ref_regions`, `wims.ref_provinces`, `wims.ref_cities`, `wims.ref_barangays`.
-- Users and RBAC mirror: `wims.users` plus Keycloak identity data.
+- Users and RBAC mirror: `wims.users` plus Keycloak identity data. PR #207 adds local `email` storage with a unique `LOWER(email)` index (`uq_users_email_lower`) to align local email uniqueness with Keycloak's duplicate-email prevention; startup DDL intentionally does not patch this table.
 - Incident workflow: `wims.fire_incidents`, detail tables, involved parties, responding units, operational challenges, attachments.
 - Verification/immutability: `wims.incident_verification_history`, immutable records SQL, audit trails.
 - Analytics: `wims.analytics_incident_facts`, materialized view SQL, export/scheduled report tables. Migration `28_analytics_geography_denorm.sql` adds denormalized `municipality_name` and `province_name` fields for analyst filters/top-N views, plus export task/file metadata on `analytics_export_log`. Scheduled reports remain deferred outside the National Analyst dashboard phase.

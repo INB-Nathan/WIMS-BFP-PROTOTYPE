@@ -209,8 +209,9 @@ export async function updateMyProfile(payload: {
   first_name?: string;
   last_name?: string;
   email?: string;
+  current_password?: string;
   contact_number?: string;
-}): Promise<{ status: string; message: string }> {
+}): Promise<{ status: 'ok' | 'partial' | string; message: string }> {
   return apiFetch('/user/me', {
     method: 'PATCH',
     body: JSON.stringify(payload),
