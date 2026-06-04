@@ -1,7 +1,7 @@
 ---
 title: Security Baseline
 created: 2026-05-14
-updated: 2026-05-30
+updated: 2026-06-04
 type: security
 tags: [wims-bfp, security, auth, rbac, rls, audit-log, ids, xai, privacy, fail-closed]
 sources: [raw/frs/frs-auth.md, raw/frs/frs-complianceanddataprivacy.md, raw/frs/frs-intrusiondetectionandnetworkingmonitoring.md, raw/frs/frs-threatdetectionwithexplainableai.md, raw/codebase/codebase-snapshot-2026-05-14.md]
@@ -14,6 +14,8 @@ status: draft
 FRS Module 1 defines Keycloak-backed authentication, MFA for privileged roles, session timeout, password policy, and role-based access control. Relevant implementation surfaces: `admin.py`, `sessions.py`, `user.py`, frontend auth API routes, and Keycloak config.
 
 Development Keycloak realm config in `src/keycloak/bfp-realm.json` enables the built-in `reset credentials` flow, `resetPasswordAllowed`, and MailHog SMTP defaults (`mailhog:1025`, `noreply@wims-bfp.local`) for local forgot-password testing. `src/docker-compose.yml` includes a MailHog service exposing SMTP on `1025` and the web/API UI on `8025`.
+
+Self-service profile email edits (`PATCH /api/user/me`) treat email as a login identity: users must provide `current_password`, which the backend verifies against Keycloak using the Direct Grant-enabled `bfp-client` before updating Keycloak email/username and local `wims.users.email`/`username`. Name/contact-only profile updates remain JWT-authenticated. Email verification after self-service changes is not yet triggered automatically; Keycloak remains configured with `verifyEmail: false` in the development realm.
 
 ## Fail-Closed Rule
 Any missing authentication context defaults to deny. Public unauthenticated behavior is limited to the explicit public DMZ submission route in `public_dmz.py`; all adjacent APIs should require valid role context.

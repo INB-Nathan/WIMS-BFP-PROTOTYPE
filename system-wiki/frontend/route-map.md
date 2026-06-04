@@ -1,7 +1,7 @@
 ---
 title: Frontend Route Map
 created: 2026-05-14
-updated: 2026-05-30
+updated: 2026-06-04
 type: frontend
 tags: [wims-bfp, frontend, routing, implementation-map]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/frontend/src/app]
@@ -40,7 +40,7 @@ Next.js App Router pages detected under `src/frontend/src/app`.
 | `/incidents/triage` | `incidents/triage/page.tsx` | Phase 2 civilian triage queue using `/api/triage/queue`, claim, cluster inspection, and terminal actions. |
 | `/login` | `login/page.tsx` | Employee-facing app login page. Do not place app pages under `/auth/*`; nginx reserves `/auth/` for Keycloak. |
 | `/` | `page.tsx` | Public civilian emergency report form. Includes `<NearbyPublicReportAreas />` map for Public Fire Report Areas after `CalmEmergencyBlock`; it shares parent `fireLocation` with the report flow, supports national/manual/location modes, shows BFP station markers, and polls every 60 seconds when visible. Submitted and updated reports link to `/tracking?id=<report_id>` for status checks. |
-| `/profile` | `profile/page.tsx` |
+| `/profile` | `profile/page.tsx` | Profile editing includes email/login-identity changes with current-password field, contact-number validation aligned to `^09\\d{9}$`, and warning/error display for backend partial profile-update responses. |
 | `/tracking` | `tracking/page.tsx` | Public report status/tracking guidance with `?id=<report_id>` lookup and notification opt-in. |
 
 ## UI Surface Clusters

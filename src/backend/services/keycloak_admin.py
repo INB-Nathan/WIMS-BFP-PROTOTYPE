@@ -190,9 +190,9 @@ def update_user_profile(
     *,
     first_name: str | None = None,
     last_name: str | None = None,
-    # NOTE: email intentionally not exposed to self-service routes (CRIT-0).
-    # Self-service PATCH /me must NEVER pass email — it is a government-controlled
-    # credential. Admin routes that manage email must call this with email explicitly.
+    # NOTE: email is now self-service editable via PATCH /api/user/me (issues #28, #86).
+    # The user is warned that changing email may update their login identity/username.
+    # Admin routes that manage email also call this with email explicitly.
     email: str | None = None,
     contact_number: str | None = None,
 ) -> None:
@@ -213,7 +213,12 @@ def update_user_profile(
         payload["email"] = email
         payload["username"] = email  # keep username = email in sync
     if contact_number is not None:
-        payload["attributes"] = {"contact_number": [contact_number]}
+        user = adm.get_user(keycloak_id)
+        existing_attributes = user.get("attributes") or {}
+        payload["attributes"] = {
+            **existing_attributes,
+            "contact_number": [contact_number],
+        }
 
     if not payload:
         return
@@ -257,6 +262,7 @@ def get_user_profile(keycloak_id: str) -> dict:
             "first_name": first,
             "last_name": last,
             "full_name": full_name,
+            "email": user.get("email", ""),
             "contact_number": contact_number,
         }
     except KeycloakError as e:
@@ -265,5 +271,6 @@ def get_user_profile(keycloak_id: str) -> dict:
             "first_name": "",
             "last_name": "",
             "full_name": "",
+            "email": "",
             "contact_number": "",
         }

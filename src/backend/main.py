@@ -81,6 +81,11 @@ def apply_schema_patches() -> None:
     - no_update_verified rule: allows is_archived FALSE→TRUE and TRUE→FALSE on VERIFIED rows
       (migration 41_fix_immutable_rule_for_archive.sql — may not have run on
       existing containers).
+
+    Note: email column (migration 44_add_email_to_users.sql) is intentionally NOT
+    patched at startup. Startup DDL on wims.users can deadlock with open read
+    transactions (e.g. test fixtures querying wims.users while TestClient(app)
+    triggers startup). The postgres-init migration handles fresh CI databases.
     """
     db = get_session_maker()()
     try:

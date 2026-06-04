@@ -29,8 +29,8 @@ export default function ProfilePage() {
     // ---------------------------------------------------------------------------
     // Profile form state
     // ---------------------------------------------------------------------------
-    const [profileForm, setProfileForm] = useState({ first_name: '', last_name: '', contact_number: '' });
-    const [currentProfile, setCurrentProfile] = useState<{ first_name: string; last_name: string; contact_number: string } | null>(null);
+    const [profileForm, setProfileForm] = useState({ first_name: '', last_name: '', email: '', current_password: '', contact_number: '' });
+    const [currentProfile, setCurrentProfile] = useState<{ first_name: string; last_name: string; email?: string; contact_number: string } | null>(null);
     const [profileMsg, setProfileMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
     const [savingProfile, setSavingProfile] = useState(false);
     const [contactTouched, setContactTouched] = useState(false);
@@ -58,6 +58,7 @@ export default function ProfilePage() {
                 setCurrentProfile({
                     first_name: data.first_name,
                     last_name: data.last_name,
+                    email: data.email,
                     contact_number: data.contact_number
                 });
             }).catch(e => console.error("Failed to fetch profile", e));
@@ -71,23 +72,41 @@ export default function ProfilePage() {
         setSavingProfile(true);
         setProfileMsg(null);
         try {
-            const payload: { first_name?: string; last_name?: string; contact_number?: string } = {};
+            const payload: { first_name?: string; last_name?: string; email?: string; current_password?: string; contact_number?: string } = {};
             if (profileForm.first_name.trim()) payload.first_name = profileForm.first_name.trim();
             if (profileForm.last_name.trim()) payload.last_name = profileForm.last_name.trim();
+            if (profileForm.email.trim()) {
+                if (!profileForm.current_password.trim()) {
+                    setProfileMsg({ type: 'error', text: 'Current password is required to change your email/login identity.' });
+                    setSavingProfile(false);
+                    return;
+                }
+                payload.email = profileForm.email.trim();
+                payload.current_password = profileForm.current_password;
+            }
             if (profileForm.contact_number.trim()) payload.contact_number = profileForm.contact_number.trim();
             if (Object.keys(payload).length === 0) {
                 setProfileMsg({ type: 'error', text: 'No fields to update.' });
                 setSavingProfile(false);
                 return;
             }
-            await updateMyProfile(payload);
-            setProfileMsg({ type: 'success', text: 'Profile updated successfully.' });
-            setProfileForm({ first_name: '', last_name: '', contact_number: '' });
+            const result = await updateMyProfile(payload);
+            if (result.status === 'partial') {
+                setProfileMsg({ type: 'error', text: result.message || 'Profile update partially completed. Contact support if details are missing.' });
+                setProfileForm(p => ({ ...p, current_password: '' }));
+            } else if (result.status === 'ok') {
+                setProfileMsg({ type: 'success', text: result.message || 'Profile updated successfully.' });
+                setProfileForm({ first_name: '', last_name: '', email: '', current_password: '', contact_number: '' });
+            } else {
+                setProfileMsg({ type: 'error', text: result.message || 'Profile update returned an unexpected status.' });
+                setProfileForm(p => ({ ...p, current_password: '' }));
+            }
             fetchMyProfile().then(data => setCurrentProfile({
                 first_name: data.first_name,
                 last_name: data.last_name,
+                email: data.email,
                 contact_number: data.contact_number
-            }));
+            })).catch(e => console.error("Failed to refresh profile after save", e));
         } catch (e: unknown) {
             setProfileMsg({ type: 'error', text: (e as { message?: string })?.message ?? 'Update failed.' });
         } finally {
@@ -176,7 +195,9 @@ export default function ProfilePage() {
                         <div>
                             <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>Assigned Region</p>
                             <p style={{ color: 'var(--text-primary)' }}>
-                              {typedUser?.role === 'NATIONAL_ANALYST' || typedUser?.role === 'SYSTEM_ADMIN'
+                              {typedUser?.role === 'NATIONAL_ANALYST'
+                                ? 'All Regions'
+                                : typedUser?.role === 'SYSTEM_ADMIN'
                                 ? 'National'
                                 : (typedUser?.assignedRegionId ?? '—')}
                             </p>
@@ -228,6 +249,47 @@ export default function ProfilePage() {
                                 style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--card-bg)', color: 'var(--text-primary)' }}
                             />
                         </div>
+                    </div>
+
+                    <div>
+                        <div className="flex justify-between items-end mb-1">
+                            <label className="block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                                <Mail className="w-3 h-3 inline mr-1" />
+                                Email
+                            </label>
+                            <span className="text-xs" style={{ color: 'var(--text-primary)' }}>
+                                Current: <span className="font-medium">{currentProfile?.email || typedUser?.email || '—'}</span>
+                            </span>
+                        </div>
+                        <input
+                            id="profile-email"
+                            type="email"
+                            value={profileForm.email}
+                            onChange={e => setProfileForm(p => ({ ...p, email: e.target.value }))}
+                            placeholder={currentProfile?.email || typedUser?.email || 'you@bfp.gov.ph'}
+                            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--card-bg)', color: 'var(--text-primary)' }}
+                        />
+                        <p className="text-xs mt-1 flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
+                            <AlertCircle className="w-3 h-3" />
+                            Changing your email updates your login identity/username and requires your current password.
+                        </p>
+                        {profileForm.email.trim() && (
+                            <div className="mt-3">
+                                <label className="block text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+                                    Current Password for Email Change
+                                </label>
+                                <input
+                                    id="profile-email-current-password"
+                                    type="password"
+                                    value={profileForm.current_password}
+                                    onChange={e => setProfileForm(p => ({ ...p, current_password: e.target.value }))}
+                                    placeholder="Enter current password to change email"
+                                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--card-bg)', color: 'var(--text-primary)' }}
+                                />
+                            </div>
+                        )}
                     </div>
 
                     <div>

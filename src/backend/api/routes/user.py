@@ -8,14 +8,15 @@ Prefix: /api/user  (registered in main.py)
 """
 
 import logging
+import re
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, EmailStr, field_validator
 from keycloak.exceptions import KeycloakError
 
 from auth import get_current_wims_user
-from database import get_db, get_db_with_rls
+from database import get_db_with_rls
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from keycloak import KeycloakOpenID
@@ -41,16 +42,13 @@ router = APIRouter(prefix="/api/user", tags=["user-profile"])
 
 
 class ProfileUpdate(BaseModel):
-    """Fields a user is allowed to update on their own profile."""
+    """Fields a user may self-update; email changes require current password."""
 
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    # NOTE: email is intentionally excluded from self-service update.
-    # Government email addresses are controlled credentials — only SYSADMIN
-    # may change them via the admin user management endpoints.
+    email: Optional[EmailStr] = None
+    current_password: Optional[str] = None  # Step-up auth for email/login identity changes only
     contact_number: Optional[str] = None  # Stored in Keycloak AND DB
-    # Note: no password required here — the JWT token already confirms identity.
-    # Password is only needed when changing the password itself.
 
     @field_validator("first_name", "last_name")
     @classmethod
@@ -63,9 +61,12 @@ class ProfileUpdate(BaseModel):
     @classmethod
     def contact_number_format(cls, v: Optional[str]) -> Optional[str]:
         if v is not None:
-            digits = v.replace("+", "").replace("-", "").replace(" ", "")
-            if not digits.isdigit() or len(digits) < 7:
-                raise ValueError("contact_number must be a valid phone number")
+            phone = v.strip()
+            if not re.fullmatch(r"09\d{9}", phone):
+                raise ValueError(
+                    "contact_number must be 11 digits and start with 09 (e.g. 09171234567)"
+                )
+            return phone
         return v
 
 
@@ -93,6 +94,41 @@ class PasswordChange(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _verify_current_password_for_profile_email_change(
+    current_user: dict, current_password: str
+) -> None:
+    """Verify current password before allowing email/login identity changes."""
+    keycloak_id = current_user["keycloak_id"]
+
+    try:
+        adm = _get_admin_client()
+        kc_user_data = adm.get_user(keycloak_id)
+        target_username = (
+            kc_user_data.get("username")
+            or current_user.get("kc_username")
+            or current_user["username"]
+        )
+    except Exception:
+        target_username = current_user.get("kc_username") or current_user["username"]
+
+    kc_openid = KeycloakOpenID(
+        server_url=_KC_BASE_URL,
+        realm_name=_KC_REALM,
+        client_id="bfp-client",
+        verify=True,
+    )
+    try:
+        kc_openid.token(username=target_username, password=current_password)
+    except KeycloakError as e:
+        logger.warning(f"Profile email verification failed for {keycloak_id}: {e}")
+        raise HTTPException(status_code=401, detail="Incorrect current password")
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -100,9 +136,9 @@ class PasswordChange(BaseModel):
 @router.get("/me/profile")
 def get_my_profile(
     current_user: Annotated[dict, Depends(get_current_wims_user)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
 ):
-    """Retrieve full name and contact number (names from Keycloak, number from DB)."""
+    """Retrieve full profile including email (from Keycloak) and contact_number (from DB)."""
     keycloak_id = current_user["keycloak_id"]
     profile = get_user_profile(keycloak_id)
 
@@ -114,6 +150,10 @@ def get_my_profile(
     if row and row[0]:
         profile["contact_number"] = row[0]
 
+    # Ensure email is present in the response
+    if not profile.get("email"):
+        profile["email"] = current_user.get("email", "")
+
     return profile
 
 
@@ -124,24 +164,32 @@ def update_my_profile(
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """
-    Update the current user's own profile (first_name, last_name, contact_number).
-    Authentication is confirmed by the JWT bearer token — no password re-entry needed.
+    Update the current user's own profile (first_name, last_name, email, contact_number).
+    JWT authentication is sufficient for name/contact changes. Email changes also
+    require current_password because email is the user's login identity/username.
     Role and region cannot be changed here — contact a System Administrator.
-    Email is read-only (government-controlled credential — SYSADMIN-managed only).
     Changes are reflected immediately in Keycloak.
     """
-    if not any([body.first_name, body.last_name, body.contact_number]):
+    if not any([body.first_name, body.last_name, body.email, body.contact_number]):
         raise HTTPException(status_code=400, detail="No fields to update")
 
     keycloak_id = current_user["keycloak_id"]
 
-    # --- Update Keycloak profile (email excluded — CRIT-0 self-service ban) ---
+    if body.email:
+        if not body.current_password or not body.current_password.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Current password is required to change email/login identity",
+            )
+        _verify_current_password_for_profile_email_change(current_user, body.current_password)
+
+    # --- Update Keycloak profile ---
     try:
         update_user_profile(
             keycloak_id,
             first_name=body.first_name,
             last_name=body.last_name,
-            # email intentionally omitted — government email is SYSADMIN-controlled
+            email=body.email,
             contact_number=body.contact_number,
         )
     except KeycloakError as e:
@@ -151,27 +199,41 @@ def update_my_profile(
             detail="Failed to update identity provider profile. Try again later.",
         )
 
-    # --- Sync DB fields (contact_number only — email is SYSADMIN-controlled) ---
+    # --- Sync DB fields (contact_number, email) ---
+    db_sync_failed = False
     if body.contact_number:
         try:
-            update_fields = []
-            params = {"uid": current_user["user_id"]}
-            update_fields.append("contact_number = :cnum")
-            params["cnum"] = body.contact_number
-
-            if update_fields:
-                db.execute(
-                    text(
-                        f"UPDATE wims.users SET {', '.join(update_fields)}, updated_at = now() WHERE user_id = :uid"
-                    ),
-                    params,
-                )
-                db.commit()
+            db.execute(
+                text(
+                    "UPDATE wims.users SET contact_number = :cnum, updated_at = now() WHERE user_id = :uid"
+                ),
+                {"cnum": body.contact_number, "uid": current_user["user_id"]},
+            )
+            db.commit()
         except Exception:
             db.rollback()
-            logger.exception(f"DB sync failed for user {current_user['user_id']}")
-            logger.warning("Keycloak updated but DB sync failed")
+            db_sync_failed = True
+            logger.exception(f"DB contact_number sync failed for user {current_user['user_id']}")
 
+    if body.email:
+        try:
+            db.execute(
+                text(
+                    "UPDATE wims.users SET email = :eml, username = :uname, updated_at = now() WHERE user_id = :uid"
+                ),
+                {"eml": body.email, "uname": body.email, "uid": current_user["user_id"]},
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+            db_sync_failed = True
+            logger.exception(f"DB email sync failed for user {current_user['user_id']}")
+
+    if db_sync_failed:
+        return {
+            "status": "partial",
+            "message": "Profile updated in authentication system, but database sync failed. Contact support if your email or contact number is missing from your profile.",
+        }
     return {"status": "ok", "message": "Profile updated successfully"}
 
 

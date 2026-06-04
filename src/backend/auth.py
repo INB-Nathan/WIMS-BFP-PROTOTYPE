@@ -374,6 +374,7 @@ async def get_current_wims_user(
         "role": row[1],
         "username": row[2],
         "kc_username": token_payload.get("preferred_username"),
+        "email": token_payload.get("email", ""),
     }
 
     # Attach to request.state so get_db() can set the RLS GUC for this transaction

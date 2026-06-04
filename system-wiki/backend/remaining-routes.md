@@ -1,7 +1,7 @@
 ---
 title: Remaining Route Files API Reference
 created: 2026-05-16
-updated: 2026-05-16
+updated: 2026-06-04
 type: backend
 tags: [wims-bfp, backend, api-reference, incidents, analytics, dmz, civilian, sessions, user, ref]
 sources: [src/backend/api/routes/incidents.py, src/backend/api/routes/analytics.py, src/backend/api/routes/public_dmz.py, src/backend/api/routes/civilian.py, src/backend/api/routes/sessions.py, src/backend/api/routes/user.py, src/backend/api/routes/ref.py]
@@ -236,7 +236,7 @@ Async Redis-based rate limiter. **3 requests per IP per hour**. Key: `public_rat
 
 ### Pydantic Schemas
 
-**`ProfileUpdate`:** first_name, last_name (both non-blank), contact_number (digits-only, min 7). Email NOT included.
+**`ProfileUpdate`:** first_name, last_name (both non-blank), email (`Optional[EmailStr]` — omit or provide valid email format), current_password (`Optional[str]`, required only when email is present because email is the login identity), contact_number (`^09\\d{9}$`). Email is self-service editable only with current-password step-up (#28, #86).
 
 **`PasswordChange`:** current_password, new_password (min 8, 1 upper, 1 digit, 1 special), otp_code (optional, for 2FA).
 
@@ -244,7 +244,7 @@ Async Redis-based rate limiter. **3 requests per IP per hour**. Key: `public_rat
 
 **Route:** `GET /me/profile`  
 **Auth:** `get_current_wims_user`  
-**DB:** `get_db` (no RLS needed)  
+**DB:** `get_db_with_rls`
 **Purpose:** Fetch own profile from Keycloak + WIMS DB.
 
 **Returns:** Keycloak profile fields + contact_number from wims.users.
@@ -256,13 +256,13 @@ Async Redis-based rate limiter. **3 requests per IP per hour**. Key: `public_rat
 **Route:** `PATCH /me`  
 **Auth:** `get_current_wims_user`  
 **DB:** `get_db_with_rls`  
-**Purpose:** Update own profile. No password re-entry needed (JWT-authenticated).
+**Purpose:** Update own profile. JWT authentication is enough for name/contact updates; email/login-identity changes additionally require `current_password` verification through Keycloak Direct Grant (`bfp-client`).
 
-**Returns:** `{"status": "ok", "message": "Profile updated successfully"}`
+**Returns:** `{"status": "ok", "message": "Profile updated successfully"}` or `{"status": "partial", "message": "...database sync failed..."}` when Keycloak succeeds but local DB sync fails.
 
-**Errors:** 400 (no fields), 502 (Keycloak failure)
+**Errors:** 400 (no fields, missing current_password for email), 401 (invalid current_password), 422 (schema validation, including invalid/empty email or contact number), 502 (Keycloak failure)
 
-**Behavior:** Updates Keycloak first (first_name, last_name, contact_number). Email excluded (SYSADMIN-controlled). After Keycloak success, syncs contact_number to wims.users. On DB sync failure, warns but doesn't roll back (Keycloak is source of truth).
+**Behavior:** Verifies current password before email updates, then updates Keycloak first (first_name, last_name, email/username, contact_number). After Keycloak success, syncs email and contact_number to `wims.users`. On DB sync failure, rolls back the failed local update and returns `partial` without rolling back Keycloak (Keycloak remains source of truth).
 
 ### `change_my_password()`
 

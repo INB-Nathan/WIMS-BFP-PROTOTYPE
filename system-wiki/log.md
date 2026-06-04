@@ -1760,3 +1760,101 @@ No schema, auth, or FRS alignment changes.
 **Verification:** `pytest tests/test_public_submission.py -v` 13/13 passed; `pytest tests/test_csrf_middleware.py -v` 31/31 passed; `ruff format --check .` and `ruff check .` passed; `git diff --check` clean.
 
 **Wiki updated:** Yes — see above. No `gaps/frs-codebase-gap-register.md` update needed; no FRS gap changed.
+
+## [2026-06-04] docs | Record PR #207 pytest lock-hang invariant in synthesis
+
+Updated `system-wiki/architecture/pwa-tests-cicd.md` and `system-wiki/index.md` after the PR #207 backend hang fix. The testing/CI synthesis now records that `src/backend/main.py` must not run startup DDL on `wims.users.email`; `src/postgres-init/44_add_email_to_users.sql` owns that schema change, and runtime DDL can block behind open SQLAlchemy test sessions in `src/backend/tests/test_immutable_records.py`. No gap-register update needed; this is CI/test-infrastructure behavior, not an FRS alignment change.
+
+## [2026-06-04] fix | Backend pytest hang — remove email DDL from startup (PR #207)
+
+**Root cause:** `apply_schema_patches()` in `main.py` ran `ALTER TABLE wims.users ADD COLUMN IF NOT EXISTS email` at startup. This required `AccessExclusiveLock` on `wims.users`. The `test_immutable_records.py` `db()` fixture opened a session with `autocommit=False`, which held an `AccessShareLock` from `SELECT` queries during `encoder_region`/`validator_region` fixture setup. When `verified_incident` fixture created `TestClient(app)`, startup tried the DDL, which queued behind the existing lock indefinitely — hanging pytest/CI.
+
+**Fix:** Removed the email DDL block from `apply_schema_patches()`. Migration `44_add_email_to_users.sql` already runs on CI's fresh database initialization (mounted into `/docker-entrypoint-initdb.d/`). The `no_update_verified` rule patch remains — it operates on `wims.fire_incidents`, not `wims.users`, so no lock conflict with the test fixtures.
+
+**Files changed:** `src/backend/main.py` — removed ~10 lines of email DDL, updated docstring with rationale.
+
+**Verification:**
+- Reproduction command (previously hung): `docker compose run --rm --no-deps backend pytest tests/test_dynamic_rate_limits.py tests/test_fire_incident_location.py tests/test_immutable_records.py::test_84_verified_incident_appears_in_analytics -vv -s --tb=short` → 17 passed in 4.35s.
+- Full immutable records: `pytest tests/test_immutable_records.py` → 7 passed in 5.57s.
+- Profile email tests: `pytest tests/test_profile_email.py` → 10 passed in 2.78s.
+- `ruff check` + `ruff format --check` clean on touched file.
+
+**Wiki updates:** This log entry. No `gaps/frs-codebase-gap-register.md` update needed (CI hang fix, not FRS alignment change).
+
+## [2026-06-02] fix | S1 username sync gap — DB username now synced when email changes
+
+Fixes the S1 finding from single-agent review of `fix/profile-email-and-polish`:
+
+- **S1 — `wims.users.username` not synced when email changes:** When `PATCH /api/user/me` updates email, Keycloak sets `username = email` but the DB sync block only updated `wims.users.email`. Now the DB `UPDATE` also sets `username = :uname`.
+- Added `username` assertion to `test_update_email_syncs_to_db` in `test_profile_email.py`.
+
+**Verification:** Backend syntax check passed (Docker not running for full pytest). Frontend 9/9 profile tests pass.
+
+**Wiki updates:** This log entry. No `gaps/frs-codebase-gap-register.md` update needed.
+
+## [2026-06-02] fix | Second-pass review fixes — index, dead code, import, wiki
+
+Follow-up fixes from three-axis re-review of `fix/profile-email-and-polish`:
+
+- Added `CREATE INDEX IF NOT EXISTS idx_users_email ON wims.users(email)` to `apply_schema_patches()` in `main.py` so startup schema patch mirrors the migration script.
+- Removed dead `_, kwargs = ...` assignment in `test_profile_email.py` (overwritten on next line, unreachable branch).
+- Converted dynamic `await import('@testing-library/user-event')` to static top-level `import userEvent` in `profile.test.tsx` (matches project convention).
+- Updated `remaining-routes.md` `ProfileUpdate` description from "non-blank" to `Optional[EmailStr]`.
+
+**Verification:** Frontend 9/9 profile tests pass. Backend tests skipped (Docker not running); both Python files compile clean.
+
+**Wiki updates:** Updated `remaining-routes.md` and this log. No `gaps/frs-codebase-gap-register.md` update needed.
+
+## [2026-06-02] fix | Review fixes for profile email branch (#28, #86)
+
+Applied fixes from three-axis review of `fix/profile-email-and-polish`:
+
+- **P1 — Dead-code email fallback:** Added `email` to `user_dict` in `get_current_wims_user()` (`auth.py:370`) from the JWT token payload, so the fallback in `GET /user/me/profile` now has a real value.
+- **P1 — Email format validation:** Replaced `email_not_blank` validator with Pydantic `EmailStr` in `ProfileUpdate` schema; `email-validator>=2.0.0` was already in `requirements.txt`.
+- **P2 — DB sync partial status:** Split `contact_number` and `email` DB sync into independent try/except blocks; returns `{"status": "partial", ...}` when DB sync fails instead of silently swallowing the failure.
+- **P3 — Email column index:** Added `CREATE INDEX IF NOT EXISTS idx_users_email ON wims.users(email)` to `44_add_email_to_users.sql`.
+- **P3 — Profile re-fetch error handling:** Added `.catch()` to `fetchMyProfile().then()` after profile save in `profile/page.tsx`.
+- **P4 — API type fix:** Changed `email?: string` to `email: string` in `fetchMyProfile()` return type in `legacy.ts`.
+- Added 2 new backend tests: invalid email format rejection, DB sync failure partial status.
+
+**Verification:** Backend 10/10 passed. Frontend 154/154 passed across 22 test files.
+
+## [2026-06-02] test | Add frontend profile page tests (#28, #86)
+
+- Created `src/frontend/src/app/profile/__tests__/profile.test.tsx` with 9 tests.
+- Covers: email input renders, current email display, email-change warning, fallback when no email.
+- Covers region display: All Regions (NATIONAL_ANALYST), National (SYSTEM_ADMIN), region ID (REGIONAL_ENCODER), dash (no region).
+- Covers profile save: calls updateMyProfile with email when provided.
+- Uses Vitest + React Testing Library following existing project patterns (analyst dashboard test as reference).
+
+## [2026-06-02] feat | Enable self-service email editing in profile (#28, #86)
+
+- Added `email: Optional[str]` to `ProfileUpdate` schema in `src/backend/api/routes/user.py`.
+- `update_my_profile()` now passes `email` to Keycloak and syncs to `wims.users`.
+- `get_my_profile()` returns email from Keycloak profile (fallback to user context).
+- Frontend profile page now includes editable email input with warning that changes may update login identity.
+- `NATIONAL_ANALYST` region display changed from "National" to "All Regions".
+- API types in `legacy.ts` updated to include `email` in fetch/update payloads.
+- Added `tests/test_profile_email.py` with 6 tests covering schema, PATCH, and GET routes.
+
+## [2026-06-02] fix | Review fixes applied to email editing branch
+
+- Added `44_add_email_to_users.sql` migration for email column (was missing — UPDATE would fail silently).
+- `main.py` startup patch: `ALTER TABLE wims.users ADD COLUMN IF NOT EXISTS email` for existing containers.
+- `keycloak_admin.py`: `get_user_profile()` now returns email from Keycloak (was never in the dict).
+- `keycloak_admin.py`: updated stale CRIT-0 comment in `update_user_profile()`.
+- `user.py`: added `email_not_blank` validator to `ProfileUpdate.email` field.
+- `remaining-routes.md`: updated ProfileUpdate schema and behavior docs to reflect email support.
+
+## [2026-06-04] fix | PR #207 verified profile email review fixes
+
+Implemented verified PR #207 review fixes across profile email handling and documentation:
+
+- Frontend `/profile` now consumes `PATCH /api/user/me` status, surfaces backend `partial` responses as an error/warning message instead of unconditional success, and requires a current-password field when an email/login-identity change is entered.
+- Backend `PATCH /api/user/me` now requires `current_password` for email changes and verifies it through Keycloak Direct Grant (`bfp-client`) before updating Keycloak email/username or local DB fields. Missing password returns 400; invalid password returns 401.
+- Backend profile/contact quality fixes: `GET /api/user/me/profile` uses `get_db_with_rls`, contact number validation matches the frontend `^09\d{9}$` rule, and Keycloak contact-number updates merge existing attributes before setting `contact_number`.
+- Database migration `44_add_email_to_users.sql` now adds a DB-side unique `LOWER(email)` index for non-null local emails while keeping email-column DDL out of FastAPI startup.
+- Added focused backend/frontend tests for current-password email step-up, partial response display, route error paths, contact validation, and Keycloak attribute merging.
+- Restored the base-branch append-only log history, preserving PR #207 entries at the end instead of before the append-only banner.
+
+**Wiki updates:** Updated `backend/remaining-routes.md`, `frontend/route-map.md`, `database/schema-overview.md`, `security/security-baseline.md`, `architecture/pwa-tests-cicd.md`, `index.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed. Self-service email verification remains a residual follow-up because enabling Keycloak verify-email/required action safely would affect realm/admin flow behavior beyond this bounded PR fix.

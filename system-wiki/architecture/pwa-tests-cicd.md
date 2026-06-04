@@ -1,10 +1,10 @@
 ---
 title: PWA/Offline-First, Tests & CI/CD
 created: 2026-05-16
-updated: 2026-06-03
+updated: 2026-06-04
 type: architecture
 tags: [wims-bfp, pwa, offline-first, testing, ci-cd, service-worker]
-sources: [src/frontend/src/lib/, src/frontend/public/sw.js, .github/workflows/]
+sources: [src/frontend/src/lib/, src/frontend/public/sw.js, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py]
 status: draft
 ---
 
@@ -145,6 +145,9 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 ~750 lines, full e2e against live services. Patterns: fixture-based prerequisites (auto-skip if Keycloak unreachable), resource setup/teardown, helper functions for API interaction, MailHog email extraction. Tests pre-flight config (5) + full e2e flow (4) including OWASP user enumeration prevention, single-use token enforcement. The test uses `KEYCLOAK_PASSWORD_RESET_CLIENT_ID` (default `bfp-client`) for Direct Grant-specific checks so CI/global backend auth defaults can remain `wims-web`/`wims-web`.
 
 **4. ci.yml exclusions** — 8 test files explicitly excluded from CI runner: rate-limiting, suricata, infra-config, bootstrap, OTP, schema, RLS policy, SQL quality (need special Docker setup).
+
+**5. Startup DDL and pytest lock-hang regression (PR #207)**
+`src/backend/main.py` intentionally does not patch `wims.users.email` at FastAPI startup. Migration `src/postgres-init/44_add_email_to_users.sql` owns that column plus the local unique email index for fresh CI databases. Runtime DDL on `wims.users` can block indefinitely when tests hold ordinary SQLAlchemy sessions open: `src/backend/tests/test_immutable_records.py` reads `wims.users` in region fixtures, then creates `TestClient(app)`, which triggers startup before fixture teardown. A startup `ALTER TABLE wims.users ...` queued for `AccessExclusiveLock` behind the open `AccessShareLock`, making CI appear to stop after the preceding fire-location test. Future startup schema patches should avoid user-table DDL or use bounded lock handling.
 
 ---
 

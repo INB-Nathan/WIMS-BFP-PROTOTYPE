@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-06-03
+Last updated: 2026-06-04
 Total synthesis pages: 32
-Last changes: PR #214 fix-before-merge pass aligned CI/deploy Keycloak defaults to `wims-web`, pinned nginx, updated auth callback rate-limit docs/tests, documented local HTTP-only nginx development, and refreshed Suricata/nginx image references.
+Last changes: PR #207 review fixes added current-password step-up for self-service email/login-identity changes, RLS-backed profile contact lookup, local unique email index documentation, and frontend partial-update handling.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
