@@ -38,33 +38,38 @@ def pytest_configure(config):
 
 
 # =============================================================================
-# Public DMZ rate-limit test isolation
+# Redis rate-limit test isolation
 # =============================================================================
 
 
 @pytest.fixture(autouse=True)
 def flush_public_rate_limit():
-    """Clear Redis public rate-limit keys before each test.
+    """Clear Redis rate-limit keys before each test.
 
-    Without this, tests that run before the dedicated rate-limit tests
-    (test_rate_limit_exceeded_returns_429_with_retry_after_header,
-     test_different_ips_independent_rate_limits) spend the 3-request budget
-    for 127.0.0.1, causing subsequent validation tests to get 429 instead of 422.
+    Public submission tests use ``public_rate_limit:*`` keys, while the PKCE
+    callback middleware in ``main.py`` uses ``rate_limit:*`` keys. Clearing both
+    namespaces keeps endpoint tests focused on their own expected status codes
+    instead of inheriting a spent sliding-window budget from earlier tests.
     """
     try:
         import redis as redis_sync
     except ImportError:
         return  # no redis package — skip silently
 
+    r = None
     try:
         r = redis_sync.from_url(
             os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
             decode_responses=True,
         )
-        for key in r.keys("public_rate_limit:*"):
-            r.delete(key)
+        for pattern in ("public_rate_limit:*", "rate_limit:*"):
+            for key in r.scan_iter(match=pattern):
+                r.delete(key)
     except Exception:
         pass  # no Redis running — skip silently
+    finally:
+        if r is not None:
+            r.close()
 
 
 # =============================================================================

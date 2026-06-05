@@ -1516,9 +1516,10 @@
     "port": "1025",
     "from": "noreply@wims-bfp.local",
     "fromDisplayName": "WIMS-BFP",
-    "ssl": "false",
-    "starttls": "false",
-    "auth": "false"
+    "replyTo": "no-reply@wimsbfp.tech",
+    "replyToDisplayName": "WIMS-BFP No Reply",
+    "starttls": false,
+    "auth": false
   },
   "eventsEnabled": false,
   "eventsListeners": [
