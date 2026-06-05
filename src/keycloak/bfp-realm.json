@@ -2874,6 +2874,326 @@
       "requiredActions": [],
       "firstName": "admin",
       "lastName": "test"
+    },
+    {
+      "id": "aa000001-0000-4001-8001-aab000000001",
+      "username": "n-val",
+      "email": "n-val@bfp.gov.ph",
+      "enabled": true,
+      "realmRoles": [
+        "NATIONAL_VALIDATOR"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ],
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "n",
+      "lastName": "val"
+    },
+    {
+      "id": "aa000002-0000-4002-8002-aab000000002",
+      "username": "n-enc",
+      "email": "n-enc@bfp.gov.ph",
+      "enabled": true,
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ],
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "n",
+      "lastName": "enc"
+    },
+    {
+      "id": "aa000003-0000-4003-8003-aab000000003",
+      "username": "n-ana",
+      "email": "n-ana@bfp.gov.ph",
+      "enabled": true,
+      "realmRoles": [
+        "NATIONAL_ANALYST"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ],
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "n",
+      "lastName": "ana"
+    },
+    {
+      "id": "aa000004-0000-4004-8004-aab000000004",
+      "username": "n-adm",
+      "email": "n-adm@bfp.gov.ph",
+      "enabled": true,
+      "realmRoles": [
+        "SYSTEM_ADMIN"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ],
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "n",
+      "lastName": "adm"
+    },
+    {
+      "id": "bb000001-0000-4001-8001-bbb000000001",
+      "username": "g-val",
+      "email": "g-val@bfp.gov.ph",
+      "enabled": true,
+      "realmRoles": [
+        "NATIONAL_VALIDATOR"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ],
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "g",
+      "lastName": "val"
+    },
+    {
+      "id": "bb000002-0000-4002-8002-bbb000000002",
+      "username": "g-enc",
+      "email": "g-enc@bfp.gov.ph",
+      "enabled": true,
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ],
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "g",
+      "lastName": "enc"
+    },
+    {
+      "id": "bb000003-0000-4003-8003-bbb000000003",
+      "username": "g-ana",
+      "email": "g-ana@bfp.gov.ph",
+      "enabled": true,
+      "realmRoles": [
+        "NATIONAL_ANALYST"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ],
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "g",
+      "lastName": "ana"
+    },
+    {
+      "id": "bb000004-0000-4004-8004-bbb000000004",
+      "username": "g-adm",
+      "email": "g-adm@bfp.gov.ph",
+      "enabled": true,
+      "realmRoles": [
+        "SYSTEM_ADMIN"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ],
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "g",
+      "lastName": "adm"
+    },
+    {
+      "id": "cc000001-0000-4001-8001-ccb000000001",
+      "username": "e-val",
+      "email": "e-val@bfp.gov.ph",
+      "enabled": true,
+      "realmRoles": [
+        "NATIONAL_VALIDATOR"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ],
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "e",
+      "lastName": "val"
+    },
+    {
+      "id": "cc000002-0000-4002-8002-ccb000000002",
+      "username": "e-enc",
+      "email": "e-enc@bfp.gov.ph",
+      "enabled": true,
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ],
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "e",
+      "lastName": "enc"
+    },
+    {
+      "id": "cc000003-0000-4003-8003-ccb000000003",
+      "username": "e-ana",
+      "email": "e-ana@bfp.gov.ph",
+      "enabled": true,
+      "realmRoles": [
+        "NATIONAL_ANALYST"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ],
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "e",
+      "lastName": "ana"
+    },
+    {
+      "id": "cc000004-0000-4004-8004-ccb000000004",
+      "username": "e-adm",
+      "email": "e-adm@bfp.gov.ph",
+      "enabled": true,
+      "realmRoles": [
+        "SYSTEM_ADMIN"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ],
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "e",
+      "lastName": "adm"
+    },
+    {
+      "id": "dd000001-0000-4001-8001-ddb000000001",
+      "username": "r-val",
+      "email": "r-val@bfp.gov.ph",
+      "enabled": true,
+      "realmRoles": [
+        "NATIONAL_VALIDATOR"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ],
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "r",
+      "lastName": "val"
+    },
+    {
+      "id": "dd000002-0000-4002-8002-ddb000000002",
+      "username": "r-enc",
+      "email": "r-enc@bfp.gov.ph",
+      "enabled": true,
+      "realmRoles": [
+        "REGIONAL_ENCODER"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ],
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "r",
+      "lastName": "enc"
+    },
+    {
+      "id": "dd000003-0000-4003-8003-ddb000000003",
+      "username": "r-ana",
+      "email": "r-ana@bfp.gov.ph",
+      "enabled": true,
+      "realmRoles": [
+        "NATIONAL_ANALYST"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ],
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "r",
+      "lastName": "ana"
+    },
+    {
+      "id": "dd000004-0000-4004-8004-ddb000000004",
+      "username": "r-adm",
+      "email": "r-adm@bfp.gov.ph",
+      "enabled": true,
+      "realmRoles": [
+        "SYSTEM_ADMIN"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "WimsBFP2026!",
+          "temporary": false
+        }
+      ],
+      "emailVerified": true,
+      "requiredActions": [],
+      "firstName": "r",
+      "lastName": "adm"
     }
   ],
   "loginTheme": "wims-bfp",
