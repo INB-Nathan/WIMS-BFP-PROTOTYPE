@@ -99,7 +99,7 @@ pytest with `pytest-asyncio` for async tests. Markers: `unit`, `integration`, `r
 
 ```
 src/backend/tests/
-├── conftest.py              # Env load, AES key, marker registration, rate-limit flush fixture
+├── conftest.py              # Env load, AES key, marker registration, Redis rate-limit key flush fixture (`public_rate_limit:*`, `rate_limit:*`)
 ├── integration/             # Full-stack integration tests
 │   ├── conftest.py          # No-op rate-limit fixture
 │   ├── test_admin_api.py
@@ -144,9 +144,11 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 **3. Integration Tests (`test_keycloak_password_reset.py`)**
 ~750 lines, full e2e against live services. Patterns: fixture-based prerequisites (auto-skip if Keycloak unreachable), resource setup/teardown, helper functions for API interaction, MailHog email extraction. Tests pre-flight config (5) + full e2e flow (4) including OWASP user enumeration prevention, single-use token enforcement. The test uses `KEYCLOAK_PASSWORD_RESET_CLIENT_ID` (default `bfp-client`) for Direct Grant-specific checks so CI/global backend auth defaults can remain `wims-web`/`wims-web`.
 
-**4. ci.yml exclusions** — 8 test files explicitly excluded from CI runner: rate-limiting, suricata, infra-config, bootstrap, OTP, schema, RLS policy, SQL quality (need special Docker setup).
+**4. Rate-limit test isolation** — root `conftest.py` clears Redis `public_rate_limit:*` and auth callback `rate_limit:*` keys before each test. This prevents public submission and PKCE callback endpoint tests from inheriting a spent sliding-window budget from earlier tests while preserving per-test burst behavior.
 
-**5. Startup DDL and pytest lock-hang regression (PR #207)**
+**5. ci.yml exclusions** — 8 test files explicitly excluded from CI runner: rate-limiting, suricata, infra-config, bootstrap, OTP, schema, RLS policy, SQL quality (need special Docker setup).
+
+**6. Startup DDL and pytest lock-hang regression (PR #207)**
 `src/backend/main.py` intentionally does not patch `wims.users.email` at FastAPI startup. Migration `src/postgres-init/44_add_email_to_users.sql` owns that column plus the local unique email index for fresh CI databases. Runtime DDL on `wims.users` can block indefinitely when tests hold ordinary SQLAlchemy sessions open: `src/backend/tests/test_immutable_records.py` reads `wims.users` in region fixtures, then creates `TestClient(app)`, which triggers startup before fixture teardown. A startup `ALTER TABLE wims.users ...` queued for `AccessExclusiveLock` behind the open `AccessShareLock`, making CI appear to stop after the preceding fire-location test. Future startup schema patches should avoid user-table DDL or use bounded lock handling.
 
 ---

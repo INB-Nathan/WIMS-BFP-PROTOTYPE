@@ -3,6 +3,11 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-05] fix | PR #217 auth callback rate-limit test isolation
+
+- **`src/backend/tests/conftest.py`:** Expanded the autouse Redis rate-limit cleanup from only `public_rate_limit:*` keys to both `public_rate_limit:*` and auth callback `rate_limit:*` keys, using `scan_iter` and closing the Redis client. This prevents `tests/integration/test_auth_callback.py::test_callback_tampered_token_returns_401` from inheriting a spent PKCE callback sliding-window budget and returning 429 instead of the expected auth-layer 401.
+- **`system-wiki/architecture/pwa-tests-cicd.md`:** Documented the two rate-limit key namespaces cleared by the root test fixture.
+
 ## [2026-06-05] fix | PR #217 review follow-ups — Keycloak email API, test coverage, frontend note, UUID cast
 
 - **`src/backend/services/keycloak_admin.py`:** Replaced hallucinated `adm.send_execute_actions_email(actions=["UPDATE_PASSWORD"])` with the correct python-keycloak 7.1.1 API `adm.send_update_account(payload=["UPDATE_PASSWORD"], lifespan=604800)`. Replaced bare `except Exception:` around the email call with `except KeycloakError as e:` — email failures are still non-fatal but now log concrete evidence.
