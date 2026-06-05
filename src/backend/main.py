@@ -84,10 +84,8 @@ def _reset_schema_patch_state_for_tests() -> None:
 _STARTUP_ADMIN_URL: str = os.environ.get("DATABASE_ADMIN_URL") or os.environ.get(
     "SQLALCHEMY_DATABASE_URL", os.environ.get("DATABASE_URL", "")
 )
-_startup_admin_engine = create_engine(_STARTUP_ADMIN_URL)
-_startup_admin_session_factory = _sessionmaker(
-    autocommit=False, autoflush=False, bind=_startup_admin_engine
-)
+_startup_admin_engine = None
+_startup_admin_session_factory = None
 
 
 def _get_admin_session():
@@ -98,6 +96,16 @@ def _get_admin_session():
     the table owner or superuser — use DATABASE_ADMIN_URL for those ops.
     Falls back to the regular DATABASE_URL if the admin URL is not set.
     """
+    global _startup_admin_engine, _startup_admin_session_factory
+    if _startup_admin_engine is None:
+        if not _STARTUP_ADMIN_URL:
+            raise RuntimeError(
+                "DATABASE_ADMIN_URL (or DATABASE_URL) must be set for startup DDL patches"
+            )
+        _startup_admin_engine = create_engine(_STARTUP_ADMIN_URL)
+        _startup_admin_session_factory = _sessionmaker(
+            autocommit=False, autoflush=False, bind=_startup_admin_engine
+        )
     return _startup_admin_session_factory()
 
 

@@ -17,7 +17,6 @@ from keycloak.exceptions import KeycloakError
 
 from auth import get_current_wims_user
 from auth import get_db_with_rls
-from database import get_db
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from keycloak import KeycloakOpenID

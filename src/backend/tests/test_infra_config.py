@@ -189,7 +189,10 @@ def test_non_edge_services_bind_host_ports_to_loopback() -> None:
         assert _service_ports(compose, service_name) == expected_ports
 
     nginx_ports = _service_ports(compose, "nginx-gateway")
-    assert nginx_ports == ["80:80", "443:443"]
+    assert "80:80" in nginx_ports
+    assert "443:443" in nginx_ports
+    # 8090:80 is the local dev HTTP-only port from PR #182
+    assert "8090:80" in nginx_ports
 
 
 @pytest.mark.skipif(_IN_DOCKER, reason="compose/config files not mounted in Docker container")
