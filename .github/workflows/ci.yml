@@ -252,6 +252,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Create CI env file
+        working-directory: src
+        run: cp ../.env.example .env
+
       - name: Validate docker compose config
         working-directory: src
         run: |
@@ -273,6 +277,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Create CI env file
+        working-directory: src
+        run: cp ../.env.example .env
 
       - name: Bring up the stack
         working-directory: src

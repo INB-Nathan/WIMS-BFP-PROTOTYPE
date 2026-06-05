@@ -3,6 +3,27 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-05] fix | PR #213 CI follow-up — compose env setup and backend format gate
+
+- **CI compose env setup:** `.github/workflows/ci.yml` now copies root `.env.example` to `src/.env` before `docker-build` compose validation/build and before `security-scan` stack startup. This preserves `${VAR:?error}` fail-fast behavior in `src/docker-compose.yml` while giving ephemeral CI the required local/test values.
+- **Backend format gate:** `src/backend/tests/test_jwt_fallback.py` was formatted with `ruff format` so the backend CI `ruff format --check .` step can pass.
+- **Wiki sync:** `system-wiki/architecture/pwa-tests-cicd.md` documents the CI env-file pre-step; `system-wiki/architecture/infrastructure-config.md` documents required compose interpolation, CI handling, updated backend env values, authoritative Keycloak import path, and production CORS map behavior; `system-wiki/index.md` updated its last-change summary.
+
+## [2026-06-05] fix | PR #213 review follow-ups — stale role, Firebase env, JWT tests, wiki sync
+
+**PR #213 three-axis review follow-ups applied (worktree: pr-213):**
+
+- **Stale `"VALIDATOR"` removed from `regional.py:599`:** Replaced `("NATIONAL_VALIDATOR", "SYSTEM_ADMIN", "NATIONAL_ANALYST", "VALIDATOR")` with just the three canonical roles. Legacy `VALIDATOR` role was removed from `bfp-realm.json` in #206; this code reference was missed.
+- **`.env.example` Firebase section hardened:** Replaced committed real Firebase API key and VAPID key with `REPLACE_WITH_YOUR_...` placeholders. Documented all 7 Firebase env vars (2 required with `:?error`, 5 optional with `:-default`). Added warning comment.
+- **JWT `to_pem` fallback unit tests:** Added `tests/test_jwt_fallback.py` with 6 unit tests covering: valid key with `to_pem`, key without `to_pem` tries next, all-candidate-keys-fail force-refreshes JWKS, no-to_pem-on-any-key returns 401, `jwt.decode` receives PEM string, and JWTError in candidate loop tries next key. All use `@pytest.mark.unit` and mock authenticator internals — no Docker required.
+- **Nginx CORS: DELETE preserved intentionally.** The PR body claimed DELETE was removed from CORS methods but it was not (and should not be) — backend has DELETE endpoints (`DELETE /api/regional/incidents/{id}`, draft management). The `$cors_origin` map deny-by-default is the actual CORS hardening.
+- **Wiki sync:**
+  - `system-wiki/security/security-baseline.md`: Updated stale `$scheme://$host` CORS line to describe production `$cors_origin` map.
+  - `system-wiki/architecture/infrastructure-config.md`: Removed legacy `VALIDATOR`/`ANALYST` from Roles table; added note about #206 removal.
+  - `system-wiki/gaps/frs-codebase-gap-register.md`: Updated #205 entry to reference current `AAAA...=` placeholder; added #206 closure entry.
+
+**Files changed:** `regional.py`, `.env.example`, `test_jwt_fallback.py` (new), `security-baseline.md`, `infrastructure-config.md`, `frs-codebase-gap-register.md`, `log.md`
+
 ## [2026-06-03] fix | PR #212 review fixes — Redis pool bounding, thread-safety, test hygiene
 
 - **Redis connection pool:** Added `max_connections=10` to `_get_redis()` in `civilian.py`, matching `map.py`'s bounded-pool pattern. Prevents unbounded connection growth under load.
