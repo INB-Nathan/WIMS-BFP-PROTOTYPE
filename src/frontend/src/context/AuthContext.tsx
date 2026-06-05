@@ -42,12 +42,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshInFlightRef = useRef<Promise<boolean> | null>(null);
   const router = useRouter();
 
-  useEffect(() => {
-    if (loading) {
-      // loading state — session check in progress
-    }
-  }, [loading]);
-
   // ─── Token refresh ────────────────────────────────────────────────────────────
   // Delegates to auth-refresh.ts which uses navigator.locks when available
   // and falls back to a direct fetch when Web Locks API is unavailable.

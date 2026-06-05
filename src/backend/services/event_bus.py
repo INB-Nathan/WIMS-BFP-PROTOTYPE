@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
@@ -25,7 +26,7 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
 # Module-level sync connection pool — prevents per-call redis.from_url() leak
 _SYNC_POOL: redis.ConnectionPool | None = None
-
+_sync_pool_lock = threading.Lock()
 
 _async_pool: aioredis.ConnectionPool | None = None
 
@@ -34,7 +35,12 @@ async def _get_async_pool() -> aioredis.ConnectionPool:
     global _async_pool
     if _async_pool is None:
         _async_pool = aioredis.ConnectionPool.from_url(
-            REDIS_URL, decode_responses=True, max_connections=20
+            REDIS_URL,
+            decode_responses=True,
+            max_connections=20,
+            socket_connect_timeout=0.5,
+            socket_timeout=0.5,
+            health_check_interval=30,
         )
     return _async_pool
 
@@ -42,14 +48,16 @@ async def _get_async_pool() -> aioredis.ConnectionPool:
 def _get_sync_redis() -> redis.Redis:
     global _SYNC_POOL
     if _SYNC_POOL is None:
-        _SYNC_POOL = redis.ConnectionPool.from_url(
-            REDIS_URL,
-            decode_responses=True,
-            max_connections=5,
-            socket_connect_timeout=0.5,
-            socket_timeout=0.5,
-            health_check_interval=30,
-        )
+        with _sync_pool_lock:
+            if _SYNC_POOL is None:
+                _SYNC_POOL = redis.ConnectionPool.from_url(
+                    REDIS_URL,
+                    decode_responses=True,
+                    max_connections=5,
+                    socket_connect_timeout=0.5,
+                    socket_timeout=0.5,
+                    health_check_interval=30,
+                )
     return redis.Redis(connection_pool=_SYNC_POOL)
 
 

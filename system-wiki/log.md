@@ -3,6 +3,14 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-05] fix | PR #216 review follow-ups — event bus thread-safety, async pool hardening, stale comments, dead useEffect
+
+- **`src/backend/services/event_bus.py`:** Added `threading.Lock` (`_sync_pool_lock`) with double-checked locking around lazy `_SYNC_POOL` initialization — prevents TOCTOU race in sync publisher path. Added `socket_connect_timeout=0.5`, `socket_timeout=0.5`, `health_check_interval=30` to async pool (`_get_async_pool`) for consistency with sync pool hardening.
+- **`src/backend/main.py`:** Replaced stale comment referencing removed side-effect task imports with accurate autodiscover description.
+- **`src/frontend/next.config.ts`:** Replaced misleading comment about nonexistent tsconfig test file exclusions with accurate statement.
+- **`src/frontend/src/context/AuthContext.tsx`:** Removed empty `useEffect` that fired on every `loading` state change but contained only a comment.
+- **Wiki synced:** `system-wiki/backend/backend-infrastructure.md` — added Event Bus section documenting connection pools, thread safety, async/sync publishers, channels, and singleton.
+
 ## [2026-06-05] fix | PR #216 CI fix batch — backend ruff format + frontend type checks
 
 - **Backend ruff format:** Applied auto-formatter to `public_dmz.py`, `celery_config.py`, `main.py`, `event_bus.py` — trailing commas, quote style, blank lines. Zero logic changes.

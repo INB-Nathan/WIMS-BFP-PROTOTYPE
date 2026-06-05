@@ -134,7 +134,7 @@ app.include_router(
 # ---------------------------------------------------------------------------
 
 # Re-export for celery CLI: celery -A main.celery_app
-# (tasks.suricata and tasks.exports are imported at module top for registration)
+# Tasks are auto-discovered via celery_config.autodiscover_tasks(['tasks'])
 from celery_config import celery_app  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------

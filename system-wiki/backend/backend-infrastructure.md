@@ -1,10 +1,10 @@
 ---
-title: Backend Infrastructure — Auth, Database, Entry Point, Models, Schemas, Celery
+title: Backend Infrastructure — Auth, Database, Entry Point, Models, Schemas, Celery, Event Bus
 created: 2026-05-16
-updated: 2026-06-03
+updated: 2026-06-05
 type: backend
-tags: [wims-bfp, backend, auth, database, models, schemas, celery, infrastructure]
-sources: [src/backend/auth.py, src/backend/database.py, src/backend/main.py, src/backend/models/, src/backend/schemas/, src/backend/celery_config.py]
+tags: [wims-bfp, backend, auth, database, models, schemas, celery, infrastructure, event-bus, redis]
+sources: [src/backend/auth.py, src/backend/database.py, src/backend/main.py, src/backend/models/, src/backend/schemas/, src/backend/celery_config.py, src/backend/services/event_bus.py]
 status: draft
 ---
 
@@ -205,3 +205,51 @@ celery_app = Celery("wims_worker", broker=REDIS_URL, backend=CELERY_RESULT_BACKE
 ### Concurrency
 
 Not configured — relies on Celery CLI defaults (prefork pool, CPU count).
+
+---
+
+## Event Bus — `src/backend/services/event_bus.py`
+
+**Purpose:** Redis pub/sub event bus for real-time SSE notifications. Provides async (EventBus class) and sync (standalone functions) publishers for incident, verification, security, and system events.
+
+### Channels
+
+| Channel Key | Redis Channel |
+|---|---|
+| incident | `wims:events:incident` |
+| verification | `wims:events:verification` |
+| security | `wims:events:security` |
+| system | `wims:events:system` |
+
+### Connection Pools
+
+Both sync and async connections use module-level `ConnectionPool` objects to prevent per-call `redis.from_url()` connection leaks:
+
+- **Sync pool** (`_SYNC_POOL`): Used by `publish_incident_event_sync()`, `publish_verification_event_sync()`, `publish_security_event_sync()`. Created lazily via `_get_sync_redis()` with `threading.Lock` double-checked locking for thread safety. Configured with `max_connections=5`, `socket_connect_timeout=0.5`, `socket_timeout=0.5`, `health_check_interval=30`.
+- **Async pool** (`_async_pool`): Used by `EventBus._ensure_pub()` and `EventBus._ensure_sub()`. Created lazily via `_get_async_pool()`. Configured with `max_connections=20`, `socket_connect_timeout=0.5`, `socket_timeout=0.5`, `health_check_interval=30`.
+
+### Thread Safety
+
+- **Sync pool:** Protected by `_sync_pool_lock` (`threading.Lock`) with double-checked locking. Safe for concurrent Celery task workers and sync API endpoints.
+- **Async pool:** Single-threaded async context — no lock needed.
+
+### Async Publishers (FastAPI SSE endpoints)
+
+| Function | Channel |
+|---|---|
+| `publish_incident_event()` | incident |
+| `publish_verification_event()` | verification |
+| `publish_security_event()` | security |
+| `publish_system_event()` | system |
+
+### Sync Publishers (Celery tasks, sync API endpoints)
+
+| Function | Channel |
+|---|---|
+| `publish_incident_event_sync()` | incident |
+| `publish_verification_event_sync()` | verification |
+| `publish_security_event_sync()` | security |
+
+### Singleton
+
+`get_event_bus()` returns the global `EventBus` singleton. Async subscription via `EventBus.subscribe(channels)` yields parsed event dicts for SSE streaming.
