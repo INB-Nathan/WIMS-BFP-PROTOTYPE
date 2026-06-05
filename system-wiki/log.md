@@ -3,6 +3,23 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-05] fix | PR #216 CI fix batch — backend ruff format + frontend type checks
+
+- **Backend ruff format:** Applied auto-formatter to `public_dmz.py`, `celery_config.py`, `main.py`, `event_bus.py` — trailing commas, quote style, blank lines. Zero logic changes.
+- **Frontend type fixes (7 files):**
+  - `legacy.ts`: Added typed interfaces (`SystemHealthResponse`, `SystemMetricsResponse`, `WorkerStatusResponse`) replacing `Promise<unknown>` returns for `fetchSystemHealth`, `fetchSystemMetrics`, `fetchWorkerStatus`. Added `is_danger` field to `TriageClusterEntry`.
+  - `page.tsx`: Fixed `CATEGORIES.icon` type from `ReactNode` → `ReactElement<{ className?: string }>` for `cloneElement` compatibility. Changed `reportingContext`/`safetyStatus` to use `?? undefined` for `appendCivilianReport` call.
+  - `tracking/page.tsx`: Widened `getCategoryLabel` to accept `string | null`.
+  - `offlineStore.ts`: Changed `PendingIncident.id` from optional to required (always present from IndexedDB auto-increment).
+  - `useAutoSync.ts`, `useNetworkStatus.ts`: Added `| null` + `null` initial value for `useRef<ReturnType<typeof setTimeout>>()` calls (React 19 strictness).
+  - `api.ts`: Updated `AuditLogEntry` interface to match actual API response shape (`audit_id`, `user_id`, `action_type`, etc. instead of `id`, `user_id`, `action`, `resource`).
+  - `admin/system/page.tsx`: Removed explicit `Record<string, unknown>` from `.map()` callback.
+  - `analyst/incidents/[id]/page.tsx`: Fixed `EmptyState` icon type from `ReactNode` to `LucideIcon`; added `LucideIcon` import.
+  - `validator/map/page.tsx`: Added generic type parameter to `apiFetch` call.
+- All pre-existing type errors that were masked by removed `ignoreBuildErrors: true` in `next.config.ts` (PR #184 cleanup).
+- CI validation: ruff check ✓, ruff format --check ✓, frontend lint ✓, vitest 22/22 ✓, frontend build ✓.
+- Commit: `f621411` pushed to `fix/slice4-perf-quality`.
+
 ## [2026-06-05] fix | PR #213 CI follow-up — compose env setup and backend format gate
 
 - **CI compose env setup:** `.github/workflows/ci.yml` now copies root `.env.example` to `src/.env` before `docker-build` compose validation/build and before `security-scan` stack startup. This preserves `${VAR:?error}` fail-fast behavior in `src/docker-compose.yml` while giving ephemeral CI the required local/test values.
