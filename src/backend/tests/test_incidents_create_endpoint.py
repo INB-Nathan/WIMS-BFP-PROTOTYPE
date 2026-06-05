@@ -33,6 +33,7 @@ def test_create_incident_converts_uuid_encoder_id_to_string(monkeypatch):
     db.execute.side_effect = [region_result, insert_result, coord_result]
 
     monkeypatch.setattr("api.routes.incidents.sync_incident_to_analytics", lambda *_args: None)
+    monkeypatch.setattr("api.routes.incidents.set_rls_context", lambda *_args: None)
 
     response = create_incident(
         IncidentCreate(latitude=14.5995, longitude=120.9842, description="Test fire in Manila"),
