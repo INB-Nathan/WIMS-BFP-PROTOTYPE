@@ -3,6 +3,18 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-05] rebase | PR #182 rebased onto origin/master — conflict resolution
+
+- **`src/backend/main.py`:** Made `_startup_admin_engine`/`_startup_admin_session_factory` lazy inside `_get_admin_session()` to avoid `create_engine("")` crash at module import when `DATABASE_ADMIN_URL`/`DATABASE_URL` are unset (e.g., during test collection outside Docker).
+- **`src/backend/api/routes/user.py`:** Removed unused `from database import get_db` import (routes use `get_db_with_rls` from `auth`).
+- **`src/backend/tests/test_profile_email.py`:** Fixed stale import `from database import get_db_with_rls` -> `from auth import get_db_with_rls`.
+- **`src/backend/tests/test_infra_config.py`:** Updated `test_non_edge_services_bind_host_ports_to_loopback` to accept PR #182's `8090:80` local-dev port alongside master's `80:80`/`443:443`.
+- **`src/nginx/nginx.local.conf`:** Added "Local development only" header comment to satisfy `test_local_nginx_override_is_explicitly_local_only`.
+- **`src/nginx/nginx.conf`:** Resolved production `/api/` CORS conflict — kept master's `map $http_origin $cors_origin` at http scope, dropped PR's duplicate location-level `set`/`if`.
+- **`src/docker-compose.yml`:** Combined PR's `wims_app_user` DATABASE_URL and `DATABASE_ADMIN_URL` (using `${POSTGRES_PASSWORD:?error}` not hardcoded `password`).
+- **System-wiki conflicts:** Merged log/index/route-map/infrastructure-config/pwa-tests-cicd/local-dev-deploy-guide — kept all master and PR entries, dates, and source references.
+- **20 PR commits + 12 master commits integrated** via commit-preserving rebase; 1 fixup commit for post-rebase import/lint/test corrections.
+
 ## [2026-06-05] fix | PR #217 auth callback rate-limit test isolation
 
 - **`src/backend/tests/conftest.py`:** Expanded the autouse Redis rate-limit cleanup from only `public_rate_limit:*` keys to both `public_rate_limit:*` and auth callback `rate_limit:*` keys, using `scan_iter` and closing the Redis client. This prevents `tests/integration/test_auth_callback.py::test_callback_tampered_token_returns_401` from inheriting a spent PKCE callback sliding-window budget and returning 429 instead of the expected auth-layer 401.
