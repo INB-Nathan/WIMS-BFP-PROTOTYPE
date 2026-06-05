@@ -360,7 +360,7 @@ def upload_incident_bundle(
         ) from None
 
     # SET LOCAL resets on commit; re-apply RLS context before the analytics sync loop.
-    set_rls_context(db, uuid.UUID(user_id))
+    set_rls_context(db, user_id)
     for iid in results["imported"]:
         try:
             sync_incident_to_analytics(db, iid)
@@ -496,7 +496,7 @@ def create_incident(
         raise HTTPException(status_code=500, detail="Failed to create incident")
 
     # SET LOCAL resets on commit; re-apply RLS context before the analytics sync.
-    set_rls_context(db, uuid.UUID(user_id))
+    set_rls_context(db, user_id)
     incident_id = row[0]
     sync_incident_to_analytics(db, incident_id)
     db.commit()
