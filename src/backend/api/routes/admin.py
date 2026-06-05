@@ -23,7 +23,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from auth import get_system_admin
-from database import get_db, get_db_with_rls
+from auth import get_db_with_rls
+from database import get_db
 from services.ai_service import analyze_threat_log
 from services.analytics_read_model import backfill_analytics_facts
 from services.event_bus import publish_security_event_sync

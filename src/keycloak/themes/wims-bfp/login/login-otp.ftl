@@ -1,9 +1,21 @@
 <#import "template.ftl" as layout>
 <@layout.registrationLayout displayMessage=!messagesPerField.existsError('otp','totp'); section>
     <#if section = "header">
-        ${msg("doLogIn")}
+        OTP Verification
+    <#elseif section = "show-username">
     <#elseif section = "form">
-        <form id="kc-otp-login-form" action="${url.loginAction}" method="post">
+        <form id="kc-otp-login-form" class="wims-otp-login-form" action="${url.loginAction}" method="post">
+            <div class="wims-otp-card-header">
+                <div class="wims-otp-auth-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false">
+                        <path d="M12 3 5 6v5c0 4.4 2.8 8.3 7 9.7 4.2-1.4 7-5.3 7-9.7V6l-7-3Z"></path>
+                        <path d="M9.5 12.2 11.2 14l3.5-4"></path>
+                    </svg>
+                </div>
+                <h1 class="wims-otp-title">OTP Verification</h1>
+                <p class="wims-otp-helper">Enter the 6-digit verification code from your authenticator application.</p>
+            </div>
+
             <#if otpLogin.userOtpCredentials?size gt 1>
                 <div class="${properties.kcFormGroupClass!}">
                     <label class="pf-v5-c-form__label" for="userCredentialId">
@@ -20,7 +32,7 @@
             </#if>
 
             <div class="${properties.kcFormGroupClass!}">
-                <label class="pf-v5-c-form__label" for="otp-1">
+                <label class="pf-v5-c-form__label wims-otp-label" for="otp-1">
                     <span class="pf-v5-c-form__label-text">${msg("loginOtpOneTime")}</span>
                 </label>
                 <input id="otp" name="otp" type="text" inputmode="numeric" autocomplete="one-time-code" class="wims-otp-hidden" />
@@ -40,7 +52,13 @@
                 </#if>
             </div>
 
-            <div class="pf-v5-c-form__group pf-m-action">
+            <#if auth?has_content && auth.showUsername() && !auth.showResetCredentials()>
+                <a class="wims-otp-restart" id="wims-otp-restart-login" href="${url.loginRestartFlowUrl}">
+                    Go back
+                </a>
+            </#if>
+
+            <div class="pf-v5-c-form__group pf-m-action wims-otp-submit-row">
                 <div class="pf-v5-c-form__actions">
                     <input class="${properties.kcButtonClass!} ${properties.kcButtonPrimaryClass!} ${properties.kcButtonBlockClass!} ${properties.kcButtonLargeClass!}" name="login" id="kc-login" type="submit" value="${msg("doLogIn")}"/>
                 </div>

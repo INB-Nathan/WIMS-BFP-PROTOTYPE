@@ -1,7 +1,7 @@
 # Regional Dashboard Handover
 
 > **Audience:** AI assistant sessions continuing work on the Encoder/Validator subsystem.  
-> **Last updated:** 2026-05-28 (branch `fix/enc-val-bugs-and-UI`)
+> **Last updated:** 2026-05-31 (branch `fix--refactored-enc-val-pages-and-M15-row-level-sec`)
 
 ---
 
@@ -477,11 +477,10 @@ This fix also unblocks the encoder archive endpoint (Fix 15) for any VERIFIED ro
 - Stats now refresh after every queue load (accept, reject, archive, page change).
 
 **Encoder** (`src/frontend/src/app/dashboard/regional/page.tsx`):
-- Added `loadStatsRef` (a `useRef` that mirrors `loadStats`).
-- Inside `loadIncidents` success path: `void loadStatsRef.current().catch(() => {})`.
-- Stats now refresh after every incident list load (archive action, background 20 s poll, page change).
+- Added `loadStatsRef` (a `useRef` that mirrors `loadStats`) and called `void loadStatsRef.current()` inside `loadIncidents`.
+- Stats refreshed after every incident list load.
 
-The `useRef` pattern avoids adding `statsDateBounds`/`loadStats` to dep arrays, which would cause spurious re-fetches.
+> **⚠️ This was later revised — see Fix 20 below.** The `loadStatsRef` inside `loadIncidents` caused a double API call on every filter change that degraded responsiveness. It was removed in the 2026-05-31 session.
 
 #### Fix 14 — Restore banner appeared in import-correction mode
 
@@ -603,3 +602,98 @@ The hook is idempotent and non-fatal (warning logged on failure). After any back
 3. Smoke-test the full test plan in `PR.md`.
 4. Address the `useSearchParams()` pattern in `/incidents/triage` and analyst workflow pages.
 5. Consider implementing M4-D (per-row duplicate decision in AFOR import) as the next milestone item.
+
+---
+
+### 2026-05-31 — Login page, filter UX, Keycloak profile enforcement
+
+Branch: `fix--refactored-enc-val-pages-and-M15-row-level-sec`
+
+#### Fix 20 — Keycloak TOTP/MFA setup page overflow (permanent fix)
+
+**File:** `src/keycloak/themes/wims-bfp/login/resources/css/wims-custom.css`
+
+**Root cause:** The right panel (`.pf-v5-c-login__main`) had `flex: 1` in a container with default `align-items: stretch`. Stretch locked the panel height to the container's 100vh. Content taller than the viewport (TOTP setup with 3 steps) overflowed half above the scroll origin (unreachable) and half below. An earlier attempt used `justify-content: flex-start` which fixed the cut-off but broke vertical centering on the standard login form.
+
+**Fix:**
+- `.pf-v5-c-login__container`: added `align-items: flex-start` — right panel now grows with content instead of being height-constrained.
+- `.wims-login-branding`: changed `position: relative; min-height: 100vh` → `position: sticky; top: 0; height: 100vh` — left red panel stays pinned to the top of the viewport as the user scrolls through a long page.
+- `.pf-v5-c-login__main`: added `min-height: 100vh` — panel is at least full-screen height for short content; `justify-content: center` kept so the login form is vertically centered.
+- Mobile breakpoint: added `position: relative; top: auto` override on `.wims-login-branding` so sticky is correctly reset in the stacked mobile layout.
+
+**Behavior after fix:**
+- Standard login form: vertically centered on screen ✓
+- TOTP setup: full page scrolls top-to-bottom; all steps reachable ✓
+- BFP branding always visible (sticky) during scroll ✓
+
+---
+
+#### Fix 21 — Status filter chip no longer resets date filter
+
+**Files:** `src/frontend/src/app/dashboard/regional/page.tsx`, `src/frontend/src/app/dashboard/validator/page.tsx`
+
+**Root cause:**
+
+*Regional page* — `selectStatusFilter` had a `LONG_RANGE_STATUSES` array and `leavingLongRange` logic that:
+- Set `dateFilter = 'all'` whenever user clicked PENDING/VERIFIED/REJECTED/DRAFT
+- Set `dateFilter = 'today'` when leaving those statuses for the All chip (if dateFilter was already 'all')
+
+If the user manually set "All Time" and then clicked the All status chip, the date filter was silently reset to "Today".
+
+*Validator page* — `selectStatusFilter` unconditionally set `dateFilter = "today"` when clicking the All chip, regardless of the user's current date selection.
+
+**Fix (both pages):** `selectStatusFilter` now only updates `statusFilter` and resets `pageIndex`/`page`. Date filter is never mutated by status chip clicks — it is fully user-controlled.
+
+---
+
+#### Fix 22 — Filter response time: removed double API call on filter change
+
+**File:** `src/frontend/src/app/dashboard/regional/page.tsx`
+
+**Root cause:** The `loadStatsRef` pattern added in Fix 13 called `loadStatsRef.current()` (a full stats API call) inside every `loadIncidents` completion. This meant every status chip, date chip, or page change fired two concurrent API calls — one for incidents, one for stats. The stats call completed after the incidents and triggered a second React re-render of all incident cards, causing visible jank that felt like slow filtering.
+
+**Fix:** Removed `loadStatsRef` and the `loadStats` call from inside `loadIncidents`. Stats now refresh only via:
+1. `statsDateFilter` useEffect — when user changes the Stats period chips
+2. `refreshAll()` — when user clicks the Refresh button
+3. The 20 s background pending-count poll
+
+The rejected-count badge stays accurate because the background poll catches validator actions within 20 s. The stats period chips (Today / This Week / This Month / All Time) still update stats immediately when clicked.
+
+---
+
+#### Fix 23 — Keycloak Update Profile: required fields enforced, bypass blocked
+
+**Files:** `src/keycloak/bfp-realm.json`, `src/keycloak/import/bfp-realm.json`, `scripts/seed-dev-users.sh`, `scripts/seed-dev-users.ps1`
+
+**Root cause:** Three separate problems:
+
+1. `UPDATE_PROFILE` `defaultAction` was `false` — newly admin-created users were never prompted to set their name and username on first login.
+2. Keycloak 24's default User Profile marks `firstName` and `lastName` as **optional**. Even when UPDATE_PROFILE was triggered (manually or via required action), the form accepted empty submissions — effectively a bypass.
+3. The seed script changes from the previous session (`requiredActions=[]`) were only applied at runtime; the realm JSON didn't have `userProfileConfig` so fresh `down -v` installs had the same optional-field problem.
+
+**Fix:**
+
+*Realm JSON (both files):*
+- `UPDATE_PROFILE` `defaultAction` changed `false` → `true`. New admin-created users automatically get the prompt on first login.
+- Added `userProfileConfig` attribute (JSON string) to the realm with `firstName` and `lastName` marked `"required": {"roles": ["user"]}`. The form now rejects empty submissions with a validation error.
+- `editUsernameAllowed: true` (already set by Codex) lets users also change their username in the same form.
+
+*Seed scripts (both .sh and .ps1):*
+- Added `kcadm update authentication/required-actions/UPDATE_PROFILE -s defaultAction=true` to push the default action setting to a live Keycloak instance.
+- Added `kcadm update users/profile -f /tmp/wims-up.json` to upload the User Profile config to a live instance without needing `down -v`.
+
+**Dev seed users are unaffected:** The seed script still clears `requiredActions=[]` for each dev account, and their `firstName`/`lastName` are pre-populated in the realm JSON. They skip the prompt entirely and log in directly to the dashboard.
+
+**Testing:** Create a new user in Keycloak Admin (`localhost:8080`) without setting firstName/lastName. Log in with that user → complete MFA → UPDATE_PROFILE form appears → first name and last name fields show required validation errors if submitted empty → user must fill both before proceeding.
+
+---
+
+**Outstanding issues (updated 2026-05-31):**
+
+| Issue | Severity | Notes |
+|-------|----------|-------|
+| `useSearchParams()` without Suspense in `/incidents/triage` and `/dashboard/analyst/[workflow]` | Low | Same pattern as fixed afor pages — at risk but not reported crashing |
+| `M4-D`: AFOR import per-row duplicate decision UI | Deferred | `DuplicateResolutionModal` exists but per-row review UI in import flow is minimal |
+| `test_delete_pending_blocked` | Pre-existing | Backend DELETE allows deleting PENDING incidents (should block) |
+| Bulk approve atomicity | Pre-existing | No rollback on mid-batch failure |
+| Keycloak profile config on running stack | Operational | Run `bash scripts/seed-dev-users.sh` to apply without `down -v` |

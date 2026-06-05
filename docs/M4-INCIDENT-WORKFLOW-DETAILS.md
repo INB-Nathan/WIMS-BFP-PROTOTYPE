@@ -300,8 +300,8 @@ Sequence is **global** (increments monotonically across all incidents, not per r
 ### EXT-5: Regional RBAC
 **Status:** ✅ Complete
 
-- 18 Keycloak encoder accounts (encoder_r01 through encoder_r18), one per PH region
-- `encoder_test` remains as Region 1 (NCR) encoder for development
+- 18 Keycloak encoder accounts, one per PH region, using canonical region-code usernames
+- `encoder_ncr` is the Region 1 (NCR) encoder for development; Region I begins at `encoder_r01`
 - `seed-dev-users.sh` and `.ps1` updated with all 18 encoders and their region assignments
 - Backend `POST /incidents` enforces `region_id == assigned_region_id` (raises 403 REGION_MISMATCH)
 - Backend `POST /incidents/upload-bundle` also enforces region assignment (raises 403 REGION_MISMATCH)

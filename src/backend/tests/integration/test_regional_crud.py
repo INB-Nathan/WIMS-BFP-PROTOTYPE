@@ -30,7 +30,7 @@ from auth import get_current_wims_user
 @pytest.fixture
 def db_session():
     """Yield a DB session for test setup/teardown."""
-    from database import _SessionLocal  # noqa: SLF001
+    from database import _AdminSessionLocal as _SessionLocal  # noqa: SLF001
 
     db = _SessionLocal()
     try:

@@ -347,7 +347,7 @@ Parser class for the official BFP manual entry form (structural AFOR).
 
 ### `IncidentCreateRequest`
 
-All fields optional except `latitude`, `longitude`, `region_id`. Key fields: notification_dt, alarm_level, general_category, sub_category, specific_type, occupancy_type, city_id, barangay_id, distance_from_station_km, estimated_damage_php, casualty counts, responder_type, fire_origin, extent_of_damage, fire_station_name, total_response_time_minutes, recommendations, province_district, city_municipality, station_code, incident_type_code, parent_incident_id, street_address, landmark, caller_name, caller_number, narrative_report, owner_name, occupant_name, establishment_name, receiver_name, prepared_by_officer, noted_by_officer, remarks.
+All fields optional except `latitude`, `longitude`, `region_id`. Key fields: notification_dt, alarm_level, general_category, sub_category, specific_type, occupancy_type, city_id, barangay_id, distance_from_station_km, estimated_damage_php, casualty counts, responder_type, fire_origin, extent_of_damage, fire_station_name, total_response_time_minutes, recommendations, province_district, city_municipality, incident_type_code, parent_incident_id, street_address, landmark, caller_name, caller_number, narrative_report, owner_name, occupant_name, establishment_name, receiver_name, prepared_by_officer, noted_by_officer, remarks.
 
 ### `IncidentUpdateRequest`
 
@@ -394,7 +394,7 @@ Each item: incident_id, region_id, created_at, updated_at, notification_dt, gene
 
 **Query Parameters:** `region_id` (int, required), `fire_date` (str YYYY-MM-DD, required), `incident_type_code` (Optional[str]), `general_category` (Optional[str])
 
-**Returns:** `{"duplicates": [...]}` with items containing incident_id, reference_number, verification_status, incident_type_code, notification_dt, alarm_level, general_category, type_of_involved, fire_station_name, station_code, city_municipality, province_district, region_name, street_address
+**Returns:** `{"duplicates": [...]}` with items containing incident_id, reference_number, verification_status, incident_type_code, notification_dt, alarm_level, general_category, type_of_involved, fire_station_name, city_municipality, province_district, region_name, street_address
 
 **Errors:** 422 (invalid fire_date format). Returns `{"duplicates": []}` if no match criteria provided.
 

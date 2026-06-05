@@ -6,47 +6,25 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import {
   RefreshCw, Flame, Building2, TreePine, Car, Layers, Home, Users, Truck, Trees,
   Archive, CalendarDays,
 } from "lucide-react";
 import { apiFetch, ApiRequestError, fetchValidatorStats } from "@/lib/api";
-import { IncidentDiffPanel } from "@/components/IncidentDiffPanel";
-import { UpdateRequestDiffPanel } from "@/components/UpdateRequestDiffPanel";
-import { IncidentRevisionHistory } from "@/components/IncidentRevisionHistory";
 import { formatClassification } from "@/lib/afor-utils";
 import { PH_REGIONS, getShortRegionName } from "@/lib/ph-regions";
-import { StatusBadge } from "@/components/ui/StatusBadge";
-import { formatIncidentDate, isDateOnly, getDateBounds, categoryCount as sharedCategoryCount } from "@/lib/incident-utils";
+import { isDateOnly, getDateBounds, categoryCount as sharedCategoryCount } from "@/lib/incident-utils";
+import { ActionModal } from "@/components/validator/ActionModal";
+import { ValidatorDuplicateModal } from "@/components/validator/ValidatorDuplicateModal";
+import { AcceptConfirmModal } from "@/components/validator/AcceptConfirmModal";
+import { BulkApproveConfirmModal } from "@/components/validator/BulkApproveConfirmModal";
+import { BulkDuplicateModal } from "@/components/validator/BulkDuplicateModal";
+import { IncidentTableRow } from "@/components/validator/IncidentTableRow";
+import type { ValidatorIncident, ActionType } from "@/components/validator/types";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-interface ValidatorIncident {
-  incident_id: number;
-  verification_status: string;
-  encoder_id: string | null;
-  region_id: number;
-  created_at: string | null;
-  submitted_at: string | null;
-  updated_at: string | null;
-  notification_dt: string | null;
-  general_category: string | null;
-  alarm_level: string | null;
-  fire_station_name: string | null;
-  structures_affected: number | null;
-  households_affected: number | null;
-  responder_type: string | null;
-  fire_origin: string | null;
-  extent_of_damage: string | null;
-  parent_incident_id: number | null;
-  is_duplicate: boolean;
-  duplicate_of: number | null;
-  reference_number: string | null;
-  is_resubmitted: boolean;
-}
 
 interface QueueResponse {
   items: ValidatorIncident[];
@@ -54,8 +32,6 @@ interface QueueResponse {
   limit: number;
   offset: number;
 }
-
-type ActionType = "accept" | "accept_replace" | "reject";
 
 const STATUS_FILTER_QUEUE = "__QUEUE__";
 const STATUS_FILTER_ALL = "__ALL__";
@@ -92,8 +68,6 @@ const STATS_DATE_FILTERS = [
 ] as const;
 
 type StatsDateFilterValue = (typeof STATS_DATE_FILTERS)[number]["value"];
-
-// STATUS_LABELS and STATUS_COLORS imported from @/components/ui/StatusBadge
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -149,9 +123,6 @@ export default function ValidatorDashboard() {
   const [actionNotes, setActionNotes] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [showDiff, setShowDiff] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [showDupHistory, setShowDupHistory] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
@@ -171,7 +142,6 @@ export default function ValidatorDashboard() {
   const [runtimeDuplicates, setRuntimeDuplicates] = useState<Map<number, number>>(new Map());
   const [newIncidentBanner, setNewIncidentBanner] = useState(false);
   const [confirmAcceptTarget, setConfirmAcceptTarget] = useState<ValidatorIncident | null>(null);
-  const [showConfirmDiff, setShowConfirmDiff] = useState(false);
   const [hoverHint, setHoverHint] = useState<HoverHint | null>(null);
   const lastKnownTotal = useRef<number | null>(null);
   const hoverHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -225,16 +195,6 @@ export default function ValidatorDashboard() {
     updateFiltersWithoutScrollShift(() => {
       setStatusFilter(nextStatus);
       setPage(0);
-      if (nextStatus === STATUS_FILTER_ALL) {
-        setDateFilter("today");
-        setSpecificDate("");
-        setSpecificDateDraft("");
-      } else {
-        // Pending queue, Accepted, Rejected — all use "all time" so finalized records are always reachable.
-        setDateFilter("all");
-        setSpecificDate("");
-        setSpecificDateDraft("");
-      }
     });
   }, [updateFiltersWithoutScrollShift]);
 
@@ -528,8 +488,6 @@ export default function ValidatorDashboard() {
     setActionType(type);
     setActionNotes("");
     setActionError(null);
-    setShowDiff(false);
-    setShowHistory(false);
   };
 
   const closeModal = () => {
@@ -538,18 +496,11 @@ export default function ValidatorDashboard() {
     setActionType(null);
     setActionNotes("");
     setActionError(null);
-    setShowDiff(false);
-    setShowHistory(false);
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const isUpdateRequest = !!(actionTarget?.parent_incident_id);
   const isDuplicateIncident = !!(actionTarget?.is_duplicate && actionTarget?.duplicate_of);
-
-  // ---------------------------------------------------------------------------
-  // Stats card definitions
-  // ---------------------------------------------------------------------------
-
   const incidentCards = stats ? [
     { key: 'pending', title: 'Awaiting Validation', icon: Flame, value: stats.pending_validation.toLocaleString(), iconBg: '#DBEAFE', iconColor: '#1D4ED8' },
     { key: 'wildland', title: 'Wildland Fire', icon: Trees, value: stats.wildland_total.toLocaleString(), iconBg: '#FEF9C3', iconColor: '#92400E' },
@@ -573,33 +524,8 @@ export default function ValidatorDashboard() {
     { key: 'vehicles', title: 'Vehicles', icon: Truck, value: stats.vehicles_affected.toLocaleString(), iconBg: '#FFF7ED', iconColor: '#C2410C' },
   ] : [];
 
-  // ---------------------------------------------------------------------------
-  // JSX
-  // ---------------------------------------------------------------------------
-
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-baseline justify-between mb-1">
-        <h1 className="text-2xl font-bold">Validator Queue</h1>
-        <div className="flex items-center gap-4">
-          <Link
-            href="/dashboard/validator/map"
-            className="text-sm font-medium text-blue-700 hover:text-blue-900"
-          >
-            Operational Map →
-          </Link>
-          <Link
-            href="/dashboard/validator/audit"
-            className="text-sm font-medium text-blue-700 hover:text-blue-900"
-          >
-            Audit Trail →
-          </Link>
-        </div>
-      </div>
-      <p className="text-gray-500 text-sm mb-6">
-        Encoder-submitted incidents from all regions awaiting review.
-      </p>
-
+    <div className="space-y-6 pb-8" style={{ backgroundColor: 'var(--content-bg)' }}>
       {/* ── Sticky notification toast (visible while scrolling) ── */}
       {newIncidentBanner && (
         <div className="sticky top-0 z-40">
@@ -665,7 +591,7 @@ export default function ValidatorDashboard() {
 
       {/* ── Stats date filter chips ── */}
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Stats period:</span>
+        <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>Stats:</span>
         {STATS_DATE_FILTERS.map((f) => {
           const active = statsDateFilter === f.value;
           return (
@@ -909,176 +835,29 @@ export default function ValidatorDashboard() {
               </thead>
               <tbody>
                 {incidents.map((inc, idx) => (
-                  <tr
+                  <IncidentTableRow
                     key={inc.incident_id}
-                    onClick={() => router.push(`/dashboard/regional/incidents/${inc.incident_id}`)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        router.push(`/dashboard/regional/incidents/${inc.incident_id}`);
-                      }
+                    inc={inc}
+                    idx={idx}
+                    isArchiveView={isArchiveView}
+                    selectedIds={selectedIds}
+                    acceptingId={acceptingId}
+                    runtimeDuplicates={runtimeDuplicates}
+                    onRowClick={(id) => router.push(`/dashboard/regional/incidents/${id}`)}
+                    onTogglePending={togglePending}
+                    onHoverStart={scheduleHoverHint}
+                    onHoverMove={hideHoverHintOnMove}
+                    onHoverEnd={clearHoverHint}
+                    onUnarchive={(inc) => void doUnarchive(inc)}
+                    onDelete={(inc) => void doDelete(inc)}
+                    onArchive={(inc) => void doArchive(inc)}
+                    onReviewDuplicate={(inc) => {
+                      setValidatorDupTarget(inc);
+                      setValidatorDupMatchedId(inc.duplicate_of ?? runtimeDuplicates.get(inc.incident_id)!);
                     }}
-                    tabIndex={0}
-                    role="link"
-                    aria-label={`View incident ${inc.incident_id}`}
-                    className="cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#C62828] focus-visible:ring-inset"
-                    style={{
-                      backgroundColor: idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA',
-                      borderBottom: '1px solid var(--border-color)',
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-light)';
-                      scheduleHoverHint(inc.incident_id, e);
-                    }}
-                    onMouseMove={hideHoverHintOnMove}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLElement).style.backgroundColor = idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA';
-                      clearHoverHint();
-                    }}
-                  >
-                    <td className="px-4 py-4">
-                      {inc.verification_status === "PENDING" ? (
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(inc.incident_id)}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => togglePending(inc, e.target.checked)}
-                          className="rounded"
-                        />
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-4 text-sm whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
-                      {formatIncidentDate(inc.submitted_at ?? inc.created_at)}
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="flex flex-col items-start gap-1">
-                        <StatusBadge status={inc.verification_status} />
-                        {inc.is_resubmitted && ['PENDING', 'PENDING_VALIDATION'].includes(inc.verification_status) && (
-                          <span className="inline-flex w-fit max-w-full rounded-full bg-purple-100 px-2 py-0.5 text-xs font-bold leading-none text-purple-800 whitespace-nowrap">
-                            RESUBMITTED
-                          </span>
-                        )}
-                        {inc.parent_incident_id && (
-                          <span className="inline-flex w-fit max-w-full rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold leading-none text-amber-800 whitespace-nowrap">
-                            UPDATE
-                          </span>
-                        )}
-                        {(inc.is_duplicate || runtimeDuplicates.has(inc.incident_id)) && !["VERIFIED", "REJECTED", "REPLACED"].includes(inc.verification_status) && (
-                          <span className="inline-flex w-fit max-w-full rounded-full bg-orange-100 px-2 py-0.5 text-xs font-bold leading-none text-orange-800 whitespace-nowrap">
-                            DUPLICATE
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                      {regionDisplay(inc.region_id)}
-                    </td>
-                    <td className="px-4 py-4 text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                      <div className="flex max-w-[260px] items-center gap-2">
-                        <span className="truncate">{inc.fire_station_name ?? "Unknown station"}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 text-sm whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
-                      {formatIncidentDate(inc.notification_dt)}
-                    </td>
-                    <td className="px-4 py-4 text-sm" style={{ color: 'var(--text-primary)' }}>
-                      {formatClassification(inc.general_category)}
-                    </td>
-                    <td className="px-4 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                      {inc.alarm_level ?? "—"}
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <div className="flex gap-1.5 items-center">
-                        {isArchiveView ? (
-                          <>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void doUnarchive(inc);
-                              }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-gray-200 bg-white font-medium transition-colors hover:bg-gray-50"
-                              style={{ color: 'var(--text-secondary)' }}
-                              title="Restore this incident to the active queue"
-                            >
-                              <Archive className="h-3.5 w-3.5" aria-hidden />
-                              Unarchive
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void doDelete(inc);
-                              }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-red-200 bg-white font-medium transition-colors hover:bg-red-50"
-                              style={{ color: '#991B1B' }}
-                              title="Permanently delete this archived incident"
-                            >
-                              Delete
-                            </button>
-                          </>
-                        ) : ["VERIFIED", "REPLACED", "REJECTED"].includes(inc.verification_status) ? (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void doArchive(inc);
-                            }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-gray-200 bg-white font-medium transition-colors hover:bg-gray-50"
-                            style={{ color: 'var(--text-secondary)' }}
-                            title="Archive this incident"
-                          >
-                            <Archive className="h-3.5 w-3.5" aria-hidden />
-                            Archive
-                          </button>
-                        ) : (
-                          <>
-                            {(inc.is_duplicate || runtimeDuplicates.has(inc.incident_id)) ? (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setValidatorDupTarget(inc);
-                                  setValidatorDupMatchedId(inc.duplicate_of ?? runtimeDuplicates.get(inc.incident_id)!);
-                                  setShowDupHistory(false);
-                                }}
-                                disabled={acceptingId === inc.incident_id}
-                                className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors disabled:opacity-50"
-                                style={{ backgroundColor: '#9333EA' }}
-                                onMouseEnter={(e) => { if (acceptingId !== inc.incident_id) (e.currentTarget as HTMLElement).style.backgroundColor = '#7E22CE'; }}
-                                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#9333EA'; }}
-                              >
-                                Review
-                              </button>
-                            ) : (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setConfirmAcceptTarget(inc);
-                                  setShowConfirmDiff(false);
-                                }}
-                                disabled={acceptingId === inc.incident_id}
-                                className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors disabled:opacity-50"
-                                style={{ backgroundColor: '#16A34A' }}
-                                onMouseEnter={(e) => { if (acceptingId !== inc.incident_id) (e.currentTarget as HTMLElement).style.backgroundColor = '#15803D'; }}
-                                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#16A34A'; }}
-                              >
-                                {acceptingId === inc.incident_id ? "…" : "Accept"}
-                              </button>
-                            )}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openAction(inc, "reject");
-                              }}
-                              className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors"
-                              style={{ backgroundColor: '#991B1B' }}
-                              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-dark)'; }}
-                              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#991B1B'; }}
-                            >
-                              Reject
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+                    onAccept={(inc) => setConfirmAcceptTarget(inc)}
+                    onReject={(inc) => openAction(inc, "reject")}
+                  />
                 ))}
               </tbody>
             </table>
@@ -1132,268 +911,56 @@ export default function ValidatorDashboard() {
         </div>
       )}
 
-      {/* ── Validator duplicate resolution modal ── */}
       {validatorDupTarget && validatorDupMatchedId && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl p-6 max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg font-semibold mb-1 text-amber-800">
-              {validatorDupConfidence === 'LIKELY' ? 'Likely Duplicate Incident' : 'Possible Duplicate Incident'}
-            </h2>
-            <p className="text-sm text-gray-500 mb-4">
-              Incident #{validatorDupTarget.incident_id} closely matches a verified record (#{validatorDupMatchedId}). Review the records side by side before deciding.
-            </p>
-            <div className="mb-4">
-              <UpdateRequestDiffPanel updateIncidentId={validatorDupTarget.incident_id} originalIncidentId={validatorDupMatchedId} />
-            </div>
-            <div className="mb-3">
-              <button
-                type="button"
-                onClick={() => setShowDupHistory((s) => !s)}
-                className="text-xs font-medium underline"
-                style={{ color: 'var(--bfp-red)' }}
-              >
-                {showDupHistory ? "Hide" : "View"} revision history
-              </button>
-              {showDupHistory && (
-                <div className="mt-2">
-                  <IncidentRevisionHistory incidentId={validatorDupTarget.incident_id} />
-                </div>
-              )}
-            </div>
-            {actionError && <p className="text-sm text-red-600 mb-2">{actionError}</p>}
-            <div className="flex flex-wrap gap-2 justify-end mt-4">
-              <button onClick={() => { setValidatorDupTarget(null); setValidatorDupMatchedId(null); setValidatorDupConfidence(null); setActionError(null); setShowDupHistory(false); }} disabled={actionLoading} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-40">Cancel</button>
-              <button onClick={() => { const inc = validatorDupTarget; setValidatorDupTarget(null); setValidatorDupMatchedId(null); setValidatorDupConfidence(null); setShowDupHistory(false); openAction(inc, "reject"); }} disabled={actionLoading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#991B1B' }}>Reject</button>
-              <button
-                onClick={() => {
-                  const inc = validatorDupTarget;
-                  const originalId = validatorDupMatchedId;
-                  setValidatorDupTarget(null);
-                  setValidatorDupMatchedId(null); setValidatorDupConfidence(null);
-                  setActionLoading(true);
-                  setActionError(null);
-                  void apiFetch(`/regional/incidents/${inc.incident_id}/verification?force=true`, {
-                    method: "PATCH",
-                    body: JSON.stringify({ action: "accept_replace", original_incident_id: originalId }),
-                  }).then(() => fetchQueue()).catch((e: unknown) => { setActionError(e instanceof Error ? e.message : "Failed to replace existing"); }).finally(() => setActionLoading(false));
-                }}
-                disabled={actionLoading}
-                className="px-4 py-2 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
-              >
-                {actionLoading ? "Saving…" : "Replace Existing"}
-              </button>
-              <button
-                onClick={() => {
-                  const inc = validatorDupTarget;
-                  setValidatorDupTarget(null);
-                  setValidatorDupMatchedId(null); setValidatorDupConfidence(null);
-                  setActionLoading(true);
-                  setActionError(null);
-                  void apiFetch(`/regional/incidents/${inc.incident_id}/verification?force=true`, {
-                    method: "PATCH",
-                    body: JSON.stringify({ action: "accept" }),
-                  }).then(() => fetchQueue()).catch((e: unknown) => { setActionError(e instanceof Error ? e.message : "Failed to verify as new"); }).finally(() => setActionLoading(false));
-                }}
-                disabled={actionLoading}
-                className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50"
-                style={{ backgroundColor: '#16A34A' }}
-              >
-                {actionLoading ? "Saving…" : "Verify as New"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ValidatorDuplicateModal
+          target={validatorDupTarget}
+          matchedId={validatorDupMatchedId}
+          confidence={validatorDupConfidence}
+          onClose={() => { setValidatorDupTarget(null); setValidatorDupMatchedId(null); setValidatorDupConfidence(null); setActionError(null); }}
+          onReject={(inc) => openAction(inc, "reject")}
+          onRefresh={fetchQueue}
+        />
       )}
 
-      {/* ── Accept confirmation modal ── */}
       {confirmAcceptTarget && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Confirm Acceptance</h2>
-            <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
-              Incident #{confirmAcceptTarget.incident_id} · {confirmAcceptTarget.fire_station_name ?? 'Unknown station'} · {regionDisplay(confirmAcceptTarget.region_id)}
-            </p>
-            <button
-              onClick={() => setShowConfirmDiff((v) => !v)}
-              className="text-sm font-medium underline mb-4 block"
-              style={{ color: 'var(--bfp-red)' }}
-            >
-              {showConfirmDiff ? 'Hide' : 'View'} revision history
-            </button>
-            {showConfirmDiff && (
-              <div className="mb-4">
-                <IncidentDiffPanel incidentId={confirmAcceptTarget.incident_id} />
-              </div>
-            )}
-            <div className="flex justify-end gap-3 mt-2">
-              <button
-                onClick={() => { setConfirmAcceptTarget(null); setShowConfirmDiff(false); }}
-                className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  const target = confirmAcceptTarget;
-                  setConfirmAcceptTarget(null);
-                  setShowConfirmDiff(false);
-                  void handleDirectAccept(target);
-                }}
-                className="px-4 py-2 text-sm rounded-lg text-white"
-                style={{ backgroundColor: '#16A34A' }}
-              >
-                Confirm Accept
-              </button>
-            </div>
-          </div>
-        </div>
+        <AcceptConfirmModal
+          target={confirmAcceptTarget}
+          regionDisplay={regionDisplay}
+          onClose={() => setConfirmAcceptTarget(null)}
+          onConfirm={(inc) => { setConfirmAcceptTarget(null); void handleDirectAccept(inc); }}
+        />
       )}
 
-      {/* ── Bulk approve confirm modal ── */}
       {showBulkConfirmModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-            <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>Confirm Bulk Approve</h2>
-            <p className="text-sm mb-6" style={{ color: 'var(--text-secondary)' }}>
-              Approve {selectedIds.size} incident{selectedIds.size !== 1 ? "s" : ""}? This will set them to VERIFIED and cannot be undone without an explicit rejection.
-            </p>
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setShowBulkConfirmModal(false)} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50">Cancel</button>
-              <button onClick={() => void submitBulkApprove()} className="px-4 py-2 text-sm rounded-lg text-white" style={{ backgroundColor: '#16A34A' }}>
-                Confirm ({selectedIds.size})
-              </button>
-            </div>
-          </div>
-        </div>
+        <BulkApproveConfirmModal
+          selectedCount={selectedIds.size}
+          onClose={() => setShowBulkConfirmModal(false)}
+          onConfirm={() => void submitBulkApprove()}
+        />
       )}
 
-      {/* ── Bulk duplicate resolution modal ── */}
       {bulkDupTarget && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Duplicate Detected in Batch</h2>
-            <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
-              Incident #{bulkDupTarget.incident_id} · {bulkDupTarget.fire_station_name ?? "Unknown station"} · {regionDisplay(bulkDupTarget.region_id)}
-            </p>
-            <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-xl text-sm text-orange-800">
-              This incident may be a duplicate of a verified record. Choose how to proceed.
-            </div>
-            {bulkDupTarget.is_duplicate && bulkDupTarget.duplicate_of && (
-              <div className="mb-4">
-                <UpdateRequestDiffPanel updateIncidentId={bulkDupTarget.incident_id} originalIncidentId={bulkDupTarget.duplicate_of} />
-              </div>
-            )}
-            <div className="flex flex-wrap gap-2 justify-end mt-4">
-              <button onClick={() => bulkDupResolve.current?.("skip")} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50">Skip (Leave Pending)</button>
-              <button onClick={() => bulkDupResolve.current?.("reject")} className="px-4 py-2 text-sm rounded-lg text-white" style={{ backgroundColor: '#991B1B' }}>Reject</button>
-              <button onClick={() => bulkDupResolve.current?.("accept_replace")} className="px-4 py-2 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700">Replace Original</button>
-              <button onClick={() => bulkDupResolve.current?.("accept")} className="px-4 py-2 text-sm rounded-lg text-white" style={{ backgroundColor: '#16A34A' }}>Accept as New</button>
-            </div>
-          </div>
-        </div>
+        <BulkDuplicateModal
+          target={bulkDupTarget}
+          regionDisplay={regionDisplay}
+          onResolve={(decision) => { bulkDupResolve.current?.(decision); }}
+        />
       )}
 
-      {/* ── Action confirmation modal ── */}
       {actionTarget && actionType && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
-            {(isUpdateRequest || isDuplicateIncident) && (
-              <button onClick={closeModal} className="mb-3 text-sm font-medium flex items-center gap-1" style={{ color: 'var(--bfp-red)' }}>
-                ← Back
-              </button>
-            )}
-
-            <h2 className="text-lg font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
-              {actionType === "accept" || actionType === "accept_replace"
-                ? isDuplicateIncident ? "Review Duplicate Incident" : "Accept Incident"
-                : "Reject Incident"}
-            </h2>
-            <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
-              Incident #{actionTarget.incident_id} · {actionTarget.fire_station_name ?? "Unknown station"}
-            </p>
-
-            <div className="mb-4">
-              {isUpdateRequest ? (
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">UPDATE REQUEST</span>
-                    <span className="text-xs text-gray-500">Encoder submitted this as an update to incident #{actionTarget.parent_incident_id}</span>
-                  </div>
-                  <UpdateRequestDiffPanel updateIncidentId={actionTarget.incident_id} originalIncidentId={actionTarget.parent_incident_id!} />
-                </div>
-              ) : isDuplicateIncident ? (
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-800">FLAGGED DUPLICATE</span>
-                    <span className="text-xs text-gray-500">Matches verified incident #{actionTarget.duplicate_of}</span>
-                  </div>
-                  <UpdateRequestDiffPanel updateIncidentId={actionTarget.incident_id} originalIncidentId={actionTarget.duplicate_of!} />
-                </div>
-              ) : (
-                <>
-                  <div className="flex flex-wrap gap-4 mb-1">
-                    <button
-                      type="button"
-                      onClick={() => setShowDiff((s) => !s)}
-                      className="text-xs font-medium underline"
-                      style={{ color: 'var(--bfp-red)' }}
-                    >
-                      {showDiff ? "Hide" : "View"} changes since submission
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowHistory((s) => !s)}
-                      className="text-xs font-medium underline"
-                      style={{ color: 'var(--bfp-red)' }}
-                    >
-                      {showHistory ? "Hide" : "View"} revision history
-                    </button>
-                  </div>
-                  {showDiff && <div className="mt-2"><IncidentDiffPanel incidentId={actionTarget.incident_id} /></div>}
-                  {showHistory && <div className="mt-2"><IncidentRevisionHistory incidentId={actionTarget.incident_id} /></div>}
-                </>
-              )}
-            </div>
-
-            {actionType === "reject" && (
-              <>
-                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-                  Reason for rejection <span style={{ color: 'var(--bfp-red)' }}>*</span>
-                </label>
-                <textarea
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm h-24 resize-none focus:outline-none focus:border-[#C62828]"
-                  placeholder="Required for rejection…"
-                  value={actionNotes}
-                  onChange={(e) => setActionNotes(e.target.value)}
-                  disabled={actionLoading}
-                />
-              </>
-            )}
-
-            {actionError && <p className="mt-2 text-sm text-red-600">{actionError}</p>}
-
-            {isDuplicateIncident && (actionType === "accept" || actionType === "accept_replace") ? (
-              <div className="flex flex-wrap gap-2 justify-end mt-4">
-                <button onClick={closeModal} disabled={actionLoading} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-40">Back</button>
-                <button onClick={() => { setActionType("reject"); }} disabled={actionLoading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#991B1B' }}>Reject</button>
-                <button onClick={() => { setActionType("accept_replace"); void submitAction(); }} disabled={actionLoading} className="px-4 py-2 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">{actionLoading ? "Saving…" : "Replace Original"}</button>
-                <button onClick={() => { setActionType("accept"); void submitAction(true); }} disabled={actionLoading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#16A34A' }}>{actionLoading ? "Saving…" : "Accept as New"}</button>
-              </div>
-            ) : (
-              <div className="flex justify-end gap-3 mt-4">
-                <button onClick={closeModal} disabled={actionLoading} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-40">Cancel</button>
-                <button
-                  onClick={() => void submitAction()}
-                  disabled={actionLoading || (actionType === "reject" && !actionNotes.trim())}
-                  className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50"
-                  style={{ backgroundColor: actionType === "accept" || actionType === "accept_replace" ? '#16A34A' : '#991B1B' }}
-                >
-                  {actionLoading ? "Saving…" : "Confirm"}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+        <ActionModal
+          target={actionTarget}
+          type={actionType}
+          isUpdateRequest={isUpdateRequest}
+          isDuplicateIncident={isDuplicateIncident}
+          loading={actionLoading}
+          error={actionError}
+          notes={actionNotes}
+          onClose={closeModal}
+          onNotesChange={setActionNotes}
+          onSetActionType={setActionType}
+          onSubmit={submitAction}
+        />
       )}
     </div>
   );

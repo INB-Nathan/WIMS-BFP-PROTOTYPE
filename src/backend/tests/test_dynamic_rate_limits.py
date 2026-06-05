@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 import auth
 from main import app
-from database import get_db_with_rls
+from auth import get_db_with_rls
 
 
 _ADMIN_UID = "44444444-4444-4444-8444-444444444444"

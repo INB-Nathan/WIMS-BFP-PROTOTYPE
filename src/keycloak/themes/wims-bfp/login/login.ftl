@@ -1,10 +1,32 @@
 <#import "template.ftl" as layout>
-<@layout.registrationLayout displayMessage=!messagesPerField.existsError('username','password') displayInfo=realm.password && realm.registrationAllowed && !registrationDisabled??; section>
+<@layout.registrationLayout displayMessage=false displayInfo=realm.password && realm.registrationAllowed && !registrationDisabled??; section>
     <#if section = "header">
         ${msg("loginAccountTitle")}
     <#elseif section = "form">
         <div id="kc-form">
           <div id="kc-form-wrapper">
+            <#if (message?has_content && (message.type != 'warning' || !isAppInitiatedAction??)) || messagesPerField.existsError('username','password')>
+                <div class="wims-login-alerts">
+                    <#if message?has_content && (message.type != 'warning' || !isAppInitiatedAction??)>
+                        <div class="${properties.kcAlertClass!} pf-m-${(message.type = 'error')?then('danger', message.type)}">
+                            <div class="pf-v5-c-alert__icon">
+                                <#if message.type = 'success'><span class="${properties.kcFeedbackSuccessIcon!}"></span></#if>
+                                <#if message.type = 'warning'><span class="${properties.kcFeedbackWarningIcon!}"></span></#if>
+                                <#if message.type = 'error'><span class="${properties.kcFeedbackErrorIcon!}"></span></#if>
+                                <#if message.type = 'info'><span class="${properties.kcFeedbackInfoIcon!}"></span></#if>
+                            </div>
+                            <span class="${properties.kcAlertTitleClass!}">${kcSanitize(message.summary)?no_esc}</span>
+                        </div>
+                    </#if>
+                    <#if messagesPerField.existsError('username','password')>
+                        <div class="${properties.kcAlertClass!} pf-m-danger" id="input-error" aria-live="polite">
+                            <span class="${properties.kcAlertTitleClass!}">
+                                ${kcSanitize(messagesPerField.getFirstError('username','password'))?no_esc}
+                            </span>
+                        </div>
+                    </#if>
+                </div>
+            </#if>
             <#if realm.password>
                 <form id="kc-form-login" class="${properties.kcFormClass!} onsubmit="login.disabled = true; return true;" action="${url.loginAction}" method="post">
                     <#if !usernameHidden??>
@@ -28,12 +50,6 @@
                                 </#if>
                             </span>
 
-                            <#if messagesPerField.existsError('username','password')>
-                                <span id="input-error" class="${properties.kcInputErrorMessageClass!}" aria-live="polite">
-                                        ${kcSanitize(messagesPerField.getFirstError('username','password'))?no_esc}
-                                </span>
-                            </#if>
-
                         </div>
                     </#if>
 
@@ -55,12 +71,6 @@
                                 <i class="${properties.kcFormPasswordVisibilityIconShow!}" aria-hidden="true"></i>
                             </button>
                         </div>
-
-                        <#if usernameHidden?? && messagesPerField.existsError('username','password')>
-                            <span id="input-error" class="${properties.kcInputErrorMessageClass!}" aria-live="polite">
-                                    ${kcSanitize(messagesPerField.getFirstError('username','password'))?no_esc}
-                            </span>
-                        </#if>
 
                     </div>
 

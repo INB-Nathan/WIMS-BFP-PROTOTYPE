@@ -17,22 +17,42 @@ html {
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    overflow: hidden !important;
+    overscroll-behavior: none !important;
 }
 
 body.login-pf {
     background: #ffffff !important;
     margin: 0;
     padding: 0;
-    min-height: 100vh;
-    overflow-x: hidden;
+    height: 100vh;
+    width: 100vw;
+    max-width: 100vw;
+    max-height: 100vh;
+    overflow: hidden;
+    overscroll-behavior: none;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
     color: #2c384a;
+}
+
+html body.login-pf,
+body#keycloak-bg.login-pf {
+    overflow: hidden !important;
 }
 
 /* Kill the dark poly background from base keycloak theme */
 #keycloak-bg,
 .login-pf body {
     background: #ffffff !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    overflow: hidden !important;
 }
 
 /* Kill ALL default Keycloak chrome */
@@ -49,19 +69,30 @@ body.login-pf {
 /* === Main Container — Side by Side === */
 .pf-v5-c-login {
     display: flex !important;
-    min-height: 100vh !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
     background: transparent !important;
     margin: 0 !important;
     padding: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    overflow: hidden !important;
 }
 
 .pf-v5-c-login__container {
     display: flex !important;
-    width: 100% !important;
-    min-height: 100vh !important;
+    flex: 1 1 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    overflow: hidden !important;
     max-width: none !important;
     padding: 0 !important;
     margin: 0 !important;
+    align-items: flex-start !important;
+    grid-template-areas: none !important;
+    grid-template-columns: none !important;
 }
 
 /* === Left Panel — BFP Branding === */
@@ -158,11 +189,40 @@ body.login-pf {
     display: flex !important;
     flex-direction: column !important;
     align-items: center !important;
-    justify-content: center !important;
+    justify-content: flex-start !important;
     flex: 1 !important;
-    padding: 0 6% !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    overflow: hidden !important;
+    padding: clamp(0.5rem, 1.4vh, 1rem) clamp(0.75rem, 4vw, 4.5rem) !important;
     background: transparent !important;
     font-family: 'Inter', sans-serif !important;
+}
+
+.pf-v5-c-login__main-body {
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+#kc-username:empty {
+    display: none !important;
+}
+
+.pf-v5-c-login__main-body:has(#kc-otp-login-form) #kc-username {
+    display: none !important;
+}
+
+.pf-v5-c-login__main-body:has(#kc-otp-login-form) #kc-form {
+    max-width: 460px !important;
+    padding: clamp(1.5rem, 3.2vw, 2rem) !important;
+    border-radius: 16px !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 18px 42px rgba(15, 23, 42, 0.11) !important;
 }
 
 /* === Login Card === */
@@ -402,6 +462,187 @@ input[type="checkbox"] {
     margin-bottom: 16px !important;
 }
 
+#kc-totp-settings-form label,
+#kc-totp-settings-form .pf-v5-c-form__label-text {
+    margin-bottom: 2px !important;
+    font-size: 12.5px !important;
+}
+
+#kc-totp-settings-form input[type="text"] {
+    padding: 7px 9px !important;
+}
+
+#kc-totp-settings-form input[type="submit"],
+#kc-totp-settings-form .pf-v5-c-button.pf-m-primary {
+    padding: 9px 16px !important;
+    margin-top: 0 !important;
+}
+
+#kc-totp-settings-form #kc-form-options {
+    margin-top: 0 !important;
+}
+
+#kc-totp-settings-form .pf-v5-c-check,
+#kc-totp-settings-form #kc-form-options .checkbox {
+    align-items: center !important;
+}
+
+.wims-login-alerts {
+    display: grid !important;
+    gap: 0.5rem !important;
+    margin-bottom: 1rem !important;
+}
+
+#kc-form .pf-v5-c-alert {
+    width: 100% !important;
+    margin-bottom: 0 !important;
+}
+
+/* === MFA / TOTP Setup === */
+.wims-totp-setup {
+    width: min(100%, 860px) !important;
+    background: #ffffff !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 12px !important;
+    box-shadow: 0 8px 24px rgba(15,23,42,0.08) !important;
+    padding: clamp(0.7rem, 1.2vw, 0.95rem) !important;
+    margin: 0 auto !important;
+}
+
+.wims-totp-grid-layout {
+    display: grid !important;
+    grid-template-columns: minmax(250px, 0.9fr) minmax(330px, 1.25fr) !important;
+    gap: clamp(0.65rem, 1.5vw, 1rem) !important;
+    align-items: start !important;
+}
+
+.wims-totp-guidance h2 {
+    margin: 0 0 0.35rem !important;
+    color: #0f172a !important;
+    font-size: clamp(1rem, 1.3vw, 1.2rem) !important;
+    line-height: 1.2 !important;
+    font-weight: 700 !important;
+}
+
+.wims-totp-steps {
+    list-style: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: grid !important;
+    gap: 0.28rem !important;
+}
+
+.wims-totp-steps > li {
+    display: grid !important;
+    grid-template-columns: 1.35rem minmax(0, 1fr) !important;
+    gap: 0.45rem !important;
+    align-items: start !important;
+    border-left: 3px solid #e2e8f0 !important;
+    border-radius: 6px !important;
+    background: #ffffff !important;
+    padding: 0.25rem 0.35rem !important;
+}
+
+.wims-totp-step-number {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 1.35rem !important;
+    height: 1.35rem !important;
+    border-radius: 999px !important;
+    background: #992222 !important;
+    color: #ffffff !important;
+    font-size: 0.72rem !important;
+    font-weight: 700 !important;
+}
+
+.wims-totp-steps p,
+.wims-totp-entry p {
+    margin: 0 !important;
+    color: #475569 !important;
+    font-size: 0.8rem !important;
+    line-height: 1.25 !important;
+}
+
+#kc-totp-supported-apps {
+    margin: 0.15rem 0 0 0.75rem !important;
+    padding: 0 !important;
+    color: #64748b !important;
+    font-size: 0.78rem !important;
+}
+
+.wims-totp-entry {
+    min-width: 0 !important;
+    display: grid !important;
+    gap: 0.35rem !important;
+}
+
+.wims-totp-qr-card {
+    display: grid !important;
+    justify-items: center !important;
+    gap: 0.2rem !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 12px !important;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%) !important;
+    padding: 0.35rem !important;
+    text-align: center !important;
+}
+
+.wims-totp-card-label {
+    color: #0f172a !important;
+    font-weight: 600 !important;
+}
+
+#kc-totp-secret-qr-code {
+    display: block !important;
+    width: clamp(120px, 11vw, 150px) !important;
+    height: auto !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+}
+
+#kc-totp-secret-key {
+    display: inline-block !important;
+    max-width: 100% !important;
+    overflow-wrap: anywhere !important;
+    border-radius: 8px !important;
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    padding: 0.3rem 0.45rem !important;
+    color: #0f172a !important;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+    font-size: 0.85rem !important;
+}
+
+.wims-totp-policy-list {
+    margin: 0.35rem 0 0 !important;
+    padding: 0 !important;
+    list-style: none !important;
+    color: #64748b !important;
+    font-size: 0.86rem !important;
+}
+
+#kc-totp-settings-form {
+    width: 100% !important;
+    margin: 0 !important;
+    display: grid !important;
+    gap: 0.32rem !important;
+}
+
+#kc-totp-settings-form .pf-v5-c-form__group {
+    margin-bottom: 0 !important;
+}
+
+#kc-totp-settings-form .pf-v5-c-form__actions {
+    width: 100% !important;
+    display: flex !important;
+    gap: 0.5rem !important;
+}
+
+#kc-totp-settings-form .pf-v5-c-form__actions > * {
+    flex: 1 1 0 !important;
+}
+
 /* === Error Messages === */
 .pf-v5-c-alert,
 .pf-v5-c-alert.pf-m-danger,
@@ -412,9 +653,9 @@ input[type="checkbox"] {
     border: 1px solid #fecaca !important;
     color: #991b1b !important;
     border-radius: 8px !important;
-    padding: 12px 16px !important;
-    font-size: 13px !important;
-    margin-bottom: 16px !important;
+    padding: 7px 10px !important;
+    font-size: 12.5px !important;
+    margin-bottom: 6px !important;
     display: flex !important;
     align-items: flex-start !important;
     gap: 8px !important;
@@ -438,8 +679,8 @@ input[type="checkbox"] {
     border: 1px solid #bbf7d0 !important;
     color: #166534 !important;
     border-radius: 8px !important;
-    padding: 12px 16px !important;
-    font-size: 13px !important;
+    padding: 7px 10px !important;
+    font-size: 12.5px !important;
 }
 
 .pf-v5-c-alert.pf-m-info,
@@ -449,8 +690,8 @@ input[type="checkbox"] {
     border: 1px solid #bfdbfe !important;
     color: #1e40af !important;
     border-radius: 8px !important;
-    padding: 12px 16px !important;
-    font-size: 13px !important;
+    padding: 7px 10px !important;
+    font-size: 12.5px !important;
 }
 
 /* === Input Error Helper Text === */
@@ -472,11 +713,12 @@ input[type="checkbox"] {
 
 .wims-otp-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) auto repeat(3, minmax(0, 1fr));
-    gap: 0.375rem;
+    grid-template-columns: repeat(3, minmax(0, 38px)) auto repeat(3, minmax(0, 38px));
+    gap: 0.28rem;
     align-items: center;
-    max-width: 300px;
-    margin: 0.5rem auto 0;
+    justify-content: center;
+    max-width: 100%;
+    margin: 0.25rem auto 0;
 }
 
 .wims-otp-separator {
@@ -489,18 +731,18 @@ input[type="checkbox"] {
 
 .wims-otp-box {
     width: 100% !important;
-    height: 44px !important;
+    height: 38px !important;
     min-width: 0;
     border-radius: 8px !important;
     border: 1.5px solid #d1d5db !important;
     background: #fff !important;
     color: #2c384a !important;
     font-family: 'Inter', sans-serif !important;
-    font-size: 1.125rem !important;
+    font-size: 1rem !important;
     font-weight: 700 !important;
     text-align: center !important;
     padding: 0 !important;
-    line-height: 44px !important;
+    line-height: 38px !important;
     box-shadow: none !important;
     cursor: text;
 }
@@ -517,6 +759,126 @@ input[type="checkbox"] {
     height: 1px !important;
     opacity: 0 !important;
     pointer-events: none !important;
+}
+
+.wims-otp-login-form {
+    width: 100% !important;
+    display: grid !important;
+    gap: 1rem !important;
+    justify-items: start !important;
+}
+
+.wims-otp-login-form .pf-v5-c-form__group {
+    width: 100% !important;
+    margin-bottom: 0 !important;
+}
+
+.wims-otp-card-header {
+    display: grid !important;
+    width: min(100%, 340px) !important;
+    justify-items: start !important;
+    gap: 0.45rem !important;
+    text-align: left !important;
+    margin-bottom: 0.2rem !important;
+}
+
+.wims-otp-auth-icon {
+    display: inline-flex !important;
+    width: 48px !important;
+    height: 48px !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 14px !important;
+    background: #fff7f7 !important;
+    border: 1px solid #f0d5d5 !important;
+    color: #992222 !important;
+}
+
+.wims-otp-auth-icon svg {
+    width: 26px !important;
+    height: 26px !important;
+    fill: none !important;
+    stroke: currentColor !important;
+    stroke-width: 1.9 !important;
+    stroke-linecap: round !important;
+    stroke-linejoin: round !important;
+}
+
+.wims-otp-title {
+    margin: 0 !important;
+    color: #0f172a !important;
+    font-size: 1.55rem !important;
+    line-height: 1.2 !important;
+    font-weight: 700 !important;
+    letter-spacing: 0 !important;
+}
+
+.wims-otp-helper {
+    max-width: 340px !important;
+    margin: 0 !important;
+    color: #64748b !important;
+    font-size: 0.95rem !important;
+    line-height: 1.45 !important;
+}
+
+.wims-otp-label {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+}
+
+#kc-otp-login-form .wims-otp-grid {
+    grid-template-columns: repeat(3, minmax(0, 46px)) auto repeat(3, minmax(0, 46px));
+    gap: 0.42rem;
+    margin-top: 0;
+    justify-content: start !important;
+}
+
+#kc-otp-login-form .wims-otp-box {
+    height: 46px !important;
+    border-radius: 10px !important;
+    font-size: 1.12rem !important;
+    line-height: 46px !important;
+    border-color: #cbd5e1 !important;
+}
+
+.wims-otp-restart {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    color: #992222 !important;
+    font-size: 0.95rem !important;
+    font-weight: 600 !important;
+    text-decoration: none !important;
+    margin-top: -0.15rem !important;
+}
+
+.wims-otp-restart:hover,
+.wims-otp-restart:focus {
+    color: #7f1d1d !important;
+    text-decoration: underline !important;
+}
+
+.wims-otp-submit-row,
+.wims-otp-submit-row .pf-v5-c-form__actions {
+    display: flex !important;
+    width: 100% !important;
+    justify-content: flex-start !important;
+}
+
+#kc-otp-login-form #kc-login {
+    width: min(100%, 326px) !important;
+    min-height: 44px !important;
+    padding: 0.75rem 1.25rem !important;
+    border-radius: 10px !important;
+    font-size: 0.96rem !important;
+    font-weight: 700 !important;
 }
 
 /* === General Typography === */
@@ -584,7 +946,7 @@ p {
     }
 
     .pf-v5-c-login__main {
-        padding: 2rem 1.5rem !important;
+        padding: 0.75rem !important;
     }
 
     .card-pf,
@@ -594,5 +956,67 @@ p {
 
     #kc-page-title {
         text-align: center !important;
+    }
+
+    .wims-totp-setup {
+        width: 100% !important;
+        padding: 0.65rem !important;
+    }
+
+    .wims-totp-grid-layout {
+        grid-template-columns: 1fr !important;
+        gap: 0.5rem !important;
+    }
+
+    #kc-totp-secret-qr-code {
+        width: clamp(112px, 28vw, 145px) !important;
+    }
+
+    .wims-otp-grid {
+        grid-template-columns: repeat(3, minmax(0, 36px)) auto repeat(3, minmax(0, 36px));
+        gap: 0.25rem;
+    }
+
+    .wims-otp-box {
+        height: 36px !important;
+        line-height: 36px !important;
+        font-size: 0.95rem !important;
+    }
+
+    .pf-v5-c-login__main-body:has(#kc-otp-login-form) #kc-form {
+        padding: 1.25rem !important;
+    }
+
+    #kc-otp-login-form .wims-otp-grid {
+        grid-template-columns: repeat(3, minmax(0, 42px)) auto repeat(3, minmax(0, 42px));
+        gap: 0.32rem;
+    }
+
+    #kc-otp-login-form .wims-otp-box {
+        height: 42px !important;
+        line-height: 42px !important;
+        font-size: 1rem !important;
+    }
+}
+
+@media (max-width: 420px) {
+    .wims-otp-grid {
+        grid-template-columns: repeat(3, minmax(0, 34px)) auto repeat(3, minmax(0, 34px));
+        gap: 0.25rem;
+    }
+
+    .wims-otp-box {
+        height: 34px !important;
+        line-height: 34px !important;
+    }
+
+    #kc-otp-login-form .wims-otp-grid {
+        grid-template-columns: repeat(3, minmax(0, 38px)) auto repeat(3, minmax(0, 38px));
+        gap: 0.28rem;
+    }
+
+    #kc-otp-login-form .wims-otp-box {
+        height: 38px !important;
+        line-height: 38px !important;
     }
 }

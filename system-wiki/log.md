@@ -3,6 +3,18 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-05] rebase | PR #182 rebased onto origin/master — conflict resolution
+
+- **`src/backend/main.py`:** Made `_startup_admin_engine`/`_startup_admin_session_factory` lazy inside `_get_admin_session()` to avoid `create_engine("")` crash at module import when `DATABASE_ADMIN_URL`/`DATABASE_URL` are unset (e.g., during test collection outside Docker).
+- **`src/backend/api/routes/user.py`:** Removed unused `from database import get_db` import (routes use `get_db_with_rls` from `auth`).
+- **`src/backend/tests/test_profile_email.py`:** Fixed stale import `from database import get_db_with_rls` -> `from auth import get_db_with_rls`.
+- **`src/backend/tests/test_infra_config.py`:** Updated `test_non_edge_services_bind_host_ports_to_loopback` to accept PR #182's `8090:80` local-dev port alongside master's `80:80`/`443:443`.
+- **`src/nginx/nginx.local.conf`:** Added "Local development only" header comment to satisfy `test_local_nginx_override_is_explicitly_local_only`.
+- **`src/nginx/nginx.conf`:** Resolved production `/api/` CORS conflict — kept master's `map $http_origin $cors_origin` at http scope, dropped PR's duplicate location-level `set`/`if`.
+- **`src/docker-compose.yml`:** Combined PR's `wims_app_user` DATABASE_URL and `DATABASE_ADMIN_URL` (using `${POSTGRES_PASSWORD:?error}` not hardcoded `password`).
+- **System-wiki conflicts:** Merged log/index/route-map/infrastructure-config/pwa-tests-cicd/local-dev-deploy-guide — kept all master and PR entries, dates, and source references.
+- **20 PR commits + 12 master commits integrated** via commit-preserving rebase; 1 fixup commit for post-rebase import/lint/test corrections.
+
 ## [2026-06-05] fix | PR #217 auth callback rate-limit test isolation
 
 - **`src/backend/tests/conftest.py`:** Expanded the autouse Redis rate-limit cleanup from only `public_rate_limit:*` keys to both `public_rate_limit:*` and auth callback `rate_limit:*` keys, using `scan_iter` and closing the Redis client. This prevents `tests/integration/test_auth_callback.py::test_callback_tampered_token_returns_401` from inheriting a spent PKCE callback sliding-window budget and returning 429 instead of the expected auth-layer 401.
@@ -193,6 +205,90 @@ Attribute access: `station_row.region_id if station_row else None`. Fallback to 
 **Files:** `src/backend/api/routes/civilian.py`, `src/backend/tests/integration/test_civilian_api.py`.
 
 **Wiki updated:** `system-wiki/log.md`. No `gaps/frs-codebase-gap-register.md` update needed (production quality fixes, no FRS alignment change).
+
+## [2026-06-01] investigation | Frontend tab-switching performance
+
+Investigated sluggishness when switching between dashboard tabs. Root cause is full data re-fetch on every navigation: Next.js App Router remounts page components on route change, all `useEffect` data-fetch chains re-run from scratch with no caching. Three contributing causes identified (P-01, P-02, P-03). Analyst dashboard worst-case: 7 parallel API calls on every mount (`analyst/page.tsx:321-340`). No fix applied in this session — gap documented for a future TanStack Query refactor.
+
+**Verification:** Source inspection of `LayoutShell.tsx`, `AuthContext.tsx`, `dashboard/validator/page.tsx`, `dashboard/regional/page.tsx`, `dashboard/analyst/page.tsx`, and `src/frontend/src/lib/api/` slices. The LayoutShell cache-clear `useEffect` and auth `loading` spinner are one-time-on-mount only; they do not contribute to per-navigation sluggishness.
+
+**Wiki updates:** Added `## Frontend Performance` section to `system-wiki/gaps/ui-ux-gap-register.md`; added `## Data Fetching Pattern` section to `system-wiki/frontend/frontend-infrastructure.md`; added `## Observed: Frontend tab-switching performance` section to `docs/PR-rls-and-fixes.md`. Also created `docs/fix-localhost-hsts.md` and `scripts/Fix-LocalhostHSTS.ps1` for recurring HSTS/localhost access issue.
+
+## [2026-06-01] fix | RLS helper bootstrap source of truth
+
+- Removed the backend startup duplicate that recreated `wims.current_user_role()`, `wims.current_user_region_id()`, and `wims.current_region_id()` with ad hoc single-quoted SQL bodies; `src/postgres-init/09_rls_helpers.sql` is now the only initializer source for `current_user_role()`.
+- Confirmed `src/postgres-init/14a_assign_ncr_to_test_users.sql` already targets canonical `encoder_ncr` plus `validator_test`; no migration rename was needed.
+- Added static RLS init contract tests to prevent duplicate helper definitions and legacy `encoder_test` NCR assignment from returning.
+
+**Verification:** `python -m pytest tests/test_schema_patch_startup_guard.py tests/test_rls_init_contract.py -q`, `python -m ruff check .`, `python -m ruff format --check .`, and `python -m py_compile src\backend\main.py src\backend\tests\test_schema_patch_startup_guard.py src\backend\tests\test_rls_init_contract.py` pass. Full DB-backed rerun requires the CI/PostGIS service.
+
+**Wiki updates:** Updated `system-wiki/architecture/pwa-tests-cicd.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-06-01] fix | Auth and RLS integration test dependency overrides
+
+- Updated AI/IDS admin and regional AFOR import tests so role-specific auth overrides also satisfy the canonical `get_current_wims_user` / `get_db_with_rls` dependencies used by RLS-scoped routes.
+- Updated reference-table RLS tests to connect as `wims_app_user` instead of the CI postgres superuser, ensuring row-level policies are enforced during assertions.
+- Documented the auth/RLS override pattern in the CI/test infrastructure synthesis page.
+
+**Verification:** `python -m py_compile src\backend\tests\integration\test_ai_ids_api.py src\backend\tests\integration\test_regional_afor_unified_import.py src\backend\tests\test_ref_table_rls.py`, `python -m ruff check .`, and `python -m ruff format --check .` pass. DB-backed integration rerun requires the CI/PostGIS service.
+
+**Wiki updates:** Updated `system-wiki/architecture/pwa-tests-cicd.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-06-01] fix | Backend startup schema patch guard for CI runtime
+
+- Added a process-local startup guard so FastAPI compatibility schema patches run once per backend Python process instead of once per repeated pytest `TestClient(app)` lifespan.
+- Added focused backend coverage for the guard, verifying that a second `apply_schema_patches()` call does not reopen the admin DB session or rerun patch helpers.
+- Updated CI/test infrastructure documentation to record the startup guard and clarify that long runtime inside the first backend `Run tests` step should be investigated as test/startup behavior before changing the advisory coverage pass.
+
+**Verification:** `python -m py_compile src\backend\main.py src\backend\tests\test_schema_patch_startup_guard.py`, `python -m ruff check .`, `python -m ruff format --check .`, and `python -m pytest tests/test_schema_patch_startup_guard.py -q` pass.
+
+**Wiki updates:** Updated `system-wiki/architecture/pwa-tests-cicd.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-05-31] docs | PR RLS and fixes summary updated
+
+- Updated `docs/PR-rls-and-fixes.md` with Codex-authored UI/auth changes: role dashboard redirects, user-scoped manual-entry draft restore, login alert placement, OTP confirmation card refinements, MFA scroll containment, and AFOR Barangay tip alignment.
+- Removed the dedicated plain-language RLS explanation section and replaced the Part 1 RLS pointer with concise technical bullets.
+
+**Verification:** `rg` confirms the removed plain-language RLS section text is no longer present in `docs/PR-rls-and-fixes.md`.
+
+**Wiki updates:** Updated `system-wiki/architecture/docs-and-scripts.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-05-31] polish | OTP confirmation alignment refinement
+
+- Removed the visible "One-time code" label from the post-enrollment OTP confirmation card while preserving an accessibility label for the OTP input group.
+- Shifted the OTP confirmation card content to one left-aligned column: icon, title, helper text, OTP boxes, "Go back" action, and sign-in button.
+- Aligned the sign-in button with the OTP input group instead of centering it independently.
+
+**Verification:** `git diff --check` passes for `wims-custom.css` with only CRLF warnings.
+
+**Wiki updates:** Updated `system-wiki/ui-ux/evaluation-loginpage-keycloaksso.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-05-31] polish | OTP confirmation card
+
+- Updated the post-enrollment Keycloak OTP confirmation page to render as a self-contained verification card with an authentication icon, title, helper text, centered OTP inputs, "Go back" secondary action, and proportional sign-in button.
+- Removed visible account identifiers from the OTP confirmation screen by omitting the attempted username and keeping the shared template username block suppressed for this page only.
+- Scoped larger OTP input boxes, card shadow, spacing, mobile scaling, and submit-button sizing to `#kc-otp-login-form` so the separate OTP setup/enrollment page is not changed.
+
+**Verification:** `git diff --check` passes for `login-otp.ftl` and `wims-custom.css` with only CRLF warnings; targeted search confirms no `auth.attemptedUsername` or `restartLoginTooltip` remains in the OTP confirmation template.
+
+**Wiki updates:** Updated `system-wiki/ui-ux/evaluation-loginpage-keycloaksso.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-05-31] polish | OTP challenge order and AFOR Barangay hint alignment
+
+- Updated the Keycloak OTP challenge layout so the attempted username, six OTP boxes, restart-login link, and sign-in button render in one ordered form flow.
+- Hid the shared template username/restart block only for the OTP challenge page so the new order is not duplicated and OTP verification behavior remains unchanged.
+- Moved the AFOR Barangay reverse-geocoding tip below the Barangay input in `IncidentForm.tsx`, aligning the Barangay input with City/Municipality across manual create and import correction flows.
+
+**Verification:** `git diff --check` passes for the touched OTP/form files; `npm.cmd run lint` passes with 0 errors and 16 existing warnings outside this change.
+
+**Wiki updates:** Updated `system-wiki/ui-ux/evaluation-loginpage-keycloaksso.md`, `system-wiki/subsystems/regional-dashboard.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-05-31] fix | canonical dev encoder usernames and region mapping
+
+- Replaced the offset dev encoder seed naming with canonical region-code usernames: `encoder_ncr` for NCR region 1, `encoder_car` for CAR region 2, `encoder_r01` for Region I region 3, through `encoder_nir` for region 18.
+- Updated `scripts/seed-dev-users.sh`, `scripts/seed-dev-users.ps1`, Keycloak realm exports, and SQL bootstrap rows so fresh and reseeded local stacks create login-capable encoder accounts with `Password123!`, verified email, first/last profile fields, no required actions, and repairable legacy usernames.
+- Added `test_dev_user_seed_mapping.py` to guard the canonical mapping across scripts, SQL bootstrap, and Keycloak realm exports.
+- Updated local dev and database synthesis pages to document the corrected account mapping. No FRS gap entry changed because this is a dev identity/bootstrap alignment fix.
 
 ## [2026-05-30] merge | Master conflict resolution for encoder/validator branch
 
@@ -1674,6 +1770,31 @@ No schema, auth, or FRS alignment changes.
 **Verification:** `npm.cmd run lint` passes with 0 errors and 13 pre-existing warnings outside the touched dashboard/detail files.
 
 **Wiki updates:** Updated `system-wiki/subsystems/regional-dashboard.md`, `system-wiki/subsystems/validator-hub.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-05-31] fix | Responsive Keycloak MFA setup containment
+
+- Refactored `login-config-totp.ftl` so setup steps, QR/manual secret, warning alert, OTP boxes, device-name field, checkbox, and submit action share one compact right-side onboarding card.
+- Fixed the Keycloak auth layout overflow by changing `.pf-v5-c-login__container` from a full-width sibling beside the branding panel to a flexing `min-width: 0` right-side region without modifying the red BFP branding section.
+- Replaced the narrow internally scrollable TOTP card with a natural-height `wims-totp-setup` layout: two columns on desktop, stacked on tablet/mobile, compact instruction rows, smaller grouped QR area, integrated alert, and scaled OTP boxes at small breakpoints.
+- Removed unnecessary `max-height` and `overflow-y:auto` rules from the OTP setup container and right auth main area so standard desktop screens do not show an internal setup scrollbar.
+- Disabled page-level overflow for the Keycloak auth shell and further compacted the MFA setup card: 860px max card width, 150px desktop QR max, reduced card/form/alert padding, and tighter instruction rows so the submit area remains visible.
+- Hardened root scroll suppression by setting `overflow: hidden` and viewport bounds on `html`, `body.login-pf`, `#keycloak-bg`, `.pf-v5-c-login`, `.pf-v5-c-login__container`, and `.pf-v5-c-login__main`.
+- Updated `login.ftl` so login auth messages and username/password validation errors render inside `#kc-form` through `.wims-login-alerts`, directly above the username field instead of floating between the branding panel and form.
+
+**Verification:** CSS/template diff reviewed; scan confirmed no `max-height` or `overflow-y:auto` remains on `.wims-totp-setup` or `.pf-v5-c-login__main`; static sizing check for a 1920x1080 viewport leaves roughly 900+ px of usable right-panel width for the 980 px max card, so the two-column setup fits without an internal scrollbar. No automated Keycloak browser render was available in this turn.
+
+**Wiki updates:** Updated `system-wiki/ui-ux/evaluation-loginpage-keycloaksso.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
+
+## [2026-05-31] fix | Encoder and validator landing plus manual-entry draft restore
+
+- Added `src/frontend/src/lib/roleRedirect.ts` so role landing routes are centralized: regional encoders go to `/dashboard/regional`, validators go to `/dashboard/validator`, system admins go to `/admin/system`, and analysts go to `/dashboard/analyst`.
+- Updated `/callback`, `/login`, and `/dashboard` routing so stale generic saved redirects such as `/home` do not send encoder/validator users to Operations after login, while specific same-origin workflow redirects still restore after idle logout.
+- Changed `IncidentForm.tsx` create-mode autosave to use a per-user key (`wims:incident_draft:{user.id}`), begin only after user input, and clear the legacy global draft key on discard/success so first-login blank forms do not show a restore banner.
+- Added focused Vitest coverage for role redirect behavior.
+
+**Verification:** `npm.cmd run lint` passes with 0 errors and 16 existing warnings; `npx.cmd vitest run src/lib/__tests__/roleRedirect.test.ts` passes 3 tests; `npm.cmd run build` passes with the existing Turbopack root warning. `npx.cmd tsc --noEmit` was also run and still fails on pre-existing type errors outside this change path (admin system, analyst detail, triage/public/tracking pages, sync tests, Firebase mocks).
+
+**Wiki updates:** Updated `system-wiki/frontend/route-map.md`, `system-wiki/subsystems/regional-dashboard.md`, `system-wiki/subsystems/validator-hub.md`, `system-wiki/index.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
 
 ## [2026-05-30] polish | Shared section dots for AFOR create/import/edit
 

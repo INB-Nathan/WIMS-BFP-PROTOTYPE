@@ -1,7 +1,7 @@
 ---
 title: Login Page + Keycloak SSO - UI/UX Evaluation
 created: 2026-05-14
-updated: 2026-05-28
+updated: 2026-05-31
 type: ui-ux
 tags: [wims-bfp, ui-ux, auth, login, keycloak, hci]
 sources: [raw/ui-ux/evaluation-loginpage+keycloaksso.md, raw/frs/frs-auth.md, src/frontend/src/app/login/page.tsx, src/frontend/src/app/globals.css, src/keycloak/themes/wims-bfp/login/template.ftl, src/keycloak/themes/wims-bfp/login/login-otp.ftl, src/keycloak/themes/wims-bfp/login/login-config-totp.ftl, src/keycloak/themes/wims-bfp/login/resources/css/wims-custom.css]
@@ -34,6 +34,17 @@ The current TOTP input treats the 6-digit code as a single undifferentiated fiel
 - FRS anchor: M1.a.ii - TOTP via authenticator app with option to remember trusted device for 7 days
 
 **Implementation status (2026-05-28):** fixed for Keycloak OTP challenge and TOTP setup screens. `login-otp.ftl` now renders six numeric boxes grouped 3+3 with a hidden `otp` field for Keycloak submission; `login-config-totp.ftl` uses the same 3+3 box pattern with hidden `totp`. Inline page scripts support digit-only input, paste distribution, auto-advance, and backspace-to-previous behavior.
+
+**OTP challenge confirmation update (2026-05-31):** the post-enrollment Keycloak OTP challenge form now renders as a self-contained authentication card with an icon, "OTP Verification" title, supporting helper text, six OTP boxes, "Go back" secondary action, and balanced sign-in button. The page no longer displays account identifiers such as attempted username; the shared template username/restart block is hidden only for this OTP challenge, and OTP validation behavior remains unchanged.
+
+**OTP confirmation alignment update (2026-05-31):** the visible "One-time code" label was removed from the OTP confirmation card and retained only as an accessibility label. The icon, title, helper text, OTP boxes, "Go back" link, and sign-in action now follow one left-aligned visual column so the card reads top-to-bottom without mixed centering.
+
+**Responsive containment update (2026-05-31):** fixed MFA setup imbalance by wrapping `login-config-totp.ftl` setup instructions and form in `.wims-totp-setup`, changing the Keycloak right-side container from a fixed `width: 100%` sibling to a `flex: 1` region, and arranging setup steps plus QR/form controls in a compact two-column desktop layout. The OTP setup card avoids internal `max-height` or `overflow-y:auto`; root auth-shell scrolling is disabled on `html`, `body.login-pf`, `#keycloak-bg`, `.pf-v5-c-login`, `.pf-v5-c-login__container`, and `.pf-v5-c-login__main`; instruction rows are compact, QR is clamped to 150px maximum on desktop, OTP boxes are reduced to 38px, and warning alert, device-name input, checkbox, and submit action remain grouped in the same onboarding card. Tablet/mobile breakpoints stack the right-side setup content and scale OTP boxes/QR without horizontal overflow.
+
+### 4. Login Alert Placement
+Authentication alerts previously rendered in the shared template before the login form card, causing warnings/errors to appear detached in the empty area between the BFP branding panel and the form.
+
+**Implementation status (2026-05-31):** fixed for `login.ftl` by disabling shared template message rendering on the login page and rendering global auth messages plus username/password validation errors inside `#kc-form`, above the username field. Alerts now match the login card width, stack in `.wims-login-alerts`, and push the form down naturally.
 
 ## FRS Module Alignment
 - [[raw/frs/frs-auth]] Module 1.a.ii: MFA via TOTP required for System Administrators and National Validators

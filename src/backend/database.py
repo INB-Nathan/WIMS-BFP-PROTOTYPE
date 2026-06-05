@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from fastapi import Request
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
@@ -23,6 +22,19 @@ SQLALCHEMY_DATABASE_URL = os.environ.get(
 
 _engine: Engine = create_engine(SQLALCHEMY_DATABASE_URL)
 _SessionLocal: sessionmaker = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
+
+# Admin session — uses DATABASE_ADMIN_URL (postgres superuser) so test fixtures
+# and DDL helpers can query RLS-protected tables without a user context.
+# Application code must NOT use this; use get_db_with_rls() instead.
+_ADMIN_DATABASE_URL: str = os.environ.get("DATABASE_ADMIN_URL", SQLALCHEMY_DATABASE_URL)
+_admin_engine: Engine = create_engine(_ADMIN_DATABASE_URL)
+_AdminSessionLocal: sessionmaker = sessionmaker(
+    autocommit=False, autoflush=False, bind=_admin_engine
+)
+
+# System service account for background Celery tasks (SYSTEM_ADMIN, sees all rows).
+# Must match the row seeded in 03_users.sql.
+SYSTEM_TASK_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")
 
 
 def get_engine() -> Engine:
@@ -49,45 +61,20 @@ def set_rls_context(session: Session, user_id: uuid.UUID) -> None:
 
 def get_db():
     """
-    FastAPI dependency that yields a bare SQLAlchemy session.
+    FastAPI dependency that yields a bare SQLAlchemy session using the admin URL.
     RLS context is NOT set here — use get_db_with_rls() or set_rls_context()
     after user resolution.
 
-    This avoids the dependency cycle where get_current_wims_user depends on
-    get_db, but get_db needs the user resolved first to set RLS context.
+    Uses DATABASE_ADMIN_URL (postgres superuser) so auth lookups on wims.users
+    succeed before a user UUID is known.  This avoids the chicken-and-egg problem
+    where get_current_wims_user needs to read wims.users to get the UUID required
+    to set the RLS GUC, but wims.users has FORCE ROW LEVEL SECURITY.
+
+    Routes that use get_db() directly must not return data that should be
+    filtered by RLS; use get_db_with_rls() for all protected queries.
     """
-    _SessionLocal = get_session_maker()
-    db = _SessionLocal()
+    db = _AdminSessionLocal()
     try:
-        yield db
-    finally:
-        db.close()
-
-
-def get_db_with_rls(request: Request):
-    """
-    FastAPI dependency that yields a SQLAlchemy session with RLS context set.
-    Use this ONLY in routes where get_current_wims_user has already been called
-    as a dependency (so request.state.wims_user is populated).
-
-    Usage:
-        async def my_route(
-            user: Annotated[dict, Depends(get_current_wims_user)],
-            db: Annotated[Session, Depends(get_db_with_rls)],
-        ):
-            ...
-
-    Note: get_current_wims_user must be listed BEFORE get_db_with_rls in the
-    dependency list, OR FastAPI must resolve it first via dependency ordering.
-    """
-    _SessionLocal = get_session_maker()
-    db = _SessionLocal()
-    try:
-        wims_user = getattr(request.state, "wims_user", None)
-        if wims_user is not None:
-            user_id = wims_user.get("user_id")
-            if user_id is not None:
-                set_rls_context(db, user_id)
         yield db
     finally:
         db.close()

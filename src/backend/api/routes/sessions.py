@@ -14,7 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from auth import get_system_admin
-from database import get_db_with_rls
+from auth import get_db_with_rls
 from services.keycloak_admin import get_user_sessions, logout_user_sessions
 
 router = APIRouter(tags=["sessions"])

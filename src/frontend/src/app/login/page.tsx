@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
+import { defaultRouteForRole } from '@/lib/roleRedirect';
 import { ArrowRight, CheckCircle, Lock } from 'lucide-react';
 
 export default function LoginPage() {
@@ -13,17 +14,7 @@ export default function LoginPage() {
     useEffect(() => {
         if (!loading && user) {
             const role = (user as { role?: string })?.role;
-            const assignedRegionId = (user as { assignedRegionId?: number | null })?.assignedRegionId ?? null;
-
-            // REGIONAL_ENCODER and NATIONAL_VALIDATOR require assigned region
-            if (role === 'REGIONAL_ENCODER' && assignedRegionId) {
-                router.push('/dashboard/regional');
-            } else if ((role === 'NATIONAL_VALIDATOR' || role === 'VALIDATOR') && assignedRegionId) {
-                router.push('/dashboard/validator');
-            } else {
-                // For other roles or if region not assigned, go to main dashboard
-                router.push('/dashboard');
-            }
+            router.push(defaultRouteForRole(role));
         }
     }, [user, loading, router]);
 

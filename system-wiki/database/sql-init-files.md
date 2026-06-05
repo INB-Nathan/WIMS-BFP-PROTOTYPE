@@ -1,7 +1,7 @@
 ---
 title: Database Schema — SQL Init Files
 created: 2026-05-16
-updated: 2026-05-26
+updated: 2026-05-31
 type: database
 tags: [wims-bfp, database, postgresql, postgis, sql-migrations, rls, analytics]
 sources: [src/postgres-init/]
@@ -54,7 +54,7 @@ Complete documentation of all SQL migration files in `src/postgres-init/`, order
 
 **Seed users (deterministic UUIDs):**
 - `svc_suricata` — `00000000-0000-0000-0000-000000000001`
-- `encoder_test` — REGIONAL_ENCODER
+- Regional encoders: `encoder_ncr` (region 1), `encoder_car` (region 2), `encoder_r01`-`encoder_r13` (regions 3-16), `encoder_barmm` (region 17), `encoder_nir` (region 18)
 - `validator_test` — NATIONAL_VALIDATOR
 - `analyst_test` / `analyst1_test` — NATIONAL_ANALYST
 - `admin_test` — SYSTEM_ADMIN
@@ -219,7 +219,7 @@ Seed: NCR region (region_name='National Capital Region', region_code='NCR').
 
 ### `14a_assign_ncr_to_test_users.sql`
 
-Ensures encoder_test and validator_test are assigned to NCR's region_id.
+Ensures `encoder_ncr` and `validator_test` are assigned to NCR's region_id.
 
 ### `15_validator_workflow.sql`
 
@@ -253,7 +253,9 @@ M4-G: Adds `submitted_snapshot JSONB` to fire_incidents. Snapshot of incident_no
 
 ### `19_reference_number.sql`
 
-Adds `reference_number TEXT` (format: AFOR-RGN-{code}-{station}-{type}-{MMM}-{YYYY}-{NNNN}) and `incident_type_code TEXT` to fire_incidents. UNIQUE partial index on reference_number WHERE NOT NULL. Adds `station_code TEXT DEFAULT 'TBA'` to incident_nonsensitive_details.
+Adds `reference_number TEXT` (original format: AFOR-RGN-{code}-{station}-{type}-{MMM}-{YYYY}-{NNNN}) and `incident_type_code TEXT` to fire_incidents. UNIQUE partial index on reference_number WHERE NOT NULL. Adds `station_code TEXT DEFAULT 'TBA'` to incident_nonsensitive_details.
+
+> **Deprecated by `39_remove_station_code.sql`** — `station_code` column was removed; reference number format updated to `AFOR-RGN-{region_code}-{type_code}-{MMM}-{YYYY}-{NNNN}` (no station segment).
 
 ### `20_parent_incident_id.sql`
 
@@ -261,7 +263,7 @@ Adds `parent_incident_id INTEGER FK` to fire_incidents — links update request 
 
 ### `21_all_regions.sql`
 
-Seeds all 18 Philippine regions + 81 provinces. Adds `province_district TEXT` and `city_municipality TEXT` to incident_nonsensitive_details. Assigns encoder_test to NCR.
+Seeds all 18 Philippine regions + 81 provinces. Adds `province_district TEXT` and `city_municipality TEXT` to incident_nonsensitive_details. Assigns canonical dev encoder usernames to their authoritative region IDs: NCR=1, CAR=2, Region I=3, Region II=4, through NIR=18.
 
 ### `22_duplicate_flags.sql`
 
@@ -335,6 +337,15 @@ Adds `hitl_decision JSONB` column to `wims.security_threat_logs`. Stores HITL de
 
 **Idempotent:** `ADD COLUMN IF NOT EXISTS`.
 
+### `39_remove_station_code.sql`
+
+**Purpose:** Remove the `station_code` column that was added by `19_reference_number.sql` and update the reference number format comment.
+
+- `ALTER TABLE wims.incident_nonsensitive_details DROP COLUMN IF EXISTS station_code`
+- Updates `COMMENT ON COLUMN wims.fire_incidents.reference_number` to reflect the new format: `AFOR-RGN-{region_code}-{type_code}-{MMM}-{YYYY}-{NNNN}` (station segment removed)
+
+**Idempotent:** YES (`DROP COLUMN IF EXISTS`).
+
 ---
 
 ## RLS Policy Summary
@@ -351,3 +362,4 @@ The RLS system uses a GUC-based approach:
 - Admins have unrestricted access
 - Unauthenticated (ANONYMOUS) is denied by COALESCE in current_user_role()
 - Immutable records use PostgreSQL RULES (not RLS) to block UPDATE/DELETE on VERIFIED
+- Reference tables (ref_regions, ref_provinces, ref_cities): REGIONAL_ENCODER sees only their assigned region; NATIONAL_VALIDATOR, NATIONAL_ANALYST, and SYSTEM_ADMIN see all (via 42_ref_table_rls.sql)

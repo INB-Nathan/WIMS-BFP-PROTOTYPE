@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { fetchRegions, fetchProvinces, fetchCities } from '@/lib/api';
+import { defaultRouteForRole } from '@/lib/roleRedirect';
 import type { Region, Province, City } from '@/types/api';
 import { edgeFunctions, AnalyticsSummaryResponse } from '@/lib/edgeFunctions';
 import { RefreshCw, Download, HelpCircle, X, Info, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Flame, Building2, TreePine, Car, Clock, AlertCircle } from 'lucide-react';
@@ -41,24 +42,23 @@ export default function DashboardPage() {
     const [redirectError, setRedirectError] = useState<string | null>(null);
 
     useEffect(() => {
-        if (!loading && role === 'SYSTEM_ADMIN') {
-            router.replace('/admin/system');
-        } else if (!loading && role === 'REGIONAL_ENCODER') {
+        if (!loading && role === 'REGIONAL_ENCODER') {
             // REGIONAL_ENCODER requires assigned region; if missing, show error instead of redirecting
             if (assignedRegionId) {
-                router.replace('/dashboard/regional');
+                router.replace(defaultRouteForRole(role));
             } else {
                 setRedirectError('No region assigned to your account. Contact your administrator.');
             }
-        } else if (!loading && (role === 'NATIONAL_VALIDATOR' || role === 'VALIDATOR')) {
-            // NATIONAL_VALIDATOR requires assigned region; if missing, show error instead of redirecting
+        } else if (!loading && role === 'NATIONAL_VALIDATOR') {
+            // NATIONAL_VALIDATOR also requires an assigned region (RLS scopes their view)
             if (assignedRegionId) {
-                router.replace('/dashboard/validator');
+                router.replace(defaultRouteForRole(role));
             } else {
                 setRedirectError('No region assigned to your account. Contact your administrator.');
             }
-        } else if (!loading && role === 'NATIONAL_ANALYST') {
-            router.replace('/dashboard/analyst');
+        } else if (!loading && role) {
+            const route = defaultRouteForRole(role);
+            if (route !== '/dashboard') router.replace(route);
         }
     }, [loading, role, assignedRegionId, router]);
 

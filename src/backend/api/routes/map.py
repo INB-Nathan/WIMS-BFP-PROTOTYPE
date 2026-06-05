@@ -375,8 +375,7 @@ async def get_operational_map(
             pattern=r"^(DRAFT|PENDING|PENDING_VALIDATION|VERIFIED|REJECTED)$",
         ),
     ] = None,
-    db: Annotated[Session, Depends(get_db)] = None,
-    _user: Annotated[dict, Depends(auth.get_current_wims_user)] = None,
+    db: Annotated[Session, Depends(auth.get_db_with_rls)] = None,
 ):
     """Return clustered incidents for the validator operational map.
 

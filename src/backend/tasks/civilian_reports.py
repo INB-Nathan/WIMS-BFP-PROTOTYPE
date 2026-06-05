@@ -7,7 +7,7 @@ import logging
 from sqlalchemy import text
 
 from celery_config import celery_app
-from database import get_session
+from database import get_session, SYSTEM_TASK_USER_ID
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ TIMEOUT_EXPLANATION = (
 @celery_app.task(name="tasks.civilian_reports.timeout_pending_reports")
 def timeout_pending_reports() -> dict[str, int | list[int]]:
     """Move PENDING civilian reports older than 2 hours to REJECTED_TIMEOUT."""
-    db = get_session()
+    db = get_session(SYSTEM_TASK_USER_ID)
     try:
         result = db.execute(
             text("""

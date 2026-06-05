@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 import auth
+from auth import get_db_with_rls
 from main import app
 
 
@@ -86,7 +87,7 @@ def _reset_overrides():
 
 @pytest.fixture
 def db_session():
-    from database import _SessionLocal  # noqa: SLF001
+    from database import _AdminSessionLocal as _SessionLocal  # noqa: SLF001
 
     db = _SessionLocal()
     try:
@@ -148,11 +149,21 @@ def client_regional_encoder(client: TestClient, regional_user_id, db_session: Se
             "assigned_region_id": rid,
         }
 
+    def mock_rls_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    app.dependency_overrides[auth.get_current_wims_user] = mock_regional_encoder_fixed
     app.dependency_overrides[auth.get_regional_encoder] = mock_regional_encoder_fixed
+    app.dependency_overrides[get_db_with_rls] = mock_rls_db
     try:
         yield client
     finally:
+        app.dependency_overrides.pop(auth.get_current_wims_user, None)
         app.dependency_overrides.pop(auth.get_regional_encoder, None)
+        app.dependency_overrides.pop(get_db_with_rls, None)
 
 
 # ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from keycloak.exceptions import KeycloakError
 
 import auth
-from database import get_db_with_rls
+from auth import get_db_with_rls
 from main import app
 
 

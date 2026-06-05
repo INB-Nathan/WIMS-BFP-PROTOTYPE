@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import DataError
 
-from database import get_db
+from database import get_db, _SessionLocal, set_rls_context
 from utils.session import session_manager
 
 logger = logging.getLogger("wims.auth")
@@ -327,8 +327,8 @@ async def get_current_wims_user(
        to a keycloak_id. If a username row is already linked to a
        different keycloak_id, reject as identity mismatch.
 
-    Also attaches the resolved user dict to request.state so that
-    get_db() can call SET LOCAL wims.current_user_id for RLS enforcement.
+    Returns the resolved user dict; callers that need an RLS-scoped session
+    should use get_db_with_rls() which depends on this function directly.
     """
     keycloak_sub = token_payload.get("sub")
     if not keycloak_sub:
@@ -388,10 +388,31 @@ async def get_current_wims_user(
         "email": token_payload.get("email", ""),
     }
 
-    # Attach to request.state so get_db() can set the RLS GUC for this transaction
-    request.state.wims_user = user_dict
-
     return user_dict
+
+
+def get_db_with_rls(
+    wims_user: Annotated[Optional[dict], Depends(get_current_wims_user)],
+):
+    """
+    FastAPI dependency that yields a wims_app_user session with RLS context set.
+
+    Declared as a Depends(get_current_wims_user) so that test overrides for
+    get_current_wims_user automatically propagate here — the old request.state
+    approach required the override to set request.state as a side effect, which
+    lambda overrides never did.
+
+    All consumers import from auth directly (from auth import get_db_with_rls).
+    """
+    db = _SessionLocal()
+    try:
+        if wims_user is not None:
+            user_id = wims_user.get("user_id")
+            if user_id is not None:
+                set_rls_context(db, user_id)
+        yield db
+    finally:
+        db.close()
 
 
 async def get_system_admin(

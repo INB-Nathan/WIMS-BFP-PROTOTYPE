@@ -24,26 +24,60 @@ CREATE INDEX IF NOT EXISTS idx_aif_general_category  ON wims.analytics_incident_
 ALTER TABLE wims.analytics_incident_facts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE wims.analytics_incident_facts FORCE ROW LEVEL SECURITY;
 
--- NATIONAL_ANALYST: read-only global access
+-- Policies use wims.current_user_role() (GUC-based) instead of TO <role> (PG database roles).
+-- wims_app_user is not a member of NATIONAL_ANALYST / REGIONAL_ENCODER / etc., so TO <role>
+-- would never match and FORCE ROW LEVEL SECURITY would deny all operations.
+
+-- NATIONAL_ANALYST + SYSTEM_ADMIN: global read
 DROP POLICY IF EXISTS aif_national_analyst_read ON wims.analytics_incident_facts;
 CREATE POLICY aif_national_analyst_read ON wims.analytics_incident_facts
-    FOR SELECT TO NATIONAL_ANALYST USING (true);
+    FOR SELECT USING (wims.current_user_role() IN ('NATIONAL_ANALYST', 'SYSTEM_ADMIN'));
 
--- REGIONAL_ENCODER / NATIONAL_VALIDATOR: filtered to their region
+-- REGIONAL_ENCODER: own-region read
 DROP POLICY IF EXISTS aif_regional_read ON wims.analytics_incident_facts;
 CREATE POLICY aif_regional_read ON wims.analytics_incident_facts
-    FOR SELECT TO REGIONAL_ENCODER USING (region_id = wims.current_user_region_id());
+    FOR SELECT USING (
+        wims.current_user_role() = 'REGIONAL_ENCODER'
+        AND region_id = wims.current_user_region_id()
+    );
 
+-- NATIONAL_VALIDATOR: own-region read
 DROP POLICY IF EXISTS aif_validator_read ON wims.analytics_incident_facts;
 CREATE POLICY aif_validator_read ON wims.analytics_incident_facts
-    FOR SELECT TO NATIONAL_VALIDATOR USING (region_id = wims.current_user_region_id());
+    FOR SELECT USING (
+        wims.current_user_role() = 'NATIONAL_VALIDATOR'
+        AND region_id = wims.current_user_region_id()
+    );
 
--- SYSTEM_ADMIN: full CRUD for maintenance
+-- Write access for sync_incident_to_analytics called from route handlers and Celery tasks.
+-- Separate INSERT/UPDATE/DELETE policies (not FOR ALL) so these don't broaden SELECT
+-- beyond the region-scoped read policies above (multiple policies are OR'd in PostgreSQL).
+-- NATIONAL_ANALYST included because correct_verified_incident allows analysts to trigger syncs.
+DROP POLICY IF EXISTS aif_staff_write ON wims.analytics_incident_facts;
+DROP POLICY IF EXISTS aif_staff_insert ON wims.analytics_incident_facts;
+CREATE POLICY aif_staff_insert ON wims.analytics_incident_facts
+    FOR INSERT WITH CHECK (
+        wims.current_user_role() IN ('REGIONAL_ENCODER', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST', 'SYSTEM_ADMIN')
+    );
+
+DROP POLICY IF EXISTS aif_staff_update ON wims.analytics_incident_facts;
+CREATE POLICY aif_staff_update ON wims.analytics_incident_facts
+    FOR UPDATE USING (
+        wims.current_user_role() IN ('REGIONAL_ENCODER', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST', 'SYSTEM_ADMIN')
+    ) WITH CHECK (
+        wims.current_user_role() IN ('REGIONAL_ENCODER', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST', 'SYSTEM_ADMIN')
+    );
+
+DROP POLICY IF EXISTS aif_staff_delete ON wims.analytics_incident_facts;
+CREATE POLICY aif_staff_delete ON wims.analytics_incident_facts
+    FOR DELETE USING (
+        wims.current_user_role() IN ('REGIONAL_ENCODER', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST', 'SYSTEM_ADMIN')
+    );
+
+-- Remove old TO SYSTEM_ADMIN policy (SELECT covered by aif_national_analyst_read; writes by aif_staff_*)
 DROP POLICY IF EXISTS aif_system_admin_all ON wims.analytics_incident_facts;
-CREATE POLICY aif_system_admin_all ON wims.analytics_incident_facts
-    FOR ALL TO SYSTEM_ADMIN USING (true);
 
--- App role needs INSERT/UPDATE to sync facts from incidents
-GRANT INSERT, UPDATE ON wims.analytics_incident_facts TO wims_app;
+-- App role needs INSERT/UPDATE/DELETE to sync facts from incidents
+GRANT INSERT, UPDATE, DELETE ON wims.analytics_incident_facts TO wims_app;
 
 COMMIT;

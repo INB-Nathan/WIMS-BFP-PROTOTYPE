@@ -2,7 +2,7 @@
 -- Dependencies: 02_ref_geography.sql, 03_users.sql
 -- Idempotent: YES
 -- Adds all 18 PH regions + their provinces; adds province_district/city_municipality
--- text columns to incident_nonsensitive_details; assigns NCR to encoder_test.
+-- text columns to incident_nonsensitive_details; assigns canonical encoder users to regions.
 
 BEGIN;
 
@@ -174,11 +174,33 @@ VALUES
     (18, 'Negros Oriental')
 ON CONFLICT (region_id, province_name) DO NOTHING;
 
--- ── 4. Assign encoder_test to NCR (region_id=1) ──────────────────────────────
+-- ── 4. Assign canonical dev encoders to their regions ───────────────────────
 
-UPDATE wims.users
-SET assigned_region_id = 1, updated_at = now()
-WHERE username = 'encoder_test'
-  AND (assigned_region_id IS NULL OR assigned_region_id != 1);
+WITH encoder_regions(username, region_id) AS (
+    VALUES
+        ('encoder_ncr', 1),
+        ('encoder_car', 2),
+        ('encoder_r01', 3),
+        ('encoder_r02', 4),
+        ('encoder_r03', 5),
+        ('encoder_r04a', 6),
+        ('encoder_r04b', 7),
+        ('encoder_r05', 8),
+        ('encoder_r06', 9),
+        ('encoder_r07', 10),
+        ('encoder_r08', 11),
+        ('encoder_r09', 12),
+        ('encoder_r10', 13),
+        ('encoder_r11', 14),
+        ('encoder_r12', 15),
+        ('encoder_r13', 16),
+        ('encoder_barmm', 17),
+        ('encoder_nir', 18)
+)
+UPDATE wims.users u
+SET assigned_region_id = er.region_id, updated_at = now()
+FROM encoder_regions er
+WHERE u.username = er.username
+  AND (u.assigned_region_id IS NULL OR u.assigned_region_id != er.region_id);
 
 COMMIT;

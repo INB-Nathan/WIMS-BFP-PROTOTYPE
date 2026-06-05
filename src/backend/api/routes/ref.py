@@ -11,7 +11,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user
-from database import get_db, get_db_with_rls
+from auth import get_db_with_rls
+from database import get_db
 
 router = APIRouter(prefix="/api/ref", tags=["ref"])
 
@@ -84,12 +85,11 @@ def get_cities(
         ids = [int(x) for x in province_ids.split(",") if x.strip().isdigit()]
         if not ids:
             return []
+        placeholders = ", ".join(f":pid_{i}" for i in range(len(ids)))
         q = text(
-            "SELECT city_id, city_name, province_id FROM wims.ref_cities WHERE province_id IN ("
-            + ",".join([str(i) for i in ids])
-            + ") ORDER BY city_name"
+            f"SELECT city_id, city_name, province_id FROM wims.ref_cities WHERE province_id IN ({placeholders}) ORDER BY city_name"
         )
-        rows = db.execute(q).fetchall()
+        rows = db.execute(q, {f"pid_{i}": v for i, v in enumerate(ids)}).fetchall()
     else:
         rows = db.execute(
             text("SELECT city_id, city_name, province_id FROM wims.ref_cities ORDER BY city_name"),

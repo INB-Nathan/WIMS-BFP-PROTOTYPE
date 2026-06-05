@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from celery_config import celery_app
 from auth import get_analyst_or_admin
-from database import get_db_with_rls
+from auth import get_db_with_rls
 from services.analytics.filters import build_analytics_filters
 from services.analytics_read_model import (
     count_in_range,

@@ -36,7 +36,7 @@ from tasks.civilian_reports import timeout_pending_reports
 @pytest.fixture
 def db_session():
     """Yield a DB session for test setup/teardown."""
-    from database import _SessionLocal  # noqa: SLF001
+    from database import _AdminSessionLocal as _SessionLocal  # noqa: SLF001
 
     db = _SessionLocal()
     try:

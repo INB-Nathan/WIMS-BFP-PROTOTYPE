@@ -48,21 +48,21 @@ type GeoSuggestion = {
 };
 
 const PH_LOCAL_SUGGESTIONS: GeoSuggestion[] = [
-    { lat: '14.5995', lon: '120.9842', display_name: 'Manila, Metro Manila, Philippines' },
-    { lat: '14.6511', lon: '121.0486', display_name: 'Quezon City, Metro Manila, Philippines' },
-    { lat: '14.5547', lon: '121.0244', display_name: 'Makati, Metro Manila, Philippines' },
-    { lat: '14.6760', lon: '121.0437', display_name: 'Sampaloc, Manila, Philippines' },
-    { lat: '14.4793', lon: '120.8969', display_name: 'Paranaque, Metro Manila, Philippines' },
-    { lat: '14.5869', lon: '121.0614', display_name: 'Pasig, Metro Manila, Philippines' },
-    { lat: '14.5176', lon: '121.0509', display_name: 'Taguig, Metro Manila, Philippines' },
-    { lat: '10.3157', lon: '123.8854', display_name: 'Cebu City, Cebu, Philippines' },
-    { lat: '7.0731', lon: '125.6128', display_name: 'Davao City, Davao del Sur, Philippines' },
-    { lat: '16.4023', lon: '120.5960', display_name: 'Baguio, Benguet, Philippines' },
-    { lat: '15.1460', lon: '120.5865', display_name: 'Angeles, Pampanga, Philippines' },
-    { lat: '13.9411', lon: '121.1630', display_name: 'Batangas City, Batangas, Philippines' },
-    { lat: '10.7202', lon: '122.5621', display_name: 'Iloilo City, Iloilo, Philippines' },
-    { lat: '8.4542', lon: '124.6319', display_name: 'Cagayan de Oro, Misamis Oriental, Philippines' },
-    { lat: '11.2450', lon: '125.0000', display_name: 'Tacloban, Leyte, Philippines' },
+    { lat: '14.5995', lon: '120.9842', display_name: 'Manila, Metro Manila' },
+    { lat: '14.6511', lon: '121.0486', display_name: 'Quezon City, Metro Manila' },
+    { lat: '14.5547', lon: '121.0244', display_name: 'Makati, Metro Manila' },
+    { lat: '14.6760', lon: '121.0437', display_name: 'Sampaloc, Manila' },
+    { lat: '14.4793', lon: '120.8969', display_name: 'Paranaque, Metro Manila' },
+    { lat: '14.5869', lon: '121.0614', display_name: 'Pasig, Metro Manila' },
+    { lat: '14.5176', lon: '121.0509', display_name: 'Taguig, Metro Manila' },
+    { lat: '10.3157', lon: '123.8854', display_name: 'Cebu City, Cebu' },
+    { lat: '7.0731', lon: '125.6128', display_name: 'Davao City, Davao del Sur' },
+    { lat: '16.4023', lon: '120.5960', display_name: 'Baguio, Benguet' },
+    { lat: '15.1460', lon: '120.5865', display_name: 'Angeles, Pampanga' },
+    { lat: '13.9411', lon: '121.1630', display_name: 'Batangas City, Batangas' },
+    { lat: '10.7202', lon: '122.5621', display_name: 'Iloilo City, Iloilo' },
+    { lat: '8.4542', lon: '124.6319', display_name: 'Cagayan de Oro, Misamis Oriental' },
+    { lat: '11.2450', lon: '125.0000', display_name: 'Tacloban, Leyte' },
 ];
 
 function mergeSuggestions(local: GeoSuggestion[], remote: GeoSuggestion[]): GeoSuggestion[] {
