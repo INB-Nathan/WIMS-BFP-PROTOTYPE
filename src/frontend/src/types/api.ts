@@ -82,12 +82,14 @@ export interface SecurityLog {
 }
 
 export interface AuditLogEntry {
-  id: number;
-  user_id: string;
-  action: string;
-  resource: string;
-  timestamp: string;
-  details: string | null;
+  audit_id: number;
+  user_id: string | null;
+  action_type: string | null;
+  table_affected: string | null;
+  record_id: number | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  timestamp: string | null;
 }
 
 export interface PaginatedResponse<T> {

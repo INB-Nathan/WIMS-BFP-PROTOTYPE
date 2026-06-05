@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
@@ -23,7 +24,9 @@ logger = logging.getLogger("wims.event_bus")
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
-_sync_pool = redis.ConnectionPool.from_url(REDIS_URL, decode_responses=True)
+# Module-level sync connection pool — prevents per-call redis.from_url() leak
+_SYNC_POOL: redis.ConnectionPool | None = None
+_sync_pool_lock = threading.Lock()
 
 _async_pool: aioredis.ConnectionPool | None = None
 
@@ -32,9 +35,30 @@ async def _get_async_pool() -> aioredis.ConnectionPool:
     global _async_pool
     if _async_pool is None:
         _async_pool = aioredis.ConnectionPool.from_url(
-            REDIS_URL, decode_responses=True, max_connections=20
+            REDIS_URL,
+            decode_responses=True,
+            max_connections=20,
+            socket_connect_timeout=0.5,
+            socket_timeout=0.5,
+            health_check_interval=30,
         )
     return _async_pool
+
+
+def _get_sync_redis() -> redis.Redis:
+    global _SYNC_POOL
+    if _SYNC_POOL is None:
+        with _sync_pool_lock:
+            if _SYNC_POOL is None:
+                _SYNC_POOL = redis.ConnectionPool.from_url(
+                    REDIS_URL,
+                    decode_responses=True,
+                    max_connections=5,
+                    socket_connect_timeout=0.5,
+                    socket_timeout=0.5,
+                    health_check_interval=30,
+                )
+    return redis.Redis(connection_pool=_SYNC_POOL)
 
 
 CHANNELS = {
@@ -260,7 +284,7 @@ def publish_incident_event_sync(
 ) -> None:
     """Publish an incident lifecycle event synchronously (for sync endpoints)."""
     try:
-        r = redis.Redis(connection_pool=_sync_pool)
+        r = _get_sync_redis()
         payload: dict[str, Any] = {}
         if incident_id is not None:
             payload["incident_id"] = incident_id
@@ -298,7 +322,7 @@ def publish_verification_event_sync(
 ) -> None:
     """Publish a verification/triage event synchronously (for sync endpoints)."""
     try:
-        r = redis.Redis(connection_pool=_sync_pool)
+        r = _get_sync_redis()
         payload: dict[str, Any] = {}
         if cluster_id is not None:
             payload["cluster_id"] = cluster_id
@@ -335,7 +359,7 @@ def publish_security_event_sync(
 ) -> None:
     """Publish a security event synchronously (for Celery tasks)."""
     try:
-        r = redis.Redis(connection_pool=_sync_pool)
+        r = _get_sync_redis()
         payload: dict[str, Any] = {}
         if log_id is not None:
             payload["log_id"] = log_id

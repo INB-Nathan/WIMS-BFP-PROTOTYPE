@@ -60,7 +60,7 @@ export default function ValidatorOperationalMapPage() {
       });
       if (status) params.set('status_filter', status);
       try {
-        const data = await apiFetch(`/api/validator/operational-map?${params}`);
+        const data = await apiFetch<{ clusters?: MapClusterItem[] }>(`/api/validator/operational-map?${params}`);
         setClusters(data.clusters ?? []);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load map data');

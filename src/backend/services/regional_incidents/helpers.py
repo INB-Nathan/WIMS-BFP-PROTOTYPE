@@ -30,22 +30,6 @@ def get_security_provider() -> SecurityProvider:
     return _sp_instance
 
 
-def decrypt_pii_blob(encryption_iv: bytes, pii_blob_enc: bytes, incident_id: int) -> dict:
-    """Decrypt AES-GCM PII blob; returns {} on failure (logged as CRITICAL)."""
-    try:
-        return get_security_provider().decrypt_json(
-            encryption_iv,
-            pii_blob_enc,
-            f"incident_id:{incident_id}".encode("utf-8"),
-        )
-    except SecurityProviderError:
-        logger.critical(
-            "PII blob decryption failed (possible tamper or key mismatch). incident_id=%s",
-            incident_id,
-        )
-        return {}
-
-
 # ── Category canonicalization ─────────────────────────────────────────────────
 
 _CATEGORY_CANONICAL: dict[str, str] = {

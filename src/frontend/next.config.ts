@@ -3,9 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   typescript: {
-    // Pre-existing type errors in test files and sync engine block Docker builds.
-    // Types are still enforced by IDE + `npx tsc --noEmit` in CI.
-    ignoreBuildErrors: true,
+    // Type errors are enforced via `npx tsc --noEmit` (builds fail on errors).
+    // tsconfig.json has no test file exclusions; all .ts/.tsx files are type-checked.
   },
 };
 

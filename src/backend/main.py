@@ -14,11 +14,7 @@ import os
 import re
 import time
 from typing import Annotated
-import tasks.suricata  # noqa: F401, E402
-import tasks.exports  # noqa: F401, E402
-import tasks.drafts  # noqa: F401, E402  # M4-E: registers expire_old_drafts task for beat
-import tasks.civilian_reports  # noqa: F401, E402  # Phase 2 report timeout task
-import tasks.notifications  # noqa: F401, E402  # M13b: registers send_email_task + send_status_notification
+
 import httpx
 import redis.asyncio as aioredis
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -27,7 +23,6 @@ from pydantic import BaseModel
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-import psutil
 
 from utils.metrics import (
     API_REQUEST_DURATION,
@@ -139,7 +134,7 @@ app.include_router(
 # ---------------------------------------------------------------------------
 
 # Re-export for celery CLI: celery -A main.celery_app
-# (tasks.suricata and tasks.exports are imported at module top for registration)
+# Tasks are auto-discovered via celery_config.autodiscover_tasks(['tasks'])
 from celery_config import celery_app  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
@@ -294,6 +289,8 @@ def health():
 @app.get("/metrics", include_in_schema=False)
 async def metrics_endpoint():
     """Prometheus metrics scrape endpoint. Updates system resource gauges before returning."""
+    import psutil  # lazy import — only loaded when /metrics is hit
+
     SYSTEM_CPU_PERCENT.set(psutil.cpu_percent(interval=None))
     SYSTEM_MEMORY_PERCENT.set(psutil.virtual_memory().percent)
     SYSTEM_DISK_PERCENT.labels(mountpoint="/").set(psutil.disk_usage("/").percent)
@@ -512,6 +509,8 @@ async def get_analytics_summary(
         # city_id is on nonsensitive_details so we need the join in WHERE too
         join_sql = "JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id"
 
+    # NOTE: 4 sequential COUNT queries (total, by_region, by_alarm, by_category).
+    # Acceptable for current data volumes. See issue #196 for single-scan optimization.
     # Total
     total = (
         db.execute(

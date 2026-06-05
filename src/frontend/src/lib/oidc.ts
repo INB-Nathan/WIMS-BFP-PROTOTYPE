@@ -75,14 +75,6 @@ function buildOidcConfig(): UserManagerSettings {
   };
 }
 
-export const oidcConfig = {
-  authority: `${resolveAuthApiUrl(configuredBaseUrl)}/realms/bfp`,
-  client_id: process.env.NEXT_PUBLIC_OIDC_CLIENT_ID || 'wims-web',
-  redirect_uri: process.env.NEXT_PUBLIC_OIDC_REDIRECT_URI || `${configuredBaseUrl}/callback`,
-  response_type: 'code' as const,
-  scope: 'openid profile email',
-};
-
 export function createUserManager(): UserManager {
   return new UserManager(buildOidcConfig());
 }

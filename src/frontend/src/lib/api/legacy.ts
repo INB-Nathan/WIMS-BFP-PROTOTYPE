@@ -145,19 +145,38 @@ export async function fetchActiveSessions(): Promise<any[]> {
   }
 }
 
+export interface SystemHealthResponse {
+  status: string;
+  components: Record<string, { status: string; latency_ms: number }>;
+}
+
+export interface SystemMetricsResponse {
+  cpu_percent: number;
+  memory: { total_mb: number; used_mb: number; percent: number };
+  disk: { total_gb: number; used_gb: number; percent: number };
+}
+
+export interface WorkerStatusResponse {
+  worker_id: string;
+  hostname: string;
+  last_seen: string | null;
+  active_tasks: number;
+  status: string;
+}
+
 /** Fetch system health (admin) - GET /admin/health */
-export async function fetchSystemHealth(): Promise<unknown> {
-  return apiFetch('/admin/health');
+export async function fetchSystemHealth(): Promise<SystemHealthResponse> {
+  return apiFetch<SystemHealthResponse>('/admin/health');
 }
 
 /** Fetch system resource metrics (admin) - GET /admin/monitoring/system */
-export async function fetchSystemMetrics(): Promise<unknown> {
-  return apiFetch('/admin/monitoring/system');
+export async function fetchSystemMetrics(): Promise<SystemMetricsResponse> {
+  return apiFetch<SystemMetricsResponse>('/admin/monitoring/system');
 }
 
 /** Fetch Celery worker status (admin) - GET /admin/monitoring/workers */
-export async function fetchWorkerStatus(): Promise<unknown> {
-  return apiFetch('/admin/monitoring/workers');
+export async function fetchWorkerStatus(): Promise<WorkerStatusResponse[]> {
+  return apiFetch<WorkerStatusResponse[]>('/admin/monitoring/workers');
 }
 
 /** Revoke user's sessions (admin) - POST /admin/users/{userId}/logout */
@@ -341,6 +360,7 @@ export interface TriageClusterEntry {
   oldest_report_at: string;
   is_aging: boolean;
   is_timeout_risk: boolean;
+  is_danger: boolean;
   related_count: number;
   reports: TriageReportEntry[];
   station: { name: string | null; distance_m: number | null; phone_available: boolean };

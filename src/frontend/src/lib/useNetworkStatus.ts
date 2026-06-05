@@ -18,7 +18,7 @@ export function useNetworkStatus(): NetworkStatus {
   );
   const [isReconnecting, setIsReconnecting] = useState(false);
   const wasOffline = useRef(!isOnline);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleOnline = useCallback(() => {
     setIsOnline(true);

@@ -286,7 +286,7 @@ export default function AdminSystemPage() {
         try {
             const data = await fetchAuditLogs({ limit: 50, offset: 0 });
             setAuditLogs({
-                items: data.items.map((item: Record<string, unknown>): AuditItem => ({
+                items: data.items.map((item): AuditItem => ({
                     audit_id: item.audit_id,
                     user_id: item.user_id,
                     action_type: item.action_type,

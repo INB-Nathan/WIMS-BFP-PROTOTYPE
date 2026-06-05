@@ -42,14 +42,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshInFlightRef = useRef<Promise<boolean> | null>(null);
   const router = useRouter();
 
-  useEffect(() => {
-    if (loading) {
-      console.log(
-        '[AuthContext] loading=true - session check in progress. If stuck, verify authority URL is reachable: http://localhost/auth/realms/bfp'
-      );
-    }
-  }, [loading]);
-
   // ─── Token refresh ────────────────────────────────────────────────────────────
   // Delegates to auth-refresh.ts which uses navigator.locks when available
   // and falls back to a direct fetch when Web Locks API is unavailable.
@@ -72,7 +64,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // results in 401 → session kill → logged out.  Proactive interval refresh is
   // sufficient; the cookie stays valid across tab switches without re-fetching.
   const fetchSession = useCallback(async () => {
-    console.log('[AuthContext] fetchSession: starting');
     try {
       const requestSession = () => fetch('/api/auth/session');
       let res = await requestSession();
@@ -88,33 +79,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await res.json();
         if (data.user) {
           setUser(data.user);
-          console.log(
-            '[AuthContext] fetchSession: user loaded',
-            data.user?.email ?? data.user?.id
-          );
         } else {
           setUser(null);
-          console.log('[AuthContext] fetchSession: no user in session');
         }
       } else {
         setUser(null);
-        console.log(
-          '[AuthContext] fetchSession: session fetch not ok',
-          res.status
-        );
       }
     } catch (err) {
       setUser(null);
       console.error('[AuthContext] fetchSession: initialization failed:', err);
     } finally {
       setLoading(false);
-      console.log('[AuthContext] fetchSession: loading=false');
     }
   }, [refreshAccessToken]);
 
   // ─── Initial session load ────────────────────────────────────────────────────
   useEffect(() => {
-    console.log('[AuthContext] useEffect: initializing auth');
     fetchSession();
   }, [fetchSession]);
 
@@ -165,12 +145,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loggingOut, refreshAccessToken, user]);
 
   const login = useCallback(async () => {
-    console.log('[AuthContext] login: called');
     try {
       const userManager = createUserManager();
-      console.log('[AuthContext] login: UserManager created, calling signinRedirect');
       await userManager.signinRedirect();
-      console.log('[AuthContext] login: signinRedirect completed (redirect should occur)');
     } catch (err) {
       console.error('[AuthContext] login: signinRedirect error:', err);
       throw err;
@@ -180,10 +157,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     setLoggingOut(true);
     try {
-      console.log('[AuthContext] logout: clearing local session');
       await fetch('/api/auth/logout', { method: 'POST' });
 
-      console.log('[AuthContext] logout: calling Keycloak signoutRedirect');
       const userManager = createUserManager();
       const currentUser = await userManager.getUser();
 

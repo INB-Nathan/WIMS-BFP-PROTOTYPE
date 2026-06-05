@@ -28,6 +28,7 @@ import {
   ShieldAlert,
   Truck,
   Users,
+  type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import {
@@ -323,7 +324,7 @@ function QuickStats({ detail }: QuickStatsProps) {
 }
 
 // ─── Empty State (HCI: consistent no-data messaging) ────────────────────────────
-function EmptyState({ icon: Icon, message }: { icon: ReactNode; message: string }) {
+function EmptyState({ icon: Icon, message }: { icon: LucideIcon; message: string }) {
   return (
     <div className="flex items-center gap-3 rounded-lg bg-gray-50 px-4 py-4 text-sm text-gray-500" role="status">
       <Icon className="h-4 w-4 flex-shrink-0 opacity-60" aria-hidden="true" />
