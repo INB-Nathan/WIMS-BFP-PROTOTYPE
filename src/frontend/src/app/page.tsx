@@ -38,7 +38,7 @@ import { EmergencyReferenceCard } from '@/components/EmergencyReferenceCard';
 const GPS_TIMEOUT_MS = 10_000;
 const GPS_MISMATCH_THRESHOLD_M = 200;
 
-const CATEGORIES: { value: CivilianCategory; label: string; labelFil: string; icon: React.ReactNode }[] = [
+const CATEGORIES: { value: CivilianCategory; label: string; labelFil: string; icon: React.ReactElement<{ className?: string }> }[] = [
   { value: 'STRUCTURAL', label: 'Structural', labelFil: 'Gusali', icon: <Flame className="w-5 h-5" /> },
   { value: 'NON_STRUCTURAL', label: 'Non-Structural', labelFil: 'Di-gusali', icon: <Zap className="w-5 h-5" /> },
   { value: 'TRANSPORTATION', label: 'Transportation', labelFil: 'Transport', icon: <Truck className="w-5 h-5" /> },
@@ -548,8 +548,8 @@ export default function ReportPage() {
         latitude: geo.latitude ?? undefined,
         longitude: geo.longitude ?? undefined,
         category: category ?? undefined,
-        reporting_context: reportingContext,
-        safety_status: safetyStatus,
+        reporting_context: reportingContext ?? undefined,
+        safety_status: safetyStatus ?? undefined,
         reported_at: appendTimestamp || undefined,
         description: appendDescription.trim(),
       });

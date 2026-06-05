@@ -43,11 +43,15 @@ def _get_sync_redis() -> redis.Redis:
     global _SYNC_POOL
     if _SYNC_POOL is None:
         _SYNC_POOL = redis.ConnectionPool.from_url(
-            REDIS_URL, decode_responses=True, max_connections=5,
-            socket_connect_timeout=0.5, socket_timeout=0.5,
+            REDIS_URL,
+            decode_responses=True,
+            max_connections=5,
+            socket_connect_timeout=0.5,
+            socket_timeout=0.5,
             health_check_interval=30,
         )
     return redis.Redis(connection_pool=_SYNC_POOL)
+
 
 CHANNELS = {
     "incident": "wims:events:incident",

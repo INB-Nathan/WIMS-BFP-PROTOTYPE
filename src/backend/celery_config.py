@@ -16,7 +16,7 @@ celery_app = Celery(
 )
 
 # Auto-discover task modules instead of side-effect imports in main.py
-celery_app.autodiscover_tasks(['tasks'])
+celery_app.autodiscover_tasks(["tasks"])
 celery_app.conf.update(
     task_serializer="json",
     accept_content=["json"],

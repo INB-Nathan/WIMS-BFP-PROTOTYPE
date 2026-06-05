@@ -6,7 +6,7 @@ const STORE_NAME = 'incident-queue';
 const KEY_STORE = 'crypto-keys';
 
 interface PendingIncident {
-    id?: number;
+    id: number;
     payload: Record<string, unknown>;
     createdAt: number;
     status: 'pending' | 'synced';
@@ -88,7 +88,7 @@ export async function getPendingIncidents(): Promise<PendingIncident[]> {
     for (const item of pending) {
         const payload = await decryptPayload(item.encrypted);
         result.push({
-            id: item.id,
+            id: item.id!,
             payload,
             createdAt: item.createdAt,
             status: item.status,
@@ -103,7 +103,7 @@ export async function getQueuedIncident(id: number): Promise<PendingIncident | u
     if (!item) return undefined;
     const payload = await decryptPayload(item.encrypted);
     return {
-        id: item.id,
+        id: item.id!,
         payload,
         createdAt: item.createdAt,
         status: item.status,

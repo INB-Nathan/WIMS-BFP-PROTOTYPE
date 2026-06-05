@@ -24,7 +24,7 @@ export function useAutoSync(): AutoSyncState {
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const syncMutex = useRef(false);
-  const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refreshPendingCount = useCallback(async () => {
     const pending = await getPendingIncidents();

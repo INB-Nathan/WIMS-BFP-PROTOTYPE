@@ -290,6 +290,7 @@ def health():
 async def metrics_endpoint():
     """Prometheus metrics scrape endpoint. Updates system resource gauges before returning."""
     import psutil  # lazy import — only loaded when /metrics is hit
+
     SYSTEM_CPU_PERCENT.set(psutil.cpu_percent(interval=None))
     SYSTEM_MEMORY_PERCENT.set(psutil.virtual_memory().percent)
     SYSTEM_DISK_PERCENT.labels(mountpoint="/").set(psutil.disk_usage("/").percent)

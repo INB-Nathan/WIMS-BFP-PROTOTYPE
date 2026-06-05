@@ -146,7 +146,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   UNSURE: 'Unsure',
 };
 
-function getCategoryLabel(category: string): string {
+function getCategoryLabel(category: string | null): string {
+  if (!category) return 'Unknown';
   return CATEGORY_LABELS[category] ?? category;
 }
 
