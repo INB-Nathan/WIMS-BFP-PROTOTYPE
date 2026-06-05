@@ -39,19 +39,19 @@ $users = @(
     @{ username = "n-val"; email = "n-val@bfp.gov.ph"; role = "NATIONAL_VALIDATOR"; region = 1;     uuid = "aa000001-0000-4001-8001-aab000000001"; legacy = $null; password = "WimsBFP2026!" }
     @{ username = "n-enc"; email = "n-enc@bfp.gov.ph"; role = "REGIONAL_ENCODER";   region = 1;     uuid = "aa000002-0000-4002-8002-aab000000002"; legacy = $null; password = "WimsBFP2026!" }
     @{ username = "n-ana"; email = "n-ana@bfp.gov.ph"; role = "NATIONAL_ANALYST";   region = $null; uuid = "aa000003-0000-4003-8003-aab000000003"; legacy = $null; password = "WimsBFP2026!" }
-    @{ username = "n-adm"; email = "n-adm@bfp.gov.ph"; role = "SYSTEM_ADMIN";       region = $null; uuid = "aa000004-0000-4004-8004-aab000000004"; legacy = $null; password = "WimsBFP2026!" }
+    @{ username = "n-sys"; email = "n-sys@bfp.gov.ph"; role = "SYSTEM_ADMIN";       region = $null; uuid = "aa000004-0000-4004-8004-aab000000004"; legacy = $null; password = "WimsBFP2026!" }
     @{ username = "g-val"; email = "g-val@bfp.gov.ph"; role = "NATIONAL_VALIDATOR"; region = 1;     uuid = "bb000001-0000-4001-8001-bbb000000001"; legacy = $null; password = "WimsBFP2026!" }
     @{ username = "g-enc"; email = "g-enc@bfp.gov.ph"; role = "REGIONAL_ENCODER";   region = 1;     uuid = "bb000002-0000-4002-8002-bbb000000002"; legacy = $null; password = "WimsBFP2026!" }
     @{ username = "g-ana"; email = "g-ana@bfp.gov.ph"; role = "NATIONAL_ANALYST";   region = $null; uuid = "bb000003-0000-4003-8003-bbb000000003"; legacy = $null; password = "WimsBFP2026!" }
-    @{ username = "g-adm"; email = "g-adm@bfp.gov.ph"; role = "SYSTEM_ADMIN";       region = $null; uuid = "bb000004-0000-4004-8004-bbb000000004"; legacy = $null; password = "WimsBFP2026!" }
+    @{ username = "g-sys"; email = "g-sys@bfp.gov.ph"; role = "SYSTEM_ADMIN";       region = $null; uuid = "bb000004-0000-4004-8004-bbb000000004"; legacy = $null; password = "WimsBFP2026!" }
     @{ username = "e-val"; email = "e-val@bfp.gov.ph"; role = "NATIONAL_VALIDATOR"; region = 1;     uuid = "cc000001-0000-4001-8001-ccb000000001"; legacy = $null; password = "WimsBFP2026!" }
     @{ username = "e-enc"; email = "e-enc@bfp.gov.ph"; role = "REGIONAL_ENCODER";   region = 1;     uuid = "cc000002-0000-4002-8002-ccb000000002"; legacy = $null; password = "WimsBFP2026!" }
     @{ username = "e-ana"; email = "e-ana@bfp.gov.ph"; role = "NATIONAL_ANALYST";   region = $null; uuid = "cc000003-0000-4003-8003-ccb000000003"; legacy = $null; password = "WimsBFP2026!" }
-    @{ username = "e-adm"; email = "e-adm@bfp.gov.ph"; role = "SYSTEM_ADMIN";       region = $null; uuid = "cc000004-0000-4004-8004-ccb000000004"; legacy = $null; password = "WimsBFP2026!" }
+    @{ username = "e-sys"; email = "e-sys@bfp.gov.ph"; role = "SYSTEM_ADMIN";       region = $null; uuid = "cc000004-0000-4004-8004-ccb000000004"; legacy = $null; password = "WimsBFP2026!" }
     @{ username = "r-val"; email = "r-val@bfp.gov.ph"; role = "NATIONAL_VALIDATOR"; region = 1;     uuid = "dd000001-0000-4001-8001-ddb000000001"; legacy = $null; password = "WimsBFP2026!" }
     @{ username = "r-enc"; email = "r-enc@bfp.gov.ph"; role = "REGIONAL_ENCODER";   region = 1;     uuid = "dd000002-0000-4002-8002-ddb000000002"; legacy = $null; password = "WimsBFP2026!" }
     @{ username = "r-ana"; email = "r-ana@bfp.gov.ph"; role = "NATIONAL_ANALYST";   region = $null; uuid = "dd000003-0000-4003-8003-ddb000000003"; legacy = $null; password = "WimsBFP2026!" }
-    @{ username = "r-adm"; email = "r-adm@bfp.gov.ph"; role = "SYSTEM_ADMIN";       region = $null; uuid = "dd000004-0000-4004-8004-ddb000000004"; legacy = $null; password = "WimsBFP2026!" }
+    @{ username = "r-sys"; email = "r-sys@bfp.gov.ph"; role = "SYSTEM_ADMIN";       region = $null; uuid = "dd000004-0000-4004-8004-ddb000000004"; legacy = $null; password = "WimsBFP2026!" }
 )
 
 Write-Host "Waiting for keycloak..."
