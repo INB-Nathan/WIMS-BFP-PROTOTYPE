@@ -596,7 +596,7 @@ def get_regional_incident_detail(
 ):
     """Fetch a single incident detail. Encoders see only their own; validators see any."""
     role = user.get("role", "")
-    is_validator = role in ("NATIONAL_VALIDATOR", "SYSTEM_ADMIN", "NATIONAL_ANALYST", "VALIDATOR")
+    is_validator = role in ("NATIONAL_VALIDATOR", "SYSTEM_ADMIN", "NATIONAL_ANALYST")
 
     if is_validator:
         row = db.execute(

@@ -1,7 +1,7 @@
 ---
 title: Security Baseline
 created: 2026-05-14
-updated: 2026-06-04
+updated: 2026-06-05
 type: security
 tags: [wims-bfp, security, auth, rbac, rls, audit-log, ids, xai, privacy, fail-closed]
 sources: [raw/frs/frs-auth.md, raw/frs/frs-complianceanddataprivacy.md, raw/frs/frs-intrusiondetectionandnetworkingmonitoring.md, raw/frs/frs-threatdetectionwithexplainableai.md, raw/codebase/codebase-snapshot-2026-05-14.md]
@@ -53,7 +53,7 @@ FRS Module 11b requires Cross-Site Request Forgery testing. The following layers
 - **SameSite=Strict cookies:** Auth cookies (`__Host-access_token`, `__Host-refresh_token`) are set with `Secure; HttpOnly; SameSite=Strict; Path=/`. No `Domain` attribute. Implemented in `src/frontend/src/app/api/auth/sync/route.ts`, `refresh/route.ts`, and `logout/route.ts`.
 - **`__Host-` cookie prefix:** Prevents subdomain cookie injection — compliant browsers reject `__Host-` cookies set from any context that does not match the origin exactness requirements (HTTPS, no Domain, Path=/).
 - **Origin/Referer validation middleware:** `src/backend/utils/csrf.py` — `csrf_middleware` is registered on the FastAPI app via `app.middleware("http")`. GET/HEAD/OPTIONS bypass (safe methods). POST/PUT/PATCH/DELETE without a valid Origin or Referer matching the configured allowlist are rejected with 403. Allowlist from `CSRF_TRUSTED_ORIGINS` env var, falling back to localhost defaults. **Exemption:** the zero-trust public DMZ path prefix `/api/v1/public/` is explicitly excluded from CSRF validation because these endpoints are unauthenticated (no Keycloak JWT, no cookie dependency) and are protected by rate limiting + Pydantic validation instead.
-- **Nginx CORS restricted:** `Access-Control-Allow-Origin` set to `$scheme://$host` (not `$http_origin` reflection) in both production and local nginx configs.
+- **Nginx CORS restricted:** Production `Access-Control-Allow-Origin` uses a deny-by-default `$cors_origin` map (whitelisted origins: `https://wimsbfp.tech`, `https://wims.bfp.gov.ph`). Local dev config uses `$scheme://$host`. Neither echoes `$http_origin`.
 - **Pen-test checklist:** `docs/pentest/CSRF-CHECKLIST.md` documents all manual verification procedures.
 - **Test coverage:** `src/backend/tests/test_csrf_middleware.py` covers safe methods, invalid/missing Origin, valid Origin, Referer fallback, PUT/PATCH/DELETE variants, and VPS production origin scenarios.
 

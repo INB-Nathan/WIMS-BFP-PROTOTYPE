@@ -1,7 +1,7 @@
 ---
 title: FRS Codebase Gap Register
 created: 2026-05-14
-updated: 2026-05-30
+updated: 2026-06-05
 type: gap
 tags: [wims-bfp, gap, frs, needs-verification]
 sources: [raw/frs, raw/codebase/codebase-snapshot-2026-05-14.md]
@@ -37,7 +37,8 @@ This register prevents agents from hallucinating completion. A module is not com
 - **M9 (System Monitoring)**: PARTIAL → M9a CLOSED — PR #103 backend monitoring endpoints; **PR #125 M9a** completes dashboard UI (CPU/RAM/disk + workers, grouped 60s refresh). Full-text log search still open.
 - **#194 (Keycloak audience default)**: CLOSED — `.env.example` `KEYCLOAK_AUDIENCE` changed from `account` → `wims-web`.
 - **#195 (Redis connection pooling)**: CLOSED — `event_bus.py` sync pool + async pool; `public_dmz.py` async pool (max_connections=20). No behavioral change.
-- **#205 (Env master key placeholder)**: CLOSED — `.env.example` `WIMS_MASTER_KEY` replaced with `REPLACE_WITH_REAL_BASE64_32BYTE_KEY` placeholder + generation comment.
+- **#205 (Env master key placeholder)**: CLOSED — `.env.example` `WIMS_MASTER_KEY` replaced with valid base64 all-zeros placeholder (`AAAA...=`) plus `openssl rand -base64 32` generation instructions and "DO NOT USE IN PRODUCTION" warning (PR #213).
+- **#206 (Legacy Keycloak roles removed)**: CLOSED — `VALIDATOR` and `ANALYST` roles removed from `src/keycloak/import/bfp-realm.json`; canonical roles (`NATIONAL_VALIDATOR`, `NATIONAL_ANALYST`, `REGIONAL_ENCODER`, `SYSTEM_ADMIN`) preserved. Stale `"VALIDATOR"` reference in `regional.py:599` also cleaned up (PR #213 follow-up).
 - **M4 (Incident Workflow)**: CLOSED — PR #102: AFOR import fixes, field persistence, validator audit trail, VALIDATOR role routing, immutable rule fix.
 - **M8d (HITL Structured Decision Audit Log)**: CLOSED — `39_hitl_decision.sql` adds `hitl_decision JSONB` to `security_threat_logs`; `PATCH /admin/security-logs/{log_id}` accepts structured `{ action, note }` with three-button HITL UI (Confirm Threat / False Positive / Request More Info); decision logged as JSONB with `reviewed_by` and `reviewed_at`; `resolved_at` set only on terminal decisions (CONFIRM_THREAT, FALSE_POSITIVE); `REQUEST_MORE_INFO` leaves `resolved_at` null.
 - **M2b (Offline Encryption — AES-256-GCM)**: CLOSED — `offlineStore.ts` encrypts IndexedDB queue items with AES-256-GCM via Web Crypto API; per-user key stored in `crypto-keys` IndexedDB store, derived from user secret via PBKDF2; transparent encrypt on `addToQueue`/`updateQueuedIncident`, transparent decrypt on `getQueuedIncident`; `markSynced` operates on raw record (no payload read needed); closes ISSUE#139.

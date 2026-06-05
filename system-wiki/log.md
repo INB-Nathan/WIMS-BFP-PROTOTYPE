@@ -3,6 +3,21 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-05] fix | PR #213 review follow-ups — stale role, Firebase env, JWT tests, wiki sync
+
+**PR #213 three-axis review follow-ups applied (worktree: pr-213):**
+
+- **Stale `"VALIDATOR"` removed from `regional.py:599`:** Replaced `("NATIONAL_VALIDATOR", "SYSTEM_ADMIN", "NATIONAL_ANALYST", "VALIDATOR")` with just the three canonical roles. Legacy `VALIDATOR` role was removed from `bfp-realm.json` in #206; this code reference was missed.
+- **`.env.example` Firebase section hardened:** Replaced committed real Firebase API key and VAPID key with `REPLACE_WITH_YOUR_...` placeholders. Documented all 7 Firebase env vars (2 required with `:?error`, 5 optional with `:-default`). Added warning comment.
+- **JWT `to_pem` fallback unit tests:** Added `tests/test_jwt_fallback.py` with 6 unit tests covering: valid key with `to_pem`, key without `to_pem` tries next, all-candidate-keys-fail force-refreshes JWKS, no-to_pem-on-any-key returns 401, `jwt.decode` receives PEM string, and JWTError in candidate loop tries next key. All use `@pytest.mark.unit` and mock authenticator internals — no Docker required.
+- **Nginx CORS: DELETE preserved intentionally.** The PR body claimed DELETE was removed from CORS methods but it was not (and should not be) — backend has DELETE endpoints (`DELETE /api/regional/incidents/{id}`, draft management). The `$cors_origin` map deny-by-default is the actual CORS hardening.
+- **Wiki sync:**
+  - `system-wiki/security/security-baseline.md`: Updated stale `$scheme://$host` CORS line to describe production `$cors_origin` map.
+  - `system-wiki/architecture/infrastructure-config.md`: Removed legacy `VALIDATOR`/`ANALYST` from Roles table; added note about #206 removal.
+  - `system-wiki/gaps/frs-codebase-gap-register.md`: Updated #205 entry to reference current `AAAA...=` placeholder; added #206 closure entry.
+
+**Files changed:** `regional.py`, `.env.example`, `test_jwt_fallback.py` (new), `security-baseline.md`, `infrastructure-config.md`, `frs-codebase-gap-register.md`, `log.md`
+
 ## [2026-06-03] fix | PR #212 review fixes — Redis pool bounding, thread-safety, test hygiene
 
 - **Redis connection pool:** Added `max_connections=10` to `_get_redis()` in `civilian.py`, matching `map.py`'s bounded-pool pattern. Prevents unbounded connection growth under load.

@@ -1,7 +1,7 @@
 ---
 title: Infrastructure Configuration
 created: 2026-05-16
-updated: 2026-06-03
+updated: 2026-06-05
 type: architecture
 tags: [wims-bfp, docker, nginx, suricata, keycloak, infrastructure]
 sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/nginx/, src/suricata/, src/keycloak/bfp-realm.json]
@@ -200,8 +200,8 @@ MailHog local development: host=`mailhog`, port=`1025`, from=`noreply@wims-bfp.l
 | `NATIONAL_VALIDATOR` | National validator |
 | `NATIONAL_ANALYST` | National analyst |
 | `SYSTEM_ADMIN` | System administrator |
-| `VALIDATOR` | Legacy validator alias |
-| `ANALYST` | Legacy analyst alias |
+
+> **Note (2026-06-05, PR #213):** Legacy roles `VALIDATOR` and `ANALYST` were removed from `bfp-realm.json` in issue #206. Only the four canonical roles above remain.
 
 ### Clients
 
