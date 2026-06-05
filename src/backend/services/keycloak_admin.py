@@ -122,18 +122,18 @@ def create_keycloak_user(
             pass
         raise
 
-    # Send execute-actions email with temp password
+    # Send update-account email with temp password
     try:
-        adm.send_execute_actions_email(
+        adm.send_update_account(
             user_id=user_id,
-            actions=["UPDATE_PASSWORD"],
+            payload=["UPDATE_PASSWORD"],
             redirect_uri="",
             lifespan=604800,  # 7 days
         )
-        logger.info(f"Execute-actions email sent to {user_id}")
-    except Exception:
+        logger.info(f"Update-account email sent to {user_id}")
+    except KeycloakError as e:
         logger.warning(
-            f"Execute-actions email failed for {user_id} — password must be distributed manually"
+            f"Update-account email failed for {user_id}: {e} — password must be distributed manually"
         )
 
     # Assign realm role

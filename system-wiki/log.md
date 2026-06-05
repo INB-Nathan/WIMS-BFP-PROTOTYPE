@@ -3,6 +3,15 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-05] fix | PR #217 review follow-ups — Keycloak email API, test coverage, frontend note, UUID cast
+
+- **`src/backend/services/keycloak_admin.py`:** Replaced hallucinated `adm.send_execute_actions_email(actions=["UPDATE_PASSWORD"])` with the correct python-keycloak 7.1.1 API `adm.send_update_account(payload=["UPDATE_PASSWORD"], lifespan=604800)`. Replaced bare `except Exception:` around the email call with `except KeycloakError as e:` — email failures are still non-fatal but now log concrete evidence.
+- **`src/backend/tests/test_keycloak_admin.py` (new):** 8 unit tests for `create_keycloak_user()` email path: happy-path `send_update_account` call, `KeycloakError` during email is non-fatal (warning logged, user still created), `KeycloakError` during `create_user` is fatal, password-set failure triggers cleanup, role-assignment failure is non-fatal, contact-number attribute, and password generation length/randomness. All external calls mocked — no Docker/Keycloak required.
+- **`src/frontend/src/app/admin/system/page.tsx`:** Added `note` field to `createdUser` state type; user creation result now captures `result.note`. The hardcoded "Distribute this temporary password..." message is replaced by `createdUser.note` with a sensible fallback.
+- **`src/backend/tests/integration/test_auth_callback.py`:** Standardized `cleanup_test_user` DELETE to use explicit `CAST(:kid AS uuid)` matching the verification query pattern.
+- **`system-wiki/architecture/pwa-tests-cicd.md`:** Updated stale test file reference from deleted `test_auth_flow.py` to `test_auth_callback.py`.
+- **Wiki synced:** `system-wiki/architecture/pwa-tests-cicd.md`, `system-wiki/log.md`. No FRS gap register change (auth email was a bug fix, not an FRS alignment change).
+
 ## [2026-06-05] fix | PR #216 review follow-ups — event bus thread-safety, async pool hardening, stale comments, dead useEffect
 
 - **`src/backend/services/event_bus.py`:** Added `threading.Lock` (`_sync_pool_lock`) with double-checked locking around lazy `_SYNC_POOL` initialization — prevents TOCTOU race in sync publisher path. Added `socket_connect_timeout=0.5`, `socket_timeout=0.5`, `health_check_interval=30` to async pool (`_get_async_pool`) for consistency with sync pool hardening.

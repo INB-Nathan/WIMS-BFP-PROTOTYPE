@@ -67,7 +67,7 @@ def cleanup_test_user(engine, unique_identity):
     yield
     with engine.connect() as conn:
         conn.execute(
-            text("DELETE FROM wims.users WHERE keycloak_id = :kid"),
+            text("DELETE FROM wims.users WHERE keycloak_id = CAST(:kid AS uuid)"),
             {"kid": unique_identity["sub"]},
         )
         conn.commit()
@@ -161,7 +161,9 @@ def test_callback_session_revoked_returns_401(unique_identity, cleanup_test_user
         main_module.auth.authenticator,
         "validate_token",
         new_callable=AsyncMock,
-        side_effect=main_module.auth.HTTPException(status_code=401, detail="Token has been revoked"),
+        side_effect=main_module.auth.HTTPException(
+            status_code=401, detail="Token has been revoked"
+        ),
     ):
         client = TestClient(main_module.app)
         r = client.post(
@@ -177,7 +179,9 @@ def test_callback_session_revoked_returns_401(unique_identity, cleanup_test_user
 
 
 @respx.mock
-def test_callback_jit_provisioning_creates_user(mock_valid_token, unique_identity, cleanup_test_user):
+def test_callback_jit_provisioning_creates_user(
+    mock_valid_token, unique_identity, cleanup_test_user
+):
     """First login with new keycloak_id → user created in wims.users."""
     _token, _ = mock_valid_token
     sub = unique_identity["sub"]
@@ -212,7 +216,6 @@ def test_callback_jit_provisioning_creates_user(mock_valid_token, unique_identit
 def test_callback_existing_user_updates_login(mock_valid_token, unique_identity, cleanup_test_user):
     """Second login with same keycloak_id → same user_id, no duplicate."""
     _token, _ = mock_valid_token
-    sub = unique_identity["sub"]
     client = TestClient(main_module.app)
 
     r1 = client.post(

@@ -147,7 +147,7 @@ export default function AdminSystemPage() {
         contact_number: '',
     });
     const [isCreating, setIsCreating] = useState(false);
-    const [createdUser, setCreatedUser] = useState<{ username: string; temporary_password: string } | null>(null);
+    const [createdUser, setCreatedUser] = useState<{ username: string; temporary_password: string; note?: string } | null>(null);
     const [showTempPassword, setShowTempPassword] = useState(false);
     const [copySuccess, setCopySuccess] = useState(false);
 
@@ -342,7 +342,7 @@ export default function AdminSystemPage() {
                 contact_number: payload.contact_number || undefined,
                 assigned_region_id: payload.assigned_region_id,
             });
-            setCreatedUser({ username: result.username, temporary_password: result.temporary_password });
+            setCreatedUser({ username: result.username, temporary_password: result.temporary_password, note: result.note });
             setCreateForm({ first_name: '', last_name: '', email: '', username: '', role: 'REGIONAL_ENCODER', contact_number: '', assigned_region_id: '' });
             await loadUsers();
         } catch (e: unknown) {
@@ -953,7 +953,7 @@ export default function AdminSystemPage() {
                                     <span>User created successfully!</span>
                                 </div>
                                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
-                                    <p className="text-sm text-amber-800 font-medium">⚠ Distribute this temporary password to the user securely. They must change it on first login.</p>
+                                    <p className="text-sm text-amber-800 font-medium">{createdUser.note ?? '⚠ Distribute this temporary password to the user securely. They must change it on first login.'}</p>
                                     <div>
                                         <p className="text-xs text-gray-500 mb-1">Username</p>
                                         <p className="text-sm bg-white border border-gray-200 rounded px-3 py-1.5">{createdUser.username}</p>
