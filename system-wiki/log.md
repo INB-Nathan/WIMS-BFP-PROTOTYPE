@@ -3,6 +3,12 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-05] fix | PR #213 CI follow-up — compose env setup and backend format gate
+
+- **CI compose env setup:** `.github/workflows/ci.yml` now copies root `.env.example` to `src/.env` before `docker-build` compose validation/build and before `security-scan` stack startup. This preserves `${VAR:?error}` fail-fast behavior in `src/docker-compose.yml` while giving ephemeral CI the required local/test values.
+- **Backend format gate:** `src/backend/tests/test_jwt_fallback.py` was formatted with `ruff format` so the backend CI `ruff format --check .` step can pass.
+- **Wiki sync:** `system-wiki/architecture/pwa-tests-cicd.md` documents the CI env-file pre-step; `system-wiki/architecture/infrastructure-config.md` documents required compose interpolation, CI handling, updated backend env values, authoritative Keycloak import path, and production CORS map behavior; `system-wiki/index.md` updated its last-change summary.
+
 ## [2026-06-05] fix | PR #213 review follow-ups — stale role, Firebase env, JWT tests, wiki sync
 
 **PR #213 three-axis review follow-ups applied (worktree: pr-213):**

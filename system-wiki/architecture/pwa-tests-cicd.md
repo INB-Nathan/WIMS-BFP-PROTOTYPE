@@ -1,7 +1,7 @@
 ---
 title: PWA/Offline-First, Tests & CI/CD
 created: 2026-05-16
-updated: 2026-06-04
+updated: 2026-06-05
 type: architecture
 tags: [wims-bfp, pwa, offline-first, testing, ci-cd, service-worker]
 sources: [src/frontend/src/lib/, src/frontend/public/sw.js, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py]
@@ -167,8 +167,8 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 | `migrations` | ubuntu-latest | PostGIS 15-3.4 service container, applies all .sql files in lexical order, asserts schema |
 | `frontend` | ubuntu-latest | Node 20, `npm ci` → `npm run lint` → `npx vitest run` → `npm run build` |
 | `backend` | ubuntu-latest | Python 3.12, PostGIS + Redis 7 service containers. `KEYCLOAK_CLIENT_ID`/`KEYCLOAK_AUDIENCE` are set to `wims-web`/`wims-web`; Direct Grant tests scope `bfp-client` separately. `ruff check` → `ruff format --check` → `pytest -v --tb=short` (8 test files excluded) |
-| `docker-build` | ubuntu-latest | `docker compose config` validation + `docker compose build --parallel` |
-| `security-scan` | ubuntu-latest | OWASP ZAP baseline scan + Nmap port scan. Uses `.zap/rules.tsv` to ignore 7 pre-existing WARN alerts (CSP/COEP headers, Keycloak upstream, Next.js informational). Uses `zaproxy/action-baseline@v0.15.0` plus explicit artifact name `zap-scan` to avoid legacy artifact-upload rejection in older ZAP action packaging. `fail_action: true` — only new HIGH/CRITICAL block merge. Stack is brought up with `docker compose -f docker-compose.yml -f docker-compose.ci.yml` to use the HTTP-only `nginx.ci.conf`, avoiding TLS certificate requirements that exist in the local (`nginx.local.conf`) and production (`nginx.conf`) configs. |
+| `docker-build` | ubuntu-latest | Copies root `.env.example` to `src/.env` for required compose interpolation, then runs `docker compose config` validation + `docker compose build --parallel` |
+| `security-scan` | ubuntu-latest | Copies root `.env.example` to `src/.env`, then runs OWASP ZAP baseline scan + Nmap port scan. Uses `.zap/rules.tsv` to ignore 7 pre-existing WARN alerts (CSP/COEP headers, Keycloak upstream, Next.js informational). Uses `zaproxy/action-baseline@v0.15.0` plus explicit artifact name `zap-scan` to avoid legacy artifact-upload rejection in older ZAP action packaging. `fail_action: true` — only new HIGH/CRITICAL block merge. Stack is brought up with `docker compose -f docker-compose.yml -f docker-compose.ci.yml` to use the HTTP-only `nginx.ci.conf`, avoiding TLS certificate requirements that exist in the local (`nginx.local.conf`) and production (`nginx.conf`) configs. |
 | `merge-gate` | ubuntu-latest | **Blocks merge** unless migrations, frontend, backend, docker-build, and security-scan all pass |
 
 ### CD — `.github/workflows/cd.yml`

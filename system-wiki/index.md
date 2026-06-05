@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-06-04
+Last updated: 2026-06-05
 Total synthesis pages: 32
-Last changes: PR #207 review fixes added current-password step-up for self-service email/login-identity changes, RLS-backed profile contact lookup, local unique email index documentation, and frontend partial-update handling.
+Last changes: PR #213 follow-ups documented fail-fast compose env handling in CI, production CORS `$cors_origin` behavior, canonical Keycloak roles, Firebase env placeholders, and JWT fallback test coverage.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

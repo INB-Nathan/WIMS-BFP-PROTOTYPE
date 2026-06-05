@@ -4,7 +4,7 @@ created: 2026-05-16
 updated: 2026-06-05
 type: architecture
 tags: [wims-bfp, docker, nginx, suricata, keycloak, infrastructure]
-sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/nginx/, src/suricata/, src/keycloak/bfp-realm.json]
+sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/nginx/, src/suricata/, src/keycloak/import/bfp-realm.json, .github/workflows/ci.yml]
 status: draft
 ---
 
@@ -38,6 +38,8 @@ status: draft
 
 **Named volumes:** `postgres_data`, `ollama_data`, `incident_attachments_data`
 
+**Required env interpolation:** Base `src/docker-compose.yml` intentionally uses `${VAR:?error}` for local/test secrets such as `POSTGRES_PASSWORD`, `KC_DB_PASSWORD`, `KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD`, `NEXT_PUBLIC_FIREBASE_API_KEY`, and `NEXT_PUBLIC_FIREBASE_VAPID_KEY`. GitHub CI jobs that run compose (`docker-build`, `security-scan`) copy root `.env.example` to `src/.env` before `docker compose config`, build, or stack startup so fail-fast interpolation remains enabled without committing real secrets.
+
 **Host port exposure:** Only `nginx-gateway` intentionally binds public interfaces (`0.0.0.0:80` and `0.0.0.0:443`). Database and support/admin surfaces are bound to host loopback only: Postgres `127.0.0.1:5432`, Redis `127.0.0.1:6379`, MailHog `127.0.0.1:1025`/`8025`, and direct Keycloak `127.0.0.1:8080`. Browser and OIDC traffic should reach Keycloak only through nginx at `/auth/`.
 
 **Host firewall:** UFW is enabled on the VPS with default deny incoming, allow outgoing, and explicit inbound allows only for SSH `22/tcp`, HTTP `80/tcp`, and HTTPS `443/tcp` on IPv4/IPv6.
@@ -46,13 +48,13 @@ status: draft
 
 | Variable | Default |
 |---|---|
-| `DATABASE_URL` | `postgresql://postgres:password@postgres:5432/wims` |
+| `DATABASE_URL` | `postgresql://postgres:${POSTGRES_PASSWORD:?error}@postgres:5432/wims` in compose; production may override through environment |
 | `REDIS_URL` | `redis://redis:6379/0` |
 | `KEYCLOAK_REALM_URL` | `http://keycloak:8080/auth/realms/bfp` |
 | `KEYCLOAK_ISSUER` | `${PUBLIC_BASE_URL}/auth/realms/bfp` in production override; current VPS `PUBLIC_BASE_URL=https://wimsbfp.tech` |
 | `KEYCLOAK_CLIENT_ID` | `wims-web` |
-| `KEYCLOAK_ADMIN_USER` | `admin` |
-| `KEYCLOAK_ADMIN_PASSWORD` | `admin` |
+| `KEYCLOAK_ADMIN_USER` | `${KEYCLOAK_ADMIN:?error}` |
+| `KEYCLOAK_ADMIN_PASSWORD` | `${KEYCLOAK_ADMIN_PASSWORD:?error}` |
 | `OLLAMA_URL` | `http://ollama:11434` |
 | `SURICATA_EVE_PATH` | `/var/log/suricata/eve.json` |
 | `EXPORT_DIR` | `/app/storage/exports` |
@@ -114,7 +116,7 @@ Use explicit `-f` flags on the VPS. Plain `docker compose up` auto-loads `docker
 **Key config points:**
 - `client_max_body_size 50M`
 - OPTIONS preflight handled directly by nginx (returns 204), not proxied to backend
-- CORS: dynamic `Access-Control-Allow-Origin: $http_origin`
+- CORS: production uses a deny-by-default `$cors_origin` map for `Access-Control-Allow-Origin` with explicit HTTPS origins; local dev remains same-origin via `$scheme://$host`
 - Cookie domain rewrite: `proxy_cookie_domain nginx-gateway $host` — rewrites backend's `Domain=nginx-gateway` to the request host so the browser accepts it
 - TLS terminates in nginx on port 443 for `wimsbfp.tech` using `/etc/letsencrypt/live/wimsbfp.tech/fullchain.pem` and `privkey.pem`
 - Gateway security headers: nginx disables version tokens, hides proxied `X-Powered-By`, and adds HSTS, `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: no-referrer`, and a restrictive camera/microphone permissions policy while allowing same-origin geolocation.
@@ -141,7 +143,7 @@ Use explicit `-f` flags on the VPS. Plain `docker compose up` auto-loads `docker
 
 ## Keycloak Realm
 
-**File:** `src/keycloak/bfp-realm.json` (~2641 lines)
+**File:** `src/keycloak/import/bfp-realm.json` (~2641 lines)
 
 Full Keycloak realm export for the `bfp` realm.
 

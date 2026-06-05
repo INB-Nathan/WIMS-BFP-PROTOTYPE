@@ -81,6 +81,7 @@ def _make_constructed_key(has_pem: bool):
 def _setup_authenticator(keys, oidc_config=None):
     """Pre-populate the singleton authenticator's JWKS/oidc cache."""
     import auth as auth_module
+
     authenticator = auth_module.authenticator
     authenticator.jwks = {"keys": keys}
     authenticator.jwks_fetched_at = 9999999999.0  # far future — cached
@@ -100,12 +101,8 @@ def _setup_authenticator(keys, oidc_config=None):
 @patch("auth.jwt.decode")
 @patch("auth.jwk.construct")
 @patch("auth.jwt.get_unverified_header", return_value={"kid": "valid-key-1"})
-@patch.object(
-    __import__("auth").authenticator, "_fetch_jwks", new_callable=AsyncMock
-)
-@patch.object(
-    __import__("auth").authenticator, "_fetch_oidc_config", new_callable=AsyncMock
-)
+@patch.object(__import__("auth").authenticator, "_fetch_jwks", new_callable=AsyncMock)
+@patch.object(__import__("auth").authenticator, "_fetch_oidc_config", new_callable=AsyncMock)
 async def test_valid_key_with_to_pem_succeeds(
     mock_fetch_oidc,
     mock_fetch_jwks,
@@ -132,12 +129,8 @@ async def test_valid_key_with_to_pem_succeeds(
 @patch("auth.jwt.decode")
 @patch("auth.jwk.construct")
 @patch("auth.jwt.get_unverified_header", return_value={"kid": "valid-key-1"})
-@patch.object(
-    __import__("auth").authenticator, "_fetch_jwks", new_callable=AsyncMock
-)
-@patch.object(
-    __import__("auth").authenticator, "_fetch_oidc_config", new_callable=AsyncMock
-)
+@patch.object(__import__("auth").authenticator, "_fetch_jwks", new_callable=AsyncMock)
+@patch.object(__import__("auth").authenticator, "_fetch_oidc_config", new_callable=AsyncMock)
 async def test_key_without_to_pem_tries_next_key(
     mock_fetch_oidc,
     mock_fetch_jwks,
@@ -167,9 +160,7 @@ async def test_key_without_to_pem_tries_next_key(
 @patch("auth.jwt.decode")
 @patch("auth.jwk.construct")
 @patch("auth.jwt.get_unverified_header", return_value={"kid": "bad-only"})
-@patch.object(
-    __import__("auth").authenticator, "_fetch_oidc_config", new_callable=AsyncMock
-)
+@patch.object(__import__("auth").authenticator, "_fetch_oidc_config", new_callable=AsyncMock)
 async def test_no_to_pem_on_any_candidate_key_falls_back_to_refreshed_jwks(
     mock_fetch_oidc,
     mock_get_header,
@@ -180,12 +171,11 @@ async def test_no_to_pem_on_any_candidate_key_falls_back_to_refreshed_jwks(
 ):
     """All candidate keys lack to_pem — JWKS is force-refreshed and succeeds."""
     import auth as auth_module
+
     authenticator = auth_module.authenticator
 
     # Initial JWKS: one bad key
-    authenticator.jwks = {
-        "keys": [{"kid": "bad-only", "kty": "RSA", "use": "sig", "alg": "RS256"}]
-    }
+    authenticator.jwks = {"keys": [{"kid": "bad-only", "kty": "RSA", "use": "sig", "alg": "RS256"}]}
     authenticator.jwks_fetched_at = 9999999999.0
     authenticator.oidc_config = {
         "jwks_uri": "http://keycloak:8080/auth/realms/bfp/protocol/openid-connect/certs"
@@ -218,9 +208,7 @@ async def test_no_to_pem_on_any_candidate_key_falls_back_to_refreshed_jwks(
 @patch("auth.jwt.decode")
 @patch("auth.jwk.construct")
 @patch("auth.jwt.get_unverified_header", return_value={"kid": "bad-1"})
-@patch.object(
-    __import__("auth").authenticator, "_fetch_oidc_config", new_callable=AsyncMock
-)
+@patch.object(__import__("auth").authenticator, "_fetch_oidc_config", new_callable=AsyncMock)
 async def test_no_to_pem_on_any_key_in_both_loops_returns_401(
     mock_fetch_oidc,
     mock_get_header,
@@ -229,6 +217,7 @@ async def test_no_to_pem_on_any_key_in_both_loops_returns_401(
 ):
     """No key in either candidate or refreshed loop has to_pem → HTTP 401."""
     import auth as auth_module
+
     authenticator = auth_module.authenticator
 
     bad_keys = [{"kid": "bad-1", "kty": "RSA", "use": "sig", "alg": "RS256"}]
@@ -260,12 +249,8 @@ async def test_no_to_pem_on_any_key_in_both_loops_returns_401(
 @patch("auth.jwt.decode")
 @patch("auth.jwk.construct")
 @patch("auth.jwt.get_unverified_header", return_value={"kid": "valid-key-1"})
-@patch.object(
-    __import__("auth").authenticator, "_fetch_jwks", new_callable=AsyncMock
-)
-@patch.object(
-    __import__("auth").authenticator, "_fetch_oidc_config", new_callable=AsyncMock
-)
+@patch.object(__import__("auth").authenticator, "_fetch_jwks", new_callable=AsyncMock)
+@patch.object(__import__("auth").authenticator, "_fetch_oidc_config", new_callable=AsyncMock)
 async def test_jwt_decode_receives_pem_key_string(
     mock_fetch_oidc,
     mock_fetch_jwks,
@@ -294,12 +279,8 @@ async def test_jwt_decode_receives_pem_key_string(
 @patch("auth.jwt.decode")
 @patch("auth.jwk.construct")
 @patch("auth.jwt.get_unverified_header", return_value={"kid": "valid-key-1"})
-@patch.object(
-    __import__("auth").authenticator, "_fetch_jwks", new_callable=AsyncMock
-)
-@patch.object(
-    __import__("auth").authenticator, "_fetch_oidc_config", new_callable=AsyncMock
-)
+@patch.object(__import__("auth").authenticator, "_fetch_jwks", new_callable=AsyncMock)
+@patch.object(__import__("auth").authenticator, "_fetch_oidc_config", new_callable=AsyncMock)
 async def test_jwt_error_on_decode_failure_in_candidate_loop_tries_next(
     mock_fetch_oidc,
     mock_fetch_jwks,
