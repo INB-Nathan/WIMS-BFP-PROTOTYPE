@@ -1879,3 +1879,32 @@ Implemented verified PR #207 review fixes across profile email handling and docu
 - Restored the base-branch append-only log history, preserving PR #207 entries at the end instead of before the append-only banner.
 
 **Wiki updates:** Updated `backend/remaining-routes.md`, `frontend/route-map.md`, `database/schema-overview.md`, `security/security-baseline.md`, `architecture/pwa-tests-cicd.md`, `index.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed. Self-service email verification remains a residual follow-up because enabling Keycloak verify-email/required action safely would affect realm/admin flow behavior beyond this bounded PR fix.
+
+## [2026-06-05] fix | Slice 3 — backend bugs & cleanup (PR #215, rebased onto origin/master)
+
+**Fixes across 7 issues:**
+- #183: Wrapped sync `is_token_revoked()` in `asyncio.to_thread()` to avoid event loop blocking.
+- #185: Renamed `DELETE /sessions/{user_id}/{session_id}` → `/sessions/{user_id}` to match bulk-termination behavior.
+- #187: Removed stub `/api/auth/login` always-401 endpoint; retargeted rate limiter to `/api/auth/callback`.
+- #188: Fixed admin.py docstring from "No DELETE endpoints" → "No incident DELETE endpoints".
+- #193: Added `RETURNING attachment_id` to attachment INSERT; returns actual DB ID now.
+- #197: Moved logger definition before `apply_schema_patches()` in main.py.
+- #200: Bundle upload now reports failed incidents with index + reason; `incident_ids` kept for backward compat.
+
+**Review fixes applied during rebase:** Orphaned `incident_ids` variable removed, null-guard on attachment RETURNING added, docstring clarified to point to admin.py single-session route.
+
+**Rate-limit test resolution:** The stale `test_rate_limiting.py` (targeted removed `/api/auth/login`) was not deleted — master had already rewritten it to target `POST /api/auth/callback` and mark it as a manual live-stack check excluded from CI. PR #215 retains master's callback-targeted manual test.
+
+**Files:** `auth.py`, `main.py`, `incidents.py`, `sessions.py`, `admin.py`
+
+## [2026-06-05] fix | PR #215 — CSRF test alignment with removed stub login
+
+Updated `src/backend/tests/test_csrf_middleware.py` to match PR #215's removal of the stub `/api/auth/login` endpoint:
+- Replaced all 17 `/api/auth/login` references with the live `/api/auth/callback` route.
+- The 4 valid-origin POST acceptance tests now assert `status_code == 422` (Pydantic validation for empty `AuthCallbackRequest` body) instead of the old `== 401` from the removed stub.
+- CSRF rejection tests (no/invalid origin) continue to assert `status_code == 403`.
+- PUT/PATCH/DELETE valid-origin tests assert `!= 403` (CSRF passed) regardless of downstream route response.
+- The public DMZ exemption test now uses `TestClient(..., raise_server_exceptions=False)` so local no-DB runs can inspect the non-403 response instead of raising a connection exception.
+- Fixture docstrings updated from "stub auth" to "auth callback body validation" wording.
+
+**Wiki update:** Removed stale `POST /api/auth/login` endpoint documentation from `system-wiki/backend/backend-infrastructure.md`. No FRS/codebase gap change.

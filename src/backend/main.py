@@ -61,6 +61,9 @@ from api.routes.geocode import router as geocode_router
 from auth import resolve_wims_role_from_token as _resolve_role_from_token
 from utils.csrf import csrf_middleware
 
+# Module-level logger — must be defined before use in schema patches and rate limiter
+logger = logging.getLogger("wims.rate_limit")
+
 
 # ---------------------------------------------------------------------------
 # App
@@ -130,8 +133,6 @@ app.include_router(validator_map_router)  # GET /api/validator/operational-map (
 app.include_router(
     geocode_router
 )  # GET /api/geocode/reverse, /api/geocode/search (Nominatim proxy)
-
-logger = logging.getLogger("wims.rate_limit")
 
 # ---------------------------------------------------------------------------
 # Celery
@@ -301,16 +302,6 @@ async def metrics_endpoint():
 
 # ---------------------------------------------------------------------------
 # Routes
-# ---------------------------------------------------------------------------
-@app.post("/api/auth/login")
-async def login():
-    """Stub login — always rejects with 401 (no auth backend wired yet)."""
-    return JSONResponse(
-        status_code=401,
-        content={"detail": "Invalid credentials"},
-    )
-
-
 # ---------------------------------------------------------------------------
 # Auth Callback (PKCE → Keycloak → Identity Sync)
 # ---------------------------------------------------------------------------
