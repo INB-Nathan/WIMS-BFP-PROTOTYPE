@@ -1896,3 +1896,15 @@ Implemented verified PR #207 review fixes across profile email handling and docu
 **Rate-limit test resolution:** The stale `test_rate_limiting.py` (targeted removed `/api/auth/login`) was not deleted — master had already rewritten it to target `POST /api/auth/callback` and mark it as a manual live-stack check excluded from CI. PR #215 retains master's callback-targeted manual test.
 
 **Files:** `auth.py`, `main.py`, `incidents.py`, `sessions.py`, `admin.py`
+
+## [2026-06-05] fix | PR #215 — CSRF test alignment with removed stub login
+
+Updated `src/backend/tests/test_csrf_middleware.py` to match PR #215's removal of the stub `/api/auth/login` endpoint:
+- Replaced all 17 `/api/auth/login` references with the live `/api/auth/callback` route.
+- The 4 valid-origin POST acceptance tests now assert `status_code == 422` (Pydantic validation for empty `AuthCallbackRequest` body) instead of the old `== 401` from the removed stub.
+- CSRF rejection tests (no/invalid origin) continue to assert `status_code == 403`.
+- PUT/PATCH/DELETE valid-origin tests assert `!= 403` (CSRF passed) regardless of downstream route response.
+- The public DMZ exemption test now uses `TestClient(..., raise_server_exceptions=False)` so local no-DB runs can inspect the non-403 response instead of raising a connection exception.
+- Fixture docstrings updated from "stub auth" to "auth callback body validation" wording.
+
+**Wiki update:** Removed stale `POST /api/auth/login` endpoint documentation from `system-wiki/backend/backend-infrastructure.md`. No FRS/codebase gap change.

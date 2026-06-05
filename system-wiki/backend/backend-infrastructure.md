@@ -122,8 +122,6 @@ Lua-based sliding window on `POST /api/auth/callback`. Key: `rate_limit:{client_
 
 ### Endpoints Defined Directly in main.py
 
-**`POST /api/auth/login`** — stub, always returns 401.
-
 **`POST /api/auth/callback`** — PKCE handshake. Exchanges code for tokens via Keycloak token endpoint, validates via `auth.authenticator.validate_token()`, resolves role from JWT, upserts `wims.users`, returns `{access_token, refresh_token, user_id}`.
 
 **`GET /api/user/me`** — Returns merged JWT + wims.users payload. JIT-provisions user if not in database.

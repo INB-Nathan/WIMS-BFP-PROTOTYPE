@@ -27,7 +27,7 @@ def _reset_csrf_cache():
 @pytest.fixture(autouse=True)
 def _disable_rate_limiter(monkeypatch: pytest.MonkeyPatch):
     """Mock Redis unavailable so the rate-limiter fail-opens for every test.
-    Without this, repeated POSTs to /api/auth/login hit the sliding-window
+    Without this, repeated POSTs to /api/auth/callback hit the sliding-window
     threshold (5 req/15min) and return 429 instead of the expected CSRF or auth response.
     """
 
@@ -149,14 +149,14 @@ class TestSafeMethods:
 class TestPostOriginValidation:
     def test_post_rejected_without_origin(self):
         """POST with neither Origin nor Referer → 403"""
-        resp = CLIENT.post("/api/auth/login", json={}, headers={})
+        resp = CLIENT.post("/api/auth/callback", json={}, headers={})
         assert resp.status_code == 403
         assert "CSRF validation failed" in resp.text
 
     def test_post_rejected_invalid_origin(self):
         """POST from evil.com → 403"""
         resp = CLIENT.post(
-            "/api/auth/login",
+            "/api/auth/callback",
             json={},
             headers={"origin": "https://evil.com"},
         )
@@ -166,7 +166,7 @@ class TestPostOriginValidation:
     def test_post_rejected_malformed_origin(self):
         """POST from gibberish origin → 403"""
         resp = CLIENT.post(
-            "/api/auth/login",
+            "/api/auth/callback",
             json={},
             headers={"origin": "this-is-not-a-url"},
         )
@@ -175,41 +175,41 @@ class TestPostOriginValidation:
     def test_post_accepted_with_valid_origin(self):
         """POST from localhost → passes CSRF (hits route handler)"""
         resp = CLIENT.post(
-            "/api/auth/login",
+            "/api/auth/callback",
             json={},
             headers={"origin": "http://localhost"},
         )
-        # Should not be 403 — CSRF passed. 401 from stub auth is expected.
+        # Should not be 403 — CSRF passed. 422 from auth callback body validation is expected.
         assert resp.status_code != 403
-        assert resp.status_code == 401
+        assert resp.status_code == 422
 
     def test_post_accepted_with_https_localhost(self):
         """POST from https://localhost → passes CSRF"""
         resp = CLIENT.post(
-            "/api/auth/login",
+            "/api/auth/callback",
             json={},
             headers={"origin": "https://localhost"},
         )
-        assert resp.status_code == 401  # stub auth, not CSRF block
+        assert resp.status_code == 422  # auth callback body validation, not CSRF block
 
     def test_post_with_referer_valid(self):
         """POST with only Referer (matching localhost) → passes CSRF"""
         resp = CLIENT.post(
-            "/api/auth/login",
+            "/api/auth/callback",
             json={},
             headers={"referer": "http://localhost/login"},
         )
-        assert resp.status_code == 401  # stub auth, not CSRF block
+        assert resp.status_code == 422  # auth callback body validation, not CSRF block
 
     def test_post_accepted_https_default_port(self):
         """POST from https://localhost:443 → port stripped, origin matches.
         Browsers may send the default port in the Origin header."""
         resp = CLIENT.post(
-            "/api/auth/login",
+            "/api/auth/callback",
             json={},
             headers={"origin": "https://localhost:443"},
         )
-        assert resp.status_code == 401  # stub auth, not CSRF block
+        assert resp.status_code == 422  # auth callback body validation, not CSRF block
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +221,7 @@ class TestOtherUnsafeMethods:
     def test_put_rejected_invalid_origin(self):
         """PUT with invalid origin → 403"""
         resp = CLIENT.put(
-            "/api/auth/login",
+            "/api/auth/callback",
             json={},
             headers={"origin": "https://evil.com"},
         )
@@ -230,7 +230,7 @@ class TestOtherUnsafeMethods:
     def test_patch_rejected_invalid_origin(self):
         """PATCH with invalid origin → 403"""
         resp = CLIENT.patch(
-            "/api/auth/login",
+            "/api/auth/callback",
             json={},
             headers={"origin": "https://attacker.org"},
         )
@@ -239,7 +239,7 @@ class TestOtherUnsafeMethods:
     def test_delete_rejected_invalid_origin(self):
         """DELETE with invalid origin → 403"""
         resp = CLIENT.delete(
-            "/api/auth/login",
+            "/api/auth/callback",
             headers={"origin": "https://evil.net"},
         )
         assert resp.status_code == 403
@@ -247,7 +247,7 @@ class TestOtherUnsafeMethods:
     def test_put_accepted_valid_referer(self):
         """PUT with valid Referer → passes CSRF"""
         resp = CLIENT.put(
-            "/api/auth/login",
+            "/api/auth/callback",
             json={},
             headers={"referer": "https://localhost/"},
         )
@@ -256,7 +256,7 @@ class TestOtherUnsafeMethods:
     def test_patch_accepted_valid_origin(self):
         """PATCH with valid Origin → passes CSRF"""
         resp = CLIENT.patch(
-            "/api/auth/login",
+            "/api/auth/callback",
             json={},
             headers={"origin": "http://localhost"},
         )
@@ -277,7 +277,7 @@ class TestProductionOrigin:
 
             m._allowed_origins = None
             resp = CLIENT.post(
-                "/api/auth/login",
+                "/api/auth/callback",
                 json={},
                 headers={"origin": "https://wimsbfp.tech"},
             )
@@ -291,7 +291,7 @@ class TestProductionOrigin:
 
             m._allowed_origins = None
             resp = CLIENT.post(
-                "/api/auth/login",
+                "/api/auth/callback",
                 json={},
                 headers={"origin": "https://wimsbfp.tech:8443"},
             )
@@ -309,7 +309,8 @@ class TestPublicDmzCsrfExemption:
         The public DMZ is unauthenticated/no-cookie; CSRF is not meaningful.
         Without a DB mock the request will hit the real DB and likely get 500,
         but it must NOT be a CSRF 403."""
-        resp = CLIENT.post(
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post(
             "/api/v1/public/report",
             json={
                 "latitude": 14.5995,
@@ -321,10 +322,10 @@ class TestPublicDmzCsrfExemption:
         assert resp.status_code != 403, f"Public DMZ should be CSRF-exempt but got 403: {resp.text}"
 
     def test_auth_post_without_origin_still_blocked(self):
-        """POST /api/auth/login without Origin/Referer must still return 403.
+        """POST /api/auth/callback without Origin/Referer must still return 403.
         The CSRF exemption only applies to public DMZ paths."""
         resp = CLIENT.post(
-            "/api/auth/login",
+            "/api/auth/callback",
             json={},
             headers={},
         )
