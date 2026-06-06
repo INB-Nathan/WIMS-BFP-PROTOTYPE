@@ -118,11 +118,20 @@ WHERE username IN (
 
 ## Test the OCC flow manually
 
-1. Log in as `g-enc` (`WimsBFP2026!`) and open any incident for editing.
-2. In a second browser session, log in as `n-enc` (`WimsBFP2026!`) and save a change to the same incident.
-3. Back in the first session, submit your edit — you should see the **Concurrent Edit Conflict** merge panel.
-4. Pick a value for each conflicting field and click **Submit Merged Version**.
-5. Verify the incident saved with your merged values.
+**Two-encoder test** (`g-enc` and `n-enc` are both NCR — region-wide visibility enabled):
+
+1. Log in as `g-enc` (`WimsBFP2026!`) and open any incident in the list.
+2. In a second browser window, log in as `n-enc` (`WimsBFP2026!`) — the same incident is visible (region-wide list).
+3. As `n-enc`, edit a field (e.g. alarm level) and save — server `updated_at` advances.
+4. Back in the `g-enc` window, edit a different field and save — you should see the **Concurrent Edit Conflict** merge panel.
+5. Pick a value for each conflicting field and click **Submit Merged Version**.
+6. Verify the incident saved with your merged values.
+
+**Single-encoder test** (same account, two browser tabs — no setup needed):
+
+1. Log in as `g-enc` in Tab A and open any incident.
+2. Open the same incident URL in Tab B, edit a field, and save.
+3. Back in Tab A, try to save — the conflict panel appears because Tab A's copy is now stale.
 
 ---
 

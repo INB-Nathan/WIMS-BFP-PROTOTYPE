@@ -262,13 +262,32 @@ class TestDiffEndpointNormalization:
         return iid
 
     def test_alarm_level_unchanged_not_in_changed_fields(
-        self, encoder_client, validator_client, db_session
+        self, mock_encoder, mock_validator, db_session
     ):
-        """alarm_level that matches snapshot should NOT appear in changed_fields."""
-        # Promote to PENDING so validator diff endpoint is accessible
-        iid = self._create_incident_with_snapshot(encoder_client, db_session, "1st Alarm")
+        """alarm_level that matches snapshot should NOT appear in changed_fields.
 
-        # Normalise: ensure NSD row has same alarm_level
+        Uses sequential override management to avoid fixture conflict:
+        encoder_client and validator_client both write to the same
+        app.dependency_overrides key and cannot coexist in one test.
+        """
+        # Phase 1 — create incident + snapshot under encoder role
+        app.dependency_overrides[get_current_wims_user] = mock_encoder
+        with TestClient(app) as enc_client:
+            resp = enc_client.post(
+                "/api/regional/incidents",
+                json={"latitude": 14.5995, "longitude": 120.9842, "alarm_level": "1st Alarm"},
+            )
+            assert resp.status_code == 201, resp.text
+            iid = resp.json()["incident_id"]
+
+        db_session.execute(
+            text("""
+                UPDATE wims.fire_incidents
+                SET submitted_snapshot = jsonb_build_object('alarm_level', :alarm)
+                WHERE incident_id = :iid
+            """),
+            {"alarm": "1st Alarm", "iid": iid},
+        )
         db_session.execute(
             text("""
                 INSERT INTO wims.incident_nonsensitive_details (incident_id, alarm_level)
@@ -285,7 +304,12 @@ class TestDiffEndpointNormalization:
         )
         db_session.commit()
 
-        resp = validator_client.get(f"/api/regional/validator/incidents/{iid}/diff")
-        assert resp.status_code == 200, resp.text
+        # Phase 2 — diff check under validator role
+        app.dependency_overrides[get_current_wims_user] = mock_validator
+        with TestClient(app) as val_client:
+            resp = val_client.get(f"/api/regional/validator/incidents/{iid}/diff")
+        app.dependency_overrides.pop(get_current_wims_user, None)
+
+        assert resp.status_code == 200, f"Got {resp.status_code}: {resp.text}"
         data = resp.json()
         assert "alarm_level" not in data.get("changed_fields", [])

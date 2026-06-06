@@ -14,6 +14,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
@@ -240,14 +241,21 @@ def get_regional_incidents(
     archived: bool = Query(default=False),
 ):
     """
-    Fetch fire incidents scoped to the current encoder.
+    Fetch fire incidents in the current encoder's assigned region.
+    Any encoder in the region sees all incidents regardless of who created them,
+    enabling multi-encoder collaboration and OCC conflict detection.
     Joins nonsensitive details for summary view.
     Pass archived=true to list archived incidents instead of active ones.
     """
-    encoder_id = user["user_id"]
+    region_id = user.get("assigned_region_id")
+    if not region_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No region assigned to your account. Contact your system administrator.",
+        )
 
     where_clauses = [
-        "fi.encoder_id = CAST(:encoder_id AS uuid)",
+        "fi.region_id = :region_id",
         "fi.is_archived = TRUE" if archived else "fi.is_archived = FALSE",
         """
         NOT (
@@ -265,7 +273,7 @@ def get_regional_incidents(
         """,
     ]
     params: dict[str, Any] = {
-        "encoder_id": str(encoder_id),
+        "region_id": region_id,
         "limit": limit,
         "offset": offset,
     }
@@ -1575,10 +1583,17 @@ def _fetch_incident_edit_fields(db: Session, incident_id: int) -> dict[str, Any]
     fi_dict: dict[str, Any] = dict(fi._mapping) if fi and hasattr(fi, "_mapping") else {}
 
     result: dict[str, Any] = {**ns_dict, **sd_dict, **fi_dict}
-    # Stringify updated_at for JSON serialisation
-    if result.get("updated_at") and hasattr(result["updated_at"], "isoformat"):
-        result["updated_at"] = result["updated_at"].isoformat()
-    return result
+
+    def _serialize_value(v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, Decimal):
+            return float(v) if v % 1 else int(v)
+        if hasattr(v, "isoformat"):
+            return v.isoformat()
+        return v
+
+    return {k: _serialize_value(v) for k, v in result.items()}
 
 
 @router.put("/incidents/{incident_id}")
@@ -1588,27 +1603,35 @@ def update_incident(
     user: Annotated[dict, Depends(get_regional_encoder)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
-    """Update a DRAFT or REJECTED incident owned by the current encoder.
+    """Update a DRAFT or REJECTED incident in the current encoder's region.
+
+    Any encoder assigned to the incident's region can edit it, not only the
+    original creator. This enables multi-encoder collaboration and allows the
+    OCC conflict panel to surface when two encoders edit the same incident
+    concurrently.
 
     PENDING incidents cannot be edited directly — the encoder must withdraw
     them first (PATCH /incidents/{id}/unpend) which transitions PENDING → DRAFT.
     """
     encoder_id = user["user_id"]
 
-    # Verify ownership + editable status
+    # Verify the incident is in this encoder's region + editable status
     incident = db.execute(
         text("""
-            SELECT incident_id, verification_status, updated_at
-            FROM wims.fire_incidents
-            WHERE incident_id = :iid
-              AND encoder_id = CAST(:eid AS uuid)
-              AND is_archived = FALSE
+            SELECT fi.incident_id, fi.verification_status, fi.updated_at
+            FROM wims.fire_incidents fi
+            WHERE fi.incident_id = :iid
+              AND fi.region_id = (
+                  SELECT u.assigned_region_id FROM wims.users u
+                  WHERE u.user_id = CAST(:eid AS uuid)
+              )
+              AND fi.is_archived = FALSE
         """),
         {"iid": incident_id, "eid": str(encoder_id)},
     ).fetchone()
 
     if not incident:
-        raise HTTPException(status_code=404, detail="Incident not found or not owned by you")
+        raise HTTPException(status_code=404, detail="Incident not found or not in your assigned region")
 
     if incident[1] == "PENDING":
         raise HTTPException(

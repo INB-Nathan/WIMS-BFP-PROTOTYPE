@@ -498,7 +498,20 @@ input[type="checkbox"] {
     margin-bottom: 0 !important;
 }
 
-/* === MFA / TOTP Setup === */
+/* === MFA / TOTP Setup — allow scroll so OTP boxes are always reachable === */
+
+/* The right panel must scroll; overflow:hidden clips the form on short viewports */
+.pf-v5-c-login__main:has(.wims-totp-setup) {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+}
+
+/* Body must not centre-justify — content starts at the top so nothing is pushed below the fold */
+.pf-v5-c-login__main:has(.wims-totp-setup) .pf-v5-c-login__main-body {
+    justify-content: flex-start !important;
+    flex: 0 0 auto !important;
+}
+
 .wims-totp-setup {
     width: min(100%, 860px) !important;
     background: #ffffff !important;
