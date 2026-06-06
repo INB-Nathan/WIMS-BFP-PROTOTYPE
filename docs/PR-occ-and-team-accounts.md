@@ -8,7 +8,7 @@
 
 ## Summary
 
-- Implements full optimistic concurrency control (OCC) on `PUT /api/regional/incidents/{id}` so concurrent edits from two encoders surface a conflict rather than silently overwriting each other.
+- Implements full optimistic concurrency control (OCC) on `PUT /api/regional/incidents/{id}` and `PATCH /api/regional/incidents/draft/{id}` so concurrent edits from two browser tabs surface a conflict rather than silently overwriting each other.
 - Provides a field-level merge UI (`IncidentConflictMergePanel`) that lets the encoder choose which value to keep for each conflicting field, then re-submits with `force_update: true`.
 - Adds 16 team member dev accounts (nate, gwen, earl, red — one per role each) to all seed layers for QA and staging use.
 
@@ -20,7 +20,7 @@
 
 | File | Change |
 |------|--------|
-| `api/routes/regional.py` | `update_incident()` now accepts `client_updated_at: datetime \| None` and `force_update: bool` on the request body. If `client_updated_at` is set and the server row's `updated_at` is newer, raises `HTTP 409` with `{ "server_version": <current row fields> }`. A new helper `_fetch_incident_edit_fields()` populates that payload. |
+| `api/routes/regional.py` | `update_incident()` and `update_draft()` now enforce encoder-scoped ownership (encoders can only edit their own incidents). Both accept `client_updated_at` and `force_update`. If `client_updated_at` is set and the server row's `updated_at` is newer, raises `HTTP 409` with `{ "server_version": <current row fields> }`. Row-level locking (`SELECT ... FOR UPDATE`) makes the OCC check atomic. A new helper `_fetch_incident_edit_fields()` populates the conflict payload (with sensitive columns stripped). |
 | `schemas/regional.py` | Added `client_updated_at: datetime \| None = None` and `force_update: bool = False` to `IncidentUpdateRequest`. |
 | `tests/integration/test_occ_conflict.py` | New 292-line integration test file: stale-update → 409, force_update bypass, no-client-ts passthrough. |
 
@@ -28,7 +28,7 @@
 
 | File | Change |
 |------|--------|
-| `components/IncidentConflictMergePanel.tsx` | New 215-line component. Diffs `clientDraft` against `serverVersion` across 33 incident fields, radio-selects per field, re-submits with `force_update: true`. |
+| `components/IncidentConflictMergePanel.tsx` | New 215-line component. Diffs `clientDraft` against `serverVersion` across 37 incident fields, radio-selects per field, re-submits with `force_update: true`. |
 | `app/dashboard/regional/incidents/[id]/page.tsx` | Intercepts `PUT` 409 responses, stores the `server_version` payload, renders `IncidentConflictMergePanel`, then calls the merge submit path. |
 | `components/IncidentForm.tsx` | Stamps `client_updated_at` on every outgoing update request. |
 | `components/__tests__/IncidentConflictMergePanel.test.tsx` | 141-line Vitest test: conflict detection, no-conflict pass-through, field selection, force_update injection. |
@@ -118,20 +118,13 @@ WHERE username IN (
 
 ## Test the OCC flow manually
 
-**Two-encoder test** (`g-enc` and `n-enc` are both NCR — region-wide visibility enabled):
+**Two-tab test** (same encoder, two browser tabs):
 
-1. Log in as `g-enc` (`WimsBFP2026!`) and open any incident in the list.
-2. In a second browser window, log in as `n-enc` (`WimsBFP2026!`) — the same incident is visible (region-wide list).
-3. As `n-enc`, edit a field (e.g. alarm level) and save — server `updated_at` advances.
-4. Back in the `g-enc` window, edit a different field and save — you should see the **Concurrent Edit Conflict** merge panel.
-5. Pick a value for each conflicting field and click **Submit Merged Version**.
-6. Verify the incident saved with your merged values.
-
-**Single-encoder test** (same account, two browser tabs — no setup needed):
-
-1. Log in as `g-enc` in Tab A and open any incident.
-2. Open the same incident URL in Tab B, edit a field, and save.
-3. Back in Tab A, try to save — the conflict panel appears because Tab A's copy is now stale.
+1. Log in as `g-enc` (`WimsBFP2026!`) in Tab A and open any of your own incidents.
+2. Open the same incident URL in Tab B, edit a field (e.g. alarm level), and save — server `updated_at` advances.
+3. Back in Tab A, edit a different field and save — you should see the **Concurrent Edit Conflict** merge panel.
+4. Pick a value for each conflicting field and click **Submit Merged Version**.
+5. Verify the incident saved with your merged values.
 
 ---
 
@@ -139,4 +132,4 @@ WHERE username IN (
 
 - `force_update: true` completely bypasses the OCC check. It is only sent by the merge panel after the user has consciously resolved the conflict.
 - `client_updated_at` is optional; requests without it (e.g., legacy clients) pass through unchanged.
-- The `IncidentConflictMergePanel` shows all 33 AFOR fields that can differ. Complex JSONB fields (`alarm_timeline`, `resources_deployed`, `problems_encountered`) are shown as formatted JSON blobs for user awareness.
+- The `IncidentConflictMergePanel` shows all 37 AFOR fields that can differ. Complex JSONB fields (`alarm_timeline`, `resources_deployed`, `problems_encountered`) are shown as formatted JSON blobs for user awareness.

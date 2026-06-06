@@ -241,21 +241,16 @@ def get_regional_incidents(
     archived: bool = Query(default=False),
 ):
     """
-    Fetch fire incidents in the current encoder's assigned region.
-    Any encoder in the region sees all incidents regardless of who created them,
-    enabling multi-encoder collaboration and OCC conflict detection.
+    Fetch fire incidents owned by the current encoder.
+    Encoders can only list their own incidents — same-encoder OCC conflict
+    detection handles two-tab editing scenarios.
     Joins nonsensitive details for summary view.
     Pass archived=true to list archived incidents instead of active ones.
     """
-    region_id = user.get("assigned_region_id")
-    if not region_id:
-        raise HTTPException(
-            status_code=400,
-            detail="No region assigned to your account. Contact your system administrator.",
-        )
+    encoder_id = user["user_id"]
 
     where_clauses = [
-        "fi.region_id = :region_id",
+        "fi.encoder_id = CAST(:encoder_id AS uuid)",
         "fi.is_archived = TRUE" if archived else "fi.is_archived = FALSE",
         """
         NOT (
@@ -273,7 +268,7 @@ def get_regional_incidents(
         """,
     ]
     params: dict[str, Any] = {
-        "region_id": region_id,
+        "encoder_id": str(encoder_id),
         "limit": limit,
         "offset": offset,
     }
@@ -1584,6 +1579,11 @@ def _fetch_incident_edit_fields(db: Session, incident_id: int) -> dict[str, Any]
 
     result: dict[str, Any] = {**ns_dict, **sd_dict, **fi_dict}
 
+    # Strip encrypted blob columns from the conflict payload — the frontend
+    # merge panel never needs raw ciphertext.
+    result.pop("pii_blob_enc", None)
+    result.pop("encryption_iv", None)
+
     def _serialize_value(v: Any) -> Any:
         if v is None:
             return None
@@ -1603,37 +1603,32 @@ def update_incident(
     user: Annotated[dict, Depends(get_regional_encoder)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
-    """Update a DRAFT or REJECTED incident in the current encoder's region.
+    """Update a DRAFT or REJECTED incident owned by the current encoder.
 
-    Any encoder assigned to the incident's region can edit it, not only the
-    original creator. This enables multi-encoder collaboration and allows the
-    OCC conflict panel to surface when two encoders edit the same incident
-    concurrently.
+    Encoders can only edit their own incidents, not those created by other
+    encoders. The OCC check protects against same-encoder two-tab conflicts.
 
     PENDING incidents cannot be edited directly — the encoder must withdraw
     them first (PATCH /incidents/{id}/unpend) which transitions PENDING → DRAFT.
     """
     encoder_id = user["user_id"]
 
-    # Verify the incident is in this encoder's region + editable status
+    # Verify the incident is owned by this encoder + editable status.
+    # SELECT ... FOR UPDATE locks the row until commit, making OCC atomic.
     incident = db.execute(
         text("""
             SELECT fi.incident_id, fi.verification_status, fi.updated_at
             FROM wims.fire_incidents fi
             WHERE fi.incident_id = :iid
-              AND fi.region_id = (
-                  SELECT u.assigned_region_id FROM wims.users u
-                  WHERE u.user_id = CAST(:eid AS uuid)
-              )
+              AND fi.encoder_id = CAST(:eid AS uuid)
               AND fi.is_archived = FALSE
+            FOR UPDATE OF fi
         """),
         {"iid": incident_id, "eid": str(encoder_id)},
     ).fetchone()
 
     if not incident:
-        raise HTTPException(
-            status_code=404, detail="Incident not found or not in your assigned region"
-        )
+        raise HTTPException(status_code=404, detail="Incident not found or not owned by you")
 
     if incident[1] == "PENDING":
         raise HTTPException(
@@ -1738,18 +1733,20 @@ def update_draft(
 ):
     """Update a DRAFT incident owned by the current encoder.
 
-    Mirrors update_incident() but enforces verification_status = 'DRAFT'.
-    Drafts do NOT get an audit trail entry — they are not under review.
+    Mirrors update_incident() OCC semantics but enforces
+    verification_status = 'DRAFT' exclusively. SELECT ... FOR UPDATE
+    makes the concurrency check atomic.
     """
     encoder_id = user["user_id"]
     incident = db.execute(
         text(
             """
-            SELECT incident_id, verification_status
+            SELECT incident_id, verification_status, updated_at
             FROM wims.fire_incidents
             WHERE incident_id = :iid
               AND encoder_id = CAST(:eid AS uuid)
               AND is_archived = FALSE
+            FOR UPDATE OF fire_incidents
             """
         ),
         {"iid": incident_id, "eid": str(encoder_id)},
@@ -1761,6 +1758,24 @@ def update_draft(
             status_code=403,
             detail=f"Endpoint accepts DRAFT only. Current status: {incident[1]}",
         )
+
+    # Optimistic concurrency check: reject stale writes unless force_update is set.
+    if body.client_updated_at and not body.force_update:
+        server_ts = incident[2]  # updated_at column
+        if server_ts:
+
+            def _as_utc(dt: datetime) -> datetime:
+                return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+            if _as_utc(server_ts) > _as_utc(body.client_updated_at):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "Draft was modified since you last loaded it. Review the differences and re-submit.",
+                        "server_version": _fetch_incident_edit_fields(db, incident_id),
+                    },
+                )
+
     _apply_incident_field_updates(db, incident_id, body)
     try:
         _insert_incident_verification_history(

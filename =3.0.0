@@ -1,8 +1,0 @@
-Collecting aiosmtplib
-  Downloading aiosmtplib-5.1.1-py3-none-any.whl.metadata (3.6 kB)
-Downloading aiosmtplib-5.1.1-py3-none-any.whl (27 kB)
-Installing collected packages: aiosmtplib
-Successfully installed aiosmtplib-5.1.1
-
-[notice] A new release of pip is available: 24.0 -> 26.1.1
-[notice] To update, run: python.exe -m pip install --upgrade pip

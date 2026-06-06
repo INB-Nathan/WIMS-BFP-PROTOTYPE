@@ -116,7 +116,7 @@ export function IncidentConflictMergePanel({
           <div>
             <h2 className="text-base font-semibold text-gray-900">Concurrent Edit Conflict</h2>
             <p className="text-sm text-gray-500 mt-0.5">
-              Another user saved changes while you were editing. Choose which version to keep for each field.
+              The same incident was saved from another tab or session while you were editing. Choose which version to keep for each field.
             </p>
           </div>
           <button

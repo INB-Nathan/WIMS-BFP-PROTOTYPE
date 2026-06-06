@@ -236,31 +236,6 @@ class TestOptimisticConcurrencyControl:
 
 
 class TestDiffEndpointNormalization:
-    def _create_incident_with_snapshot(self, encoder_client, db_session, alarm_level: str) -> int:
-        """Create incident, then set a submitted_snapshot with the given alarm_level."""
-        resp = encoder_client.post(
-            "/api/regional/incidents",
-            json={
-                "latitude": 14.5995,
-                "longitude": 120.9842,
-                "alarm_level": alarm_level,
-            },
-        )
-        assert resp.status_code == 201, resp.text
-        iid = resp.json()["incident_id"]
-
-        # Write a snapshot that matches the submitted value — simulates first PENDING transition
-        db_session.execute(
-            text("""
-                UPDATE wims.fire_incidents
-                SET submitted_snapshot = jsonb_build_object('alarm_level', :alarm)
-                WHERE incident_id = :iid
-            """),
-            {"alarm": alarm_level, "iid": iid},
-        )
-        db_session.commit()
-        return iid
-
     def test_alarm_level_unchanged_not_in_changed_fields(
         self, mock_encoder, mock_validator, db_session
     ):
