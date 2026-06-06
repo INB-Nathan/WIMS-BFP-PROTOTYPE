@@ -1631,7 +1631,9 @@ def update_incident(
     ).fetchone()
 
     if not incident:
-        raise HTTPException(status_code=404, detail="Incident not found or not in your assigned region")
+        raise HTTPException(
+            status_code=404, detail="Incident not found or not in your assigned region"
+        )
 
     if incident[1] == "PENDING":
         raise HTTPException(
