@@ -290,9 +290,9 @@ class TestDiffEndpointNormalization:
         )
         db_session.execute(
             text("""
-                INSERT INTO wims.incident_nonsensitive_details (incident_id, alarm_level)
-                VALUES (:iid, '1st Alarm')
-                ON CONFLICT (incident_id) DO UPDATE SET alarm_level = '1st Alarm'
+                UPDATE wims.incident_nonsensitive_details
+                SET alarm_level = '1st Alarm'
+                WHERE incident_id = :iid
             """),
             {"iid": iid},
         )
