@@ -55,6 +55,23 @@ declare -a USERS=(
   "analyst_test|analyst@bfp.gov.ph|NATIONAL_ANALYST||33333333-3333-4333-8333-333333333333|"
   "analyst1_test|analyst1_test@gmail.com|NATIONAL_ANALYST||44444444-4444-4444-8444-444444444444|"
   "admin_test|admin@bfp.gov.ph|SYSTEM_ADMIN||55555555-5555-4555-8555-555555555555|"
+  # Team member dev accounts (password: WimsBFP2026!)
+  "n-val|n-val@bfp.gov.ph|NATIONAL_VALIDATOR|1|aa000001-0000-4001-8001-aab000000001||WimsBFP2026!"
+  "n-enc|n-enc@bfp.gov.ph|REGIONAL_ENCODER|1|aa000002-0000-4002-8002-aab000000002||WimsBFP2026!"
+  "n-ana|n-ana@bfp.gov.ph|NATIONAL_ANALYST||aa000003-0000-4003-8003-aab000000003||WimsBFP2026!"
+  "n-sys|n-sys@bfp.gov.ph|SYSTEM_ADMIN||aa000004-0000-4004-8004-aab000000004||WimsBFP2026!"
+  "g-val|g-val@bfp.gov.ph|NATIONAL_VALIDATOR|1|bb000001-0000-4001-8001-bbb000000001||WimsBFP2026!"
+  "g-enc|g-enc@bfp.gov.ph|REGIONAL_ENCODER|1|bb000002-0000-4002-8002-bbb000000002||WimsBFP2026!"
+  "g-ana|g-ana@bfp.gov.ph|NATIONAL_ANALYST||bb000003-0000-4003-8003-bbb000000003||WimsBFP2026!"
+  "g-sys|g-sys@bfp.gov.ph|SYSTEM_ADMIN||bb000004-0000-4004-8004-bbb000000004||WimsBFP2026!"
+  "e-val|e-val@bfp.gov.ph|NATIONAL_VALIDATOR|1|cc000001-0000-4001-8001-ccb000000001||WimsBFP2026!"
+  "e-enc|e-enc@bfp.gov.ph|REGIONAL_ENCODER|1|cc000002-0000-4002-8002-ccb000000002||WimsBFP2026!"
+  "e-ana|e-ana@bfp.gov.ph|NATIONAL_ANALYST||cc000003-0000-4003-8003-ccb000000003||WimsBFP2026!"
+  "e-sys|e-sys@bfp.gov.ph|SYSTEM_ADMIN||cc000004-0000-4004-8004-ccb000000004||WimsBFP2026!"
+  "r-val|r-val@bfp.gov.ph|NATIONAL_VALIDATOR|1|dd000001-0000-4001-8001-ddb000000001||WimsBFP2026!"
+  "r-enc|r-enc@bfp.gov.ph|REGIONAL_ENCODER|1|dd000002-0000-4002-8002-ddb000000002||WimsBFP2026!"
+  "r-ana|r-ana@bfp.gov.ph|NATIONAL_ANALYST||dd000003-0000-4003-8003-ddb000000003||WimsBFP2026!"
+  "r-sys|r-sys@bfp.gov.ph|SYSTEM_ADMIN||dd000004-0000-4004-8004-ddb000000004||WimsBFP2026!"
 )
 
 declare -a ROLES=(REGIONAL_ENCODER NATIONAL_VALIDATOR ANALYST NATIONAL_ANALYST SYSTEM_ADMIN)
@@ -114,7 +131,8 @@ supports_national_analyst=$(echo "$supports_national_analyst" | tr -d '[:space:]
 
 echo "Creating users and syncing to PostgreSQL..."
 for entry in "${USERS[@]}"; do
-  IFS='|' read -r username email role region_id deterministic_uuid legacy_username <<< "$entry"
+  IFS='|' read -r username email role region_id deterministic_uuid legacy_username password_override <<< "$entry"
+  user_password="${password_override:-$PASSWORD}"
   echo "--- $username ($role) ---"
   first_name="${username%%_*}"
   last_name="${username#*_}"
@@ -140,7 +158,7 @@ for entry in "${USERS[@]}"; do
 
   # Set password
   docker_exec "$KEYCLOAK_CONTAINER" /opt/keycloak/bin/kcadm.sh set-password -r "$KC_REALM" \
-    --username "$username" --new-password "$PASSWORD"
+    --username "$username" --new-password "$user_password"
 
   # Assign role
   docker_exec "$KEYCLOAK_CONTAINER" /opt/keycloak/bin/kcadm.sh add-roles -r "$KC_REALM" \
@@ -173,4 +191,5 @@ done
 echo ""
 seeded_users=$(printf '%s\n' "${USERS[@]}" | cut -d'|' -f1 | awk 'BEGIN { sep = "" } { printf "%s%s", sep, $0; sep = ", " }')
 echo "Done! Users: $seeded_users"
-echo "Password for test users: $PASSWORD"
+echo "Password for standard test users: $PASSWORD"
+echo "Password for team member accounts (n-/g-/e-/r- prefix): WimsBFP2026!"

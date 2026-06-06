@@ -73,11 +73,15 @@ export function IncidentForm({
   existingIncidentId,
   onSaved,
   initialErrors,
+  clientUpdatedAt,
+  onConflict,
 }: {
   initialData?: Incident;
   existingIncidentId?: number;
   onSaved?: () => void;
   initialErrors?: string[];
+  clientUpdatedAt?: string | null;
+  onConflict?: (draft: Record<string, unknown>, serverVersion: Record<string, unknown>) => void;
 }) {
   const router = useRouter();
   const { user, assignedRegionId, role, loading: profileLoading } = useUserProfile();
@@ -1110,6 +1114,7 @@ export function IncidentForm({
         latitude: latitude ?? undefined,
         longitude: longitude ?? undefined,
         incident_type_code: incidentTypeCode || undefined,
+        ...(clientUpdatedAt ? { client_updated_at: clientUpdatedAt } : {}),
       };
       try {
         await updateRegionalIncident(existingIncidentId, updatePayload);
@@ -1135,6 +1140,14 @@ export function IncidentForm({
           onSaved?.();
         }
       } catch (err: unknown) {
+        if (err instanceof ApiRequestError && err.status === 409 && onConflict) {
+          const d = err.detail as { message?: string; server_version?: Record<string, unknown> } | null;
+          if (d?.server_version) {
+            onConflict(updatePayload, d.server_version);
+            setLoading(false);
+            return;
+          }
+        }
         showToast(`Save failed: ${(err as Error).message}`);
       } finally {
         setLoading(false);

@@ -14,6 +14,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
@@ -240,7 +241,9 @@ def get_regional_incidents(
     archived: bool = Query(default=False),
 ):
     """
-    Fetch fire incidents scoped to the current encoder.
+    Fetch fire incidents owned by the current encoder.
+    Encoders can only list their own incidents — same-encoder OCC conflict
+    detection handles two-tab editing scenarios.
     Joins nonsensitive details for summary view.
     Pass archived=true to list archived incidents instead of active ones.
     """
@@ -1532,6 +1535,67 @@ def _apply_incident_field_updates(
         )
 
 
+def _fetch_incident_edit_fields(db: Session, incident_id: int) -> dict[str, Any]:
+    """Return a flat dict of all editable IncidentUpdateRequest fields for an incident.
+
+    Used to populate the server_version payload in 409 conflict responses so the
+    frontend merge panel can diff the client draft against the current server state.
+    """
+    ns = db.execute(
+        text("SELECT * FROM wims.incident_nonsensitive_details WHERE incident_id = :iid"),
+        {"iid": incident_id},
+    ).fetchone()
+    ns_dict: dict[str, Any] = dict(ns._mapping) if ns and hasattr(ns, "_mapping") else {}
+
+    sd = db.execute(
+        text("SELECT * FROM wims.incident_sensitive_details WHERE incident_id = :iid"),
+        {"iid": incident_id},
+    ).fetchone()
+    sd_dict: dict[str, Any] = dict(sd._mapping) if sd and hasattr(sd, "_mapping") else {}
+
+    if sd_dict.get("pii_blob_enc") and sd_dict.get("encryption_iv"):
+        try:
+            sp = _get_security_provider()
+            pii = sp.decrypt_json(
+                sd_dict["encryption_iv"],
+                sd_dict["pii_blob_enc"],
+                f"incident_id:{incident_id}".encode(),
+            )
+            sd_dict.update(pii)
+        except SecurityProviderError:
+            pass
+
+    fi = db.execute(
+        text("""
+            SELECT fi.incident_type_code, fi.updated_at,
+                   ST_Y(fi.location::geometry) AS latitude,
+                   ST_X(fi.location::geometry) AS longitude
+            FROM wims.fire_incidents fi
+            WHERE fi.incident_id = :iid
+        """),
+        {"iid": incident_id},
+    ).fetchone()
+    fi_dict: dict[str, Any] = dict(fi._mapping) if fi and hasattr(fi, "_mapping") else {}
+
+    result: dict[str, Any] = {**ns_dict, **sd_dict, **fi_dict}
+
+    # Strip encrypted blob columns from the conflict payload — the frontend
+    # merge panel never needs raw ciphertext.
+    result.pop("pii_blob_enc", None)
+    result.pop("encryption_iv", None)
+
+    def _serialize_value(v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, Decimal):
+            return float(v) if v % 1 else int(v)
+        if hasattr(v, "isoformat"):
+            return v.isoformat()
+        return v
+
+    return {k: _serialize_value(v) for k, v in result.items()}
+
+
 @router.put("/incidents/{incident_id}")
 def update_incident(
     incident_id: int,
@@ -1541,19 +1605,24 @@ def update_incident(
 ):
     """Update a DRAFT or REJECTED incident owned by the current encoder.
 
+    Encoders can only edit their own incidents, not those created by other
+    encoders. The OCC check protects against same-encoder two-tab conflicts.
+
     PENDING incidents cannot be edited directly — the encoder must withdraw
     them first (PATCH /incidents/{id}/unpend) which transitions PENDING → DRAFT.
     """
     encoder_id = user["user_id"]
 
-    # Verify ownership + editable status
+    # Verify the incident is owned by this encoder + editable status.
+    # SELECT ... FOR UPDATE locks the row until commit, making OCC atomic.
     incident = db.execute(
         text("""
-            SELECT incident_id, verification_status
-            FROM wims.fire_incidents
-            WHERE incident_id = :iid
-              AND encoder_id = CAST(:eid AS uuid)
-              AND is_archived = FALSE
+            SELECT fi.incident_id, fi.verification_status, fi.updated_at
+            FROM wims.fire_incidents fi
+            WHERE fi.incident_id = :iid
+              AND fi.encoder_id = CAST(:eid AS uuid)
+              AND fi.is_archived = FALSE
+            FOR UPDATE OF fi
         """),
         {"iid": incident_id, "eid": str(encoder_id)},
     ).fetchone()
@@ -1571,6 +1640,23 @@ def update_incident(
             status_code=403,
             detail=f"Cannot edit incident with status '{incident[1]}'. Only DRAFT or REJECTED incidents can be edited.",
         )
+
+    # Optimistic concurrency check: reject stale writes unless force_update is set.
+    if body.client_updated_at and not body.force_update:
+        server_ts = incident[2]  # updated_at column
+        if server_ts:
+
+            def _as_utc(dt: datetime) -> datetime:
+                return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+            if _as_utc(server_ts) > _as_utc(body.client_updated_at):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "Incident was modified since you last loaded it. Review the differences and re-submit.",
+                        "server_version": _fetch_incident_edit_fields(db, incident_id),
+                    },
+                )
 
     # Apply field updates (extracted helper — shared with /incidents/draft/{id})
     _apply_incident_field_updates(db, incident_id, body)
@@ -1647,18 +1733,20 @@ def update_draft(
 ):
     """Update a DRAFT incident owned by the current encoder.
 
-    Mirrors update_incident() but enforces verification_status = 'DRAFT'.
-    Drafts do NOT get an audit trail entry — they are not under review.
+    Mirrors update_incident() OCC semantics but enforces
+    verification_status = 'DRAFT' exclusively. SELECT ... FOR UPDATE
+    makes the concurrency check atomic.
     """
     encoder_id = user["user_id"]
     incident = db.execute(
         text(
             """
-            SELECT incident_id, verification_status
+            SELECT incident_id, verification_status, updated_at
             FROM wims.fire_incidents
             WHERE incident_id = :iid
               AND encoder_id = CAST(:eid AS uuid)
               AND is_archived = FALSE
+            FOR UPDATE OF fire_incidents
             """
         ),
         {"iid": incident_id, "eid": str(encoder_id)},
@@ -1670,6 +1758,24 @@ def update_draft(
             status_code=403,
             detail=f"Endpoint accepts DRAFT only. Current status: {incident[1]}",
         )
+
+    # Optimistic concurrency check: reject stale writes unless force_update is set.
+    if body.client_updated_at and not body.force_update:
+        server_ts = incident[2]  # updated_at column
+        if server_ts:
+
+            def _as_utc(dt: datetime) -> datetime:
+                return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+            if _as_utc(server_ts) > _as_utc(body.client_updated_at):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "Draft was modified since you last loaded it. Review the differences and re-submit.",
+                        "server_version": _fetch_incident_edit_fields(db, incident_id),
+                    },
+                )
+
     _apply_incident_field_updates(db, incident_id, body)
     try:
         _insert_incident_verification_history(
@@ -2582,6 +2688,38 @@ def get_incident_diff(
 
     original_subset: dict[str, Any] = {k: snapshot.get(k) for k in _DIFF_FIELDS if k in snapshot}
     current_subset: dict[str, Any] = {k: current.get(k) for k in _DIFF_FIELDS if k in current}
+
+    # Normalise scalar fields before comparison to prevent false positives caused by
+    # type drift between submitted_snapshot (JSONB) and the live VARCHAR columns
+    # (e.g. snapshot may store alarm_level as an integer code, DB stores a label string).
+    _SCALAR_DIFF_FIELDS = {
+        "alarm_level",
+        "general_category",
+        "sub_category",
+        "specific_type",
+        "occupancy_type",
+        "responder_type",
+        "fire_origin",
+        "extent_of_damage",
+        "stage_of_fire",
+        "fire_station_name",
+        "recommendations",
+        "notification_dt",
+    }
+
+    def _norm_diff(v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, (int, float)):
+            return v
+        return str(v).strip()
+
+    for k in _SCALAR_DIFF_FIELDS:
+        if k in original_subset:
+            original_subset[k] = _norm_diff(original_subset[k])
+        if k in current_subset:
+            current_subset[k] = _norm_diff(current_subset[k])
+
     all_keys = set(original_subset.keys()) | set(current_subset.keys())
     changed_fields = sorted(k for k in all_keys if original_subset.get(k) != current_subset.get(k))
 
