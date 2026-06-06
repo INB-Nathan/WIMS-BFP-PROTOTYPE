@@ -71,6 +71,7 @@ class IncidentCreateRequest(BaseModel):
     prepared_by_officer: str | None = None
     noted_by_officer: str | None = None
     remarks: str | None = None
+    client_id: str | None = None  # UUID from offline queue — idempotency key
 
 
 class IncidentUpdateRequest(BaseModel):

@@ -63,26 +63,70 @@ def create_incident(
         )
     encoder_id = user["user_id"]
 
+    # Idempotency: if client_id is present, return the existing incident rather than
+    # creating a duplicate. This handles the case where the offline sync engine retries
+    # a create request after a network timeout (unknown whether the server processed it).
+    client_id = (body.client_id or "").strip() or None
+    if client_id:
+        _col_exists_query = db.execute(
+            text("SELECT 1 FROM information_schema.columns WHERE table_schema='wims' AND table_name='fire_incidents' AND column_name='client_id'")
+        ).fetchone()
+        if _col_exists_query:
+            existing = db.execute(
+                text("SELECT incident_id, verification_status, incident_type_code FROM wims.fire_incidents WHERE client_id = :cid LIMIT 1"),
+                {"cid": client_id},
+            ).fetchone()
+            if existing:
+                return {
+                    "status": "created",  # keeps same shape as the normal 201 response
+                    "incident_id": existing[0],
+                    "verification_status": existing[1],
+                    "incident_type_code": existing[2],
+                    "parent_incident_id": body.parent_incident_id,
+                }
+
     # Reference number is assigned only at validator approval — not at create time
     type_code = (body.incident_type_code or "").strip().upper() or None
 
-    # Insert fire_incidents core row
-    incident_row = db.execute(
-        text("""
-            INSERT INTO wims.fire_incidents
-                (encoder_id, region_id, location, verification_status, incident_type_code, parent_incident_id)
-            VALUES (:eid, :rid, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 'DRAFT', :type_code, :parent_id)
-            RETURNING incident_id
-        """),
-        {
-            "eid": encoder_id,
-            "rid": region_id,
-            "lon": body.longitude,
-            "lat": body.latitude,
-            "type_code": type_code,
-            "parent_id": body.parent_incident_id,
-        },
-    ).fetchone()
+    # Insert fire_incidents core row (include client_id if the column exists)
+    _has_client_id_col = client_id and db.execute(
+        text("SELECT 1 FROM information_schema.columns WHERE table_schema='wims' AND table_name='fire_incidents' AND column_name='client_id'")
+    ).fetchone() is not None
+    if _has_client_id_col:
+        incident_row = db.execute(
+            text("""
+                INSERT INTO wims.fire_incidents
+                    (encoder_id, region_id, location, verification_status, incident_type_code, parent_incident_id, client_id)
+                VALUES (:eid, :rid, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 'DRAFT', :type_code, :parent_id, :cid::uuid)
+                RETURNING incident_id
+            """),
+            {
+                "eid": encoder_id,
+                "rid": region_id,
+                "lon": body.longitude,
+                "lat": body.latitude,
+                "type_code": type_code,
+                "parent_id": body.parent_incident_id,
+                "cid": client_id,
+            },
+        ).fetchone()
+    else:
+        incident_row = db.execute(
+            text("""
+                INSERT INTO wims.fire_incidents
+                    (encoder_id, region_id, location, verification_status, incident_type_code, parent_incident_id)
+                VALUES (:eid, :rid, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 'DRAFT', :type_code, :parent_id)
+                RETURNING incident_id
+            """),
+            {
+                "eid": encoder_id,
+                "rid": region_id,
+                "lon": body.longitude,
+                "lat": body.latitude,
+                "type_code": type_code,
+                "parent_id": body.parent_incident_id,
+            },
+        ).fetchone()
     incident_id = incident_row[0]
 
     # Insert nonsensitive details

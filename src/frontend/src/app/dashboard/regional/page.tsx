@@ -7,7 +7,10 @@ import {
   RefreshCw, Flame, Building2, TreePine, Car, ChevronLeft, ChevronRight, Trees,
   Home, Users, Layers, Truck, FileText, Upload, CalendarDays, Archive,
 } from 'lucide-react';
-import { apiFetch, fetchRegionalIncidents, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
+import { apiFetch, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
+import { fetchRegionalIncidentsOfflineAware } from '@/lib/api/offlineRegional';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import { getPendingOps, type OfflineOpDecrypted } from '@/lib/offlineStore';
 import Link from 'next/link';
 import {
   REGIONAL_INCIDENT_GENERAL_CATEGORIES,
@@ -95,6 +98,11 @@ export default function RegionalDashboardPage() {
   const [incidentsLoading, setIncidentsLoading] = useState(false);
   const [incidentsError, setIncidentsError] = useState<string | null>(null);
 
+  const { isOnline } = useNetworkStatus();
+  const [isFromCache, setIsFromCache] = useState(false);
+  const [cachedAt, setCachedAt] = useState<number | undefined>();
+  const [queuedOps, setQueuedOps] = useState<OfflineOpDecrypted[]>([]);
+
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -179,17 +187,31 @@ export default function RegionalDashboardPage() {
     try {
       const size = clampRegionalPageSize(pageSize);
       const offset = offsetFromPage(pageIndex, size);
-      const data = await fetchRegionalIncidents({
-        limit: size,
-        offset,
-        category: isArchiveView ? undefined : (categoryFilter || undefined),
-        status: isArchiveView ? undefined : (statusFilter || undefined),
-        date_from: isArchiveView ? undefined : dateBounds.date_from,
-        date_to: isArchiveView ? undefined : dateBounds.date_to,
-        archived: isArchiveView || undefined,
-      });
+      const encoderId = (user as { id?: string })?.id ?? '';
+      const { response: data, fromCache, cachedAt: cAt } = await fetchRegionalIncidentsOfflineAware(
+        {
+          limit: size,
+          offset,
+          category: isArchiveView ? undefined : (categoryFilter || undefined),
+          status: isArchiveView ? undefined : (statusFilter || undefined),
+          date_from: isArchiveView ? undefined : dateBounds.date_from,
+          date_to: isArchiveView ? undefined : dateBounds.date_to,
+          archived: isArchiveView || undefined,
+        },
+        encoderId,
+      );
       setIncidents(data.items ?? []);
       setIncidentsTotal(typeof data.total === 'number' ? data.total : 0);
+      setIsFromCache(fromCache);
+      setCachedAt(cAt);
+
+      // When offline, also surface queued (not-yet-synced) create ops
+      if (fromCache && encoderId) {
+        const ops = await getPendingOps(encoderId);
+        setQueuedOps(ops.filter((op) => op.operation === 'create'));
+      } else {
+        setQueuedOps([]);
+      }
     } catch (e) {
       setIncidents([]);
       setIncidentsTotal(0);
@@ -197,7 +219,9 @@ export default function RegionalDashboardPage() {
     } finally {
       setIncidentsLoading(false);
     }
-  }, [pageIndex, pageSize, categoryFilter, statusFilter, dateBounds.date_from, dateBounds.date_to, isArchiveView]);
+  // isOnline is intentionally included: when connectivity returns, re-fetch from server
+  // so the stale-cache banner clears and fresh data replaces the offline view.
+  }, [pageIndex, pageSize, categoryFilter, statusFilter, dateBounds.date_from, dateBounds.date_to, isArchiveView, user, isOnline]);
 
   useEffect(() => {
     if (canAccessRegional) {
@@ -557,6 +581,74 @@ export default function RegionalDashboardPage() {
           );
         })}
       </div>
+
+      {/* ── Stale cache banner (offline) ── */}
+      {isFromCache && (
+        <div
+          className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+          role="status"
+        >
+          <span className="mt-0.5 inline-block h-2 w-2 flex-shrink-0 rounded-full bg-amber-500" />
+          <div>
+            <span className="font-semibold">Showing cached data</span>
+            {cachedAt !== undefined && (
+              <span className="ml-1 font-normal">
+                — last updated {formatCacheAge(cachedAt)}
+              </span>
+            )}
+            <span className="ml-1 font-normal text-amber-700">
+              Reconnect to see the latest incidents.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Queued (locally saved) incidents ── */}
+      {queuedOps.length > 0 && (
+        <div
+          className="rounded-2xl overflow-hidden"
+          style={{ backgroundColor: 'var(--card-bg)', boxShadow: 'var(--card-shadow)', border: '1px solid #FCD34D' }}
+        >
+          <div className="px-5 py-4 border-b border-amber-200 bg-amber-50">
+            <h2 className="font-semibold text-base text-amber-900">
+              Queued Locally ({queuedOps.length})
+            </h2>
+            <p className="text-xs text-amber-700 mt-0.5">
+              These incidents are saved on your device and will sync automatically when you reconnect.
+            </p>
+          </div>
+          <ul className="divide-y divide-amber-100">
+            {queuedOps.map((op) => {
+              const p = op.payload as Record<string, unknown>;
+              const category = String(p.general_category ?? '—');
+              const location = [p.barangay, p.city_municipality, p.province_district]
+                .filter(Boolean)
+                .join(', ') || '—';
+              const savedAt = new Date(op.createdAt).toLocaleString('en-PH', {
+                month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+              });
+              return (
+                <li key={op.localId} className="px-5 py-4 flex items-center gap-4">
+                  <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                    Queued
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>
+                      {formatClassification(category)}
+                    </div>
+                    <div className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-secondary)' }}>
+                      {location}
+                    </div>
+                  </div>
+                  <div className="text-xs whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
+                    Saved {savedAt}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {/* ── Incidents section ── */}
       <section
@@ -960,5 +1052,16 @@ export default function RegionalDashboardPage() {
       )}
     </div>
   );
+}
+
+function formatCacheAge(cachedAt: number): string {
+  const diffMs = Date.now() - cachedAt;
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} minute${mins !== 1 ? 's' : ''} ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs !== 1 ? 's' : ''} ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days} day${days !== 1 ? 's' : ''} ago`;
 }
 

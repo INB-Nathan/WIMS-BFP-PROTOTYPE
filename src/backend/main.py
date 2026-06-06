@@ -282,6 +282,27 @@ def apply_schema_patches() -> None:
         logger.warning("Schema patch (RLS helpers SECURITY DEFINER) failed (non-fatal): %s", exc)
         db.rollback()
 
+    # Migration 45: client_id column for offline-first idempotency
+    try:
+        db.execute(
+            text(
+                "ALTER TABLE wims.fire_incidents"
+                " ADD COLUMN IF NOT EXISTS client_id UUID"
+            )
+        )
+        db.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_fire_incidents_client_id"
+                " ON wims.fire_incidents (client_id)"
+                " WHERE client_id IS NOT NULL"
+            )
+        )
+        db.commit()
+        logger.info("Schema patch applied: client_id column + unique index on fire_incidents")
+    except Exception as exc:
+        logger.warning("Schema patch (client_id) failed (non-fatal): %s", exc)
+        db.rollback()
+
     finally:
         db.close()
         with _schema_patches_lock:

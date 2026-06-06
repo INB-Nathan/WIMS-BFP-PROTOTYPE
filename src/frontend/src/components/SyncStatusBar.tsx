@@ -11,7 +11,7 @@ import { useAutoSync } from '@/lib/useAutoSync';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 
 export function SyncStatusBar() {
-  const { syncing, lastSyncedAt, pendingCount, syncNow } = useAutoSync();
+  const { syncing, lastSyncedAt, pendingCount, conflictCount, syncNow } = useAutoSync();
   const { isOnline, isReconnecting } = useNetworkStatus();
 
   // Offline state
@@ -62,8 +62,25 @@ export function SyncStatusBar() {
     );
   }
 
-  // All synced
+  // All synced — but show conflict callout if any ops need resolution
   if (pendingCount === 0) {
+    if (conflictCount > 0) {
+      return (
+        <div
+          className="flex items-center gap-2 rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-sm text-orange-800"
+          role="alert"
+        >
+          <span className="inline-block h-2 w-2 rounded-full bg-orange-500" />
+          <span>{conflictCount} item{conflictCount !== 1 ? 's' : ''} need your attention</span>
+          <a
+            href="/dashboard/regional?tab=conflicts"
+            className="ml-auto rounded-md bg-orange-600 px-3 py-1 text-xs font-medium text-white hover:bg-orange-700"
+          >
+            Review
+          </a>
+        </div>
+      );
+    }
     return (
       <div
         className="flex items-center gap-2 rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800"

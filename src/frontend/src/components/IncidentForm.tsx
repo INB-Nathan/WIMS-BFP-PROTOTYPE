@@ -9,7 +9,9 @@ import {
   type RefDuplicateIncident,
   ApiRequestError,
 } from '@/lib/api';
-import { queueIncident, getPendingIncidents, markSynced } from '@/lib/offlineStore';
+import {
+  queueOfflineOp, saveDraftOp, getDraftOps, deleteOfflineOp,
+} from '@/lib/offlineStore';
 import { useUserProfile } from '@/lib/auth';
 import { PH_REGIONS, getProvincesForRegion, getCitiesForProvince, getAforRegionIdentifier, getShortRegionName } from '@/lib/ph-regions';
 import { Loader2, Save, Shuffle, Send } from 'lucide-react';
@@ -87,7 +89,6 @@ export function IncidentForm({
   const { user, assignedRegionId, role, loading: profileLoading } = useUserProfile();
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
   const [loading, setLoading] = useState(false);
-  const [pendingCount, setPendingCount] = useState(0);
   const [selectedRegionId, setSelectedRegionId] = useState<number | null>(
     initialData?.region_id && initialData.region_id > 0 ? initialData.region_id : null
   );
@@ -100,6 +101,7 @@ export function IncidentForm({
   const submitAfterSaveRef = useRef(false);
   const barangayManuallySetRef = useRef(false);
   const userEditedDraftRef = useRef(false);
+  const draftLocalId = useRef<string | null>(null);
   const [draftRestoreData, setDraftRestoreData] = useState<{
     formState: Record<string, unknown>;
     latitude: number | null;
@@ -119,6 +121,11 @@ export function IncidentForm({
   );
 
   const clearStoredDraft = useCallback(() => {
+    // Clear IndexedDB draft op
+    if (draftLocalId.current) {
+      deleteOfflineOp(draftLocalId.current).catch(() => {});
+    }
+    // Clear legacy localStorage drafts
     if (draftStorageKey) localStorage.removeItem(draftStorageKey);
     localStorage.removeItem('wims:incident_draft');
   }, [draftStorageKey]);
@@ -754,77 +761,82 @@ export function IncidentForm({
     setOtherPersonnel(updated);
   };
 
-  // ── Offline sync ───────────────────────────────────────────────────────────
-
-  const checkPending = useCallback(async () => {
-    const pending = await getPendingIncidents();
-    setPendingCount(pending.length);
-  }, []);
-
-  const syncPending = useCallback(async () => {
-    if (!navigator.onLine) return;
-    const pending = await getPendingIncidents();
-    if (pending.length === 0) return;
-    for (const item of pending) {
-      try {
-        const payload = item.payload as { region_id: number; incidents: Incident[] };
-        const res = await edgeFunctions.uploadBundle(payload);
-        const incidentId = res.incident_ids[0];
-        const firstIncident = payload.incidents[0];
-        const sketchList = firstIncident?.incident_sensitive_details?.sketch_images_base64 || [];
-        if (Array.isArray(sketchList) && sketchList.length > 0) {
-          for (const b64 of sketchList) {
-            await edgeFunctions.uploadAttachment(incidentId, base64ToBlob(b64));
-          }
-        } else if (firstIncident?.incident_sensitive_details?.sketch_base64) {
-          await edgeFunctions.uploadAttachment(incidentId, base64ToBlob(firstIncident.incident_sensitive_details.sketch_base64));
-        }
-        await markSynced(item.id!);
-      } catch (e) {
-        console.error('Failed to sync item', item.id, e);
-      }
-    }
-    await checkPending();
-  }, [checkPending]);
-
-  useEffect(() => {
-    checkPending();
-    const handleOnline = () => syncPending();
-    window.addEventListener('online', handleOnline);
-    return () => window.removeEventListener('online', handleOnline);
-  }, [syncPending, checkPending]);
-
   // ── Draft autosave (create mode only) ─────────────────────────────────────
 
-  // On mount: offer to restore a previously saved draft.
+  // On mount: look for an existing draft in IndexedDB; offer to restore.
+  // Falls back to localStorage for browsers where IndexedDB is unavailable.
   // Skip in edit mode (existingIncidentId set) and import-correction mode (initialData set).
   useEffect(() => {
-    if (existingIncidentId || initialData || !draftStorageKey) return;
-    const raw = localStorage.getItem(draftStorageKey);
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed?.formState && typeof parsed.timestamp === 'number') {
-        setDraftRestoreData(parsed);
+    if (existingIncidentId || initialData || !user?.id) return;
+    const encoderId = user.id;
+
+    (async () => {
+      try {
+        const drafts = await getDraftOps(encoderId);
+        if (drafts.length > 0) {
+          const latest = drafts[0];
+          draftLocalId.current = latest.localId;
+          const p = latest.payload as { formState?: unknown; latitude?: unknown; longitude?: unknown; timestamp?: unknown };
+          if (p?.formState && typeof p.timestamp === 'number') {
+            setDraftRestoreData({
+              formState: p.formState as Record<string, unknown>,
+              latitude: (p.latitude as number | null) ?? null,
+              longitude: (p.longitude as number | null) ?? null,
+              timestamp: p.timestamp as number,
+            });
+          }
+        } else {
+          draftLocalId.current = crypto.randomUUID();
+          // Migrate a legacy localStorage draft if present
+          if (draftStorageKey) {
+            const raw = localStorage.getItem(draftStorageKey) ?? localStorage.getItem('wims:incident_draft');
+            if (raw) {
+              try {
+                const parsed = JSON.parse(raw);
+                if (parsed?.formState && typeof parsed.timestamp === 'number') {
+                  setDraftRestoreData(parsed);
+                }
+              } catch { /* ignore corrupt draft */ }
+            }
+          }
+        }
+      } catch {
+        // IndexedDB unavailable (e.g. private browsing) — fall back to localStorage
+        draftLocalId.current = crypto.randomUUID();
+        if (draftStorageKey) {
+          const raw = localStorage.getItem(draftStorageKey);
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw);
+              if (parsed?.formState && typeof parsed.timestamp === 'number') {
+                setDraftRestoreData(parsed);
+              }
+            } catch { /* ignore corrupt draft */ }
+          }
+        }
       }
-    } catch { /* ignore corrupt draft */ }
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftStorageKey]);
+  }, [user?.id, existingIncidentId]);
 
   // Debounced autosave on every formState / coordinate change.
+  // Saves to IndexedDB (draft op); falls back to localStorage if IndexedDB unavailable.
   // Skip in edit mode and import-correction mode so we don't overwrite a real create-mode draft.
   useEffect(() => {
-    if (existingIncidentId || initialData || !draftStorageKey || !userEditedDraftRef.current) return;
+    if (existingIncidentId || initialData || !user?.id || !userEditedDraftRef.current) return;
     const timer = setTimeout(() => {
-      localStorage.setItem(draftStorageKey, JSON.stringify({
-        formState,
-        latitude,
-        longitude,
-        timestamp: Date.now(),
-      }));
+      const draftPayload = { formState, latitude, longitude, timestamp: Date.now() };
+      if (draftLocalId.current && user?.id) {
+        saveDraftOp(draftLocalId.current, user.id, assignedRegionId ?? 0, draftPayload).catch(() => {
+          // Fallback: write to localStorage if IndexedDB fails
+          if (draftStorageKey) localStorage.setItem(draftStorageKey, JSON.stringify(draftPayload));
+        });
+      } else if (draftStorageKey) {
+        localStorage.setItem(draftStorageKey, JSON.stringify(draftPayload));
+      }
     }, 500);
     return () => clearTimeout(timer);
-  }, [formState, latitude, longitude, existingIncidentId, initialData, draftStorageKey]);
+  }, [formState, latitude, longitude, existingIncidentId, initialData, user?.id, assignedRegionId, draftStorageKey]);
 
   // ── Submit ─────────────────────────────────────────────────────────────────
 
@@ -1187,9 +1199,22 @@ export function IncidentForm({
         clearStoredDraft();
         router.push(`/dashboard/regional/incidents/${incidentId}`);
       } else {
-        await queueIncident(payload);
-        await checkPending();
-        alert('Offline: Incident queued for sync when connection is restored.');
+        // Offline — promote the draft to a queued create op so the sync engine picks it up.
+        const opLocalId = draftLocalId.current ?? crypto.randomUUID();
+        await queueOfflineOp({
+          localId: opLocalId,
+          operation: 'create',
+          serverId: null,
+          linkedLocalId: null,
+          serverUpdatedAt: null,
+          regionId: effectiveRegionId,
+          encoderId: user?.id ?? '',
+          payload: incident as unknown as Record<string, unknown>,
+          createdAt: Date.now(),
+        });
+        // Assign a fresh localId so subsequent autosaves don't overwrite this queued op.
+        draftLocalId.current = crypto.randomUUID();
+        showToast('Saved locally — will sync when connection is restored.');
       }
     } catch (err: unknown) {
       console.error('Submission failed', err);
@@ -1379,15 +1404,6 @@ export function IncidentForm({
             >
               <Shuffle className="w-3.5 h-3.5" />
               Auto-fill (Test)
-            </button>
-          )}
-          {pendingCount > 0 && (
-            <button
-              type="button"
-              onClick={() => syncPending()}
-              className="text-xs bg-white/20 text-white px-2 py-1 rounded font-bold hover:bg-white/30"
-            >
-              {pendingCount} Pending Sync
             </button>
           )}
         </div>

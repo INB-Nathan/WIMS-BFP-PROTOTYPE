@@ -6,7 +6,6 @@ import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Pencil, Send, Trash2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import {
-  fetchRegionalIncident,
   submitIncidentForReview,
   unpendIncident,
   deleteIncident,
@@ -15,6 +14,7 @@ import {
   updateRegionalIncident,
   type RegionalIncidentDetailResponse,
 } from '@/lib/api';
+import { fetchRegionalIncidentOfflineAware } from '@/lib/api/offlineRegional';
 import dynamic from 'next/dynamic';
 import { UpdateRequestDiffPanel } from '@/components/UpdateRequestDiffPanel';
 import { IncidentDiffPanel } from '@/components/IncidentDiffPanel';
@@ -424,6 +424,8 @@ export default function RegionalIncidentDetailPage() {
   const [detail, setDetail] = useState<RegionalIncidentDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isFromCache, setIsFromCache] = useState(false);
+  const [cachedAt, setCachedAt] = useState<number | undefined>();
   const [isEditing, setIsEditing] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -476,10 +478,13 @@ export default function RegionalIncidentDetailPage() {
     }
     setLoading(true);
     setError(null);
+    const encoderId = (user as { id?: string })?.id ?? '';
     try {
-      const data = await fetchRegionalIncident(incidentId);
+      const { response: data, fromCache, cachedAt: cAt } = await fetchRegionalIncidentOfflineAware(incidentId, encoderId);
       setDetail(data);
       loadedUpdatedAtRef.current = data.updated_at ?? null;
+      setIsFromCache(fromCache);
+      setCachedAt(cAt);
       setIsEditing(false);
     } catch (e) {
       setDetail(null);
@@ -487,7 +492,7 @@ export default function RegionalIncidentDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [incidentId]);
+  }, [incidentId, user]);
 
   useEffect(() => {
     if (authLoading || !canAccessRegional) return;
@@ -526,9 +531,11 @@ export default function RegionalIncidentDetailPage() {
   useEffect(() => {
     if (!isEncoder || !detail || detail.verification_status !== 'PENDING') return;
     const trackedUpdatedAt = detail.updated_at;
+    const encoderId = (user as { id?: string })?.id ?? '';
     const interval = setInterval(async () => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
       try {
-        const fresh = await fetchRegionalIncident(incidentId);
+        const { response: fresh } = await fetchRegionalIncidentOfflineAware(incidentId, encoderId);
         if (fresh.verification_status !== 'PENDING' || fresh.updated_at !== trackedUpdatedAt) {
           setStaleAlert(true);
           clearInterval(interval);
@@ -538,7 +545,7 @@ export default function RegionalIncidentDetailPage() {
       }
     }, 30_000);
     return () => clearInterval(interval);
-  }, [isEncoder, detail, incidentId]);
+  }, [isEncoder, detail, incidentId, user]);
 
   // Auto-show the duplicate comparison once when a validator opens a PENDING duplicate-flagged incident.
   // Skip if already resolved (VERIFIED/REJECTED/REPLACED) — there's nothing left to decide.
@@ -1261,6 +1268,22 @@ export default function RegionalIncidentDetailPage() {
 
       {!loading && !error && detail && !isEditing && (
         <>
+          {/* Offline cache banner — data served from IndexedDB */}
+          {isFromCache && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 flex items-center gap-3" role="status">
+              <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-amber-500" />
+              <span className="text-sm text-amber-800 font-medium">
+                Showing cached data
+                {cachedAt !== undefined && (
+                  <span className="font-normal ml-1">
+                    — saved {formatDetailCacheAge(cachedAt)}
+                  </span>
+                )}
+                . Connect to the internet to see live data.
+              </span>
+            </div>
+          )}
+
           {/* Stale data alert — shown when a validator has acted while encoder is viewing */}
           {staleAlert && (
             <div className="rounded-lg border border-blue-300 bg-blue-50 px-4 py-3 flex items-center justify-between gap-3" role="alert">
@@ -1617,4 +1640,14 @@ export default function RegionalIncidentDetailPage() {
       )}
     </div>
   );
+}
+
+function formatDetailCacheAge(cachedAt: number): string {
+  const diffMs = Date.now() - cachedAt;
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }

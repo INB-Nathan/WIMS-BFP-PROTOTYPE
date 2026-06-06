@@ -5,6 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { usePathname } from 'next/navigation';
+import { registerServiceWorker } from '@/lib/swRegistration';
 
 export function LayoutShell({ children }: { children: ReactNode }) {
     const { user, loading, loggingOut, login } = useAuth();
@@ -12,21 +13,7 @@ export function LayoutShell({ children }: { children: ReactNode }) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
     useEffect(() => {
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations()
-                .then((registrations) => Promise.all(
-                    registrations
-                        .filter((r) => !r.active?.scriptURL?.includes('firebase-messaging-sw'))
-                        .map((r) => r.unregister())
-                ))
-                .catch(() => {});
-        }
-
-        if ('caches' in window) {
-            caches.keys()
-                .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
-                .catch(() => {});
-        }
+        registerServiceWorker();
     }, []);
 
     useEffect(() => {
