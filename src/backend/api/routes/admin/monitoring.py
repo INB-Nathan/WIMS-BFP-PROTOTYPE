@@ -1,0 +1,136 @@
+"""System Admin API — system monitoring routes."""
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from auth import get_system_admin
+from database import get_db
+
+router = APIRouter()
+
+
+@router.get("/health")
+def get_system_health(
+    _admin: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Fetch health status for all system components."""
+    health = {
+        "status": "HEALTHY",
+        "components": {
+            "database": {"status": "UNKNOWN", "latency_ms": 0},
+            "redis": {"status": "UNKNOWN", "latency_ms": 0},
+            "keycloak": {"status": "UNKNOWN", "latency_ms": 0},
+        },
+    }
+
+    import time
+
+    try:
+        t0 = time.time()
+        db.execute(text("SELECT 1"))
+        health["components"]["database"] = {
+            "status": "HEALTHY",
+            "latency_ms": round((time.time() - t0) * 1000),
+        }
+    except Exception as e:
+        health["components"]["database"] = {
+            "status": "UNHEALTHY",
+            "error": str(e),
+            "latency_ms": 0,
+        }
+        health["status"] = "DEGRADED"
+
+    try:
+        import redis
+        import os
+
+        r = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
+        t0 = time.time()
+        r.ping()
+        health["components"]["redis"] = {
+            "status": "HEALTHY",
+            "latency_ms": round((time.time() - t0) * 1000),
+        }
+    except Exception as e:
+        health["components"]["redis"] = {
+            "status": "UNHEALTHY",
+            "error": str(e),
+            "latency_ms": 0,
+        }
+        health["status"] = "DEGRADED"
+
+    try:
+        from services.keycloak_admin import _get_admin_client
+
+        t0 = time.time()
+        adm = _get_admin_client()
+        adm.users_count()
+        health["components"]["keycloak"] = {
+            "status": "HEALTHY",
+            "latency_ms": round((time.time() - t0) * 1000),
+        }
+    except Exception as e:
+        health["components"]["keycloak"] = {
+            "status": "UNHEALTHY",
+            "error": str(e),
+            "latency_ms": 0,
+        }
+        health["status"] = "DEGRADED"
+
+    return health
+
+
+@router.get("/monitoring/workers")
+def get_worker_status(
+    current_user: dict = Depends(get_system_admin),
+    db: Session = Depends(get_db),
+):
+    """Return current Celery worker liveness status."""
+    rows = db.execute(
+        text("""
+            SELECT worker_id, hostname, last_seen, active_tasks, status
+            FROM wims.worker_heartbeat
+            ORDER BY last_seen DESC
+        """)
+    ).fetchall()
+
+    return [
+        {
+            "worker_id": r[0],
+            "hostname": r[1],
+            "last_seen": r[2].isoformat() if r[2] else None,
+            "active_tasks": r[3],
+            "status": r[4],
+        }
+        for r in rows
+    ]
+
+
+@router.get("/monitoring/system")
+def get_system_metrics(
+    current_user: dict = Depends(get_system_admin),
+):
+    """Return current system resource metrics (CPU, memory, disk)."""
+    import psutil as _psutil
+
+    cpu = _psutil.cpu_percent(interval=0.1)
+    mem = _psutil.virtual_memory()
+    disk = _psutil.disk_usage("/")
+
+    return {
+        "cpu_percent": cpu,
+        "memory": {
+            "total_mb": round(mem.total / 1024 / 1024),
+            "used_mb": round(mem.used / 1024 / 1024),
+            "percent": mem.percent,
+        },
+        "disk": {
+            "total_gb": round(disk.total / 1024 / 1024 / 1024, 1),
+            "used_gb": round(disk.used / 1024 / 1024 / 1024, 1),
+            "percent": disk.percent,
+        },
+    }

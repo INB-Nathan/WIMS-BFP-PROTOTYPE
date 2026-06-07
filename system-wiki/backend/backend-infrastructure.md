@@ -110,15 +110,17 @@ Lua-based sliding window on `POST /api/auth/callback`. Key: `rate_limit:{client_
 | Statement | Router | Prefix |
 |---|---|---|
 | `include_router(incidents.router)` | incidents | (none) |
-| `include_router(admin.router)` | admin | `/api/admin` |
+| `include_router(admin.router)` | admin (package) | `/api/admin` |
 | `include_router(sessions.router)` | sessions | `/api/admin` |
 | `include_router(user_profile_router)` | user | (none) — PATCH /me, /me/password |
 | `include_router(civilian.router)` | civilian | (none) |
 | `include_router(triage.router)` | triage | (none) |
-| `include_router(regional.router)` | regional | (none) |
+| `include_router(regional.router)` | regional (package) | `/api/regional` |
 | `include_router(analytics.router)` | analytics | (none) |
 | `include_router(ref.router)` | ref | (none) — /regions, /provinces, /cities |
 | `include_router(public_dmz_router)` | public_dmz | (none) — /v1/public/report |
+
+**Note:** As of 2025-06-06, `regional` and `admin` are decomposed into packages (sub-module routers). See the route map for sub-module details.
 
 ### Endpoints Defined Directly in main.py
 

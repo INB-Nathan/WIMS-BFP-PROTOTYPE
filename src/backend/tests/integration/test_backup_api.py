@@ -206,7 +206,7 @@ class TestBackupAPI:
             patch("subprocess.run") as mock_run,
             patch("pathlib.Path.mkdir") as _mock_mkdir,
             patch("pathlib.Path.stat") as mock_stat,
-            patch("api.routes.admin.log_system_audit") as mock_audit,
+            patch("api.routes.admin.backups.log_system_audit") as mock_audit,
             patch("utils.backup_crypto.encrypt_backup") as mock_encrypt,
         ):
             mock_stat.return_value.st_size = 12345

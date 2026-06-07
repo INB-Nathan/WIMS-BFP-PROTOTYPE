@@ -3,6 +3,39 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2025-06-06] refactor | Decompose monolithic route files into packages (issue #204)
+
+- **`src/backend/api/routes/regional.py` (3040 lines) -> `api/routes/regional/` package:**
+  - `__init__.py` — Shared helpers (`_get_security_provider`, `_fi_has_resubmitted_column`, `_regional_lifecycle_dependencies`, `_incident_verification_history_has_hash_columns`) + router registration.
+  - `afor.py` (137 lines) — AFOR import/commit routes.
+  - `duplicates.py` (138 lines) — Duplicate check route.
+  - `field_updates.py` (343 lines) — `_apply_incident_field_updates` and `_fetch_incident_edit_fields` (helper functions, not routes).
+  - `stats.py` (304 lines) — Encoder and validator stats endpoints.
+  - `encoder.py` (554 lines) — Encoder read/lookup routes (incidents list, drafts, detail, audit log).
+  - `encoder_crud.py` (618 lines) — Encoder write routes (create, update, delete, archive, submit).
+  - `validator.py` (983 lines) — Validator routes (queue, verify, correct, bulk-approve, archive, diff, history, audit logs).
+
+- **`src/backend/api/routes/admin.py` (1361 lines) -> `api/routes/admin/` package:**
+  - `__init__.py` — Router registration.
+  - `users.py` (401 lines) — User CRUD, sessions, force-logout.
+  - `backups.py` (313 lines) — Backup/restore management.
+  - `security.py` (153 lines) — Security threat log analysis and HITL actions.
+  - `rate_limits.py` (114 lines) — Dynamic rate-limit configuration.
+  - `monitoring.py` (136 lines) — System health, worker status, system metrics.
+  - `analytics.py` (22 lines) — Analytics backfill.
+  - `audit.py` (58 lines) — System audit trail viewer.
+  - `scheduled_reports.py` (124 lines) — Scheduled report CRUD.
+
+- **Session route overlap resolved:** Moved `revoke_user_session` (`DELETE /sessions/{user_id}/{session_id}`) from admin into `sessions.py`. Dropped duplicate `get_user_sessions` (`GET /sessions/{user_id}`) from admin — `sessions.py` already had `list_user_sessions` at same path.
+
+- **Test patches updated:** `test_dynamic_rate_limits.py` and `test_backup_api.py` patches updated from `api.routes.admin.*` to `api.routes.admin.{rate_limits,backups}.*`.
+
+- **`incidents.py` imports fixed:** Changed from `from api.routes.regional import _normalize_general_category, ...` to direct imports from `services.regional_incidents.helpers`.
+
+- **`system-wiki/backend/backend-infrastructure.md`:** Updated route registration table to reflect package structure.
+
+- **Line count compliance:** All route files now under 1000 lines (largest: `validator.py` at 983 lines).
+
 ## [2026-06-05] rebase | PR #182 rebased onto origin/master — conflict resolution
 
 - **`src/backend/main.py`:** Made `_startup_admin_engine`/`_startup_admin_session_factory` lazy inside `_get_admin_session()` to avoid `create_engine("")` crash at module import when `DATABASE_ADMIN_URL`/`DATABASE_URL` are unset (e.g., during test collection outside Docker).

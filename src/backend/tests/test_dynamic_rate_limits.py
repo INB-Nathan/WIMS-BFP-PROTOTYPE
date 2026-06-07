@@ -62,7 +62,7 @@ class TestGetRateLimits:
             "updated_at": "1746432000.0",
         }
 
-        with patch("api.routes.admin.redis.from_url", return_value=mock_redis):
+        with patch("api.routes.admin.rate_limits.redis.from_url", return_value=mock_redis):
             response = client.get("/api/admin/rate-limits")
 
         assert response.status_code == 200
@@ -78,7 +78,7 @@ class TestGetRateLimits:
         mock_redis = MagicMock()
         mock_redis.hgetall.return_value = {}
 
-        with patch("api.routes.admin.redis.from_url", return_value=mock_redis):
+        with patch("api.routes.admin.rate_limits.redis.from_url", return_value=mock_redis):
             response = client.get("/api/admin/rate-limits")
 
         assert response.status_code == 200
@@ -90,7 +90,7 @@ class TestGetRateLimits:
     def test_get_rate_limits_requires_admin(self, client):
         app.dependency_overrides[auth.get_current_wims_user] = encoder_override
 
-        with patch("api.routes.admin.redis.from_url", return_value=MagicMock()):
+        with patch("api.routes.admin.rate_limits.redis.from_url", return_value=MagicMock()):
             response = client.get("/api/admin/rate-limits")
 
         assert response.status_code == 403
@@ -105,8 +105,8 @@ class TestPatchRateLimits:
         mock_redis = MagicMock()
 
         with (
-            patch("api.routes.admin.redis.from_url", return_value=mock_redis),
-            patch("api.routes.admin.log_system_audit"),
+            patch("api.routes.admin.rate_limits.redis.from_url", return_value=mock_redis),
+            patch("api.routes.admin.rate_limits.log_system_audit"),
         ):
             response = client.patch(
                 "/api/admin/rate-limits",
@@ -177,8 +177,8 @@ class TestPatchRateLimits:
         mock_redis = MagicMock()
 
         with (
-            patch("api.routes.admin.redis.from_url", return_value=mock_redis),
-            patch("api.routes.admin.log_system_audit") as mock_audit,
+            patch("api.routes.admin.rate_limits.redis.from_url", return_value=mock_redis),
+            patch("api.routes.admin.rate_limits.log_system_audit") as mock_audit,
         ):
             response = client.patch(
                 "/api/admin/rate-limits",

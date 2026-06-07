@@ -54,8 +54,43 @@ def terminate_user_sessions(
     Note: python-keycloak does not expose a single-session revoke endpoint,
     so this terminates ALL sessions for the user.
     For single-session revocation, use
-    DELETE /api/admin/sessions/{user_id}/{session_id} (in admin.py).
+    DELETE /api/admin/sessions/{user_id}/{session_id}.
     """
     keycloak_id = _resolve_keycloak_id(user_id, db)
     logout_user_sessions(keycloak_id)
     return {"status": "ok", "user_id": user_id}
+
+
+@router.delete("/sessions/{user_id}/{session_id}")
+def revoke_user_session(
+    user_id: str,
+    session_id: str,
+    current_user: dict = Depends(get_system_admin),
+    db: Session = Depends(get_db_with_rls),
+):
+    """Revoke a specific session for a user."""
+    keycloak_id = _resolve_keycloak_id(user_id, db)
+
+    from services.keycloak_admin import _get_admin_client
+
+    adm = _get_admin_client()
+    try:
+        sessions = adm.get_sessions(keycloak_id)
+        session_ids = [s.get("id") for s in sessions]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Keycloak error: {str(e)}")
+
+    if session_id not in session_ids:
+        raise HTTPException(status_code=404, detail="Session not found for this user")
+
+    try:
+        adm.delete_user_session(session_id=session_id)
+    except AttributeError:
+        try:
+            adm.connection.raw_delete(f"sessions/{session_id}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to revoke session: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to revoke session: {str(e)}")
+
+    return {"status": "ok", "session_id": session_id}
