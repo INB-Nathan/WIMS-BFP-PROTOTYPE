@@ -172,9 +172,9 @@ export async function syncPendingIncidents(encoderId: string): Promise<SyncResul
   }
 
   // Refresh auth token before the batch — access tokens expire in 5 min.
-  const tokenOk = await refreshToken();
-  if (!tokenOk) {
-    return { synced: 0, conflicts: 0, failed: 0, errors: [], abortReason: 'auth' };
+  const tokenResult = await refreshToken();
+  if (!tokenResult.ok) {
+    return { synced: 0, conflicts: 0, failed: 0, errors: [], abortReason: tokenResult.reason };
   }
 
   const ops = await getPendingOps(encoderId);

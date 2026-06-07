@@ -70,7 +70,7 @@ function makeOp(overrides: Partial<Record<string, any>> = {}): OfflineOpDecrypte
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(refreshToken).mockResolvedValue(true);
+  vi.mocked(refreshToken).mockResolvedValue({ ok: true });
   vi.mocked(markOpSyncing).mockResolvedValue(undefined);
   vi.mocked(markOpSynced).mockResolvedValue(undefined);
   vi.mocked(markOpConflict).mockResolvedValue(undefined);
@@ -104,7 +104,7 @@ describe('syncPendingIncidents', () => {
   });
 
   it('aborts with abortReason=auth when token refresh fails', async () => {
-    vi.mocked(refreshToken).mockResolvedValue(false);
+    vi.mocked(refreshToken).mockResolvedValue({ ok: false, reason: 'auth' });
     vi.mocked(getPendingOps).mockResolvedValue([makeOp()]);
 
     const result = await syncPendingIncidents(ENCODER_ID);

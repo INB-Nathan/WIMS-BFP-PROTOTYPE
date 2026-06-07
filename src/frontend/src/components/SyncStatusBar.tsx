@@ -3,6 +3,8 @@
  *
  * Displays: pending count, sync spinner, last synced time,
  * offline/reconnecting indicator, manual sync button.
+ * When session has expired with pending ops, shows a persistent
+ * "Log In to sync" call-to-action instead of silently failing.
  */
 
 'use client';
@@ -11,7 +13,7 @@ import { useAutoSync } from '@/lib/useAutoSync';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 
 export function SyncStatusBar() {
-  const { syncing, lastSyncedAt, pendingCount, conflictCount, syncNow } = useAutoSync();
+  const { syncing, lastSyncedAt, pendingCount, conflictCount, authFailed, syncNow } = useAutoSync();
   const { isOnline, isReconnecting } = useNetworkStatus();
 
   // Offline state
@@ -42,6 +44,27 @@ export function SyncStatusBar() {
         {pendingCount > 0 && (
           <span className="ml-auto font-medium">{pendingCount} queued</span>
         )}
+      </div>
+    );
+  }
+
+  // Session expired with queued incidents — most prominent state
+  if (authFailed && pendingCount > 0) {
+    return (
+      <div
+        className="flex items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800"
+        role="alert"
+      >
+        <span className="inline-block h-2 w-2 rounded-full bg-red-500" />
+        <span>
+          Session expired — {pendingCount} incident{pendingCount !== 1 ? 's' : ''} waiting to sync
+        </span>
+        <a
+          href="/login"
+          className="ml-auto rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700"
+        >
+          Log In to Sync
+        </a>
       </div>
     );
   }

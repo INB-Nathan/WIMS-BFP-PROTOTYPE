@@ -205,10 +205,11 @@ export default function RegionalDashboardPage() {
       setIsFromCache(fromCache);
       setCachedAt(cAt);
 
-      // When offline, also surface queued (not-yet-synced) create ops
-      if (fromCache && encoderId) {
+      // Always surface queued create ops — online or offline — so the encoder
+      // can see incidents awaiting sync right in the main list.
+      if (encoderId) {
         const ops = await getPendingOps(encoderId);
-        setQueuedOps(ops.filter((op) => op.operation === 'create'));
+        setQueuedOps(ops.filter((op) => op.operation === 'create' && op.syncStatus !== 'synced'));
       } else {
         setQueuedOps([]);
       }
@@ -341,6 +342,26 @@ export default function RegionalDashboardPage() {
     setTimeout(() => {
       incidentsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 60);
+  };
+
+  // Extract display fields from a queued-op payload.
+  // Handles both the flat Incident structure from IncidentForm and the nested
+  // AFOR row structure ({incident_nonsensitive_details, incident_sensitive_details}).
+  const getQueuedOpDisplay = (op: OfflineOpDecrypted) => {
+    const p = op.payload as Record<string, unknown>;
+    const ns = (p.incident_nonsensitive_details ?? {}) as Record<string, unknown>;
+    const sens = (p.incident_sensitive_details ?? {}) as Record<string, unknown>;
+    const category = String(ns.general_category ?? p.general_category ?? '—');
+    const station = String(ns.fire_station_name ?? p.fire_station_name ?? '—');
+    const location = [
+      sens.street_address ?? p.street_address,
+      ns.city_municipality ?? p.city_municipality,
+      ns.province_district ?? p.province_district,
+    ].filter(Boolean).join(', ') || '—';
+    const savedAt = new Date(op.createdAt).toLocaleString('en-PH', {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+    return { category, station, location, savedAt };
   };
 
   const incidentCards = [
@@ -603,52 +624,6 @@ export default function RegionalDashboardPage() {
         </div>
       )}
 
-      {/* ── Queued (locally saved) incidents ── */}
-      {queuedOps.length > 0 && (
-        <div
-          className="rounded-2xl overflow-hidden"
-          style={{ backgroundColor: 'var(--card-bg)', boxShadow: 'var(--card-shadow)', border: '1px solid #FCD34D' }}
-        >
-          <div className="px-5 py-4 border-b border-amber-200 bg-amber-50">
-            <h2 className="font-semibold text-base text-amber-900">
-              Queued Locally ({queuedOps.length})
-            </h2>
-            <p className="text-xs text-amber-700 mt-0.5">
-              These incidents are saved on your device and will sync automatically when you reconnect.
-            </p>
-          </div>
-          <ul className="divide-y divide-amber-100">
-            {queuedOps.map((op) => {
-              const p = op.payload as Record<string, unknown>;
-              const category = String(p.general_category ?? '—');
-              const location = [p.barangay, p.city_municipality, p.province_district]
-                .filter(Boolean)
-                .join(', ') || '—';
-              const savedAt = new Date(op.createdAt).toLocaleString('en-PH', {
-                month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-              });
-              return (
-                <li key={op.localId} className="px-5 py-4 flex items-center gap-4">
-                  <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
-                    Queued
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>
-                      {formatClassification(category)}
-                    </div>
-                    <div className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-secondary)' }}>
-                      {location}
-                    </div>
-                  </div>
-                  <div className="text-xs whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
-                    Saved {savedAt}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
 
       {/* ── Incidents section ── */}
       <section
@@ -845,6 +820,30 @@ export default function RegionalDashboardPage() {
             </div>
           ) : (
             <div className={`grid min-h-[420px] gap-4 p-5 transition-opacity lg:grid-cols-2 ${incidentsLoading ? 'opacity-60' : ''}`}>
+              {queuedOps.map((op) => {
+                const { category, station, location, savedAt } = getQueuedOpDisplay(op);
+                return (
+                  <div
+                    key={`queued-${op.localId}`}
+                    className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 flex flex-col gap-2"
+                    title="This incident is saved locally and will sync when connected"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                        Pending Sync
+                      </span>
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{savedAt}</span>
+                    </div>
+                    <div className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
+                      {formatClassification(category)}
+                    </div>
+                    <div className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
+                      {station !== '—' ? `${station} · ` : ''}{location}
+                    </div>
+                  </div>
+                );
+              })}
               {incidents.map((inc) => (
                 <IncidentCard
                   key={inc.incident_id}
@@ -907,7 +906,43 @@ export default function RegionalDashboardPage() {
                   </td>
                 </tr>
               ) : (
-                incidents.map((inc, idx) => (
+                <>
+                {queuedOps.map((op) => {
+                  const { category, station, location, savedAt } = getQueuedOpDisplay(op);
+                  return (
+                    <tr
+                      key={`queued-${op.localId}`}
+                      className="border-b bg-amber-50/50"
+                      title="Saved locally — will sync when connected"
+                    >
+                      <td className="px-5 py-4 whitespace-nowrap text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+                        {savedAt}
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                          {formatClassification(category)}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                        {station}
+                      </td>
+                      <td className="px-5 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                        {location}
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap text-sm" style={{ color: 'var(--text-muted)' }}>
+                        {savedAt}
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                          Pending Sync
+                        </span>
+                      </td>
+                      <td className="px-5 py-4" />
+                    </tr>
+                  );
+                })}
+                {incidents.map((inc, idx) => (
                   <tr
                     key={inc.incident_id}
                     onClick={() => router.push(`/dashboard/regional/incidents/${inc.incident_id}`)}
@@ -983,6 +1018,7 @@ export default function RegionalDashboardPage() {
                     </td>
                   </tr>
                 ))
+                }</>
               )}
             </tbody>
           </table>
