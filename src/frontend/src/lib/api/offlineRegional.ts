@@ -20,6 +20,25 @@ import {
   getCachedIncident,
 } from '../offlineStore';
 
+// navigator.onLine can be true during a flaky / just-dropped connection.
+// Treat TypeError ("Failed to fetch") and any status-0 / ERR_INTERNET_* errors
+// as "effectively offline" so the cache fallback fires regardless.
+function isNetworkError(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  if (err instanceof Error) {
+    const msg = err.message;
+    return (
+      msg.includes('ERR_INTERNET_DISCONNECTED') ||
+      msg.includes('ERR_NETWORK_CHANGED') ||
+      msg.includes('ERR_CONNECTION_RESET') ||
+      msg.includes('NetworkError') ||
+      msg.includes('Failed to fetch') ||
+      msg.includes('net::ERR')
+    );
+  }
+  return false;
+}
+
 export interface OfflineAwareListResult {
   response: RegionalIncidentsListResponse;
   fromCache: boolean;
@@ -57,20 +76,47 @@ export async function fetchRegionalIncidentsOfflineAware(
     };
   }
 
-  const response = await _fetchRegionalIncidents(params);
+  try {
+    const response = await _fetchRegionalIncidents(params);
 
-  // Fire-and-forget cache write — cache failures must not block the UI
-  void Promise.allSettled(
-    response.items.map((item) =>
-      cacheIncident(
-        item.incident_id,
-        item as unknown as Record<string, unknown>,
-        encoderId,
+    // Fire-and-forget: cache list items AND proactively fetch + cache full details
+    // so offline detail-page viewing works without a prior individual visit.
+    void Promise.allSettled(
+      response.items.map((item) =>
+        cacheIncident(
+          item.incident_id,
+          item as unknown as Record<string, unknown>,
+          encoderId,
+        ).then(() =>
+          _fetchRegionalIncident(item.incident_id)
+            .then((detail) =>
+              cacheIncident(
+                item.incident_id,
+                detail as unknown as Record<string, unknown>,
+                encoderId,
+              ),
+            )
+            .catch(() => {}),
+        ),
       ),
-    ),
-  );
+    );
 
-  return { response, fromCache: false };
+    return { response, fromCache: false };
+  } catch (err) {
+    if (isNetworkError(err)) {
+      // Connection dropped after the online check — fall back to IndexedDB cache.
+      const cached = await getCachedIncidents(encoderId);
+      const items = cached.map((c) => c.data as unknown as RegionalIncidentListItem);
+      const oldestCachedAt =
+        cached.length > 0 ? Math.min(...cached.map((c) => c.cachedAt)) : undefined;
+      return {
+        response: { items, total: items.length, limit: items.length, offset: 0 },
+        fromCache: true,
+        cachedAt: oldestCachedAt,
+      };
+    }
+    throw err;
+  }
 }
 
 /**
@@ -97,7 +143,22 @@ export async function fetchRegionalIncidentOfflineAware(
     );
   }
 
-  const response = await _fetchRegionalIncident(incidentId);
-  void cacheIncident(incidentId, response as unknown as Record<string, unknown>, encoderId);
-  return { response, fromCache: false };
+  try {
+    const response = await _fetchRegionalIncident(incidentId);
+    void cacheIncident(incidentId, response as unknown as Record<string, unknown>, encoderId);
+    return { response, fromCache: false };
+  } catch (err) {
+    if (isNetworkError(err)) {
+      // Connection dropped mid-request — serve from cache if available.
+      const cached = await getCachedIncident(incidentId);
+      if (cached) {
+        return {
+          response: cached.data as unknown as RegionalIncidentDetailResponse,
+          fromCache: true,
+          cachedAt: cached.cachedAt,
+        };
+      }
+    }
+    throw err;
+  }
 }

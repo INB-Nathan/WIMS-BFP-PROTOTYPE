@@ -60,6 +60,170 @@ Network timeouts are indistinguishable from server-side failures from the client
 
 All `offlineOps` and `cachedIncidents` payloads are encrypted with AES-256-GCM using a per-browser `CryptoKey` stored in IndexedDB. The key is never exported to `localStorage`. The key should be cleared on logout (Phase 1E cleanup). Auth is refreshed before every sync batch so a revoked session cannot submit queued ops.
 
+## VPS Compatibility
+
+The DigitalOcean VPS setup is **fully compatible** without infrastructure changes. Specific checks:
+
+| Requirement | Status | Detail |
+|---|---|---|
+| HTTPS for Service Workers | ✅ | `wimsbfp.tech` has TLS 1.3 via Let's Encrypt. `__Host-` cookie prefix also requires HTTPS — satisfied on VPS. |
+| No nginx API response caching | ✅ | The nginx config has no `proxy_cache` directive on `/api/*` routes. Offline reads bypass nginx entirely (they read from IndexedDB). |
+| SW static file served from Next.js | ✅ | `sw.js` is in `public/` — nginx proxies `/` to `frontend:3000` which serves it. No nginx config change needed. |
+| `client_id` column migration | ✅ | Self-healing: `main.py` startup applies `ADD COLUMN IF NOT EXISTS` on every container restart. Existing incidents are unaffected (column is nullable). No `down -v` required. |
+| `credentials: 'include'` sync requests | ✅ | The nginx `/api/` block forwards cookies and sets `Access-Control-Allow-Credentials: true`. `proxy_cookie_domain nginx-gateway $host` keeps the cookie domain in sync with the browser. |
+
+**One nginx note**: `sw.js` should ideally be served with `Cache-Control: no-cache` (not `no-store`) so browsers always re-validate it but can still serve a stale copy offline. Next.js defaults work here — it does not aggressively cache files in `public/`. If issues arise, add to the nginx HTTPS block:
+```nginx
+location = /sw.js {
+    proxy_pass http://frontend:3000;
+    add_header Cache-Control "no-cache";
+}
+```
+
+---
+
+## How to Test Locally
+
+Service Workers require a **secure context** (HTTPS or `localhost`). The existing Docker stack serves `localhost` over plain HTTP — browsers treat `localhost` as a secure origin, so SW registration and `__Host-` cookies both work.
+
+```bash
+# 1. Start the full stack
+cd src && docker compose up --build -d
+
+# 2. Seed dev users (first boot only)
+bash scripts/seed-dev-users.sh
+
+# 3. Open http://localhost and log in as a REGIONAL_ENCODER
+#    (e.g. encoder01 / password from seed script)
+
+# 4. Navigate to the regional dashboard
+#    → You should see SyncStatusBar (green "All synced" when online)
+```
+
+**Simulate offline in Chrome/Firefox:**
+```
+DevTools → Network tab → throttle dropdown → "Offline"
+```
+Then:
+1. Open "Manual Entry" form → fill required fields → click Submit
+   - Expected: amber toast "Saved locally — will sync when connection is restored"
+   - SyncStatusBar shows "Offline · 1 incident queued"
+2. Refresh the page
+   - Expected: form draft is restored from IndexedDB (not lost)
+3. Dashboard page while offline
+   - Expected: amber "Showing cached data" banner; list populated from cache
+   - If you had queued a create: "Queued Locally (1)" section appears above the list
+4. Go back online (remove the throttle)
+   - Expected: SyncStatusBar shows "Syncing 1 incident..." then "All synced"
+
+**Verify in the database:**
+```sql
+-- Connect: docker exec -it wims-postgres psql -U wims wims
+SELECT incident_id, client_id, verification_status, created_at
+FROM wims.fire_incidents
+ORDER BY created_at DESC LIMIT 5;
+-- The row created via offline sync should have a non-null client_id UUID.
+```
+
+**Simulate idempotency (duplicate-safe retry):**
+```bash
+# While online, POST the same incident twice with the same client_id
+curl -s -X POST http://localhost/api/regional/incidents \
+  -H "Content-Type: application/json" \
+  -b "__Host-access_token=<token>" \
+  -d '{"latitude":14.5,"longitude":121.0,"region_id":1,"client_id":"aaaaaaaa-0000-0000-0000-000000000001"}'
+
+# Second POST with same client_id — should return the same incident_id, not a new row
+curl -s -X POST http://localhost/api/regional/incidents \
+  -H "Content-Type: application/json" \
+  -b "__Host-access_token=<token>" \
+  -d '{"latitude":14.5,"longitude":121.0,"region_id":1,"client_id":"aaaaaaaa-0000-0000-0000-000000000001"}'
+```
+
+---
+
+## How Changes Are Validated as Authenticated
+
+Every sync request goes through the same auth stack as any other API call. There is no separate offline-auth mechanism — the offline queue just defers the request until connectivity returns, then submits normally.
+
+**Request path for a synced op:**
+
+```
+Browser (syncEngine.ts)
+  │
+  │  POST /api/regional/incidents
+  │  credentials: 'include'               ← sends __Host-access_token cookie automatically
+  │
+  ▼
+Nginx (/api/ block)
+  │  proxy_cookie_domain nginx-gateway $host  ← keeps cookie domain valid
+  ▼
+FastAPI (auth.py: get_current_user)
+  │  token = request.cookies.get("__Host-access_token")
+  │  if not token → 401
+  │  jwt.decode(token, keycloak_public_key, algorithms=["RS256"])
+  │    verifies: exp, iat, iss, aud, azp == "wims-web"
+  │    checks Redis session-revocation blacklist
+  ▼
+FastAPI (auth.py: get_current_wims_user)
+  │  SELECT user_id, role FROM wims.users
+  │  WHERE keycloak_id = token.sub AND is_active = TRUE
+  │  if not found → 403
+  ▼
+FastAPI (routes/regional.py: create_incident)
+  │  SET LOCAL wims.current_user_id = user_id   ← RLS GUC
+  │  INSERT INTO wims.fire_incidents ...
+  │    RLS policy enforces region_id matches encoder's assigned region
+  │  client_id UNIQUE index prevents duplicate if retried
+  ▼
+  201 Created / 200 OK (idempotent return)
+```
+
+Key points:
+- The **Authorization header is not used** — only the `__Host-access_token` HttpOnly cookie. This cookie cannot be read by JavaScript (XSS-safe) and is `SameSite=Strict` (CSRF-safe).
+- The sync engine calls `refreshToken()` before every batch, which hits `/api/auth/refresh`. This exchanges the `__Host-refresh_token` (8-hour lifetime) for a fresh access token. If the refresh token is expired or revoked, `refreshToken()` returns `false` and the batch aborts with `abortReason: 'auth'` — no data is submitted.
+- The `client_id` UUID is an **idempotency key only**, not an auth mechanism. It prevents duplicate rows but carries no identity claims.
+- RLS at the database level enforces that the encoder can only write to their own region regardless of what `region_id` the client sends.
+
+---
+
+## What Happens if They Cannot Log In
+
+The offline capability is specifically for **encoders who lose connectivity mid-session**, not for unauthenticated access. Here is what happens in each scenario:
+
+### Scenario A — Encoder loses internet while already logged in (< 8 hours)
+
+This is the intended use case. The `__Host-refresh_token` has an 8-hour lifetime.
+
+| Phase | What Happens |
+|---|---|
+| Goes offline | App shell loads from SW cache. Dashboard reads from `cachedIncidents`. Form autosave continues to IndexedDB. |
+| Submits incident offline | Queued to `offlineOps` as `status: pending`. "Saved locally" toast. |
+| Reconnects within 8 hours | `syncEngine` calls `refreshToken()` → succeeds → gets a fresh 5-min access token → submits queued ops → "All synced". |
+| Reconnects after > 8 hours | `refreshToken()` → Keycloak rejects the expired refresh token → clears both cookies → returns `false`. Sync aborts with `abortReason: 'auth'`. SyncStatusBar shows "Session expired — please log in again." |
+
+**Queued ops are NOT lost** when the session expires. They remain in IndexedDB until the encoder logs back in, at which point the next sync cycle will pick them up.
+
+### Scenario B — Encoder has never logged in on this device
+
+They cannot access the app at all. Keycloak must be reachable to complete the OIDC login flow — the browser redirect to `/auth/realms/bfp/protocol/openid-connect/auth` will fail with a network error. The login page itself requires connectivity.
+
+**There is no offline login mechanism.** This is by design — anonymous access to the encoder dashboard violates the role-based access requirements.
+
+### Scenario C — Encoder's account is deactivated mid-session
+
+The Redis session-revocation blacklist (`utils/session.py`) is checked on every authenticated request. However:
+- While **offline**, the blacklist check never fires (no network → no API calls).
+- The queued ops remain in IndexedDB locally.
+- When **reconnecting**, the sync engine calls `refreshToken()` first. If the account is deactivated, Keycloak will reject the refresh token → `refreshToken()` returns `false` → batch aborts → ops are NOT submitted.
+- The deactivation is enforced at reconnect, not at the moment of deactivation (unavoidable for offline-first systems — the device is unreachable).
+
+### Scenario D — Private browsing / incognito
+
+IndexedDB is available but cleared when the private session ends. Draft recovery and cached incidents will not survive closing the private window. The `localStorage` fallback for the form draft also does not persist across private sessions. This is expected behaviour — private mode opts out of persistence.
+
+---
+
 ## Testing
 
 ```bash
@@ -68,16 +232,6 @@ cd src/frontend && npx vitest run
 
 # TypeScript — no errors in production files
 cd src/frontend && npx tsc --noEmit
-
-# Manual integration scenario
-# 1. docker compose up --build -d
-# 2. Open encoder dashboard; fill IncidentForm
-# 3. Chrome DevTools → Network → Offline
-# 4. Submit → "Saved locally" toast; SyncStatusBar shows queued count
-# 5. Reload → form draft recovered from IndexedDB
-# 6. Network → Online → SyncStatusBar shows "Syncing 1 incident..." then "All synced"
-# 7. SELECT * FROM wims.fire_incidents ORDER BY created_at DESC LIMIT 3;
-#    -- Confirm client_id is set, no duplicate rows
 ```
 
 ## Deferred (Phase 1E+)

@@ -24,6 +24,7 @@ import {
   normalizeProblemLabel,
 } from '@/lib/afor-utils';
 import { useUserProfile } from '@/lib/auth';
+import { queueOfflineOp } from '@/lib/offlineStore';
 import { PH_REGIONS } from '@/lib/ph-regions';
 import { searchGeocode } from '@/lib/geocode';
 
@@ -43,6 +44,22 @@ type PersonnelOnDuty = Record<string, string | { name?: string; contact?: string
 type OtherPerson = { name: string; designation: string };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+function isNetworkError(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  if (err instanceof Error) {
+    const msg = err.message;
+    return (
+      msg.includes('ERR_INTERNET_DISCONNECTED') ||
+      msg.includes('ERR_NETWORK_CHANGED') ||
+      msg.includes('ERR_CONNECTION_RESET') ||
+      msg.includes('NetworkError') ||
+      msg.includes('Failed to fetch') ||
+      msg.includes('net::ERR')
+    );
+  }
+  return false;
+}
+
 function isValidWgs84(lat: number, lng: number): boolean {
   return (
     Number.isFinite(lat) && Number.isFinite(lng) &&
@@ -427,7 +444,7 @@ function useGeocoding(address: string, city: string, province = '') {
 function AforImportPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { assignedRegionId } = useUserProfile();
+  const { user, assignedRegionId } = useUserProfile();
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
@@ -605,7 +622,9 @@ function AforImportPage() {
       setCommitLatStr('');
       setCommitLngStr('');
     } catch (err: unknown) {
-      const msg = (err as { message?: string }).message || 'Failed to upload and parse the file.';
+      const msg = isNetworkError(err)
+        ? 'Connection lost. File upload requires an internet connection — reconnect and try again.'
+        : (err as { message?: string }).message || 'Failed to upload and parse the file.';
       setError(msg);
       // On any import error (including region mismatch) clear the file so the user
       // can pick a new one without the HTML input blocking re-selection.
@@ -627,12 +646,61 @@ function AforImportPage() {
   }, []);
   const importNavLinks = previewData ? AFOR_IMPORT_NAV_LINKS : AFOR_IMPORT_UPLOAD_NAV_LINKS;
 
+  const queueAforRowsOffline = async (
+    validRows: Record<string, unknown>[],
+    lat: number,
+    lng: number,
+  ): Promise<number> => {
+    if (previewData?.form_kind === 'WILDLAND_AFOR') return 0;
+    const encoderId = user?.id ?? '';
+    const regionId = assignedRegionId ?? 0;
+    let queued = 0;
+    for (const row of validRows) {
+      const payload = { ...row, latitude: lat, longitude: lng };
+      await queueOfflineOp({
+        localId: crypto.randomUUID(),
+        operation: 'create',
+        serverId: null,
+        linkedLocalId: null,
+        serverUpdatedAt: null,
+        regionId,
+        encoderId,
+        payload: payload as Record<string, unknown>,
+        createdAt: Date.now() + queued,
+      });
+      queued++;
+    }
+    return queued;
+  };
+
   const handleCommit = async () => {
     if (!previewData || previewData.valid_rows === 0) return;
     if (!coordsReady) {
       setError('Please provide a valid map pin (latitude/longitude) before committing.');
       return;
     }
+
+    // Offline check: if navigator.onLine is false, queue rows locally.
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      if (previewData.form_kind === 'WILDLAND_AFOR') {
+        setError('Wildland AFOR commit requires an internet connection. Reconnect and try again.');
+        return;
+      }
+      setIsCommitting(true);
+      setError(null);
+      const validRows = previewData.rows.filter((r) => r.status === 'VALID').map((r) => r.data);
+      const queued = await queueAforRowsOffline(validRows, commitLat, commitLng);
+      setIsCommitting(false);
+      if (queued > 0) {
+        sessionStorage.removeItem('wims:afor_import_draft');
+        setPreviewData(null);
+        setCommittedIds([]);
+        setError(null);
+        router.push('/dashboard/regional?queued=' + queued);
+      }
+      return;
+    }
+
     setIsCommitting(true);
     setError(null);
     const validRows = previewData.rows.filter((r) => r.status === 'VALID').map((r) => r.data);
@@ -660,7 +728,19 @@ function AforImportPage() {
         return;
       }
     } catch (err: unknown) {
-      const errMsg = (err as { message?: string }).message || 'Failed to commit the imported data.';
+      if (isNetworkError(err) && previewData.form_kind !== 'WILDLAND_AFOR') {
+        const queued = await queueAforRowsOffline(validRows, commitLat, commitLng);
+        setIsCommitting(false);
+        if (queued > 0) {
+          sessionStorage.removeItem('wims:afor_import_draft');
+          setPreviewData(null);
+          router.push('/dashboard/regional?queued=' + queued);
+          return;
+        }
+      }
+      const errMsg = isNetworkError(err)
+        ? 'Connection lost. Reconnect and try again (wildland AFOR cannot be queued offline).'
+        : (err as { message?: string }).message || 'Failed to commit the imported data.';
       setError(errMsg);
       setIsCommitting(false);
     }

@@ -68,6 +68,22 @@ const STAGE_OF_FIRE_OPTIONS = [
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+function isNetworkError(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  if (err instanceof Error) {
+    const msg = err.message;
+    return (
+      msg.includes('ERR_INTERNET_DISCONNECTED') ||
+      msg.includes('ERR_NETWORK_CHANGED') ||
+      msg.includes('ERR_CONNECTION_RESET') ||
+      msg.includes('NetworkError') ||
+      msg.includes('Failed to fetch') ||
+      msg.includes('net::ERR')
+    );
+  }
+  return false;
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function IncidentForm({
@@ -1152,6 +1168,8 @@ export function IncidentForm({
           onSaved?.();
         }
       } catch (err: unknown) {
+        // OCC conflict (server changed while editing) takes precedence — surface the
+        // merge UI rather than queueing a blind offline overwrite.
         if (err instanceof ApiRequestError && err.status === 409 && onConflict) {
           const d = err.detail as { message?: string; server_version?: Record<string, unknown> } | null;
           if (d?.server_version) {
@@ -1160,7 +1178,35 @@ export function IncidentForm({
             return;
           }
         }
-        showToast(`Save failed: ${(err as Error).message}`);
+        if (isNetworkError(err)) {
+          await queueOfflineOp({
+            localId: crypto.randomUUID(),
+            operation: 'update',
+            serverId: existingIncidentId,
+            linkedLocalId: null,
+            serverUpdatedAt: null,
+            regionId: effectiveRegionId,
+            encoderId: user?.id ?? '',
+            payload: updatePayload as unknown as Record<string, unknown>,
+            createdAt: Date.now(),
+          });
+          if (submitAfterSaveRef.current) {
+            await queueOfflineOp({
+              localId: crypto.randomUUID(),
+              operation: 'submit',
+              serverId: existingIncidentId,
+              linkedLocalId: null,
+              serverUpdatedAt: null,
+              regionId: effectiveRegionId,
+              encoderId: user?.id ?? '',
+              payload: {},
+              createdAt: Date.now() + 1,
+            });
+          }
+          showToast('Connection lost — saved locally. Will sync when connection is restored.');
+        } else {
+          showToast(`Save failed: ${(err as Error).message}`);
+        }
       } finally {
         setLoading(false);
       }
@@ -1212,6 +1258,21 @@ export function IncidentForm({
           payload: incident as unknown as Record<string, unknown>,
           createdAt: Date.now(),
         });
+        // If encoder clicked "Submit for Review", queue a linked submit op so the
+        // sync engine submits immediately after the create succeeds on reconnect.
+        if (submitAfterSaveRef.current) {
+          await queueOfflineOp({
+            localId: crypto.randomUUID(),
+            operation: 'submit',
+            serverId: null,
+            linkedLocalId: opLocalId,
+            serverUpdatedAt: null,
+            regionId: effectiveRegionId,
+            encoderId: user?.id ?? '',
+            payload: {},
+            createdAt: Date.now() + 1,
+          });
+        }
         // Assign a fresh localId so subsequent autosaves don't overwrite this queued op.
         draftLocalId.current = crypto.randomUUID();
         showToast('Saved locally — will sync when connection is restored.');
@@ -1227,6 +1288,36 @@ export function IncidentForm({
         setRegionMismatchMsg(
           `Your assigned region '${assignedRegionName}' does not match the incident's region.\nError code: REGION_MISMATCH`
         );
+      } else if (isNetworkError(err)) {
+        // navigator.onLine was true but the request failed mid-flight (flaky connection).
+        // Fall back to the offline queue so the encoder doesn't lose their work.
+        const opLocalId = draftLocalId.current ?? crypto.randomUUID();
+        await queueOfflineOp({
+          localId: opLocalId,
+          operation: 'create',
+          serverId: null,
+          linkedLocalId: null,
+          serverUpdatedAt: null,
+          regionId: effectiveRegionId,
+          encoderId: user?.id ?? '',
+          payload: incident as unknown as Record<string, unknown>,
+          createdAt: Date.now(),
+        });
+        if (submitAfterSaveRef.current) {
+          await queueOfflineOp({
+            localId: crypto.randomUUID(),
+            operation: 'submit',
+            serverId: null,
+            linkedLocalId: opLocalId,
+            serverUpdatedAt: null,
+            regionId: effectiveRegionId,
+            encoderId: user?.id ?? '',
+            payload: {},
+            createdAt: Date.now() + 1,
+          });
+        }
+        draftLocalId.current = crypto.randomUUID();
+        showToast('Connection lost — saved locally. Will sync when connection is restored.');
       } else {
         showToast(`Submission failed: ${(err as Error).message}`);
       }
