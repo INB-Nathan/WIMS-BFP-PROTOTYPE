@@ -1,7 +1,7 @@
 ---
 title: Backend API Route Map
 created: 2026-05-14
-updated: 2025-06-06
+updated: 2026-06-07
 type: backend
 tags: [wims-bfp, backend, api, implementation-map]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/backend/api/routes]
@@ -100,11 +100,11 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `admin/monitoring.py` | `GET` | `/health` | `get_system_health` |
 | `admin/monitoring.py` | `GET` | `/monitoring/workers` | `get_worker_status` |
 | `admin/monitoring.py` | `GET` | `/monitoring/system` | `get_system_metrics` |
-| `admin/security.py` | `GET` | `/security-logs` | `get_security_logs` |
+| `admin/security.py` | `GET` | `/security-logs` | `get_security_logs` | Supports `source_ip`, `severity`, `date_from`, `date_to` filter params |
 | `admin/security.py` | `POST` | `/security-logs/{log_id}/analyze` | `analyze_security_log` |
 | `admin/security.py` | `PATCH` | `/security-logs/{log_id}` | `update_security_log` |
 | `admin/analytics.py` | `POST` | `/analytics/backfill` | `backfill_analytics` |
-| `admin/audit.py` | `GET` | `/audit-logs` | `get_audit_logs` |
+| `admin/audit.py` | `GET` | `/audit-logs` | `get_audit_logs` | Supports `user_id`, `action_type`, `table_affected`, `ip_address`, `date_from`, `date_to` filter params |
 | `admin/scheduled_reports.py` | `POST` | `/scheduled-reports` | `create_scheduled_report` |
 | `admin/scheduled_reports.py` | `GET` | `/scheduled-reports` | `list_scheduled_reports` |
 | `admin/scheduled_reports.py` | `PATCH` | `/scheduled-reports/{report_id}` | `update_scheduled_report` |

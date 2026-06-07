@@ -347,6 +347,265 @@ class TestGetSecurityLogsPagination:
 
 
 # =============================================================================
+# GET /admin/audit-logs — filtered queries
+# =============================================================================
+
+
+def _mock_audit_log_db(fetchall_rows=None, scalar_count=0):
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = fetchall_rows or []
+    mock_result.scalar.return_value = scalar_count
+    mock_db = MagicMock()
+    mock_db.execute.return_value = mock_result
+
+    def mock_get_db():
+        yield mock_db
+
+    return mock_db, mock_get_db
+
+
+class TestGetAuditLogsFiltered:
+    def test_no_filters_produces_no_where_clause(self, client: TestClient):
+        """GET /admin/audit-logs with no filter params produces the same un-filtered query."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/audit-logs?limit=50&offset=0")
+        assert response.status_code == 200
+        calls = [str(c[0][0]) for c in mock_db.execute.call_args_list]
+        for call_sql in calls:
+            assert "WHERE" not in call_sql
+
+    def test_filter_by_user_id(self, client: TestClient):
+        """GET /admin/audit-logs?user_id=42 adds WHERE user_id = :user_id."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/audit-logs?user_id=42")
+        assert response.status_code == 200
+        call_args = mock_db.execute.call_args_list[0]
+        sql = str(call_args[0][0])
+        params = call_args[0][1]
+        assert "user_id = :user_id" in sql
+        assert params["user_id"] == 42
+
+    def test_filter_by_action_type(self, client: TestClient):
+        """GET /admin/audit-logs?action_type=CREATE adds WHERE action_type = :action_type."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/audit-logs?action_type=CREATE")
+        assert response.status_code == 200
+        call_args = mock_db.execute.call_args_list[0]
+        sql = str(call_args[0][0])
+        params = call_args[0][1]
+        assert "action_type = :action_type" in sql
+        assert params["action_type"] == "CREATE"
+
+    def test_filter_by_table_affected(self, client: TestClient):
+        """GET /admin/audit-logs?table_affected=fire_incidents adds WHERE table_affected = :table_affected."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/audit-logs?table_affected=fire_incidents")
+        assert response.status_code == 200
+        call_args = mock_db.execute.call_args_list[0]
+        sql = str(call_args[0][0])
+        params = call_args[0][1]
+        assert "table_affected = :table_affected" in sql
+        assert params["table_affected"] == "fire_incidents"
+
+    def test_filter_by_ip_address(self, client: TestClient):
+        """GET /admin/audit-logs?ip_address=192.168.1.1 adds WHERE ip_address = :ip_address."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/audit-logs?ip_address=192.168.1.1")
+        assert response.status_code == 200
+        call_args = mock_db.execute.call_args_list[0]
+        sql = str(call_args[0][0])
+        params = call_args[0][1]
+        assert "ip_address = :ip_address" in sql
+        assert params["ip_address"] == "192.168.1.1"
+
+    def test_filter_by_date_from(self, client: TestClient):
+        """GET /admin/audit-logs?date_from=2026-01-01T00:00:00 adds CAST timestamp filter."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/audit-logs?date_from=2026-01-01T00:00:00")
+        assert response.status_code == 200
+        call_args = mock_db.execute.call_args_list[0]
+        sql = str(call_args[0][0])
+        params = call_args[0][1]
+        assert "timestamp >= CAST(:date_from AS timestamptz)" in sql
+        assert params["date_from"] == "2026-01-01T00:00:00"
+
+    def test_filter_by_date_to(self, client: TestClient):
+        """GET /admin/audit-logs?date_to=2026-06-01T00:00:00 adds CAST timestamp filter."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/audit-logs?date_to=2026-06-01T00:00:00")
+        assert response.status_code == 200
+        call_args = mock_db.execute.call_args_list[0]
+        sql = str(call_args[0][0])
+        params = call_args[0][1]
+        assert "timestamp <= CAST(:date_to AS timestamptz)" in sql
+        assert params["date_to"] == "2026-06-01T00:00:00"
+
+    def test_multiple_filters_combined_with_and(self, client: TestClient):
+        """Multiple filter params combine with AND (not OR)."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get(
+            "/api/admin/audit-logs?action_type=DELETE&table_affected=fire_incidents&user_id=7"
+        )
+        assert response.status_code == 200
+        call_args = mock_db.execute.call_args_list[0]
+        sql = str(call_args[0][0])
+        params = call_args[0][1]
+        assert "action_type = :action_type" in sql
+        assert "table_affected = :table_affected" in sql
+        assert "user_id = :user_id" in sql
+        assert params["action_type"] == "DELETE"
+        assert params["table_affected"] == "fire_incidents"
+        assert params["user_id"] == 7
+
+    def test_filtered_count_uses_same_where_clause(self, client: TestClient):
+        """The COUNT(*) query uses the same WHERE clause as the data query."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/audit-logs?action_type=CREATE")
+        assert response.status_code == 200
+        # Two execute calls: one for data, one for count
+        assert mock_db.execute.call_count == 2
+        count_call = mock_db.execute.call_args_list[1]
+        count_sql = str(count_call[0][0])
+        assert "COUNT(*)" in count_sql
+        assert "action_type = :action_type" in count_sql
+
+
+# =============================================================================
+# GET /admin/security-logs — filtered queries
+# =============================================================================
+
+
+class TestGetSecurityLogsFiltered:
+    def test_security_no_filters_produces_no_where_clause(self, client: TestClient):
+        """GET /admin/security-logs with no filter params produces the same un-filtered query."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/security-logs?limit=20&offset=0")
+        assert response.status_code == 200
+        calls = [str(c[0][0]) for c in mock_db.execute.call_args_list]
+        for call_sql in calls:
+            assert "WHERE" not in call_sql
+
+    def test_filter_by_source_ip(self, client: TestClient):
+        """GET /admin/security-logs?source_ip=10.0.0.1 adds WHERE source_ip = :source_ip."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/security-logs?source_ip=10.0.0.1")
+        assert response.status_code == 200
+        call_args = mock_db.execute.call_args_list[0]
+        sql = str(call_args[0][0])
+        params = call_args[0][1]
+        assert "source_ip = :source_ip" in sql
+        assert params["source_ip"] == "10.0.0.1"
+
+    def test_filter_by_severity(self, client: TestClient):
+        """GET /admin/security-logs?severity=HIGH maps to severity_level column."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/security-logs?severity=HIGH")
+        assert response.status_code == 200
+        call_args = mock_db.execute.call_args_list[0]
+        sql = str(call_args[0][0])
+        params = call_args[0][1]
+        assert "severity_level = :severity" in sql
+        assert params["severity"] == "HIGH"
+
+    def test_filter_by_date_from(self, client: TestClient):
+        """GET /admin/security-logs?date_from=2026-01-01T00:00:00 adds CAST timestamp filter."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/security-logs?date_from=2026-01-01T00:00:00")
+        assert response.status_code == 200
+        call_args = mock_db.execute.call_args_list[0]
+        sql = str(call_args[0][0])
+        params = call_args[0][1]
+        assert "timestamp >= CAST(:date_from AS timestamptz)" in sql
+        assert params["date_from"] == "2026-01-01T00:00:00"
+
+    def test_filter_by_date_to(self, client: TestClient):
+        """GET /admin/security-logs?date_to=2026-06-01T00:00:00 adds CAST timestamp filter."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/security-logs?date_to=2026-06-01T00:00:00")
+        assert response.status_code == 200
+        call_args = mock_db.execute.call_args_list[0]
+        sql = str(call_args[0][0])
+        params = call_args[0][1]
+        assert "timestamp <= CAST(:date_to AS timestamptz)" in sql
+        assert params["date_to"] == "2026-06-01T00:00:00"
+
+    def test_security_multiple_filters_combined_with_and(self, client: TestClient):
+        """Multiple security filter params combine with AND."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get(
+            "/api/admin/security-logs?source_ip=10.0.0.1&severity=HIGH&date_from=2026-01-01T00:00:00"
+        )
+        assert response.status_code == 200
+        call_args = mock_db.execute.call_args_list[0]
+        sql = str(call_args[0][0])
+        params = call_args[0][1]
+        assert "source_ip = :source_ip" in sql
+        assert "severity_level = :severity" in sql
+        assert "timestamp >= CAST(:date_from AS timestamptz)" in sql
+        assert params["source_ip"] == "10.0.0.1"
+        assert params["severity"] == "HIGH"
+
+    def test_security_filtered_count_uses_same_where_clause(self, client: TestClient):
+        """The COUNT(*) query uses the same WHERE clause."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/security-logs?severity=HIGH")
+        assert response.status_code == 200
+        assert mock_db.execute.call_count == 2
+        count_call = mock_db.execute.call_args_list[1]
+        count_sql = str(count_call[0][0])
+        assert "COUNT(*)" in count_sql
+        assert "severity_level = :severity" in count_sql
+
+
+# =============================================================================
 # GET /admin/rate-limits
 # =============================================================================
 

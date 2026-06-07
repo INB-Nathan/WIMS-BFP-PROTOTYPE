@@ -2,7 +2,7 @@
 
 import json
 from datetime import datetime, timezone
-from typing import Annotated, Any
+from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -38,21 +38,52 @@ def get_security_logs(
     db: Annotated[Session, Depends(get_db_with_rls)],
     limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    source_ip: Optional[str] = Query(default=None),
+    severity: Optional[str] = Query(default=None),
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
 ):
-    """Fetch security threat logs ordered by timestamp descending."""
+    """Fetch security threat logs with optional filters and pagination."""
+    where_clauses: list[str] = []
+    params: dict = {"limit": limit, "offset": offset}
+
+    if source_ip is not None:
+        where_clauses.append("source_ip = :source_ip")
+        params["source_ip"] = source_ip
+    if severity is not None:
+        where_clauses.append("severity_level = :severity")
+        params["severity"] = severity
+    if date_from is not None:
+        where_clauses.append("timestamp >= CAST(:date_from AS timestamptz)")
+        params["date_from"] = date_from
+    if date_to is not None:
+        where_clauses.append("timestamp <= CAST(:date_to AS timestamptz)")
+        params["date_to"] = date_to
+
+    where_sql = ""
+    if where_clauses:
+        where_sql = "WHERE " + " AND ".join(where_clauses)
+
     rows = db.execute(
-        text("""
+        text(f"""
             SELECT log_id, timestamp, source_ip, destination_ip, suricata_sid,
                    severity_level, raw_payload, xai_narrative, xai_confidence,
                    admin_action_taken, resolved_at, reviewed_by, hitl_decision
             FROM wims.security_threat_logs
+            {where_sql}
             ORDER BY timestamp DESC
             LIMIT :limit OFFSET :offset
         """),
-        {"limit": limit, "offset": offset},
+        params,
     ).fetchall()
 
-    total = db.execute(text("SELECT COUNT(*) FROM wims.security_threat_logs")).scalar() or 0
+    total = (
+        db.execute(
+            text(f"SELECT COUNT(*) FROM wims.security_threat_logs {where_sql}"),
+            params,
+        ).scalar()
+        or 0
+    )
 
     return {
         "items": [

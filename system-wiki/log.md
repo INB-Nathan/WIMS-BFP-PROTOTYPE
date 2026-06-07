@@ -3,6 +3,48 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-07] feat | #166 Expand health endpoint + 60s system metrics Celery task
+
+- `GET /api/admin/health` now returns 5 component checks: database, redis, keycloak, suricata, ollama.
+- Suricata check: probes `wims.security_threat_logs` for rows in last 5 min (HEALTHY if flowing; HEALTHY if empty table = fresh deploy; UNHEALTHY if stale).
+- Ollama check: calls `OLLAMA_URL/api/tags` with 5s timeout via httpx.
+- New `wims.system_metrics` table (migration `46_system_metrics.sql`): id, recorded_at, cpu_percent, memory_total_mb, memory_used_mb, memory_percent, disk_total_gb, disk_used_gb, disk_percent.
+- New Celery task `snapshot_system_metrics` (runs every 60s via beat): collects psutil CPU/memory/disk, INSERTs into `wims.system_metrics`, prunes rows older than 7 days.
+- Updated: `api/routes/admin/monitoring.py`, `tasks/monitoring.py`, `celery_config.py`, `system-wiki/gaps/frs-codebase-gap-register.md`.
+
+## [2026-06-07] security | #221 CSP + COEP headers, ZAP suppressions promoted to WARN
+
+- Added `Content-Security-Policy` header to production TLS nginx block covering: self, OSM tiles, unpkg Leaflet icons, Google Fonts, Next.js inline styles, Firebase Messaging SW (`worker-src`).
+- Added `Cross-Origin-Embedder-Policy: unsafe-none` (require-corp would break 8 map components loading from CDNs without CORP).
+- `.zap/rules.tsv`: 10038 and 90004 promoted from IGNORE → WARN.
+- Reviewer found: Keycloak inline event handlers blocked by `script-src 'self'` (non-blocking — core OIDC login works), `connect-src wimsbfp.tech` redundant with `'self'`.
+
+## [2026-06-07] fix | #220 CD workflow placeholder build-args + production vars
+
+- Removed dead "Set placeholder envs" step (wrote to `$GITHUB_ENV`, but build-args read `vars.*` context).
+- Dropped `NEXT_PUBLIC_OIDC_CLIENT_ID` from build-args (not an ARG in Dockerfile).
+- Added `NEXT_PUBLIC_OIDC_AUTHORITY` (required ARG, was missing from workflow).
+- Updated all fallback values: localhost → `wimsbfp.tech` production URLs.
+- Set 4 GitHub repo variables: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_OIDC_REDIRECT_URI`, `NEXT_PUBLIC_OIDC_AUTHORITY`, `KEYCLOAK_AUDIENCE` (corrected from `account` → `wims-web` per #194).
+
+## [2026-06-07] fix | #227 Hide NearbyPublicReportAreas on safety step
+
+- Wrapped `<NearbyPublicReportAreas />` in `step !== 'safety'` conditional in `page.tsx`.
+- PublicFireMap was already correctly inside `step === 'safety'` — no change needed.
+- Spec had inverted current-behavior table; only 1 of 2 proposed changes was necessary.
+
+## [2026-06-07] feat | #228 Data Retention Policy page, consent notice, footer link
+
+- Created `src/frontend/src/app/privacy/page.tsx` — server component rendering all 7 policy sections.
+  - Hero+card pattern matching fire-stations style (bfp-gradient hero, white rounded-xl card).
+  - Numbered maroon circle section badges, amber consent callout, styled retention tables.
+  - Uses existing globals.css CSS variable tokens.
+- Added consent notice below report form card on `/` (report page) with link to `/privacy`.
+- Added footer privacy link to both report and privacy pages.
+- Registered `/privacy` as public route in `LayoutShell` (two `isPublic`/`isPublicRoute` checks).
+- Preview HTML + PDF generated at `src/frontend/public/preview/privacy-hero.{html,pdf}`.
+- Review fixes applied: `--text-secondary` darkened to `#5a6a7a` (WCAG AA), `<main>` landmark added, §4A parenthetical restored.
+
 ## [2025-06-06] refactor | Decompose monolithic route files into packages (issue #204)
 
 - **`src/backend/api/routes/regional.py` (3040 lines) -> `api/routes/regional/` package:**
@@ -2101,3 +2143,14 @@ Updated `src/backend/tests/test_csrf_middleware.py` to match PR #215's removal o
 - Fixture docstrings updated from "stub auth" to "auth callback body validation" wording.
 
 **Wiki update:** Removed stale `POST /api/auth/login` endpoint documentation from `system-wiki/backend/backend-infrastructure.md`. No FRS/codebase gap change.
+
+## [2026-06-07] feat | #168 Add filter params to admin log query endpoints
+
+- `GET /admin/audit-logs`: added optional query params `user_id`, `action_type`, `table_affected`, `ip_address`, `date_from`, `date_to`.
+- `GET /admin/security-logs`: added optional query params `source_ip`, `severity` (maps to `severity_level`), `date_from`, `date_to`.
+- Both endpoints build a parameterized WHERE clause from provided filters; when none are given, behavior is unchanged (no WHERE clause).
+- COUNT query uses the same WHERE clause so `total` reflects filtered count, not full table.
+- Follows the pattern from `services/regional_incidents/helpers.py:build_audit_log_query()`.
+- 16 new unit tests added in `tests/test_admin_new_routes.py` (8 audit filter tests, 7 security filter tests, 1 no-filters-baseline).
+
+**Wiki update:** Updated `system-wiki/backend/api-route-map.md` to note filter query params on `/audit-logs` and `/security-logs`.
