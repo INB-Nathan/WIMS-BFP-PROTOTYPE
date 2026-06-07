@@ -26,6 +26,11 @@ import { refreshToken } from './auth-refresh';
 
 const MAX_RETRY = 5;
 const CREATE_ENDPOINT = '/api/regional/incidents';
+// Offline creates replay through the same full-fidelity bundle endpoint the online
+// form uses, so all nested detail (resources, timeline, casualties, encrypted PII)
+// is preserved on sync. The flat /api/regional/incidents endpoint only persists
+// scalar columns and would silently drop the nested blobs.
+const CREATE_BUNDLE_ENDPOINT = '/api/incidents/upload-bundle';
 
 export interface SyncError {
   localId: string;
@@ -81,16 +86,26 @@ async function processCreate(
   op: OfflineOpDecrypted,
   syncedServerIds: Map<string, number>
 ): Promise<{ ok: boolean; serverId?: number; conflictCode?: string; serverVersion?: Record<string, unknown>; status?: number; error?: string }> {
-  const body = {
-    ...op.payload,
-    region_id: op.regionId,
-    client_id: op.localId, // idempotency key
-  };
+  // op.payload is the full nested incident object (latitude/longitude/region_id at
+  // the top level, plus incident_nonsensitive_details + incident_sensitive_details).
+  // Wrap it in the bundle envelope and tag it with the idempotency key.
+  const incidentItem = { ...op.payload, client_id: op.localId };
+  const body = { region_id: op.regionId, incidents: [incidentItem] };
 
-  const res = await apiFetch(CREATE_ENDPOINT, { method: 'POST', body: JSON.stringify(body) });
+  const res = await apiFetch(CREATE_BUNDLE_ENDPOINT, { method: 'POST', body: JSON.stringify(body) });
 
   if (res.ok) {
-    const serverId = res.body.incident_id as number;
+    const ids = res.body.incident_ids as number[] | undefined;
+    const serverId = Array.isArray(ids) && ids.length > 0
+      ? ids[0]
+      : (res.body.incident_id as number | undefined);
+    if (!serverId) {
+      // Bundle accepted (200) but nothing imported — treat as a retryable error so
+      // the op stays queued rather than being marked synced with no server record.
+      const failed = res.body.failed as Array<{ reason?: string }> | undefined;
+      const reason = failed?.[0]?.reason ?? 'upload-bundle returned no incident id';
+      return { ok: false, status: res.status, error: reason };
+    }
     syncedServerIds.set(op.localId, serverId);
     return { ok: true, serverId };
   }

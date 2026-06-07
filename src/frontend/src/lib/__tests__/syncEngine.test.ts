@@ -113,26 +113,43 @@ describe('syncPendingIncidents', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('syncs a create op: POSTs to /api/regional/incidents with credentials', async () => {
+  it('syncs a create op: POSTs the bundle envelope to upload-bundle with credentials', async () => {
     vi.mocked(getPendingOps).mockResolvedValue([makeOp()]);
     fetchSpy.mockResolvedValue({
-      ok: true, status: 201,
-      json: () => Promise.resolve({ incident_id: 42, status: 'DRAFT' }),
+      ok: true, status: 200,
+      json: () => Promise.resolve({ status: 'ok', incident_ids: [42], failed: [] }),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [url, opts] = fetchSpy.mock.calls[0];
-    expect(url).toContain('/api/regional/incidents');
+    expect(url).toContain('/api/incidents/upload-bundle');
     expect(opts.method).toBe('POST');
     expect(opts.credentials).toBe('include');
     const body = JSON.parse(opts.body);
-    expect(body.client_id).toBe('op-1');
+    // Bundle envelope: { region_id, incidents: [{ ...payload, client_id }] }
+    expect(Array.isArray(body.incidents)).toBe(true);
+    expect(body.incidents[0].client_id).toBe('op-1');
     expect(markOpSynced).toHaveBeenCalledWith('op-1', 42);
     expect(cacheIncident).toHaveBeenCalledWith(42, expect.any(Object), ENCODER_ID);
     expect(result.synced).toBe(1);
     expect(result.failed).toBe(0);
+  });
+
+  it('marks create error when bundle imports nothing (no incident id returned)', async () => {
+    vi.mocked(getPendingOps).mockResolvedValue([makeOp({ localId: 'op-empty' })]);
+    fetchSpy.mockResolvedValue({
+      ok: true, status: 200,
+      json: () => Promise.resolve({ status: 'ok', incident_ids: [], failed: [{ index: 1, reason: 'bad row' }] }),
+    });
+
+    const result = await syncPendingIncidents(ENCODER_ID);
+
+    expect(markOpSynced).not.toHaveBeenCalled();
+    expect(markOpError).toHaveBeenCalledWith('op-empty', '4xx', 'bad row');
+    expect(result.synced).toBe(0);
+    expect(result.failed).toBe(1);
   });
 
   it('processes multiple ops sequentially', async () => {
@@ -141,8 +158,8 @@ describe('syncPendingIncidents', () => {
       makeOp({ localId: 'op-b' }),
     ]);
     fetchSpy.mockResolvedValue({
-      ok: true, status: 201,
-      json: () => Promise.resolve({ incident_id: 99 }),
+      ok: true, status: 200,
+      json: () => Promise.resolve({ incident_ids: [99], failed: [] }),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
@@ -160,7 +177,7 @@ describe('syncPendingIncidents', () => {
     ]);
     fetchSpy
       .mockResolvedValueOnce({ ok: false, status: 422, json: () => Promise.resolve({ detail: 'Validation error' }) })
-      .mockResolvedValueOnce({ ok: true, status: 201, json: () => Promise.resolve({ incident_id: 77 }) });
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve({ incident_ids: [77], failed: [] }) });
 
     const result = await syncPendingIncidents(ENCODER_ID);
 
@@ -205,8 +222,8 @@ describe('syncPendingIncidents', () => {
   it('calls purgeSyncedOps and evictStaleCachedIncidents after syncing', async () => {
     vi.mocked(getPendingOps).mockResolvedValue([makeOp()]);
     fetchSpy.mockResolvedValue({
-      ok: true, status: 201,
-      json: () => Promise.resolve({ incident_id: 5 }),
+      ok: true, status: 200,
+      json: () => Promise.resolve({ incident_ids: [5], failed: [] }),
     });
 
     await syncPendingIncidents(ENCODER_ID);

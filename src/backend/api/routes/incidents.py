@@ -117,6 +117,21 @@ def upload_incident_bundle(
     results: dict[str, list] = {"imported": [], "failed": []}
     i = 0
 
+    # Offline-first idempotency: detect the optional client_id column once. When the
+    # offline sync engine retries a create that already succeeded server-side (network
+    # timeout masked the 201), the duplicate client_id lets us return the existing row
+    # instead of inserting a second incident. See migration 45 + main.py self-heal.
+    client_id_col_exists = (
+        db.execute(
+            text(
+                "SELECT 1 FROM information_schema.columns"
+                " WHERE table_schema='wims' AND table_name='fire_incidents'"
+                " AND column_name='client_id'"
+            )
+        ).fetchone()
+        is not None
+    )
+
     def _safe_int(v: Any, default: int = 0) -> int:
         try:
             return int(v)
@@ -141,6 +156,20 @@ def upload_incident_bundle(
         if not isinstance(sens, dict):
             sens = {}
 
+        # Idempotency: skip insert if an incident with this client_id already exists.
+        item_client_id = (str(item.get("client_id") or "").strip() or None)
+        if item_client_id and client_id_col_exists:
+            existing = db.execute(
+                text(
+                    "SELECT incident_id FROM wims.fire_incidents"
+                    " WHERE client_id = CAST(:cid AS uuid) LIMIT 1"
+                ),
+                {"cid": item_client_id},
+            ).fetchone()
+            if existing:
+                results["imported"].append(int(existing[0]))
+                continue
+
         lon = _safe_float(item.get("longitude"), 0.0)
         lat = _safe_float(item.get("latitude"), 0.0)
 
@@ -159,27 +188,32 @@ def upload_incident_bundle(
             ).fetchone()
             city_id = city_candidate if city_exists else None
 
+        _cid_col = ", client_id" if client_id_col_exists else ""
+        _cid_val = ", CAST(:client_id AS uuid)" if client_id_col_exists else ""
+        inc_params = {
+            "batch_id": batch_id,
+            "uid": user_id,
+            "region_id": region_id,
+            "lon": lon,
+            "lat": lat,
+            "incident_type_code": incident_type_code_val,
+        }
+        if client_id_col_exists:
+            inc_params["client_id"] = item_client_id
         inc_row = db.execute(
             text(
-                """
+                f"""
                 INSERT INTO wims.fire_incidents
                     (import_batch_id, encoder_id, region_id, location, verification_status,
-                     incident_type_code, reference_number)
+                     incident_type_code, reference_number{_cid_col})
                 VALUES
                     (:batch_id, CAST(:uid AS uuid), :region_id,
                      ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
-                     'DRAFT', :incident_type_code, NULL)
+                     'DRAFT', :incident_type_code, NULL{_cid_val})
                 RETURNING incident_id
                 """
             ),
-            {
-                "batch_id": batch_id,
-                "uid": user_id,
-                "region_id": region_id,
-                "lon": lon,
-                "lat": lat,
-                "incident_type_code": incident_type_code_val,
-            },
+            inc_params,
         ).fetchone()
 
         if not inc_row:

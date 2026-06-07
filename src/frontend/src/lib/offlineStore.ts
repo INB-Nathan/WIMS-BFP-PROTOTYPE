@@ -635,4 +635,16 @@ export async function clearCachedIncidents(encoderId: string): Promise<void> {
     }
     await tx.done;
 }
+
+/**
+ * Clear the entire read cache regardless of which encoder keyed it.
+ * Used on logout for shared-device privacy: cached incident PII must not
+ * linger for the next user. Pending offline ops (offlineOps) are deliberately
+ * preserved — they are encrypted and encoder-scoped, so unsynced work survives
+ * a re-login instead of being silently dropped.
+ */
+export async function clearAllCachedIncidents(): Promise<void> {
+    const db = await getDB();
+    await db.clear(CACHE_STORE);
+
 }

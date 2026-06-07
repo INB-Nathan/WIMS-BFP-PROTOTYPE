@@ -2438,3 +2438,25 @@ Updated `src/backend/tests/test_csrf_middleware.py` to match PR #215's removal o
 - Updated the Suricata health check to match the running `Suricata-Main` process.
 - Fixed the production CSP so Next.js inline bootstrap scripts can hydrate the server-rendered loading shell and initialize `/api/auth/session`.
 - Updated `architecture/infrastructure-config.md` and `index.md`; no FRS/codebase gap changed.
+
+## [2026-06-07] feat+fix | Offline-first Regional Encoder workflow — full-fidelity create sync
+
+Documents the offline-first encoder architecture (commits `0c91925`, `4a7f1dc`, `631678b`) and a follow-up correctness fix for offline-created incidents.
+
+**Architecture (PWA + offline encoder):**
+- **PWA:** `public/manifest.webmanifest` + `public/sw.js` (registered via `lib/swRegistration.ts`, called from `LayoutShell.tsx`). SW is cache-first for static assets, network-first-with-shell-fallback for navigations, and skips `/api/` + `/auth/` so the app's offline-aware wrappers own those. Background Sync is delegated to open clients (the page owns auth-token refresh + the create→submit replay); reconnect is detected by `useNetworkStatus` → `useAutoSync`.
+- **Persistence:** `lib/offlineStore.ts` IndexedDB v3 — `offlineOps` (operation queue: create/update/submit/delete with `localId` UUID idempotency key, `linkedLocalId` dependency chain, per-op `syncStatus`), `cachedIncidents` (AES-256-GCM read cache for dashboard/detail offline), legacy `incident-queue` retained. Drafts persist as `syncStatus='draft'` ops (autosave) and surface on the dashboard.
+- **Sync:** `lib/syncEngine.ts` `syncPendingIncidents(encoderId)` refreshes the token, then replays ops oldest-first; marks synced only on server confirmation; aborts the batch on network loss (keeps items queued); 409 → conflict state. `lib/offlineRegional.ts` wraps list/detail reads to fall back to the encrypted cache when offline.
+
+**Critical fix — offline-created incidents no longer lose their detail on sync:**
+- **Bug:** offline `create` ops store the full nested incident shape (`incident_nonsensitive_details` / `incident_sensitive_details`), but `syncEngine` replayed them against the **flat** `POST /api/regional/incidents` (`IncidentCreateRequest`), which only reads scalar columns. Pydantic silently dropped both nested blobs, so a synced offline incident retained only lat/lng/region — losing notification time, classification, casualties, resources, narrative, PII, etc.
+- **Fix:** `processCreate` now replays through the same full-fidelity `POST /api/incidents/upload-bundle` the online form uses (`{ region_id, incidents: [{ ...payload, client_id }] }`) and reads `incident_ids[0]`. Online and offline create paths are now unified.
+- **Idempotency moved to upload-bundle:** `api/routes/incidents.py` `upload_incident_bundle` now detects the `client_id` column once, returns the existing incident on a duplicate `client_id` (retry-after-timeout safe), and persists `client_id` on the `fire_incidents` INSERT. Backed by migration 45 + `main.py` self-heal (`ADD COLUMN IF NOT EXISTS`). The flat `/api/regional/incidents` endpoint is unchanged (still used by the online duplicate-resolution "update request" flow).
+
+**Other fixes:**
+- `public/sw.js`: removed the dead background-sync handler that POSTed to the civilian endpoint (`/api/v1/public/report`) and opened IndexedDB at v1 (now v3 → `VersionError`); bumped cache to v3; added offline navigation fallback to the cached shell.
+- `context/AuthContext.tsx`: logout now purges the local read cache (`clearAllCachedIncidents()`) for shared-device privacy while **preserving** encrypted, encoder-scoped pending ops so unsynced work survives re-login.
+
+**Tests:** `lib/__tests__/syncEngine.test.ts` updated for the bundle endpoint + `incident_ids` response (incl. a new "imports nothing → stays queued" case); `tests/test_upload_bundle_idempotency.py` (new) proves a duplicate `client_id` returns the existing incident with no second INSERT (MagicMock DB, no Docker). Frontend: 162 vitest pass, 0 lint errors, tsc unchanged (13 pre-existing errors). Backend: ruff clean.
+
+**Files:** `src/backend/api/routes/incidents.py`, `src/backend/tests/test_upload_bundle_idempotency.py`, `src/frontend/src/lib/syncEngine.ts`, `src/frontend/src/lib/offlineStore.ts`, `src/frontend/src/lib/__tests__/syncEngine.test.ts`, `src/frontend/public/sw.js`, `src/frontend/src/context/AuthContext.tsx`.

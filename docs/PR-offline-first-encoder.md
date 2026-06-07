@@ -234,9 +234,64 @@ cd src/frontend && npx vitest run
 cd src/frontend && npx tsc --noEmit
 ```
 
+## Follow-up: critical correctness fixes (2026-06-07)
+
+### 🛑 Offline-created incidents were losing all their detail on sync (fixed)
+
+The headline bug. Offline `create` ops store the **full nested** incident object
+(`incident_nonsensitive_details` + `incident_sensitive_details`), but the sync engine
+replayed them against the **flat** `POST /api/regional/incidents` endpoint
+(`IncidentCreateRequest`), which only reads scalar columns. Pydantic silently dropped
+both nested blobs, so an incident an encoder fully filled out offline would sync back
+with **only latitude/longitude/region** — no notification time, classification,
+casualties, resources, narrative, or PII. This directly violated "do not silently drop
+local work."
+
+**Fix:**
+- `syncEngine.ts` `processCreate` now replays through the same full-fidelity
+  `POST /api/incidents/upload-bundle` endpoint the **online** form already uses:
+  `{ region_id, incidents: [{ ...payload, client_id }] }`, reading `incident_ids[0]`.
+  Online and offline create paths are now unified (this also resolves the deferred
+  "online create path consistency" item below).
+- Idempotency moved to the bundle endpoint: `upload_incident_bundle`
+  (`api/routes/incidents.py`) detects the `client_id` column once, returns the existing
+  incident on a duplicate `client_id` (retry-after-timeout safe), and persists
+  `client_id` on the `fire_incidents` INSERT. Migration 45 + the `main.py` self-heal
+  still supply the column. The flat `/api/regional/incidents` endpoint is unchanged —
+  it is still used by the online duplicate-resolution "update request" flow.
+- New backend test `tests/test_upload_bundle_idempotency.py` proves a duplicate
+  `client_id` returns the existing incident with **no** second INSERT (MagicMock DB —
+  no Docker required). `syncEngine.test.ts` updated for the bundle envelope + response
+  shape, plus a new "bundle imports nothing → op stays queued" case.
+
+### Service worker: removed dead/broken background-sync handler
+
+`public/sw.js` was POSTing queued items to the **civilian** endpoint
+(`/api/v1/public/report`) and opening IndexedDB at **v1** while the app is now at v3
+(→ `VersionError` → silent no-op). Replaced with: cache bumped to `v3`, an offline
+**navigation fallback** to the cached app shell, and a `sync` handler that *delegates*
+to open clients (the page owns token refresh + the create→submit replay) instead of
+POSTing directly. Reconnect detection remains app-level (`useNetworkStatus` →
+`useAutoSync`).
+
+### Logout cleanup (shared-device privacy, without dropping work)
+
+`context/AuthContext.tsx` logout now calls `clearAllCachedIncidents()` so cached
+incident PII does not linger for the next user on a shared device. Pending offline ops
+are **intentionally preserved** (encrypted + encoder-scoped) so unsynced work resumes
+on re-login rather than being silently lost — a safer trade-off than clearing the
+crypto key.
+
+### Validation status (2026-06-07)
+
+- Frontend: `npx vitest run` → **162 passed**; `npm run lint` → **0 errors**;
+  `npx tsc --noEmit` → unchanged (13 pre-existing errors, none in offline files).
+- Backend: `ruff check .` → clean; `pytest tests/test_upload_bundle_idempotency.py
+  tests/test_incidents_create_endpoint.py` → **2 passed**.
+
 ## Deferred (Phase 1E+)
 
 - **Conflict resolution UI**: Requires OCC branch (`65-featregional-...`) to be merged. `IncidentConflictMergePanel` already exists; needs to be wired to `syncStatus === 'conflict'` ops from the `offlineOps` store.
 - **AFOR import offline block**: Graceful "requires internet connection" message when encoder tries to upload while offline.
-- **Crypto key rotation on logout**: `clearCryptoKey()` should be called on session end so cached incidents from one encoder are not readable by the next user on the same device.
-- **Online create path in `IncidentForm`**: Still routes through `edgeFunctions.uploadBundle()`. Should use `createRegionalIncident()` for consistency with the offline path.
+- **Crypto key rotation on logout**: `clearCryptoKey()` is intentionally **not** called on logout (it would orphan encrypted pending ops). The read cache is cleared instead. Full key rotation needs a flow that first drains/migrates any pending ops for the outgoing encoder.
+- ~~**Online create path in `IncidentForm`**~~: ✅ Resolved — online and offline create now share `POST /api/incidents/upload-bundle` (see follow-up fixes above).

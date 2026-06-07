@@ -12,6 +12,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { createUserManager } from '@/lib/oidc';
 import { refreshToken } from '@/lib/auth-refresh';
+import { clearAllCachedIncidents } from '@/lib/offlineStore';
 
 export interface User {
   id: string;
@@ -158,6 +159,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoggingOut(true);
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
+
+      // Shared-device privacy: purge the local read cache so cached incident PII
+      // does not linger for the next user. Pending offline ops are intentionally
+      // preserved so unsynced work is not dropped — it resumes on re-login.
+      try {
+        await clearAllCachedIncidents();
+      } catch {
+        /* IndexedDB unavailable (e.g. private mode) — non-fatal for logout */
+      }
 
       const userManager = createUserManager();
       const currentUser = await userManager.getUser();

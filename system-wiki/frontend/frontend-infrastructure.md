@@ -341,7 +341,14 @@ Compares a PENDING update request (parent_incident_id) against the original VERI
 | K — Recommendations | Textarea |
 | L — Disposition | Textarea + Prepared by / Noted by |
 
-Key behaviors: `formState` with ~90 fields. Encoder region lock on mount. Duplicate detection modal via `DuplicateIncidentModal`. Reference number preview via `useMemo`. Imports offline queue functions (`queueIncident`, `getPendingIncidents`, `markSynced`).
+Key behaviors: `formState` with ~90 fields. Encoder region lock on mount. Duplicate detection modal via `DuplicateIncidentModal`. Reference number preview via `useMemo`. Autosaves drafts to IndexedDB (`saveDraftOp`, `syncStatus='draft'`) with a `localStorage` fallback for private mode. When `navigator.onLine` is false (or a request fails mid-flight), create/update/submit are queued as `offlineOps` (`queueOfflineOp`) with a "Saved locally — will sync when connection is restored" toast; the offline `create` op stores the **full nested incident** so no detail is lost on sync.
+
+#### Offline-first encoder sync
+
+- **Persistence (`lib/offlineStore.ts`, IndexedDB v3):** `offlineOps` (operation queue — create/update/submit/delete, each with a `localId` UUID idempotency key, `linkedLocalId` dependency chain, and per-op `syncStatus`: draft/pending/syncing/synced/conflict/error) and `cachedIncidents` (AES-256-GCM read cache so the dashboard/detail render offline). `clearAllCachedIncidents()` is called on logout for shared-device privacy; pending ops are preserved.
+- **Reads (`lib/api/offlineRegional.ts`):** `fetchRegionalIncidents*OfflineAware` wrappers cache every successful response and fall back to the encrypted cache when offline (`fromCache: true` → amber "showing cached data" banner).
+- **Sync (`lib/syncEngine.ts`):** `syncPendingIncidents(encoderId)` refreshes the token, then replays ops **oldest-first** (sequential, so a create resolves its `serverId` before its linked submit). `create` ops replay through the same full-fidelity `POST /api/incidents/upload-bundle` the online form uses (not the flat `/api/regional/incidents`), tagged with `client_id` for retry-safe idempotency. Ops are marked synced only on server confirmation; a network error aborts the batch and leaves items queued; 409 → `conflict` state.
+- **Reconnect (`lib/useAutoSync.ts` + `useNetworkStatus`):** detects reconnection, toasts the user, and syncs after a short debounce. If token refresh fails (`abortReason: 'auth'`), it prompts re-login and **keeps** the queue intact.
 
 ### `MapPickerInner.tsx`
 
