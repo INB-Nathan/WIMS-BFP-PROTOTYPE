@@ -2460,3 +2460,19 @@ Documents the offline-first encoder architecture (commits `0c91925`, `4a7f1dc`, 
 **Tests:** `lib/__tests__/syncEngine.test.ts` updated for the bundle endpoint + `incident_ids` response (incl. a new "imports nothing → stays queued" case); `tests/test_upload_bundle_idempotency.py` (new) proves a duplicate `client_id` returns the existing incident with no second INSERT (MagicMock DB, no Docker). Frontend: 162 vitest pass, 0 lint errors, tsc unchanged (13 pre-existing errors). Backend: ruff clean.
 
 **Files:** `src/backend/api/routes/incidents.py`, `src/backend/tests/test_upload_bundle_idempotency.py`, `src/frontend/src/lib/syncEngine.ts`, `src/frontend/src/lib/offlineStore.ts`, `src/frontend/src/lib/__tests__/syncEngine.test.ts`, `src/frontend/public/sw.js`, `src/frontend/src/context/AuthContext.tsx`.
+
+
+## [2026-06-07] rebase+fix | feat/offline-first-encoder rebased onto origin/master (route decomposition #204)
+
+Rebased the 4 offline-first commits onto current `origin/master`. Conflicts resolved:
+- **`api/routes/regional.py` (modify/delete):** master's #204 decomposed the monolith into a `regional/` package. The offline `client_id` create idempotency was **ported into `regional/encoder_crud.py`** `create_incident` (return-existing-on-duplicate + conditional `client_id` INSERT). Old `regional.py` removed; no stale imports remain (`router.include_router(encoder_crud.router)` in `regional/__init__.py`).
+- **`main.py` (content):** kept **both** startup schema patches — master's RLS-helpers `SECURITY DEFINER` patch and the offline `client_id` column + unique-index self-heal (each with its own `db.rollback()` on failure).
+- **`incidents/[id]/page.tsx` (content):** kept master's OCC `loadedUpdatedAtRef` tracking **and** the offline cache-banner state (`setIsFromCache`/`setCachedAt`).
+- **`IncidentForm.tsx` (content):** update-path catch now checks the OCC 409 `onConflict` merge path **first**, then falls back to the offline network-error queue.
+- **`log.md` (content):** kept both 2026-06-07 entries (#168 admin filters + offline-first).
+
+**Post-rebase regression fix (`fix(offline): resolve master rebase regressions`):**
+- **Auth-refresh boolean bug (`context/AuthContext.tsx`, `lib/auth.tsx`):** `refreshToken()` returns a typed `RefreshResult` (`{ ok, reason }`); both `refreshAccessToken` wrappers assigned/returned it where a `boolean` was expected. An object is always truthy, so a **failed** refresh was treated as success (and it broke `tsc`/`next build`). Mapped to `.ok`. This was a latent bug on the branch surfaced by the required build gate, not new from the rebase.
+- **`offline-network-logs.har` removed** — 4.5 MB / ~89k-line network capture accidentally committed in `4a7f1dc`; untracked via normal `git rm` (no history rewrite).
+
+**Validation:** backend `ruff check .` clean; `pytest tests/test_upload_bundle_idempotency.py tests/test_incidents_create_endpoint.py` 2 passed; route import smoke OK. Frontend `npm run lint` 0 errors; `npx vitest run` **169 passed** (24 files); `npx tsc --noEmit` only 4 pre-existing test/mock errors (production files clean after the fix); `npm run build` succeeds. Full `pytest -v` and integration suite require the Docker stack (Redis/Postgres) — not run here.

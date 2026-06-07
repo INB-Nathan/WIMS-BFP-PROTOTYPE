@@ -50,7 +50,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (refreshInFlightRef.current) {
       return refreshInFlightRef.current;
     }
-    const promise = refreshToken();
+    // refreshToken() returns a typed RefreshResult ({ ok, reason }); collapse it to a
+    // boolean for callers. Without the `.ok` map the object is always truthy, so a
+    // failed refresh would be treated as success.
+    const promise = refreshToken().then((r) => r.ok);
     refreshInFlightRef.current = promise;
     const result = await promise;
     refreshInFlightRef.current = null;

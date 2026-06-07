@@ -61,3 +61,6 @@ system-wiki/.obsidian/
 .obsidian/
 .hermes/
 .antigravitycli/
+
+# Network capture artifacts (never commit — large/noisy/sensitive)
+*.har
