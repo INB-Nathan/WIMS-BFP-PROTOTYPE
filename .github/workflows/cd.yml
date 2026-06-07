@@ -55,20 +55,6 @@ jobs:
             type=sha,prefix=
             type=raw,value=latest
 
-      # -------------------------------------------------------------------------
-      # Build args
-      # NOTE: These are PLACEHOLDERS. Update before production deployment.
-      # See: https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/TBD
-      # -------------------------------------------------------------------------
-      - name: Set placeholder envs (frontend only)
-        if: matrix.image == 'wims-frontend'
-        run: |
-          echo "NEXT_PUBLIC_AUTH_API_URL=http://localhost/auth" >> $GITHUB_ENV
-          echo "NEXT_PUBLIC_BASE_URL=http://localhost:3000" >> $GITHUB_ENV
-          echo "NEXT_PUBLIC_API_URL=http://localhost:8000" >> $GITHUB_ENV
-          echo "NEXT_PUBLIC_OIDC_CLIENT_ID=wims-web" >> $GITHUB_ENV
-          echo "NEXT_PUBLIC_OIDC_REDIRECT_URI=http://localhost:3000/callback" >> $GITHUB_ENV
-
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
@@ -79,11 +65,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            NEXT_PUBLIC_AUTH_API_URL=${{ vars.NEXT_PUBLIC_AUTH_API_URL || 'http://localhost/auth' }}
-            NEXT_PUBLIC_BASE_URL=${{ vars.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000' }}
-            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || 'http://localhost:8000' }}
-            NEXT_PUBLIC_OIDC_CLIENT_ID=${{ vars.NEXT_PUBLIC_OIDC_CLIENT_ID || 'wims-web' }}
-            NEXT_PUBLIC_OIDC_REDIRECT_URI=${{ vars.NEXT_PUBLIC_OIDC_REDIRECT_URI || 'http://localhost:3000/callback' }}
+            NEXT_PUBLIC_AUTH_API_URL=${{ vars.NEXT_PUBLIC_AUTH_API_URL || 'https://wimsbfp.tech/auth' }}
+            NEXT_PUBLIC_BASE_URL=${{ vars.NEXT_PUBLIC_BASE_URL || 'https://wimsbfp.tech' }}
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || 'https://wimsbfp.tech/api' }}
+            NEXT_PUBLIC_OIDC_REDIRECT_URI=${{ vars.NEXT_PUBLIC_OIDC_REDIRECT_URI || 'https://wimsbfp.tech/callback' }}
+            NEXT_PUBLIC_OIDC_AUTHORITY=${{ vars.NEXT_PUBLIC_OIDC_AUTHORITY || 'https://wimsbfp.tech/auth/realms/bfp-realm' }}
 
   # ===========================================================================
   # NOTIFY — build summary
