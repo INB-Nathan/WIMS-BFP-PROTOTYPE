@@ -1483,6 +1483,32 @@ export default function ReportPage() {
         </div>
       </div>
 
+      {/* ── Consent Notice & Footer ──────────────────────────────────── */}
+      <div className="max-w-lg mx-auto px-4 pb-4">
+        <p className="text-xs leading-relaxed text-center" style={{ color: 'var(--text-secondary)' }}>
+          By submitting a fire report, you consent to the collection, processing, and
+          retention of your personal data under our{' '}
+          <Link
+            href="/privacy"
+            className="underline underline-offset-2 font-medium"
+            style={{ color: 'var(--bfp-maroon-dark)' }}
+          >
+            Data Retention Policy
+          </Link>
+          . Submission implies agreement — no separate checkbox required.
+        </p>
+        <p className="text-[0.675rem] text-center mt-3" style={{ color: 'var(--text-muted)' }}>
+          WIMS-BFP · Bureau of Fire Protection ·{' '}
+          <Link
+            href="/privacy"
+            className="underline underline-offset-2"
+            style={{ color: 'var(--bfp-maroon-dark)' }}
+          >
+            Privacy Policy
+          </Link>
+        </p>
+      </div>
+
       {showGpsMismatch && (
         <GpsMismatchModal
           pinDist={gpsMismatchDist}
