@@ -1,27 +1,19 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { Wifi, WifiOff } from 'lucide-react';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
 
 export function NetworkStatusIndicator() {
-    const [isOnline, setIsOnline] = useState(true);
+    const { isOnline, isChecking } = useNetworkStatus();
 
-    useEffect(() => {
-        // Initial check
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setIsOnline(navigator.onLine);
-
-        const handleOnline = () => setIsOnline(true);
-        const handleOffline = () => setIsOnline(false);
-
-        window.addEventListener('online', handleOnline);
-        window.addEventListener('offline', handleOffline);
-
-        return () => {
-            window.removeEventListener('online', handleOnline);
-            window.removeEventListener('offline', handleOffline);
-        };
-    }, []);
+    if (isChecking) {
+        return (
+            <div className="flex items-center gap-2 text-slate-600 text-sm font-medium">
+                <Wifi className="w-4 h-4" />
+                <span>Checking</span>
+            </div>
+        );
+    }
 
     if (isOnline) {
         return (

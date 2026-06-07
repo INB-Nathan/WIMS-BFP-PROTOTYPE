@@ -19,6 +19,7 @@ import {
   getCachedIncidents,
   getCachedIncident,
 } from '../offlineStore';
+import { getConnectivitySnapshot, isReachable, markConnectivityOffline } from '../connectivity';
 
 // navigator.onLine can be true during a flaky / just-dropped connection.
 // Treat TypeError ("Failed to fetch") and any status-0 / ERR_INTERNET_* errors
@@ -62,7 +63,7 @@ export async function fetchRegionalIncidentsOfflineAware(
   params: RegionalIncidentsQueryParams | undefined,
   encoderId: string,
 ): Promise<OfflineAwareListResult> {
-  const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+  const isOffline = !getConnectivitySnapshot().isOnline;
 
   if (isOffline) {
     const cached = await getCachedIncidents(encoderId);
@@ -104,6 +105,7 @@ export async function fetchRegionalIncidentsOfflineAware(
     return { response, fromCache: false };
   } catch (err) {
     if (isNetworkError(err)) {
+      markConnectivityOffline();
       // Connection dropped after the online check — fall back to IndexedDB cache.
       const cached = await getCachedIncidents(encoderId);
       const items = cached.map((c) => c.data as unknown as RegionalIncidentListItem);
@@ -127,7 +129,7 @@ export async function fetchRegionalIncidentOfflineAware(
   incidentId: number,
   encoderId: string,
 ): Promise<OfflineAwareDetailResult> {
-  const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+  const isOffline = !getConnectivitySnapshot().isOnline || !(await isReachable());
 
   if (isOffline) {
     const cached = await getCachedIncident(incidentId);
@@ -149,6 +151,7 @@ export async function fetchRegionalIncidentOfflineAware(
     return { response, fromCache: false };
   } catch (err) {
     if (isNetworkError(err)) {
+      markConnectivityOffline();
       // Connection dropped mid-request — serve from cache if available.
       const cached = await getCachedIncident(incidentId);
       if (cached) {
@@ -158,6 +161,9 @@ export async function fetchRegionalIncidentOfflineAware(
           cachedAt: cached.cachedAt,
         };
       }
+      throw new Error(
+        'This incident is not saved on this device. Reconnect to load it.',
+      );
     }
     throw err;
   }

@@ -26,6 +26,11 @@ import {
   offsetFromPage,
   totalRegionalPages,
 } from './regional-incidents';
+import { refreshToken } from './auth-refresh';
+
+vi.mock('./auth-refresh', () => ({
+  refreshToken: vi.fn(),
+}));
 
 describe('apiFetch content-type handling', () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
@@ -33,9 +38,11 @@ describe('apiFetch content-type handling', () => {
   beforeEach(() => {
     fetchSpy = vi.fn().mockResolvedValue({
       ok: true,
+      status: 200,
       json: () => Promise.resolve({ status: 'ok' }),
     });
     vi.stubGlobal('fetch', fetchSpy);
+    vi.mocked(refreshToken).mockResolvedValue({ ok: true });
   });
 
   afterEach(() => {
@@ -65,6 +72,22 @@ describe('apiFetch content-type handling', () => {
     const [, options] = fetchSpy.mock.calls[0];
     const headers = new Headers(options?.headers as HeadersInit | undefined);
     expect(headers.has('Content-Type')).toBe(false);
+  });
+
+  it('does not retry a 401 request when refreshToken returns ok=false', async () => {
+    vi.mocked(refreshToken).mockResolvedValue({ ok: false, reason: 'auth' });
+    fetchSpy.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: () => Promise.resolve({ detail: 'expired' }),
+    });
+
+    await expect(
+      apiFetch('/regional/incidents', { skipAuthRedirect: true }),
+    ).rejects.toThrow(/session expired/i);
+
+    expect(refreshToken).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -72,7 +72,7 @@ export async function apiFetch<T>(
   if (res.status === 401 && !_retried) {
     try {
       const refreshed = await refreshToken();
-      if (refreshed) {
+      if (refreshed.ok) {
         return apiFetch<T>(path, { ...options, _retried: true });
       }
     } catch { /* ignore, fall through to throw */ }

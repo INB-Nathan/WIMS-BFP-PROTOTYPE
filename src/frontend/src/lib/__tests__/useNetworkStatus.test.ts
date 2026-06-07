@@ -2,21 +2,23 @@
  * useNetworkStatus tests — network state detection (3A).
  *
  * Expected behavior:
- * - Returns isOnline from navigator.onLine
- * - Listens to window 'online' and 'offline' events
+ * - Treats browser online as a hint and verifies with /health
+ * - Stays offline when focus/visibility changes but the probe fails
  * - Exposes isReconnecting state (true when transitioning offline->online)
- * - isReconnecting resets to false after a short delay
  * - Cleanup: removes event listeners on unmount
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useNetworkStatus } from '../useNetworkStatus';
+import { __resetConnectivityForTests } from '../connectivity';
 
 // Save original
 const originalNavigator = globalThis.navigator;
 
 beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
+  __resetConnectivityForTests('checking');
   // Default: online
   Object.defineProperty(globalThis, 'navigator', {
     value: { onLine: true },
@@ -26,6 +28,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  __resetConnectivityForTests('checking');
   Object.defineProperty(globalThis, 'navigator', {
     value: originalNavigator,
     writable: true,
@@ -35,12 +38,16 @@ afterEach(() => {
 });
 
 describe('useNetworkStatus', () => {
-  it('returns isOnline=true when navigator.onLine is true', () => {
+  it('switches online only after the reachability probe succeeds', async () => {
     const { result } = renderHook(() => useNetworkStatus());
-    expect(result.current.isOnline).toBe(true);
+    await waitFor(() => {
+      expect(result.current.isOnline).toBe(true);
+      expect(result.current.state).toBe('online');
+    });
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/health'), expect.any(Object));
   });
 
-  it('returns isOnline=false when navigator.onLine is false', () => {
+  it('returns isOnline=false when navigator.onLine is false', async () => {
     Object.defineProperty(globalThis, 'navigator', {
       value: { onLine: false },
       writable: true,
@@ -48,12 +55,15 @@ describe('useNetworkStatus', () => {
     });
 
     const { result } = renderHook(() => useNetworkStatus());
-    expect(result.current.isOnline).toBe(false);
+    await waitFor(() => {
+      expect(result.current.isOnline).toBe(false);
+      expect(result.current.state).toBe('offline');
+    });
   });
 
-  it('sets isOnline=false when window fires offline event', () => {
+  it('sets isOnline=false when window fires offline event', async () => {
     const { result } = renderHook(() => useNetworkStatus());
-    expect(result.current.isOnline).toBe(true);
+    await waitFor(() => expect(result.current.isOnline).toBe(true));
 
     act(() => {
       window.dispatchEvent(new Event('offline'));
@@ -62,7 +72,8 @@ describe('useNetworkStatus', () => {
     expect(result.current.isOnline).toBe(false);
   });
 
-  it('sets isOnline=true when window fires online event', () => {
+  it('remains offline after online/focus hints when the probe fails', async () => {
+    vi.mocked(fetch).mockRejectedValue(new TypeError('Failed to fetch'));
     Object.defineProperty(globalThis, 'navigator', {
       value: { onLine: false },
       writable: true,
@@ -70,6 +81,61 @@ describe('useNetworkStatus', () => {
     });
 
     const { result } = renderHook(() => useNetworkStatus());
+    await waitFor(() => expect(result.current.isOnline).toBe(false));
+
+    act(() => {
+      Object.defineProperty(globalThis, 'navigator', {
+        value: { onLine: true },
+        writable: true,
+        configurable: true,
+      });
+      window.dispatchEvent(new Event('online'));
+      window.dispatchEvent(new Event('focus'));
+    });
+
+    await waitFor(() => {
+      expect(result.current.isOnline).toBe(false);
+      expect(result.current.state).toBe('offline');
+    });
+  });
+
+  it('sets isReconnecting=true after verified offline-to-online recovery', async () => {
+    Object.defineProperty(globalThis, 'navigator', {
+      value: { onLine: false },
+      writable: true,
+      configurable: true,
+    });
+
+    const { result } = renderHook(() => useNetworkStatus());
+    await waitFor(() => expect(result.current.isOnline).toBe(false));
+
+    act(() => {
+      Object.defineProperty(globalThis, 'navigator', {
+        value: { onLine: true },
+        writable: true,
+        configurable: true,
+      });
+      window.dispatchEvent(new Event('online'));
+    });
+
+    await waitFor(() => {
+      expect(result.current.isReconnecting).toBe(true);
+      expect(result.current.state).toBe('reconnecting');
+    });
+  });
+
+  it('rechecks after reconnecting and settles online after timeout', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(globalThis, 'navigator', {
+      value: { onLine: false },
+      writable: true,
+      configurable: true,
+    });
+
+    const { result } = renderHook(() => useNetworkStatus());
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(result.current.isOnline).toBe(false);
 
     act(() => {
@@ -81,63 +147,23 @@ describe('useNetworkStatus', () => {
       window.dispatchEvent(new Event('online'));
     });
 
-    expect(result.current.isOnline).toBe(true);
-  });
-
-  it('sets isReconnecting=true when transitioning from offline to online', () => {
-    Object.defineProperty(globalThis, 'navigator', {
-      value: { onLine: false },
-      writable: true,
-      configurable: true,
+    await act(async () => {
+      await Promise.resolve();
     });
-
-    const { result } = renderHook(() => useNetworkStatus());
-    expect(result.current.isReconnecting).toBe(false);
-
-    act(() => {
-      Object.defineProperty(globalThis, 'navigator', {
-        value: { onLine: true },
-        writable: true,
-        configurable: true,
-      });
-      window.dispatchEvent(new Event('online'));
-    });
-
-    expect(result.current.isReconnecting).toBe(true);
-  });
-
-  it('isReconnecting resets to false after timeout', async () => {
-    vi.useFakeTimers();
-    Object.defineProperty(globalThis, 'navigator', {
-      value: { onLine: false },
-      writable: true,
-      configurable: true,
-    });
-
-    const { result } = renderHook(() => useNetworkStatus());
-
-    act(() => {
-      Object.defineProperty(globalThis, 'navigator', {
-        value: { onLine: true },
-        writable: true,
-        configurable: true,
-      });
-      window.dispatchEvent(new Event('online'));
-    });
-
     expect(result.current.isReconnecting).toBe(true);
 
-    act(() => {
+    await act(async () => {
       vi.advanceTimersByTime(3000);
+      await Promise.resolve();
     });
 
-    expect(result.current.isReconnecting).toBe(false);
+    expect(result.current.state).toBe('online');
     vi.useRealTimers();
   });
 
-  it('does NOT set isReconnecting when already online (online event while already online)', () => {
+  it('does NOT set isReconnecting when already online (online event while already online)', async () => {
     const { result } = renderHook(() => useNetworkStatus());
-    expect(result.current.isOnline).toBe(true);
+    await waitFor(() => expect(result.current.isOnline).toBe(true));
     expect(result.current.isReconnecting).toBe(false);
 
     act(() => {
@@ -155,10 +181,12 @@ describe('useNetworkStatus', () => {
 
     expect(addSpy).toHaveBeenCalledWith('online', expect.any(Function));
     expect(addSpy).toHaveBeenCalledWith('offline', expect.any(Function));
+    expect(addSpy).toHaveBeenCalledWith('focus', expect.any(Function));
 
     unmount();
 
     expect(removeSpy).toHaveBeenCalledWith('online', expect.any(Function));
     expect(removeSpy).toHaveBeenCalledWith('offline', expect.any(Function));
+    expect(removeSpy).toHaveBeenCalledWith('focus', expect.any(Function));
   });
 });

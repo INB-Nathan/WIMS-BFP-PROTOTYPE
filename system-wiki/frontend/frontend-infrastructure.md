@@ -364,6 +364,12 @@ Sync status UI (FR-3E). Displays: Offline (amber), Reconnecting (blue), Syncing 
 
 Simple online/offline indicator using `navigator.onLine` + browser events.
 
+### Current Offline Stabilization (2026-06-07)
+
+Regional Encoder offline decisions now use verified app reachability rather than raw browser online state. `lib/connectivity.ts` centralizes `checking/offline/reconnecting/online` status, treats browser `online/offline`, focus, and visibility events as hints, and only marks the app online after a same-origin `/health` probe succeeds. Manual incident save/submit, AFOR import, offline reads, sync, `SyncStatusBar`, and `NetworkStatusIndicator` use this shared state; fetch network failures call `markConnectivityOffline()`.
+
+`apiFetch()` now treats `refreshToken()` as successful only when `result.ok === true`, preventing failed refresh results from being retried as authenticated requests. `useAutoSync()` suppresses repeated auth-expired toasts, retries once after re-login/session restore when pending ops exist, and listens for service-worker `run-sync` messages. `public/sw.js` cache `v4` falls back to cached app shell or friendly offline HTML for navigations instead of returning `Response.error()`.
+
 ### `analytics/AnalystIncidentList.tsx`
 
 Paginated incident table for analyst dashboard with column visibility, row selection across pagination, and "Analyze selected" workflow transfer.

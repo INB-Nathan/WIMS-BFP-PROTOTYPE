@@ -31,6 +31,7 @@ import {
   ProblemsChecklistSection,
 } from './IncidentFormSections';
 import { SectionDotNav, type SectionDotNavLink } from '@/components/SectionDotNav';
+import { isReachable, markConnectivityOffline } from '@/lib/connectivity';
 
 const MapPicker = dynamic(
   () => import('./MapPicker').then((m) => m.MapPicker),
@@ -1217,7 +1218,7 @@ export function IncidentForm({
     const payload = { region_id: effectiveRegionId, incidents: [incident] };
 
     try {
-      if (navigator.onLine) {
+      if (await isReachable()) {
         const res = await edgeFunctions.uploadBundle(payload);
         const incidentId = res.incident_ids[0];
         if (!incidentId) throw new Error('Upload succeeded but no incident ID was returned.');
@@ -1289,7 +1290,9 @@ export function IncidentForm({
           `Your assigned region '${assignedRegionName}' does not match the incident's region.\nError code: REGION_MISMATCH`
         );
       } else if (isNetworkError(err)) {
-        // navigator.onLine was true but the request failed mid-flight (flaky connection).
+        markConnectivityOffline();
+        // The request failed mid-flight (flaky connection). Treat the app as
+        // offline and queue the work so the encoder does not lose it.
         // Fall back to the offline queue so the encoder doesn't lose their work.
         const opLocalId = draftLocalId.current ?? crypto.randomUUID();
         await queueOfflineOp({

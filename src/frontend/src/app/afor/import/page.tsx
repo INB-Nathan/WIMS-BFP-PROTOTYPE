@@ -27,6 +27,8 @@ import { useUserProfile } from '@/lib/auth';
 import { queueOfflineOp } from '@/lib/offlineStore';
 import { PH_REGIONS } from '@/lib/ph-regions';
 import { searchGeocode } from '@/lib/geocode';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import { markConnectivityOffline } from '@/lib/connectivity';
 
 const AFOR_IMPORT_NAV_LINKS: readonly SectionDotNavLink[] = [
   { id: 'afor-import-upload', label: 'Upload' },
@@ -445,6 +447,7 @@ function AforImportPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, assignedRegionId } = useUserProfile();
+  const { isOnline } = useNetworkStatus();
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
@@ -455,7 +458,7 @@ function AforImportPage() {
   const [commitLatStr, setCommitLatStr] = useState('');
   const [commitLngStr, setCommitLngStr] = useState('');
   const [committedIds, setCommittedIds] = useState<number[]>([]);
-  const [isOffline, setIsOffline] = useState(false);
+  const isOffline = !isOnline;
   const [isSubmittingAll, setIsSubmittingAll] = useState(false);
   const geocodeTriggered = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -548,18 +551,6 @@ function AforImportPage() {
     }
   }, [searchParams]);
 
-  useEffect(() => {
-    setIsOffline(!navigator.onLine);
-    const handleOnline  = () => setIsOffline(false);
-    const handleOffline = () => setIsOffline(true);
-    window.addEventListener('online',  handleOnline);
-    window.addEventListener('offline', handleOffline);
-    return () => {
-      window.removeEventListener('online',  handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
-
   const handleFileDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();
@@ -625,6 +616,7 @@ function AforImportPage() {
       const msg = isNetworkError(err)
         ? 'Connection lost. File upload requires an internet connection — reconnect and try again.'
         : (err as { message?: string }).message || 'Failed to upload and parse the file.';
+      if (isNetworkError(err)) markConnectivityOffline();
       setError(msg);
       // On any import error (including region mismatch) clear the file so the user
       // can pick a new one without the HTML input blocking re-selection.
@@ -680,8 +672,8 @@ function AforImportPage() {
       return;
     }
 
-    // Offline check: if navigator.onLine is false, queue rows locally.
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    // Offline check: use verified app reachability, not navigator.onLine.
+    if (isOffline) {
       if (previewData.form_kind === 'WILDLAND_AFOR') {
         setError('Wildland AFOR commit requires an internet connection. Reconnect and try again.');
         return;
@@ -729,6 +721,7 @@ function AforImportPage() {
       }
     } catch (err: unknown) {
       if (isNetworkError(err) && previewData.form_kind !== 'WILDLAND_AFOR') {
+        markConnectivityOffline();
         const queued = await queueAforRowsOffline(validRows, commitLat, commitLng);
         setIsCommitting(false);
         if (queued > 0) {
@@ -741,6 +734,7 @@ function AforImportPage() {
       const errMsg = isNetworkError(err)
         ? 'Connection lost. Reconnect and try again (wildland AFOR cannot be queued offline).'
         : (err as { message?: string }).message || 'Failed to commit the imported data.';
+      if (isNetworkError(err)) markConnectivityOffline();
       setError(errMsg);
       setIsCommitting(false);
     }

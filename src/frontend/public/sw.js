@@ -9,9 +9,20 @@
  *   it delegates to the page rather than POSTing directly.
  */
 
-const CACHE_NAME = 'wims-bfp-cache-v3';
+const CACHE_NAME = 'wims-bfp-cache-v4';
 const SYNC_TAG = 'sync-pending-incidents';
 const APP_SHELL = '/dashboard';
+const OFFLINE_HTML = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WIMS-BFP Offline</title></head>
+<body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#f8fafc;color:#0f172a">
+<main style="max-width:560px;margin:12vh auto;padding:24px">
+<h1 style="font-size:24px;margin:0 0 12px">Offline content unavailable</h1>
+<p style="line-height:1.6">This page or incident is not saved on this device. Reconnect to load it, or return to a dashboard you opened earlier.</p>
+<a href="/dashboard" style="display:inline-block;margin-top:12px;color:#b91c1c;font-weight:700">Go to dashboard</a>
+</main>
+</body>
+</html>`;
 
 const urlsToCache = [
   '/',
@@ -63,22 +74,51 @@ self.addEventListener('fetch', (event) => {
   // offline so the encoder still lands on a usable page instead of a browser error.
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(async () => {
+      fetch(request).then(async (response) => {
+        const cache = await caches.open(CACHE_NAME);
+        if (response.ok && request.method === 'GET') {
+          cache.put(request, response.clone());
+        }
+        return response;
+      }).catch(async () => {
         const cache = await caches.open(CACHE_NAME);
         return (
           (await cache.match(request)) ||
           (await cache.match(APP_SHELL)) ||
           (await cache.match('/')) ||
-          Response.error()
+          new Response(OFFLINE_HTML, {
+            status: 200,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          })
         );
       })
     );
     return;
   }
 
-  // Static assets: cache-first.
+  // Static assets: cache-first, then store successful same-origin GETs for later
+  // offline navigations to already-visited Next.js pages.
   event.respondWith(
-    caches.match(request).then((response) => response || fetch(request))
+    caches.match(request).then((response) => {
+      if (response) return response;
+      return fetch(request).then(async (networkResponse) => {
+        const requestUrl = new URL(request.url);
+        if (
+          request.method === 'GET' &&
+          networkResponse.ok &&
+          requestUrl.origin === self.location.origin &&
+          (requestUrl.pathname.startsWith('/_next/static/') ||
+            request.destination === 'script' ||
+            request.destination === 'style' ||
+            request.destination === 'image' ||
+            request.destination === 'font')
+        ) {
+          const cache = await caches.open(CACHE_NAME);
+          cache.put(request, networkResponse.clone());
+        }
+        return networkResponse;
+      });
+    })
   );
 });
 

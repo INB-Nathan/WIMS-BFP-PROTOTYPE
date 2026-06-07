@@ -1,59 +1,73 @@
 /**
- * useNetworkStatus — network state detection hook (FR-3A).
+ * useNetworkStatus — verified network state detection hook (FR-3A).
  *
- * Wraps navigator.onLine + window online/offline events.
- * Exposes isReconnecting flag for auto-sync triggering.
+ * Browser online/offline events are hints only. The app remains offline until a
+ * same-origin /health probe succeeds, which prevents tab changes from falsely
+ * flipping the indicator back to online.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
+import {
+  getConnectivitySnapshot,
+  markConnectivityOffline,
+  probeConnectivity,
+  subscribeConnectivity,
+  type ConnectivityState,
+} from './connectivity';
 
 export interface NetworkStatus {
+  state: ConnectivityState;
   isOnline: boolean;
+  isChecking: boolean;
   isReconnecting: boolean;
+  lastCheckedAt: number | null;
 }
 
 export function useNetworkStatus(): NetworkStatus {
-  const [isOnline, setIsOnline] = useState(
-    typeof navigator !== 'undefined' ? navigator.onLine : true
+  const status = useSyncExternalStore(
+    subscribeConnectivity,
+    getConnectivitySnapshot,
+    getConnectivitySnapshot,
   );
-  const [isReconnecting, setIsReconnecting] = useState(false);
-  const wasOffline = useRef(!isOnline);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const handleOnline = useCallback(() => {
-    setIsOnline(true);
-    if (wasOffline.current) {
-      setIsReconnecting(true);
-      // Reset reconnecting state after 3s
-      reconnectTimer.current = setTimeout(() => {
-        setIsReconnecting(false);
-      }, 3000);
-      wasOffline.current = false;
-    }
-  }, []);
-
-  const handleOffline = useCallback(() => {
-    setIsOnline(false);
-    wasOffline.current = true;
-    // Clear any pending reconnect timer
-    if (reconnectTimer.current) {
-      clearTimeout(reconnectTimer.current);
-    }
-    setIsReconnecting(false);
-  }, []);
 
   useEffect(() => {
-    window.addEventListener('online', handleOnline);
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const verifyOnlineHint = () => {
+      void probeConnectivity().then((result) => {
+        if (result.state === 'reconnecting') {
+          if (reconnectTimer) clearTimeout(reconnectTimer);
+          reconnectTimer = setTimeout(() => {
+            void probeConnectivity();
+          }, 3000);
+        }
+      });
+    };
+
+    const handleOffline = () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      markConnectivityOffline();
+    };
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') verifyOnlineHint();
+    };
+
+    window.addEventListener('online', verifyOnlineHint);
     window.addEventListener('offline', handleOffline);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+    verifyOnlineHint();
 
     return () => {
-      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('online', verifyOnlineHint);
       window.removeEventListener('offline', handleOffline);
-      if (reconnectTimer.current) {
-        clearTimeout(reconnectTimer.current);
-      }
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
     };
-  }, [handleOnline, handleOffline]);
+  }, []);
 
-  return { isOnline, isReconnecting };
+  return status;
 }

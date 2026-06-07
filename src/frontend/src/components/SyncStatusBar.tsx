@@ -14,7 +14,22 @@ import { useNetworkStatus } from '@/lib/useNetworkStatus';
 
 export function SyncStatusBar() {
   const { syncing, lastSyncedAt, pendingCount, conflictCount, authFailed, syncNow } = useAutoSync();
-  const { isOnline, isReconnecting } = useNetworkStatus();
+  const { isOnline, isChecking, isReconnecting } = useNetworkStatus();
+
+  if (isChecking) {
+    return (
+      <div
+        className="flex items-center gap-2 rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+        role="status"
+      >
+        <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-slate-500" />
+        <span>Checking connection...</span>
+        {pendingCount > 0 && (
+          <span className="ml-auto font-medium">{pendingCount} queued</span>
+        )}
+      </div>
+    );
+  }
 
   // Offline state
   if (!isOnline) {

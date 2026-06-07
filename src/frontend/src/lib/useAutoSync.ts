@@ -38,6 +38,7 @@ export function useAutoSync(): AutoSyncState {
   const syncMutex = useRef(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasMountSynced = useRef(false);
+  const authToastShownRef = useRef(false);
 
   const refreshPendingCount = useCallback(async () => {
     if (!user?.id) return;
@@ -58,21 +59,25 @@ export function useAutoSync(): AutoSyncState {
 
       if (result.abortReason === 'auth') {
         setAuthFailed(true);
-        toast.error(
-          `Session expired — ${pendingCount > 0 ? `${pendingCount} incident${pendingCount !== 1 ? 's' : ''} still queued. ` : ''}Log in again to sync.`,
-          {
-            duration: Infinity,
-            action: {
-              label: 'Log In',
-              onClick: () => { window.location.href = '/login'; },
+        if (!authToastShownRef.current) {
+          authToastShownRef.current = true;
+          toast.error(
+            `Session expired — ${pendingCount > 0 ? `${pendingCount} incident${pendingCount !== 1 ? 's' : ''} still queued. ` : ''}Log in again to sync.`,
+            {
+              duration: Infinity,
+              action: {
+                label: 'Log In',
+                onClick: () => { window.location.href = '/login'; },
+              },
             },
-          },
-        );
+          );
+        }
         return;
       }
 
       // auth was OK — clear the failed flag
       setAuthFailed(false);
+      authToastShownRef.current = false;
 
       if (result.abortReason === 'offline') return; // still offline — silent
 
@@ -127,6 +132,19 @@ export function useAutoSync(): AutoSyncState {
   }, [isReconnecting]); // eslint-disable-line react-hooks/exhaustive-deps
   // intentionally omitting pendingCount/doSync: this runs once per reconnect event,
   // capturing the count at the moment the event fires is the desired behaviour.
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.serviceWorker) return;
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'run-sync') {
+        void doSync();
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handleMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', handleMessage);
+    };
+  }, [doSync]);
 
   // On-mount sync: handles the re-login case where no offline→online transition
   // occurred so isReconnecting never becomes true. Fires once per mount if the

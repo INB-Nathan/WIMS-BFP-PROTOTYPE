@@ -220,9 +220,7 @@ export default function RegionalDashboardPage() {
     } finally {
       setIncidentsLoading(false);
     }
-  // isOnline is intentionally included: when connectivity returns, re-fetch from server
-  // so the stale-cache banner clears and fresh data replaces the offline view.
-  }, [pageIndex, pageSize, categoryFilter, statusFilter, dateBounds.date_from, dateBounds.date_to, isArchiveView, user, isOnline]);
+  }, [pageIndex, pageSize, categoryFilter, statusFilter, dateBounds.date_from, dateBounds.date_to, isArchiveView, user]);
 
   useEffect(() => {
     if (canAccessRegional) {
@@ -234,7 +232,7 @@ export default function RegionalDashboardPage() {
     if (canAccessRegional) {
       loadIncidents();
     }
-  }, [canAccessRegional, loadIncidents]);
+  }, [canAccessRegional, loadIncidents, isOnline]);
 
   // Background poll: detect when a PENDING submission is actioned by a validator.
   // Compares the PENDING total every 20 s; if it drops, something was resolved.

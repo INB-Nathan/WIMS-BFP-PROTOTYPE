@@ -19,10 +19,11 @@
 
 import {
   getPendingOps, markOpSyncing, markOpSynced, markOpConflict, markOpError,
-  deleteOfflineOp, purgeSyncedOps, evictStaleCachedIncidents, cacheIncident,
+  purgeSyncedOps, evictStaleCachedIncidents, cacheIncident,
   type OfflineOpDecrypted,
 } from './offlineStore';
 import { refreshToken } from './auth-refresh';
+import { isReachable, markConnectivityOffline } from './connectivity';
 
 const MAX_RETRY = 5;
 const CREATE_ENDPOINT = '/api/regional/incidents';
@@ -182,7 +183,7 @@ async function processDelete(
  *                    Operations from other encoders are skipped (shared device safety).
  */
 export async function syncPendingIncidents(encoderId: string): Promise<SyncResult> {
-  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+  if (!(await isReachable())) {
     return { synced: 0, conflicts: 0, failed: 0, errors: [], abortReason: 'offline' };
   }
 
@@ -242,6 +243,7 @@ export async function syncPendingIncidents(encoderId: string): Promise<SyncResul
       errors.push({ localId: op.localId, operation: op.operation, status: result.status, error: result.conflictCode });
     } else if (result.status === 0) {
       // Network error — connectivity lost again; stop the batch
+      markConnectivityOffline();
       await markOpError(op.localId, 'network', result.error ?? 'Network error');
       failed++;
       errors.push({ localId: op.localId, operation: op.operation, error: result.error });

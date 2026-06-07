@@ -32,6 +32,11 @@ vi.mock('../auth-refresh', () => ({
   refreshToken: vi.fn(),
 }));
 
+vi.mock('../connectivity', () => ({
+  isReachable: vi.fn(),
+  markConnectivityOffline: vi.fn(),
+}));
+
 // ── Mock fetch ───────────────────────────────────────────────────────────────
 const fetchSpy = vi.fn();
 vi.stubGlobal('fetch', fetchSpy);
@@ -43,6 +48,7 @@ import {
   purgeSyncedOps, evictStaleCachedIncidents, cacheIncident,
 } from '../offlineStore';
 import { refreshToken } from '../auth-refresh';
+import { isReachable, markConnectivityOffline } from '../connectivity';
 
 const ENCODER_ID = 'encoder-uuid-123';
 
@@ -70,6 +76,7 @@ function makeOp(overrides: Partial<Record<string, any>> = {}): OfflineOpDecrypte
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(isReachable).mockResolvedValue(true);
   vi.mocked(refreshToken).mockResolvedValue({ ok: true });
   vi.mocked(markOpSyncing).mockResolvedValue(undefined);
   vi.mocked(markOpSynced).mockResolvedValue(undefined);
@@ -78,7 +85,6 @@ beforeEach(() => {
   vi.mocked(purgeSyncedOps).mockResolvedValue(undefined);
   vi.mocked(evictStaleCachedIncidents).mockResolvedValue(undefined);
   vi.mocked(cacheIncident).mockResolvedValue(undefined);
-  Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
 });
 
 describe('syncPendingIncidents', () => {
@@ -94,8 +100,8 @@ describe('syncPendingIncidents', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('aborts with abortReason=offline when navigator.onLine is false', async () => {
-    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+  it('aborts with abortReason=offline when app reachability check fails', async () => {
+    vi.mocked(isReachable).mockResolvedValue(false);
 
     const result = await syncPendingIncidents(ENCODER_ID);
 
@@ -215,6 +221,7 @@ describe('syncPendingIncidents', () => {
     // Only first op attempted, second skipped (batch aborted)
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(markOpError).toHaveBeenCalledWith('op-net', 'network', expect.any(String));
+    expect(markConnectivityOffline).toHaveBeenCalled();
     expect(result.failed).toBe(1);
     expect(result.synced).toBe(0);
   });

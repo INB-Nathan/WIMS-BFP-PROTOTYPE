@@ -2476,3 +2476,18 @@ Rebased the 4 offline-first commits onto current `origin/master`. Conflicts reso
 - **`offline-network-logs.har` removed** — 4.5 MB / ~89k-line network capture accidentally committed in `4a7f1dc`; untracked via normal `git rm` (no history rewrite).
 
 **Validation:** backend `ruff check .` clean; `pytest tests/test_upload_bundle_idempotency.py tests/test_incidents_create_endpoint.py` 2 passed; route import smoke OK. Frontend `npm run lint` 0 errors; `npx vitest run` **169 passed** (24 files); `npx tsc --noEmit` only 4 pre-existing test/mock errors (production files clean after the fix); `npm run build` succeeds. Full `pytest -v` and integration suite require the Docker stack (Redis/Postgres) — not run here.
+
+## [2026-06-07] fix | Offline-first stabilization - verified connectivity and sync recovery
+
+Stabilized the Regional Encoder offline-first path after field QA found three defects: the top online indicator could flip online on tab changes while still offline, uncached offline navigations could fall through to the browser network error page, and sync could enter a repeated login prompt loop.
+
+**Changes:**
+- Added `lib/connectivity.ts` and rewired `useNetworkStatus()` to treat browser `online/offline`, focus, and visibility events as hints only. The shared state is `checking/offline/reconnecting/online`; the app turns online only after a same-origin `/health` probe succeeds. Network fetch failures call `markConnectivityOffline()`.
+- Replaced direct `navigator.onLine` decisions in encoder manual save/submit, AFOR import, incident-detail polling, regional dashboard reloads, offline read wrappers, sync engine, and the legacy `NetworkStatusIndicator`.
+- Fixed `apiFetch()` auth refresh handling: `refreshToken()` is successful only when `result.ok === true`; `{ ok: false, reason }` no longer triggers a false authenticated retry.
+- Updated `syncEngine` to verify reachability before sync, preserve the queue for offline/auth aborts, and mark connectivity offline when a batch loses network mid-sync. `useAutoSync` now suppresses repeated auth-expired toasts and listens for service-worker `run-sync` messages.
+- Bumped `public/sw.js` cache to `v4`; navigation requests now cache successful pages and fall back to cached app shell or friendly offline HTML instead of `Response.error()`. Static Next.js chunks/images/fonts are cached after visit so already-opened pages can render offline. PWA install remains optional; browser-tab offline works after first successful load/cache.
+
+**Tests:** Added `offlineRegional.test.ts` and updated `useNetworkStatus`, `syncEngine`, and API transport coverage. Frontend targeted offline/auth tests: 62 passed. Full frontend Vitest: 172 passed. `npm run lint`: 0 errors, existing warnings only. `npx tsc --noEmit`: still blocked by pre-existing test/mock typing errors outside this change.
+
+**Wiki update:** Updated `system-wiki/architecture/pwa-tests-cicd.md` and `system-wiki/frontend/frontend-infrastructure.md`. No FRS gap status changed.

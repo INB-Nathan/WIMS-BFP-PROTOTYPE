@@ -48,6 +48,7 @@ function setConnectivityState(state: ConnectivityState, lastCheckedAt = snapshot
   emit();
 }
 
+
 export function getConnectivitySnapshot(): ConnectivitySnapshot {
   return snapshot;
 }
@@ -63,6 +64,11 @@ export function markConnectivityOffline(): void {
 
 export async function probeConnectivity(): Promise<ConnectivitySnapshot> {
   if (typeof window === 'undefined') {
+    return snapshot;
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    markConnectivityOffline();
     return snapshot;
   }
 

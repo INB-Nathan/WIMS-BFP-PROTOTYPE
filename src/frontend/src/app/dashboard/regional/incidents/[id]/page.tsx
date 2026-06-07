@@ -15,6 +15,7 @@ import {
   type RegionalIncidentDetailResponse,
 } from '@/lib/api';
 import { fetchRegionalIncidentOfflineAware } from '@/lib/api/offlineRegional';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import dynamic from 'next/dynamic';
 import { UpdateRequestDiffPanel } from '@/components/UpdateRequestDiffPanel';
 import { IncidentDiffPanel } from '@/components/IncidentDiffPanel';
@@ -414,6 +415,7 @@ export default function RegionalIncidentDetailPage() {
   const incidentId = rawId != null ? parseInt(rawId, 10) : NaN;
 
   const { user, loading: authLoading } = useAuth();
+  const { isOnline } = useNetworkStatus();
   const role = (user as { role?: string })?.role ?? null;
   const encoderAssignedRegionId = (user as { assignedRegionId?: number | null })?.assignedRegionId ?? null;
   const canAccessRegional =
@@ -533,7 +535,7 @@ export default function RegionalIncidentDetailPage() {
     const trackedUpdatedAt = detail.updated_at;
     const encoderId = (user as { id?: string })?.id ?? '';
     const interval = setInterval(async () => {
-      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      if (!isOnline) return;
       try {
         const { response: fresh } = await fetchRegionalIncidentOfflineAware(incidentId, encoderId);
         if (fresh.verification_status !== 'PENDING' || fresh.updated_at !== trackedUpdatedAt) {
@@ -545,7 +547,7 @@ export default function RegionalIncidentDetailPage() {
       }
     }, 30_000);
     return () => clearInterval(interval);
-  }, [isEncoder, detail, incidentId, user]);
+  }, [isEncoder, detail, incidentId, user, isOnline]);
 
   // Auto-show the duplicate comparison once when a validator opens a PENDING duplicate-flagged incident.
   // Skip if already resolved (VERIFIED/REJECTED/REPLACED) — there's nothing left to decide.
