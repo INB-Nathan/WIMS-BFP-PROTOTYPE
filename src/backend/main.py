@@ -268,6 +268,19 @@ def apply_schema_patches() -> None:
         logger.warning("Schema patch (analytics_facts RLS) failed (non-fatal): %s", exc)
         db.rollback()
 
+    # Ensure RLS helper functions are SECURITY DEFINER to prevent infinite
+    # recursion: current_user_role() queries wims.users, which has RLS policies
+    # that call current_user_role(). Without SECURITY DEFINER this stack-overflows.
+    try:
+        db.execute(text("ALTER FUNCTION wims.current_user_role() SECURITY DEFINER"))
+        db.execute(text("ALTER FUNCTION wims.current_user_uuid() SECURITY DEFINER"))
+        db.execute(text("ALTER FUNCTION wims.current_user_region_id() SECURITY DEFINER"))
+        db.commit()
+        logger.info("Schema patch applied: RLS helper functions set to SECURITY DEFINER")
+    except Exception as exc:
+        logger.warning("Schema patch (RLS helpers SECURITY DEFINER) failed (non-fatal): %s", exc)
+        db.rollback()
+
     finally:
         db.close()
         with _schema_patches_lock:
