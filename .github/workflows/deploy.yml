@@ -189,6 +189,8 @@ jobs:
 
             cd /opt/wims-bfp
             git fetch origin master
+            git reset --hard
+            git clean -fd
             git checkout -B master origin/master
             cd src
 
