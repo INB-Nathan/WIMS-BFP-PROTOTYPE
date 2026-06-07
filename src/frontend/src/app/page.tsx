@@ -1003,7 +1003,9 @@ export default function ReportPage() {
         <div className="card overflow-hidden">
 
         <CalmEmergencyBlock />
-        <NearbyPublicReportAreas fireLat={fireLocation?.latitude ?? null} fireLon={fireLocation?.longitude ?? null} />
+        {step !== 'safety' && (
+          <NearbyPublicReportAreas fireLat={fireLocation?.latitude ?? null} fireLon={fireLocation?.longitude ?? null} />
+        )}
 
         <div className="card-body space-y-5 px-6 pb-6">
           {currentStepIndex >= 0 && <ProgressBar current={currentStepIndex} total={stepOrder.length} />}
