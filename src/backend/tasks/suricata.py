@@ -85,53 +85,68 @@ def update_suricata_rules() -> dict:
         logger.warning(missing)
         return {"success": False, "error": missing}
 
+    client = None
     try:
         client = docker.from_env()
         container = client.containers.get("wims-suricata")
     except Exception as exc:
         msg = f"Docker API error (suricata container not running?): {exc}"
         logger.error(msg)
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
         return {"success": False, "error": msg}
 
-    rules_before = _count_active_rules(container)
-    logger.info("Suricata rules before update: %d loaded", rules_before)
+    try:
+        rules_before = _count_active_rules(container)
+        logger.info("Suricata rules before update: %d loaded", rules_before)
 
-    update_result = container.exec_run("suricata-update")
-    update_output = update_result.output.decode(errors="replace")
+        update_result = container.exec_run("suricata-update")
+        update_output = update_result.output.decode(errors="replace")
 
-    if update_result.exit_code != 0:
-        logger.error("suricata-update failed (exit %d): %s", update_result.exit_code, update_output)
-        return {
-            "success": False,
-            "error": update_output[:500],
+        if update_result.exit_code != 0:
+            logger.error(
+                "suricata-update failed (exit %d): %s", update_result.exit_code, update_output
+            )
+            return {
+                "success": False,
+                "error": update_output[:500],
+                "rules_before": rules_before,
+                "rules_after": -1,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
+        reload_result = container.exec_run("kill -USR2 1")
+        if reload_result.exit_code != 0:
+            logger.warning(
+                "Failed to send USR2 reload signal: %s",
+                reload_result.output.decode(errors="replace"),
+            )
+
+        rules_after = _count_active_rules(container)
+        logger.info("Suricata rules after update: %d loaded (was %d)", rules_after, rules_before)
+
+        result = {
+            "success": True,
             "rules_before": rules_before,
-            "rules_after": -1,
+            "rules_after": rules_after,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
-    reload_result = container.exec_run("kill -USR2 1")
-    if reload_result.exit_code != 0:
-        logger.warning(
-            "Failed to send USR2 reload signal: %s", reload_result.output.decode(errors="replace")
-        )
+        if rules_after < rules_before and rules_before > 0:
+            logger.warning(
+                "Suricata rule count decreased after update (%d → %d). "
+                "Check suricata-update output for dropped rules.",
+                rules_before,
+                rules_after,
+            )
+            result["warning"] = "Rule count decreased after update"
 
-    rules_after = _count_active_rules(container)
-    logger.info("Suricata rules after update: %d loaded (was %d)", rules_after, rules_before)
-
-    result = {
-        "success": True,
-        "rules_before": rules_before,
-        "rules_after": rules_after,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-
-    if rules_after < rules_before and rules_before > 0:
-        logger.warning(
-            "Suricata rule count decreased after update (%d → %d). "
-            "Check suricata-update output for dropped rules.",
-            rules_before,
-            rules_after,
-        )
-        result["warning"] = "Rule count decreased after update"
-
-    return result
+        return result
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass

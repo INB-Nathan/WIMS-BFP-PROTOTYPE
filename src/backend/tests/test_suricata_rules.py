@@ -31,11 +31,13 @@ SKIP_REASON = "Set SKIP_DOCKER_TESTS=1 to skip tests requiring running Docker se
 def _get_db_session():
     from sqlalchemy.exc import OperationalError
 
-    from database import _SessionLocal
+    from database import _SessionLocal, set_rls_context
+    from tasks.suricata import SYSTEM_SURICATA_USER_ID
 
     try:
         session = _SessionLocal()
         session.execute(text("SELECT 1"))
+        set_rls_context(session, SYSTEM_SURICATA_USER_ID)
         return session
     except OperationalError as exc:
         pytest.skip(f"Database not available: {exc}")

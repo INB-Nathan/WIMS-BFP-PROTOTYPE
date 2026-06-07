@@ -175,7 +175,6 @@ services:
       - FIREBASE_CREDENTIALS_PATH=${FIREBASE_CREDENTIALS_PATH:-}
     volumes:
       - ./suricata/logs:/var/log/suricata:ro
-      - ./suricata/rules:/var/lib/suricata/rules:rw
       - incident_attachments_data:/app/storage
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
