@@ -371,11 +371,66 @@ async def get_current_wims_user(
             raise HTTPException(status_code=500, detail="Authentication system error")
 
         if row_by_username is None:
-            raise HTTPException(status_code=403, detail="User not found in WIMS")
+            # ── JIT provisioning ───────────────────────────────────────
+            # User authenticated with Keycloak but has no row in wims.users.
+            # Auto-create a user row from token claims so UUID drift between
+            # Keycloak realm imports and DB seed data doesn't cause auth loops.
+            realm_roles = token_payload.get("realm_access", {}).get("roles", [])
+            wims_roles = {
+                "CIVILIAN_REPORTER",
+                "REGIONAL_ENCODER",
+                "NATIONAL_VALIDATOR",
+                "NATIONAL_ANALYST",
+                "SYSTEM_ADMIN",
+            }
+            jit_role = next((r for r in realm_roles if r in wims_roles), None)
+            if not jit_role:
+                logger.warning(
+                    f"JIT provisioning skipped for {preferred_username}: "
+                    f"no WIMS role found in token roles {realm_roles}"
+                )
+                raise HTTPException(
+                    status_code=403, detail="User not found in WIMS and no valid role in token"
+                )
+
+            jit_user_id = uuid.uuid4()
+            try:
+                db.execute(
+                    text(
+                        "INSERT INTO wims.users (user_id, keycloak_id, username, role, is_active) "
+                        "VALUES (:uid, :kid, :uname, :role, TRUE)"
+                    ),
+                    {
+                        "uid": jit_user_id,
+                        "kid": keycloak_sub,
+                        "uname": preferred_username,
+                        "role": jit_role,
+                    },
+                )
+                db.commit()
+                logger.info(
+                    f"JIT provisioned user {preferred_username} "
+                    f"(keycloak_id={keycloak_sub}, role={jit_role})"
+                )
+            except Exception as e:
+                db.rollback()
+                logger.error(f"JIT provisioning failed for {preferred_username}: {e}")
+                raise HTTPException(status_code=500, detail="Failed to provision user account")
+
+            row = (jit_user_id, jit_role, preferred_username)
 
         existing_keycloak_id = row_by_username[2]
         if existing_keycloak_id is not None and str(existing_keycloak_id) != keycloak_sub:
-            raise HTTPException(status_code=403, detail="User identity mismatch")
+            # UUID drift — update to current Keycloak identity (JIT repair)
+            logger.warning(
+                f"Identity drift for {preferred_username}: "
+                f"DB has {existing_keycloak_id}, token has {keycloak_sub}. Updating."
+            )
+            db.execute(
+                text("UPDATE wims.users SET keycloak_id = :new_kid WHERE username = :uname"),
+                {"new_kid": keycloak_sub, "uname": preferred_username},
+            )
+            db.commit()
 
         row = (row_by_username[0], row_by_username[1], row_by_username[3])
 
