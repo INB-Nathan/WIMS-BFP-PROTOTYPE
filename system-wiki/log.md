@@ -2503,3 +2503,18 @@ Diagnosed `docker compose up -d --build` as build-successful but runtime-noisy: 
 **Validation:** `docker compose up -d --build` exits successfully. `docker compose ps` shows backend, frontend, celery-worker, nginx, postgres, redis, keycloak, mailhog, ollama, and suricata running. `celery inspect registered` lists all Beat tasks, and `celery-worker` logs show `worker_heartbeat` received and succeeded instead of unregistered-task errors. Dockerized pytest `tests/test_celery_task_registration.py` passed. Ruff was not run because neither the host PATH nor the backend image has `ruff` installed.
 
 **Wiki update:** Updated `system-wiki/backend/backend-infrastructure.md`. No FRS gap status changed.
+
+## [2026-06-07] fix | Offline sync auth refresh recovery
+
+Fixed the session-expired loop that blocked offline queue sync after reconnect/login.
+
+**Changes:**
+- `src/frontend/src/lib/syncEngine.ts`: pending ops are loaded before auth work; sync now checks `GET /api/auth/session` first and only calls `refreshToken()` when the access session is gone. A 401 during replay restores the current op to `pending` and aborts with `abortReason: 'auth'` so queued work stays visible and retryable.
+- `src/frontend/src/lib/offlineStore.ts`: added `markOpPending()` to move an op out of transient `syncing` state without incrementing retry count.
+- `src/frontend/src/lib/auth-refresh.ts`: refresh route 5xx/429 responses now classify as `offline`/unavailable instead of expired auth.
+- `src/frontend/src/app/api/auth/refresh/route.ts`: server-side refresh uses `AUTH_SERVER_URL`, `KEYCLOAK_INTERNAL_URL`, or `NEXT_PUBLIC_AUTH_INTERNAL_URL`; browser-relative `/auth` is rejected for server-side fetch. Keycloak 5xx/429 and fetch failures return 503 without clearing cookies; cookies are cleared only when Keycloak rejects the refresh token.
+- `src/docker-compose.yml` and `src/docker-compose.prod.yml`: frontend runtime now sets `AUTH_SERVER_URL=http://keycloak:8080/auth`.
+
+**Tests:** Focused auth/sync Vitest: 19 passed. Full frontend Vitest: 180 passed. `npm run lint`: 0 errors, existing warnings only. `npm run build`: passed. `npx tsc --noEmit`: still blocked by pre-existing test/mock typing errors (`profile.test.tsx`, `tracking/page.test.tsx`, `offlineStore.test.ts`, `firebase-app.ts`).
+
+**Wiki update:** Updated `system-wiki/frontend/frontend-infrastructure.md`, `system-wiki/architecture/infrastructure-config.md`, and `system-wiki/index.md`. No FRS gap status changed.

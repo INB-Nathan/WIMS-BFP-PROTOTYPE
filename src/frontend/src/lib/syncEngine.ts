@@ -6,8 +6,8 @@
  * Sequential processing preserves the dependency chain: a create must
  * succeed before its linked submit or update ops can be sent.
  *
- * Auth: refreshes the access token before the batch so a stale 5-min
- * access token never silently blocks sync.
+ * Auth: checks the current session before replay and only refreshes when the
+ * access session is gone, so fresh logins are not blocked by refresh issues.
  *
  * Conflict handling:
  *  - 409 DUPLICATE_DETECTED → marks op 'conflict/409_duplicate', stops that op (no retry)
@@ -18,7 +18,7 @@
  */
 
 import {
-  getPendingOps, markOpSyncing, markOpSynced, markOpConflict, markOpError,
+  getPendingOps, markOpSyncing, markOpPending, markOpSynced, markOpConflict, markOpError,
   purgeSyncedOps, evictStaleCachedIncidents, cacheIncident,
   type OfflineOpDecrypted,
 } from './offlineStore';
@@ -48,6 +48,8 @@ export interface SyncResult {
   abortReason?: 'auth' | 'offline';
 }
 
+type AuthCheckResult = 'authenticated' | 'auth' | 'offline';
+
 // ── Internal helpers ─────────────────────────────────────────────────────────
 
 async function apiFetch(
@@ -66,6 +68,35 @@ async function apiFetch(
     // Network error — connectivity lost
     return { ok: false, status: 0, error: err instanceof Error ? err.message : 'Network error' } as never;
   }
+}
+
+async function checkSession(): Promise<AuthCheckResult> {
+  try {
+    const res = await fetch('/api/auth/session', {
+      credentials: 'include',
+      cache: 'no-store',
+    });
+
+    if (res.ok) return 'authenticated';
+    if (res.status === 401 || res.status === 403) return 'auth';
+    if (res.status >= 500 || res.status === 429) return 'offline';
+    return 'auth';
+  } catch {
+    return 'offline';
+  }
+}
+
+async function ensureAuthenticatedForSync(): Promise<{ ok: true } | { ok: false; reason: 'auth' | 'offline' }> {
+  const session = await checkSession();
+  if (session === 'authenticated') return { ok: true };
+  if (session === 'offline') return { ok: false, reason: 'offline' };
+
+  const tokenResult = await refreshToken();
+  if (!tokenResult.ok) return { ok: false, reason: tokenResult.reason };
+
+  const refreshedSession = await checkSession();
+  if (refreshedSession === 'authenticated') return { ok: true };
+  return { ok: false, reason: refreshedSession === 'offline' ? 'offline' : 'auth' };
 }
 
 /**
@@ -187,15 +218,14 @@ export async function syncPendingIncidents(encoderId: string): Promise<SyncResul
     return { synced: 0, conflicts: 0, failed: 0, errors: [], abortReason: 'offline' };
   }
 
-  // Refresh auth token before the batch — access tokens expire in 5 min.
-  const tokenResult = await refreshToken();
-  if (!tokenResult.ok) {
-    return { synced: 0, conflicts: 0, failed: 0, errors: [], abortReason: tokenResult.reason };
-  }
-
   const ops = await getPendingOps(encoderId);
   if (ops.length === 0) {
     return { synced: 0, conflicts: 0, failed: 0, errors: [] };
+  }
+
+  const authResult = await ensureAuthenticatedForSync();
+  if (!authResult.ok) {
+    return { synced: 0, conflicts: 0, failed: 0, errors: [], abortReason: authResult.reason };
   }
 
   let synced = 0;
@@ -248,6 +278,10 @@ export async function syncPendingIncidents(encoderId: string): Promise<SyncResul
       failed++;
       errors.push({ localId: op.localId, operation: op.operation, error: result.error });
       break;
+    } else if (result.status === 401) {
+      await markOpPending(op.localId, 'Session expired before this operation could sync.');
+      errors.push({ localId: op.localId, operation: op.operation, status: 401, error: result.error ?? 'Session expired' });
+      return { synced, conflicts, failed, errors, abortReason: 'auth' };
     } else {
       const errorCode = result.status === 403 ? '403' : result.status ? '4xx' : 'network';
       await markOpError(op.localId, errorCode, result.error ?? `HTTP ${result.status}`);

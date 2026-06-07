@@ -1,8 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const KEYCLOAK_TOKEN_URL = process.env.NEXT_PUBLIC_AUTH_API_URL
-  ? `${process.env.NEXT_PUBLIC_AUTH_API_URL}/realms/bfp/protocol/openid-connect/token`
-  : null;
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+export function getKeycloakTokenUrl(): string | null {
+  const serverAuthUrl =
+    process.env.AUTH_SERVER_URL ||
+    process.env.KEYCLOAK_INTERNAL_URL ||
+    process.env.NEXT_PUBLIC_AUTH_INTERNAL_URL;
+
+  if (serverAuthUrl) {
+    return `${trimTrailingSlash(serverAuthUrl)}/realms/bfp/protocol/openid-connect/token`;
+  }
+
+  const publicAuthUrl = process.env.NEXT_PUBLIC_AUTH_API_URL;
+  if (!publicAuthUrl || publicAuthUrl.startsWith('/')) return null;
+  return `${trimTrailingSlash(publicAuthUrl)}/realms/bfp/protocol/openid-connect/token`;
+}
 
 const CLIENT_ID = process.env.NEXT_PUBLIC_OIDC_CLIENT_ID || 'wims-web';
 const ACCESS_TOKEN_COOKIE_MAX_AGE = 24 * 60 * 60; // 24h: cookie stores the token; Keycloak enforces actual expiry
@@ -21,12 +36,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No refresh token' }, { status: 401 });
   }
 
-  if (!KEYCLOAK_TOKEN_URL) {
-    return NextResponse.json({ error: 'Auth URL not configured' }, { status: 500 });
+  const keycloakTokenUrl = getKeycloakTokenUrl();
+  if (!keycloakTokenUrl) {
+    return NextResponse.json(
+      { error: 'Auth URL not configured for server-side refresh' },
+      { status: 503 }
+    );
   }
 
   try {
-    const res = await fetch(KEYCLOAK_TOKEN_URL, {
+    const res = await fetch(keycloakTokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -37,7 +56,11 @@ export async function POST(req: NextRequest) {
     });
 
     if (!res.ok) {
-      const response = NextResponse.json({ error: 'Refresh failed' }, { status: 401 });
+      if (res.status >= 500 || res.status === 429) {
+        return NextResponse.json({ error: 'Auth service unavailable' }, { status: 503 });
+      }
+
+      const response = NextResponse.json({ error: 'Refresh token invalid or expired' }, { status: 401 });
       response.cookies.set('__Host-access_token', '', { ...COOKIE_OPTIONS, maxAge: 0 });
       response.cookies.set('__Host-refresh_token', '', { ...COOKIE_OPTIONS, maxAge: 0 });
       return response;
@@ -57,6 +80,6 @@ export async function POST(req: NextRequest) {
     }
     return response;
   } catch {
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return NextResponse.json({ error: 'Auth service unavailable' }, { status: 503 });
   }
 }

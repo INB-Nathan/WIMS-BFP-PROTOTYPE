@@ -27,7 +27,9 @@ let refreshInFlight: Promise<RefreshResult> | null = null;
 
 async function doRefresh(): Promise<RefreshResult> {
   const res = await fetch(REFRESH_ENDPOINT, { method: 'POST', credentials: 'include' });
-  return res.ok ? { ok: true } : { ok: false, reason: 'auth' };
+  if (res.ok) return { ok: true };
+  if (res.status >= 500 || res.status === 429) return { ok: false, reason: 'offline' };
+  return { ok: false, reason: 'auth' };
 }
 
 export async function refreshToken(): Promise<RefreshResult> {

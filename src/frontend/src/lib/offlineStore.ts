@@ -399,6 +399,14 @@ export async function markOpSyncing(localId: string): Promise<void> {
     await _patchOp(localId, { syncStatus: 'syncing', lastAttemptAt: Date.now() });
 }
 
+export async function markOpPending(localId: string, errorMessage?: string): Promise<void> {
+    await _patchOp(localId, {
+        syncStatus: 'pending',
+        errorCode: null,
+        errorMessage: errorMessage ?? null,
+    });
+}
+
 export async function markOpSynced(localId: string, serverId?: number): Promise<void> {
     const db = await getDB();
     const tx = db.transaction(OPS_STORE, 'readwrite');

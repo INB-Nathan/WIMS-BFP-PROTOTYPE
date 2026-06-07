@@ -18,6 +18,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../offlineStore', () => ({
   getPendingOps: vi.fn(),
   markOpSyncing: vi.fn(),
+  markOpPending: vi.fn(),
   markOpSynced: vi.fn(),
   markOpConflict: vi.fn(),
   markOpError: vi.fn(),
@@ -44,13 +45,37 @@ vi.stubGlobal('fetch', fetchSpy);
 import { syncPendingIncidents } from '../syncEngine';
 import type { OfflineOpType, OfflineOpDecrypted } from '../offlineStore';
 import {
-  getPendingOps, markOpSyncing, markOpSynced, markOpConflict, markOpError,
+  getPendingOps, markOpSyncing, markOpPending, markOpSynced, markOpConflict, markOpError,
   purgeSyncedOps, evictStaleCachedIncidents, cacheIncident,
 } from '../offlineStore';
 import { refreshToken } from '../auth-refresh';
 import { isReachable, markConnectivityOffline } from '../connectivity';
 
 const ENCODER_ID = 'encoder-uuid-123';
+
+const sessionOkResponse = {
+  ok: true,
+  status: 200,
+  json: () => Promise.resolve({ user: { id: ENCODER_ID } }),
+};
+
+function mockSessionOkWithApiResponses(...responses: Array<Record<string, unknown>>) {
+  const queue = [...responses];
+  fetchSpy.mockImplementation((url: string) => {
+    if (url === '/api/auth/session') return Promise.resolve(sessionOkResponse);
+    const next = queue.shift();
+    if (!next) throw new Error(`Unexpected fetch call: ${url}`);
+    return Promise.resolve(next);
+  });
+}
+
+function mockSessionStatus(status: number) {
+  fetchSpy.mockResolvedValue({
+    ok: status >= 200 && status < 300,
+    status,
+    json: () => Promise.resolve({}),
+  });
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeOp(overrides: Partial<Record<string, any>> = {}): OfflineOpDecrypted {
@@ -79,6 +104,7 @@ beforeEach(() => {
   vi.mocked(isReachable).mockResolvedValue(true);
   vi.mocked(refreshToken).mockResolvedValue({ ok: true });
   vi.mocked(markOpSyncing).mockResolvedValue(undefined);
+  vi.mocked(markOpPending).mockResolvedValue(undefined);
   vi.mocked(markOpSynced).mockResolvedValue(undefined);
   vi.mocked(markOpConflict).mockResolvedValue(undefined);
   vi.mocked(markOpError).mockResolvedValue(undefined);
@@ -112,24 +138,38 @@ describe('syncPendingIncidents', () => {
   it('aborts with abortReason=auth when token refresh fails', async () => {
     vi.mocked(refreshToken).mockResolvedValue({ ok: false, reason: 'auth' });
     vi.mocked(getPendingOps).mockResolvedValue([makeOp()]);
+    mockSessionStatus(401);
 
     const result = await syncPendingIncidents(ENCODER_ID);
 
     expect(result.abortReason).toBe('auth');
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(refreshToken).toHaveBeenCalledTimes(1);
   });
 
-  it('syncs a create op: POSTs the bundle envelope to upload-bundle with credentials', async () => {
+  it('uses an active access session without requiring refresh before sync', async () => {
     vi.mocked(getPendingOps).mockResolvedValue([makeOp()]);
-    fetchSpy.mockResolvedValue({
+    mockSessionOkWithApiResponses({
       ok: true, status: 200,
       json: () => Promise.resolve({ status: 'ok', incident_ids: [42], failed: [] }),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, opts] = fetchSpy.mock.calls[0];
+    expect(refreshToken).not.toHaveBeenCalled();
+    expect(result.synced).toBe(1);
+  });
+
+  it('syncs a create op: POSTs the bundle envelope to upload-bundle with credentials', async () => {
+    vi.mocked(getPendingOps).mockResolvedValue([makeOp()]);
+    mockSessionOkWithApiResponses({
+      ok: true, status: 200,
+      json: () => Promise.resolve({ status: 'ok', incident_ids: [42], failed: [] }),
+    });
+
+    const result = await syncPendingIncidents(ENCODER_ID);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const [url, opts] = fetchSpy.mock.calls[1];
     expect(url).toContain('/api/incidents/upload-bundle');
     expect(opts.method).toBe('POST');
     expect(opts.credentials).toBe('include');
@@ -145,7 +185,7 @@ describe('syncPendingIncidents', () => {
 
   it('marks create error when bundle imports nothing (no incident id returned)', async () => {
     vi.mocked(getPendingOps).mockResolvedValue([makeOp({ localId: 'op-empty' })]);
-    fetchSpy.mockResolvedValue({
+    mockSessionOkWithApiResponses({
       ok: true, status: 200,
       json: () => Promise.resolve({ status: 'ok', incident_ids: [], failed: [{ index: 1, reason: 'bad row' }] }),
     });
@@ -163,14 +203,20 @@ describe('syncPendingIncidents', () => {
       makeOp({ localId: 'op-a' }),
       makeOp({ localId: 'op-b' }),
     ]);
-    fetchSpy.mockResolvedValue({
-      ok: true, status: 200,
-      json: () => Promise.resolve({ incident_ids: [99], failed: [] }),
-    });
+    mockSessionOkWithApiResponses(
+      {
+        ok: true, status: 200,
+        json: () => Promise.resolve({ incident_ids: [99], failed: [] }),
+      },
+      {
+        ok: true, status: 200,
+        json: () => Promise.resolve({ incident_ids: [99], failed: [] }),
+      }
+    );
 
     const result = await syncPendingIncidents(ENCODER_ID);
 
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
     expect(markOpSynced).toHaveBeenCalledWith('op-a', 99);
     expect(markOpSynced).toHaveBeenCalledWith('op-b', 99);
     expect(result.synced).toBe(2);
@@ -181,9 +227,10 @@ describe('syncPendingIncidents', () => {
       makeOp({ localId: 'op-bad' }),
       makeOp({ localId: 'op-good' }),
     ]);
-    fetchSpy
-      .mockResolvedValueOnce({ ok: false, status: 422, json: () => Promise.resolve({ detail: 'Validation error' }) })
-      .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve({ incident_ids: [77], failed: [] }) });
+    mockSessionOkWithApiResponses(
+      { ok: false, status: 422, json: () => Promise.resolve({ detail: 'Validation error' }) },
+      { ok: true, status: 200, json: () => Promise.resolve({ incident_ids: [77], failed: [] }) }
+    );
 
     const result = await syncPendingIncidents(ENCODER_ID);
 
@@ -197,7 +244,7 @@ describe('syncPendingIncidents', () => {
 
   it('on 409 conflict (OCC): marks conflict, increments conflicts count', async () => {
     vi.mocked(getPendingOps).mockResolvedValue([makeOp()]);
-    fetchSpy.mockResolvedValue({
+    mockSessionOkWithApiResponses({
       ok: false, status: 409,
       json: () => Promise.resolve({ detail: 'Conflict', server_version: { incident_id: 1 } }),
     });
@@ -214,21 +261,46 @@ describe('syncPendingIncidents', () => {
       makeOp({ localId: 'op-net' }),
       makeOp({ localId: 'op-next' }),
     ]);
-    fetchSpy.mockRejectedValue(new TypeError('Failed to fetch'));
+    fetchSpy.mockImplementation((url: string) => {
+      if (url === '/api/auth/session') return Promise.resolve(sessionOkResponse);
+      return Promise.reject(new TypeError('Failed to fetch'));
+    });
 
     const result = await syncPendingIncidents(ENCODER_ID);
 
     // Only first op attempted, second skipped (batch aborted)
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(markOpError).toHaveBeenCalledWith('op-net', 'network', expect.any(String));
     expect(markConnectivityOffline).toHaveBeenCalled();
     expect(result.failed).toBe(1);
     expect(result.synced).toBe(0);
   });
 
+  it('on 401 during replay: restores op to pending and aborts for login', async () => {
+    vi.mocked(getPendingOps).mockResolvedValue([
+      makeOp({ localId: 'op-auth' }),
+      makeOp({ localId: 'op-next' }),
+    ]);
+    mockSessionOkWithApiResponses({
+      ok: false,
+      status: 401,
+      json: () => Promise.resolve({ detail: 'Not authenticated' }),
+    });
+
+    const result = await syncPendingIncidents(ENCODER_ID);
+
+    expect(markOpPending).toHaveBeenCalledWith(
+      'op-auth',
+      'Session expired before this operation could sync.'
+    );
+    expect(markOpError).not.toHaveBeenCalled();
+    expect(result.abortReason).toBe('auth');
+    expect(result.synced).toBe(0);
+  });
+
   it('calls purgeSyncedOps and evictStaleCachedIncidents after syncing', async () => {
     vi.mocked(getPendingOps).mockResolvedValue([makeOp()]);
-    fetchSpy.mockResolvedValue({
+    mockSessionOkWithApiResponses({
       ok: true, status: 200,
       json: () => Promise.resolve({ incident_ids: [5], failed: [] }),
     });
@@ -246,7 +318,7 @@ describe('syncPendingIncidents', () => {
 
     const result = await syncPendingIncidents(ENCODER_ID);
 
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(result.failed).toBe(1);
     expect(result.errors[0].error).toMatch(/max retries/);
   });
