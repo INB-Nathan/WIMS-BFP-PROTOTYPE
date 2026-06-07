@@ -27,8 +27,8 @@ function trustedClientIp(req: NextRequest): string | null {
   return forwardedFor.split(',').pop()?.trim() || null;
 }
 
-const ACCESS_TOKEN_COOKIE_MAX_AGE = 5 * 60; // 5 minutes: match Keycloak accessTokenLifespan
-const REFRESH_TOKEN_COOKIE_MAX_AGE = 8 * 60 * 60; // 8 hours: match SSO session max
+const ACCESS_TOKEN_COOKIE_MAX_AGE = 24 * 60 * 60; // 24h: cookie stores the token; Keycloak enforces actual expiry
+const REFRESH_TOKEN_COOKIE_MAX_AGE = 24 * 60 * 60; // 24h: same as access token cookie
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
