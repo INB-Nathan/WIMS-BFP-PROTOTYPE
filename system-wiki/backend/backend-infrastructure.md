@@ -1,7 +1,7 @@
 ---
 title: Backend Infrastructure — Auth, Database, Entry Point, Models, Schemas, Celery, Event Bus
 created: 2026-05-16
-updated: 2026-06-05
+updated: 2026-06-07
 type: backend
 tags: [wims-bfp, backend, auth, database, models, schemas, celery, infrastructure, event-bus, redis]
 sources: [src/backend/auth.py, src/backend/database.py, src/backend/main.py, src/backend/models/, src/backend/schemas/, src/backend/celery_config.py, src/backend/services/event_bus.py]
@@ -134,10 +134,12 @@ Lua-based sliding window on `POST /api/auth/callback`. Key: `rate_limit:{client_
 
 ```python
 from celery_config import celery_app
-import tasks.suricata
-import tasks.exports
-import tasks.drafts
 ```
+
+Task modules are registered explicitly in `celery_config.py` via the Celery
+`include=[...]` list. Do not rely on `autodiscover_tasks(["tasks"])` for this
+repo's flat top-level `tasks` package; it can leave Beat-published task names
+unregistered in the worker.
 
 ---
 
@@ -183,6 +185,11 @@ All models use `wims` schema. No SQLAlchemy relationships defined (raw column-on
 ```python
 celery_app = Celery("wims_worker", broker=REDIS_URL, backend=CELERY_RESULT_BACKEND or REDIS_URL)
 ```
+
+`celery_config.py` explicitly includes task modules:
+`tasks.analytics_refresh`, `tasks.civilian_reports`, `tasks.drafts`,
+`tasks.exports`, `tasks.monitoring`, `tasks.narrative`,
+`tasks.notifications`, and `tasks.suricata`.
 
 ### Settings
 

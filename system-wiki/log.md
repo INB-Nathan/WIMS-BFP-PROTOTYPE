@@ -2491,3 +2491,15 @@ Stabilized the Regional Encoder offline-first path after field QA found three de
 **Tests:** Added `offlineRegional.test.ts` and updated `useNetworkStatus`, `syncEngine`, and API transport coverage. Frontend targeted offline/auth tests: 62 passed. Full frontend Vitest: 172 passed. `npm run lint`: 0 errors, existing warnings only. `npx tsc --noEmit`: still blocked by pre-existing test/mock typing errors outside this change.
 
 **Wiki update:** Updated `system-wiki/architecture/pwa-tests-cicd.md` and `system-wiki/frontend/frontend-infrastructure.md`. No FRS gap status changed.
+
+## [2026-06-07] fix | Celery beat task registration for Docker Compose runtime
+
+Diagnosed `docker compose up -d --build` as build-successful but runtime-noisy: `celery-worker` was rejecting Beat-published tasks as unregistered (`tasks.monitoring.worker_heartbeat`, `tasks.monitoring.snapshot_system_metrics`, `tasks.suricata.ingest_suricata_eve`). The cause was Celery autodiscovery against this repo's flat top-level `tasks` package; Beat had task names in `beat_schedule`, but the worker had not imported the modules.
+
+**Changes:**
+- `src/backend/celery_config.py`: replaced unreliable `autodiscover_tasks(["tasks"])` with explicit Celery `include=[...]` for analytics refresh, civilian reports, drafts, exports, monitoring, narrative, notifications, and Suricata task modules.
+- `src/backend/tests/test_celery_task_registration.py`: added a contract test that imports default Celery modules and asserts every Beat-scheduled task exists in `celery_app.tasks`.
+
+**Validation:** `docker compose up -d --build` exits successfully. `docker compose ps` shows backend, frontend, celery-worker, nginx, postgres, redis, keycloak, mailhog, ollama, and suricata running. `celery inspect registered` lists all Beat tasks, and `celery-worker` logs show `worker_heartbeat` received and succeeded instead of unregistered-task errors. Dockerized pytest `tests/test_celery_task_registration.py` passed. Ruff was not run because neither the host PATH nor the backend image has `ruff` installed.
+
+**Wiki update:** Updated `system-wiki/backend/backend-infrastructure.md`. No FRS gap status changed.
