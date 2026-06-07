@@ -55,5 +55,9 @@ celery_app.conf.update(
             "task": "tasks.monitoring.snapshot_system_metrics",
             "schedule": 60.0,
         },
+        "update-suricata-rules-weekly": {
+            "task": "tasks.suricata.update_rules",
+            "schedule": crontab(hour=3, minute=0, day_of_week=0),
+        },
     },
 )

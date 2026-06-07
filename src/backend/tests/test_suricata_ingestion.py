@@ -141,6 +141,21 @@ class TestEveToThreatLogRow:
             == "MEDIUM"
         )
 
+    def test_et_open_sid_maps_correctly(self):
+        """ET Open SID in the 2000000+ range maps correctly."""
+        ev = {
+            "event_type": "alert",
+            "src_ip": "10.0.0.1",
+            "dest_ip": "10.0.0.2",
+            "alert": {"signature_id": 2010935, "severity": 1},
+        }
+        raw = json.dumps(ev)
+        row = eve_to_threat_log_row(ev, raw_payload=raw)
+        assert row["source_ip"] == "10.0.0.1"
+        assert row["suricata_sid"] == 2010935
+        assert row["severity_level"] == "LOW"
+        assert row["raw_payload"] == raw
+
 
 @pytest.mark.skipif(
     os.environ.get("SKIP_DB_TESTS") == "1",
