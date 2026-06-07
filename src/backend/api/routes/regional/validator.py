@@ -43,7 +43,11 @@ logger = logging.getLogger("wims.regional")
 router = APIRouter()
 
 # Import shared helpers from the package init
-from . import _fi_has_resubmitted_column, _incident_verification_history_has_hash_columns, _regional_lifecycle_dependencies  # noqa: E402
+from . import (  # noqa: E402
+    _fi_has_resubmitted_column,
+    _incident_verification_history_has_hash_columns,
+    _regional_lifecycle_dependencies,
+)
 
 
 # Field keys included in the diff. PII fields from incident_sensitive_details
@@ -81,9 +85,6 @@ _DIFF_FIELDS = (
     "resources_deployed",
     "problems_encountered",
 )
-
-
-
 
 
 @router.get("/validator/incidents")
