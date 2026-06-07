@@ -2,12 +2,14 @@
 
 from typing import Annotated
 
+import httpx
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from auth import get_system_admin
 from database import get_db
+from services.ai_service import _ollama_url
 
 router = APIRouter()
 
@@ -24,6 +26,8 @@ def get_system_health(
             "database": {"status": "UNKNOWN", "latency_ms": 0},
             "redis": {"status": "UNKNOWN", "latency_ms": 0},
             "keycloak": {"status": "UNKNOWN", "latency_ms": 0},
+            "suricata": {"status": "UNKNOWN", "latency_ms": 0},
+            "ollama": {"status": "UNKNOWN", "latency_ms": 0},
         },
     }
 
@@ -75,6 +79,73 @@ def get_system_health(
         }
     except Exception as e:
         health["components"]["keycloak"] = {
+            "status": "UNHEALTHY",
+            "error": str(e),
+            "latency_ms": 0,
+        }
+        health["status"] = "DEGRADED"
+
+    # Suricata: check if pipeline is flowing by probing wims.security_threat_logs
+    try:
+        t0 = time.time()
+        rows = (
+            db.execute(
+                text(
+                    "SELECT COUNT(*) FROM wims.security_threat_logs "
+                    "WHERE timestamp > now() - INTERVAL '5 minutes'"
+                )
+            ).scalar()
+            or 0
+        )
+        latency = round((time.time() - t0) * 1000)
+        if rows > 0:
+            health["components"]["suricata"] = {
+                "status": "HEALTHY",
+                "latency_ms": latency,
+            }
+        else:
+            total = db.execute(text("SELECT COUNT(*) FROM wims.security_threat_logs")).scalar() or 0
+            if total == 0:
+                health["components"]["suricata"] = {
+                    "status": "HEALTHY",
+                    "latency_ms": latency,
+                    "detail": "fresh deployment — no threat logs yet",
+                }
+            else:
+                health["components"]["suricata"] = {
+                    "status": "UNHEALTHY",
+                    "latency_ms": latency,
+                    "detail": f"no recent logs in 5 min ({total} total rows exist)",
+                }
+                health["status"] = "DEGRADED"
+    except Exception as e:
+        health["components"]["suricata"] = {
+            "status": "UNHEALTHY",
+            "error": str(e),
+            "latency_ms": 0,
+        }
+        health["status"] = "DEGRADED"
+
+    # Ollama: check reachability via /api/tags
+    try:
+        t0 = time.time()
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.get(f"{_ollama_url()}/api/tags")
+        latency = round((time.time() - t0) * 1000)
+        if resp.status_code == 200:
+            health["components"]["ollama"] = {
+                "status": "HEALTHY",
+                "latency_ms": latency,
+            }
+        else:
+            health["components"]["ollama"] = {
+                "status": "UNHEALTHY",
+                "latency_ms": latency,
+                "detail": f"Ollama returned HTTP {resp.status_code}",
+            }
+            health["status"] = "DEGRADED"
+    except Exception as e:
+        health["components"]["ollama"] = {
             "status": "UNHEALTHY",
             "error": str(e),
             "latency_ms": 0,

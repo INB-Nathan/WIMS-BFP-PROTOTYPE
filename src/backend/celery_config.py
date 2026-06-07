@@ -51,5 +51,9 @@ celery_app.conf.update(
             "task": "tasks.civilian_reports.timeout_pending_reports",
             "schedule": 300.0,
         },
+        "snapshot-system-metrics": {
+            "task": "tasks.monitoring.snapshot_system_metrics",
+            "schedule": 60.0,
+        },
     },
 )
