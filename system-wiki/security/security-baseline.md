@@ -35,8 +35,9 @@ Suricata runs with `network_mode: "host"` — directly attached to the host's ne
 This allows it to sniff all ingress traffic arriving at the VPS public IP through nginx
 (ports 80/443). Port 80 yields cleartext HTTP (requests, auth attempts, file uploads);
 port 443 yields only TLS handshake metadata (SNI, cipher suite) since nginx terminates TLS internally.
-Previously Suricata was limited to the `wims_internal` Docker bridge (only inter-container
-traffic and mDNS). Host network mode requires `cap_add: [NET_ADMIN, NET_RAW]` for
+Previously Suricata was limited to the `wims_internal` Docker bridge (inter-container
+traffic and mDNS); sniffing only `eth0` does not include Docker-bridge traffic
+(e.g., backend ↔ Postgres). Host network mode requires `cap_add: [NET_ADMIN, NET_RAW]` for
 promiscuous capture. AF_PACKET zero-copy capture (`--af-packet=${SURICATA_INTERFACE:-eth0}`) with workers runmode
 replaces the previous pcap mode for higher throughput and lower CPU overhead.
 

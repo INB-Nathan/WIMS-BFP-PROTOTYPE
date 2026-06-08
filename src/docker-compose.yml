@@ -238,7 +238,7 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
-    command: --af-packet=eth0 --runmode workers
+    command: --af-packet=${SURICATA_INTERFACE:-eth0} --runmode workers
     volumes:
       - ./suricata/logs:/var/log/suricata
       - ./suricata/rules:/var/lib/suricata/rules
