@@ -28,6 +28,10 @@ This register prevents agents from hallucinating completion. A module is not com
 - TOP-N barangay: OPTIONAL — `31_barangay_geometry.sql` adds geometry column + GiST; `_reverse_geocode_barangay` hooks exist; deferred until vetted polygon seed exists. Use municipality/fire-station/region for hotspot ranking.
 - Selected-set analytics: Phase 2 backend module — aggregate charts remain filter-scoped; selected IDs drive table/export behavior only.
 
+## FRS Gap Closures (June 2026 batch)
+- **M7a (Host Network Visibility — #156)**: CLOSED — `network_mode: "host"` in `src/docker-compose.yml` (Suricata service); removed `networks: wims_internal`; added `cap_add: [NET_ADMIN, NET_RAW]` for promiscuous capture. Suricata now sees all host ingress traffic including nginx ports 80/443.
+- **M7a (AF_PACKET Capture Mode — #158)**: CLOSED — `--af-packet=eth0 --runmode workers` command with AF_PACKET zero-copy capture. `suricata --build-info` confirms `AF_PACKET support: yes`; `--list-runmodes` shows `AF_PACKET_DEV` with workers/autofp/single modes. Combined with host network mode for full ingress visibility at reduced CPU overhead.
+
 ## FRS Gap Closures (May 2026 batch)
 - **M11a (OWASP ZAP Baseline + Nmap CI Scanning)**: CLOSED — PR (feat/m11-ci-scanning): `security-scan` job added to `.github/workflows/ci.yml`; brings full Docker stack, runs Nmap port allowlist check, runs ZAP baseline via `zaproxy/action-baseline@v0.12.0` with `fail_action: true`, uploads both reports as artifacts; `security-scan` added to `merge-gate` `needs:` list to block on HIGH/CRITICAL findings. Closes GH #172.
 - **M6a (Narrative/Casualty/Damage Encryption)**: PARTIAL — GH #150: `narrative_report`, `casualty_details`, `estimated_damage_php` added to AES-256-GCM encrypted blob. All write paths updated (commit.py, regional.py, incidents.py). Plaintext columns NULLed for narrative + casualties. Read path decrypts and injects. Attachments (GH #151) and OpenBao KMS (GH #152) still open.

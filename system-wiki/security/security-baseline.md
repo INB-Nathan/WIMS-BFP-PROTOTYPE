@@ -1,7 +1,7 @@
 ---
 title: Security Baseline
 created: 2026-05-14
-updated: 2026-06-05
+updated: 2026-06-08
 type: security
 tags: [wims-bfp, security, auth, rbac, rls, audit-log, ids, xai, privacy, fail-closed]
 sources: [raw/frs/frs-auth.md, raw/frs/frs-complianceanddataprivacy.md, raw/frs/frs-intrusiondetectionandnetworkingmonitoring.md, raw/frs/frs-threatdetectionwithexplainableai.md, raw/codebase/codebase-snapshot-2026-05-14.md]
@@ -28,6 +28,20 @@ FRS Module 4 requires SHA-256 data hashes, append-only audit logs, and immutable
 
 ## IDS/XAI
 FRS Modules 7 and 8 define Suricata network monitoring and Qwen2.5-3B explainability. Relevant code/config: `src/suricata/`, admin security-log routes, and AI service paths. Real-time security event push via SSE (`GET /api/events/stream`) notifies SYSTEM_ADMIN clients of threat detection, AI analysis completion, and HITL confirmations.
+
+### Network Topology (M7a)
+
+Suricata runs with `network_mode: "host"` — directly attached to the host's network stack.
+This allows it to sniff all ingress traffic arriving at the VPS public IP through nginx
+(ports 80/443). Port 80 yields cleartext HTTP (requests, auth attempts, file uploads);
+port 443 yields only TLS handshake metadata (SNI, cipher suite) since nginx terminates TLS internally.
+Previously Suricata was limited to the `wims_internal` Docker bridge (only inter-container
+traffic and mDNS). Host network mode requires `cap_add: [NET_ADMIN, NET_RAW]` for
+promiscuous capture. AF_PACKET zero-copy capture (`--af-packet=${SURICATA_INTERFACE:-eth0}`) with workers runmode
+replaces the previous pcap mode for higher throughput and lower CPU overhead.
+
+**Note:** Host network mode only functions on Linux (VPS). Docker Desktop on Windows/Mac
+does not expose host traffic to containers in host network mode.
 
 ### Suricata Detection Rules (M7b)
 
