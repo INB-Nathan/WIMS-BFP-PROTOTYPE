@@ -46,6 +46,17 @@ Format: `## [YYYY-MM-DD] action | subject`
 - **`system-wiki/security/security-baseline.md`:** Documented network topology, host networking caveats (Linux-only), and AF_PACKET + workers capture mode.
 - **`system-wiki/gaps/frs-codebase-gap-register.md`:** #156 and #158 both CLOSED.
 
+## [2026-06-09] feat | M9c Configuration management — system_config table, admin API + UI (#170)
+
+- New migration `49_system_config.sql`: `wims.system_config (config_key PK, config_value, description, updated_by, updated_at)`. Seeded with 4 keys: `alert_severity_threshold=3`, `session_timeout_minutes=30`, `offline_storage_mb=50`, `ai_timeout_seconds=60`. RLS: SELECT `USING (TRUE)` (open; Celery consumers read without GUC), INSERT/UPDATE/DELETE restricted to `current_user_role() = 'SYSTEM_ADMIN'`.
+- New `utils/config.py`: `get_config(db, key, default)` — shared helper importable from services and routes with no import cycle.
+- New `api/routes/admin/config.py`: `GET /api/admin/config` (all rows) + `PATCH /api/admin/config/{key}` (update value + audit-log). Key whitelist enforced; unknown keys return 400. Registered in `admin/__init__.py`.
+- **Live consumers**: `suricata_ingestion.eve_to_threat_log_row` accepts `high_threshold` kwarg (default 3); `ingest_eve_file` reads `alert_severity_threshold` from config once per invocation before the line loop. `ai_service.analyze_threat_log` and `generate_incident_narrative` both read `ai_timeout_seconds` from config (replaces hardcoded `60.0`).
+- **Expose-only (no live enforcement)**: `session_timeout_minutes` — exposed in GET only; actual JWT expiry is Keycloak-realm-level (`ssoSessionIdleTimeout`), not changeable from WIMS without Keycloak Admin API integration (out of scope). `offline_storage_mb` — advisory cap enforced client-side: `offlineStore.queueIncident` estimates total queue bytes and throws with a user-readable message if over cap; `initOfflineStorageLimit(mb)` lets app startup override the default 50.
+- **Deferred**: Redis hot-reload (config version counter) — config reads go direct to DB. Documented in config page disclaimer.
+- New `frontend/src/app/admin/system/config/page.tsx`: per-key input + Save (PATCH per key), loaded via `fetchAdminConfig`. New `fetchAdminConfig` + `updateAdminConfig` appended to `legacy.ts`. Does NOT modify `system/page.tsx`.
+- 15 unit tests in `tests/test_system_config.py`: GET seed keys, value+description, RBAC; PATCH happy-path, audit trail, unknown key 400, missing row 404, RBAC; 6 suricata threshold unit tests (default 3 preserved; threshold=2 escalates MEDIUM→HIGH); AI timeout consumer verifies `httpx.AsyncClient(timeout=120.0)` when config returns "120".
+
 ## [2026-06-07] feat | #166 Expand health endpoint + 60s system metrics Celery task
 
 - `GET /api/admin/health` now returns 5 component checks: database, redis, keycloak, suricata, ollama.

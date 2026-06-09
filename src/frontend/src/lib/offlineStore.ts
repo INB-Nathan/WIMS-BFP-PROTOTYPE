@@ -5,6 +5,10 @@ const DB_VERSION = 2;
 const STORE_NAME = 'incident-queue';
 const KEY_STORE = 'crypto-keys';
 
+// Advisory offline storage cap (MB). Default 50; overridden via initOfflineStorageLimit().
+// This is client-side enforcement only — no server eviction occurs.
+let _offlineStorageLimitMb = 50;
+
 interface PendingIncident {
     id: number;
     payload: Record<string, unknown>;
@@ -70,8 +74,29 @@ async function decryptPayload(enc: EncryptedPayload): Promise<Record<string, unk
     return JSON.parse(new TextDecoder().decode(plaintext));
 }
 
-export async function queueIncident(payload: Record<string, unknown>) {
+/** Override the advisory offline storage cap at app init time. */
+export function initOfflineStorageLimit(limitMb: number): void {
+    _offlineStorageLimitMb = limitMb;
+}
+
+export async function queueIncident(payload: Record<string, unknown>): Promise<void> {
     const db = await getDB();
+
+    // Advisory size guard: estimate total queue bytes and warn/throw if over cap.
+    const all: QueuedRecord[] = await db.getAll(STORE_NAME);
+    const totalBytes = all.reduce((sum, item) => sum + (item.encrypted?.data?.length ?? 0), 0);
+    const limitBytes = _offlineStorageLimitMb * 1024 * 1024;
+    if (totalBytes >= limitBytes) {
+        const usedMb = (totalBytes / 1024 / 1024).toFixed(1);
+        console.warn(
+            `[offlineStore] Queue ~${usedMb}MB exceeds advisory cap of ${_offlineStorageLimitMb}MB. Skipping.`
+        );
+        throw new Error(
+            `Offline storage cap reached (${_offlineStorageLimitMb}MB). ` +
+            `Connect to the network to sync, or contact your administrator.`
+        );
+    }
+
     const encrypted = await encryptPayload(payload);
     await db.add(STORE_NAME, {
         encrypted,

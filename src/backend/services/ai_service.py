@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from services.event_bus import publish_security_event
+from utils.config import get_config
 
 OLLAMA_MODEL = "qwen2.5:3b"
 
@@ -55,7 +56,8 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
         "format": "json",
     }
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    ai_timeout = float(get_config(db, "ai_timeout_seconds", "60"))
+    async with httpx.AsyncClient(timeout=ai_timeout) as client:
         resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
 
     if resp.status_code != 200:
@@ -177,7 +179,8 @@ async def generate_incident_narrative(
     ollama_url = _ollama_url() + "/api/generate"
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        ai_timeout = float(get_config(db, "ai_timeout_seconds", "60"))
+        async with httpx.AsyncClient(timeout=ai_timeout) as client:
             response = await client.post(
                 ollama_url,
                 json={
