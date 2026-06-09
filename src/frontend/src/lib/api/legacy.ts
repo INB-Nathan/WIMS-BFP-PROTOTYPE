@@ -293,6 +293,14 @@ export async function updateAdminSecurityLog(
   });
 }
 
+/** Manually create a DRAFT fire incident from a reviewed security alert */
+export async function createIncidentFromAlert(logId: number): Promise<{
+  status: string;
+  incident_id: number;
+}> {
+  return apiFetch(`/admin/security-logs/${logId}/create-incident`, { method: 'POST' });
+}
+
 /** Fetch audit logs (admin) - paginated */
 export async function fetchAuditLogs(params?: {
   limit?: number;

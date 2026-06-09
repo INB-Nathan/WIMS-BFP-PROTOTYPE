@@ -39,6 +39,18 @@ Format: `## [YYYY-MM-DD] action | subject`
 - All 6 unit tests pass; ruff check + format pass.
 
 
+## [2026-06-09] implementation | M8 surgical fixes — structured XAI, CRITICAL severity, HITL audit, remove auto-DRAFT, audit SLM (#161, #162, #163, #165)
+
+- **`services/ai_service.py`:** Restructured XAI prompt from flat narrative to 5-key JSON (anomaly_description, log_evidence, risk_assessment, recommended_action, confidence). Added `analyze_audit_logs()` function for Ollama-based audit trail pattern analysis.
+- **`services/suricata_ingestion.py`:** Added CRITICAL severity level (sev >= 4 → CRITICAL). Removed auto-creation of DRAFT fire incidents from HIGH/CRITICAL alerts — ingestion now logs a warning with requires_review, admin must manually trigger via `POST /admin/security-logs/{id}/create-incident`.
+- **`api/routes/admin/security.py`:** Added `log_system_audit()` call to `update_security_log()` (HITL decisions now audited with action_type=HITL_REVIEW). Added `POST /security-logs/{log_id}/create-incident` endpoint for manual DRAFT incident creation from reviewed alerts.
+- **`api/routes/admin/audit.py`:** Added `POST /audit-logs/analyze` endpoint for AI analysis of batched audit trail entries via Ollama.
+- **`frontend admin/system/page.tsx`:** Structured XAI display now parses JSON and renders 4 labeled sections (Anomaly Description, Log Evidence, Risk Assessment, Recommended Action) with fallback to legacy plain-text. Added "Create Incident from Alert" button in the decision panel.
+- **`lib/api/legacy.ts`:** Added `createIncidentFromAlert()` API client function.
+- **`tests/test_suricata_ingestion.py`:** Added CRITICAL (severity 4) mapping test.
+- **`tests/test_suricata_auto_incident.py`:** Updated to verify HIGH alerts no longer auto-create incidents (call_count == 0).
+- **`system-wiki/gaps/frs-codebase-gap-register.md`:** #161, #162, #163, #165 all CLOSED.
+
 ## [2026-06-08] implementation | M7a host network mode + AF_PACKET capture (#156, #158)
 
 - **`src/docker-compose.yml` (wims-suricata):** Switched to `network_mode: "host"` — Suricata now directly sees host ingress traffic (nginx ports 80/443) instead of only internal Docker bridge traffic (mDNS + inter-container). Removed `networks: wims_internal` (incompatible with host networking). Added `cap_add: [NET_ADMIN, NET_RAW]` for promiscuous capture. Changed command to `--af-packet=eth0 --runmode workers` for zero-copy AF_PACKET capture with multi-threaded processing.

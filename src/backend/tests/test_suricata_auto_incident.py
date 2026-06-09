@@ -1,4 +1,4 @@
-"""Tests for Suricata HIGH-severity auto-incident creation."""
+"""Tests for Suricata HIGH-severity alert handling (no auto-incident creation — #165)."""
 
 from __future__ import annotations
 
@@ -130,7 +130,7 @@ class TestCreateSecurityIncident:
         assert ivh_params["iid"] == 55
         assert ivh_params["uid"] == _SVC_SURICATA_UUID
 
-    def test_high_severity_triggers_auto_incident(self, mock_db):
+    def test_high_severity_no_longer_auto_creates_incident(self, mock_db):
         import services.suricata_ingestion as si
 
         mock_ins = MagicMock(return_value=50)
@@ -151,8 +151,8 @@ class TestCreateSecurityIncident:
                         si.ingest_eve_file(temp_path, db_session=mock_db)
 
             assert mock_ins.call_count >= 1, f"_insert_row: {mock_ins.call_count}"
-            assert mock_create.call_count == 1, (
-                f"_create_security_incident: {mock_create.call_count}"
+            assert mock_create.call_count == 0, (
+                f"_create_security_incident should NOT be called after #165: {mock_create.call_count}"
             )
         finally:
             os.unlink(temp_path)
