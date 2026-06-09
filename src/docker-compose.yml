@@ -234,14 +234,20 @@ services:
     image: jasonish/suricata:7.0.5
     container_name: wims-suricata
     restart: unless-stopped
-    # In a real production environment, you use network_mode: "host"
-    # For this Docker prototype, we will sniff the internal bridge network
-    command: -i eth0
+    network_mode: "host"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    command: --af-packet=${SURICATA_INTERFACE:-eth0} --runmode workers
     volumes:
       - ./suricata/logs:/var/log/suricata
       - ./suricata/rules:/var/lib/suricata/rules
-    networks:
-      - wims_internal
+    healthcheck:
+      test: ["CMD", "pgrep", "suricata"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   # --- Edge Gateway ---
   nginx-gateway:

@@ -3,6 +3,13 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-08] implementation | M7a host network mode + AF_PACKET capture (#156, #158)
+
+- **`src/docker-compose.yml` (wims-suricata):** Switched to `network_mode: "host"` — Suricata now directly sees host ingress traffic (nginx ports 80/443) instead of only internal Docker bridge traffic (mDNS + inter-container). Removed `networks: wims_internal` (incompatible with host networking). Added `cap_add: [NET_ADMIN, NET_RAW]` for promiscuous capture. Changed command to `--af-packet=eth0 --runmode workers` for zero-copy AF_PACKET capture with multi-threaded processing.
+- **AF_PACKET verified available:** `suricata --build-info` confirms `AF_PACKET support: yes`. `--list-runmodes` shows `AF_PACKET_DEV` with single/workers/autofp modes.
+- **`system-wiki/security/security-baseline.md`:** Documented network topology, host networking caveats (Linux-only), and AF_PACKET + workers capture mode.
+- **`system-wiki/gaps/frs-codebase-gap-register.md`:** #156 and #158 both CLOSED.
+
 ## [2026-06-07] feat | #166 Expand health endpoint + 60s system metrics Celery task
 
 - `GET /api/admin/health` now returns 5 component checks: database, redis, keycloak, suricata, ollama.

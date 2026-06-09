@@ -1,7 +1,7 @@
 ---
 title: FRS Codebase Gap Register
 created: 2026-05-14
-updated: 2026-06-05
+updated: 2026-06-09
 type: gap
 tags: [wims-bfp, gap, frs, needs-verification]
 sources: [raw/frs, raw/codebase/codebase-snapshot-2026-05-14.md]
@@ -27,6 +27,11 @@ This register prevents agents from hallucinating completion. A module is not com
 - M9 System Monitoring: PARTIAL — backend `GET /admin/monitoring/system` and `GET /admin/monitoring/workers` exist (PR #103). **M9a (PR #125)** completes the dashboard UI: System Monitoring panel with CPU/RAM/disk progress bars + Celery worker table, grouped 60s refresh via `Promise.allSettled(loadHealth + loadSystemMetrics + loadWorkerStatus)`, and tests. **#166** expands `/admin/health` with Suricata pipeline check (`wims.security_threat_logs` 5-min probe) and Ollama reachability check (`/api/tags`), plus a 60s Celery beat task (`snapshot_system_metrics`) that INSERTs psutil CPU/memory/disk into `wims.system_metrics` and prunes rows older than 7 days. Full-text log search remains a gap.
 - TOP-N barangay: OPTIONAL — `31_barangay_geometry.sql` adds geometry column + GiST; `_reverse_geocode_barangay` hooks exist; deferred until vetted polygon seed exists. Use municipality/fire-station/region for hotspot ranking.
 - Selected-set analytics: Phase 2 backend module — aggregate charts remain filter-scoped; selected IDs drive table/export behavior only.
+
+## FRS Gap Closures (June 2026 batch)
+- **M7a (Host Network Visibility — #156)**: CLOSED — `network_mode: "host"` in `src/docker-compose.yml` (Suricata service); removed `networks: wims_internal`; added `cap_add: [NET_ADMIN, NET_RAW]` for promiscuous capture. Suricata now sees all host ingress traffic including nginx ports 80/443.
+- **M7a (AF_PACKET Capture Mode — #158)**: CLOSED — `--af-packet=eth0 --runmode workers` command with AF_PACKET zero-copy capture. `suricata --build-info` confirms `AF_PACKET support: yes`; `--list-runmodes` shows `AF_PACKET_DEV` with workers/autofp/single modes. Combined with host network mode for full ingress visibility at reduced CPU overhead.
+- **M7a.i (Internal Docker Bridge Monitoring)**: PARTIAL — lost when switching to host network mode; Suricata no longer sees `wims_internal` inter-container traffic (backend↔Postgres, Redis, Keycloak). See security-baseline.md Network Topology.
 
 ## FRS Gap Closures (May 2026 batch)
 - **M11a (OWASP ZAP Baseline + Nmap CI Scanning)**: CLOSED — PR (feat/m11-ci-scanning): `security-scan` job added to `.github/workflows/ci.yml`; brings full Docker stack, runs Nmap port allowlist check, runs ZAP baseline via `zaproxy/action-baseline@v0.12.0` with `fail_action: true`, uploads both reports as artifacts; `security-scan` added to `merge-gate` `needs:` list to block on HIGH/CRITICAL findings. Closes GH #172.
