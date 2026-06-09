@@ -654,15 +654,20 @@ class TestPatchSecurityLogHitl:
         """PATCH { "action": "CONFIRM_THREAT" } sets admin_action_taken + hitl_decision JSONB."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
         mock_db, mock_get_db = _mock_security_log_db()
+        # Prefetch (call 1) returns LOW severity — email branch not exercised
+        mock_db.execute.return_value.fetchone.return_value = ("LOW", "n/a", None)
         app.dependency_overrides[get_db_with_rls] = mock_get_db
 
         response = client.patch("/api/admin/security-logs/1", json={"action": "CONFIRM_THREAT"})
 
         assert response.status_code == 200
-        mock_db.execute.assert_called_once()
-        call_args = mock_db.execute.call_args
-        sql = str(call_args[0][0])
-        params = call_args[0][1]
+        # CONFIRM_THREAT: call 1 = severity prefetch, call 2 = UPDATE
+        assert mock_db.execute.call_count == 2
+        update_call = next(
+            c for c in mock_db.execute.call_args_list if "admin_action_taken" in c[0][1]
+        )
+        sql = str(update_call[0][0])
+        params = update_call[0][1]
         assert "admin_action_taken = :admin_action_taken" in sql
         assert params["admin_action_taken"] == "Confirmed Threat"
         assert "hitl_decision = CAST(:hitl_decision AS jsonb)" in sql
