@@ -2533,3 +2533,19 @@ Fixed the verified connectivity state machine so the app can recover from offlin
 **Validation:** Focused network tests: 9 passed. Sync/network UI focused tests: 18 passed. Full frontend Vitest rerun: 181 passed. `npm run lint`: 0 errors, existing warnings only. `npm run build`: passed. `npx tsc --noEmit`: still blocked by pre-existing test/mock typing errors outside this change.
 
 **Wiki update:** Updated `system-wiki/frontend/frontend-infrastructure.md`, `system-wiki/architecture/infrastructure-config.md`, `system-wiki/index.md`, and this log. No FRS gap status changed.
+
+## [2026-06-09] feat | Offline-first encoder stabilization — Issues 1–4 + 2a–2d
+
+**Branch:** feat/offline-first-encoder
+
+**Changes:**
+- `useAutoSync.ts`: Added persistent "You're offline" toast (sonner, `duration: Infinity`, fixed ID to prevent spam). Reconnect toast copy updated to "Back online. Syncing your changes…". Recovery effect calls `recoverStaleSyncingOps` on mount before refreshing the pending badge.
+- `offlineStore.ts`: Added `getOfflineOp(localId)` — returns a single decrypted op by key. Added `recoverStaleSyncingOps(encoderId, staleThresholdMs)` — resets any ops stuck in `syncing` (tab closed mid-sync) back to `pending`; ops with `lastAttemptAt === null` are always reset. Fixed `updateOfflineOp` to no longer incorrectly overwrite `createdAt` on the record.
+- `IncidentForm.tsx`: Added `offlineLocalId?: string` prop. When set, save calls `updateOfflineOp(offlineLocalId, { ...payload, updated_at })` in-place instead of hitting the API or creating a duplicate op. All three offline-queue paths for `create` ops now embed `created_at` and `updated_at` ISO strings into the payload; the offline `update` path embeds `updated_at`.
+- `dashboard/regional/page.tsx`: Queued-op cards (card view) and rows (table view) are now clickable and navigate to `/dashboard/regional/incidents/local/${op.localId}`.
+- `dashboard/regional/incidents/local/[localId]/page.tsx` (new): Loads op from IndexedDB via `getOfflineOp`, shows IncidentForm pre-populated with the queued payload and `offlineLocalId` prop set. Handles already-synced ops by redirecting to the server record.
+- `backend/api/routes/incidents.py` (`upload_incident_bundle`): Accepts optional `created_at` / `updated_at` ISO strings from each bundle item and includes them in the `fire_incidents` INSERT if valid; future-dated values are clamped to `now()`.
+- `__tests__/useAutoSync.test.ts`: Added `recoverStaleSyncingOps` and `toast.dismiss`/`toast.info` to mocks.
+- `__tests__/offlineStore.ops.test.ts` (new): 9 tests covering `recoverStaleSyncingOps` (stale threshold, null lastAttemptAt, encoder scoping), `updateOfflineOp` (preserves createdAt), and `getOfflineOp` (returns decrypted payload).
+
+**Validation:** 28 test files, 190 tests — all passing. `npm run lint`: 0 errors. `npm run build`: clean. `npx tsc --noEmit`: no new errors (pre-existing test/mock type errors unchanged).

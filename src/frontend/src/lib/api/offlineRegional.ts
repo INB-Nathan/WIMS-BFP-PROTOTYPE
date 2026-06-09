@@ -63,7 +63,10 @@ export async function fetchRegionalIncidentsOfflineAware(
   params: RegionalIncidentsQueryParams | undefined,
   encoderId: string,
 ): Promise<OfflineAwareListResult> {
-  const isOffline = !getConnectivitySnapshot().isOnline;
+  // Only treat as offline when the last probe confirmed it.
+  // 'checking' (probe in flight) is ambiguous — fall through to the API so a
+  // racing probeConnectivity() transition doesn't falsely serve stale cache.
+  const isOffline = getConnectivitySnapshot().state === 'offline';
 
   if (isOffline) {
     const cached = await getCachedIncidents(encoderId);
@@ -129,7 +132,21 @@ export async function fetchRegionalIncidentOfflineAware(
   incidentId: number,
   encoderId: string,
 ): Promise<OfflineAwareDetailResult> {
-  const isOffline = !getConnectivitySnapshot().isOnline || !(await isReachable());
+  // Resolve connectivity precisely before fetching a detail record:
+  //   'offline'            → last probe confirmed offline, serve cache immediately
+  //   'online'/'reconnect' → confirmed online, go straight to API
+  //   'checking'           → probe in flight, wait for its result
+  // This prevents the transient 'checking' window (set by probeConnectivity())
+  // from falsely triggering the cache path and showing the stale-data banner.
+  const snap = getConnectivitySnapshot();
+  let isOffline: boolean;
+  if (snap.state === 'offline') {
+    isOffline = true;
+  } else if (snap.state === 'online' || snap.state === 'reconnecting') {
+    isOffline = false;
+  } else {
+    isOffline = !(await isReachable());
+  }
 
   if (isOffline) {
     const cached = await getCachedIncident(incidentId);

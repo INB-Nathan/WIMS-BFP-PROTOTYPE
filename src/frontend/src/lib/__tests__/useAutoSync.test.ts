@@ -21,6 +21,7 @@ vi.mock('../syncEngine', () => ({
 // Mock offlineStore (new ops API)
 vi.mock('../offlineStore', () => ({
   getPendingOpsCount: vi.fn(),
+  recoverStaleSyncingOps: vi.fn().mockResolvedValue(0),
 }));
 
 // Mock auth
@@ -34,6 +35,8 @@ vi.mock('sonner', () => ({
     success: vi.fn(),
     error: vi.fn(),
     warning: vi.fn(),
+    info: vi.fn(),
+    dismiss: vi.fn(),
   },
 }));
 
@@ -45,7 +48,7 @@ vi.mock('../useNetworkStatus', () => ({
 
 import { useAutoSync } from '../useAutoSync';
 import { syncPendingIncidents } from '../syncEngine';
-import { getPendingOpsCount } from '../offlineStore';
+import { getPendingOpsCount, recoverStaleSyncingOps } from '../offlineStore';
 import { useUserProfile } from '../auth';
 import { toast } from 'sonner';
 
@@ -59,6 +62,7 @@ beforeEach(() => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   vi.mocked(useUserProfile).mockReturnValue({ user: { id: ENCODER_ID } as any, loading: false } as any);
   vi.mocked(getPendingOpsCount).mockResolvedValue(0);
+  vi.mocked(recoverStaleSyncingOps).mockResolvedValue(0);
   vi.mocked(syncPendingIncidents).mockResolvedValue(OK_RESULT);
   vi.mocked(toast.success).mockClear();
   vi.mocked(toast.error).mockClear();

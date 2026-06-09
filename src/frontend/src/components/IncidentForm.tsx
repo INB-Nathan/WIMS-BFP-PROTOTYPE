@@ -10,7 +10,7 @@ import {
   ApiRequestError,
 } from '@/lib/api';
 import {
-  queueOfflineOp, saveDraftOp, getDraftOps, deleteOfflineOp,
+  queueOfflineOp, saveDraftOp, getDraftOps, deleteOfflineOp, updateOfflineOp,
 } from '@/lib/offlineStore';
 import { useUserProfile } from '@/lib/auth';
 import { PH_REGIONS, getProvincesForRegion, getCitiesForProvince, getAforRegionIdentifier, getShortRegionName } from '@/lib/ph-regions';
@@ -90,6 +90,7 @@ function isNetworkError(err: unknown): boolean {
 export function IncidentForm({
   initialData,
   existingIncidentId,
+  offlineLocalId,
   onSaved,
   initialErrors,
   clientUpdatedAt,
@@ -97,6 +98,7 @@ export function IncidentForm({
 }: {
   initialData?: Incident;
   existingIncidentId?: number;
+  offlineLocalId?: string;
   onSaved?: () => void;
   initialErrors?: string[];
   clientUpdatedAt?: string | null;
@@ -1094,6 +1096,23 @@ export function IncidentForm({
       },
     } as unknown as Incident;
 
+    // ── Offline-local edit: update the queued op in place, no API call ──────
+    if (offlineLocalId) {
+      try {
+        await updateOfflineOp(offlineLocalId, {
+          ...(incident as unknown as Record<string, unknown>),
+          updated_at: new Date().toISOString(),
+        });
+        showToast('Saved locally.');
+        onSaved?.();
+      } catch (e) {
+        showToast(`Failed to save: ${(e as Error).message}`);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (existingIncidentId) {
       // ── Edit mode: flat PUT payload ──────────────────────────────────────
       const updatePayload: Record<string, unknown> = {
@@ -1188,7 +1207,10 @@ export function IncidentForm({
             serverUpdatedAt: null,
             regionId: effectiveRegionId,
             encoderId: user?.id ?? '',
-            payload: updatePayload as unknown as Record<string, unknown>,
+            payload: {
+              ...(updatePayload as unknown as Record<string, unknown>),
+              updated_at: new Date().toISOString(),
+            },
             createdAt: Date.now(),
           });
           if (submitAfterSaveRef.current) {
@@ -1248,6 +1270,7 @@ export function IncidentForm({
       } else {
         // Offline — promote the draft to a queued create op so the sync engine picks it up.
         const opLocalId = draftLocalId.current ?? crypto.randomUUID();
+        const _nowIso = new Date().toISOString();
         await queueOfflineOp({
           localId: opLocalId,
           operation: 'create',
@@ -1256,7 +1279,11 @@ export function IncidentForm({
           serverUpdatedAt: null,
           regionId: effectiveRegionId,
           encoderId: user?.id ?? '',
-          payload: incident as unknown as Record<string, unknown>,
+          payload: {
+            ...(incident as unknown as Record<string, unknown>),
+            created_at: _nowIso,
+            updated_at: _nowIso,
+          },
           createdAt: Date.now(),
         });
         // If encoder clicked "Submit for Review", queue a linked submit op so the
@@ -1295,6 +1322,7 @@ export function IncidentForm({
         // offline and queue the work so the encoder does not lose it.
         // Fall back to the offline queue so the encoder doesn't lose their work.
         const opLocalId = draftLocalId.current ?? crypto.randomUUID();
+        const _nowIso2 = new Date().toISOString();
         await queueOfflineOp({
           localId: opLocalId,
           operation: 'create',
@@ -1303,7 +1331,11 @@ export function IncidentForm({
           serverUpdatedAt: null,
           regionId: effectiveRegionId,
           encoderId: user?.id ?? '',
-          payload: incident as unknown as Record<string, unknown>,
+          payload: {
+            ...(incident as unknown as Record<string, unknown>),
+            created_at: _nowIso2,
+            updated_at: _nowIso2,
+          },
           createdAt: Date.now(),
         });
         if (submitAfterSaveRef.current) {

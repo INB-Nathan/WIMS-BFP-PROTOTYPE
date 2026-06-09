@@ -67,6 +67,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // races against concurrent tab refreshes (refreshTokenMaxReuse:0) and often
   // results in 401 → session kill → logged out.  Proactive interval refresh is
   // sufficient; the cookie stays valid across tab switches without re-fetching.
+  //
+  // Offline resilience: when the backend is unreachable (503) or the request
+  // fails entirely (DevTools offline mode blocks localhost), we restore the user
+  // from a localStorage cache written on the last successful login. This allows
+  // encoders to access the app and view cached incidents when offline.
+  const SESSION_CACHE_KEY = 'wims:offline_session_cache';
+
+  const restoreSessionFromCache = useCallback(() => {
+    try {
+      const raw = localStorage.getItem(SESSION_CACHE_KEY);
+      if (raw) {
+        const cached = JSON.parse(raw) as { user: User };
+        if (cached.user) setUser(cached.user);
+      }
+    } catch { /* localStorage unavailable or invalid JSON — skip */ }
+  }, []);
+
   const fetchSession = useCallback(async () => {
     try {
       const requestSession = () => fetch('/api/auth/session');
@@ -83,19 +100,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await res.json();
         if (data.user) {
           setUser(data.user);
+          try { localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ user: data.user })); } catch { /* private mode */ }
         } else {
           setUser(null);
+          localStorage.removeItem(SESSION_CACHE_KEY);
         }
+      } else if (res.status === 503) {
+        // Backend unreachable — restore from local cache so offline encoders
+        // can still access the app and their cached incident data.
+        restoreSessionFromCache();
       } else {
+        // Genuine auth failure (401 after refresh, 500, etc.) — clear session.
         setUser(null);
+        localStorage.removeItem(SESSION_CACHE_KEY);
       }
     } catch (err) {
-      setUser(null);
+      // Network error: DevTools offline mode blocks even localhost requests.
+      restoreSessionFromCache();
       console.error('[AuthContext] fetchSession: initialization failed:', err);
     } finally {
       setLoading(false);
     }
-  }, [refreshAccessToken]);
+  }, [refreshAccessToken, restoreSessionFromCache]);
 
   // ─── Initial session load ────────────────────────────────────────────────────
   useEffect(() => {
@@ -159,6 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    localStorage.removeItem(SESSION_CACHE_KEY);
     setLoggingOut(true);
     try {
       await fetch('/api/auth/logout', { method: 'POST' });

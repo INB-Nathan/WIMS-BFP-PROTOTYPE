@@ -6,9 +6,11 @@ import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { usePathname } from 'next/navigation';
 import { registerServiceWorker } from '@/lib/swRegistration';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
 
 export function LayoutShell({ children }: { children: ReactNode }) {
     const { user, loading, loggingOut, login } = useAuth();
+    const { isOnline } = useNetworkStatus();
     const pathname = usePathname();
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -21,6 +23,12 @@ export function LayoutShell({ children }: { children: ReactNode }) {
             const isPublic = pathname === '/' || pathname === '/login' || pathname === '/callback' || pathname.startsWith('/tracking') || pathname.startsWith('/fire-stations') || pathname.startsWith('/privacy');
 
             if (!isPublic) {
+                // Don't redirect to Keycloak when offline — it's unreachable too.
+                // The session cache in AuthContext restores the user offline, so
+                // reaching here with user=null while offline means no cached session
+                // exists; we wait until online before redirecting.
+                if (!isOnline) return;
+
                 // Defensive: wait 500ms before auto-redirecting to Keycloak.
                 // The callback page calls refreshSession() before navigating, but
                 // if there's a race condition or the session backend is slow, this
@@ -33,7 +41,7 @@ export function LayoutShell({ children }: { children: ReactNode }) {
                 return () => clearTimeout(timer);
             }
         }
-    }, [user, loading, loggingOut, pathname, login]);
+    }, [user, loading, loggingOut, pathname, login, isOnline]);
 
     // Close sidebar on route change (mobile)
     useEffect(() => {

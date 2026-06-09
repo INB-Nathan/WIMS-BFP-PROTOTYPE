@@ -190,6 +190,34 @@ def upload_incident_bundle(
 
         _cid_col = ", client_id" if client_id_col_exists else ""
         _cid_val = ", CAST(:client_id AS uuid)" if client_id_col_exists else ""
+
+        # Accept optional client-supplied timestamps for offline-first sync.
+        # These are ISO-8601 strings queued on the client when the device was offline.
+        # We validate and clamp to current time to prevent far-future values.
+        def _parse_client_ts(raw: Any) -> str | None:
+            if not raw or not isinstance(raw, str):
+                return None
+            try:
+                from datetime import datetime, timezone
+                dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                now_utc = datetime.now(timezone.utc)
+                if dt > now_utc:
+                    return now_utc.isoformat()
+                return dt.isoformat()
+            except (ValueError, OverflowError):
+                return None
+
+        client_created_at = _parse_client_ts(item.get("created_at"))
+        client_updated_at = _parse_client_ts(item.get("updated_at"))
+        _ts_cols = ""
+        _ts_vals = ""
+        if client_created_at:
+            _ts_cols += ", created_at"
+            _ts_vals += ", CAST(:client_created_at AS timestamptz)"
+        if client_updated_at:
+            _ts_cols += ", updated_at"
+            _ts_vals += ", CAST(:client_updated_at AS timestamptz)"
+
         inc_params = {
             "batch_id": batch_id,
             "uid": user_id,
@@ -200,16 +228,21 @@ def upload_incident_bundle(
         }
         if client_id_col_exists:
             inc_params["client_id"] = item_client_id
+        if client_created_at:
+            inc_params["client_created_at"] = client_created_at
+        if client_updated_at:
+            inc_params["client_updated_at"] = client_updated_at
+
         inc_row = db.execute(
             text(
                 f"""
                 INSERT INTO wims.fire_incidents
                     (import_batch_id, encoder_id, region_id, location, verification_status,
-                     incident_type_code, reference_number{_cid_col})
+                     incident_type_code, reference_number{_cid_col}{_ts_cols})
                 VALUES
                     (:batch_id, CAST(:uid AS uuid), :region_id,
                      ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
-                     'DRAFT', :incident_type_code, NULL{_cid_val})
+                     'DRAFT', :incident_type_code, NULL{_cid_val}{_ts_vals})
                 RETURNING incident_id
                 """
             ),

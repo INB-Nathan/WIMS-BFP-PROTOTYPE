@@ -345,7 +345,6 @@ export async function updateOfflineOp(
         return;
     }
     existing.payload = await encryptPayload(payload);
-    existing.createdAt = Date.now();
     await store.put(existing);
     await tx.done;
 }
@@ -531,6 +530,49 @@ export async function saveDraftOp(
         lastAttemptAt: null,
     };
     await db.put(OPS_STORE, record);
+}
+
+/**
+ * Get a single offline op by localId, decrypted.
+ * Returns undefined if not found.
+ */
+export async function getOfflineOp(localId: string): Promise<OfflineOpDecrypted | undefined> {
+    const db = await getDB();
+    const op: OfflineOp | undefined = await db.get(OPS_STORE, localId);
+    if (!op) return undefined;
+    const payload = await decryptPayload(op.payload);
+    return { ...op, payload };
+}
+
+/**
+ * On app startup or before sync, reset any ops stuck in 'syncing' state
+ * (e.g. the tab closed mid-sync) back to 'pending' so they are retried.
+ *
+ * An op is considered stale when its lastAttemptAt is older than staleThresholdMs
+ * (default 5 minutes). Ops with no lastAttemptAt are always reset — they were
+ * marked syncing but never attempted (shouldn't happen, but handle defensively).
+ */
+export async function recoverStaleSyncingOps(
+    encoderId: string,
+    staleThresholdMs = 5 * 60 * 1000,
+): Promise<number> {
+    const db = await getDB();
+    const all: OfflineOp[] = await db.getAllFromIndex(OPS_STORE, 'by_encoder', encoderId);
+    const cutoff = Date.now() - staleThresholdMs;
+    const stale = all.filter(
+        (op) =>
+            op.syncStatus === 'syncing' &&
+            (op.lastAttemptAt === null || op.lastAttemptAt < cutoff),
+    );
+    if (stale.length === 0) return 0;
+
+    const tx = db.transaction(OPS_STORE, 'readwrite');
+    const store = tx.objectStore(OPS_STORE);
+    for (const op of stale) {
+        await store.put({ ...op, syncStatus: 'pending' });
+    }
+    await tx.done;
+    return stale.length;
 }
 
 /**

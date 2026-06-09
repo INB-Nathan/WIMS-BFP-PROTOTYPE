@@ -823,8 +823,17 @@ export default function RegionalDashboardPage() {
                 return (
                   <div
                     key={`queued-${op.localId}`}
-                    className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 flex flex-col gap-2"
-                    title="This incident is saved locally and will sync when connected"
+                    role="button"
+                    tabIndex={0}
+                    className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 flex flex-col gap-2 cursor-pointer hover:border-amber-400 hover:bg-amber-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                    title="Edit this locally saved incident"
+                    onClick={() => router.push(`/dashboard/regional/incidents/local/${op.localId}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        router.push(`/dashboard/regional/incidents/local/${op.localId}`);
+                      }
+                    }}
                   >
                     <div className="flex items-center justify-between">
                       <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
@@ -910,8 +919,18 @@ export default function RegionalDashboardPage() {
                   return (
                     <tr
                       key={`queued-${op.localId}`}
-                      className="border-b bg-amber-50/50"
-                      title="Saved locally — will sync when connected"
+                      className="border-b bg-amber-50/50 cursor-pointer hover:bg-amber-100/70 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400"
+                      title="Edit this locally saved incident"
+                      tabIndex={0}
+                      role="link"
+                      aria-label={`Edit local incident (${category})`}
+                      onClick={() => router.push(`/dashboard/regional/incidents/local/${op.localId}`)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          router.push(`/dashboard/regional/incidents/local/${op.localId}`);
+                        }
+                      }}
                     >
                       <td className="px-5 py-4 whitespace-nowrap text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
                         {savedAt}

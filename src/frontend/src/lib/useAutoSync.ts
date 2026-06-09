@@ -14,7 +14,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNetworkStatus } from './useNetworkStatus';
 import { syncPendingIncidents, type SyncResult } from './syncEngine';
-import { getPendingOpsCount } from './offlineStore';
+import { getPendingOpsCount, recoverStaleSyncingOps } from './offlineStore';
 import { useUserProfile } from './auth';
 import { toast } from 'sonner';
 
@@ -27,8 +27,10 @@ export interface AutoSyncState {
   syncNow: () => Promise<void>;
 }
 
+const OFFLINE_TOAST_ID = 'wims-connection-offline';
+
 export function useAutoSync(): AutoSyncState {
-  const { isOnline, isReconnecting } = useNetworkStatus();
+  const { isOnline, isChecking, isReconnecting } = useNetworkStatus();
   const { user } = useUserProfile();
   const [syncing, setSyncing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
@@ -107,17 +109,33 @@ export function useAutoSync(): AutoSyncState {
     await doSync();
   }, [doSync]);
 
+  // Show a persistent "You're offline" toast when connection is lost; dismiss on recovery.
+  // A fixed toast id prevents duplicate toasts during rapid online/offline flapping.
+  useEffect(() => {
+    if (!isOnline && !isChecking) {
+      toast.warning("You're offline. Changes will sync when connection is restored.", {
+        id: OFFLINE_TOAST_ID,
+        duration: Infinity,
+      });
+    } else {
+      toast.dismiss(OFFLINE_TOAST_ID);
+    }
+  }, [isOnline, isChecking]);
+
   // Auto-sync on reconnect with 2s debounce + reconnect notification toast
   useEffect(() => {
     if (!isReconnecting) return;
 
+    // Dismiss the offline banner immediately so the user sees the "back online" message.
+    toast.dismiss(OFFLINE_TOAST_ID);
+
     if (pendingCount > 0) {
-      toast.info(
-        `Connection restored — syncing ${pendingCount} queued incident${pendingCount !== 1 ? 's' : ''}`,
-        { duration: 3000 },
+      toast.success(
+        `Back online. Syncing your changes…`,
+        { duration: 4000 },
       );
     } else {
-      toast.success('Connection restored', { duration: 2000 });
+      toast.success('Back online.', { duration: 2000 });
     }
 
     debounceTimer.current = setTimeout(() => {
@@ -157,10 +175,15 @@ export function useAutoSync(): AutoSyncState {
     return () => clearTimeout(t);
   }, [isOnline, user?.id, pendingCount, doSync]);
 
-  // Fetch pending count on mount and when user changes
+  // On mount: recover any ops stuck in 'syncing' state (tab closed mid-sync),
+  // then fetch the pending count so the badge reflects the full queue.
   useEffect(() => {
-    refreshPendingCount();
-  }, [refreshPendingCount]);
+    if (!user?.id) return;
+    const encoderId = user.id;
+    void recoverStaleSyncingOps(encoderId).then(() => refreshPendingCount());
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // intentionally not listing refreshPendingCount — it's stable but capturing it
+  // would add an extra mount call since it references user?.id transitively.
 
   return { syncing, lastSyncedAt, pendingCount, conflictCount, authFailed, syncNow };
 }
