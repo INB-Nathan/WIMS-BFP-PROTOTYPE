@@ -2,6 +2,15 @@
 
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
+## [2026-06-10] feat | M6 PII key versioning + rotation script (#67)
+
+- Migration `50_incident_pii_key_version.sql`: `ALTER TABLE wims.incident_sensitive_details ADD COLUMN IF NOT EXISTS key_version SMALLINT NOT NULL DEFAULT 1`. All existing rows default to v1.
+- `utils/crypto.py`: versioned keyring (`_keyring: dict[int, AESGCM]`). v1 always from `WIMS_MASTER_KEY`; v2, v3, … from `WIMS_MASTER_KEY_V2`, `WIMS_MASTER_KEY_V3`, etc. (scanned until gap). `WIMS_KEY_CURRENT_VERSION` (default "1") selects encryption key. `_aesgcm` is now a property returning `_keyring[_current_version]` — existing test at line 69 stays green. `encrypt_json` signature unchanged (still 2-tuple). `decrypt_json` gains `key_version: int = 1` parameter.
+- Threaded `key_version` through all 6 encrypt call sites: `incidents.py`, `encoder_crud.py`, `field_updates.py`, `afor_import/commit.py`, `regional_incidents/helpers.py`, `scripts/encrypt_backlog.py`. Each persists `sp.current_version` into the DB row.
+- Threaded `key_version` through all 5 decrypt call sites: `regional/encoder.py`, `field_updates.py` (×2), `regional_incidents/helpers.py`, `scripts/encrypt_backlog.py`. SELECT queries extended to fetch `key_version`; each passes it to `decrypt_json`.
+- `scripts/rotate_pii_keys.py`: new rotation script. Reads each row's `key_version`, decrypts, re-encrypts under target version, UPDATEs. Supports `--dry-run`, `--target-version`, `--batch-size`. Idempotent (skips rows already at target). Per-row error isolation; exits 1 if any errors.
+- `backup_crypto.py` intentionally untouched — deferred to #152/OpenBao.
+- `tests/test_crypto.py`: 9 new tests in `TestKeyVersioning` — default version, env override, missing key error, invalid env, multi-key keyring, v2 roundtrip, cross-version auth failure, unknown version error, v1 explicit roundtrip. 26/26 tests pass. Ruff check + format pass.
 ## [2026-06-10] fix | M5 map: Referrer-Policy strict-origin-when-cross-origin so OSM tiles load in prod (#233)
 
 - Root cause: prod HTTPS nginx block had `Referrer-Policy: no-referrer`, suppressing the Referer header OSM tile servers require. All 8 react-leaflet TileLayer components (PublicFireMapInner, MapPickerInner, ClusterMapInner, NearbyPublicReportAreasInner, NearbyStationsMapInner, ValidatorMapInner, FireStationsMapInner, HeatmapViewer) were returning 403 in production.
@@ -30,7 +39,6 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Added `setView`/`fitBounds` stubs on useMap to prevent FitBounds crash.
 - Used `vi.useRealTimers()` in the first test so @loadable/component's 200ms delay fires and the dynamic import resolves.
 - All 4 tests pass.
-
 ## [2026-06-09] fix | PR #238 rebase + review fixes — 6 files
 
 - Rebased `feat/m13-email-triggers` onto origin/master (1345808). Resolved 2 conflicts:

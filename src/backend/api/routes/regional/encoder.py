@@ -347,6 +347,7 @@ def get_regional_incident_detail(
                 sd_dict["encryption_iv"],
                 sd_dict["pii_blob_enc"],
                 aad,
+                key_version=sd_dict.get("key_version") or 1,
             )
             # Inject decrypted PII/narrative/casualty/damage fields so frontend contract is unchanged
             sd_dict["caller_name"] = pii_plaintext.get("caller_name")

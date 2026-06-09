@@ -184,3 +184,99 @@ class TestAPI:
                 "!!!not-base64!!!",
                 aad=b"incident_id:1",
             )
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Key Versioning
+# ════════════════════════════════════════════════════════════════════════════════
+
+
+class TestKeyVersioning:
+    """Multi-key keyring and version-aware decrypt_json."""
+
+    def test_default_current_version_is_1(self, monkeypatch):
+        key = _fresh_key()
+        monkeypatch.setenv("WIMS_MASTER_KEY", _key_b64(key))
+        monkeypatch.delenv("WIMS_KEY_CURRENT_VERSION", raising=False)
+        sp = SecurityProvider()
+        assert sp.current_version == 1
+
+    def test_current_version_set_via_env(self, monkeypatch):
+        k1 = _fresh_key()
+        k2 = _fresh_key()
+        monkeypatch.setenv("WIMS_MASTER_KEY", _key_b64(k1))
+        monkeypatch.setenv("WIMS_MASTER_KEY_V2", _key_b64(k2))
+        monkeypatch.setenv("WIMS_KEY_CURRENT_VERSION", "2")
+        sp = SecurityProvider()
+        assert sp.current_version == 2
+
+    def test_current_version_missing_key_raises(self, monkeypatch):
+        key = _fresh_key()
+        monkeypatch.setenv("WIMS_MASTER_KEY", _key_b64(key))
+        monkeypatch.delenv("WIMS_MASTER_KEY_V2", raising=False)
+        monkeypatch.setenv("WIMS_KEY_CURRENT_VERSION", "2")
+        with pytest.raises(SecurityProviderError, match="2"):
+            SecurityProvider()
+
+    def test_invalid_current_version_env_raises(self, monkeypatch):
+        key = _fresh_key()
+        monkeypatch.setenv("WIMS_MASTER_KEY", _key_b64(key))
+        monkeypatch.setenv("WIMS_KEY_CURRENT_VERSION", "not-an-int")
+        with pytest.raises(SecurityProviderError, match="integer"):
+            SecurityProvider()
+
+    def test_v2_key_loaded_in_keyring(self, monkeypatch):
+        k1 = _fresh_key()
+        k2 = _fresh_key()
+        monkeypatch.setenv("WIMS_MASTER_KEY", _key_b64(k1))
+        monkeypatch.setenv("WIMS_MASTER_KEY_V2", _key_b64(k2))
+        monkeypatch.delenv("WIMS_KEY_CURRENT_VERSION", raising=False)
+        sp = SecurityProvider()
+        assert 1 in sp._keyring  # noqa: SLF001
+        assert 2 in sp._keyring  # noqa: SLF001
+
+    def test_encrypt_with_v2_decrypt_with_key_version_2(self, monkeypatch):
+        k1 = _fresh_key()
+        k2 = _fresh_key()
+        monkeypatch.setenv("WIMS_MASTER_KEY", _key_b64(k1))
+        monkeypatch.setenv("WIMS_MASTER_KEY_V2", _key_b64(k2))
+        monkeypatch.setenv("WIMS_KEY_CURRENT_VERSION", "2")
+        sp = SecurityProvider()
+        pii = {"caller_name": "Key2 User"}
+        aad = b"incident_id:200"
+        nonce_b64, ct_b64 = sp.encrypt_json(pii, aad)
+        assert sp.current_version == 2
+        decrypted = sp.decrypt_json(nonce_b64, ct_b64, aad, key_version=2)
+        assert decrypted == pii
+
+    def test_decrypt_v2_blob_with_v1_key_fails(self, monkeypatch):
+        """Blobs encrypted with v2 must not decrypt under v1."""
+        k1 = _fresh_key()
+        k2 = _fresh_key()
+        monkeypatch.setenv("WIMS_MASTER_KEY", _key_b64(k1))
+        monkeypatch.setenv("WIMS_MASTER_KEY_V2", _key_b64(k2))
+        monkeypatch.setenv("WIMS_KEY_CURRENT_VERSION", "2")
+        sp = SecurityProvider()
+        nonce_b64, ct_b64 = sp.encrypt_json({"caller_name": "X"}, b"incident_id:1")
+        with pytest.raises(SecurityProviderError, match="authentication"):
+            sp.decrypt_json(nonce_b64, ct_b64, b"incident_id:1", key_version=1)
+
+    def test_decrypt_unknown_key_version_raises(self, monkeypatch):
+        key = _fresh_key()
+        monkeypatch.setenv("WIMS_MASTER_KEY", _key_b64(key))
+        monkeypatch.delenv("WIMS_KEY_CURRENT_VERSION", raising=False)
+        sp = SecurityProvider()
+        nonce_b64, ct_b64 = sp.encrypt_json({"x": 1}, b"incident_id:1")
+        with pytest.raises(SecurityProviderError, match="key_version=99"):
+            sp.decrypt_json(nonce_b64, ct_b64, b"incident_id:1", key_version=99)
+
+    def test_v1_roundtrip_with_explicit_key_version(self, monkeypatch):
+        """Existing v1 blobs decrypt correctly when key_version=1 is explicit."""
+        key = _fresh_key()
+        monkeypatch.setenv("WIMS_MASTER_KEY", _key_b64(key))
+        monkeypatch.delenv("WIMS_KEY_CURRENT_VERSION", raising=False)
+        sp = SecurityProvider()
+        pii = {"caller_name": "Legacy", "caller_number": "0917"}
+        aad = b"incident_id:42"
+        nonce_b64, ct_b64 = sp.encrypt_json(pii, aad)
+        assert sp.decrypt_json(nonce_b64, ct_b64, aad, key_version=1) == pii
