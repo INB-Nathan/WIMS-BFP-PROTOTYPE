@@ -2,6 +2,42 @@
 
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
+## [2026-06-09] fix | PR #238 rebase + review fixes — 6 files
+
+- Rebased `feat/m13-email-triggers` onto origin/master (1345808). Resolved 2 conflicts:
+  - `src/backend/celery_config.py`: merged M7a `update-suricata-rules-weekly` + M13 `send-weekly-report-email` beat entries
+  - `.zap/rules.tsv`: kept HEAD (M7a) justification for rule 90004 (COEP unsafe-none)
+- **Q1 (critical):** Fixed double-toggle bug in `profile/page.tsx` — removed `div.onClick` handlers that canceled out checkbox `onChange` (React 18 batching).
+- **S1:** Updated notification prefs copy from "report status changes" to "system alerts and weekly reports" (matches actual email dispatch).
+- **Q4:** Profile save callback now refreshes `notifPrefs` from API response (was discarding `email_opt_in`/`push_opt_in` on profile save).
+- **Q2/Q3:** Added `NEXT_PUBLIC_APP_URL` env var to backend + celery-worker containers in `docker-compose.yml` and `docker-compose.prod.yml` (email links no longer default to localhost in prod).
+- **S2:** Updated stale section comment in `tasks/notifications.py` — no longer claims triggers are "out of scope."
+- **S3:** Weekly report email query now filters by `email_opt_in = TRUE`; security alert query intentionally bypasses (critical alerts).
+- **S4:** Added `autoretry_for=(Exception,)` with backoff to `send_weekly_report_email` Celery task.
+- **S5:** Moved `import requests` inside `test_mailhog_email_delivery` function body (integration-only dependency).
+
+## [2026-06-09] feat | M13 user notification preferences — email_opt_in + push_opt_in (#72)
+
+- Migration `47_notification_preferences.sql`: adds `email_opt_in BOOLEAN NOT NULL DEFAULT TRUE` and `push_opt_in BOOLEAN NOT NULL DEFAULT TRUE` to `wims.users`. Defaults preserve existing behaviour; JIT-provisioning INSERT is unaffected.
+- Extended `GET /api/user/me/profile`: now queries `contact_number, email_opt_in, push_opt_in` from `wims.users`; NULL values default to `TRUE`.
+- Extended `PATCH /api/user/me` (`ProfileUpdate` schema): accepts `email_opt_in` and `push_opt_in` booleans; persists in a single DB UPDATE; skips Keycloak call when only pref fields are sent.
+- Updated `src/frontend/src/lib/api/legacy.ts`: extended `fetchMyProfile()` return type and `updateMyProfile()` payload type for both pref booleans.
+- Added "Notification Preferences" card to `src/frontend/src/app/profile/page.tsx`: Email + Push toggle switches loaded from GET and saved via PATCH, matching existing card/form styling.
+- `tasks/notifications.send_status_notification` left push-only. `citizen_reports` is anonymous by privacy design (data minimization — no email collected at submission); email-on-status-change is therefore N/A for this flow. The `email_opt_in` column on `wims.users` is the gate for any future registered-recipient notification flow where a user identity is present.
+- Fixed `tests/test_profile_email.py`: updated `_get_db_session()` mock to return 3-column tuple after GET query expansion.
+- New `tests/test_notification_prefs.py`: 7 unit tests — GET prefs (true, false, null→default), PATCH prefs (email_opt_in, push_opt_in, both together, Keycloak skipped on prefs-only).
+- All preference tests pass; ruff check + format pass; frontend lint: 0 errors.
+
+## [2026-06-09] feat | M13b email notification triggers — security_alert + weekly_report (#176)
+
+- Wired `security_alert` email trigger in `src/backend/api/routes/admin/security.py`: after CONFIRM_THREAT HITL action commits, if severity is HIGH or CRITICAL, dispatch `send_email_task.delay()` to all active SYSTEM_ADMIN users. Dashboard link points to `/admin/security-dashboard`.
+- Added `send_weekly_report_email` Celery task (`tasks/notifications.py`): queries 7-day incident totals from `analytics_incident_facts` and top region from `ref_regions`; dispatches `send_email_task.delay()` with `template_name="weekly_report"` to all active SYSTEM_ADMIN emails. Runs Monday 07:00 UTC via Celery beat.
+- Used post-#182 RLS pattern (`get_session(SYSTEM_TASK_USER_ID)` + RLS context auto-set) matching `tasks/drafts.py`.
+- Updated `celery_config.py`: added `send-weekly-report-email` beat entry (crontab: day_of_week=1, hour=7, minute=0).
+- Created `tests/test_m13_email_triggers.py`: 6 unit tests (CONFIRM_THREAT+HIGH/CRITICAL dispatch, FALSE_POSITIVE+LOW no-dispatch, weekly task context, no-admin-emails guard) + 1 MailHog integration test.
+- **Deferred triggers (follow-up):** `account_locked` requires Keycloak event-listener SPI (#138); `password_reset` N/A (Keycloak native flow owns it; WIMS template available for future theme customization).
+- All 6 unit tests pass; ruff check + format pass.
+
 
 ## [2026-06-08] implementation | M7a host network mode + AF_PACKET capture (#156, #158)
 

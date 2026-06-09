@@ -219,7 +219,14 @@ export async function createAdminUser(payload: {
 }
 
 /** Fetch current user's profile details */
-export async function fetchMyProfile(): Promise<{ first_name: string; last_name: string; email: string; contact_number: string }> {
+export async function fetchMyProfile(): Promise<{
+  first_name: string;
+  last_name: string;
+  email: string;
+  contact_number: string;
+  email_opt_in: boolean;
+  push_opt_in: boolean;
+}> {
   return apiFetch('/user/me/profile');
 }
 
@@ -230,6 +237,8 @@ export async function updateMyProfile(payload: {
   email?: string;
   current_password?: string;
   contact_number?: string;
+  email_opt_in?: boolean;
+  push_opt_in?: boolean;
 }): Promise<{ status: 'ok' | 'partial' | string; message: string }> {
   return apiFetch('/user/me', {
     method: 'PATCH',

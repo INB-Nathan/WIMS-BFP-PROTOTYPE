@@ -1,6 +1,7 @@
 """System Admin API — security telemetry routes."""
 
 import json
+import os
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
@@ -131,6 +132,17 @@ def update_security_log(
     updates: list[str] = []
     params: dict = {"log_id": log_id}
 
+    # Fetch log metadata BEFORE UPDATE for email trigger context
+    log_metadata = None
+    if body.action == "CONFIRM_THREAT":
+        log_metadata = db.execute(
+            text(
+                "SELECT severity_level, xai_narrative, timestamp "
+                "FROM wims.security_threat_logs WHERE log_id = :log_id"
+            ),
+            {"log_id": log_id},
+        ).fetchone()
+
     if body.action is not None:
         if body.action not in VALID_HITL_ACTIONS:
             raise HTTPException(
@@ -172,6 +184,38 @@ def update_security_log(
     db.commit()
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Security log not found")
+
+    # M13b: security_alert email trigger
+    if (
+        body.action == "CONFIRM_THREAT"
+        and log_metadata is not None
+        and log_metadata[0] in ("HIGH", "CRITICAL")
+    ):
+        # Security alerts are critical — intentionally bypass email_opt_in preference
+        admin_emails = [
+            row[0]
+            for row in db.execute(
+                text(
+                    "SELECT email FROM wims.users"
+                    " WHERE role = 'SYSTEM_ADMIN' AND is_active = TRUE AND email IS NOT NULL"
+                )
+            ).fetchall()
+        ]
+        if admin_emails:
+            from tasks.notifications import send_email_task
+
+            frontend_url = os.environ.get("NEXT_PUBLIC_APP_URL", "http://localhost:3000")
+            dashboard_link = f"{frontend_url}/admin/security-dashboard"
+            send_email_task.delay(
+                to=admin_emails,
+                template_name="security_alert",
+                context={
+                    "severity": log_metadata[0],
+                    "summary": log_metadata[1] or "No details available",
+                    "detected_at": (log_metadata[2].isoformat() if log_metadata[2] else "Unknown"),
+                    "dashboard_link": dashboard_link,
+                },
+            )
 
     # Publish real-time SSE event
     publish_security_event_sync(

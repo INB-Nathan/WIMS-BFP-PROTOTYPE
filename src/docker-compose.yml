@@ -139,6 +139,7 @@ services:
       - OLLAMA_URL=http://ollama:11434
       - AFOR_TEMPLATE_PATH=/app/AFOR-FORMATTED.xlsx
       - CSRF_TRUSTED_ORIGINS=http://localhost,https://localhost,http://127.0.0.1,http://127.0.0.1:3000
+      - NEXT_PUBLIC_APP_URL=http://localhost
     volumes:
       - incident_attachments_data:/app/storage
       - ./postgres-init:/app/postgres-init:ro
@@ -171,6 +172,7 @@ services:
       - SURICATA_EVE_PATH=/var/log/suricata/eve.json
       - EXPORT_DIR=/app/storage/exports
       - AFOR_TEMPLATE_PATH=/app/AFOR-FORMATTED.xlsx
+      - NEXT_PUBLIC_APP_URL=http://localhost
       - FIREBASE_SERVICE_ACCOUNT_JSON=${FIREBASE_SERVICE_ACCOUNT_JSON:-}
       - FIREBASE_CREDENTIALS_PATH=${FIREBASE_CREDENTIALS_PATH:-}
     volumes:

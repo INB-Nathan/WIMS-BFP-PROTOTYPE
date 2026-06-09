@@ -49,6 +49,8 @@ class ProfileUpdate(BaseModel):
     email: Optional[EmailStr] = None
     current_password: Optional[str] = None  # Step-up auth for email/login identity changes only
     contact_number: Optional[str] = None  # Stored in Keycloak AND DB
+    email_opt_in: Optional[bool] = None
+    push_opt_in: Optional[bool] = None
 
     @field_validator("first_name", "last_name")
     @classmethod
@@ -142,13 +144,19 @@ def get_my_profile(
     keycloak_id = current_user["keycloak_id"]
     profile = get_user_profile(keycloak_id)
 
-    # Sync contact_number from database
+    # Sync contact_number and notification prefs from database
     row = db.execute(
-        text("SELECT contact_number FROM wims.users WHERE keycloak_id = :kid"),
+        text(
+            "SELECT contact_number, email_opt_in, push_opt_in"
+            " FROM wims.users WHERE keycloak_id = :kid"
+        ),
         {"kid": keycloak_id},
     ).fetchone()
-    if row and row[0]:
-        profile["contact_number"] = row[0]
+    if row:
+        if row[0]:
+            profile["contact_number"] = row[0]
+        profile["email_opt_in"] = row[1] if row[1] is not None else True
+        profile["push_opt_in"] = row[2] if row[2] is not None else True
 
     # Ensure email is present in the response
     if not profile.get("email"):
@@ -170,7 +178,16 @@ def update_my_profile(
     Role and region cannot be changed here — contact a System Administrator.
     Changes are reflected immediately in Keycloak.
     """
-    if not any([body.first_name, body.last_name, body.email, body.contact_number]):
+    if not any(
+        [
+            body.first_name,
+            body.last_name,
+            body.email,
+            body.contact_number,
+            body.email_opt_in is not None,
+            body.push_opt_in is not None,
+        ]
+    ):
         raise HTTPException(status_code=400, detail="No fields to update")
 
     keycloak_id = current_user["keycloak_id"]
@@ -183,21 +200,22 @@ def update_my_profile(
             )
         _verify_current_password_for_profile_email_change(current_user, body.current_password)
 
-    # --- Update Keycloak profile ---
-    try:
-        update_user_profile(
-            keycloak_id,
-            first_name=body.first_name,
-            last_name=body.last_name,
-            email=body.email,
-            contact_number=body.contact_number,
-        )
-    except KeycloakError as e:
-        logger.error(f"Keycloak profile update failed for {keycloak_id}: {e}")
-        raise HTTPException(
-            status_code=502,
-            detail="Failed to update identity provider profile. Try again later.",
-        )
+    # --- Update Keycloak profile (only when identity/contact fields are present) ---
+    if any([body.first_name, body.last_name, body.email, body.contact_number]):
+        try:
+            update_user_profile(
+                keycloak_id,
+                first_name=body.first_name,
+                last_name=body.last_name,
+                email=body.email,
+                contact_number=body.contact_number,
+            )
+        except KeycloakError as e:
+            logger.error(f"Keycloak profile update failed for {keycloak_id}: {e}")
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to update identity provider profile. Try again later.",
+            )
 
     # --- Sync DB fields (contact_number, email) ---
     db_sync_failed = False
@@ -228,6 +246,29 @@ def update_my_profile(
             db.rollback()
             db_sync_failed = True
             logger.exception(f"DB email sync failed for user {current_user['user_id']}")
+
+    if body.email_opt_in is not None or body.push_opt_in is not None:
+        try:
+            sets = []
+            params: dict = {"uid": current_user["user_id"]}
+            if body.email_opt_in is not None:
+                sets.append("email_opt_in = :email_opt_in")
+                params["email_opt_in"] = body.email_opt_in
+            if body.push_opt_in is not None:
+                sets.append("push_opt_in = :push_opt_in")
+                params["push_opt_in"] = body.push_opt_in
+            sets.append("updated_at = now()")
+            db.execute(
+                text(f"UPDATE wims.users SET {', '.join(sets)} WHERE user_id = :uid"),
+                params,
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+            db_sync_failed = True
+            logger.exception(
+                "DB notification prefs sync failed for user %s", current_user["user_id"]
+            )
 
     if db_sync_failed:
         return {
