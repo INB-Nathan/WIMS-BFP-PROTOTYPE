@@ -48,8 +48,9 @@ def get_security_logs(
     severity: Optional[str] = Query(default=None),
     date_from: Optional[str] = Query(default=None),
     date_to: Optional[str] = Query(default=None),
+    q: Optional[str] = Query(default=None),
 ):
-    """Fetch security threat logs with optional filters and pagination."""
+    """Fetch security threat logs with optional filters, full-text search, and pagination."""
     where_clauses: list[str] = []
     params: dict = {"limit": limit, "offset": offset}
 
@@ -65,10 +66,21 @@ def get_security_logs(
     if date_to is not None:
         where_clauses.append("timestamp <= CAST(:date_to AS timestamptz)")
         params["date_to"] = date_to
+    if q:
+        q = q.strip()
+    if q:
+        where_clauses.append("search_vector @@ websearch_to_tsquery('english', :q)")
+        params["q"] = q
 
     where_sql = ""
     if where_clauses:
         where_sql = "WHERE " + " AND ".join(where_clauses)
+
+    order_by = (
+        "ts_rank(search_vector, websearch_to_tsquery('english', :q)) DESC"
+        if q
+        else "timestamp DESC"
+    )
 
     rows = db.execute(
         text(f"""
@@ -77,7 +89,7 @@ def get_security_logs(
                    admin_action_taken, resolved_at, reviewed_by, hitl_decision
             FROM wims.security_threat_logs
             {where_sql}
-            ORDER BY timestamp DESC
+            ORDER BY {order_by}
             LIMIT :limit OFFSET :offset
         """),
         params,

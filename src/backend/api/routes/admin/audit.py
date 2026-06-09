@@ -30,8 +30,9 @@ def get_audit_logs(
     ip_address: Optional[str] = Query(default=None),
     date_from: Optional[str] = Query(default=None),
     date_to: Optional[str] = Query(default=None),
+    q: Optional[str] = Query(default=None),
 ):
-    """Fetch system audit trails with optional filters and pagination."""
+    """Fetch system audit trails with optional filters, full-text search, and pagination."""
     where_clauses: list[str] = []
     params: dict = {"limit": limit, "offset": offset}
 
@@ -53,10 +54,21 @@ def get_audit_logs(
     if date_to is not None:
         where_clauses.append("timestamp <= CAST(:date_to AS timestamptz)")
         params["date_to"] = date_to
+    if q:
+        q = q.strip()
+    if q:
+        where_clauses.append("search_vector @@ websearch_to_tsquery('english', :q)")
+        params["q"] = q
 
     where_sql = ""
     if where_clauses:
         where_sql = "WHERE " + " AND ".join(where_clauses)
+
+    order_by = (
+        "ts_rank(search_vector, websearch_to_tsquery('english', :q)) DESC"
+        if q
+        else "timestamp DESC"
+    )
 
     rows = db.execute(
         text(f"""
@@ -64,7 +76,7 @@ def get_audit_logs(
                    ip_address, user_agent, timestamp
             FROM wims.system_audit_trails
             {where_sql}
-            ORDER BY timestamp DESC
+            ORDER BY {order_by}
             LIMIT :limit OFFSET :offset
         """),
         params,

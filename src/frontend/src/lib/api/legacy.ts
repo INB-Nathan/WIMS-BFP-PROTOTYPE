@@ -258,13 +258,16 @@ export async function changeMyPassword(payload: {
   });
 }
 
-/** Fetch security logs (admin) - ordered by timestamp desc */
+/** Fetch security logs (admin) - ordered by timestamp desc, or by ts_rank when q is set */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function fetchAdminSecurityLogs(): Promise<any[]> {
+export async function fetchAdminSecurityLogs(params?: { q?: string }): Promise<any[]> {
   try {
+    const search = new URLSearchParams();
+    if (params?.q) search.set('q', params.q);
+    const qs = search.toString();
     const data = await apiFetch<
       Record<string, unknown>[] | { items?: Record<string, unknown>[]; data?: Record<string, unknown>[] }
-    >('/admin/security-logs');
+    >(`/admin/security-logs${qs ? `?${qs}` : ''}`);
     if (Array.isArray(data)) return data;
     return data?.items ?? data?.data ?? [];
   } catch {
@@ -301,14 +304,16 @@ export async function createIncidentFromAlert(logId: number): Promise<{
   return apiFetch(`/admin/security-logs/${logId}/create-incident`, { method: 'POST' });
 }
 
-/** Fetch audit logs (admin) - paginated */
+/** Fetch audit logs (admin) - paginated, ordered by ts_rank when q is set */
 export async function fetchAuditLogs(params?: {
   limit?: number;
   offset?: number;
+  q?: string;
 }): Promise<PaginatedResponse<AuditLogEntry>> {
   const search = new URLSearchParams();
   if (params?.limit != null) search.set('limit', String(params.limit));
   if (params?.offset != null) search.set('offset', String(params.offset));
+  if (params?.q) search.set('q', params.q);
   const qs = search.toString();
   return apiFetch<PaginatedResponse<AuditLogEntry>>(`/admin/audit-logs${qs ? `?${qs}` : ''}`);
 }
