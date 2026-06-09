@@ -113,7 +113,7 @@ describe('TOTP Setup Page Styling (Issue #231)', () => {
 
     // Post-fix: padding raised with two-value shorthand (vertical, horizontal).
     expect(match![1].trim()).toBe(
-      'clamp(0.85rem, 1.6vw, 1.1rem) clamp(0.7rem, 1.2vw, 0.95rem)',
+      'clamp(0.85rem, 1.6vw, 1.1rem) clamp(1.25rem, 2vw, 1.5rem)',
     );
   });
 
