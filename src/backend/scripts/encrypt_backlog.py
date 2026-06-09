@@ -96,7 +96,9 @@ def run(db, sp: SecurityProvider) -> dict:
         if existing_blob and existing_iv:
             try:
                 aad = f"incident_id:{incident_id}".encode("utf-8")
-                existing_pii = sp.decrypt_json(existing_iv, existing_blob, aad, key_version=row.key_version or 1)
+                existing_pii = sp.decrypt_json(
+                    existing_iv, existing_blob, aad, key_version=row.key_version or 1
+                )
             except SecurityProviderError:
                 logger.error(
                     "Decryption failed for incident_id=%s — skipping (possible key mismatch or tampering)",

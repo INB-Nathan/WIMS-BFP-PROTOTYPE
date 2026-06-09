@@ -484,7 +484,9 @@ def apply_incident_field_updates(db: Session, incident_id: int, body: Any) -> No
             try:
                 sp = get_security_provider()
                 existing_pii = sp.decrypt_json(
-                    existing[1], existing[0], f"incident_id:{incident_id}".encode(),
+                    existing[1],
+                    existing[0],
+                    f"incident_id:{incident_id}".encode(),
                     key_version=existing[2] or 1,
                 )
             except SecurityProviderError:
@@ -498,7 +500,9 @@ def apply_incident_field_updates(db: Session, incident_id: int, body: Any) -> No
         try:
             sp = get_security_provider()
             nonce_b64, ct_b64 = sp.encrypt_json(existing_pii, f"incident_id:{incident_id}".encode())
-            sd_updates.extend(["pii_blob_enc = :pii_blob", "encryption_iv = :enc_iv", "key_version = :key_ver"])
+            sd_updates.extend(
+                ["pii_blob_enc = :pii_blob", "encryption_iv = :enc_iv", "key_version = :key_ver"]
+            )
             sd_params["pii_blob"] = ct_b64
             sd_params["enc_iv"] = nonce_b64
             sd_params["key_ver"] = sp.current_version
