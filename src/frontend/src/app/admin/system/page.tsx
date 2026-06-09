@@ -719,6 +719,7 @@ export default function AdminSystemPage() {
                 >
                     <input
                         type="text"
+                        aria-label="Search security logs"
                         value={securitySearchQ}
                         onChange={e => setSecuritySearchQ(e.target.value)}
                         placeholder="Search logs (narrative, IP, severity…)"
@@ -806,6 +807,7 @@ export default function AdminSystemPage() {
                 >
                     <input
                         type="text"
+                        aria-label="Search audit logs"
                         value={auditSearchQ}
                         onChange={e => setAuditSearchQ(e.target.value)}
                         placeholder="Search audit trail (action, table, user agent…)"
