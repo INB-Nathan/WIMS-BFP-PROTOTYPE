@@ -70,8 +70,12 @@ _STATUS_LABELS: dict[str, tuple[str, str]] = {
 def send_status_notification(self, report_id: int, new_status: str) -> dict:
     """
     Send FCM push notifications to all registered tokens for a citizen report.
-    Triggered after promote_report() / bulk_promote_reports() commits.
+    Triggered after triage terminal actions commit.
     Stale (UnregisteredError) tokens are deleted to keep the table clean.
+
+    citizen_reports is anonymous by design — no reporter email is collected.
+    Email notification is therefore not applicable here; see email_opt_in on
+    wims.users for registered-user notification preferences (#72).
     """
     db = get_session()
     try:

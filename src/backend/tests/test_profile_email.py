@@ -46,7 +46,7 @@ def mock_analyst_user():
 
 def _get_db_session():
     db = MagicMock()
-    db.execute.return_value.fetchone.return_value = ("09171234567",)
+    db.execute.return_value.fetchone.return_value = ("09171234567", True, True)
     return db
 
 
