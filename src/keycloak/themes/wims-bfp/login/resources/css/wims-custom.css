@@ -518,13 +518,13 @@ input[type="checkbox"] {
     border: 1px solid #e5e7eb !important;
     border-radius: 12px !important;
     box-shadow: 0 8px 24px rgba(15,23,42,0.08) !important;
-    padding: clamp(0.7rem, 1.2vw, 0.95rem) !important;
+    padding: clamp(0.85rem, 1.6vw, 1.1rem) clamp(0.7rem, 1.2vw, 0.95rem) !important;
     margin: 0 auto !important;
 }
 
 .wims-totp-grid-layout {
     display: grid !important;
-    grid-template-columns: minmax(250px, 0.9fr) minmax(330px, 1.25fr) !important;
+    grid-template-columns: minmax(260px, 1fr) minmax(310px, 1.15fr) !important;
     gap: clamp(0.65rem, 1.5vw, 1rem) !important;
     align-items: start !important;
 }
@@ -547,25 +547,25 @@ input[type="checkbox"] {
 
 .wims-totp-steps > li {
     display: grid !important;
-    grid-template-columns: 1.35rem minmax(0, 1fr) !important;
-    gap: 0.45rem !important;
+    grid-template-columns: 1.55rem minmax(0, 1fr) !important;
+    gap: 0.6rem !important;
     align-items: start !important;
     border-left: 3px solid #e2e8f0 !important;
     border-radius: 6px !important;
     background: #ffffff !important;
-    padding: 0.25rem 0.35rem !important;
+    padding: 0.35rem 0.5rem !important;
 }
 
 .wims-totp-step-number {
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
-    width: 1.35rem !important;
-    height: 1.35rem !important;
+    width: 1.55rem !important;
+    height: 1.55rem !important;
     border-radius: 999px !important;
     background: #992222 !important;
     color: #ffffff !important;
-    font-size: 0.72rem !important;
+    font-size: 0.75rem !important;
     font-weight: 700 !important;
 }
 
@@ -574,7 +574,7 @@ input[type="checkbox"] {
     margin: 0 !important;
     color: #475569 !important;
     font-size: 0.8rem !important;
-    line-height: 1.25 !important;
+    line-height: 1.35 !important;
 }
 
 #kc-totp-supported-apps {
