@@ -130,7 +130,7 @@ Changing `.env.production` does not update database roles already stored in the 
 - Gateway security headers: nginx disables version tokens, hides proxied `X-Powered-By`, and adds HSTS, `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: no-referrer`, and a restrictive camera/microphone permissions policy while allowing same-origin geolocation.
 - Production CSP currently permits inline scripts because Next.js emits inline bootstrap scripts required for React hydration. Replace `'unsafe-inline'` with per-request nonces when nonce propagation is implemented.
 - Port 80 redirects to HTTPS
-- `/health` is served directly by nginx from the HTTPS server block for gateway uptime checks
+- `/health` is served directly by nginx from the HTTPS server block for gateway uptime checks. The frontend also exposes a Next.js `/health` route for direct `npm run dev`/frontend-only runs; nginx takes precedence in Docker deployments.
 - **No WebSocket/SSE** specific proxy settings (no `proxy_http_version 1.1`, no Upgrade header)
 - **No caching or rate limiting** at nginx level.
 

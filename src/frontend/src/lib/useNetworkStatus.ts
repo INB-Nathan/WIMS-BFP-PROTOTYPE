@@ -15,6 +15,8 @@ import {
   type ConnectivityState,
 } from './connectivity';
 
+const OFFLINE_RECHECK_MS = 5000;
+
 export interface NetworkStatus {
   state: ConnectivityState;
   isOnline: boolean;
@@ -68,6 +70,16 @@ export function useNetworkStatus(): NetworkStatus {
       if (reconnectTimer) clearTimeout(reconnectTimer);
     };
   }, []);
+
+  useEffect(() => {
+    if (status.state === 'online') return;
+
+    const recheckTimer = setInterval(() => {
+      void probeConnectivity();
+    }, OFFLINE_RECHECK_MS);
+
+    return () => clearInterval(recheckTimer);
+  }, [status.state]);
 
   return status;
 }

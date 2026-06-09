@@ -47,7 +47,7 @@ describe('useNetworkStatus', () => {
     expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/health'), expect.any(Object));
   });
 
-  it('returns isOnline=false when navigator.onLine is false', async () => {
+  it('treats navigator.onLine=false as a hint and recovers when the probe succeeds', async () => {
     Object.defineProperty(globalThis, 'navigator', {
       value: { onLine: false },
       writable: true,
@@ -56,8 +56,8 @@ describe('useNetworkStatus', () => {
 
     const { result } = renderHook(() => useNetworkStatus());
     await waitFor(() => {
-      expect(result.current.isOnline).toBe(false);
-      expect(result.current.state).toBe('offline');
+      expect(result.current.isOnline).toBe(true);
+      expect(result.current.state).toBe('online');
     });
   });
 
@@ -99,7 +99,33 @@ describe('useNetworkStatus', () => {
     });
   });
 
+  it('periodically retries while offline and recovers after a later successful probe', async () => {
+    vi.useFakeTimers();
+vi.mocked(fetch)
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValue(new Response('{}', { status: 200 }));
+
+    const { result } = renderHook(() => useNetworkStatus());
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.state).toBe('offline');
+
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.isOnline).toBe(true);
+    vi.useRealTimers();
+  });
+
   it('sets isReconnecting=true after verified offline-to-online recovery', async () => {
+    vi.mocked(fetch)
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValue(new Response('{}', { status: 200 }));
     Object.defineProperty(globalThis, 'navigator', {
       value: { onLine: false },
       writable: true,
@@ -126,6 +152,9 @@ describe('useNetworkStatus', () => {
 
   it('rechecks after reconnecting and settles online after timeout', async () => {
     vi.useFakeTimers();
+    vi.mocked(fetch)
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValue(new Response('{}', { status: 200 }));
     Object.defineProperty(globalThis, 'navigator', {
       value: { onLine: false },
       writable: true,

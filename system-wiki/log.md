@@ -2518,3 +2518,18 @@ Fixed the session-expired loop that blocked offline queue sync after reconnect/l
 **Tests:** Focused auth/sync Vitest: 19 passed. Full frontend Vitest: 180 passed. `npm run lint`: 0 errors, existing warnings only. `npm run build`: passed. `npx tsc --noEmit`: still blocked by pre-existing test/mock typing errors (`profile.test.tsx`, `tracking/page.test.tsx`, `offlineStore.test.ts`, `firebase-app.ts`).
 
 **Wiki update:** Updated `system-wiki/frontend/frontend-infrastructure.md`, `system-wiki/architecture/infrastructure-config.md`, and `system-wiki/index.md`. No FRS gap status changed.
+
+## [2026-06-09] fix | Offline connectivity recovery no longer sticks offline
+
+Fixed the verified connectivity state machine so the app can recover from offline mode reliably.
+
+**Changes:**
+- `src/frontend/src/lib/connectivity.ts`: removed the hard stop that returned offline immediately when `navigator.onLine === false`; the browser flag is now only a hint and the same-origin `/health` probe remains authoritative.
+- `src/frontend/src/lib/useNetworkStatus.ts`: adds a 5-second retry loop while the state is offline/checking/reconnecting, so recovery does not depend on the browser firing an `online` or focus event.
+- `src/frontend/src/app/health/route.ts`: adds a direct Next.js `/health` endpoint for `npm run dev` or frontend-only runs where nginx is not serving `/health`.
+- `src/frontend/src/components/NetworkStatusIndicator.tsx`: shows a Reconnecting state in the top indicator instead of jumping straight from Offline to Online.
+- `src/frontend/src/lib/__tests__/useNetworkStatus.test.ts`: covers recovery when `navigator.onLine` is false but the app probe succeeds, and periodic retry recovery after a failed probe.
+
+**Validation:** Focused network tests: 9 passed. Sync/network UI focused tests: 18 passed. Full frontend Vitest rerun: 181 passed. `npm run lint`: 0 errors, existing warnings only. `npm run build`: passed. `npx tsc --noEmit`: still blocked by pre-existing test/mock typing errors outside this change.
+
+**Wiki update:** Updated `system-wiki/frontend/frontend-infrastructure.md`, `system-wiki/architecture/infrastructure-config.md`, `system-wiki/index.md`, and this log. No FRS gap status changed.

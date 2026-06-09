@@ -363,11 +363,13 @@ Sync status UI (FR-3E). Displays: Offline (amber), Reconnecting (blue), Syncing 
 
 ### `NetworkStatusIndicator.tsx`
 
-Simple online/offline indicator using `navigator.onLine` + browser events.
+Header network indicator backed by verified app reachability. It shows Checking, Reconnecting, Online, or Offline from `useNetworkStatus()` rather than raw `navigator.onLine`.
 
 ### Current Offline Stabilization (2026-06-07)
 
-Regional Encoder offline decisions now use verified app reachability rather than raw browser online state. `lib/connectivity.ts` centralizes `checking/offline/reconnecting/online` status, treats browser `online/offline`, focus, and visibility events as hints, and only marks the app online after a same-origin `/health` probe succeeds. Manual incident save/submit, AFOR import, offline reads, sync, `SyncStatusBar`, and `NetworkStatusIndicator` use this shared state; fetch network failures call `markConnectivityOffline()`.
+Regional Encoder offline decisions now use verified app reachability rather than raw browser online state. `lib/connectivity.ts` centralizes `checking/offline/reconnecting/online` status, treats browser `online/offline`, focus, and visibility events as hints, and only marks the app online after a same-origin `/health` probe succeeds. It no longer lets `navigator.onLine === false` block a real probe, and `useNetworkStatus()` rechecks every 5 seconds while offline/checking so the app can recover even if the browser misses the `online` event. Manual incident save/submit, AFOR import, offline reads, sync, `SyncStatusBar`, and `NetworkStatusIndicator` use this shared state; fetch network failures call `markConnectivityOffline()`.
+
+`src/frontend/src/app/health/route.ts` serves the same-origin `/health` probe when the Next.js app is run directly without nginx. In Docker/nginx deployments, nginx still handles `/health` first.
 
 `apiFetch()` now treats `refreshToken()` as successful only when `result.ok === true`, preventing failed refresh results from being retried as authenticated requests. `refreshToken()` classifies 5xx/429 refresh-route responses as offline/auth-service-unavailable rather than expired auth. `useAutoSync()` suppresses repeated auth-expired toasts, retries once after re-login/session restore when pending ops exist, and listens for service-worker `run-sync` messages. `public/sw.js` cache `v4` falls back to cached app shell or friendly offline HTML for navigations instead of returning `Response.error()`.
 

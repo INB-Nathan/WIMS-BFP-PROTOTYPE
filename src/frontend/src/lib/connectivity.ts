@@ -67,11 +67,6 @@ export async function probeConnectivity(): Promise<ConnectivitySnapshot> {
     return snapshot;
   }
 
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    markConnectivityOffline();
-    return snapshot;
-  }
-
   if (probeInFlight) return probeInFlight;
 
   const wasOffline = snapshot.state === 'offline';
