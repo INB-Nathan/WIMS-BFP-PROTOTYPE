@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { toast as sonnerToast } from 'sonner';
 import { edgeFunctions, Incident } from '@/lib/edgeFunctions';
 import {
   updateRegionalIncident, forceReplaceIncident, createRegionalIncident,
@@ -1226,7 +1227,8 @@ export function IncidentForm({
               createdAt: Date.now() + 1,
             });
           }
-          showToast('Connection lost — saved locally. Will sync when connection is restored.');
+          sonnerToast.info('Connection lost — saved locally. Will sync when you reconnect.');
+          onSaved?.();
         } else {
           showToast(`Save failed: ${(err as Error).message}`);
         }
@@ -1303,7 +1305,10 @@ export function IncidentForm({
         }
         // Assign a fresh localId so subsequent autosaves don't overwrite this queued op.
         draftLocalId.current = crypto.randomUUID();
-        showToast('Saved locally — will sync when connection is restored.');
+        clearStoredDraft();
+        sonnerToast.info('Saved locally — will sync when you reconnect.');
+        router.push('/dashboard/regional');
+        return;
       }
     } catch (err: unknown) {
       console.error('Submission failed', err);
@@ -1318,9 +1323,7 @@ export function IncidentForm({
         );
       } else if (isNetworkError(err)) {
         markConnectivityOffline();
-        // The request failed mid-flight (flaky connection). Treat the app as
-        // offline and queue the work so the encoder does not lose it.
-        // Fall back to the offline queue so the encoder doesn't lose their work.
+        // Request failed mid-flight — queue so the encoder doesn't lose their work.
         const opLocalId = draftLocalId.current ?? crypto.randomUUID();
         const _nowIso2 = new Date().toISOString();
         await queueOfflineOp({
@@ -1352,7 +1355,10 @@ export function IncidentForm({
           });
         }
         draftLocalId.current = crypto.randomUUID();
-        showToast('Connection lost — saved locally. Will sync when connection is restored.');
+        clearStoredDraft();
+        sonnerToast.info('Connection lost — saved locally. Will sync when you reconnect.');
+        router.push('/dashboard/regional');
+        return;
       } else {
         showToast(`Submission failed: ${(err as Error).message}`);
       }

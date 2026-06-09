@@ -87,10 +87,9 @@ export function IncidentCard({
 
         <div className="grid gap-x-6 gap-y-3 border-t border-gray-100 pt-4 text-sm sm:grid-cols-2">
           <InfoBlock label="Responder Type" value={inc.responder_type} />
+          <InfoBlock label="Fire Station" value={inc.fire_station_name} />
           <InfoBlock label="Caller / Contact" value={`${displayValue(inc.caller_name)} / ${displayValue(inc.caller_number)}`} />
-          <div className="sm:col-span-2">
-            <InfoBlock label="Extent of Damage" value={inc.extent_of_damage} />
-          </div>
+          <InfoBlock label="Extent of Damage" value={inc.extent_of_damage} />
         </div>
       </div>
 

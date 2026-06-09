@@ -16,6 +16,8 @@ import {
 } from '@/lib/api';
 import { fetchRegionalIncidentOfflineAware } from '@/lib/api/offlineRegional';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import { queueOfflineOp } from '@/lib/offlineStore';
+import { toast as sonnerToast } from 'sonner';
 import dynamic from 'next/dynamic';
 import { UpdateRequestDiffPanel } from '@/components/UpdateRequestDiffPanel';
 import { IncidentDiffPanel } from '@/components/IncidentDiffPanel';
@@ -596,6 +598,30 @@ export default function RegionalIncidentDetailPage() {
           return;
         }
       }
+      const isNetworkErr = e instanceof TypeError ||
+        (e instanceof Error && (
+          e.message.includes('Failed to fetch') ||
+          e.message.includes('ERR_') ||
+          e.message.includes('NetworkError')
+        ));
+      if (isNetworkErr) {
+        const encoderId = (user as { id?: string })?.id ?? '';
+        const regionId = (detail?.region_id as number | null) ?? encoderAssignedRegionId ?? 0;
+        await queueOfflineOp({
+          localId: crypto.randomUUID(),
+          operation: 'submit',
+          serverId: incidentId,
+          linkedLocalId: null,
+          serverUpdatedAt: null,
+          regionId,
+          encoderId,
+          payload: {},
+          createdAt: Date.now(),
+        });
+        sonnerToast.info('Submit queued — will apply when you reconnect.');
+        router.push('/dashboard/regional');
+        return;
+      }
       setActionError(e instanceof Error ? e.message : 'Failed to submit incident.');
     } finally {
       setActionLoading(false);
@@ -674,6 +700,17 @@ export default function RegionalIncidentDetailPage() {
       await unpendIncident(incidentId);
       await load();
     } catch (e) {
+      const isNetworkErr = e instanceof TypeError ||
+        (e instanceof Error && (
+          e.message.includes('Failed to fetch') ||
+          e.message.includes('ERR_') ||
+          e.message.includes('NetworkError')
+        ));
+      if (isNetworkErr) {
+        sonnerToast.warning('Withdraw is not available offline. Reconnect to withdraw this submission.');
+        setActionLoading(false);
+        return;
+      }
       setActionError(e instanceof Error ? e.message : 'Failed to withdraw submission.');
     } finally {
       setActionLoading(false);
@@ -689,6 +726,17 @@ export default function RegionalIncidentDetailPage() {
       await load();
       setIsEditing(true);
     } catch (e) {
+      const isNetworkErr = e instanceof TypeError ||
+        (e instanceof Error && (
+          e.message.includes('Failed to fetch') ||
+          e.message.includes('ERR_') ||
+          e.message.includes('NetworkError')
+        ));
+      if (isNetworkErr) {
+        sonnerToast.warning('Withdraw is not available offline. Reconnect to withdraw this submission.');
+        setActionLoading(false);
+        return;
+      }
       setActionError(e instanceof Error ? e.message : 'Failed to withdraw submission.');
     } finally {
       setActionLoading(false);
@@ -703,6 +751,30 @@ export default function RegionalIncidentDetailPage() {
       await deleteIncident(incidentId);
       router.push('/dashboard/regional');
     } catch (e) {
+      const isNetworkErr = e instanceof TypeError ||
+        (e instanceof Error && (
+          e.message.includes('Failed to fetch') ||
+          e.message.includes('ERR_') ||
+          e.message.includes('NetworkError')
+        ));
+      if (isNetworkErr) {
+        const encoderId = (user as { id?: string })?.id ?? '';
+        const regionId = (detail?.region_id as number | null) ?? encoderAssignedRegionId ?? 0;
+        await queueOfflineOp({
+          localId: crypto.randomUUID(),
+          operation: 'delete',
+          serverId: incidentId,
+          linkedLocalId: null,
+          serverUpdatedAt: null,
+          regionId,
+          encoderId,
+          payload: {},
+          createdAt: Date.now(),
+        });
+        sonnerToast.info('Delete queued — will apply when you reconnect.');
+        router.push('/dashboard/regional');
+        return;
+      }
       setActionError(e instanceof Error ? e.message : 'Failed to delete incident.');
       setActionLoading(false);
     }
@@ -1270,8 +1342,8 @@ export default function RegionalIncidentDetailPage() {
 
       {!loading && !error && detail && !isEditing && (
         <>
-          {/* Offline cache banner — data served from IndexedDB */}
-          {isFromCache && (
+          {/* Offline cache banner — only shown when confirmed offline */}
+          {isFromCache && !isOnline && (
             <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 flex items-center gap-3" role="status">
               <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-amber-500" />
               <span className="text-sm text-amber-800 font-medium">

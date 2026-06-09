@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import {
   RefreshCw, Flame, Building2, TreePine, Car, ChevronLeft, ChevronRight, Trees,
-  Home, Users, Layers, Truck, FileText, Upload, CalendarDays, Archive,
+  Home, Users, Layers, Truck, FileText, Upload, CalendarDays, Archive, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { apiFetch, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
 import { fetchRegionalIncidentsOfflineAware } from '@/lib/api/offlineRegional';
@@ -102,6 +102,25 @@ export default function RegionalDashboardPage() {
   const [isFromCache, setIsFromCache] = useState(false);
   const [cachedAt, setCachedAt] = useState<number | undefined>();
   const [queuedOps, setQueuedOps] = useState<OfflineOpDecrypted[]>([]);
+
+  // Stats visibility — persisted so the user's preference survives page reload.
+  // Auto-collapsed when offline (stats can't refresh and would be misleading).
+  const [showStats, setShowStats] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('wims:regional_show_stats');
+      return stored !== null ? stored === 'true' : true;
+    } catch { return true; }
+  });
+  useEffect(() => {
+    if (!isOnline) setShowStats(false);
+  }, [isOnline]);
+  const toggleStats = () => {
+    setShowStats((prev) => {
+      const next = !prev;
+      try { localStorage.setItem('wims:regional_show_stats', String(next)); } catch {}
+      return next;
+    });
+  };
 
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(10);
@@ -509,6 +528,17 @@ export default function RegionalDashboardPage() {
           </Link>
           <button
             type="button"
+            onClick={toggleStats}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
+            title={showStats ? 'Hide statistics' : 'Show statistics'}
+          >
+            {showStats
+              ? <ChevronUp className="h-3.5 w-3.5" aria-hidden />
+              : <ChevronDown className="h-3.5 w-3.5" aria-hidden />}
+            Stats
+          </button>
+          <button
+            type="button"
             onClick={() => refreshAll()}
             disabled={statsRefreshing || incidentsLoading}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
@@ -519,90 +549,95 @@ export default function RegionalDashboardPage() {
         </div>
       </div>
 
-      {/* ── Stats period filter ── */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
-          Stats:
-        </span>
-        {STATS_DATE_FILTERS.map((f) => {
-          const active = statsDateFilter === f.value;
-          return (
-            <button
-              key={f.value}
-              type="button"
-              onClick={() => setStatsDateFilter(f.value)}
-              className="rounded-full border px-3 py-1 text-xs font-semibold transition-colors"
-              style={active
-                ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#991B1B' }
-                : { backgroundColor: '#fff', borderColor: '#e5e7eb', color: 'var(--text-secondary)' }
-              }
-            >
-              {f.label}
-            </button>
-          );
-        })}
-      </div>
+      {/* ── Stats section (collapsible, auto-hidden when offline) ── */}
+      {showStats && (
+        <>
+          {/* Period filter */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+              Stats:
+            </span>
+            {STATS_DATE_FILTERS.map((f) => {
+              const active = statsDateFilter === f.value;
+              return (
+                <button
+                  key={f.value}
+                  type="button"
+                  onClick={() => setStatsDateFilter(f.value)}
+                  className="rounded-full border px-3 py-1 text-xs font-semibold transition-colors"
+                  style={active
+                    ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#991B1B' }
+                    : { backgroundColor: '#fff', borderColor: '#e5e7eb', color: 'var(--text-secondary)' }
+                  }
+                >
+                  {f.label}
+                </button>
+              );
+            })}
+          </div>
 
-      {/* ── Incident type stats ── */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        {incidentCards.map((card) => {
-          const IconComp = card.icon;
-          return (
-            <div
-              key={card.key}
-              className="bg-white rounded-2xl p-4 flex flex-col gap-3 transition-shadow hover:shadow-md"
-              style={{ boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
-            >
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ backgroundColor: card.iconBg }}
-              >
-                <IconComp className="w-5 h-5" style={{ color: card.iconColor }} />
-              </div>
-              <div>
-                <div className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-muted)' }}>
-                  {card.title}
+          {/* Incident type stats */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            {incidentCards.map((card) => {
+              const IconComp = card.icon;
+              return (
+                <div
+                  key={card.key}
+                  className="bg-white rounded-2xl p-4 flex flex-col gap-3 transition-shadow hover:shadow-md"
+                  style={{ boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
+                >
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{ backgroundColor: card.iconBg }}
+                  >
+                    <IconComp className="w-5 h-5" style={{ color: card.iconColor }} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-muted)' }}>
+                      {card.title}
+                    </div>
+                    <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+                      {card.value}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-                  {card.value}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
 
-      {/* ── Affected count stats ── */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        {affectedCards.map((card) => {
-          const IconComp = card.icon;
-          return (
-            <div
-              key={card.key}
-              className="bg-white rounded-2xl p-4 flex flex-col gap-3 transition-shadow hover:shadow-md"
-              style={{ boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
-            >
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ backgroundColor: card.iconBg }}
-              >
-                <IconComp className="w-5 h-5" style={{ color: card.iconColor }} />
-              </div>
-              <div>
-                <div className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-muted)' }}>
-                  {card.title}
+          {/* Affected count stats */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            {affectedCards.map((card) => {
+              const IconComp = card.icon;
+              return (
+                <div
+                  key={card.key}
+                  className="bg-white rounded-2xl p-4 flex flex-col gap-3 transition-shadow hover:shadow-md"
+                  style={{ boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
+                >
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{ backgroundColor: card.iconBg }}
+                  >
+                    <IconComp className="w-5 h-5" style={{ color: card.iconColor }} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-muted)' }}>
+                      {card.title}
+                    </div>
+                    <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+                      {card.value}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-                  {card.value}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
+        </>
+      )}
 
-      {/* ── Stale cache banner (offline) ── */}
-      {isFromCache && (
+      {/* ── Stale cache banner — only shown when confirmed offline ── */}
+      {isFromCache && !isOnline && (
         <div
           className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800"
           role="status"

@@ -83,25 +83,35 @@ export async function fetchRegionalIncidentsOfflineAware(
   try {
     const response = await _fetchRegionalIncidents(params);
 
-    // Fire-and-forget: cache list items AND proactively fetch + cache full details
-    // so offline detail-page viewing works without a prior individual visit.
+    // Fire-and-forget: proactively fetch + cache full details so offline detail-page
+    // viewing works without a prior individual visit.
+    //
+    // The detail response uses a nested {nonsensitive, sensitive} structure while
+    // the list item is flat. We merge the flat list-item fields onto the detail so
+    // the cached record works for both the offline list (flat fields) AND the detail
+    // page (nested fields). This avoids storing two separate records per incident.
     void Promise.allSettled(
       response.items.map((item) =>
-        cacheIncident(
-          item.incident_id,
-          item as unknown as Record<string, unknown>,
-          encoderId,
-        ).then(() =>
-          _fetchRegionalIncident(item.incident_id)
-            .then((detail) =>
-              cacheIncident(
-                item.incident_id,
-                detail as unknown as Record<string, unknown>,
-                encoderId,
-              ),
-            )
-            .catch(() => {}),
-        ),
+        _fetchRegionalIncident(item.incident_id)
+          .then((detail) =>
+            cacheIncident(
+              item.incident_id,
+              {
+                ...(item as unknown as Record<string, unknown>),
+                ...(detail as unknown as Record<string, unknown>),
+              },
+              encoderId,
+            ),
+          )
+          .catch(() =>
+            // Detail fetch failed — cache the list item alone so the offline list
+            // still shows the card (flat fields present, detail fields missing).
+            cacheIncident(
+              item.incident_id,
+              item as unknown as Record<string, unknown>,
+              encoderId,
+            ).catch(() => {}),
+          ),
       ),
     );
 
