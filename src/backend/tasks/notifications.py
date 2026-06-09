@@ -157,8 +157,8 @@ def send_status_notification(self, report_id: int, new_status: str) -> dict:
 
 
 # =============================================================================
-# Email tasks (M13b) — deferred triggers: Keycloak lockout (#138), weekly
-# analytics report, security alert (#176). Event wiring is out of scope here.
+# Email tasks (M13b) — security_alert wired in admin/security.py,
+# weekly_report wired below, account_locked deferred (#138).
 # =============================================================================
 
 
@@ -207,7 +207,13 @@ def send_email_task(
         raise
 
 
-@celery_app.task(name="tasks.notifications.send_weekly_report_email")
+@celery_app.task(
+    name="tasks.notifications.send_weekly_report_email",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=3600,
+    max_retries=3,
+)
 def send_weekly_report_email() -> dict:
     """
     Send weekly analytics summary email to all active SYSTEM_ADMIN users.
@@ -252,13 +258,15 @@ def send_weekly_report_email() -> dict:
         ).fetchone()
         top_region = top_region_row[0] if top_region_row else "N/A"
 
-        # Fetch SYSTEM_ADMIN emails
+        # Fetch SYSTEM_ADMIN emails who have opted into email notifications
+        # (security_alert in admin/security.py intentionally bypasses opt-in — critical alerts)
         admin_emails = [
             row[0]
             for row in db.execute(
                 text(
                     "SELECT email FROM wims.users"
-                    " WHERE role = 'SYSTEM_ADMIN' AND is_active = TRUE AND email IS NOT NULL"
+                    " WHERE role = 'SYSTEM_ADMIN' AND is_active = TRUE"
+                    " AND email IS NOT NULL AND email_opt_in = TRUE"
                 )
             ).fetchall()
         ]

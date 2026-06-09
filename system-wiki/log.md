@@ -2,6 +2,20 @@
 
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
+## [2026-06-09] fix | PR #238 rebase + review fixes — 6 files
+
+- Rebased `feat/m13-email-triggers` onto origin/master (1345808). Resolved 2 conflicts:
+  - `src/backend/celery_config.py`: merged M7a `update-suricata-rules-weekly` + M13 `send-weekly-report-email` beat entries
+  - `.zap/rules.tsv`: kept HEAD (M7a) justification for rule 90004 (COEP unsafe-none)
+- **Q1 (critical):** Fixed double-toggle bug in `profile/page.tsx` — removed `div.onClick` handlers that canceled out checkbox `onChange` (React 18 batching).
+- **S1:** Updated notification prefs copy from "report status changes" to "system alerts and weekly reports" (matches actual email dispatch).
+- **Q4:** Profile save callback now refreshes `notifPrefs` from API response (was discarding `email_opt_in`/`push_opt_in` on profile save).
+- **Q2/Q3:** Added `NEXT_PUBLIC_APP_URL` env var to backend + celery-worker containers in `docker-compose.yml` and `docker-compose.prod.yml` (email links no longer default to localhost in prod).
+- **S2:** Updated stale section comment in `tasks/notifications.py` — no longer claims triggers are "out of scope."
+- **S3:** Weekly report email query now filters by `email_opt_in = TRUE`; security alert query intentionally bypasses (critical alerts).
+- **S4:** Added `autoretry_for=(Exception,)` with backoff to `send_weekly_report_email` Celery task.
+- **S5:** Moved `import requests` inside `test_mailhog_email_delivery` function body (integration-only dependency).
+
 ## [2026-06-09] feat | M13 user notification preferences — email_opt_in + push_opt_in (#72)
 
 - Migration `47_notification_preferences.sql`: adds `email_opt_in BOOLEAN NOT NULL DEFAULT TRUE` and `push_opt_in BOOLEAN NOT NULL DEFAULT TRUE` to `wims.users`. Defaults preserve existing behaviour; JIT-provisioning INSERT is unaffected.

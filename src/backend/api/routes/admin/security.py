@@ -191,6 +191,7 @@ def update_security_log(
         and log_metadata is not None
         and log_metadata[0] in ("HIGH", "CRITICAL")
     ):
+        # Security alerts are critical — intentionally bypass email_opt_in preference
         admin_emails = [
             row[0]
             for row in db.execute(

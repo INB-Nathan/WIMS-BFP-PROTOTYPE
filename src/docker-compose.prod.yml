@@ -7,6 +7,11 @@ services:
     environment:
       - KEYCLOAK_ISSUER=${PUBLIC_BASE_URL}/auth/realms/bfp
       - CSRF_TRUSTED_ORIGINS=${PUBLIC_BASE_URL}
+      - NEXT_PUBLIC_APP_URL=${PUBLIC_BASE_URL}
+
+  celery-worker:
+    environment:
+      - NEXT_PUBLIC_APP_URL=${PUBLIC_BASE_URL}
 
   frontend:
     build:

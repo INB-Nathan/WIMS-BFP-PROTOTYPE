@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
-import requests
 
 
 # =============================================================================
@@ -271,6 +270,7 @@ def test_weekly_task_no_dispatch_if_no_admin_emails():
 @pytest.mark.integration
 def test_mailhog_email_delivery():
     """Direct send_email() call → MailHog receives message."""
+    import requests
     from services.email.sender import send_email
 
     # Check MailHog reachability
