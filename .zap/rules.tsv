@@ -1,4 +1,4 @@
-10038	WARN	(CSP Header Not Set — resolved in #221 with production CSP policy)
+10038	IGNORE	(CSP/COEP stripped in nginx.ci.conf (CI HTTP-only proxy); enforced in prod nginx per #221)
 10049	IGNORE	(Non-Storable Content on static assets — expected for Next.js build)
 10055	IGNORE	(CSP fallback on Keycloak — upstream Keycloak issue)
 10063	IGNORE	(Permissions Policy on Keycloak — upstream Keycloak issue)
