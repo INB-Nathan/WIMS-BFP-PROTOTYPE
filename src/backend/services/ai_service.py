@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 
 import httpx
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 from services.event_bus import publish_security_event
 from utils.config import get_config
 
+logger = logging.getLogger("wims.ai_service")
 OLLAMA_MODEL = "qwen2.5:3b"
 
 
@@ -65,13 +67,15 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
         ai_timeout = float(get_config(db, "ai_timeout_seconds", "60"))
     except (TypeError, ValueError):
         ai_timeout = 60.0
-    async with httpx.AsyncClient(timeout=ai_timeout) as client:
-        resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
-
-    if resp.status_code != 200:
+    try:
+        async with httpx.AsyncClient(timeout=ai_timeout) as client:
+            resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
+    except (httpx.ConnectError, httpx.TimeoutException):
+        raise HTTPException(status_code=502, detail="Ollama is unreachable")
+    except httpx.HTTPStatusError as exc:
         raise HTTPException(
             status_code=502,
-            detail=f"Ollama request failed: {resp.status_code}",
+            detail=f"Ollama request failed: {exc.response.status_code}",
         )
 
     data = resp.json()
@@ -250,6 +254,11 @@ async def analyze_audit_logs(audit_ids: list[int], db: Session) -> dict:
     """
     if not audit_ids:
         raise HTTPException(status_code=400, detail="No audit IDs provided")
+    if len(audit_ids) > 50:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum 50 audit IDs per request, got {len(audit_ids)}",
+        )
 
     rows = db.execute(
         text("""
@@ -301,13 +310,15 @@ async def analyze_audit_logs(audit_ids: list[int], db: Session) -> dict:
         ai_timeout = float(get_config(db, "ai_timeout_seconds", "60"))
     except (TypeError, ValueError):
         ai_timeout = 60.0
-    async with httpx.AsyncClient(timeout=ai_timeout) as client:
-        resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
-
-    if resp.status_code != 200:
+    try:
+        async with httpx.AsyncClient(timeout=ai_timeout) as client:
+            resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
+    except (httpx.ConnectError, httpx.TimeoutException):
+        raise HTTPException(status_code=502, detail="Ollama is unreachable")
+    except httpx.HTTPStatusError as exc:
         raise HTTPException(
             status_code=502,
-            detail=f"Ollama request failed: {resp.status_code}",
+            detail=f"Ollama request failed: {exc.response.status_code}",
         )
 
     data = resp.json()

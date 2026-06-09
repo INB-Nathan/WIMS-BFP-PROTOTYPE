@@ -1,6 +1,7 @@
 """System Admin API — security telemetry routes."""
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
@@ -8,6 +9,7 @@ from typing import Annotated, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from auth import get_system_admin
@@ -17,6 +19,7 @@ from services.event_bus import publish_security_event_sync
 from services.suricata_ingestion import _create_security_incident
 from utils.audit import log_system_audit
 
+logger = logging.getLogger("wims.admin")
 router = APIRouter()
 
 VALID_HITL_ACTIONS = ("CONFIRM_THREAT", "FALSE_POSITIVE", "REQUEST_MORE_INFO")
@@ -285,7 +288,11 @@ def create_incident_from_alert(
         )
         db.commit()
         return {"status": "ok", "incident_id": incident_id}
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="An incident already exists for this alert")
     except Exception:
+        logger.exception("Failed to create incident from alert log_id=%s", log_id)
         db.rollback()
         raise HTTPException(
             status_code=500,
