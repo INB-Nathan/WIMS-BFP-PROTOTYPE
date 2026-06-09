@@ -16,6 +16,7 @@ from __future__ import annotations
 from auth import get_current_wims_user, get_db_with_rls, get_system_admin
 from main import app
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -127,10 +128,20 @@ def test_analyze_threat_log_success(mock_system_admin, threat_log_row, db_sessio
     """
     log_id = threat_log_row
 
-    # Mock Ollama API
+    # Mock Ollama API — returns structured 5-key format (#161)
     respx.post("http://wims-ollama:11434/api/generate").respond(
         status_code=200,
-        json={"response": '{"narrative": "Simulated attack detected.", "confidence": 0.95}'},
+        json={
+            "response": json.dumps(
+                {
+                    "anomaly_description": "Simulated attack detected.",
+                    "log_evidence": "Source IP 192.168.1.100 sent malicious payload.",
+                    "risk_assessment": "Potential SQL injection attempt.",
+                    "recommended_action": "Block source IP and investigate.",
+                    "confidence": 0.95,
+                }
+            )
+        },
     )
 
     with TestClient(app) as client:
@@ -147,5 +158,11 @@ def test_analyze_threat_log_success(mock_system_admin, threat_log_row, db_sessio
     ).fetchone()
 
     assert row is not None, "Log row not found after analyze"
-    assert row[0] == "Simulated attack detected.", f"Expected xai_narrative, got {row[0]!r}"
+    narrative = row[0]
+    assert isinstance(narrative, str), f"Expected JSON string, got {type(narrative)}"
+    parsed = json.loads(narrative)
+    assert parsed["anomaly_description"] == "Simulated attack detected."
+    assert parsed["log_evidence"] == "Source IP 192.168.1.100 sent malicious payload."
+    assert parsed["risk_assessment"] == "Potential SQL injection attempt."
+    assert parsed["recommended_action"] == "Block source IP and investigate."
     assert row[1] == 0.95, f"Expected xai_confidence 0.95, got {row[1]!r}"

@@ -661,8 +661,8 @@ class TestPatchSecurityLogHitl:
         response = client.patch("/api/admin/security-logs/1", json={"action": "CONFIRM_THREAT"})
 
         assert response.status_code == 200
-        # CONFIRM_THREAT: call 1 = severity prefetch, call 2 = UPDATE
-        assert mock_db.execute.call_count == 2
+        # CONFIRM_THREAT: call 1 = severity prefetch, call 2 = UPDATE, call 3 = audit INSERT
+        assert mock_db.execute.call_count == 3
         update_call = next(
             c for c in mock_db.execute.call_args_list if "admin_action_taken" in c[0][1]
         )
@@ -686,12 +686,14 @@ class TestPatchSecurityLogHitl:
         response = client.patch("/api/admin/security-logs/2", json={"action": "FALSE_POSITIVE"})
 
         assert response.status_code == 200
-        call_args = mock_db.execute.call_args
-        params = call_args[0][1]
+        update_call = next(
+            c for c in mock_db.execute.call_args_list if "admin_action_taken" in c[0][1]
+        )
+        params = update_call[0][1]
         assert params["admin_action_taken"] == "False Positive (Dismissed)"
         decision = params["hitl_decision"]
         assert '"action": "FALSE_POSITIVE"' in decision
-        assert "resolved_at = now()" in str(call_args[0][0])
+        assert "resolved_at = now()" in str(update_call[0][0])
 
     def test_request_more_info_sets_label_jsonb_leaves_resolved_at_null(self, client: TestClient):
         """PATCH { "action": "REQUEST_MORE_INFO" } sets label + JSONB but NOT resolved_at."""
@@ -705,13 +707,15 @@ class TestPatchSecurityLogHitl:
         )
 
         assert response.status_code == 200
-        call_args = mock_db.execute.call_args
-        params = call_args[0][1]
+        update_call = next(
+            c for c in mock_db.execute.call_args_list if "admin_action_taken" in c[0][1]
+        )
+        params = update_call[0][1]
         assert params["admin_action_taken"] == "More Info Requested"
         decision = params["hitl_decision"]
         assert '"action": "REQUEST_MORE_INFO"' in decision
         assert '"note": "Check source IP"' in decision
-        sql_str = str(call_args[0][0])
+        sql_str = str(update_call[0][0])
         assert "resolved_at = NULL" in sql_str
         assert "resolved_at = now()" not in sql_str
 
