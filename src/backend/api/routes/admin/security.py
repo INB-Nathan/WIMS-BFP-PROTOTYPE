@@ -227,8 +227,7 @@ def update_security_log(
         extra={"action": body.action} if body.action else {},
     )
 
-    if body.action is not None:
-        log_system_audit(db, _admin["user_id"], "HITL_REVIEW", "security_threat_logs", log_id)
+    log_system_audit(db, _admin["user_id"], "HITL_REVIEW", "security_threat_logs", log_id)
 
     return {"status": "ok", "log_id": log_id}
 
@@ -252,6 +251,11 @@ def create_incident_from_alert(
     if row is None:
         raise HTTPException(status_code=404, detail="Security log not found")
 
+    from services.suricata_ingestion import _security_incident_exists
+
+    if _security_incident_exists(db, log_id):
+        raise HTTPException(status_code=409, detail="An incident already exists for this alert")
+
     source_ip = row[1] or "unknown"
     suricata_sid = row[2] or 0
     raw_payload = row[3] or ""
@@ -263,6 +267,14 @@ def create_incident_from_alert(
             source_ip=source_ip,
             suricata_sid=suricata_sid,
             raw_payload=raw_payload,
+        )
+        db.execute(
+            text("""
+                UPDATE wims.security_threat_logs
+                SET reviewed_by = CAST(:uid AS uuid)
+                WHERE log_id = :log_id
+            """),
+            {"uid": _admin["user_id"], "log_id": log_id},
         )
         db.commit()
         log_system_audit(
