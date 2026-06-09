@@ -1,4 +1,4 @@
-"""Celery app configuration — shared by main and tasks to avoid circular imports."""
+"""Celery app configuration â€” shared by main and tasks to avoid circular imports."""
 
 import os
 
@@ -27,6 +27,8 @@ celery_app.conf.imports = (
     "tasks.notifications",
     "tasks.suricata",
 )
+# Auto-discover task modules instead of side-effect imports in main.py
+celery_app.autodiscover_tasks(["tasks", "tasks.suricata_redis", "tasks.ai_forwarding"])
 celery_app.conf.update(
     task_serializer="json",
     accept_content=["json"],
@@ -52,7 +54,7 @@ celery_app.conf.update(
             "task": "tasks.drafts.expire_old_drafts",
             "schedule": crontab(hour=2, minute=0),
         },
-        # M6-H: Worker heartbeat — every 30 seconds
+        # M6-H: Worker heartbeat â€” every 30 seconds
         "worker-heartbeat": {
             "task": "tasks.monitoring.worker_heartbeat",
             "schedule": 30.0,
@@ -69,7 +71,7 @@ celery_app.conf.update(
             "task": "tasks.suricata.update_rules",
             "schedule": crontab(hour=3, minute=0, day_of_week=0),
         },
-        # M13b: Weekly analytics report — Monday 07:00 UTC
+        # M13b: Weekly analytics report â€” Monday 07:00 UTC
         "send-weekly-report-email": {
             "task": "tasks.notifications.send_weekly_report_email",
             "schedule": crontab(day_of_week=1, hour=7, minute=0),
