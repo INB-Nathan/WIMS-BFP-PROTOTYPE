@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from services.event_bus import publish_security_event_sync
+from utils.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -43,22 +44,25 @@ def parse_eve_alert_line(line: str) -> dict | None:
     return ev
 
 
-def eve_to_threat_log_row(ev: dict, *, raw_payload: str = "") -> dict:
+def eve_to_threat_log_row(ev: dict, *, raw_payload: str = "", high_threshold: int = 3) -> dict:
     """
     Map EVE alert fields to wims.security_threat_logs columns.
-    Severity: 1→LOW, 2→MEDIUM, 3→HIGH; default MEDIUM if missing.
+    Severity: sev is None → MEDIUM; sev >= high_threshold → HIGH;
+    sev == 2 → MEDIUM; else → LOW.
+    Default high_threshold=3 preserves the original 1→LOW / 2→MEDIUM / 3→HIGH mapping.
+    Pass a config-read value to make the HIGH cutoff admin-tunable.
     """
     alert = ev.get("alert") or {}
     sid = alert.get("signature_id")
     sev = alert.get("severity")
-    if sev == 1:
-        severity_level = "LOW"
+    if sev is None:
+        severity_level = "MEDIUM"
+    elif sev >= high_threshold:
+        severity_level = "HIGH"
     elif sev == 2:
         severity_level = "MEDIUM"
-    elif sev == 3:
-        severity_level = "HIGH"
     else:
-        severity_level = "MEDIUM"
+        severity_level = "LOW"
 
     return {
         "source_ip": ev.get("src_ip") or "",
@@ -183,6 +187,12 @@ def ingest_eve_file(path: str, *, db_session: Session | None = None) -> int:
         if file_size < position:
             position = 0
 
+        # Read threshold once per batch invocation (avoids per-row DB hit).
+        try:
+            high_threshold = int(get_config(db, "alert_severity_threshold", "3"))
+        except (TypeError, ValueError):
+            high_threshold = 3
+
         inserted = 0
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             f.seek(position)
@@ -191,7 +201,7 @@ def ingest_eve_file(path: str, *, db_session: Session | None = None) -> int:
                 ev = parse_eve_alert_line(line)
                 if ev is None:
                     continue
-                row = eve_to_threat_log_row(ev, raw_payload=line)
+                row = eve_to_threat_log_row(ev, raw_payload=line, high_threshold=high_threshold)
                 log_id = _insert_row(db, row)
                 if log_id is not None:
                     inserted += 1

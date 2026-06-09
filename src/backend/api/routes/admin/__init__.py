@@ -2,7 +2,17 @@
 
 from fastapi import APIRouter
 
-from . import users, backups, security, rate_limits, monitoring, analytics, audit, scheduled_reports
+from . import (
+    users,
+    backups,
+    security,
+    rate_limits,
+    monitoring,
+    analytics,
+    audit,
+    scheduled_reports,
+    config,
+)
 
 router = APIRouter(tags=["admin"])
 router.include_router(users.router)
@@ -13,3 +23,4 @@ router.include_router(monitoring.router)
 router.include_router(analytics.router)
 router.include_router(audit.router)
 router.include_router(scheduled_reports.router)
+router.include_router(config.router)
