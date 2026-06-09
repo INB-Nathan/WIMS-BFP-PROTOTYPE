@@ -9,6 +9,7 @@ import {
     createAdminUser,
     fetchAdminSecurityLogs,
     updateAdminSecurityLog,
+    createIncidentFromAlert,
     fetchAuditLogs,
     analyzeSecurityLog,
     fetchRegions,
@@ -369,6 +370,20 @@ export default function AdminSystemPage() {
             await loadSecurityLogs();
         } catch (e: unknown) {
             alert((e as { message?: string })?.message ?? 'Update failed');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleCreateIncident = async () => {
+        if (!selectedLog) return;
+        setIsSubmitting(true);
+        try {
+            const result = await createIncidentFromAlert(selectedLog.log_id);
+            alert(`Incident #${result.incident_id} created from this alert.`);
+            await loadSecurityLogs();
+        } catch (e: unknown) {
+            alert((e as { message?: string })?.message ?? 'Create incident failed');
         } finally {
             setIsSubmitting(false);
         }
@@ -789,16 +804,58 @@ export default function AdminSystemPage() {
                         </div>
                         <div className="p-6 space-y-4 text-[var(--foreground)]">
                             <div className="bg-purple-50 dark:bg-purple-950/40 p-4 rounded-lg border border-purple-100 dark:border-purple-800">
-                                <h4 className="text-xs font-bold text-white dark:text-white uppercase mb-2">AI Narrative</h4>
+                                <h4 className="text-xs font-bold text-white dark:text-white uppercase mb-2">AI Analysis</h4>
                                 {selectedLog.xai_narrative ? (
-                                    <>
-                                        <p className="text-sm text-[var(--foreground)]">{selectedLog.xai_narrative}</p>
-                                        {selectedLog.xai_confidence != null && (
-                                            <div className="mt-2 text-xs text-purple-800 dark:text-purple600 font-medium text-right">
-                                                Confidence: {((selectedLog.xai_confidence ?? 0) * 100).toFixed(1)}%
-                                            </div>
-                                        )}
-                                    </>
+                                    (() => {
+                                        try {
+                                            const parsed = JSON.parse(selectedLog.xai_narrative);
+                                            if (typeof parsed === 'object' && parsed !== null) {
+                                                return (
+                                                    <div className="space-y-3">
+                                                        {parsed.anomaly_description && (
+                                                            <div>
+                                                                <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Anomaly Description</p>
+                                                                <p className="text-sm text-[var(--foreground)]">{parsed.anomaly_description}</p>
+                                                            </div>
+                                                        )}
+                                                        {parsed.log_evidence && (
+                                                            <div>
+                                                                <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Log Evidence</p>
+                                                                <p className="text-sm text-[var(--foreground)]">{parsed.log_evidence}</p>
+                                                            </div>
+                                                        )}
+                                                        {parsed.risk_assessment && (
+                                                            <div>
+                                                                <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Risk Assessment</p>
+                                                                <p className="text-sm text-[var(--foreground)]">{parsed.risk_assessment}</p>
+                                                            </div>
+                                                        )}
+                                                        {parsed.recommended_action && (
+                                                            <div>
+                                                                <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Recommended Action</p>
+                                                                <p className="text-sm text-[var(--foreground)]">{parsed.recommended_action}</p>
+                                                            </div>
+                                                        )}
+                                                        {selectedLog.xai_confidence != null && (
+                                                            <div className="mt-2 text-xs text-purple-800 dark:text-purple-600 font-medium text-right">
+                                                                Confidence: {((selectedLog.xai_confidence ?? 0) * 100).toFixed(1)}%
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            }
+                                        } catch {}
+                                        return (
+                                            <>
+                                                <p className="text-sm text-[var(--foreground)]">{selectedLog.xai_narrative}</p>
+                                                {selectedLog.xai_confidence != null && (
+                                                    <div className="mt-2 text-xs text-purple-800 dark:text-purple-600 font-medium text-right">
+                                                        Confidence: {((selectedLog.xai_confidence ?? 0) * 100).toFixed(1)}%
+                                                    </div>
+                                                )}
+                                            </>
+                                        );
+                                    })()
                                 ) : (
                                     <div className="flex items-center gap-2">
                                         <button
@@ -827,6 +884,15 @@ export default function AdminSystemPage() {
                             {!selectedLog.admin_action_taken && (
                                 <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                                     <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-3">Take a decision</p>
+                                    <div className="mb-3">
+                                        <button
+                                            onClick={() => handleCreateIncident()}
+                                            disabled={isSubmitting}
+                                            className="px-4 py-2 bg-orange-600 text-white rounded font-medium hover:bg-orange-700 disabled:opacity-50 w-full"
+                                        >
+                                            Create Incident from Alert
+                                        </button>
+                                    </div>
                                     {pendingMoreInfo ? (
                                         <div className="space-y-2">
                                             <textarea
