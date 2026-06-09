@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -58,14 +60,19 @@ def ingest_suricata_eve() -> int:
 
 def _count_active_rules(container: "docker.models.containers.Container") -> int:
     """Count currently loaded Suricata rules via suricata --dump-stats."""
+    _RULES_LOADED_RE = re.compile(r"detect\.rules_loaded\s*\|\s*\S+\s*\|\s*(\d+)")
+
     try:
-        result = container.exec_run("suricata --dump-stats")
+        result = container.exec_run("suricata --dump-stats", timeout=120)
         output = result.output.decode(errors="replace")
         for line in output.splitlines():
-            if "detect.rules_loaded" in line:
-                parts = line.split("|")
-                if len(parts) >= 2:
-                    return int(parts[-1].strip())
+            m = _RULES_LOADED_RE.search(line)
+            if m:
+                return int(m.group(1))
+        logger.warning(
+            "Failed to parse rules count from suricata --dump-stats output: %s",
+            output[:500],
+        )
     except Exception as exc:
         logger.warning("Failed to count loaded rules: %s", exc)
     return -1
@@ -75,7 +82,7 @@ def _count_active_rules(container: "docker.models.containers.Container") -> int:
 def update_suricata_rules() -> dict:
     """
     Run suricata-update in the Suricata container to fetch latest ET Open rules,
-    merge with local BFP rules, and trigger a live rule reload.
+    merge with local BFP custom rules (via --local), and trigger a live rule reload.
 
     Runs weekly via Celery beat (Sunday 03:00 UTC).
     Returns dict with rules_before, rules_after, and any errors.
@@ -103,7 +110,9 @@ def update_suricata_rules() -> dict:
         rules_before = _count_active_rules(container)
         logger.info("Suricata rules before update: %d loaded", rules_before)
 
-        update_result = container.exec_run("suricata-update")
+        update_result = container.exec_run(
+            "suricata-update --local /var/lib/suricata/rules/custom.rules", timeout=120
+        )
         update_output = update_result.output.decode(errors="replace")
 
         if update_result.exit_code != 0:
@@ -118,14 +127,29 @@ def update_suricata_rules() -> dict:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
-        reload_result = container.exec_run("kill -USR2 1")
+        reload_result = container.exec_run("kill -USR2 1", timeout=120)
         if reload_result.exit_code != 0:
             logger.warning(
                 "Failed to send USR2 reload signal: %s",
                 reload_result.output.decode(errors="replace"),
             )
 
-        rules_after = _count_active_rules(container)
+        # Poll for rule count to stabilize after async USR2 reload.
+        rules_after = -1
+        for attempt in range(5):
+            time.sleep(2)
+            rules_after = _count_active_rules(container)
+            if rules_after >= 0 and rules_after != rules_before:
+                break
+            logger.debug(
+                "Rules count unchanged after reload (attempt %d/5, %d loaded)",
+                attempt + 1,
+                rules_after,
+            )
+        else:
+            logger.warning(
+                "Rule count never changed after USR2 reload — reload may have silently failed"
+            )
         logger.info("Suricata rules after update: %d loaded (was %d)", rules_after, rules_before)
 
         result = {
@@ -134,6 +158,12 @@ def update_suricata_rules() -> dict:
             "rules_after": rules_after,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+
+        if rules_before < 0 or rules_after < 0:
+            result["rules_parse_error"] = True
+            logger.warning(
+                "Rule count parse failed: before=%d, after=%d", rules_before, rules_after
+            )
 
         if rules_after < rules_before and rules_before > 0:
             logger.warning(
@@ -146,7 +176,8 @@ def update_suricata_rules() -> dict:
 
         return result
     finally:
-        try:
-            client.close()
-        except Exception:
-            pass
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
