@@ -47,7 +47,8 @@ def parse_eve_alert_line(line: str) -> dict | None:
 def eve_to_threat_log_row(ev: dict, *, raw_payload: str = "", high_threshold: int = 3) -> dict:
     """
     Map EVE alert fields to wims.security_threat_logs columns.
-    Severity: sev >= high_threshold → HIGH; 2 → MEDIUM; 1 → LOW; else MEDIUM.
+    Severity: sev is None → MEDIUM; sev >= high_threshold → HIGH;
+    sev == 2 → MEDIUM; else → LOW.
     Default high_threshold=3 preserves the original 1→LOW / 2→MEDIUM / 3→HIGH mapping.
     Pass a config-read value to make the HIGH cutoff admin-tunable.
     """

@@ -9,11 +9,13 @@ from sqlalchemy.orm import Session
 
 from auth import get_db_with_rls, get_system_admin
 from utils.audit import log_system_audit
-from utils.config import get_config  # re-exported for convenience  # noqa: F401
 
 router = APIRouter()
 
 # Enumerated valid keys — protects against arbitrary key injection.
+# NOTE: session_timeout_minutes is exposed for future frontend idle-warning UI only.
+#       Actual JWT expiry is enforced at the Keycloak realm level and is not
+#       changed by this setting.
 VALID_CONFIG_KEYS = frozenset(
     {
         "alert_severity_threshold",
@@ -22,6 +24,15 @@ VALID_CONFIG_KEYS = frozenset(
         "ai_timeout_seconds",
     }
 )
+
+# Per-key type/range validation for numeric config values.
+# Each entry: (converter, min_value).  converter is int or float.
+_NUMERIC_CONFIG_KEYS: dict[str, tuple[type, int | float]] = {
+    "alert_severity_threshold": (int, 1),
+    "session_timeout_minutes": (int, 1),
+    "offline_storage_mb": (int, 1),
+    "ai_timeout_seconds": (float, 0.1),
+}
 
 
 class ConfigUpdate(BaseModel):
@@ -66,6 +77,23 @@ def update_config(
     """Update a single config value. Validates key; audit-logs the change."""
     if key not in VALID_CONFIG_KEYS:
         raise HTTPException(status_code=400, detail=f"Unknown config key: {key!r}")
+
+    # Per-key numeric validation — reject malformed or out-of-range values.
+    if key in _NUMERIC_CONFIG_KEYS:
+        conv, min_val = _NUMERIC_CONFIG_KEYS[key]
+        try:
+            val = conv(body.value)
+        except (ValueError, TypeError):
+            type_name = "integer" if conv is int else "number"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Config key {key!r} requires a valid {type_name} value, got {body.value!r}",
+            )
+        if val < min_val:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Config key {key!r} must be >= {min_val}, got {val}",
+            )
 
     result = db.execute(
         text("""

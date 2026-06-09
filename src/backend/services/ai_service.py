@@ -56,7 +56,10 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
         "format": "json",
     }
 
-    ai_timeout = float(get_config(db, "ai_timeout_seconds", "60"))
+    try:
+        ai_timeout = float(get_config(db, "ai_timeout_seconds", "60"))
+    except (TypeError, ValueError):
+        ai_timeout = 60.0
     async with httpx.AsyncClient(timeout=ai_timeout) as client:
         resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
 

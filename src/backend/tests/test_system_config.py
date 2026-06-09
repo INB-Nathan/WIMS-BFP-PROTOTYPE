@@ -247,10 +247,7 @@ class TestAiTimeoutConsumer:
             None,
         )
 
-        call_count = 0
-
         def execute_side_effect(query, params=None):
-            nonlocal call_count
             result = MagicMock()
             sql = str(query)
             if "system_config" in sql:
@@ -261,7 +258,6 @@ class TestAiTimeoutConsumer:
                 result.fetchone.return_value = log_row
             else:
                 result.fetchone.return_value = None
-            call_count += 1
             return result
 
         mock_db.execute.side_effect = execute_side_effect

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { fetchAdminConfig, updateAdminConfig, SystemConfigEntry } from '@/lib/api/legacy';
 import { Settings, Save, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
+import { initOfflineStorageLimit } from '@/lib/offlineStore';
 
 export default function SystemConfigPage() {
     const { user, loading: authLoading } = useAuth();
@@ -32,6 +33,14 @@ export default function SystemConfigPage() {
             const initial: Record<string, string> = {};
             rows.forEach(r => { initial[r.key] = r.value; });
             setEdits(initial);
+            // Sync offline storage cap from admin config.
+            const offlineRow = rows.find(r => r.key === 'offline_storage_mb');
+            if (offlineRow) {
+                const mb = Number(offlineRow.value);
+                if (!isNaN(mb) && mb > 0) {
+                    initOfflineStorageLimit(mb);
+                }
+            }
         } catch {
             setLoadError('Failed to load configuration. Check your connection and try again.');
         } finally {
@@ -52,6 +61,13 @@ export default function SystemConfigPage() {
             await updateAdminConfig(key, edits[key] ?? '');
             setMessages(prev => ({ ...prev, [key]: { text: 'Saved.', ok: true } }));
             setConfig(prev => prev.map(r => r.key === key ? { ...r, value: edits[key] ?? '' } : r));
+            // Immediately sync offline storage cap if that key was just saved.
+            if (key === 'offline_storage_mb') {
+                const mb = Number(edits[key] ?? '50');
+                if (!isNaN(mb) && mb > 0) {
+                    initOfflineStorageLimit(mb);
+                }
+            }
         } catch {
             setMessages(prev => ({ ...prev, [key]: { text: 'Save failed.', ok: false } }));
         } finally {
