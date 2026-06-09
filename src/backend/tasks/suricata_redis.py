@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import uuid
 
 import redis
@@ -26,11 +27,10 @@ CONSUMER_NAME = f"celery-worker-{uuid.uuid4().hex[:8]}"
 
 SYSTEM_SURICATA_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
-_COUNTER_KEY = "wims:suricata:position"
-
 
 def _connect() -> redis.Redis:
-    return redis.Redis.from_url("redis://redis:6379/0", decode_responses=True)
+    url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+    return redis.Redis.from_url(url, decode_responses=True)
 
 
 def _ensure_group(r: redis.Redis) -> None:
@@ -42,7 +42,7 @@ def _ensure_group(r: redis.Redis) -> None:
             raise
 
 
-def _insert_log(db, row: dict, log_id: int | None = None) -> int | None:
+def _insert_log(db, row: dict) -> int | None:
     from sqlalchemy import text
 
     row_data = {
