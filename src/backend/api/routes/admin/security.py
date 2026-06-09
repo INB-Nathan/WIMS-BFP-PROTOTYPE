@@ -183,9 +183,11 @@ def update_security_log(
 
     sql = f"UPDATE wims.security_threat_logs SET {', '.join(updates)} WHERE log_id = :log_id"
     result = db.execute(text(sql), params)
-    db.commit()
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Security log not found")
+
+    log_system_audit(db, _admin["user_id"], "HITL_REVIEW", "security_threat_logs", log_id)
+    db.commit()
 
     # M13b: security_alert email trigger
     if (
@@ -226,8 +228,6 @@ def update_security_log(
         actor_id=_admin["user_id"],
         extra={"action": body.action} if body.action else {},
     )
-
-    log_system_audit(db, _admin["user_id"], "HITL_REVIEW", "security_threat_logs", log_id)
 
     return {"status": "ok", "log_id": log_id}
 
@@ -276,7 +276,6 @@ def create_incident_from_alert(
             """),
             {"uid": _admin["user_id"], "log_id": log_id},
         )
-        db.commit()
         log_system_audit(
             db,
             _admin["user_id"],
@@ -284,10 +283,11 @@ def create_incident_from_alert(
             "security_threat_logs",
             log_id,
         )
+        db.commit()
         return {"status": "ok", "incident_id": incident_id}
-    except Exception as e:
+    except Exception:
         db.rollback()
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to create incident: {str(e)[:200]}",
+            detail="Failed to create incident from alert",
         )
