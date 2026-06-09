@@ -59,5 +59,10 @@ celery_app.conf.update(
             "task": "tasks.suricata.update_rules",
             "schedule": crontab(hour=3, minute=0, day_of_week=0),
         },
+        # M13b: Weekly analytics report — Monday 07:00 UTC
+        "send-weekly-report-email": {
+            "task": "tasks.notifications.send_weekly_report_email",
+            "schedule": crontab(day_of_week=1, hour=7, minute=0)
+        },
     },
 )

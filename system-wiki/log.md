@@ -2,6 +2,16 @@
 
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
+## [2026-06-09] feat | M13b email notification triggers — security_alert + weekly_report (#176)
+
+- Wired `security_alert` email trigger in `src/backend/api/routes/admin/security.py`: after CONFIRM_THREAT HITL action commits, if severity is HIGH or CRITICAL, dispatch `send_email_task.delay()` to all active SYSTEM_ADMIN users. Dashboard link points to `/admin/security-dashboard`.
+- Added `send_weekly_report_email` Celery task (`tasks/notifications.py`): queries 7-day incident totals from `analytics_incident_facts` and top region from `ref_regions`; dispatches `send_email_task.delay()` with `template_name="weekly_report"` to all active SYSTEM_ADMIN emails. Runs Monday 07:00 UTC via Celery beat.
+- Used post-#182 RLS pattern (`get_session(SYSTEM_TASK_USER_ID)` + RLS context auto-set) matching `tasks/drafts.py`.
+- Updated `celery_config.py`: added `send-weekly-report-email` beat entry (crontab: day_of_week=1, hour=7, minute=0).
+- Created `tests/test_m13_email_triggers.py`: 6 unit tests (CONFIRM_THREAT+HIGH/CRITICAL dispatch, FALSE_POSITIVE+LOW no-dispatch, weekly task context, no-admin-emails guard) + 1 MailHog integration test.
+- **Deferred triggers (follow-up):** `account_locked` requires Keycloak event-listener SPI (#138); `password_reset` N/A (Keycloak native flow owns it; WIMS template available for future theme customization).
+- All 6 unit tests pass; ruff check + format pass.
+
 
 ## [2026-06-08] implementation | M7a host network mode + AF_PACKET capture (#156, #158)
 
