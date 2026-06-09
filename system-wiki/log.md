@@ -2,6 +2,13 @@
 
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
+## [2026-06-10] fix | M5 map: Referrer-Policy strict-origin-when-cross-origin so OSM tiles load in prod (#233)
+
+- Root cause: prod HTTPS nginx block had `Referrer-Policy: no-referrer`, suppressing the Referer header OSM tile servers require. All 8 react-leaflet TileLayer components (PublicFireMapInner, MapPickerInner, ClusterMapInner, NearbyPublicReportAreasInner, NearbyStationsMapInner, ValidatorMapInner, FireStationsMapInner, HeatmapViewer) were returning 403 in production.
+- Fix: `src/nginx/nginx.conf` HTTPS block — changed `add_header Referrer-Policy no-referrer always` → `add_header Referrer-Policy strict-origin-when-cross-origin always`. One line. No frontend, no migration.
+- Dev/localhost block and `nginx.ci.conf` left untouched (CI does not load OSM tiles).
+- Validation: next VPS deploy — tiles load, no 403s in browser console.
+
 ## [2026-06-09] fix | PR #238 rebase + review fixes — 6 files
 
 - Rebased `feat/m13-email-triggers` onto origin/master (1345808). Resolved 2 conflicts:
