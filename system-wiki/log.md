@@ -2,6 +2,18 @@
 
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
+## [2026-06-09] feat | M13 user notification preferences — email_opt_in + push_opt_in (#72)
+
+- Migration `47_notification_preferences.sql`: adds `email_opt_in BOOLEAN NOT NULL DEFAULT TRUE` and `push_opt_in BOOLEAN NOT NULL DEFAULT TRUE` to `wims.users`. Defaults preserve existing behaviour; JIT-provisioning INSERT is unaffected.
+- Extended `GET /api/user/me/profile`: now queries `contact_number, email_opt_in, push_opt_in` from `wims.users`; NULL values default to `TRUE`.
+- Extended `PATCH /api/user/me` (`ProfileUpdate` schema): accepts `email_opt_in` and `push_opt_in` booleans; persists in a single DB UPDATE; skips Keycloak call when only pref fields are sent.
+- Updated `src/frontend/src/lib/api/legacy.ts`: extended `fetchMyProfile()` return type and `updateMyProfile()` payload type for both pref booleans.
+- Added "Notification Preferences" card to `src/frontend/src/app/profile/page.tsx`: Email + Push toggle switches loaded from GET and saved via PATCH, matching existing card/form styling.
+- `tasks/notifications.send_status_notification` left push-only. `citizen_reports` is anonymous by privacy design (data minimization — no email collected at submission); email-on-status-change is therefore N/A for this flow. The `email_opt_in` column on `wims.users` is the gate for any future registered-recipient notification flow where a user identity is present.
+- Fixed `tests/test_profile_email.py`: updated `_get_db_session()` mock to return 3-column tuple after GET query expansion.
+- New `tests/test_notification_prefs.py`: 7 unit tests — GET prefs (true, false, null→default), PATCH prefs (email_opt_in, push_opt_in, both together, Keycloak skipped on prefs-only).
+- All preference tests pass; ruff check + format pass; frontend lint: 0 errors.
+
 ## [2026-06-09] feat | M13b email notification triggers — security_alert + weekly_report (#176)
 
 - Wired `security_alert` email trigger in `src/backend/api/routes/admin/security.py`: after CONFIRM_THREAT HITL action commits, if severity is HIGH or CRITICAL, dispatch `send_email_task.delay()` to all active SYSTEM_ADMIN users. Dashboard link points to `/admin/security-dashboard`.

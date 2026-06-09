@@ -8,6 +8,7 @@ import {
     Mail,
     Phone,
     Lock,
+    Bell,
     CheckCircle,
     AlertCircle,
     Eye,
@@ -35,6 +36,11 @@ export default function ProfilePage() {
     const [savingProfile, setSavingProfile] = useState(false);
     const [contactTouched, setContactTouched] = useState(false);
 
+    // Notification preferences state
+    const [notifPrefs, setNotifPrefs] = useState({ email_opt_in: true, push_opt_in: true });
+    const [notifMsg, setNotifMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const [savingNotif, setSavingNotif] = useState(false);
+
     // Philippine phone validation: starts with 09, followed by 9 digits (total 11)
     const isPhoneValid = (val: string) => {
         if (!val) return true;
@@ -59,7 +65,11 @@ export default function ProfilePage() {
                     first_name: data.first_name,
                     last_name: data.last_name,
                     email: data.email,
-                    contact_number: data.contact_number
+                    contact_number: data.contact_number,
+                });
+                setNotifPrefs({
+                    email_opt_in: data.email_opt_in ?? true,
+                    push_opt_in: data.push_opt_in ?? true,
                 });
             }).catch(e => console.error("Failed to fetch profile", e));
         }
@@ -111,6 +121,26 @@ export default function ProfilePage() {
             setProfileMsg({ type: 'error', text: (e as { message?: string })?.message ?? 'Update failed.' });
         } finally {
             setSavingProfile(false);
+        }
+    };
+
+    const handleSaveNotifPrefs = async () => {
+        setSavingNotif(true);
+        setNotifMsg(null);
+        try {
+            const result = await updateMyProfile({
+                email_opt_in: notifPrefs.email_opt_in,
+                push_opt_in: notifPrefs.push_opt_in,
+            });
+            if (result.status === 'ok') {
+                setNotifMsg({ type: 'success', text: 'Notification preferences saved.' });
+            } else {
+                setNotifMsg({ type: 'error', text: result.message || 'Failed to save preferences.' });
+            }
+        } catch (e: unknown) {
+            setNotifMsg({ type: 'error', text: (e as { message?: string })?.message ?? 'Save failed.' });
+        } finally {
+            setSavingNotif(false);
         }
     };
 
@@ -344,6 +374,76 @@ export default function ProfilePage() {
                         style={{ backgroundColor: 'var(--sidebar-bg)' }}
                     >
                         {savingProfile ? <><RefreshCw className="w-4 h-4 animate-spin" /> Saving…</> : <><Save className="w-4 h-4" /> Save Changes</>}
+                    </button>
+                </div>
+            </section>
+
+            {/* Notification Preferences Card */}
+            <section className="card overflow-hidden">
+                <div className="card-header flex items-center gap-2" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
+                    <Bell className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                    <span>Notification Preferences</span>
+                </div>
+                <div className="card-body space-y-4">
+                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                        Choose how you receive notifications about report status changes.
+                    </p>
+                    <div className="space-y-3">
+                        <label className="flex items-center gap-3 cursor-pointer">
+                            <div
+                                className="relative inline-flex items-center"
+                                onClick={() => setNotifPrefs(p => ({ ...p, email_opt_in: !p.email_opt_in }))}
+                            >
+                                <input
+                                    type="checkbox"
+                                    className="sr-only"
+                                    checked={notifPrefs.email_opt_in}
+                                    onChange={() => setNotifPrefs(p => ({ ...p, email_opt_in: !p.email_opt_in }))}
+                                />
+                                <div className={`w-10 h-6 rounded-full transition-colors ${notifPrefs.email_opt_in ? 'bg-red-800' : 'bg-gray-300'}`} />
+                                <div className={`absolute left-1 top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${notifPrefs.email_opt_in ? 'translate-x-4' : 'translate-x-0'}`} />
+                            </div>
+                            <div>
+                                <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Email Notifications</p>
+                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Receive email updates when your report status changes</p>
+                            </div>
+                        </label>
+                        <label className="flex items-center gap-3 cursor-pointer">
+                            <div
+                                className="relative inline-flex items-center"
+                                onClick={() => setNotifPrefs(p => ({ ...p, push_opt_in: !p.push_opt_in }))}
+                            >
+                                <input
+                                    type="checkbox"
+                                    className="sr-only"
+                                    checked={notifPrefs.push_opt_in}
+                                    onChange={() => setNotifPrefs(p => ({ ...p, push_opt_in: !p.push_opt_in }))}
+                                />
+                                <div className={`w-10 h-6 rounded-full transition-colors ${notifPrefs.push_opt_in ? 'bg-red-800' : 'bg-gray-300'}`} />
+                                <div className={`absolute left-1 top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${notifPrefs.push_opt_in ? 'translate-x-4' : 'translate-x-0'}`} />
+                            </div>
+                            <div>
+                                <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Push Notifications</p>
+                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Receive push alerts on your registered device</p>
+                            </div>
+                        </label>
+                    </div>
+
+                    {notifMsg && (
+                        <div className={`flex items-center gap-2 text-sm rounded-lg px-3 py-2 ${notifMsg.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                            {notifMsg.type === 'success' ? <CheckCircle className="w-4 h-4 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 flex-shrink-0" />}
+                            {notifMsg.text}
+                        </div>
+                    )}
+
+                    <button
+                        id="notif-prefs-save-btn"
+                        onClick={handleSaveNotifPrefs}
+                        disabled={savingNotif}
+                        className="flex items-center gap-2 px-5 py-2 rounded-lg text-white font-semibold text-sm disabled:opacity-50"
+                        style={{ backgroundColor: 'var(--sidebar-bg)' }}
+                    >
+                        {savingNotif ? <><RefreshCw className="w-4 h-4 animate-spin" /> Saving…</> : <><Save className="w-4 h-4" /> Save Preferences</>}
                     </button>
                 </div>
             </section>
