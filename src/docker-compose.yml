@@ -265,6 +265,7 @@ services:
     volumes:
       - ./suricata/logs:/var/log/suricata
       - ./suricata/rules:/var/lib/suricata/rules
+      - ./suricata/suricata.yaml:/etc/suricata/suricata.yaml:ro
     healthcheck:
       test: ["CMD", "pgrep", "Suricata-Main"]
       interval: 30s

@@ -74,5 +74,13 @@ celery_app.conf.update(
             "task": "tasks.notifications.send_weekly_report_email",
             "schedule": crontab(day_of_week=1, hour=7, minute=0),
         },
+        "subscribe-suricata-alerts": {
+            "task": "tasks.suricata_redis.subscribe_alerts",
+            "schedule": 1.0,
+        },
+        "process-ai-queue": {
+            "task": "tasks.ai_forwarding.process_queue",
+            "schedule": 1.0,
+        },
     },
 )
