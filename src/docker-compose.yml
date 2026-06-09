@@ -242,6 +242,12 @@ services:
     volumes:
       - ./suricata/logs:/var/log/suricata
       - ./suricata/rules:/var/lib/suricata/rules
+    healthcheck:
+      test: ["CMD", "pgrep", "suricata"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   # --- Edge Gateway ---
   nginx-gateway:
