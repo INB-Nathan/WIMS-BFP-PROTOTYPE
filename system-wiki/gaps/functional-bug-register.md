@@ -14,6 +14,14 @@ Functional bugs reported by teammates during evaluation. All map to M12 User Man
 
 ---
 
+## M1 Auth / Keycloak Theme Bugs
+
+| # | Bug | Detail | Reported By | Status |
+|---|---|---|---|---|
+| F-10 | TOTP setup page left-edge clipping | `.pf-v5-c-login__main` base `overflow: hidden` with min horizontal padding 0.75rem (12px) clips the `.wims-totp-setup` card's box-shadow and step-number circles on desktop. Fix: raised panel min padding to 1.5rem (24px) on TOTP pages via `:has(.wims-totp-setup)` override; raised card left/right padding to `clamp(1.25rem,2vw,1.5rem)`; raised step-item left padding `0.5rem` → `0.9rem`. CSS-only. #231. | Issue triage | Fixed in code; pending visual verify |
+
+---
+
 ## M12 User Management Bugs
 
 | # | Bug | Detail | Reported By | Status |
