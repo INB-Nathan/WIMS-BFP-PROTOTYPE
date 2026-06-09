@@ -88,7 +88,11 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
         "recommended_action": parsed.get("recommended_action", ""),
     }
     narrative = json.dumps(narrative_data)
-    confidence = float(parsed.get("confidence", 0.0))
+    try:
+        confidence = float(parsed.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    confidence = max(0.0, min(1.0, confidence))
 
     db.execute(
         text("""
@@ -313,12 +317,18 @@ async def analyze_audit_logs(audit_ids: list[int], db: Session) -> dict:
     except json.JSONDecodeError:
         raise HTTPException(status_code=502, detail="Ollama returned invalid JSON")
 
+    try:
+        confidence = float(parsed.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    confidence = max(0.0, min(1.0, confidence))
+
     return {
         "audit_ids": audit_ids,
         "anomaly_description": parsed.get("anomaly_description", ""),
         "log_evidence": parsed.get("log_evidence", ""),
         "risk_assessment": parsed.get("risk_assessment", ""),
         "recommended_action": parsed.get("recommended_action", ""),
-        "confidence": float(parsed.get("confidence", 0.0)),
+        "confidence": confidence,
         "entries_analyzed": len(entries),
     }
