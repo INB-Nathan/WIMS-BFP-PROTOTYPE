@@ -12,6 +12,18 @@ Format: `## [YYYY-MM-DD] action | subject`
 - New Celery task `snapshot_system_metrics` (runs every 60s via beat): collects psutil CPU/memory/disk, INSERTs into `wims.system_metrics`, prunes rows older than 7 days.
 - Updated: `api/routes/admin/monitoring.py`, `tasks/monitoring.py`, `celery_config.py`, `system-wiki/gaps/frs-codebase-gap-register.md`.
 
+## [2026-06-07] implementation | M7b rule foundation — ET Open rules + suricata-update automation (#155, #159)
+
+- **`src/suricata/rules/suricata.rules`:** Combined file — our 15 custom OWASP+BFP rules prepended to full ET Open ruleset (~136k lines, ~68k signatures). Loaded via Suricata's default configuration (no custom suricata.yaml needed).
+- **`src/docker-compose.yml`:** Mounted `suricata/rules` (rw) and `/var/run/docker.sock` in celery-worker for suricata-update execution.
+- **`src/backend/requirements.txt`:** Added `docker>=7.0.0` SDK for container exec from Celery tasks.
+- **`src/backend/tasks/suricata.py`:** Added `update_suricata_rules` Celery task (weekly suricata-update + USR2 live reload) and `_count_active_rules` helper; graceful degradation when Docker SDK unavailable.
+- **`src/backend/celery_config.py`:** Added `update-suricata-rules-weekly` beat entry (crontab Sunday 03:00 UTC).
+- **`src/backend/tests/test_suricata_rules.py`:** Created — 7 end-to-end/integration tests: no-missing-rules warning, >1000 rules loaded, suricata.rules present with default config loading, and pipeline tests for OWASP/ET-Open/BFP-custom SIDs flowing into DB.
+- **`src/backend/tests/test_suricata_ingestion.py`:** Added `test_et_open_sid_maps_correctly` unit test for ET Open SID mapping.
+- **`system-wiki/security/security-baseline.md`:** Documented three-tier rule architecture with SID ranges and update cadence.
+- **`system-wiki/gaps/frs-codebase-gap-register.md`:** #155 and #159 gaps updated.
+
 ## [2026-06-07] security | #221 CSP + COEP headers, ZAP suppressions promoted to WARN
 
 - Added `Content-Security-Policy` header to production TLS nginx block covering: self, OSM tiles, unpkg Leaflet icons, Google Fonts, Next.js inline styles, Firebase Messaging SW (`worker-src`).

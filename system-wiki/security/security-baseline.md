@@ -29,6 +29,22 @@ FRS Module 4 requires SHA-256 data hashes, append-only audit logs, and immutable
 ## IDS/XAI
 FRS Modules 7 and 8 define Suricata network monitoring and Qwen2.5-3B explainability. Relevant code/config: `src/suricata/`, admin security-log routes, and AI service paths. Real-time security event push via SSE (`GET /api/events/stream`) notifies SYSTEM_ADMIN clients of threat detection, AI analysis completion, and HITL confirmations.
 
+### Suricata Detection Rules (M7b)
+
+All rules combined in `src/suricata/rules/suricata.rules` (~136k lines). Loaded via the base image's
+default `rule-files` configuration — no custom suricata.yaml override needed.
+
+| Tier | Source | SID Range | Lines | Update Cadence |
+|---|---|---|---|---|
+| 1 | ET Open (full ruleset) | 2000000+ | ~68k | Weekly via suricata-update (Sun 03:00 UTC) |
+| 2 | OWASP Top 10 | 1000001–1000010 | 10 | Manual, committed to repo |
+| 3 | BFP-specific | 1000020–1000024 | 5 | Manual, committed to repo |
+
+Weekly update: Celery beat task `update-suricata-rules-weekly` (Sunday 03:00 UTC) executes
+`suricata-update` inside the Suricata container via Docker SDK, sends `kill -USR2` for
+live rule reload. Rules before/after counts logged and compared for regressions.
+Docker socket mounted in celery-worker for container exec access.
+
 ## Real-Time Notifications (SSE)
 FRS Module 13 defines a notification system. The SSE event stream (`GET /api/events/stream`) provides real-time push via Redis pub/sub. Channels: `incident` (status changes/corrections), `verification` (triage cluster workflow), `security` (threat/HITL events), `system` (maintenance). Role-based channel authorization enforced at connect time. Publishers injected at: `verify_incident`, `update_incident`, `correct_verified_incident`, `claim_cluster_command`, `apply_terminal_action_command`, `ingest_eve_file` (Suricata), `analyze_threat_log` (AI), and `update_security_log` (HITL). Frontend consumer hook: `useEventStream.ts`. Nginx configured with `proxy_buffering off` for the SSE location block.
 

@@ -176,6 +176,14 @@ services:
     volumes:
       - ./suricata/logs:/var/log/suricata:ro
       - incident_attachments_data:/app/storage
+      # SECURITY NOTE: Docker socket mount is required for live Suricata rule
+      # reload (suricata-update + kill -USR2). Without the socket, the Celery
+      # worker cannot exec into the wims-suricata container to trigger a
+      # graceful rule reload. A shared rules volume alone cannot deliver USR2.
+      # Risk: broad Docker daemon access inside the Celery container.
+      # Mitigation: Celery worker runs with the least-privileged service
+      # account and only interacts with the wims-suricata container by name.
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - wims_internal
     depends_on:
