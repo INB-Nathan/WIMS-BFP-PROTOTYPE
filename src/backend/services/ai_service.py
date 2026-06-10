@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 
 import httpx
@@ -14,6 +15,8 @@ from services.event_bus import publish_security_event
 from utils.config import get_config
 
 OLLAMA_MODEL = "qwen2.5:3b"
+
+logger = logging.getLogger("wims.ai_service")
 
 
 def _ollama_url() -> str:
@@ -65,8 +68,15 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
         ai_timeout = float(get_config(db, "ai_timeout_seconds", "60"))
     except (TypeError, ValueError):
         ai_timeout = 60.0
-    async with httpx.AsyncClient(timeout=ai_timeout) as client:
-        resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
+    try:
+        async with httpx.AsyncClient(timeout=ai_timeout) as client:
+            resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
+    except httpx.TimeoutException:
+        logger.warning("Ollama analyze_threat_log timed out log_id=%s", log_id)
+        raise HTTPException(status_code=502, detail="Ollama request timed out")
+    except httpx.ConnectError:
+        logger.warning("Ollama analyze_threat_log connect failed log_id=%s", log_id)
+        raise HTTPException(status_code=502, detail="Ollama service unavailable")
 
     if resp.status_code != 200:
         raise HTTPException(
@@ -301,8 +311,15 @@ async def analyze_audit_logs(audit_ids: list[int], db: Session) -> dict:
         ai_timeout = float(get_config(db, "ai_timeout_seconds", "60"))
     except (TypeError, ValueError):
         ai_timeout = 60.0
-    async with httpx.AsyncClient(timeout=ai_timeout) as client:
-        resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
+    try:
+        async with httpx.AsyncClient(timeout=ai_timeout) as client:
+            resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
+    except httpx.TimeoutException:
+        logger.warning("Ollama analyze_audit_logs timed out audit_ids=%s", audit_ids)
+        raise HTTPException(status_code=502, detail="Ollama request timed out")
+    except httpx.ConnectError:
+        logger.warning("Ollama analyze_audit_logs connect failed audit_ids=%s", audit_ids)
+        raise HTTPException(status_code=502, detail="Ollama service unavailable")
 
     if resp.status_code != 200:
         raise HTTPException(
