@@ -36,6 +36,21 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 **Files:** `test_admin_new_routes.py`
 
+## [2026-06-10] fix | PR #248 — post-review fix batch 5 (audit batch limit)
+
+- `7caa9d8`: Added max batch-size guard to `analyze_audit_logs()` in `ai_service.py` — reads `ai_audit_batch_limit` config key (default 50), raises 400 with `"audit_ids exceeds maximum batch size"` when exceeded. Added 3 tests in `TestAnalyzeAuditLogsBatchLimit`: over-limit returns 400, at-limit passes, invalid config falls back to default. Uses `patch("services.ai_service.get_config")` mock pattern.
+
+**Files:** `ai_service.py`, `test_admin_new_routes.py`
+
+## [2026-06-10] docs | PR #248 — resolve M9 scope bundling (P1-P4)
+
+- Documented M9c configuration management routes in `system-wiki/backend/api-route-map.md`: `GET /admin/config`, `PATCH /admin/config/{key}`.
+- Added missing M8 endpoints to route map: `POST /admin/audit-logs/analyze`, `POST /admin/security-logs/{log_id}/create-incident`.
+- Added M9c frontend config page to `system-wiki/frontend/route-map.md`: `/admin/system/config`.
+- PR #248 explicitly covers M8 (security/XAI) + M9c (configuration management). Gap register already marks M9c as IMPLEMENTED.
+
+**Files:** `backend/api-route-map.md`, `frontend/route-map.md`
+
 ## [2026-06-09] fix | PR #238 rebase + review fixes — 6 files
 
 - Rebased `feat/m13-email-triggers` onto origin/master (1345808). Resolved 2 conflicts:
