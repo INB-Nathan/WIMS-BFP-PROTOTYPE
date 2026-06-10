@@ -68,6 +68,8 @@ function selectedReportIds(cluster: TriageClusterEntry | null, selected: Set<num
   return cluster.reports.filter((report) => selected.has(report.report_id)).map((report) => report.report_id);
 }
 
+type InspectionMode = 'cluster' | 'singleton';
+
 export default function TriagePage() {
   const { user, loading: authLoading } = useAuth();
   const role = (user as { role?: string })?.role ?? null;
@@ -79,6 +81,7 @@ export default function TriagePage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [openCluster, setOpenCluster] = useState<TriageClusterEntry | null>(null);
+  const [inspectionMode, setInspectionMode] = useState<InspectionMode>('cluster');
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [terminalStatus, setTerminalStatus] = useState<TerminalCitizenStatus>('ACTIONED');
   const [explanation, setExplanation] = useState(TERMINAL_OPTIONS[0].template);
@@ -90,6 +93,7 @@ export default function TriagePage() {
   const [mergeNote, setMergeNote] = useState('');
   const [mergeCandidates, setMergeCandidates] = useState<MergeCandidateEntry[]>([]);
   const [activity, setActivity] = useState<TriageClusterActivityEntry[]>([]);
+  const [lastPolled, setLastPolled] = useState<Date>(new Date());
 
   const canAccess =
     role === 'ENCODER' ||
@@ -113,6 +117,7 @@ export default function TriagePage() {
     try {
       const data = await fetchTriageQueue(filterParams);
       setQueue(data);
+      setLastPolled(new Date());
       if (openCluster) {
         const refreshed = data.clusters.find((cluster) => cluster.cluster_id === openCluster.cluster_id);
         if (refreshed) setOpenCluster(refreshed);
@@ -162,8 +167,9 @@ export default function TriagePage() {
     router.replace(`/incidents/triage${next.toString() ? `?${next.toString()}` : ''}`);
   }
 
-  async function openInspection(cluster: TriageClusterEntry) {
+  async function openInspection(cluster: TriageClusterEntry, mode: InspectionMode) {
     setOpenCluster(cluster);
+    setInspectionMode(mode);
     setSelected(new Set(cluster.reports.filter((report) => !isTerminal(report.status)).map((report) => report.report_id)));
     setTerminalStatus('ACTIONED');
     setExplanation(TERMINAL_OPTIONS[0].template);
@@ -309,6 +315,51 @@ export default function TriagePage() {
     return 'Review as a singleton civilian signal.';
   }
 
+  // Split queue into clusters and singletons
+  const clusters = useMemo(() => {
+    if (!queue) return [];
+    return queue.clusters.filter(item => item.cluster_id !== null && item.cluster_id !== undefined);
+  }, [queue]);
+
+  const singletons = useMemo(() => {
+    if (!queue) return [];
+    return queue.clusters.filter(item => item.cluster_id === null || item.cluster_id === undefined);
+  }, [queue]);
+
+  // Sort clusters: life_safety_risk DESC → timeout_risk DESC → severity DESC → member_count DESC → age DESC
+  const sortedClusters = useMemo(() => {
+    return [...clusters].sort((a, b) => {
+      if (a.has_life_safety !== b.has_life_safety) return a.has_life_safety ? -1 : 1;
+      if (a.is_timeout_risk !== b.is_timeout_risk) return a.is_timeout_risk ? -1 : 1;
+      const severityOrder = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+      const aSev = severityOrder[a.severity] ?? 0;
+      const bSev = severityOrder[b.severity] ?? 0;
+      if (aSev !== bSev) return bSev - aSev;
+      if (a.member_count !== b.member_count) return b.member_count - a.member_count;
+      return new Date(a.oldest_report_at).getTime() - new Date(b.oldest_report_at).getTime();
+    });
+  }, [clusters]);
+
+  // Sort singletons: aging DESC → timeout_risk DESC → severity DESC → age DESC
+  const sortedSingletons = useMemo(() => {
+    return [...singletons].sort((a, b) => {
+      if (a.is_aging !== b.is_aging) return a.is_aging ? -1 : 1;
+      if (a.is_timeout_risk !== b.is_timeout_risk) return a.is_timeout_risk ? -1 : 1;
+      const severityOrder = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+      const aSev = severityOrder[a.severity] ?? 0;
+      const bSev = severityOrder[b.severity] ?? 0;
+      if (aSev !== bSev) return bSev - aSev;
+      return new Date(a.oldest_report_at).getTime() - new Date(b.oldest_report_at).getTime();
+    });
+  }, [singletons]);
+
+  // Filter singletons by Unreviewed chip
+  const unreviewedOnly = searchParams.get('unreviewed') === 'true';
+  const filteredSingletons = useMemo(() => {
+    if (!unreviewedOnly) return sortedSingletons;
+    return sortedSingletons.filter(item => item.reports.some(r => r.status === 'PENDING'));
+  }, [sortedSingletons, unreviewedOnly]);
+
   if (authLoading) {
     return <div className="p-8 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-slate-500" /></div>;
   }
@@ -349,62 +400,149 @@ export default function TriagePage() {
         })}
       </div>
 
-      <div className="rounded-md border border-slate-200 bg-white">
+      {/* Metrics bar */}
+      <div className="flex items-center gap-6 text-sm text-gray-600 py-2 border-b">
+        <span>Clusters: <strong>{sortedClusters.length}</strong></span>
+        <span>Individual reports: <strong>{filteredSingletons.length}</strong></span>
+        <span>Polled {lastPolled.toLocaleTimeString()}</span>
+      </div>
+
+      {/* Clusters table */}
+      <div className="rounded-md border border-slate-200 bg-white" data-testid="clusters-table">
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
           <div className="flex items-center gap-2 font-medium text-slate-900">
             <ClipboardList className="h-4 w-4 text-red-700" />
-            {queue?.total_reports ?? 0} report(s)
+            Clusters
           </div>
-          <span className="text-xs text-slate-500">
-            Polled {queue ? new Date(queue.polled_at).toLocaleTimeString() : '...'}
-          </span>
         </div>
 
         {loading ? (
           <div className="flex justify-center p-12"><Loader2 className="h-8 w-8 animate-spin text-slate-500" /></div>
-        ) : !queue || queue.clusters.length === 0 ? (
-          <div className="p-12 text-center text-slate-600">No civilian reports match the current filters.</div>
+        ) : sortedClusters.length === 0 ? (
+          <div className="p-12 text-center text-slate-600">No clusters matching current filters.</div>
         ) : (
-          <div className="divide-y divide-slate-200">
-            {queue.clusters.map((cluster, index) => (
-              <div key={cluster.cluster_id ?? `singleton-${cluster.anchor_report_id ?? index}`} className="p-4">
-                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                  <div className="min-w-0 space-y-3">
-                    <div className="flex flex-wrap items-center gap-2">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-xs font-medium uppercase text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">#</th>
+                  <th className="px-3 py-2">Severity</th>
+                  <th className="px-3 py-2">Life Safety</th>
+                  <th className="px-3 py-2">Timeout Risk</th>
+                  <th className="px-3 py-2">Assigned To</th>
+                  <th className="px-3 py-2">Members</th>
+                  <th className="px-3 py-2">Avg Trust</th>
+                  <th className="px-3 py-2">Station</th>
+                  <th className="px-3 py-2">Age</th>
+                  <th className="px-3 py-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {sortedClusters.map((cluster) => (
+                  <tr key={cluster.cluster_id}>
+                    <td className="px-3 py-3">{cluster.cluster_id}</td>
+                    <td className="px-3 py-3">
                       <span className={`rounded-md border px-2 py-1 text-xs font-medium ${statusTone(cluster.severity)}`}>{cluster.severity}</span>
-                      {cluster.has_life_safety && <span className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700"><AlertTriangle className="h-3 w-3" /> Life safety</span>}
-                      {cluster.is_danger && <span className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-red-100 px-2 py-1 text-xs font-bold text-red-800 animate-pulse"><AlertTriangle className="h-3 w-3" /> Needs attention — 2h+</span>}
-                      {cluster.is_timeout_risk && !cluster.is_danger && <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">Timeout risk</span>}
-                      {cluster.assigned_to && <span className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700"><Lock className="h-3 w-3" /> {cluster.assigned_to}</span>}
-                    </div>
-                    <div>
-                      <h2 className="text-base font-semibold text-slate-950">
-                        {cluster.cluster_id ? `Cluster ${cluster.cluster_id}` : `Report ${cluster.reports[0]?.report_id}`}
-                      </h2>
-                      <p className="text-sm text-slate-600">{recommendation(cluster)}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-4 text-sm text-slate-600">
-                      <span>{cluster.member_count} member(s)</span>
-                      <span>{cluster.related_count} related nearby</span>
-                      <span>Avg trust {Math.round(cluster.avg_trust)}</span>
-                      <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {new Date(cluster.oldest_report_at).toLocaleString()}</span>
-                      <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> {cluster.station.name ?? 'Station unavailable'}</span>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {cluster.cluster_id && (
-                      <button disabled={busy} onClick={() => void claimCluster(cluster.cluster_id)} className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-                        <ShieldCheck className="h-4 w-4" />
-                        Claim
-                      </button>
-                    )}
-                    <button onClick={() => void openInspection(cluster)} className="rounded-md bg-red-700 px-3 py-2 text-sm font-medium text-white hover:bg-red-800">
-                      Inspect
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
+                    </td>
+                    <td className="px-3 py-3">
+                      {cluster.has_life_safety && <AlertTriangle className="h-4 w-4 text-red-700" />}
+                    </td>
+                    <td className="px-3 py-3">
+                      {cluster.is_timeout_risk && <Clock className="h-4 w-4 text-amber-700" />}
+                    </td>
+                    <td className="px-3 py-3">{cluster.assigned_to ?? '—'}</td>
+                    <td className="px-3 py-3">{cluster.member_count}</td>
+                    <td className="px-3 py-3">{Math.round(cluster.avg_trust)}</td>
+                    <td className="px-3 py-3">{cluster.station.name ?? 'N/A'}</td>
+                    <td className="px-3 py-3 text-xs text-slate-500">{new Date(cluster.oldest_report_at).toLocaleString()}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex gap-2">
+                        {cluster.assigned_to === null && (role === 'VALIDATOR' || role === 'NATIONAL_VALIDATOR') && (
+                          <button disabled={busy} onClick={() => void claimCluster(cluster.cluster_id)} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                            <ShieldCheck className="h-3 w-3" />
+                            Claim
+                          </button>
+                        )}
+                        <button onClick={() => void openInspection(cluster, 'cluster')} className="rounded-md bg-red-700 px-2 py-1 text-xs font-medium text-white hover:bg-red-800">
+                          Inspect
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Individual Reports table */}
+      <div className="rounded-md border border-slate-200 bg-white" data-testid="singletons-table">
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+          <div className="flex items-center gap-2 font-medium text-slate-900">
+            <ClipboardList className="h-4 w-4 text-red-700" />
+            Individual Reports
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center p-12"><Loader2 className="h-8 w-8 animate-spin text-slate-500" /></div>
+        ) : filteredSingletons.length === 0 ? (
+          <div className="p-12 text-center text-slate-600">No individual reports matching current filters.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-xs font-medium uppercase text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">#</th>
+                  <th className="px-3 py-2">Severity</th>
+                  <th className="px-3 py-2">Life Safety</th>
+                  <th className="px-3 py-2">Timeout Risk</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Category</th>
+                  <th className="px-3 py-2">Trust</th>
+                  <th className="px-3 py-2">Station</th>
+                  <th className="px-3 py-2">Age</th>
+                  <th className="px-3 py-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {filteredSingletons.map((singleton) => {
+                  const report = singleton.reports[0];
+                  const terminalStatus = isTerminal(report.status);
+                  return (
+                    <tr key={singleton.anchor_report_id ?? report.report_id}>
+                      <td className="px-3 py-3">{report.report_id}</td>
+                      <td className="px-3 py-3">
+                        <span className={`rounded-md border px-2 py-1 text-xs font-medium ${statusTone(singleton.severity)}`}>{singleton.severity}</span>
+                      </td>
+                      <td className="px-3 py-3">
+                        {singleton.has_life_safety && <AlertTriangle className="h-4 w-4 text-red-700" />}
+                      </td>
+                      <td className="px-3 py-3">
+                        {singleton.is_timeout_risk && <Clock className="h-4 w-4 text-amber-700" />}
+                      </td>
+                      <td className="px-3 py-3 text-xs">{report.status}</td>
+                      <td className="px-3 py-3 text-xs">{report.category ?? 'N/A'} / {report.sub_category ?? 'none'}</td>
+                      <td className="px-3 py-3">{report.trust_breakdown.score}</td>
+                      <td className="px-3 py-3">{singleton.station.name ?? 'N/A'}</td>
+                      <td className="px-3 py-3 text-xs text-slate-500">{new Date(singleton.oldest_report_at).toLocaleString()}</td>
+                      <td className="px-3 py-3">
+                        {terminalStatus ? (
+                          <button onClick={() => void openInspection(singleton, 'singleton')} className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">
+                            Correct
+                          </button>
+                        ) : (
+                          <button onClick={() => void openInspection(singleton, 'singleton')} className="rounded-md bg-red-700 px-2 py-1 text-xs font-medium text-white hover:bg-red-800">
+                            Inspect
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -431,10 +569,17 @@ export default function TriagePage() {
 
             <div className="grid gap-5 p-5 lg:grid-cols-[1fr_340px]">
               <div className="overflow-hidden rounded-md border border-slate-200">
-                <ClusterInspectionMap
-                  reports={openCluster.reports}
-                  suggestedReportIds={mergeCandidates.map((c) => c.anchor_report_id)}
-                />
+                {inspectionMode === 'cluster' && (
+                  <ClusterInspectionMap
+                    reports={openCluster.reports}
+                    suggestedReportIds={mergeCandidates.map((c) => c.anchor_report_id)}
+                  />
+                )}
+                {inspectionMode === 'singleton' && (
+                  <div className="bg-slate-50 px-3 py-2 text-sm text-slate-700 border-b border-slate-200">
+                    Location: {openCluster.reports[0]?.latitude.toFixed(4)}, {openCluster.reports[0]?.longitude.toFixed(4)}
+                  </div>
+                )}
                 <table className="w-full text-left text-sm">
                   <thead className="bg-slate-50 text-xs font-medium uppercase text-slate-500">
                     <tr>
@@ -555,77 +700,81 @@ export default function TriagePage() {
                   </button>
                 </div>
 
-                <div className="rounded-md border border-slate-200 p-3">
-                  <div className="mb-2 text-sm font-medium text-slate-900">Split Cluster</div>
-                  <p className="text-xs text-slate-500">
-                    Moves the selected rows into a new explicit cluster. Requires at least two selected reports.
-                  </p>
-                  <textarea
-                    value={splitNote}
-                    onChange={(event) => setSplitNote(event.target.value)}
-                    rows={3}
-                    placeholder="Split internal note"
-                    className="mt-3 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                  />
-                  <button
-                    disabled={busy || !openCluster.cluster_id || selectedReportIds(openCluster, selected).length < 2 || !splitNote.trim()}
-                    onClick={() => void applySplit()}
-                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    Split Selected
-                  </button>
-                </div>
-
-                <div className="rounded-md border border-slate-200 p-3">
-                  <div className="mb-2 text-sm font-medium text-slate-900">Merge Cluster</div>
-                  <p className="text-xs text-slate-500 mb-3">
-                    Nearby clusters within 250m and 1 hour. Select a candidate or enter a cluster id manually.
-                  </p>
-                  {mergeCandidates.length === 0 ? (
-                    <p className="text-xs text-slate-400 italic mb-3">No nearby clusters found.</p>
-                  ) : (
-                    <div className="mb-3 space-y-2 max-h-40 overflow-y-auto">
-                      {mergeCandidates.map((c) => (
-                        <div key={c.cluster_id} className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-                          <div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setMergeSourceClusterId(String(c.cluster_id));
-                                setMergeNote(`Suggested merge: cluster #${c.cluster_id} (${c.distance_m.toFixed(0)}m, ${c.minutes_apart.toFixed(0)}min ago, ${c.member_count} member(s), status=${c.status}).`);
-                              }}
-                              className="font-medium text-blue-700 hover:underline"
-                            >
-                              Cluster #{c.cluster_id}
-                            </button>
-                            <span className="ml-2 text-slate-500">anchor #{c.anchor_report_id} · {c.distance_m.toFixed(0)}m · {c.minutes_apart.toFixed(0)}min · {c.member_count} members · {c.status}</span>
-                          </div>
-                        </div>
-                      ))}
+                {inspectionMode === 'cluster' && (
+                  <>
+                    <div className="rounded-md border border-slate-200 p-3">
+                      <div className="mb-2 text-sm font-medium text-slate-900">Split Cluster</div>
+                      <p className="text-xs text-slate-500">
+                        Moves the selected rows into a new explicit cluster. Requires at least two selected reports.
+                      </p>
+                      <textarea
+                        value={splitNote}
+                        onChange={(event) => setSplitNote(event.target.value)}
+                        rows={3}
+                        placeholder="Split internal note"
+                        className="mt-3 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                      />
+                      <button
+                        disabled={busy || !openCluster.cluster_id || selectedReportIds(openCluster, selected).length < 2 || !splitNote.trim()}
+                        onClick={() => void applySplit()}
+                        className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        Split Selected
+                      </button>
                     </div>
-                  )}
-                  <input
-                    value={mergeSourceClusterId}
-                    onChange={(event) => setMergeSourceClusterId(event.target.value)}
-                    inputMode="numeric"
-                    placeholder="Source cluster id"
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                  />
-                  <textarea
-                    value={mergeNote}
-                    onChange={(event) => setMergeNote(event.target.value)}
-                    rows={3}
-                    placeholder="Merge internal note"
-                    className="mt-3 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                  />
-                  <button
-                    disabled={busy || !openCluster.cluster_id || !mergeSourceClusterId.trim() || !mergeNote.trim()}
-                    onClick={() => void applyMerge()}
-                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    Merge Source Into This Cluster
-                  </button>
-                </div>
+
+                    <div className="rounded-md border border-slate-200 p-3">
+                      <div className="mb-2 text-sm font-medium text-slate-900">Merge Cluster</div>
+                      <p className="text-xs text-slate-500 mb-3">
+                        Nearby clusters within 250m and 1 hour. Select a candidate or enter a cluster id manually.
+                      </p>
+                      {mergeCandidates.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic mb-3">No nearby clusters found.</p>
+                      ) : (
+                        <div className="mb-3 space-y-2 max-h-40 overflow-y-auto">
+                          {mergeCandidates.map((c) => (
+                            <div key={c.cluster_id} className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                              <div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMergeSourceClusterId(String(c.cluster_id));
+                                    setMergeNote(`Suggested merge: cluster #${c.cluster_id} (${c.distance_m.toFixed(0)}m, ${c.minutes_apart.toFixed(0)}min ago, ${c.member_count} member(s), status=${c.status}).`);
+                                  }}
+                                  className="font-medium text-blue-700 hover:underline"
+                                >
+                                  Cluster #{c.cluster_id}
+                                </button>
+                                <span className="ml-2 text-slate-500">anchor #{c.anchor_report_id} · {c.distance_m.toFixed(0)}m · {c.minutes_apart.toFixed(0)}min · {c.member_count} members · {c.status}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <input
+                        value={mergeSourceClusterId}
+                        onChange={(event) => setMergeSourceClusterId(event.target.value)}
+                        inputMode="numeric"
+                        placeholder="Source cluster id"
+                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                      />
+                      <textarea
+                        value={mergeNote}
+                        onChange={(event) => setMergeNote(event.target.value)}
+                        rows={3}
+                        placeholder="Merge internal note"
+                        className="mt-3 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                      />
+                      <button
+                        disabled={busy || !openCluster.cluster_id || !mergeSourceClusterId.trim() || !mergeNote.trim()}
+                        onClick={() => void applyMerge()}
+                        className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        Merge Source Into This Cluster
+                      </button>
+                    </div>
+                  </>
+                )}
 
                 <div className="rounded-md border border-slate-200 p-3">
                   <div className="mb-2 text-sm font-medium text-slate-900">Activity</div>

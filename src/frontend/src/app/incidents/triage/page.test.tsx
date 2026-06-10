@@ -135,21 +135,41 @@ describe('TriagePage', () => {
     window.history.pushState({}, '', '/incidents/triage');
   });
 
-  it('renders the queue with cluster rows', async () => {
+  it('renders clusters table with cluster rows', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
     await waitFor(() => {
-      expect(screen.getByText('Cluster 1')).toBeDefined();
+      expect(screen.getByTestId('clusters-table')).toBeDefined();
     });
-    expect(screen.getByText('2 member(s)')).toBeDefined();
+    expect(screen.getByText('Clusters')).toBeDefined();
     expect(screen.getByText('HIGH')).toBeDefined();
   });
 
-  it('opens inspection modal when Inspect is clicked', async () => {
+  it('renders metrics bar with counts and polled time', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
+    await waitFor(() => {
+      expect(screen.getByText(/Clusters:/)).toBeDefined();
+    });
+    expect(screen.getByText(/Individual reports:/)).toBeDefined();
+    expect(screen.getByText(/Polled/)).toBeDefined();
+  });
+
+  it('renders both clusters and singletons tables', async () => {
+    const { default: TriagePage } = await import('./page');
+    render(<TriagePage />);
+    await waitFor(() => {
+      expect(screen.getByTestId('clusters-table')).toBeDefined();
+      expect(screen.getByTestId('singletons-table')).toBeDefined();
+    });
+  });
+
+  it('opens inspection modal when Inspect is clicked on cluster', async () => {
+    const { default: TriagePage } = await import('./page');
+    render(<TriagePage />);
+    const clustersTable = await waitFor(() => screen.getByTestId('clusters-table'));
     const inspectBtn = await waitFor(() =>
-      screen.getByRole('button', { name: 'Inspect' }),
+      screen.getAllByRole('button', { name: 'Inspect' })[0],
     );
     await userEvent.click(inspectBtn);
     await waitFor(() => {
@@ -162,7 +182,7 @@ describe('TriagePage', () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
     const inspectBtn = await waitFor(() =>
-      screen.getByRole('button', { name: 'Inspect' }),
+      screen.getAllByRole('button', { name: 'Inspect' })[0],
     );
     await userEvent.click(inspectBtn);
     await waitFor(() => {
@@ -174,7 +194,7 @@ describe('TriagePage', () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
     const inspectBtn = await waitFor(() =>
-      screen.getByRole('button', { name: 'Inspect' }),
+      screen.getAllByRole('button', { name: 'Inspect' })[0],
     );
     await userEvent.click(inspectBtn);
     await waitFor(() => expect(screen.getByText('#10')).toBeDefined());
@@ -188,7 +208,7 @@ describe('TriagePage', () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
     const inspectBtn = await waitFor(() =>
-      screen.getByRole('button', { name: 'Inspect' }),
+      screen.getAllByRole('button', { name: 'Inspect' })[0],
     );
     await userEvent.click(inspectBtn);
     await waitFor(() => {
@@ -200,7 +220,7 @@ describe('TriagePage', () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
     const inspectBtn = await waitFor(() =>
-      screen.getByRole('button', { name: 'Inspect' }),
+      screen.getAllByRole('button', { name: 'Inspect' })[0],
     );
     await userEvent.click(inspectBtn);
     await waitFor(() => expect(screen.getByText('#10')).toBeDefined());
