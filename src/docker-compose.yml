@@ -112,12 +112,31 @@ services:
       - ollama_data:/root/.ollama
     networks:
       - wims_internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     deploy:
       resources:
         limits:
           cpus: '2'
           memory: 4gb
     restart: always
+
+  ollama-model-pull:
+    image: ollama/ollama:0.5.1
+    container_name: wims-ollama-model-pull
+    command: ollama pull qwen2.5:3b
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    networks:
+      - wims_internal
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
 
   # --- Applications ---
   backend:
