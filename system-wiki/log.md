@@ -2290,3 +2290,12 @@ Updated `src/backend/tests/test_csrf_middleware.py` to match PR #215's removal o
 - Updated the Suricata health check to match the running `Suricata-Main` process.
 - Fixed the production CSP so Next.js inline bootstrap scripts can hydrate the server-rendered loading shell and initialize `/api/auth/session`.
 - Updated `architecture/infrastructure-config.md` and `index.md`; no FRS/codebase gap changed.
+
+## [2026-06-10] fix | Make VPS deploy resilient to recreated backend and Ollama provisioning
+
+- Diagnosed public API `502` responses after deploy: nginx retained the previous backend container IP while backend-local `/health` remained healthy.
+- Added Docker embedded DNS resolution and a shared nginx upstream zone so backend addresses refresh after Compose recreation.
+- Corrected `ollama-model-pull` from `ollama ollama pull qwen2.5:3b` to the image-entrypoint-compatible `ollama pull qwen2.5:3b`.
+- Made backend startup depend on successful Ollama model provisioning.
+- Strengthened `deploy.yml` with Compose `--wait`, a real public backend route probe, and required-model verification.
+- Updated `architecture/infrastructure-config.md` and `architecture/pwa-tests-cicd.md`; no FRS/codebase gap changed.
