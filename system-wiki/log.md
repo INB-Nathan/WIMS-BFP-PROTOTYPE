@@ -25,6 +25,17 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 **Files:** `test_admin_new_routes.py`
 
+## [2026-06-10] fix | PR #248 — post-review fix batch 4 (HITL audit INSERT content verification)
+
+- `aaa75bf`: Added audit INSERT param assertions (`action`/`table`/`rec`/`uid`) to 3 existing structured-path HITL tests:
+  - `test_confirm_threat_sets_label_and_jsonb` — verifies `HITL_REVIEW`, `security_threat_logs`, rec=1, admin UUID
+  - `test_false_positive_sets_label_and_jsonb` — verifies same for rec=2
+  - `test_request_more_info_sets_label_jsonb_leaves_resolved_at_null` — verifies same for rec=3
+  - Pattern from `TestCreateIncidentFromAlert` — `next(c for c in call_args_list if "system_audit_trails"...)` plus param assertions
+  - Legacy path `test_legacy_admin_action_taken_logs_hitl_audit` (added by tdd-wims step) also validates audit INSERT for `admin_action_taken` path.
+
+**Files:** `test_admin_new_routes.py`
+
 ## [2026-06-09] fix | PR #238 rebase + review fixes — 6 files
 
 - Rebased `feat/m13-email-triggers` onto origin/master (1345808). Resolved 2 conflicts:
