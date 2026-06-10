@@ -53,6 +53,7 @@ vi.mock('@/context/AuthContext', () => ({
 const mockFetchAdminSecurityLogs = vi.fn();
 const mockUpdateAdminSecurityLog = vi.fn();
 const mockAnalyzeSecurityLog = vi.fn();
+const mockCreateIncidentFromAlert = vi.fn();
 const mockFetchAdminUsers = vi.fn();
 const mockFetchAuditLogs = vi.fn();
 
@@ -63,6 +64,7 @@ vi.mock('@/lib/api', () => ({
     updateAdminSecurityLog: (...args: unknown[]) => mockUpdateAdminSecurityLog(...args),
     fetchAuditLogs: () => mockFetchAuditLogs(),
     analyzeSecurityLog: (logId: number) => mockAnalyzeSecurityLog(logId),
+    createIncidentFromAlert: (logId: number) => mockCreateIncidentFromAlert(logId),
     // Stubs required by AdminSystemPage mount (added in PR #125, now in master)
     fetchSystemHealth: vi.fn().mockResolvedValue({
         status: 'HEALTHY',
@@ -91,6 +93,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         mockFetchAdminUsers.mockResolvedValue([]);
         mockFetchAuditLogs.mockResolvedValue({ items: [], total: 0 });
         mockUpdateAdminSecurityLog.mockResolvedValue({ status: 'ok', log_id: 1 });
+        mockCreateIncidentFromAlert.mockResolvedValue({ status: 'ok', incident_id: 42 });
     });
 
     it('shows three decision buttons for unactioned logs', async () => {
@@ -176,5 +179,19 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         expect(screen.queryByRole('button', { name: /Confirm Threat/i })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /False Positive/i })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /Request More Info/i })).not.toBeInTheDocument();
+    });
+
+    it('clicking "Create Incident from Alert" calls createIncidentFromAlert with log_id', async () => {
+        mockCreateIncidentFromAlert.mockResolvedValue({ status: 'ok', incident_id: 42 });
+        mockFetchAdminSecurityLogs.mockResolvedValue([mockLogUnactioned]);
+        render(<AdminSystemPage />);
+        await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
+        const viewButtons = screen.getAllByRole('button', { name: /View/i });
+        fireEvent.click(viewButtons[0]);
+        await waitFor(() => expect(screen.getByText('Suricata Alert #1')).toBeInTheDocument());
+        fireEvent.click(screen.getByRole('button', { name: /Create Incident from Alert/i }));
+        await waitFor(() => {
+            expect(mockCreateIncidentFromAlert).toHaveBeenCalledWith(1);
+        });
     });
 });

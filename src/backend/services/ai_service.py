@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from services.event_bus import publish_security_event
 from utils.config import get_config
 
+logger = logging.getLogger("wims.ai_service")
 OLLAMA_MODEL = "qwen2.5:3b"
 
 logger = logging.getLogger("wims.ai_service")
@@ -269,7 +270,7 @@ async def analyze_audit_logs(audit_ids: list[int], db: Session) -> dict:
     if len(audit_ids) > max_batch:
         raise HTTPException(
             status_code=400,
-            detail=f"audit_ids exceeds maximum batch size of {max_batch} (received {len(audit_ids)})",
+            detail=f"Maximum {max_batch} audit IDs per request, got {len(audit_ids)}",
         )
 
     rows = db.execute(
