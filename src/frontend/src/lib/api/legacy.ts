@@ -293,6 +293,14 @@ export async function updateAdminSecurityLog(
   });
 }
 
+/** Manually create a DRAFT fire incident from a reviewed security alert */
+export async function createIncidentFromAlert(logId: number): Promise<{
+  status: string;
+  incident_id: number;
+}> {
+  return apiFetch(`/admin/security-logs/${logId}/create-incident`, { method: 'POST' });
+}
+
 /** Fetch audit logs (admin) - paginated */
 export async function fetchAuditLogs(params?: {
   limit?: number;
@@ -1517,5 +1525,34 @@ export async function terminateUserSessions(
   return apiFetch<{ status: string; user_id: string }>(
     `/admin/sessions/${userId}/${sessionId}`,
     { method: 'DELETE' }
+  );
+}
+
+// =============================================================================
+// System Config (M9c) — admin-tunable thresholds and timeouts
+// =============================================================================
+
+export interface SystemConfigEntry {
+  key: string;
+  value: string;
+  description: string | null;
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
+/** Fetch all system_config rows (SYSTEM_ADMIN only). */
+export async function fetchAdminConfig(): Promise<SystemConfigEntry[]> {
+  const data = await apiFetch<{ config: SystemConfigEntry[] }>('/admin/config');
+  return data.config;
+}
+
+/** Update a single system_config value by key (SYSTEM_ADMIN only). */
+export async function updateAdminConfig(
+  key: string,
+  value: string
+): Promise<{ key: string; value: string; status: string }> {
+  return apiFetch<{ key: string; value: string; status: string }>(
+    `/admin/config/${key}`,
+    { method: 'PATCH', body: JSON.stringify({ value }) }
   );
 }
