@@ -103,7 +103,9 @@ describe('offlineStore', () => {
 
     it('payload is encrypted at rest', async () => {
         await queueIncident({ description: 'Secret fire data', lat: 14.5, lon: 120.9 });
-        const rawRecord = store.get(1);
+        const rawRecord = store.get(1) as
+            | { encrypted: { iv: unknown[]; data: unknown[] }; payload?: unknown }
+            | undefined;
         expect(rawRecord).toBeDefined();
         expect(rawRecord).toHaveProperty('encrypted');
         expect(rawRecord!.encrypted).toHaveProperty('iv');
@@ -127,7 +129,9 @@ describe('offlineStore', () => {
         await updateQueuedIncident(1, { description: 'Updated description', lat: 16.0 });
         const pending = await getPendingIncidents();
         expect(pending[0].payload.description).toBe('Updated description');
-        const rawRecord = store.get(1);
+        const rawRecord = store.get(1) as
+            | { encrypted: { iv: unknown[]; data: unknown[] }; payload?: unknown }
+            | undefined;
         expect(rawRecord).toHaveProperty('encrypted');
         expect(rawRecord!.payload).toBeUndefined();
     });
