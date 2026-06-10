@@ -2,6 +2,23 @@
 
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
+
+## [2026-06-10] fix | PR #248 — post-review fix batch 1 (audit order, float guard, generic 500, barrel export, legacy HITL, duplicate guard)
+
+4 fix commits applied after maintainer-reviewer report:
+- `eb26ecb`: HITL audit for legacy `admin_action_taken` path, `reviewed_by` on create-incident, `_security_incident_exists()` duplicate guard.
+- `ddf7d31`: `createIncidentFromAlert` added to `admin.ts` barrel export.
+- `7fafea8`: Structured 5-key XAI format in test mocks, HITL audit `call_count` 2→3 in `test_admin_new_routes.py`.
+- `6adb1c3`: Audit-before-commit ordering in `update_security_log()` and `create_incident_from_alert()`, rowcount 404 before commit, float confidence crash guard + clamp in `analyze_threat_log()`/`analyze_audit_logs()`, replace leaking `str(e)` with generic 500 detail.
+
+**Files:** `security.py`, `ai_service.py`, `test_ai_ids_api.py`, `test_admin_new_routes.py`, `admin.ts`
+
+## [2026-06-10] fix | PR #248 — post-review fix batch 2 (httpx error handling, audit-logs analyze tests)
+
+- `9a1f34e`: Catch `httpx.TimeoutException` (→ 502 "Ollama request timed out") and `httpx.ConnectError` (→ 502 "Ollama service unavailable") in both `analyze_threat_log()` and `analyze_audit_logs()`. Added `logger = logging.getLogger("wims.ai_service")` with warnings before each 502 raise. Added 4 respx-mocked integration tests covering ConnectError/TimeoutException for both threat-log and audit-logs analyze endpoints. Added `audit_trail_rows` fixture.
+
+**Files:** `ai_service.py`, `test_ai_ids_api.py`
+
 ## [2026-06-09] fix | PR #238 rebase + review fixes — 6 files
 
 - Rebased `feat/m13-email-triggers` onto origin/master (1345808). Resolved 2 conflicts:
