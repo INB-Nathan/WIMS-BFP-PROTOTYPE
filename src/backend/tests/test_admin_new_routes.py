@@ -756,3 +756,112 @@ class TestPatchSecurityLogHitl:
 
         response = client.patch("/api/admin/security-logs/99999", json={"action": "CONFIRM_THREAT"})
         assert response.status_code == 404
+
+
+# =============================================================================
+# POST /admin/security-logs/{log_id}/create-incident — M8 create-incident-from-alert
+# =============================================================================
+
+
+class TestCreateIncidentFromAlert:
+    def test_success_creates_incident_sets_reviewed_by_and_audits(self, client: TestClient):
+        """POST create-incident returns 200, sets reviewed_by, and writes audit trail."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        # fetchone side_effect: (1) security_threat_logs row, (2) _security_incident_exists → None (no dup), (3) _create_security_incident RETURNING
+        mock_db.execute.return_value.fetchone.side_effect = [
+            (1, "10.0.0.1", 2012345, "suspicious payload"),
+            None,
+            (42,),
+        ]
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.post("/api/admin/security-logs/1/create-incident")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["incident_id"] == 42
+        assert data["status"] == "ok"
+
+        # reviewed_by UPDATE must be present
+        review_call = next(
+            c for c in mock_db.execute.call_args_list if "reviewed_by" in str(c[0][0])
+        )
+        assert review_call[0][1]["uid"] == "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+
+        # audit INSERT must contain correct action/table/rec
+        audit_call = next(
+            c for c in mock_db.execute.call_args_list if "system_audit_trails" in str(c[0][0])
+        )
+        params = audit_call[0][1]
+        assert params["action"] == "CREATE_INCIDENT_FROM_ALERT"
+        assert params["table"] == "security_threat_logs"
+        assert params["rec"] == 1
+
+        # commit must be called, rollback must not
+        assert mock_db.commit.called
+        assert not mock_db.rollback.called
+
+    def test_not_found_returns_404(self, client: TestClient):
+        """POST create-incident with missing log_id returns 404."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        mock_db.execute.return_value.fetchone.return_value = None
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.post("/api/admin/security-logs/99999/create-incident")
+
+        assert response.status_code == 404
+        assert "Security log not found" in response.json()["detail"]
+        assert not mock_db.commit.called
+        assert not mock_db.rollback.called
+
+    def test_duplicate_returns_409(self, client: TestClient):
+        """POST create-incident when an incident already exists returns 409."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        # fetchone side_effect: (1) security_threat_logs row, (2) _security_incident_exists → truthy (dup)
+        mock_db.execute.return_value.fetchone.side_effect = [
+            (1, "10.0.0.1", 2012345, "suspicious payload"),
+            (1,),
+        ]
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.post("/api/admin/security-logs/1/create-incident")
+
+        assert response.status_code == 409
+        assert "already exists" in response.json()["detail"]
+        assert not mock_db.commit.called
+        assert not mock_db.rollback.called
+
+    def test_failure_rolls_back_and_returns_500(self, client: TestClient):
+        """POST create-incident when _create_security_incident raises rolls back and returns 500."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        mock_db.execute.return_value.fetchone.side_effect = [
+            (1, "10.0.0.1", 2012345, "suspicious payload"),
+            None,
+        ]
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        with patch(
+            "api.routes.admin.security._create_security_incident",
+            side_effect=RuntimeError("DB down"),
+        ):
+            response = client.post("/api/admin/security-logs/1/create-incident")
+
+        assert response.status_code == 500
+        assert "Failed to create incident from alert" in response.json()["detail"]
+        assert mock_db.rollback.called
+        assert not mock_db.commit.called
+
+    def test_encoder_denied_returns_403(self, client: TestClient):
+        """POST create-incident by non-admin (encoder) returns 403."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_encoder_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.post("/api/admin/security-logs/1/create-incident")
+
+        assert response.status_code == 403
+        assert "SYSTEM_ADMIN" in response.json()["detail"]
