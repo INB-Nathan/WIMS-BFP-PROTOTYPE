@@ -82,6 +82,7 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Modal gated by mode prop (cluster: map+multi-select; singleton: location text only)
 - Metrics bar with live counts and last-polled timestamp
 - Phase C filter chips including Unreviewed (singleton-only)
+- Branch: feat/triage-queue-hci
 
 ## [2026-06-09] feat | M9b full-text search on security + audit logs (tsvector + GIN) (#169)
 
