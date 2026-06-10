@@ -3,6 +3,12 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-10] feat | M15 — RLS on reference tables (ref_regions/provinces/cities, #178)
+
+Migration `53_ref_table_rls.sql`: replaces role-gated SELECT on reference geography tables with `USING (TRUE)` (globally readable); adds `FOR ALL` write policies gated on `SYSTEM_ADMIN`. Fixes silent zero-row returns on unauthenticated paths (`public_dmz.py` reads `ref_regions` without a GUC). `main.py:_apply_ref_table_rls()` startup patch updated to match. 11 unit tests. Closes #178.
+
+**Files:** `src/postgres-init/53_ref_table_rls.sql`, `src/backend/main.py`, `src/backend/tests/test_ref_table_rls.py`, `system-wiki/gaps/frs-codebase-gap-register.md`
+
 ## [2026-06-10] feat | M10d automated breach notification + NPC 72h tracking (#171)
 
 - Migration `52_breach_notifications.sql`: `wims.breach_notifications` table with SERIAL PK, `threat_log_id FK→security_threat_logs`, `detected_at`, `npc_deadline_at` (= detected_at + 72h), `status` enum (DETECTED→DPO_NOTIFIED→NPC_SUBMITTED→CLOSED), `affected_systems`, `data_scope`, `notes`, `reported_by`, `npc_submitted_at`, timestamps. RLS ENABLE+FORCE; SELECT and ALL policies gated on `wims.current_user_role() = 'SYSTEM_ADMIN'`.

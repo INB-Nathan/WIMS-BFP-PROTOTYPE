@@ -1,7 +1,7 @@
 ---
 title: FRS Codebase Gap Register
 created: 2026-05-14
-updated: 2026-06-09
+updated: 2026-06-10
 type: gap
 tags: [wims-bfp, gap, frs, needs-verification]
 sources: [raw/frs, raw/codebase/codebase-snapshot-2026-05-14.md]
@@ -40,6 +40,7 @@ This register prevents agents from hallucinating completion. A module is not com
 - **M8d (HITL Audit Trail — #162)**: CLOSED — `log_system_audit()` call added to `update_security_log()` with action_type=HITL_REVIEW, table_affected=security_threat_logs, record_id=log_id. Every HITL decision (CONFIRM_THREAT, FALSE_POSITIVE, REQUEST_MORE_INFO) is now audited.
 - **M8a (Audit Log SLM — #163)**: CLOSED — `analyze_audit_logs()` function in `ai_service.py` feeds batched `system_audit_trails` entries to Ollama for behavioral pattern analysis. `POST /admin/audit-logs/analyze` endpoint accepts `{ audit_ids: [...] }`.
 - **M8d (Remove Auto-DRAFT from HIGH Alerts — #165)**: CLOSED — `ingest_eve_file()` no longer auto-creates DRAFT fire incidents for HIGH/CRITICAL alerts. `_create_security_incident()` preserved for admin manual trigger via `POST /admin/security-logs/{log_id}/create-incident`. Admin clicks "Create Incident from Alert" button in threat telemetry modal.
+- **M15 (RLS on reference tables — #178)**: CLOSED — Migration `53_ref_table_rls.sql` revises RLS on `wims.ref_regions`, `wims.ref_provinces`, `wims.ref_cities`. Prior migration 42 used role-gated SELECT policies that returned zero rows on unauthenticated paths (`public_dmz.py:195` reads `ref_regions` without a GUC). M15 replaces SELECT with `USING (TRUE)` (globally readable) and adds `FOR ALL` write policies gated on `SYSTEM_ADMIN`. `main.py:_apply_ref_table_rls()` startup patch updated to match. 11 unit tests (migration content + startup patch SQL assertions). Closes #178.
 
 ## FRS Gap Closures (May 2026 batch)
 - **M11a (OWASP ZAP Baseline + Nmap CI Scanning)**: CLOSED — PR (feat/m11-ci-scanning): `security-scan` job added to `.github/workflows/ci.yml`; brings full Docker stack, runs Nmap port allowlist check, runs ZAP baseline via `zaproxy/action-baseline@v0.12.0` with `fail_action: true`, uploads both reports as artifacts; `security-scan` added to `merge-gate` `needs:` list to block on HIGH/CRITICAL findings. Closes GH #172.
