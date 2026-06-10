@@ -919,3 +919,111 @@ class TestCreateIncidentFromAlert:
 
         assert response.status_code == 403
         assert "SYSTEM_ADMIN" in response.json()["detail"]
+
+
+# =============================================================================
+# POST /admin/audit-logs/analyze — M8 batch limit
+# =============================================================================
+
+
+class TestAnalyzeAuditLogsBatchLimit:
+    def test_over_limit_returns_400(self, client: TestClient):
+        """POST /admin/audit-logs/analyze with more audit_ids than config limit returns 400.
+
+        On base (no batch limit), 5 audit_ids with config limit=2 passes through
+        to the Ollama call — NOT a 400.  The test proves the gap.
+        """
+        from datetime import datetime, timezone
+
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+
+        now = datetime.now(timezone.utc)
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            (1, "uid-1", "LOGIN", "wims.users", 1, "192.168.1.1", now),
+            (2, "uid-2", "LOGOUT", "wims.users", 1, "192.168.1.2", now),
+        ]
+        mock_db = MagicMock()
+        mock_db.execute.return_value = mock_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        with patch("services.ai_service.get_config", return_value="2"):
+            response = client.post(
+                "/api/admin/audit-logs/analyze",
+                json={"audit_ids": [1, 2, 3, 4, 5]},
+            )
+
+        assert response.status_code == 400, (
+            f"Expected 400 (5 audit_ids > limit 2), got {response.status_code}: {response.text}"
+        )
+        detail = response.json()["detail"]
+        assert "exceeds maximum batch size" in detail, f"Expected batch-size error, got: {detail!r}"
+
+    def test_at_limit_passes(self, client: TestClient):
+        """POST /admin/audit-logs/analyze with audit_ids exactly at the limit must NOT be rejected."""
+        from datetime import datetime, timezone
+
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+
+        now = datetime.now(timezone.utc)
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            (1, "uid-1", "LOGIN", "wims.users", 1, "192.168.1.1", now),
+            (2, "uid-2", "LOGOUT", "wims.users", 1, "192.168.1.2", now),
+        ]
+        mock_db = MagicMock()
+        mock_db.execute.return_value = mock_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        # limit=3, send exactly 3 — must NOT be blocked by batch check
+        with patch("services.ai_service.get_config", return_value="3"):
+            response = client.post(
+                "/api/admin/audit-logs/analyze",
+                json={"audit_ids": [1, 2, 3]},
+            )
+
+        # The batch limit check passes, so the code proceeds to the Ollama call.
+        # With no respx mock, it gets a 502 (connect error) — NOT a 400.
+        assert response.status_code != 400, (
+            f"Expected non-400 (3 audit_ids at limit 3), got 400: {response.text}"
+        )
+
+    def test_invalid_config_falls_back_to_default(self, client: TestClient):
+        """Non-numeric ai_audit_batch_limit config falls back to default 50."""
+        from datetime import datetime, timezone
+
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+
+        now = datetime.now(timezone.utc)
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            (1, "uid-1", "LOGIN", "wims.users", 1, "192.168.1.1", now),
+            (2, "uid-2", "LOGOUT", "wims.users", 1, "192.168.1.2", now),
+        ]
+        mock_db = MagicMock()
+        mock_db.execute.return_value = mock_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        # get_config returns a non-numeric string → int() raises ValueError → fallback to 50
+        with patch("services.ai_service.get_config", return_value="not-a-number"):
+            response = client.post(
+                "/api/admin/audit-logs/analyze",
+                json={"audit_ids": list(range(1, 31))},  # 30 IDs, under 50
+            )
+
+        # Fallback to 50, so 30 IDs passes the batch check → proceeds to Ollama (502)
+        assert response.status_code != 400, (
+            f"Expected non-400 (30 audit_ids with fallback limit 50), got 400: {response.text}"
+        )

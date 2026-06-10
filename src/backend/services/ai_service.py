@@ -261,6 +261,17 @@ async def analyze_audit_logs(audit_ids: list[int], db: Session) -> dict:
     if not audit_ids:
         raise HTTPException(status_code=400, detail="No audit IDs provided")
 
+    try:
+        max_batch = int(get_config(db, "ai_audit_batch_limit", "50"))
+    except (TypeError, ValueError):
+        max_batch = 50
+
+    if len(audit_ids) > max_batch:
+        raise HTTPException(
+            status_code=400,
+            detail=f"audit_ids exceeds maximum batch size of {max_batch} (received {len(audit_ids)})",
+        )
+
     rows = db.execute(
         text("""
             SELECT audit_id, user_id, action_type, table_affected,
