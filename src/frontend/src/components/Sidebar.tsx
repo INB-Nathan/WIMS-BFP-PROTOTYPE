@@ -24,6 +24,7 @@ import {
     Search,
     TrendingUp,
     Map,
+    SlidersHorizontal,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -200,6 +201,7 @@ function getNavSections(role: string | null): NavSection[] {
                 { label: 'Governance', href: '/admin/system#governance', icon: Users },
                 { label: 'Telemetry', href: '/admin/system#telemetry', icon: ShieldAlert },
                 { label: 'System Audit', href: '/admin/system#audit', icon: Settings },
+                { label: 'Configuration', href: '/admin/system/config', icon: SlidersHorizontal },
             ],
         });
         sections.push({ label: 'Account', items: [{ label: 'My Profile', href: '/profile', icon: UserCircle }] });
