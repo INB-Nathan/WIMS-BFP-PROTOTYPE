@@ -41,6 +41,10 @@ ON CONFLICT (config_key) DO NOTHING;
 ALTER TABLE wims.system_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE wims.system_config FORCE ROW LEVEL SECURITY;
 
+-- The application and Celery worker connect as wims_app_user. Table privileges
+-- are required in addition to the RLS policies below.
+GRANT SELECT, INSERT, UPDATE, DELETE ON wims.system_config TO wims_app_user;
+
 -- SELECT: open to all DB sessions (config is non-sensitive; Celery consumers
 -- read via _SessionLocal() without a GUC, so we cannot restrict by role here).
 DROP POLICY IF EXISTS system_config_select ON wims.system_config;

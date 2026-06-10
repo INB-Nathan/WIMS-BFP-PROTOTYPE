@@ -15,8 +15,18 @@ celery_app = Celery(
     ),
 )
 
-# Auto-discover task modules instead of side-effect imports in main.py
-celery_app.autodiscover_tasks(["tasks"])
+# The tasks package contains modules rather than app-style tasks.py files, so
+# list them explicitly to ensure workers register every scheduled task.
+celery_app.conf.imports = (
+    "tasks.analytics_refresh",
+    "tasks.civilian_reports",
+    "tasks.drafts",
+    "tasks.exports",
+    "tasks.monitoring",
+    "tasks.narrative",
+    "tasks.notifications",
+    "tasks.suricata",
+)
 celery_app.conf.update(
     task_serializer="json",
     accept_content=["json"],

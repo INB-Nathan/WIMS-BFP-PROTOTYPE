@@ -245,7 +245,7 @@ services:
       - ./suricata/logs:/var/log/suricata
       - ./suricata/rules:/var/lib/suricata/rules
     healthcheck:
-      test: ["CMD", "pgrep", "suricata"]
+      test: ["CMD", "pgrep", "Suricata-Main"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -2281,3 +2281,12 @@ Updated `src/backend/tests/test_csrf_middleware.py` to match PR #215's removal o
 - 16 new unit tests added in `tests/test_admin_new_routes.py` (8 audit filter tests, 7 security filter tests, 1 no-filters-baseline).
 
 **Wiki update:** Updated `system-wiki/backend/api-route-map.md` to note filter query params on `/audit-logs` and `/security-logs`.
+## [2026-06-10] fix | Restore VPS production runtime
+
+- Restored the VPS with the explicit production Compose override so nginx mounts `/etc/letsencrypt` and serves the valid `wimsbfp.tech` certificate.
+- Synchronized persisted PostgreSQL role passwords with `.env.production` after authentication failures blocked backend startup patches and Keycloak.
+- Replaced ineffective Celery package autodiscovery with explicit task-module imports so scheduled tasks register with workers.
+- Applied the missing `system_config` migration to the persisted database and added the omitted `wims_app_user` table privileges required by Celery and application routes.
+- Updated the Suricata health check to match the running `Suricata-Main` process.
+- Fixed the production CSP so Next.js inline bootstrap scripts can hydrate the server-rendered loading shell and initialize `/api/auth/session`.
+- Updated `architecture/infrastructure-config.md` and `index.md`; no FRS/codebase gap changed.
