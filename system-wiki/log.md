@@ -2,7 +2,6 @@
 
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
-
 ## [2026-06-10] fix | PR #248 — post-review fix batch 1 (audit order, float guard, generic 500, barrel export, legacy HITL, duplicate guard)
 
 4 fix commits applied after maintainer-reviewer report:
@@ -51,6 +50,15 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 **Files:** `backend/api-route-map.md`, `frontend/route-map.md`
 
+## [2026-06-09] feat | M9b full-text search on security + audit logs (tsvector + GIN) (#169)
+## [2026-06-09] feat | M9b full-text search on security + audit logs (tsvector + GIN) (#169)
+
+- Migration `48_log_search_vectors.sql` (idempotent): adds `search_vector tsvector GENERATED ALWAYS AS STORED` to `wims.security_threat_logs` (covers `raw_payload`, `xai_narrative`, `severity_level`, `source_ip`, `destination_ip`) and `wims.system_audit_trails` (covers `action_type`, `table_affected`, `user_agent`). Creates GIN indexes `idx_security_logs_search` and `idx_audit_trails_search`.
+- Extended `GET /api/admin/security-logs`: new optional `q` param — appends `search_vector @@ websearch_to_tsquery('english', :q)` to WHERE; ORDER BY switches from `timestamp DESC` to `ts_rank(...) DESC` when q is set. Existing filters (source_ip, severity, date_from, date_to) compose with q.
+- Extended `GET /api/admin/audit-logs`: same pattern — `q` param with tsquery WHERE and ts_rank ORDER BY; existing filters (user_id, action_type, table_affected, ip_address, date_from, date_to) compose with q.
+- Updated `src/frontend/src/lib/api/legacy.ts`: `fetchAdminSecurityLogs` accepts `params?: { q?: string }`; `fetchAuditLogs` params extended with `q?: string`. Both append `?q=...` only when q is truthy.
+- Added search bars to `src/frontend/src/app/admin/system/page.tsx`: text input above "Threat Telemetry" table and above "System Audit" table; submit on Enter or search button; Clear button appears when input is non-empty; Refresh button preserves active search term; HITL action reload preserves active search.
+- New `tests/test_log_fulltext_search.py`: 10 unit tests — tsquery/ts_rank present when q set, absent when q absent, :q bound (not interpolated), q+severity combination. All pass; ruff clean.
 ## [2026-06-09] fix | PR #238 rebase + review fixes — 6 files
 
 - Rebased `feat/m13-email-triggers` onto origin/master (1345808). Resolved 2 conflicts:

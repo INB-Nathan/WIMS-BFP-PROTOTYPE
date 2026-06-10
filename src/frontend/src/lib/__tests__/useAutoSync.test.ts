@@ -39,6 +39,7 @@ vi.mock('../useNetworkStatus', () => ({
 
 import { useAutoSync } from '../useAutoSync';
 import { syncPendingIncidents } from '../syncEngine';
+import type { SyncError } from '../syncEngine';
 import { getPendingIncidents } from '../offlineStore';
 import { toast } from 'sonner';
 
@@ -150,7 +151,7 @@ describe('useAutoSync', () => {
   });
 
   it('does not sync while already syncing (mutex)', async () => {
-    let resolveSync!: (value: { synced: number; failed: number; errors: unknown[] }) => void;
+    let resolveSync!: (value: { synced: number; failed: number; errors: SyncError[] }) => void;
     vi.mocked(syncPendingIncidents).mockImplementation(
       () => new Promise((resolve) => { resolveSync = resolve; })
     );
