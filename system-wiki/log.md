@@ -19,6 +19,12 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 **Files:** `ai_service.py`, `test_ai_ids_api.py`
 
+## [2026-06-10] fix | PR #248 — post-review fix batch 3 (create-incident-from-alert tests)
+
+- `bfa3dff`: Added `TestCreateIncidentFromAlert` class in `test_admin_new_routes.py` with 5 mock-DB tests: 200 success (verified `incident_id=42`, `reviewed_by` UUID, audit INSERT with `action`/`table`/`rec`, commit called), 404 not found, 409 duplicate guard, 500 rollback on `RuntimeError`, 403 encoder denied. Uses `fetchone.side_effect` pattern to control mock DB responses.
+
+**Files:** `test_admin_new_routes.py`
+
 ## [2026-06-09] fix | PR #238 rebase + review fixes — 6 files
 
 - Rebased `feat/m13-email-triggers` onto origin/master (1345808). Resolved 2 conflicts:

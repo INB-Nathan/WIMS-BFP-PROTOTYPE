@@ -677,6 +677,16 @@ class TestPatchSecurityLogHitl:
         assert '"reviewed_at":' in decision
         assert "resolved_at = now()" in sql
 
+        # audit INSERT must contain correct action/table/rec/uid
+        audit_call = next(
+            c for c in mock_db.execute.call_args_list if "system_audit_trails" in str(c[0][0])
+        )
+        params = audit_call[0][1]
+        assert params["action"] == "HITL_REVIEW"
+        assert params["table"] == "security_threat_logs"
+        assert params["rec"] == 1
+        assert params["uid"] == "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+
     def test_false_positive_sets_label_and_jsonb(self, client: TestClient):
         """PATCH { "action": "FALSE_POSITIVE" } sets admin_action_taken + hitl_decision JSONB + resolved_at."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
@@ -694,6 +704,16 @@ class TestPatchSecurityLogHitl:
         decision = params["hitl_decision"]
         assert '"action": "FALSE_POSITIVE"' in decision
         assert "resolved_at = now()" in str(update_call[0][0])
+
+        # audit INSERT must contain correct action/table/rec/uid
+        audit_call = next(
+            c for c in mock_db.execute.call_args_list if "system_audit_trails" in str(c[0][0])
+        )
+        params = audit_call[0][1]
+        assert params["action"] == "HITL_REVIEW"
+        assert params["table"] == "security_threat_logs"
+        assert params["rec"] == 2
+        assert params["uid"] == "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
 
     def test_request_more_info_sets_label_jsonb_leaves_resolved_at_null(self, client: TestClient):
         """PATCH { "action": "REQUEST_MORE_INFO" } sets label + JSONB but NOT resolved_at."""
@@ -719,6 +739,16 @@ class TestPatchSecurityLogHitl:
         assert "resolved_at = NULL" in sql_str
         assert "resolved_at = now()" not in sql_str
 
+        # audit INSERT must contain correct action/table/rec/uid
+        audit_call = next(
+            c for c in mock_db.execute.call_args_list if "system_audit_trails" in str(c[0][0])
+        )
+        params = audit_call[0][1]
+        assert params["action"] == "HITL_REVIEW"
+        assert params["table"] == "security_threat_logs"
+        assert params["rec"] == 3
+        assert params["uid"] == "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+
     def test_invalid_action_returns_400(self, client: TestClient):
         """PATCH with an unknown action value returns HTTP 400."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
@@ -740,6 +770,30 @@ class TestPatchSecurityLogHitl:
 
         assert response.status_code == 400
         assert "No fields to update" in response.json()["detail"]
+
+    def test_legacy_admin_action_taken_logs_hitl_audit(self, client: TestClient):
+        """Legacy PATCH with admin_action_taken (no body.action) must still log a HITL_REVIEW
+        audit INSERT with correct action/table/rec/uid."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch(
+            "/api/admin/security-logs/5",
+            json={"admin_action_taken": "Manually Confirmed"},
+        )
+
+        assert response.status_code == 200
+
+        # Prove the HITL_REVIEW audit INSERT exists and has correct params
+        audit_call = next(
+            c for c in mock_db.execute.call_args_list if "system_audit_trails" in str(c[0][0])
+        )
+        params = audit_call[0][1]
+        assert params["action"] == "HITL_REVIEW"
+        assert params["table"] == "security_threat_logs"
+        assert params["rec"] == 5
+        assert params["uid"] == "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
 
     def test_not_found_returns_404(self, client: TestClient):
         """PATCH against a non-existent log_id returns 404."""
