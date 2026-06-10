@@ -114,7 +114,7 @@ class TestEveToThreatLogRow:
         assert row["raw_payload"] == raw
 
     def test_severity_mapping(self):
-        """Severity 1→LOW, 2→MEDIUM, 3→HIGH; default MEDIUM if missing."""
+        """Severity 1→LOW, 2→MEDIUM, 3→HIGH, 4→CRITICAL; default MEDIUM if missing."""
         base = {"event_type": "alert", "src_ip": "1.1.1.1", "dest_ip": "2.2.2.2"}
         assert (
             eve_to_threat_log_row(
@@ -133,6 +133,12 @@ class TestEveToThreatLogRow:
                 {**base, "alert": {"signature_id": 1, "severity": 3}}, raw_payload=""
             )["severity_level"]
             == "HIGH"
+        )
+        assert (
+            eve_to_threat_log_row(
+                {**base, "alert": {"signature_id": 1, "severity": 4}}, raw_payload=""
+            )["severity_level"]
+            == "CRITICAL"
         )
         assert (
             eve_to_threat_log_row({**base, "alert": {"signature_id": 1}}, raw_payload="")[

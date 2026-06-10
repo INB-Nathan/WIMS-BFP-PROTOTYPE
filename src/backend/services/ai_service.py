@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 
 import httpx
@@ -13,7 +14,10 @@ from sqlalchemy.orm import Session
 from services.event_bus import publish_security_event
 from utils.config import get_config
 
+logger = logging.getLogger("wims.ai_service")
 OLLAMA_MODEL = "qwen2.5:3b"
+
+logger = logging.getLogger("wims.ai_service")
 
 
 def _ollama_url() -> str:
@@ -46,7 +50,12 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
     prompt = (
         f"Analyze this Suricata IDS alert: severity={severity_level}, "
         f"SID={suricata_sid}, payload={raw_payload}. "
-        "Output strictly JSON with keys 'narrative' (string) and 'confidence' (float 0.0-1.0)."
+        "Output strictly JSON with keys: "
+        "'anomaly_description' (string), "
+        "'log_evidence' (string), "
+        "'risk_assessment' (string), "
+        "'recommended_action' (string), "
+        "'confidence' (float 0.0-1.0)."
     )
 
     payload = {
@@ -60,8 +69,15 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
         ai_timeout = float(get_config(db, "ai_timeout_seconds", "60"))
     except (TypeError, ValueError):
         ai_timeout = 60.0
-    async with httpx.AsyncClient(timeout=ai_timeout) as client:
-        resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
+    try:
+        async with httpx.AsyncClient(timeout=ai_timeout) as client:
+            resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
+    except httpx.TimeoutException:
+        logger.warning("Ollama analyze_threat_log timed out log_id=%s", log_id)
+        raise HTTPException(status_code=502, detail="Ollama request timed out")
+    except httpx.ConnectError:
+        logger.warning("Ollama analyze_threat_log connect failed log_id=%s", log_id)
+        raise HTTPException(status_code=502, detail="Ollama service unavailable")
 
     if resp.status_code != 200:
         raise HTTPException(
@@ -76,8 +92,18 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
     except json.JSONDecodeError:
         raise HTTPException(status_code=502, detail="Ollama returned invalid JSON")
 
-    narrative = parsed.get("narrative", "")
-    confidence = float(parsed.get("confidence", 0.0))
+    narrative_data = {
+        "anomaly_description": parsed.get("anomaly_description", ""),
+        "log_evidence": parsed.get("log_evidence", ""),
+        "risk_assessment": parsed.get("risk_assessment", ""),
+        "recommended_action": parsed.get("recommended_action", ""),
+    }
+    narrative = json.dumps(narrative_data)
+    try:
+        confidence = float(parsed.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    confidence = max(0.0, min(1.0, confidence))
 
     db.execute(
         text("""
@@ -224,4 +250,114 @@ async def generate_incident_narrative(
         "incident_id": incident_id,
         "ai_narrative": narrative,
         "ai_narrative_confidence": confidence,
+    }
+
+
+async def analyze_audit_logs(audit_ids: list[int], db: Session) -> dict:
+    """
+    Analyze system audit trail entries for behavioral patterns via Ollama.
+    Accepts a batch of audit_ids, fetches rows from wims.system_audit_trails,
+    sends a structured prompt for pattern analysis, and returns the result.
+    """
+    if not audit_ids:
+        raise HTTPException(status_code=400, detail="No audit IDs provided")
+
+    try:
+        max_batch = int(get_config(db, "ai_audit_batch_limit", "50"))
+    except (TypeError, ValueError):
+        max_batch = 50
+
+    if len(audit_ids) > max_batch:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum {max_batch} audit IDs per request, got {len(audit_ids)}",
+        )
+
+    rows = db.execute(
+        text("""
+            SELECT audit_id, user_id, action_type, table_affected,
+                   record_id, ip_address, timestamp
+            FROM wims.system_audit_trails
+            WHERE audit_id = ANY(CAST(:ids AS bigint[]))
+            ORDER BY timestamp DESC
+        """),
+        {"ids": audit_ids},
+    ).fetchall()
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="No audit logs found for given IDs")
+
+    entries = [
+        {
+            "audit_id": r[0],
+            "user_id": str(r[1]) if r[1] else None,
+            "action_type": r[2],
+            "table_affected": r[3],
+            "record_id": r[4],
+            "ip_address": r[5],
+            "timestamp": r[6].isoformat() if r[6] else None,
+        }
+        for r in rows
+    ]
+
+    prompt = (
+        f"Analyze these system audit trail entries for suspicious patterns"
+        f" (unusual CRUD patterns, role-based anomalies, geographic anomalies,"
+        f" off-hours access). Entries: {json.dumps(entries, default=str)}. "
+        "Output strictly JSON with keys: "
+        "'anomaly_description' (string), "
+        "'log_evidence' (string), "
+        "'risk_assessment' (string), "
+        "'recommended_action' (string), "
+        "'confidence' (float 0.0-1.0)."
+    )
+
+    payload = {
+        "model": OLLAMA_MODEL,
+        "prompt": prompt,
+        "stream": False,
+        "format": "json",
+    }
+
+    try:
+        ai_timeout = float(get_config(db, "ai_timeout_seconds", "60"))
+    except (TypeError, ValueError):
+        ai_timeout = 60.0
+    try:
+        async with httpx.AsyncClient(timeout=ai_timeout) as client:
+            resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
+    except httpx.TimeoutException:
+        logger.warning("Ollama analyze_audit_logs timed out audit_ids=%s", audit_ids)
+        raise HTTPException(status_code=502, detail="Ollama request timed out")
+    except httpx.ConnectError:
+        logger.warning("Ollama analyze_audit_logs connect failed audit_ids=%s", audit_ids)
+        raise HTTPException(status_code=502, detail="Ollama service unavailable")
+
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Ollama request failed: {resp.status_code}",
+        )
+
+    data = resp.json()
+    response_text = data.get("response", "{}")
+    try:
+        parsed = json.loads(response_text)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="Ollama returned invalid JSON")
+
+    try:
+        confidence = float(parsed.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    confidence = max(0.0, min(1.0, confidence))
+
+    return {
+        "audit_ids": audit_ids,
+        "anomaly_description": parsed.get("anomaly_description", ""),
+        "log_evidence": parsed.get("log_evidence", ""),
+        "risk_assessment": parsed.get("risk_assessment", ""),
+        "recommended_action": parsed.get("recommended_action", ""),
+        "confidence": confidence,
+        "entries_analyzed": len(entries),
     }

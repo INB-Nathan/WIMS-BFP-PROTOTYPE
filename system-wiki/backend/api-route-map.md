@@ -101,10 +101,14 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `admin/monitoring.py` | `GET` | `/monitoring/workers` | `get_worker_status` |
 | `admin/monitoring.py` | `GET` | `/monitoring/system` | `get_system_metrics` |
 | `admin/security.py` | `GET` | `/security-logs` | `get_security_logs` | Supports `source_ip`, `severity`, `date_from`, `date_to` filter params |
-| `admin/security.py` | `POST` | `/security-logs/{log_id}/analyze` | `analyze_security_log` |
-| `admin/security.py` | `PATCH` | `/security-logs/{log_id}` | `update_security_log` |
-| `admin/analytics.py` | `POST` | `/analytics/backfill` | `backfill_analytics` |
+| `admin/security.py` | `POST` | `/security-logs/{log_id}/analyze` | `analyze_security_log` | XAI analysis via Ollama (#161) |
+| `admin/security.py` | `PATCH` | `/security-logs/{log_id}` | `update_security_log` | HITL decision (CONFIRM_THREAT, FALSE_POSITIVE, REQUEST_MORE_INFO) (#162) |
+| `admin/security.py` | `POST` | `/security-logs/{log_id}/create-incident` | `create_incident_from_alert` | Manual DRAFT incident from reviewed alert (#165) |
 | `admin/audit.py` | `GET` | `/audit-logs` | `get_audit_logs` | Supports `user_id`, `action_type`, `table_affected`, `ip_address`, `date_from`, `date_to` filter params |
+| `admin/audit.py` | `POST` | `/audit-logs/analyze` | `analyze_audit_logs` | Batch SLM behavioral pattern analysis via Ollama (#163) |
+| `admin/config.py` | `GET` | `/admin/config` | `get_config` | M9c configuration management — reads `wims.system_config` (#170, #247) |
+| `admin/config.py` | `PATCH` | `/admin/config/{key}` | `update_config` | M9c configuration management — audit-logged config write (#170, #247) |
+| `admin/analytics.py` | `POST` | `/analytics/backfill` | `backfill_analytics` |
 | `admin/scheduled_reports.py` | `POST` | `/scheduled-reports` | `create_scheduled_report` |
 | `admin/scheduled_reports.py` | `GET` | `/scheduled-reports` | `list_scheduled_reports` |
 | `admin/scheduled_reports.py` | `PATCH` | `/scheduled-reports/{report_id}` | `update_scheduled_report` |

@@ -16,6 +16,7 @@ Next.js App Router pages detected under `src/frontend/src/app`.
 |---|---|
 | `/admin` | `admin/page.tsx` |
 | `/admin/system` | `admin/system/page.tsx` |
+| `/admin/system/config` | `admin/system/config/page.tsx` | M9c admin configuration management UI (#170, #247) |
 | `/afor/create` | `afor/create/page.tsx` |
 | `/afor/import` | `afor/import/page.tsx` |
 | `/callback` | `callback/page.tsx` |

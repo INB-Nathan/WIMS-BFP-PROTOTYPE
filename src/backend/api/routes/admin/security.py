@@ -1,6 +1,7 @@
 """System Admin API — security telemetry routes."""
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
@@ -8,13 +9,17 @@ from typing import Annotated, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from auth import get_system_admin
 from auth import get_db_with_rls
 from services.ai_service import analyze_threat_log
 from services.event_bus import publish_security_event_sync
+from services.suricata_ingestion import _create_security_incident
+from utils.audit import log_system_audit
 
+logger = logging.getLogger("wims.admin")
 router = APIRouter()
 
 VALID_HITL_ACTIONS = ("CONFIRM_THREAT", "FALSE_POSITIVE", "REQUEST_MORE_INFO")
@@ -181,9 +186,11 @@ def update_security_log(
 
     sql = f"UPDATE wims.security_threat_logs SET {', '.join(updates)} WHERE log_id = :log_id"
     result = db.execute(text(sql), params)
-    db.commit()
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Security log not found")
+
+    log_system_audit(db, _admin["user_id"], "HITL_REVIEW", "security_threat_logs", log_id)
+    db.commit()
 
     # M13b: security_alert email trigger
     if (
@@ -226,3 +233,68 @@ def update_security_log(
     )
 
     return {"status": "ok", "log_id": log_id}
+
+
+@router.post("/security-logs/{log_id}/create-incident")
+def create_incident_from_alert(
+    log_id: int,
+    _admin: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Manually create a DRAFT fire incident from a reviewed security alert."""
+    row = db.execute(
+        text("""
+            SELECT log_id, source_ip, suricata_sid, raw_payload
+            FROM wims.security_threat_logs
+            WHERE log_id = :log_id
+        """),
+        {"log_id": log_id},
+    ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Security log not found")
+
+    from services.suricata_ingestion import _security_incident_exists
+
+    if _security_incident_exists(db, log_id):
+        raise HTTPException(status_code=409, detail="An incident already exists for this alert")
+
+    source_ip = row[1] or "unknown"
+    suricata_sid = row[2] or 0
+    raw_payload = row[3] or ""
+
+    try:
+        incident_id = _create_security_incident(
+            db,
+            log_id=log_id,
+            source_ip=source_ip,
+            suricata_sid=suricata_sid,
+            raw_payload=raw_payload,
+        )
+        db.execute(
+            text("""
+                UPDATE wims.security_threat_logs
+                SET reviewed_by = CAST(:uid AS uuid)
+                WHERE log_id = :log_id
+            """),
+            {"uid": _admin["user_id"], "log_id": log_id},
+        )
+        log_system_audit(
+            db,
+            _admin["user_id"],
+            "CREATE_INCIDENT_FROM_ALERT",
+            "security_threat_logs",
+            log_id,
+        )
+        db.commit()
+        return {"status": "ok", "incident_id": incident_id}
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="An incident already exists for this alert")
+    except Exception:
+        logger.exception("Failed to create incident from alert log_id=%s", log_id)
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create incident from alert",
+        )

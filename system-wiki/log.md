@@ -2,6 +2,55 @@
 
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
+
+## [2026-06-10] fix | PR #248 — post-review fix batch 1 (audit order, float guard, generic 500, barrel export, legacy HITL, duplicate guard)
+
+4 fix commits applied after maintainer-reviewer report:
+- `eb26ecb`: HITL audit for legacy `admin_action_taken` path, `reviewed_by` on create-incident, `_security_incident_exists()` duplicate guard.
+- `ddf7d31`: `createIncidentFromAlert` added to `admin.ts` barrel export.
+- `7fafea8`: Structured 5-key XAI format in test mocks, HITL audit `call_count` 2→3 in `test_admin_new_routes.py`.
+- `6adb1c3`: Audit-before-commit ordering in `update_security_log()` and `create_incident_from_alert()`, rowcount 404 before commit, float confidence crash guard + clamp in `analyze_threat_log()`/`analyze_audit_logs()`, replace leaking `str(e)` with generic 500 detail.
+
+**Files:** `security.py`, `ai_service.py`, `test_ai_ids_api.py`, `test_admin_new_routes.py`, `admin.ts`
+
+## [2026-06-10] fix | PR #248 — post-review fix batch 2 (httpx error handling, audit-logs analyze tests)
+
+- `9a1f34e`: Catch `httpx.TimeoutException` (→ 502 "Ollama request timed out") and `httpx.ConnectError` (→ 502 "Ollama service unavailable") in both `analyze_threat_log()` and `analyze_audit_logs()`. Added `logger = logging.getLogger("wims.ai_service")` with warnings before each 502 raise. Added 4 respx-mocked integration tests covering ConnectError/TimeoutException for both threat-log and audit-logs analyze endpoints. Added `audit_trail_rows` fixture.
+
+**Files:** `ai_service.py`, `test_ai_ids_api.py`
+
+## [2026-06-10] fix | PR #248 — post-review fix batch 3 (create-incident-from-alert tests)
+
+- `bfa3dff`: Added `TestCreateIncidentFromAlert` class in `test_admin_new_routes.py` with 5 mock-DB tests: 200 success (verified `incident_id=42`, `reviewed_by` UUID, audit INSERT with `action`/`table`/`rec`, commit called), 404 not found, 409 duplicate guard, 500 rollback on `RuntimeError`, 403 encoder denied. Uses `fetchone.side_effect` pattern to control mock DB responses.
+
+**Files:** `test_admin_new_routes.py`
+
+## [2026-06-10] fix | PR #248 — post-review fix batch 4 (HITL audit INSERT content verification)
+
+- `aaa75bf`: Added audit INSERT param assertions (`action`/`table`/`rec`/`uid`) to 3 existing structured-path HITL tests:
+  - `test_confirm_threat_sets_label_and_jsonb` — verifies `HITL_REVIEW`, `security_threat_logs`, rec=1, admin UUID
+  - `test_false_positive_sets_label_and_jsonb` — verifies same for rec=2
+  - `test_request_more_info_sets_label_jsonb_leaves_resolved_at_null` — verifies same for rec=3
+  - Pattern from `TestCreateIncidentFromAlert` — `next(c for c in call_args_list if "system_audit_trails"...)` plus param assertions
+  - Legacy path `test_legacy_admin_action_taken_logs_hitl_audit` (added by tdd-wims step) also validates audit INSERT for `admin_action_taken` path.
+
+**Files:** `test_admin_new_routes.py`
+
+## [2026-06-10] fix | PR #248 — post-review fix batch 5 (audit batch limit)
+
+- `7caa9d8`: Added max batch-size guard to `analyze_audit_logs()` in `ai_service.py` — reads `ai_audit_batch_limit` config key (default 50), raises 400 with `"audit_ids exceeds maximum batch size"` when exceeded. Added 3 tests in `TestAnalyzeAuditLogsBatchLimit`: over-limit returns 400, at-limit passes, invalid config falls back to default. Uses `patch("services.ai_service.get_config")` mock pattern.
+
+**Files:** `ai_service.py`, `test_admin_new_routes.py`
+
+## [2026-06-10] docs | PR #248 — resolve M9 scope bundling (P1-P4)
+
+- Documented M9c configuration management routes in `system-wiki/backend/api-route-map.md`: `GET /admin/config`, `PATCH /admin/config/{key}`.
+- Added missing M8 endpoints to route map: `POST /admin/audit-logs/analyze`, `POST /admin/security-logs/{log_id}/create-incident`.
+- Added M9c frontend config page to `system-wiki/frontend/route-map.md`: `/admin/system/config`.
+- PR #248 explicitly covers M8 (security/XAI) + M9c (configuration management). Gap register already marks M9c as IMPLEMENTED.
+
+**Files:** `backend/api-route-map.md`, `frontend/route-map.md`
+
 ## [2026-06-09] fix | PR #238 rebase + review fixes — 6 files
 
 - Rebased `feat/m13-email-triggers` onto origin/master (1345808). Resolved 2 conflicts:
@@ -38,6 +87,18 @@ Format: `## [YYYY-MM-DD] action | subject`
 - **Deferred triggers (follow-up):** `account_locked` requires Keycloak event-listener SPI (#138); `password_reset` N/A (Keycloak native flow owns it; WIMS template available for future theme customization).
 - All 6 unit tests pass; ruff check + format pass.
 
+
+## [2026-06-09] implementation | M8 surgical fixes — structured XAI, CRITICAL severity, HITL audit, remove auto-DRAFT, audit SLM (#161, #162, #163, #165)
+
+- **`services/ai_service.py`:** Restructured XAI prompt from flat narrative to 5-key JSON (anomaly_description, log_evidence, risk_assessment, recommended_action, confidence). Added `analyze_audit_logs()` function for Ollama-based audit trail pattern analysis.
+- **`services/suricata_ingestion.py`:** Added CRITICAL severity level (sev >= 4 → CRITICAL). Removed auto-creation of DRAFT fire incidents from HIGH/CRITICAL alerts — ingestion now logs a warning with requires_review, admin must manually trigger via `POST /admin/security-logs/{id}/create-incident`.
+- **`api/routes/admin/security.py`:** Added `log_system_audit()` call to `update_security_log()` (HITL decisions now audited with action_type=HITL_REVIEW). Added `POST /security-logs/{log_id}/create-incident` endpoint for manual DRAFT incident creation from reviewed alerts.
+- **`api/routes/admin/audit.py`:** Added `POST /audit-logs/analyze` endpoint for AI analysis of batched audit trail entries via Ollama.
+- **`frontend admin/system/page.tsx`:** Structured XAI display now parses JSON and renders 4 labeled sections (Anomaly Description, Log Evidence, Risk Assessment, Recommended Action) with fallback to legacy plain-text. Added "Create Incident from Alert" button in the decision panel.
+- **`lib/api/legacy.ts`:** Added `createIncidentFromAlert()` API client function.
+- **`tests/test_suricata_ingestion.py`:** Added CRITICAL (severity 4) mapping test.
+- **`tests/test_suricata_auto_incident.py`:** Updated to verify HIGH alerts no longer auto-create incidents (call_count == 0).
+- **`system-wiki/gaps/frs-codebase-gap-register.md`:** #161, #162, #163, #165 all CLOSED.
 
 ## [2026-06-08] implementation | M7a host network mode + AF_PACKET capture (#156, #158)
 
