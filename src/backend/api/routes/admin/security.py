@@ -3,7 +3,7 @@
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -202,15 +202,48 @@ def update_security_log(
         raise HTTPException(status_code=404, detail="Security log not found")
 
     log_system_audit(db, _admin["user_id"], "HITL_REVIEW", "security_threat_logs", log_id)
-    db.commit()
 
-    # M13b: security_alert email trigger
+    # M10d: breach record — must be created inside the HITL transaction while RLS
+    # context (SET LOCAL) is still active. HIGH/CRITICAL confirmed threats are
+    # presumptive data breaches under RA 10173 (issue #171).
+    new_breach_id: int | None = None
+    breach_detected_at: datetime | None = None
+    breach_npc_deadline: datetime | None = None
     if (
         body.action == "CONFIRM_THREAT"
         and log_metadata is not None
         and log_metadata[0] in ("HIGH", "CRITICAL")
     ):
-        # Security alerts are critical — intentionally bypass email_opt_in preference
+        breach_detected_at = datetime.now(timezone.utc)
+        breach_npc_deadline = breach_detected_at + timedelta(hours=72)
+        breach_row = db.execute(
+            text(
+                "INSERT INTO wims.breach_notifications"
+                " (threat_log_id, detected_at, npc_deadline_at, status, reported_by)"
+                " VALUES (:log_id, :detected_at, :npc_deadline_at, 'DETECTED', CAST(:reported_by AS uuid))"
+                " RETURNING breach_id"
+            ),
+            {
+                "log_id": log_id,
+                "detected_at": breach_detected_at,
+                "npc_deadline_at": breach_npc_deadline,
+                "reported_by": _admin["user_id"],
+            },
+        ).fetchone()
+        new_breach_id = breach_row[0]
+        log_system_audit(
+            db, _admin["user_id"], "BREACH_DETECTED", "breach_notifications", new_breach_id
+        )
+
+    db.commit()
+
+    # M13b + M10d: email dispatch — runs after commit (Celery tasks, no RLS needed)
+    if (
+        body.action == "CONFIRM_THREAT"
+        and log_metadata is not None
+        and log_metadata[0] in ("HIGH", "CRITICAL")
+    ):
+        # Security/breach alerts bypass email_opt_in — critical regulatory notifications
         admin_emails = [
             row[0]
             for row in db.execute(
@@ -224,7 +257,6 @@ def update_security_log(
             from tasks.notifications import send_email_task
 
             frontend_url = os.environ.get("NEXT_PUBLIC_APP_URL", "http://localhost:3000")
-            dashboard_link = f"{frontend_url}/admin/security-dashboard"
             send_email_task.delay(
                 to=admin_emails,
                 template_name="security_alert",
@@ -232,9 +264,22 @@ def update_security_log(
                     "severity": log_metadata[0],
                     "summary": log_metadata[1] or "No details available",
                     "detected_at": (log_metadata[2].isoformat() if log_metadata[2] else "Unknown"),
-                    "dashboard_link": dashboard_link,
+                    "dashboard_link": f"{frontend_url}/admin/security-dashboard",
                 },
             )
+            if new_breach_id is not None:
+                send_email_task.delay(
+                    to=admin_emails,
+                    template_name="breach_alert",
+                    context={
+                        "breach_id": new_breach_id,
+                        "severity": log_metadata[0],
+                        "summary": log_metadata[1] or "No details available",
+                        "detected_at": breach_detected_at.isoformat(),
+                        "npc_deadline": breach_npc_deadline.isoformat(),
+                        "dashboard_link": f"{frontend_url}/admin/breach",
+                    },
+                )
 
     # Publish real-time SSE event
     publish_security_event_sync(

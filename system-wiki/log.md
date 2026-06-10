@@ -2,6 +2,19 @@
 
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
+
+## [2026-06-10] feat | M10d automated breach notification + NPC 72h tracking (#171)
+
+- Migration `52_breach_notifications.sql`: `wims.breach_notifications` table with SERIAL PK, `threat_log_id FK→security_threat_logs`, `detected_at`, `npc_deadline_at` (= detected_at + 72h), `status` enum (DETECTED→DPO_NOTIFIED→NPC_SUBMITTED→CLOSED), `affected_systems`, `data_scope`, `notes`, `reported_by`, `npc_submitted_at`, timestamps. RLS ENABLE+FORCE; SELECT and ALL policies gated on `wims.current_user_role() = 'SYSTEM_ADMIN'`.
+- `admin/security.py`: Inside CONFIRM_THREAT block, for HIGH/CRITICAL severity: (1) INSERT breach record into transaction while RLS context still active (`SET LOCAL` scoped); (2) `log_system_audit(..., "BREACH_DETECTED", "breach_notifications", breach_id)`; (3) post-commit: dispatch `breach_alert` email via `send_email_task.delay()` alongside existing `security_alert` email — same admin recipients, bypasses `email_opt_in`.
+- New `schemas/breach.py`: `BreachStatus` enum, `BreachResponse`, `BreachUpdate`.
+- New `api/routes/admin/breach.py`: `GET /api/admin/breach` (list, detected_at DESC), `GET /api/admin/breach/{id}`, `PATCH /api/admin/breach/{id}` (status/notes/affected_systems/data_scope; `npc_submitted_at` auto-set on NPC_SUBMITTED; `BREACH_STATUS_UPDATE` audit). Registered in `api/routes/admin/__init__.py`.
+- New `services/email/templates/breach_alert.html.j2`: BFP maroon header, RA 10173 regulatory context, NPC deadline row, breach_id, severity badge.
+- Frontend: `lib/api/breach.ts` (types + `fetchBreaches`/`updateBreach`); `/admin/breach/page.tsx` with deadline countdown + overdue row red highlight + status advance buttons; "Breach Notifications" nav item added to Sidebar under Administration (SYSTEM_ADMIN only).
+- Tests: `tests/test_breach_notifications.py` (13 unit tests); `app/admin/breach/__tests__/breach-list.test.tsx` (8 Vitest tests).
+
+**Files:** `52_breach_notifications.sql`, `schemas/breach.py`, `api/routes/admin/breach.py`, `api/routes/admin/__init__.py`, `api/routes/admin/security.py`, `services/email/templates/breach_alert.html.j2`, `lib/api/breach.ts`, `lib/api/index.ts`, `app/admin/breach/page.tsx`, `components/Sidebar.tsx`, `tests/test_breach_notifications.py`, `app/admin/breach/__tests__/breach-list.test.tsx`, `system-wiki/gaps/frs-codebase-gap-register.md`
+
 ## [2026-06-10] fix | PR #248 — post-review fix batch 1 (audit order, float guard, generic 500, barrel export, legacy HITL, duplicate guard)
 
 4 fix commits applied after maintainer-reviewer report:

@@ -12,6 +12,7 @@ import {
     Upload,
     ClipboardList,
     ShieldAlert,
+    ShieldX,
     Users,
     Settings,
     X,
@@ -200,6 +201,7 @@ function getNavSections(role: string | null): NavSection[] {
             items: [
                 { label: 'Governance', href: '/admin/system#governance', icon: Users },
                 { label: 'Telemetry', href: '/admin/system#telemetry', icon: ShieldAlert },
+                { label: 'Breach Notifications', href: '/admin/breach', icon: ShieldX },
                 { label: 'System Audit', href: '/admin/system#audit', icon: Settings },
                 { label: 'Configuration', href: '/admin/system/config', icon: SlidersHorizontal },
             ],
