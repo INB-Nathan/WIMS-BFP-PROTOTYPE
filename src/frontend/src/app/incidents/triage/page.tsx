@@ -93,7 +93,7 @@ export default function TriagePage() {
 
   const canAccess =
     role === 'ENCODER' ||
-    role === 'VALIDATOR' ||
+    role === 'NATIONAL_VALIDATOR' ||
     role === 'REGIONAL_ENCODER' ||
     role === 'NATIONAL_VALIDATOR' ||
     role === 'SYSTEM_ADMIN';

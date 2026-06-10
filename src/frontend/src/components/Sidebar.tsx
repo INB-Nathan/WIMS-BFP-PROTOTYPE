@@ -231,7 +231,7 @@ function getNavSections(role: string | null): NavSection[] {
         return sections;
     }
 
-    if (role === 'NATIONAL_VALIDATOR' || role === 'VALIDATOR') {
+    if (role === 'NATIONAL_VALIDATOR') {
         sections.push({
             label: 'Navigation',
             items: [

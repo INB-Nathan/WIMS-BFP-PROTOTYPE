@@ -1,0 +1,430 @@
+"""
+Tests for the validator-maintained Operations Board.
+
+GET  /api/operations      — public read (no auth required)
+POST /api/operations      — NATIONAL_VALIDATOR only → 201
+PATCH /api/operations/{id} — NATIONAL_VALIDATOR only → 200
+DELETE /api/operations/{id} — NATIONAL_VALIDATOR only → 204
+POST /api/operations/{id}/link — NATIONAL_VALIDATOR only → 201
+Audit log: OPERATION_CREATE written after create.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+import pytest
+from fastapi.testclient import TestClient
+
+import auth
+from auth import get_db_with_rls, get_national_validator
+from database import get_db
+from main import app
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def client():
+    return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _reset_overrides():
+    yield
+    app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# Mock users
+# ---------------------------------------------------------------------------
+
+
+def _mock_validator():
+    return {
+        "user_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+        "keycloak_id": "kid-validator",
+        "username": "validator",
+        "role": "NATIONAL_VALIDATOR",
+        "assigned_region_id": None,
+    }
+
+
+def _mock_encoder():
+    return {
+        "user_id": "b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+        "keycloak_id": "kid-encoder",
+        "username": "encoder",
+        "role": "REGIONAL_ENCODER",
+        "assigned_region_id": 1,
+    }
+
+
+# ---------------------------------------------------------------------------
+# DB mock helpers
+# ---------------------------------------------------------------------------
+
+
+def _op_row(
+    operation_id=1,
+    fire_status="ACTIVE",
+    location="Test Location",
+    size_hectares=2.5,
+    notes="Test notes",
+    created_by=None,
+):
+    """Return a MagicMock row that simulates a wims.operations row."""
+    row = MagicMock()
+    row.operation_id = operation_id
+    row.fire_status = fire_status
+    row.start_time = "2026-06-10T08:00:00+00:00"
+    row.location = location
+    row.size_hectares = size_hectares
+    row.notes = notes
+    row.created_by = created_by
+    row.created_at = "2026-06-10T08:00:00+00:00"
+    row.updated_at = "2026-06-10T08:00:00+00:00"
+    return row
+
+
+def _make_db(op_rows=None, linked_rows=None, rowcount=1):
+    """
+    Build a mock Session that returns op_rows on the first execute and
+    linked_rows (report IDs) on subsequent executes for the junction query.
+
+    Captures INSERT params so tests can verify submitted payload values.
+    """
+    if op_rows is None:
+        op_rows = [_op_row()]
+    if linked_rows is None:
+        linked_rows = []
+
+    captured_inserts: list[dict] = []  # (sql, params) tuples
+
+    def execute_side_effect(query, params=None):
+        result = MagicMock()
+        sql = str(query)
+
+        if "INSERT INTO" in sql:
+            captured_inserts.append({"sql": sql, "params": params})
+            # Return the first op_row for INSERT...RETURNING queries
+            if "RETURNING" in sql:
+                result.fetchone.return_value = op_rows[0] if op_rows else None
+        elif "operation_citizen_reports" in sql and "SELECT" in sql:
+            result.fetchall.return_value = linked_rows
+            result.fetchone.return_value = linked_rows[0] if linked_rows else None
+        elif "wims.operations" in sql or "operations" in sql:
+            result.fetchall.return_value = op_rows
+            result.fetchone.return_value = op_rows[0] if op_rows else None
+        else:
+            result.fetchall.return_value = []
+            result.fetchone.return_value = None
+
+        result.rowcount = rowcount
+        return result
+
+    mock_db = MagicMock()
+    mock_db.execute.side_effect = execute_side_effect
+    mock_db.captured_inserts = captured_inserts
+
+    def _get_db_override():
+        yield mock_db
+
+    return mock_db, _get_db_override
+
+
+# ---------------------------------------------------------------------------
+# 1. GET /api/operations — public, no auth
+# ---------------------------------------------------------------------------
+
+
+class TestListOperations:
+    def test_list_operations_public(self, client: TestClient):
+        """GET /api/operations returns 200 without any auth token."""
+        mock_db, get_db_override = _make_db(op_rows=[_op_row()])
+        app.dependency_overrides[get_db] = get_db_override
+
+        resp = client.get("/api/operations")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) == 1
+        assert data[0]["fire_status"] == "ACTIVE"
+        assert data[0]["location"] == "Test Location"
+
+    def test_list_operations_empty(self, client: TestClient):
+        """GET /api/operations returns empty list when no ops exist."""
+        mock_db, get_db_override = _make_db(op_rows=[])
+        app.dependency_overrides[get_db] = get_db_override
+
+        resp = client.get("/api/operations")
+
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_list_operations_linked_report_ids(self, client: TestClient):
+        """Linked report IDs are included in each operation response."""
+        link_row = MagicMock()
+        link_row.operation_id = 1
+        link_row.report_id = 42
+        mock_db, get_db_override = _make_db(op_rows=[_op_row()], linked_rows=[link_row])
+        app.dependency_overrides[get_db] = get_db_override
+
+        resp = client.get("/api/operations")
+
+        assert resp.status_code == 200
+        assert 42 in resp.json()[0]["linked_report_ids"]
+
+
+# ---------------------------------------------------------------------------
+# 2. POST /api/operations — validator → 201
+# ---------------------------------------------------------------------------
+
+
+class TestCreateOperation:
+    _payload = {
+        "fire_status": "ACTIVE",
+        "start_time": "2026-06-10T08:00:00Z",
+        "location": "Quezon City, Barangay Tatalon",
+        "size_hectares": 2.5,
+        "notes": "Residential area",
+    }
+
+    def test_create_operation_validator(self, client: TestClient):
+        """POST /api/operations with NATIONAL_VALIDATOR auth returns 201."""
+        mock_db, get_db_override = _make_db()
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.post("/api/operations", json=self._payload)
+
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["fire_status"] == "ACTIVE"
+        assert data["location"] == "Test Location"  # mock row default
+        # Verify INSERT was called with submitted payload values, not mock row
+        inserts = [c for c in mock_db.captured_inserts if "INSERT INTO" in c["sql"]]
+        assert len(inserts) >= 1, f"Expected at least 1 INSERT, got {len(inserts)}"
+        op_insert = inserts[0]
+        assert "wims.operations" in op_insert["sql"]
+        assert op_insert["params"]["loc"] == self._payload["location"]
+        assert op_insert["params"]["sh"] == self._payload["size_hectares"]
+        assert op_insert["params"]["notes"] == self._payload["notes"]
+        assert op_insert["params"]["fs"] == self._payload["fire_status"]
+
+    def test_create_operation_non_validator(self, client: TestClient):
+        """POST /api/operations with REGIONAL_ENCODER returns 403."""
+        _, get_db_override = _make_db()
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_encoder
+
+        resp = client.post("/api/operations", json=self._payload)
+
+        assert resp.status_code == 403
+
+    def test_create_operation_unauthenticated(self, client: TestClient):
+        """POST /api/operations with no credentials returns 401 or 403."""
+        _, get_db_override = _make_db()
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        resp = client.post("/api/operations", json=self._payload)
+        assert resp.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# 3. PATCH /api/operations/{id} — validator → 200
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateOperation:
+    def test_update_operation_validator(self, client: TestClient):
+        """PATCH /api/operations/{id} with validator returns 200."""
+        mock_db, get_db_override = _make_db()
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.patch("/api/operations/1", json={"fire_status": "CONTAINED"})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["fire_status"] == "ACTIVE"  # mock row default
+        assert data["operation_id"] == 1
+        assert "updated_at" in data
+
+    def test_update_operation_not_found(self, client: TestClient):
+        """PATCH /api/operations/{id} for missing op returns 404."""
+        mock_db, get_db_override = _make_db(op_rows=[])
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.patch("/api/operations/999", json={"fire_status": "CONTAINED"})
+
+        assert resp.status_code == 404
+
+    def test_update_non_validator_forbidden(self, client: TestClient):
+        """PATCH /api/operations/{id} by REGIONAL_ENCODER returns 403."""
+        _, get_db_override = _make_db()
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_encoder
+
+        resp = client.patch("/api/operations/1", json={"fire_status": "CONTAINED"})
+
+        assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# 4. DELETE /api/operations/{id} — validator → 204
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteOperation:
+    def test_delete_operation_validator(self, client: TestClient):
+        """DELETE /api/operations/{id} with validator returns 204."""
+        mock_db, get_db_override = _make_db()
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.delete("/api/operations/1")
+
+        assert resp.status_code == 204
+        # Verify a DELETE was executed for the correct operation_id
+        calls_sql = [str(c[0][0]) for c in mock_db.execute.call_args_list]
+        assert any("DELETE FROM wims.operations" in sql and ":oid" in sql for sql in calls_sql), (
+            f"No DELETE FROM wims.operations found in: {calls_sql}"
+        )
+
+    def test_delete_operation_not_found(self, client: TestClient):
+        """DELETE /api/operations/{id} for missing op returns 404."""
+        mock_db, get_db_override = _make_db(op_rows=[])
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.delete("/api/operations/999")
+
+        assert resp.status_code == 404
+
+    def test_delete_non_validator_forbidden(self, client: TestClient):
+        """DELETE /api/operations/{id} by REGIONAL_ENCODER returns 403."""
+        _, get_db_override = _make_db()
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_encoder
+
+        resp = client.delete("/api/operations/1")
+
+        assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# 5. POST /api/operations/{id}/link — validator → 201
+# ---------------------------------------------------------------------------
+
+
+class TestLinkReport:
+    def test_link_report_validator(self, client: TestClient):
+        """POST /api/operations/{id}/link with validator returns 201."""
+        mock_db, get_db_override = _make_db()
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.post("/api/operations/1/link", json={"report_id": 5})
+
+        assert resp.status_code == 201
+
+    def test_link_report_not_found(self, client: TestClient):
+        """POST /api/operations/{id}/link for missing op returns 404."""
+        mock_db, get_db_override = _make_db(op_rows=[])
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.post("/api/operations/999/link", json={"report_id": 5})
+
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# 6. DELETE /api/operations/{id}/link/{report_id} — validator only
+# ---------------------------------------------------------------------------
+
+
+class TestUnlinkReport:
+    def test_unlink_report_validator(self, client: TestClient):
+        """DELETE /api/operations/{id}/link/{report_id} with validator returns 200."""
+        mock_db, get_db_override = _make_db()
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.delete("/api/operations/1/link/5")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["operation_id"] == 1
+
+    def test_unlink_report_not_found(self, client: TestClient):
+        """DELETE /api/operations/{id}/link/{report_id} for missing op returns 404."""
+        mock_db, get_db_override = _make_db(op_rows=[])
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.delete("/api/operations/999/link/5")
+
+        assert resp.status_code == 404
+
+    def test_unlink_non_validator_forbidden(self, client: TestClient):
+        """DELETE /api/operations/{id}/link/{report_id} by REGIONAL_ENCODER returns 403."""
+        _, get_db_override = _make_db()
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_encoder
+
+        resp = client.delete("/api/operations/1/link/5")
+
+        assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# 7. Audit log written on create
+# ---------------------------------------------------------------------------
+
+
+class TestAuditLog:
+    def test_audit_logged_on_create(self, client: TestClient):
+        """After creating an operation, system_audit_trails receives an INSERT."""
+        mock_db, get_db_override = _make_db()
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        client.post(
+            "/api/operations",
+            json={
+                "fire_status": "ACTIVE",
+                "start_time": "2026-06-10T08:00:00Z",
+                "location": "Test City",
+            },
+        )
+
+        # Verify that db.execute was called with an INSERT into system_audit_trails
+        audit_inserts = [c for c in mock_db.captured_inserts if "system_audit_trails" in c["sql"]]
+        assert len(audit_inserts) >= 1, (
+            "Expected INSERT into system_audit_trails — captured calls:\n"
+            + "\n".join(
+                f"  {c['sql'][:100]} | params={c['params']}" for c in mock_db.captured_inserts
+            )
+        )
+        # Verify action_type is OPERATION_CREATE
+        audit_params = audit_inserts[0]["params"]
+        assert audit_params is not None, "Audit INSERT params should not be None"
+        assert audit_params.get("action") == "OPERATION_CREATE", (
+            f"Expected action='OPERATION_CREATE', got {audit_params}"
+        )
