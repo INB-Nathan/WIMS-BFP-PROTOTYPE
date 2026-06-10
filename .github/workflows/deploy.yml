@@ -212,6 +212,13 @@ jobs:
             echo "Building and restarting production stack..."
             compose up -d --build --wait --wait-timeout 600
 
+            # ─── Apply new database migrations (idempotent — all use IF NOT EXISTS) ───
+            echo "Applying database migrations..."
+            for script in $(ls -v /opt/wims-bfp/src/src/postgres-init/*.sql); do
+              echo "  Running: $(basename $script)"
+              compose exec -T postgres psql -U postgres -d wims -v ON_ERROR_STOP=1 -f "$script"
+            done
+
             # ─── Post-deploy health check ───────────────────────────────────────
             echo "Waiting for backend to be ready..."
             sleep 15
