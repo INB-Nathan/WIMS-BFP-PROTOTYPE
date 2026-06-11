@@ -80,6 +80,18 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `src/openbao/init/bootstrap-openbao.sh`: added keep-alive loop (`while true; do sleep 3600; done`) with SIGTERM/SIGINT trap at end of bootstrap script. The deploy workflow (`compose up -d --build --wait`) requires every service to be in "running" or "healthy" state. Since the bootstrap container has no healthcheck and previously exited after completing its init logic, `--wait` saw it as "not ready" and failed the deploy. The keep-alive keeps the container in "running" state until the stack is torn down.
 - `system-wiki/architecture/infrastructure-config.md`: documented the --wait compatibility detail in the GitOps deploy workflow section.
 
+## [2026-06-12] feat | GH #167 — M9a AI inference latency + network bandwidth (feat/m9-system-metrics)
+
+- `src/backend/utils/metrics.py`: added `AI_INFERENCE_DURATION` Prometheus histogram (`ai_inference_duration_seconds`, label `function`, buckets 1–120s). Auto-exposed via `/metrics` — satisfies AC #2 for web-process calls.
+- `src/backend/services/ai_service.py`: added `_record_inference_metric(function_name, elapsed_s)` helper — observes to Prometheus histogram AND writes cross-process Redis counters (`wims:ai:inference:count`, `wims:ai:inference:sum_ms`) via pipeline. All three Ollama POST sites instrumented: `analyze_threat_log`, `generate_incident_narrative`, `analyze_audit_logs`. Redis approach required because `prometheus_client` is NOT in multiprocess mode and both `analyze_threat_log` and `generate_incident_narrative` run in Celery workers as well as web workers.
+- `src/backend/api/routes/admin/monitoring.py`: `GET /admin/monitoring/system` extended — reads Redis counters for `ai_inference: {avg_latency_ms, count}` (null avg + 0 count when Redis unreachable), adds `network: {bytes_sent, bytes_recv}` from `psutil.net_io_counters()`. `net_io_counters()` None-guarded. Existing cpu/memory/disk fields unchanged.
+- `src/frontend/src/lib/api/legacy.ts`: `SystemMetricsResponse` extended with `ai_inference` and `network` optional fields.
+- `src/frontend/src/app/admin/system/page.tsx`: `SystemMetrics` interface extended; grid changed from `md:grid-cols-3` to `sm:grid-cols-2 lg:grid-cols-5`; AI Inference card (avg ms + call count, or "No calls recorded") and Network card (↑/↓ MB) added after disk card. Existing CPU/Memory/Disk cards unchanged.
+- `src/backend/tests/test_system_monitoring.py`: 3 new tests — `ai_inference`/`network` shape, Redis-mock populated avg/count, `/metrics` histogram presence.
+- `src/frontend/src/app/admin/system/admin-system-monitoring.test.tsx`: 2 new tests — AI Inference + Network card render with data, "No calls recorded" for count=0.
+- Gap register updated: #167 CLOSED, M9a extended note added.
+- PWA sync counters deferred per issue ("optional for prototype").
+
 ## [2026-06-11] fix | OpenBao token-file mounting for backend/celery
 
 - `src/openbao/init/bootstrap-openbao.sh`: after writing the `wims-app` policy, bootstrap now verifies any existing app token or creates a replacement policy-scoped orphan service token and persists the token value to `/vault/file/.wims-app-token` without logging it. This regenerates app auth after an OpenBao volume reset while avoiding token churn on normal restarts.

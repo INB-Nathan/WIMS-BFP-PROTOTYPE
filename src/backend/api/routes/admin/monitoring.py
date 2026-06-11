@@ -185,12 +185,32 @@ def get_worker_status(
 def get_system_metrics(
     current_user: dict = Depends(get_system_admin),
 ):
-    """Return current system resource metrics (CPU, memory, disk)."""
+    """Return current system resource metrics (CPU, memory, disk, AI inference, network)."""
+    import os
     import psutil as _psutil
 
     cpu = _psutil.cpu_percent(interval=0.1)
     mem = _psutil.virtual_memory()
     disk = _psutil.disk_usage("/")
+    net = _psutil.net_io_counters()
+
+    # AI inference stats — read from Redis for cross-process accuracy (Celery + web workers).
+    # Falls back to count=0/avg=null gracefully when Redis is unreachable.
+    ai_inference: dict = {"avg_latency_ms": None, "count": 0}
+    try:
+        import redis as _redis
+
+        r = _redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"))
+        count_raw = r.get("wims:ai:inference:count")
+        sum_ms_raw = r.get("wims:ai:inference:sum_ms")
+        count = int(count_raw) if count_raw else 0
+        sum_ms = float(sum_ms_raw) if sum_ms_raw else 0.0
+        ai_inference = {
+            "avg_latency_ms": round(sum_ms / count, 1) if count > 0 else None,
+            "count": count,
+        }
+    except Exception:
+        pass
 
     return {
         "cpu_percent": cpu,
@@ -203,5 +223,10 @@ def get_system_metrics(
             "total_gb": round(disk.total / 1024 / 1024 / 1024, 1),
             "used_gb": round(disk.used / 1024 / 1024 / 1024, 1),
             "percent": disk.percent,
+        },
+        "ai_inference": ai_inference,
+        "network": {
+            "bytes_sent": net.bytes_sent,
+            "bytes_recv": net.bytes_recv,
         },
     }

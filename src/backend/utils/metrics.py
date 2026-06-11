@@ -30,6 +30,13 @@ CELERY_TASK_DURATION = Histogram(
     buckets=[0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0],
 )
 
+AI_INFERENCE_DURATION = Histogram(
+    "ai_inference_duration_seconds",
+    "Ollama inference call duration",
+    ["function"],
+    buckets=[1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0],
+)
+
 WORKER_ACTIVE = Gauge(
     "celery_workers_active",
     "Number of active Celery workers",

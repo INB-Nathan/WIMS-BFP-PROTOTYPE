@@ -344,4 +344,46 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
         connectivityState.state = 'online';
         connectivityState.isOnline = true;
     });
+
+    it('AI Inference and Network cards render with non-zero data', async () => {
+        const metricsWithExtras = {
+            ...mockSystemMetrics,
+            ai_inference: { avg_latency_ms: 3420, count: 5 },
+            network: { bytes_sent: 10485760, bytes_recv: 52428800 },
+        };
+        mockFetchSystemHealth.mockResolvedValue(mockHealth);
+        mockFetchSystemMetrics.mockResolvedValue(metricsWithExtras);
+        mockFetchWorkerStatus.mockResolvedValue([]);
+
+        vi.useRealTimers();
+        render(<AdminSystemPage />);
+
+        await waitFor(() => {
+            expect(screen.getByText('AI Inference')).toBeInTheDocument();
+        });
+        expect(screen.getByText('3420ms')).toBeInTheDocument();
+        expect(screen.getByText(/avg · 5 calls/)).toBeInTheDocument();
+        expect(screen.getByText('Network')).toBeInTheDocument();
+        // 10485760 / 1048576 = 10.0 MB, 52428800 / 1048576 = 50.0 MB
+        expect(screen.getByText(/10\.0 MB sent/)).toBeInTheDocument();
+        expect(screen.getByText(/50\.0 MB recv/)).toBeInTheDocument();
+    });
+
+    it('AI Inference card shows "No calls recorded" when count is 0', async () => {
+        const metricsNoInference = {
+            ...mockSystemMetrics,
+            ai_inference: { avg_latency_ms: null, count: 0 },
+            network: { bytes_sent: 0, bytes_recv: 0 },
+        };
+        mockFetchSystemHealth.mockResolvedValue(mockHealth);
+        mockFetchSystemMetrics.mockResolvedValue(metricsNoInference);
+        mockFetchWorkerStatus.mockResolvedValue([]);
+
+        vi.useRealTimers();
+        render(<AdminSystemPage />);
+
+        await waitFor(() => {
+            expect(screen.getByText('No calls recorded')).toBeInTheDocument();
+        });
+    });
 });

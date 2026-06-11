@@ -124,3 +124,53 @@ def test_system_metrics_returns_cpu_memory_disk():
     assert 0 <= data["memory"]["percent"] <= 100
     assert isinstance(data["disk"]["percent"], (int, float))
     assert 0 <= data["disk"]["percent"] <= 100
+
+
+def test_system_metrics_returns_ai_inference_and_network():
+    """GET /api/admin/monitoring/system includes ai_inference and network fields with valid shapes."""
+    app.dependency_overrides[get_current_wims_user] = _admin_override
+    client = TestClient(app)
+    resp = client.get("/api/admin/monitoring/system")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert "ai_inference" in data
+    ai = data["ai_inference"]
+    assert "avg_latency_ms" in ai
+    assert "count" in ai
+    assert isinstance(ai["count"], int) and ai["count"] >= 0
+    assert ai["avg_latency_ms"] is None or isinstance(ai["avg_latency_ms"], (int, float))
+
+    assert "network" in data
+    net = data["network"]
+    assert "bytes_sent" in net
+    assert "bytes_recv" in net
+    assert isinstance(net["bytes_sent"], int)
+    assert isinstance(net["bytes_recv"], int)
+
+
+def test_system_metrics_ai_inference_populated_from_redis():
+    """avg_latency_ms is non-null and count matches when Redis has prior observation data."""
+    import unittest.mock as mock
+
+    app.dependency_overrides[get_current_wims_user] = _admin_override
+    client = TestClient(app)
+
+    mock_r = mock.MagicMock()
+    mock_r.get.side_effect = lambda k: b"3" if k == "wims:ai:inference:count" else b"9600.0"
+
+    with mock.patch("redis.from_url", return_value=mock_r):
+        resp = client.get("/api/admin/monitoring/system")
+
+    assert resp.status_code == 200
+    ai = resp.json()["ai_inference"]
+    assert ai["count"] == 3
+    assert ai["avg_latency_ms"] == 3200.0  # 9600.0 ms / 3
+
+
+def test_metrics_endpoint_contains_ai_inference_histogram():
+    """GET /metrics includes ai_inference_duration_seconds histogram."""
+    client = TestClient(app)
+    resp = client.get("/metrics")
+    assert resp.status_code == 200
+    assert "ai_inference_duration_seconds" in resp.text
