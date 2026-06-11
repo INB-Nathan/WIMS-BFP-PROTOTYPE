@@ -98,7 +98,10 @@ class OpenBaoClient:
     def _request(
         self, method: str, path: str, json_body: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        url = f"{self._addr}/v1/{self._mount}/{path.lstrip('/')}"
+        if path.startswith("/sys/"):
+            url = f"{self._addr}/v1{path}"
+        else:
+            url = f"{self._addr}/v1/{self._mount}/{path.lstrip('/')}"
         try:
             with httpx.Client(timeout=self.timeout) as c:
                 resp = c.request(method, url, headers=self._headers, json=json_body)
