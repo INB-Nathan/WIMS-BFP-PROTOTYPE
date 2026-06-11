@@ -3,6 +3,12 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-11] fix | M15 — RLS on reference tables: region-scoped SELECT + SECURITY DEFINER fallback (PR #258)
+
+Replaced the prior `USING (TRUE)` global-read approach with FRS M15 vi region-scoped SELECT policies. REGIONAL_ENCODER and NATIONAL_VALIDATOR see only their assigned region; NATIONAL_ANALYST and SYSTEM_ADMIN see all. `ref_cities` scope via `ref_provinces` subquery. SYSTEM_ADMIN `FOR ALL` write policies on all three tables. Added SECURITY DEFINER helper `wims.get_first_region_id()` (with `SET search_path = wims, pg_temp`, granted to `wims_app`) enabling the `public_dmz` fallback to read a single `region_id` without weakening the SELECT policies. `main.py:_apply_ref_table_rls()` startup patch mirrors the migration. 22 unit tests (2 static guards + 20 DB-backed). Updated public_dmz.py fallback query to use helper.
+
+**Files:** `src/postgres-init/53_ref_table_rls.sql`, `src/backend/main.py`, `src/backend/api/routes/public_dmz.py`, `src/backend/tests/test_ref_table_rls.py`, `src/backend/tests/test_public_submission.py`, `system-wiki/gaps/frs-codebase-gap-register.md`, `system-wiki/database/sql-init-files.md`
+
 ## [2026-06-10] feat | M15 — RLS on reference tables (ref_regions/provinces/cities, #178)
 
 Migration `53_ref_table_rls.sql`: replaces role-gated SELECT on reference geography tables with `USING (TRUE)` (globally readable); adds `FOR ALL` write policies gated on `SYSTEM_ADMIN`. Fixes silent zero-row returns on unauthenticated paths (`public_dmz.py` reads `ref_regions` without a GUC). `main.py:_apply_ref_table_rls()` startup patch updated to match. 11 unit tests. Closes #178.

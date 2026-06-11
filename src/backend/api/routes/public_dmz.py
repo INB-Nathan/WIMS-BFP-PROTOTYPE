@@ -191,10 +191,11 @@ def submit_public_incident(
     region_id = station_row.region_id if station_row else None
 
     if region_id is None:
-        fallback = db.execute(
-            text("SELECT region_id FROM wims.ref_regions ORDER BY region_id LIMIT 1")
-        ).fetchone()
-        region_id = fallback.region_id if fallback else None
+        # SECURITY DEFINER helper bypasses ref_regions RLS — no user GUC
+        # is set in this unauthenticated path, so direct SELECT would
+        # return zero rows under M15 region-scoped policies.
+        row = db.execute(text("SELECT wims.get_first_region_id()")).fetchone()
+        region_id = row[0] if row else None
 
     if region_id is None:
         raise HTTPException(

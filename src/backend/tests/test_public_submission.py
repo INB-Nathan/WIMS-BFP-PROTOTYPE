@@ -79,7 +79,7 @@ def _mock_db_factory(
             self.executed_sql.append(sql)
             if "ref_fire_stations" in sql:
                 return _FakeResult(row=station_row)
-            if "ref_regions" in sql:
+            if "get_first_region_id" in sql or "ref_regions" in sql:
                 return _FakeResult(row=region_row)
             if "RETURNING" in sql or "INSERT" in sql:
                 return _FakeResult(row=insert_row)
@@ -194,8 +194,8 @@ class TestPublicReportEndpoint:
     # Fallback / error-path tests
     # ------------------------------------------------------------------
 
-    def test_station_empty_falls_back_to_regions(self):
-        """When ref_fire_stations returns no row, ref_regions fallback is used."""
+    def test_station_empty_falls_back_to_get_first_region_id(self):
+        """When ref_fire_stations returns no row, wims.get_first_region_id() fallback is used."""
         from database import get_db
 
         mock_db = _mock_db_factory(
@@ -219,12 +219,12 @@ class TestPublicReportEndpoint:
             assert data["incident_id"] == 999
             # Both queries should have been attempted
             assert any("ref_fire_stations" in s for s in mock_db.executed_sql)
-            assert any("ref_regions" in s for s in mock_db.executed_sql)
+            assert any("get_first_region_id" in s for s in mock_db.executed_sql)
         finally:
             app.dependency_overrides.clear()
 
     def test_both_station_and_region_empty_returns_500(self):
-        """When both ref_fire_stations and ref_regions return no rows -> 500."""
+        """When both ref_fire_stations and wims.get_first_region_id() return no rows -> 500."""
         from database import get_db
 
         def override_get_db():
