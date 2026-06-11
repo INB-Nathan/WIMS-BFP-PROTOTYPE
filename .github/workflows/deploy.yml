@@ -219,6 +219,25 @@ jobs:
               compose exec -T postgres psql -U postgres -d wims -v ON_ERROR_STOP=1 -f "$script"
             done
 
+            # ─── Wait for postgres to be ready ────────────────────────────────
+            echo "Waiting for postgres..."
+            for i in $(seq 1 30); do
+              if compose exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+                echo "Postgres ready"
+                break
+              fi
+              sleep 1
+            done
+
+            # ─── Apply new database migrations (idempotent — all use IF NOT EXISTS) ───
+            echo "Applying database migrations..."
+            for script in $(ls -v /opt/wims-bfp/src/postgres-init/*.sql 2>/dev/null); do
+              echo "  Running: $(basename $script)"
+              compose exec -T postgres psql -U postgres -d wims -v ON_ERROR_STOP=1 -f "$script" || {
+                echo "Migration failed: $(basename $script) — continuing"
+              }
+            done
+
             # ─── Post-deploy health check ───────────────────────────────────────
             echo "Waiting for backend to be ready..."
             sleep 15
