@@ -3,6 +3,15 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-11] feat | GH #152 Phase 8 — OpenBao KMS hardening, live validation hooks, ops runbook
+
+- `docs/operations/openbao-kms-runbook.md`: new operations runbook covering local dev bootstrap, env var reference table, production topology (internal-only network, TLS, HA/Raft), unseal strategy (Shamir M-of-N / platform auto-unseal), least-privilege policy summary, migration runbook (dry-run, production run, rollback/resume), rotation runbook (scheduled beat, DB inspection, triage), backup restore drill (legacy + OpenBao), incident response scenarios (down/sealed/auth failure/rotation failure/backup decrypt failure), and explicit secret hygiene rules.
+- `src/backend/tests/integration/test_openbao_kms_live.py`: 5 new live integration tests — health structure assertion (`test_openbao_health_live`), encrypt/decrypt roundtrip with context binding (`test_openbao_transit_encrypt_decrypt_live`), wrong-context rejection (`test_decrypt_wrong_context_fails_live`), rewrap ciphertext-change + plaintext-preservation (`test_openbao_transit_rewrap_live`), backup encrypt/decrypt roundtrip with WIMSBAO1 header verification (`test_openbao_backup_crypto_live_roundtrip`). All tests use `@pytest.mark.skipif` with explicit reason strings; skip cleanly when `OPENBAO_ADDR` unset, no auth token, or OpenBao unreachable/sealed. No hard Docker dependency.
+- Smoke script intentionally skipped — integration tests cover the same operational surface and are invocable with `pytest tests/integration/test_openbao_kms_live.py -v`.
+- No-secret logging verified across all Phase 1-8 code paths: client, rotation task, migration script, backup_crypto, rewrap orchestration — only operation metadata logged; no ciphertext, plaintext, nonces, keys, or tokens appear in any log statement.
+- Wiki: `security-baseline.md` updated with Phase 8 status (code hooks/runbook implemented; live environment validation pending). Gap register updated: #152 now Phases 1-8 implemented, overall PARTIAL until live ops drill passes.
+- No commit/push performed.
+
 ## [2026-06-11] feat | GH #152 Phase 7 — OpenBao-backed backup encryption + legacy restore compatibility
 
 - `src/backend/utils/backup_crypto.py`: rewritten to support pluggable crypto providers. Feature flag `WIMS_BACKUP_CRYPTO_PROVIDER` (priority) or `WIMS_CRYPTO_PROVIDER` (fallback), default `env_aesgcm`. New OpenBao format: `WIMSBAO1\n` magic header + JSON metadata line (provider, key_name, created_at, ciphertext_version) + OpenBao Transit ciphertext as UTF-8 bytes. No secrets in header. Context/AAD `b"wims-backup"`. Key name from `OPENBAO_BACKUP_KEY_NAME`, default `wims-backup`. `decrypt_backup()` auto-detects format via header magic; legacy env-AES nonce+ciphertext path preserved unchanged.

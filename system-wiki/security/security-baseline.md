@@ -137,6 +137,16 @@ All write paths updated: `services/afor_import/commit.py` (AFOR commit), `api/ro
 - **Tests:** `tests/test_backup_crypto_openbao.py` — 34 unit tests (no live OpenBao). Covers legacy env-AES roundtrip, OpenBao WIMSBAO1 header write/parse, OpenBao roundtrip, header auto-detection on decrypt, legacy decrypt without header, missing/invalid metadata, `OPENBAO_BACKUP_KEY_NAME` honoring, unknown provider error, and signature/output-path preservation.
 - **Non-goals:** Does NOT run live OpenBao backup/restore drill. Does NOT remove legacy env-AES restore. Does NOT change frontend.
 
+## OpenBao KMS Phase 8 — Hardening, Runbook, Live Validation Hooks (GH #152)
+
+**Implemented 2026-06-11:** Phase 8 adds production-readiness artifacts and validation hooks for OpenBao KMS operations.
+
+- **Operations runbook:** `docs/operations/openbao-kms-runbook.md` — covers local dev bootstrap, env var reference, production topology, unseal strategy (Shamir M-of-N / platform auto-unseal), least-privilege policy summary, migration runbook (dry run, production run, rollback/resume), rotation runbook (scheduled beat, inspection, triage), backup restore drill (legacy + OpenBao), incident response (down/sealed/auth failure/rotation failure/backup decrypt failure), and explicit secret hygiene rules.
+- **Live integration tests:** `src/backend/tests/integration/test_openbao_kms_live.py` — 5 live tests (health, encrypt/decrypt roundtrip, wrong-context rejection, rewrap ciphertext-change + plaintext-preservation, backup encrypt/decrypt roundtrip with WIMSBAO1 header verification). All tests skip cleanly when OpenBao is unavailable or unconfigured. No hard Docker dependency.
+- **Smoke script:** intentionally skipped — the integration tests cover the same surface and can be invoked with a single `pytest` command; a separate smoke script would be redundant.
+- **No-secret logging verified:** all existing code paths (client, rotation, migration, backup_crypto, rewrap) log only operation metadata; no ciphertext, plaintext, nonces, keys, or tokens appear in log statements.
+- **Overall GH #152 status:** Phases 1-8 code paths, runbook, and test hooks implemented. **Live environment validation remains pending** — until live OpenBao is available in this environment and the integration tests pass against it, #152 is PARTIAL. Do not claim #152 or FRS Module 6 fully closed until the live backup restore drill and integration tests are executed in the target environment.
+
 ## CSRF Protection
 
 FRS Module 11b requires Cross-Site Request Forgery testing. The following layers are enforced:
