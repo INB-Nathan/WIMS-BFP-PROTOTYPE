@@ -239,7 +239,7 @@ export default function DashboardPage() {
                     </h1>
                     <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
                         Real-time monitoring and analysis of fire incidents.
-                        {(role === 'ENCODER' || role === 'VALIDATOR') && assignedRegionId && (
+                        {(role === 'ENCODER' || role === 'NATIONAL_VALIDATOR') && assignedRegionId && (
                             <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
                                 Region {assignedRegionId}
                             </span>
@@ -265,7 +265,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Info Banners */}
-            {(role === 'ENCODER' || role === 'VALIDATOR') && !assignedRegionId && (
+            {(role === 'ENCODER' || role === 'NATIONAL_VALIDATOR') && !assignedRegionId && (
                 <div className="card overflow-hidden">
                     <div className="flex items-start gap-3 p-4" style={{ borderLeft: '4px solid #3b82f6' }}>
                         <Info className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
@@ -279,7 +279,7 @@ export default function DashboardPage() {
                 </div>
             )}
 
-            {(role === 'ENCODER' || role === 'VALIDATOR') && assignedRegionId && (
+            {(role === 'ENCODER' || role === 'NATIONAL_VALIDATOR') && assignedRegionId && (
                 <div className="card overflow-hidden">
                     <div className="flex items-start gap-3 p-4" style={{ borderLeft: '4px solid #3b82f6' }}>
                         <Info className="h-5 w-5 text-blue-400 flex-shrink-0 mt-0.5" />

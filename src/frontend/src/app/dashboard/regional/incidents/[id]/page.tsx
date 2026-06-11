@@ -419,8 +419,7 @@ export default function RegionalIncidentDetailPage() {
   const canAccessRegional =
     role === 'REGIONAL_ENCODER' ||
     role === 'NATIONAL_VALIDATOR' ||
-    role === 'ENCODER' ||
-    role === 'VALIDATOR';
+    role === 'ENCODER';
 
   const [detail, setDetail] = useState<RegionalIncidentDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -448,7 +447,7 @@ export default function RegionalIncidentDetailPage() {
   const loadedUpdatedAtRef = useRef<string | null>(null);
 
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
-  const isValidator = role === 'NATIONAL_VALIDATOR' || role === 'VALIDATOR';
+  const isValidator = role === 'NATIONAL_VALIDATOR';
   const dashboardHref = isValidator ? '/dashboard/validator' : '/dashboard/regional';
   const dashboardLabel = isValidator ? 'Back to Validator Dashboard' : 'Back to Regional Dashboard';
 

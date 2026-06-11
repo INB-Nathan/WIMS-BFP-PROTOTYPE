@@ -50,7 +50,7 @@ vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="map-container">{children}</div>
   ),
-  TileLayer: () => null,
+  TileLayer: () => <div data-testid="tile-layer" />,
   CircleMarker: () => null,
 }));
 
@@ -71,7 +71,18 @@ describe('Analyst dashboard page', () => {
     ]);
     mockFetchHeatmapData.mockResolvedValue({
       type: 'FeatureCollection',
-      features: [],
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [120.9842, 14.5995] },
+          properties: {
+            incident_id: 1,
+            alarm_level: '1',
+            general_category: 'STRUCTURAL',
+            notification_dt: '2024-01-15T10:00:00',
+          },
+        },
+      ],
     });
     mockFetchTrendData.mockResolvedValue({ data: [] });
     mockFetchComparativeData.mockResolvedValue({
@@ -124,6 +135,10 @@ describe('Analyst dashboard page', () => {
       expect(mockFetchHeatmapData).toHaveBeenCalled();
       expect(mockFetchTrendData).toHaveBeenCalled();
       expect(mockFetchComparativeData).toHaveBeenCalled();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tile-layer')).toBeInTheDocument();
     });
   });
 

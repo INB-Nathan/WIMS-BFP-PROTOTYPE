@@ -15,6 +15,44 @@ Migration `53_ref_table_rls.sql`: replaces role-gated SELECT on reference geogra
 
 **Files:** `src/postgres-init/53_ref_table_rls.sql`, `src/backend/main.py`, `src/backend/tests/test_ref_table_rls.py`, `system-wiki/gaps/frs-codebase-gap-register.md`
 
+## [2026-06-10] feat | M6 PII key versioning + rotation script (#67)
+
+- Migration `53_incident_pii_key_version.sql`: `ALTER TABLE wims.incident_sensitive_details ADD COLUMN IF NOT EXISTS key_version SMALLINT NOT NULL DEFAULT 1`. All existing rows default to v1.
+- `utils/crypto.py`: versioned keyring (`_keyring: dict[int, AESGCM]`). v1 always from `WIMS_MASTER_KEY`; v2, v3, … from `WIMS_MASTER_KEY_V2`, `WIMS_MASTER_KEY_V3`, etc. (scanned until gap). `WIMS_KEY_CURRENT_VERSION` (default "1") selects encryption key. `_aesgcm` is now a property returning `_keyring[_current_version]` — existing test at line 69 stays green. `encrypt_json` signature unchanged (still 2-tuple). `decrypt_json` gains `key_version: int = 1` parameter.
+- Threaded `key_version` through all 6 encrypt call sites: `incidents.py`, `encoder_crud.py`, `field_updates.py`, `afor_import/commit.py`, `regional_incidents/helpers.py`, `scripts/encrypt_backlog.py`. Each persists `sp.current_version` into the DB row.
+- Threaded `key_version` through all 5 decrypt call sites: `regional/encoder.py`, `field_updates.py` (×2), `regional_incidents/helpers.py`, `scripts/encrypt_backlog.py`. SELECT queries extended to fetch `key_version`; each passes it to `decrypt_json`.
+- `scripts/rotate_pii_keys.py`: new rotation script. Reads each row's `key_version`, decrypts, re-encrypts under target version, UPDATEs. Supports `--dry-run`, `--target-version`, `--batch-size`. Idempotent (skips rows already at target). Per-row error isolation; exits 1 if any errors.
+- `backup_crypto.py` intentionally untouched — deferred to #152/OpenBao.
+- `tests/test_crypto.py`: 9 new tests in `TestKeyVersioning` — default version, env override, missing key error, invalid env, multi-key keyring, v2 roundtrip, cross-version auth failure, unknown version error, v1 explicit roundtrip. 26/26 tests pass. Ruff check + format pass.
+## [2026-06-10] fix | M5 map: Referrer-Policy strict-origin-when-cross-origin so OSM tiles load in prod (#233)
+
+- Root cause: prod HTTPS nginx block had `Referrer-Policy: no-referrer`, suppressing the Referer header OSM tile servers require. All 8 react-leaflet TileLayer components (PublicFireMapInner, MapPickerInner, ClusterMapInner, NearbyPublicReportAreasInner, NearbyStationsMapInner, ValidatorMapInner, FireStationsMapInner, HeatmapViewer) were returning 403 in production.
+- Fix: `src/nginx/nginx.conf` HTTPS block — changed `add_header Referrer-Policy no-referrer always` → `add_header Referrer-Policy strict-origin-when-cross-origin always`. One line. No frontend, no migration.
+- Dev/localhost block and `nginx.ci.conf` left untouched (CI does not load OSM tiles).
+- Validation: next VPS deploy — tiles load, no 403s in browser console.
+
+## [2026-06-11] test | Referrer-Policy regression coverage in test_infra_config.py (#253)
+
+- Added `test_nginx_referrer_policy_production` to `src/backend/tests/test_infra_config.py`.
+- Guards: (1) nginx.conf HTTPS block has `strict-origin-when-cross-origin`; (2) localhost/redirect blocks do not contain Referrer-Policy at all; (3) nginx.ci.conf retains `no-referrer`.
+
+## [2026-06-11] test | PR #253 review-fix batch — T1-T5 test improvements
+
+- **T1** — Added regression test for nginx Referrer-Policy in `test_infra_config.py`.
+- **T2** — Added tile-layer render assertion to `HeatmapViewer.test.tsx`.
+- **T3** — Replaced `next/dynamic` mock with `react-leaflet` mock in `NearbyPublicReportAreas.test.tsx`; added TileLayer assertion with real dynamic import.
+- **T4** — Changed `TileLayer` mock from `null` to rendered element in analyst `page.test.tsx`; added tile-layer assertion.
+- **T5** — Created 6 new smoke test files for untested TileLayer components: `PublicFireMapInner`, `MapPickerInner`, `ClusterMapInner`, `NearbyStationsMapInner`, `ValidatorMapInner`, `FireStationsMapInner`.
+- Verifies the OSM tile fix won't regress in future nginx.conf edits.
+
+## [2026-06-11] fix | T3: NearbyPublicReportAreas test mocks react-leaflet instead of next/dynamic (#253)
+
+- Replaced `vi.mock('next/dynamic', ...)` (returned MockMap div) with `vi.mock('react-leaflet', ...)` (provides MapContainer, TileLayer, Circle, Marker, Popup, useMap).
+- The react-leaflet mock asserts TileLayer rendering via `screen.findByTestId('tile-layer')`.
+- Added `setView`/`fitBounds` stubs on useMap to prevent FitBounds crash.
+- Used `vi.useRealTimers()` in the first test so @loadable/component's 200ms delay fires and the dynamic import resolves.
+- All 4 tests pass.
+
 ## [2026-06-10] feat | M10d automated breach notification + NPC 72h tracking (#171)
 
 - Migration `52_breach_notifications.sql`: `wims.breach_notifications` table with SERIAL PK, `threat_log_id FK→security_threat_logs`, `detected_at`, `npc_deadline_at` (= detected_at + 72h), `status` enum (DETECTED→DPO_NOTIFIED→NPC_SUBMITTED→CLOSED), `affected_systems`, `data_scope`, `notes`, `reported_by`, `npc_submitted_at`, timestamps. RLS ENABLE+FORCE; SELECT and ALL policies gated on `wims.current_user_role() = 'SYSTEM_ADMIN'`.

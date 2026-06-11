@@ -177,10 +177,11 @@ def create_incident(
         try:
             sp = _get_security_provider()
             nonce_b64, ct_b64 = sp.encrypt_json(pii_dict, f"incident_id:{incident_id}".encode())
-            sd_cols.extend(["pii_blob_enc", "encryption_iv"])
-            sd_vals.extend([":pii_blob", ":enc_iv"])
+            sd_cols.extend(["pii_blob_enc", "encryption_iv", "key_version"])
+            sd_vals.extend([":pii_blob", ":enc_iv", ":key_ver"])
             sd_params["pii_blob"] = ct_b64
             sd_params["enc_iv"] = nonce_b64
+            sd_params["key_ver"] = sp.current_version
         except SecurityProviderError:
             logger.warning(
                 "PII encryption failed — storing without blob (incident_id=%s)",

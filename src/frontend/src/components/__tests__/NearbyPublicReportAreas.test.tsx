@@ -2,13 +2,18 @@ import { render, screen, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NearbyPublicReportAreas } from '../NearbyPublicReportAreas';
 
-// Mock the dynamic import inner component
-vi.mock('next/dynamic', () => ({
-  default: () => {
-    return function MockMap() {
-      return <div data-testid="mock-map">Map Content</div>;
-    };
-  },
+vi.mock('react-leaflet', () => ({
+  MapContainer: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="map-container">{children}</div>
+  ),
+  TileLayer: () => <div data-testid="tile-layer" />,
+  Circle: ({ children }: { children: React.ReactNode }) => <div data-testid="circle">{children}</div>,
+  Marker: ({ children }: { children: React.ReactNode }) => <div data-testid="marker">{children}</div>,
+  Popup: ({ children }: { children: React.ReactNode }) => <div data-testid="popup">{children}</div>,
+  useMap: () => ({
+    setView: vi.fn(),
+    fitBounds: vi.fn(),
+  }),
 }));
 
 const mockFetchReportClusters = vi.fn();
@@ -53,10 +58,12 @@ describe('NearbyPublicReportAreas', () => {
   });
 
   it('renders correctly and shows heading', async () => {
+    // Use real timers so next/dynamic's @loadable/component 200ms delay fires
+    // and the dynamic import resolves. Restored in afterEach.
+    vi.useRealTimers();
     render(<NearbyPublicReportAreas />);
-    await act(async () => {
-      await Promise.resolve();
-    });
+    // Wait for the async dynamic import to resolve
+    await screen.findByTestId('tile-layer');
     expect(screen.getByText('Public Fire Report Areas')).toBeInTheDocument();
     expect(screen.getByText('Show national report areas')).toBeInTheDocument();
     expect(screen.getByText('Choose area manually')).toBeInTheDocument();

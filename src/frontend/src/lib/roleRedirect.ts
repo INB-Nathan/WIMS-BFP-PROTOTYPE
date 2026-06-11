@@ -3,7 +3,6 @@ const DEFAULT_STAFF_ROUTES: Record<string, string> = {
   REGIONAL_ENCODER: '/dashboard/regional',
   ENCODER: '/dashboard/regional',
   NATIONAL_VALIDATOR: '/dashboard/validator',
-  VALIDATOR: '/dashboard/validator',
   NATIONAL_ANALYST: '/dashboard/analyst',
 };
 

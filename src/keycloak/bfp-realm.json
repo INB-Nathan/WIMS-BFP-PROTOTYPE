@@ -101,13 +101,6 @@
         "containerId": "0d7644e4-1107-4da2-83f4-ca7ac87ce39b"
       },
       {
-        "name": "VALIDATOR",
-        "description": "VALIDATOR role for WIMS-BFP",
-        "composite": false,
-        "clientRole": false,
-        "containerId": "0d7644e4-1107-4da2-83f4-ca7ac87ce39b"
-      },
-      {
         "name": "NATIONAL_VALIDATOR",
         "description": "NATIONAL_VALIDATOR role for WIMS-BFP",
         "composite": false,

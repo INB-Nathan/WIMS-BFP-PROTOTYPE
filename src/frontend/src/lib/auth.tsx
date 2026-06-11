@@ -19,7 +19,7 @@ export interface User {
 
 interface UserProfile {
     user: User | null;
-    role: 'ENCODER' | 'VALIDATOR' | 'ANALYST' | 'ADMIN' | 'SYSTEM_ADMIN' | 'REGIONAL_ENCODER' | null;
+    role: 'ENCODER' | 'NATIONAL_VALIDATOR' | 'ANALYST' | 'ADMIN' | 'SYSTEM_ADMIN' | 'REGIONAL_ENCODER' | null;
     assignedRegionId: number | null;
     loading: boolean;
     signOut: () => Promise<void>;
