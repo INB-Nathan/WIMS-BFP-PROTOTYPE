@@ -5,7 +5,9 @@ PII fields encrypted as a single JSON blob:
     caller_name, caller_number, owner_name, occupant_name
 
 Policy:
-    - WIMS_MASTER_KEY loaded from env as base64-encoded 32-byte key.
+    - WIMS_MASTER_KEY loaded from env as base64-encoded 32-byte key (version 1).
+    - Additional keys WIMS_MASTER_KEY_V2, WIMS_MASTER_KEY_V3, … for rotation.
+    - WIMS_KEY_CURRENT_VERSION selects which key new encryptions use (default "1").
     - Nonce: 12 bytes (RFC 5116), generated fresh per encrypt_json call.
     - AAD: "incident_id:{incident_id}" bound to the specific record.
     - Plaintext JSON serialized deterministically: json.dumps(..., sort_keys=True, separators=(",", ":")).
@@ -31,10 +33,13 @@ class SecurityProviderError(Exception):
 
 class SecurityProvider:
     """
-    Thin wrapper around AES-256-GCM for WIMS-BFP PII encryption.
+    Versioned AES-256-GCM keyring for WIMS-BFP PII encryption.
 
     Environment:
-        WIMS_MASTER_KEY  base64-encoded 32-byte AES-256 key.
+        WIMS_MASTER_KEY              base64-encoded 32-byte AES-256 key (version 1, required).
+        WIMS_MASTER_KEY_V2           base64-encoded 32-byte key for version 2 (optional).
+        WIMS_MASTER_KEY_V3           … and so on, scanned up to V100 (gaps skipped).
+        WIMS_KEY_CURRENT_VERSION     integer; selects which key new encryptions use (default "1").
     """
 
     KEY_ENV = "WIMS_MASTER_KEY"
@@ -42,26 +47,78 @@ class SecurityProvider:
     PROVIDER = "env_aesgcm"
 
     def __init__(self) -> None:
-        raw = os.environ.get(self.KEY_ENV)
-        if not raw:
+        self._keyring: dict[int, AESGCM] = {}
+
+        # v1 is always WIMS_MASTER_KEY — required
+        raw_v1 = os.environ.get(self.KEY_ENV)
+        if not raw_v1:
             raise SecurityProviderError(
                 f"Required env var {self.KEY_ENV!r} is not set. "
                 "Set it to a base64-encoded 32-byte key."
             )
+        self._keyring[1] = self._load_key(self.KEY_ENV, raw_v1)
+
+        # V2, V3, … up to V100.  Gaps in the sequence are allowed (e.g. V2
+        # missing, V3 present).  The scan stops after 5 consecutive missing
+        # versions to bound startup time.
+        missing = 0
+        version = 2
+        while missing < 5 and version <= 100:
+            env_name = f"WIMS_MASTER_KEY_V{version}"
+            raw = os.environ.get(env_name)
+            if raw:
+                self._keyring[version] = self._load_key(env_name, raw)
+                missing = 0
+            else:
+                missing += 1
+            version += 1
+
+        # Determine which version new encryptions use
+        cv_raw = os.environ.get("WIMS_KEY_CURRENT_VERSION", "1")
+        try:
+            cv = int(cv_raw)
+        except ValueError:
+            raise SecurityProviderError(
+                f"WIMS_KEY_CURRENT_VERSION={cv_raw!r} is not a valid integer"
+            )
+        if cv not in self._keyring:
+            raise SecurityProviderError(
+                f"WIMS_KEY_CURRENT_VERSION={cv} does not match any loaded key "
+                f"(available versions: {sorted(self._keyring)})"
+            )
+        self._current_version = cv
+
+    # -------------------------------------------------------------------------
+    # Internal helpers
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _load_key(env_name: str, raw: str) -> AESGCM:
         try:
             key_bytes = base64.b64decode(raw)
         except Exception as e:
-            raise SecurityProviderError(f"{self.KEY_ENV!r} is not valid base64: {e}")
-
+            raise SecurityProviderError(f"{env_name!r} is not valid base64: {e}")
         if len(key_bytes) != 32:
             raise SecurityProviderError(
-                f"{self.KEY_ENV!r} must decode to exactly 32 bytes for AES-256; "
+                f"{env_name!r} must decode to exactly 32 bytes for AES-256; "
                 f"got {len(key_bytes)} bytes. "
                 'Generate one with: python -c "import secrets,base64; '
                 'print(base64.b64encode(secrets.token_bytes(32)).decode())"'
             )
+        return AESGCM(key_bytes)
 
-        self._aesgcm = AESGCM(key_bytes)
+    # -------------------------------------------------------------------------
+    # Properties
+    # -------------------------------------------------------------------------
+
+    @property
+    def current_version(self) -> int:
+        return self._current_version
+
+    @property
+    def _aesgcm(self) -> AESGCM:
+        """Active AESGCM instance for the current key version."""
+        return self._keyring[self._current_version]
 
     # ── Provider metadata (Phase 3 #152) ──────────────────────────────────
 
@@ -83,16 +140,16 @@ class SecurityProvider:
         aad: bytes,
     ) -> Tuple[str, str]:
         """
-        Encrypt a PII dict using AES-256-GCM.
+        Encrypt a PII dict using AES-256-GCM with the current key version.
 
         Args:
             pii_dict:  Plaintext dict with PII keys (caller_name, caller_number, …).
-                       May contain empty strings — those are included as-is in the blob.
             aad:       Additional Authenticated Data bound to the record.
                        Must be ``f"incident_id:{incident_id}".encode("utf-8")``.
 
         Returns:
             (nonce_b64, ct_b64) — both as URL-safe base64 strings.
+            The caller should also persist ``self.current_version`` as ``key_version``.
 
         Raises:
             SecurityProviderError: on encoding or encryption failure.
@@ -127,21 +184,31 @@ class SecurityProvider:
         nonce_b64: str,
         ct_b64: str,
         aad: bytes,
+        key_version: int = 1,
     ) -> dict:
         """
         Decrypt a PII blob.
 
         Args:
-            nonce_b64:  Base64-encoded 12-byte nonce.
-            ct_b64:     Base64-encoded ciphertext (+16-byte auth tag).
-            aad:        Must match the AAD used at encryption time.
+            nonce_b64:    Base64-encoded 12-byte nonce.
+            ct_b64:       Base64-encoded ciphertext (+16-byte auth tag).
+            aad:          Must match the AAD used at encryption time.
+            key_version:  Version of the key that encrypted this blob (default 1).
 
         Returns:
             The original ``pii_dict`` (Python dict).
 
         Raises:
-            SecurityProviderError: on base64 decode failure or authentication failure.
+            SecurityProviderError: on missing key version, base64 decode failure,
+                                   or authentication failure.
         """
+        if key_version not in self._keyring:
+            raise SecurityProviderError(
+                f"key_version={key_version} is not loaded in keyring "
+                f"(available: {sorted(self._keyring)})"
+            )
+        aesgcm = self._keyring[key_version]
+
         try:
             nonce = base64.b64decode(nonce_b64)
         except Exception as e:
@@ -156,12 +223,12 @@ class SecurityProvider:
             raise SecurityProviderError(f"Failed to base64-decode ciphertext: {e}") from e
 
         try:
-            plaintext = self._aesgcm.decrypt(nonce, ciphertext, aad)
+            plaintext = aesgcm.decrypt(nonce, ciphertext, aad)
         except Exception as e:
             # Cryptography library raises InvalidTag on auth failure
             raise SecurityProviderError(
-                "AES-256-GCM authentication failed — wrong key, tampered ciphertext, "
-                f"or mismatched AAD. Detail: {e}"
+                f"AES-256-GCM authentication failed with key_version={key_version} — "
+                f"wrong key version, tampered ciphertext, or mismatched AAD. Detail: {e}"
             ) from e
 
         try:
