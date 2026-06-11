@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-06-10
+Last updated: 2026-06-11
 Total synthesis pages: 32
-Last changes: VPS recovery documented production Compose usage and persisted database credential synchronization. Celery now explicitly imports all task modules, and the Suricata health check matches the image's `Suricata-Main` process name.
+Last changes: M15 ref table RLS revised to FRS M15 vi region-scoped SELECT with SECURITY DEFINER public_dmz fallback helper (PR #258).
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

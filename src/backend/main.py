@@ -306,45 +306,56 @@ def _apply_users_rls(db) -> None:  # type: ignore[type-arg]
 
 
 def _apply_ref_table_rls(db) -> None:  # type: ignore[type-arg]
-    """Enable RLS and upsert SELECT policies on reference geography tables."""
+    """Enable RLS and upsert policies on reference geography tables (M15).
+
+    SELECT is region-scoped per FRS M15 vi — REGIONAL_ENCODER and
+    NATIONAL_VALIDATOR see only their assigned region; NATIONAL_ANALYST and
+    SYSTEM_ADMIN see all.  Writes are SYSTEM_ADMIN only.
+    A SECURITY DEFINER helper (wims.get_first_region_id) allows the
+    public_dmz unauthenticated fallback to read a single region_id
+    without weakening the SELECT policies to global-read open access.
+    """
     for table in ("wims.ref_regions", "wims.ref_provinces", "wims.ref_cities"):
         db.execute(text(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"))
         db.execute(text(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY"))
 
-    full_access_roles = "('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'NATIONAL_VALIDATOR')"
-
-    db.execute(text("DROP POLICY IF EXISTS ref_regions_select ON wims.ref_regions"))
+    # SECURITY DEFINER fallback helper — bypasses RLS for public_dmz
     db.execute(
-        text(f"""
-            CREATE POLICY ref_regions_select ON wims.ref_regions FOR SELECT USING (
-                wims.current_user_role() IN {full_access_roles}
-                OR region_id = wims.current_user_region_id()
-            )
-        """)
+        text(
+            "CREATE OR REPLACE FUNCTION wims.get_first_region_id()"
+            " RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER"
+            " SET search_path = wims, pg_temp"
+            " AS $$ SELECT region_id FROM wims.ref_regions ORDER BY region_id LIMIT 1 $$;"
+        )
+    )
+    db.execute(text("REVOKE ALL ON FUNCTION wims.get_first_region_id() FROM PUBLIC"))
+    db.execute(text("GRANT EXECUTE ON FUNCTION wims.get_first_region_id() TO wims_app"))
+
+    _select_policy = (
+        " USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST')"
+        " OR (wims.current_user_role() IN ('REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')"
+        " AND region_id = wims.current_user_region_id()))"
+    )
+    _cities_select_policy = (
+        " USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST')"
+        " OR (wims.current_user_role() IN ('REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')"
+        " AND province_id IN (SELECT province_id FROM wims.ref_provinces"
+        " WHERE region_id = wims.current_user_region_id())))"
+    )
+    _write_policy = (
+        " USING (wims.current_user_role() = 'SYSTEM_ADMIN')"
+        " WITH CHECK (wims.current_user_role() = 'SYSTEM_ADMIN')"
     )
 
-    db.execute(text("DROP POLICY IF EXISTS ref_provinces_select ON wims.ref_provinces"))
-    db.execute(
-        text(f"""
-            CREATE POLICY ref_provinces_select ON wims.ref_provinces FOR SELECT USING (
-                wims.current_user_role() IN {full_access_roles}
-                OR region_id = wims.current_user_region_id()
-            )
-        """)
-    )
-
-    db.execute(text("DROP POLICY IF EXISTS ref_cities_select ON wims.ref_cities"))
-    db.execute(
-        text(f"""
-            CREATE POLICY ref_cities_select ON wims.ref_cities FOR SELECT USING (
-                wims.current_user_role() IN {full_access_roles}
-                OR province_id IN (
-                    SELECT province_id FROM wims.ref_provinces
-                    WHERE region_id = wims.current_user_region_id()
-                )
-            )
-        """)
-    )
+    for table, select_pol, write_pol, select_using in (
+        ("wims.ref_regions", "ref_regions_select", "ref_regions_write", _select_policy),
+        ("wims.ref_provinces", "ref_provinces_select", "ref_provinces_write", _select_policy),
+        ("wims.ref_cities", "ref_cities_select", "ref_cities_write", _cities_select_policy),
+    ):
+        db.execute(text(f"DROP POLICY IF EXISTS {select_pol} ON {table}"))
+        db.execute(text(f"CREATE POLICY {select_pol} ON {table} FOR SELECT{select_using}"))
+        db.execute(text(f"DROP POLICY IF EXISTS {write_pol} ON {table}"))
+        db.execute(text(f"CREATE POLICY {write_pol} ON {table} FOR ALL{_write_policy}"))
 
 
 def _apply_analytics_facts_rls(db) -> None:  # type: ignore[type-arg]

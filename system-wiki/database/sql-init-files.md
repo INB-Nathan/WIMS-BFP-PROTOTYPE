@@ -346,6 +346,27 @@ Adds `hitl_decision JSONB` column to `wims.security_threat_logs`. Stores HITL de
 
 **Idempotent:** YES (`DROP COLUMN IF EXISTS`).
 
+### `42_ref_table_rls.sql`
+
+**Purpose:** Enable RLS on reference geography tables (FRS M15 initial policy).
+
+- `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` + `FORCE ROW LEVEL SECURITY` on `wims.ref_regions`, `wims.ref_provinces`, `wims.ref_cities`
+- **SELECT policies:** REGIONAL_ENCODER sees only their assigned region; NATIONAL_VALIDATOR, NATIONAL_ANALYST, and SYSTEM_ADMIN see all
+- `ref_cities` has no direct `region_id` — scoped via `province_id IN (SELECT ... FROM wims.ref_provinces WHERE region_id = ...)`
+- No write policies (default-deny)
+- `ref_fire_stations` intentionally excluded (public emergency reference)
+
+### `53_ref_table_rls.sql`
+
+**Purpose:** M15 region-scoped RLS revision — replace migration 42 policies with correct FRS M15 vi scoping and add SECURITY DEFINER fallback helper for `public_dmz`.
+
+**Key changes from 42:**
+- **NATIONAL_VALIDATOR scoped to assigned region:** prior migration 42 included NATIONAL_VALIDATOR in the global `IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'NATIONAL_VALIDATOR')` set; M15 vi requires regional roles (REGIONAL_ENCODER, NATIONAL_VALIDATOR) to see only their assigned region. Both are now in the region-matched OR branch.
+- **SYSTEM_ADMIN write policies:** `FOR ALL` policies with `USING (wims.current_user_role() = 'SYSTEM_ADMIN')` and corresponding `WITH CHECK` — seed rows use superuser; no runtime application code writes to ref tables.
+- **SECURITY DEFINER helper `wims.get_first_region_id()`:** bypasses RLS for the `public_dmz.py` unauthenticated fallback path where no user GUC is set. Runs as function owner (superuser), `SET search_path = wims, pg_temp`, granted only to `wims_app`.
+- **Startup patch:** `main.py:_apply_ref_table_rls()` mirrors this migration to prevent startup reversion.
+- **Idempotent:** YES (`CREATE OR REPLACE` helper, `DROP POLICY IF EXISTS`).
+
 ---
 
 ## RLS Policy Summary
@@ -362,4 +383,5 @@ The RLS system uses a GUC-based approach:
 - Admins have unrestricted access
 - Unauthenticated (ANONYMOUS) is denied by COALESCE in current_user_role()
 - Immutable records use PostgreSQL RULES (not RLS) to block UPDATE/DELETE on VERIFIED
-- Reference tables (ref_regions, ref_provinces, ref_cities): REGIONAL_ENCODER sees only their assigned region; NATIONAL_VALIDATOR, NATIONAL_ANALYST, and SYSTEM_ADMIN see all (via 42_ref_table_rls.sql)
+- Reference tables (ref_regions, ref_provinces, ref_cities) — FRS M15 vi: REGIONAL_ENCODER and NATIONAL_VALIDATOR see only their assigned region; NATIONAL_ANALYST and SYSTEM_ADMIN see all (migration 53, supersedes 42). System admin write policies via `FOR ALL`. SECURITY DEFINER helper `wims.get_first_region_id()` enables unauthenticated `public_dmz` no-GUC fallback without globally readable geography.
+- `ref_fire_stations` intentionally excluded from RLS (public emergency reference).
