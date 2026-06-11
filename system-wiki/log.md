@@ -98,6 +98,15 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Gap register updated: #167 CLOSED, M9a extended note added.
 - PWA sync counters deferred per issue ("optional for prototype").
 
+## [2026-06-12] feat | GH #160 M8 — behavioral anomaly detection engine
+
+- `src/postgres-init/57_anomaly_detections.sql`: new table `wims.anomaly_detections` (BIGSERIAL PK, anomaly_type, subject_user_id FK users NULLABLE, severity CHECK LOW/MEDIUM/HIGH/CRITICAL, details JSONB, detected_at TIMESTAMPTZ, status CHECK NEW/ACKNOWLEDGED/RESOLVED, UNIQUE(anomaly_type, dedup_key)). RLS: SELECT/UPDATE SYSTEM_ADMIN; INSERT WITH CHECK SYSTEM_ADMIN (covers SYSTEM_TASK_USER_ID = svc_task).
+- `src/backend/tasks/anomaly_detection.py`: Celery beat task `detect_behavioral_anomalies` (60s). Four detectors on `wims.system_audit_trails` via SQL windows: BULK_DELETE (>10 delete-class actions per user in 5-min window, HIGH), OFF_HOURS (high-sensitivity actions outside 06:00–21:59 Asia/Manila, MEDIUM), PRIVILEGE_ESCALATION (ROLE_CHANGE_TO_*SYSTEM_ADMIN* events, HIGH), RAPID_IP_SWITCH (≥2 distinct IPs per user in 10-min window, MEDIUM). `_write_anomaly()` helper: INSERT anomaly_detections ON CONFLICT (anomaly_type, dedup_key) DO NOTHING RETURNING anomaly_id; only on new row (rowcount > 0) also INSERTs into `wims.security_threat_logs` (suricata_sid=NULL) so anomalies surface in existing Threat Telemetry UI without new frontend work. Session: `get_session(SYSTEM_TASK_USER_ID)` — svc_task has SYSTEM_ADMIN role, satisfying both RLS policies.
+- `src/backend/celery_config.py`: `tasks.anomaly_detection` added to `conf.imports`; `detect-behavioral-anomalies` beat entry at 60s.
+- `src/backend/tests/test_anomaly_detection.py`: 21 unit tests (mock DB). Per-detector behavioral tests: threshold boundaries (10 no, 11 yes; 1 IP no, 2 yes), correct type/severity/dedup_key/source_ip; dedup (second write → no threat-log insert); dual-write (new insert → threat-log written with anomaly_type in payload); task-level commit/rollback/count tracking.
+- Deferred: Suspicious Query Patterns (needs `pg_stat_statements`, not enabled); geo Impossible Travel (needs IP geolocation database, not in-stack — RAPID_IP_SWITCH ships as proxy). Both documented in gap register.
+- Gap register updated: M8 anomaly detection CLOSED for 4 detectors + 2 deferrals noted.
+
 ## [2026-06-11] fix | OpenBao token-file mounting for backend/celery
 
 - `src/openbao/init/bootstrap-openbao.sh`: after writing the `wims-app` policy, bootstrap now verifies any existing app token or creates a replacement policy-scoped orphan service token and persists the token value to `/vault/file/.wims-app-token` without logging it. This regenerates app auth after an OpenBao volume reset while avoiding token churn on normal restarts.
