@@ -9,7 +9,7 @@
  *   it delegates to the page rather than POSTing directly.
  */
 
-const CACHE_NAME = 'wims-bfp-cache-v4';
+const CACHE_NAME = 'wims-bfp-cache-v5';
 const SYNC_TAG = 'sync-pending-incidents';
 const APP_SHELL = '/dashboard';
 const OFFLINE_HTML = `<!doctype html>
@@ -28,6 +28,8 @@ const urlsToCache = [
   '/',
   '/dashboard',
   '/login',
+  '/afor/create',
+  '/afor/import',
   '/manifest.webmanifest',
 ];
 

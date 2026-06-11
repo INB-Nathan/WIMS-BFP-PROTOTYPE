@@ -140,14 +140,14 @@ export default function RegionalDashboardPage() {
     if (!isOnline) setShowStats(false);
   }, [isOnline]);
 
-  // Pre-cache the JS chunks for offline-capable routes while we're online.
-  // Without this, client-side navigation to /afor/create while offline fails
-  // because Next.js can't fetch the route's JS bundle from the server.
+  // Pre-cache the RSC payload and JS chunks for offline-capable routes.
+  // Fires on mount unconditionally — router.prefetch silently fails when offline,
+  // so no guard needed. Firing early (not waiting for isOnline state) avoids the
+  // race condition where the user goes offline before the health probe resolves.
   useEffect(() => {
-    if (!isOnline) return;
     router.prefetch('/afor/create');
     router.prefetch('/afor/import');
-  }, [isOnline, router]);
+  }, [router]); // router is stable — this runs once on mount
   const toggleStats = () => {
     setShowStats((prev) => {
       const next = !prev;
