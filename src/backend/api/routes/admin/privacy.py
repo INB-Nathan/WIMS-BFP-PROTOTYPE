@@ -315,7 +315,7 @@ def anonymize_subject(
                     "caller_name = NULL, caller_number = NULL, "
                     "owner_name = NULL, occupant_name = NULL, "
                     "pii_blob_enc = NULL, encryption_iv = NULL, "
-                    "kms_key_name = NULL "
+                    "kms_key_name = NULL, crypto_provider = NULL, key_version = NULL "
                     "WHERE incident_id = :iid"
                 ),
                 {"iid": incident_id},

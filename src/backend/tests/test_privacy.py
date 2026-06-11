@@ -280,6 +280,74 @@ class TestExportReportSubject:
         assert "pii_blob_enc" not in sd
         assert "encryption_iv" not in sd
 
+    def test_export_after_anonymize_returns_no_pii(self, client: TestClient):
+        """Export after anonymization: witness/report data present but zero caller/owner/occupant PII.
+
+        Simulates the post-anonymize state: pii_blob_enc IS NULL, plaintext PII columns NULL.
+        _decrypt_sensitive_details must short-circuit (blob falsy) — no decrypt_json call,
+        no injected PII fields, no error.
+        """
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_admin
+        mock_db = _make_db()
+
+        # Anonymized sensitive row: blob and plaintext PII all NULL, crypto_provider NULL
+        anonymized_sd = MagicMock()
+        anonymized_sd._mapping = {
+            "incident_id": _INCIDENT_ID,
+            "caller_name": None,
+            "caller_number": None,
+            "owner_name": None,
+            "occupant_name": None,
+            "narrative_report": None,
+            "street_address": "123 Rizal St",
+            "landmark": "Near BFP Station",
+            "prepared_by_officer": "Officer A",
+            "noted_by_officer": "Officer B",
+            "remarks": None,
+            "pii_blob_enc": None,  # <-- anonymized: blob cleared
+            "encryption_iv": None,
+            "crypto_provider": None,  # <-- also cleared
+            "kms_key_name": None,
+            "key_version": None,
+        }
+
+        mock_db.execute.side_effect = [
+            MagicMock(
+                fetchone=lambda: _report_row(status="ACTIONED", verified_incident_id=_INCIDENT_ID)
+            ),
+            MagicMock(fetchone=lambda: anonymized_sd),
+            MagicMock(fetchall=lambda: _consent_rows()),
+            MagicMock(),  # audit INSERT
+        ]
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        # get_crypto_provider must NOT be called when pii_blob_enc is None
+        with patch("api.routes.admin.privacy.get_crypto_provider") as mock_provider:
+            resp = client.get(
+                f"/api/admin/privacy/export?subject_type=REPORT&subject_id={_REPORT_ID}"
+            )
+
+        assert resp.status_code == 200
+        mock_provider.assert_not_called()  # short-circuit confirmed
+
+        body = resp.json()
+        assert body["citizen_report"] is not None  # report-level data still present
+        sd = body["incident_sensitive_details"]
+        assert sd is not None  # SD row returned (structural data intact)
+        # All PII fields must be absent or None — no injection happened
+        assert sd.get("caller_name") is None
+        assert sd.get("caller_number") is None
+        assert sd.get("owner_name") is None
+        assert sd.get("occupant_name") is None
+        # Blob columns must be stripped from response
+        assert "pii_blob_enc" not in sd
+        assert "encryption_iv" not in sd
+        assert "crypto_provider" not in sd
+
 
 # ---------------------------------------------------------------------------
 # Anonymize — user subject
