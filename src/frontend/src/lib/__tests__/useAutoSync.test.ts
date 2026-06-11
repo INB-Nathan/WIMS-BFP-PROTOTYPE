@@ -53,7 +53,7 @@ import { useUserProfile } from '../auth';
 import { toast } from 'sonner';
 
 const ENCODER_ID = 'test-encoder-uuid';
-const OK_RESULT: SyncResult = { synced: 0, conflicts: 0, failed: 0, errors: [] };
+const OK_RESULT: SyncResult = { synced: 0, conflicts: 0, failed: 0, errors: [], syncedIncidents: [] };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -229,7 +229,7 @@ describe('useAutoSync', () => {
 
   it('fires no toast when nothing to sync', async () => {
     vi.mocked(syncPendingIncidents).mockResolvedValue({
-      synced: 0, conflicts: 0, failed: 0, errors: [],
+      synced: 0, conflicts: 0, failed: 0, errors: [], syncedIncidents: [],
     });
 
     const { result } = renderHook(() => useAutoSync());

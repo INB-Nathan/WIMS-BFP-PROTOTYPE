@@ -40,12 +40,19 @@ export interface SyncError {
   error?: string;
 }
 
+export interface SyncedIncidentSummary {
+  serverId: number;
+  category: string;
+  location: string;
+}
+
 export interface SyncResult {
   synced: number;
   conflicts: number;
   failed: number;
   errors: SyncError[];
   abortReason?: 'auth' | 'offline';
+  syncedIncidents?: SyncedIncidentSummary[];
 }
 
 type AuthCheckResult = 'authenticated' | 'auth' | 'offline';
@@ -215,23 +222,24 @@ async function processDelete(
  */
 export async function syncPendingIncidents(encoderId: string): Promise<SyncResult> {
   if (!(await isReachable())) {
-    return { synced: 0, conflicts: 0, failed: 0, errors: [], abortReason: 'offline' };
+    return { synced: 0, conflicts: 0, failed: 0, errors: [], syncedIncidents: [], abortReason: 'offline' };
   }
 
   const ops = await getPendingOps(encoderId);
   if (ops.length === 0) {
-    return { synced: 0, conflicts: 0, failed: 0, errors: [] };
+    return { synced: 0, conflicts: 0, failed: 0, errors: [], syncedIncidents: [] };
   }
 
   const authResult = await ensureAuthenticatedForSync();
   if (!authResult.ok) {
-    return { synced: 0, conflicts: 0, failed: 0, errors: [], abortReason: authResult.reason };
+    return { synced: 0, conflicts: 0, failed: 0, errors: [], syncedIncidents: [], abortReason: authResult.reason };
   }
 
   let synced = 0;
   let conflicts = 0;
   let failed = 0;
   const errors: SyncError[] = [];
+  const syncedIncidents: SyncedIncidentSummary[] = [];
   // Map from localId → serverId for create ops that succeed during this batch.
   // Needed so linked submit/update ops can resolve their serverId.
   const syncedServerIds = new Map<string, number>();
@@ -261,6 +269,12 @@ export async function syncPendingIncidents(encoderId: string): Promise<SyncResul
       if (op.operation === 'create' && result.serverId) {
         // Cache the created incident so dashboard shows it offline immediately
         await cacheIncident(result.serverId, op.payload, encoderId);
+        const ns = (op.payload?.incident_nonsensitive_details as Record<string, unknown>) ?? op.payload ?? {};
+        syncedIncidents.push({
+          serverId: result.serverId,
+          category: (ns.general_category || ns.classification_of_involved || '') as string,
+          location: (ns.incident_address || ns.street_address || '') as string,
+        });
       }
       synced++;
     } else if (result.conflictCode) {
@@ -281,7 +295,7 @@ export async function syncPendingIncidents(encoderId: string): Promise<SyncResul
     } else if (result.status === 401) {
       await markOpPending(op.localId, 'Session expired before this operation could sync.');
       errors.push({ localId: op.localId, operation: op.operation, status: 401, error: result.error ?? 'Session expired' });
-      return { synced, conflicts, failed, errors, abortReason: 'auth' };
+      return { synced, conflicts, failed, errors, syncedIncidents, abortReason: 'auth' };
     } else {
       const errorCode = result.status === 403 ? '403' : result.status ? '4xx' : 'network';
       await markOpError(op.localId, errorCode, result.error ?? `HTTP ${result.status}`);
@@ -296,5 +310,5 @@ export async function syncPendingIncidents(encoderId: string): Promise<SyncResul
     await evictStaleCachedIncidents(encoderId);
   }
 
-  return { synced, conflicts, failed, errors };
+  return { synced, conflicts, failed, errors, syncedIncidents };
 }

@@ -941,6 +941,18 @@ export function IncidentForm({
       }, 100);
       return;
     }
+
+    // Classification must have a matching type selected; auto-filled or blank types are rejected.
+    if (formState.classification_of_involved && (!formState.type_of_involved_general_category || !incidentTypeCode)) {
+      setFieldErrors(new Set(['type_of_involved_general_category']));
+      showToast('Please select a valid type for the classification of involved before saving.');
+      setTimeout(() => {
+        const el = document.querySelector('[data-field-error="true"]');
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+      return;
+    }
+
     setLoading(true);
     const fs = formState as Record<string, unknown>;
     const alarmEntry = (key: string) => {

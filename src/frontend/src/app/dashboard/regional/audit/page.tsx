@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/api';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import { WifiOff } from 'lucide-react';
 
 interface EncoderAuditEntry {
   history_id: number;
@@ -43,6 +45,7 @@ const ACTION_LABEL_MAP: Record<string, string> = {
 const PAGE_SIZE = 15;
 
 export default function EncoderAuditPage() {
+  const { isOnline, isChecking } = useNetworkStatus();
   const [items, setItems] = useState<EncoderAuditEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
@@ -77,10 +80,30 @@ export default function EncoderAuditPage() {
   }, [dateFrom, dateTo, actionFilter, cityFilter, page]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (isOnline) load();
+  }, [load, isOnline]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  if (!isChecking && !isOnline) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 text-center p-8">
+        <WifiOff className="w-12 h-12 text-gray-300" />
+        <h2 className="text-lg font-semibold text-gray-600">Activity Log Unavailable Offline</h2>
+        <p className="text-sm text-gray-400 max-w-xs">
+          Your activity log is stored on the server and requires a live connection to display.
+          Connect to the network to view your history.
+        </p>
+        <Link
+          href="/dashboard/regional"
+          className="text-sm font-medium px-4 py-2 rounded-lg text-white"
+          style={{ backgroundColor: 'var(--bfp-maroon)' }}
+        >
+          ← Back to Dashboard
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-5xl mx-auto">

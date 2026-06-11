@@ -10,7 +10,9 @@ import {
 import { apiFetch, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
 import { fetchRegionalIncidentsOfflineAware } from '@/lib/api/offlineRegional';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import { getConnectivitySnapshot } from '@/lib/connectivity';
 import { getPendingOps, getCachedIncidents, type OfflineOpDecrypted } from '@/lib/offlineStore';
+import { type SyncedIncidentSummary } from '@/lib/useAutoSync';
 import Link from 'next/link';
 import {
   REGIONAL_INCIDENT_GENERAL_CATEGORIES,
@@ -124,6 +126,7 @@ export default function RegionalDashboardPage() {
   const [cachedAt, setCachedAt] = useState<number | undefined>();
   const [queuedOps, setQueuedOps] = useState<OfflineOpDecrypted[]>([]);
   const [cachedDetailIds, setCachedDetailIds] = useState<Set<number>>(new Set());
+  const [syncNotification, setSyncNotification] = useState<SyncedIncidentSummary[] | null>(null);
 
   // Stats visibility — persisted so the user's preference survives page reload.
   // Auto-collapsed when offline (stats can't refresh and would be misleading).
@@ -136,6 +139,15 @@ export default function RegionalDashboardPage() {
   useEffect(() => {
     if (!isOnline) setShowStats(false);
   }, [isOnline]);
+
+  // Pre-cache the JS chunks for offline-capable routes while we're online.
+  // Without this, client-side navigation to /afor/create while offline fails
+  // because Next.js can't fetch the route's JS bundle from the server.
+  useEffect(() => {
+    if (!isOnline) return;
+    router.prefetch('/afor/create');
+    router.prefetch('/afor/import');
+  }, [isOnline, router]);
   const toggleStats = () => {
     setShowStats((prev) => {
       const next = !prev;
@@ -246,7 +258,8 @@ export default function RegionalDashboardPage() {
         },
         encoderId,
       );
-      setIncidents(data.items ?? []);
+      const freshItems = data.items ?? [];
+      setIncidents(freshItems);
       setIncidentsTotal(typeof data.total === 'number' ? data.total : 0);
       setIsFromCache(fromCache);
       setCachedAt(cAt);
@@ -262,11 +275,17 @@ export default function RegionalDashboardPage() {
         setCachedDetailIds(new Set());
       }
 
-      // Always surface queued create ops — online or offline — so the encoder
-      // can see incidents awaiting sync right in the main list.
+      // Surface pending create ops. Cross-reference against the current incident list
+      // to avoid showing duplicate cards when an op's server incident is already cached
+      // (e.g. sync succeeded but the op status wasn't flushed before going offline).
       if (encoderId) {
+        const serverIds = new Set(freshItems.map((i) => i.incident_id));
         const ops = await getPendingOps(encoderId);
-        setQueuedOps(ops.filter((op) => op.operation === 'create' && op.syncStatus !== 'synced'));
+        setQueuedOps(ops.filter((op) => {
+          if (op.operation !== 'create' || op.syncStatus === 'synced') return false;
+          if (op.serverId !== null && serverIds.has(op.serverId)) return false;
+          return true;
+        }));
       } else {
         setQueuedOps([]);
       }
@@ -291,11 +310,26 @@ export default function RegionalDashboardPage() {
     }
   }, [canAccessRegional, loadIncidents, isOnline]);
 
+  // Listen for sync-complete events dispatched by useAutoSync after a successful reconnect sync.
+  // Shows a modal listing which incidents were synced so the encoder can acknowledge.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { incidents } = (e as CustomEvent<{ incidents: SyncedIncidentSummary[] }>).detail;
+      if (incidents.length > 0) {
+        setSyncNotification(incidents);
+        loadIncidents();
+      }
+    };
+    window.addEventListener('wims:sync-complete', handler);
+    return () => window.removeEventListener('wims:sync-complete', handler);
+  }, [loadIncidents]);
+
   // Background poll: detect when a PENDING submission is actioned by a validator.
   // Compares the PENDING total every 20 s; if it drops, something was resolved.
   useEffect(() => {
     if (!canAccessRegional) return;
     const checkPending = async () => {
+      if (!getConnectivitySnapshot().isOnline) return;
       try {
         const data = await apiFetch<{ total: number }>(`/regional/incidents?status=PENDING&limit=1&offset=0`);
         if (
@@ -507,6 +541,49 @@ export default function RegionalDashboardPage() {
 
   return (
     <div className="space-y-6 pb-8" style={{ backgroundColor: 'var(--content-bg)' }}>
+
+      {/* ── Sync notification modal ── */}
+      {syncNotification && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md rounded-2xl bg-white shadow-2xl">
+            <div className="border-b border-gray-100 px-6 py-4">
+              <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+                Incidents Synced
+              </h2>
+              <p className="mt-0.5 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                The following {syncNotification.length === 1 ? 'incident was' : 'incidents were'} successfully synced while you were offline.
+              </p>
+            </div>
+            <ul className="max-h-60 divide-y divide-gray-100 overflow-y-auto px-6 py-2">
+              {syncNotification.map((inc) => (
+                <li key={inc.serverId} className="flex items-center justify-between gap-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                      {formatClassification(inc.category) || 'Incident'}
+                    </p>
+                    {inc.location && (
+                      <p className="mt-0.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{inc.location}</p>
+                    )}
+                  </div>
+                  <span className="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                    #{inc.serverId}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="border-t border-gray-100 px-6 py-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSyncNotification(null)}
+                className="rounded-lg px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-900"
+                style={{ backgroundColor: '#991B1B' }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Archive error banner ── */}
       {archiveError && (

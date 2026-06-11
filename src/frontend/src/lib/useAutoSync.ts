@@ -13,10 +13,12 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNetworkStatus } from './useNetworkStatus';
-import { syncPendingIncidents, type SyncResult } from './syncEngine';
+import { syncPendingIncidents, type SyncResult, type SyncedIncidentSummary } from './syncEngine';
 import { getPendingOpsCount, recoverStaleSyncingOps } from './offlineStore';
 import { useUserProfile } from './auth';
 import { toast } from 'sonner';
+
+export type { SyncedIncidentSummary };
 
 export interface AutoSyncState {
   syncing: boolean;
@@ -85,6 +87,10 @@ export function useAutoSync(): AutoSyncState {
 
       if (result.synced > 0 && result.failed === 0 && result.conflicts === 0) {
         toast.success(`Synced ${result.synced} incident${result.synced === 1 ? '' : 's'}`);
+        window.dispatchEvent(new CustomEvent<{ incidents: SyncedIncidentSummary[] }>(
+          'wims:sync-complete',
+          { detail: { incidents: result.syncedIncidents ?? [] } },
+        ));
       } else if (result.conflicts > 0) {
         toast.warning(
           `Synced ${result.synced}. ${result.conflicts} item${result.conflicts === 1 ? '' : 's'} need your attention.`,
