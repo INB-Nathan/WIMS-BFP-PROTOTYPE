@@ -75,11 +75,9 @@ if [ "${INITIALIZED}" = "false" ]; then
   INIT_OUTPUT=$(bao operator init -key-shares=1 -key-threshold=1 -format=json)
 
   # Extract secrets *without* printing them.
-  # JSON is pretty-printed — collapse to one line first so grep can
-  # match across line boundaries.
-  _FLAT=$(echo "${INIT_OUTPUT}" | tr -d '\n')
-  UNSEAL_KEY=$(echo "${_FLAT}" | grep -o '"unseal_keys_b64"[[:space:]]*:[[:space:]]*\["[^"]*"' | sed 's/.*\["//;s/"//')
-  ROOT_TOKEN=$(echo "${_FLAT}" | grep -o '"root_token"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*":[[:space:]]*"//;s/"//')
+  # grep -A1 gets the array element on the next line; tail + sed extract the value.
+  UNSEAL_KEY=$(echo "${INIT_OUTPUT}" | grep -A1 '"unseal_keys_b64"' | tail -1 | sed 's/.*"\(.*\)".*/\1/')
+  ROOT_TOKEN=$(echo "${INIT_OUTPUT}" | grep '"root_token"' | sed 's/.*"root_token"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/')
 
   if [ -z "${UNSEAL_KEY}" ] || [ -z "${ROOT_TOKEN}" ]; then
     echo "ERROR: Failed to parse init output — root token or unseal key missing" >&2
