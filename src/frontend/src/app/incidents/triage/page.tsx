@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AlertTriangle, CheckCircle, ClipboardList, Clock, Filter, Loader2, Lock, MapPin, RefreshCw, ShieldCheck, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle, ClipboardList, Clock, Filter, Loader2, RefreshCw, ShieldCheck, XCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { ClusterInspectionMap } from '@/components/ClusterInspectionMap';
 import {
@@ -93,7 +93,7 @@ export default function TriagePage() {
   const [mergeNote, setMergeNote] = useState('');
   const [mergeCandidates, setMergeCandidates] = useState<MergeCandidateEntry[]>([]);
   const [activity, setActivity] = useState<TriageClusterActivityEntry[]>([]);
-  const [lastPolled, setLastPolled] = useState<Date>(new Date());
+  const [lastPolled, setLastPolled] = useState<Date | null>(null);
 
   const canAccess =
     role === 'ENCODER' ||
@@ -129,6 +129,9 @@ export default function TriagePage() {
     }
   }, [filterParams, openCluster]);
 
+  const loadQueueRef = useRef(loadQueue);
+  loadQueueRef.current = loadQueue;
+
   useEffect(() => {
     if (!authLoading && !canAccess) router.push('/dashboard');
   }, [authLoading, canAccess, router]);
@@ -142,10 +145,10 @@ export default function TriagePage() {
   useEffect(() => {
     if (!canAccess || authLoading) return;
     const interval = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void loadQueue();
+      if (document.visibilityState === 'visible') void loadQueueRef.current();
     }, 30000);
     return () => window.clearInterval(interval);
-  }, [authLoading, canAccess, loadQueue]);
+  }, [authLoading, canAccess]);
 
   // Keyboard navigation — safe when focus is not in input/textarea/select
   useEffect(() => {
@@ -308,13 +311,6 @@ export default function TriagePage() {
     }
   }
 
-  function recommendation(cluster: TriageClusterEntry) {
-    if (cluster.has_life_safety) return 'Review immediately; advise emergency escalation.';
-    if (cluster.is_timeout_risk) return 'Resolve before timeout window closes.';
-    if (cluster.related_count > 0) return 'Inspect related reports before deciding.';
-    return 'Review as a singleton civilian signal.';
-  }
-
   // Split queue into clusters and singletons
   const clusters = useMemo(() => {
     if (!queue) return [];
@@ -404,7 +400,7 @@ export default function TriagePage() {
       <div className="flex items-center gap-6 text-sm text-gray-600 py-2 border-b">
         <span>Clusters: <strong>{sortedClusters.length}</strong></span>
         <span>Individual reports: <strong>{filteredSingletons.length}</strong></span>
-        <span>Polled {lastPolled.toLocaleTimeString()}</span>
+        {lastPolled && <span>Polled {lastPolled.toLocaleTimeString()}</span>}
       </div>
 
       {/* Clusters table */}
@@ -448,10 +444,11 @@ export default function TriagePage() {
                       {cluster.has_life_safety && <AlertTriangle className="h-4 w-4 text-red-700" />}
                     </td>
                     <td className="px-3 py-3">
-                      {cluster.is_timeout_risk && <Clock className="h-4 w-4 text-amber-700" />}
+                      {cluster.is_danger && <span className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-red-100 px-2 py-1 text-xs font-bold text-red-800 animate-pulse"><AlertTriangle className="h-3 w-3" />2h+</span>}
+                      {!cluster.is_danger && cluster.is_timeout_risk && <Clock className="h-4 w-4 text-amber-700" />}
                     </td>
                     <td className="px-3 py-3">{cluster.assigned_to ?? '—'}</td>
-                    <td className="px-3 py-3">{cluster.member_count}</td>
+                    <td className="px-3 py-3">{cluster.member_count}{cluster.related_count > 0 ? ` (+${cluster.related_count} related)` : ''}</td>
                     <td className="px-3 py-3">{Math.round(cluster.avg_trust)}</td>
                     <td className="px-3 py-3">{cluster.station.name ?? 'N/A'}</td>
                     <td className="px-3 py-3 text-xs text-slate-500">{new Date(cluster.oldest_report_at).toLocaleString()}</td>
@@ -508,7 +505,8 @@ export default function TriagePage() {
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {filteredSingletons.map((singleton) => {
-                  const report = singleton.reports[0];
+                  const report = singleton.reports?.[0];
+                  if (!report) return null;
                   const terminalStatus = isTerminal(report.status);
                   return (
                     <tr key={singleton.anchor_report_id ?? report.report_id}>
@@ -520,7 +518,8 @@ export default function TriagePage() {
                         {singleton.has_life_safety && <AlertTriangle className="h-4 w-4 text-red-700" />}
                       </td>
                       <td className="px-3 py-3">
-                        {singleton.is_timeout_risk && <Clock className="h-4 w-4 text-amber-700" />}
+                        {singleton.is_danger && <span className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-red-100 px-2 py-1 text-xs font-bold text-red-800 animate-pulse"><AlertTriangle className="h-3 w-3" />2h+</span>}
+                        {!singleton.is_danger && singleton.is_timeout_risk && <Clock className="h-4 w-4 text-amber-700" />}
                       </td>
                       <td className="px-3 py-3 text-xs">{report.status}</td>
                       <td className="px-3 py-3 text-xs">{report.category ?? 'N/A'} / {report.sub_category ?? 'none'}</td>

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import type {
@@ -10,7 +10,7 @@ import type {
 vi.mock('@/lib/api', () => {
   const mockQueue: TriageQueueResponse = {
     polled_at: '2026-05-20T10:00:00Z',
-    total_reports: 2,
+    total_reports: 3,
     clusters: [
       {
         cluster_id: 1,
@@ -85,6 +85,52 @@ vi.mock('@/lib/api', () => {
           },
         ],
       },
+      {
+        cluster_id: null as unknown as number,
+        anchor_report_id: 20,
+        cluster_status: 'SINGLETON' as TriageClusterEntry['cluster_status'],
+        assigned_to: null,
+        review_started_at: null,
+        member_count: 1,
+        has_life_safety: false,
+        severity: 'MEDIUM',
+        avg_trust: 0.5,
+        oldest_report_at: '2026-05-20T09:30:00Z',
+        is_aging: false,
+        is_timeout_risk: false,
+        is_danger: false,
+        related_count: 0,
+        station: { name: 'BFP Quezon City', distance_m: 1200, phone_available: true },
+        reports: [
+          {
+            report_id: 20,
+            latitude: 14.6500,
+            longitude: 121.0500,
+            category: 'STRUCTURAL',
+            sub_category: 'COLLAPSE',
+            reporting_context: 'WITNESS',
+            safety_status: 'SAFE',
+            status: 'PENDING',
+            status_explanation: null,
+            trust_breakdown: {
+              score: 50,
+              included_signals: ['WITNESS'],
+              missing_signals: ['STRUCTURAL'],
+              gps_mismatch: false,
+              duplicate_device_count_30m: 0,
+            },
+            severity: 'MEDIUM',
+            related_count: 0,
+            linked_count: 0,
+            created_at: '2026-05-20T09:30:00Z',
+            reported_at: '2026-05-20T09:30:00Z',
+            is_aging: false,
+            is_timeout_risk: false,
+            previous_report_id: null,
+            station: { name: 'BFP Quezon City', distance_m: 1200, phone_available: true },
+          },
+        ],
+      },
     ],
   };
 
@@ -98,7 +144,7 @@ vi.mock('@/lib/api', () => {
     fetchMergeCandidates: vi.fn().mockResolvedValue([
       {
         cluster_id: 99,
-        anchor_report_id: 20,
+        anchor_report_id: 30,
         distance_m: 87.5,
         minutes_apart: 12.3,
         status: 'CLUSTER_MONITORING',
@@ -109,11 +155,13 @@ vi.mock('@/lib/api', () => {
   };
 });
 
+const mockUseAuth = vi.fn(() => ({
+  user: { keycloak_id: 'test-id', username: 'validator1', role: 'NATIONAL_VALIDATOR' as string },
+  loading: false,
+}));
+
 vi.mock('@/context/AuthContext', () => ({
-  useAuth: () => ({
-    user: { keycloak_id: 'test-id', username: 'validator1', role: 'NATIONAL_VALIDATOR' },
-    loading: false,
-  }),
+  useAuth: () => mockUseAuth(),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -132,49 +180,77 @@ vi.mock('next/image', () => ({
 describe('TriagePage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseAuth.mockImplementation(() => ({
+      user: { keycloak_id: 'test-id', username: 'validator1', role: 'NATIONAL_VALIDATOR' },
+      loading: false,
+    }));
     window.history.pushState({}, '', '/incidents/triage');
   });
 
-  it('renders clusters table with cluster rows', async () => {
+  it('renders clusters table with cluster row data', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
     await waitFor(() => {
-      expect(screen.getByTestId('clusters-table')).toBeDefined();
+      expect(screen.getByTestId('clusters-table')).toBeInTheDocument();
     });
-    expect(screen.getByText('Clusters')).toBeDefined();
-    expect(screen.getByText('HIGH')).toBeDefined();
+    expect(screen.getByText('Clusters')).toBeInTheDocument();
+    expect(screen.getByText('HIGH')).toBeInTheDocument();
   });
 
-  it('renders metrics bar with counts and polled time', async () => {
+  it('renders metrics bar with correct counts and polled time', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
     await waitFor(() => {
-      expect(screen.getByText(/Clusters:/)).toBeDefined();
+      expect(screen.getByText('Clusters:')).toBeInTheDocument();
     });
-    expect(screen.getByText(/Individual reports:/)).toBeDefined();
-    expect(screen.getByText(/Polled/)).toBeDefined();
+    expect(screen.getByText('Individual reports:')).toBeInTheDocument();
+    // Verify count values via the <strong> elements
+    const strongs = screen.getAllByText(/^[0-9]+$/);
+    expect(strongs.length).toBeGreaterThanOrEqual(2);
+    expect(strongs[0].textContent).toBe('1'); // Clusters count
+    expect(strongs[1].textContent).toBe('1'); // Individual reports count
+    expect(screen.getByText(/Polled/)).toBeInTheDocument();
   });
 
   it('renders both clusters and singletons tables', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
     await waitFor(() => {
-      expect(screen.getByTestId('clusters-table')).toBeDefined();
-      expect(screen.getByTestId('singletons-table')).toBeDefined();
+      expect(screen.getByTestId('clusters-table')).toBeInTheDocument();
+      expect(screen.getByTestId('singletons-table')).toBeInTheDocument();
+    });
+    // Singleton table renders the singleton row data
+    expect(screen.getByText('MEDIUM')).toBeInTheDocument();
+    expect(screen.getByText(/COLLAPSE/)).toBeInTheDocument();
+  });
+
+  it('shows Inspect on singleton and opens singleton-mode modal', async () => {
+    const { default: TriagePage } = await import('./page');
+    render(<TriagePage />);
+    await waitFor(() => {
+      expect(screen.getByTestId('singletons-table')).toBeInTheDocument();
+    });
+    // Singleton row should have Inspect button (PENDING status = non-terminal)
+    const inspectBtns = screen.getAllByRole('button', { name: 'Inspect' });
+    // First Inspect is cluster, second is singleton
+    const singletonInspect = inspectBtns[inspectBtns.length - 1];
+    await userEvent.click(singletonInspect);
+    await waitFor(() => {
+      // Singleton modal shows "Singleton report" title, not "Cluster N"
+      expect(screen.getByText('Singleton report')).toBeInTheDocument();
     });
   });
 
-  it('opens inspection modal when Inspect is clicked on cluster', async () => {
+  it('opens cluster inspection modal when Inspect is clicked', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const clustersTable = await waitFor(() => screen.getByTestId('clusters-table'));
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
+    await waitFor(() => screen.getByTestId('clusters-table'));
+    const inspectBtn = screen.getAllByRole('button', { name: 'Inspect' })[0];
     await userEvent.click(inspectBtn);
     await waitFor(() => {
-      expect(screen.getByText('#10')).toBeDefined();
-      expect(screen.getByText('#11')).toBeDefined();
+      expect(screen.getByText('Cluster 1')).toBeInTheDocument();
+      expect(screen.getByText('#10')).toBeInTheDocument();
+      expect(screen.getByText('#11')).toBeInTheDocument();
     });
   });
 
@@ -186,7 +262,7 @@ describe('TriagePage', () => {
     );
     await userEvent.click(inspectBtn);
     await waitFor(() => {
-      expect(screen.getByText('Esc close · R refresh')).toBeDefined();
+      expect(screen.getByText('Esc close · R refresh')).toBeInTheDocument();
     });
   });
 
@@ -197,10 +273,10 @@ describe('TriagePage', () => {
       screen.getAllByRole('button', { name: 'Inspect' })[0],
     );
     await userEvent.click(inspectBtn);
-    await waitFor(() => expect(screen.getByText('#10')).toBeDefined());
+    await waitFor(() => expect(screen.getByText('Cluster 1')).toBeInTheDocument());
     await userEvent.keyboard('{Escape}');
     await waitFor(() => {
-      expect(screen.queryByText('#10')).toBeNull();
+      expect(screen.queryByText('Cluster 1')).not.toBeInTheDocument();
     });
   });
 
@@ -212,7 +288,7 @@ describe('TriagePage', () => {
     );
     await userEvent.click(inspectBtn);
     await waitFor(() => {
-      expect(screen.getByText('Cluster #99')).toBeDefined();
+      expect(screen.getByText('Cluster #99')).toBeInTheDocument();
     });
   });
 
@@ -223,12 +299,24 @@ describe('TriagePage', () => {
       screen.getAllByRole('button', { name: 'Inspect' })[0],
     );
     await userEvent.click(inspectBtn);
-    await waitFor(() => expect(screen.getByText('#10')).toBeDefined());
+    await waitFor(() => expect(screen.getByText('Cluster 1')).toBeInTheDocument());
 
     const input = screen.getByPlaceholderText('Source cluster id');
     await userEvent.click(input);
     await userEvent.keyboard('{Escape}');
     // Modal should still be open — Escape was consumed by input guard
-    await waitFor(() => expect(screen.queryByText('#10')).toBeDefined());
+    await waitFor(() => expect(screen.queryByText('Cluster 1')).toBeInTheDocument());
+  });
+
+  it('does not show Claim button for ENCODER role', async () => {
+    mockUseAuth.mockReturnValue({
+      user: { keycloak_id: 'enc1', username: 'encoder1', role: 'ENCODER' },
+      loading: false,
+    });
+    const { default: TriagePage } = await import('./page');
+    render(<TriagePage />);
+    await waitFor(() => screen.getByTestId('clusters-table'));
+    // Claim button rendered only for VALIDATOR/NATIONAL_VALIDATOR on unassigned clusters
+    expect(screen.queryByRole('button', { name: 'Claim' })).not.toBeInTheDocument();
   });
 });
