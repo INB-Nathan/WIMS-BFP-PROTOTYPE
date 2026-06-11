@@ -9,6 +9,28 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Dev/localhost block and `nginx.ci.conf` left untouched (CI does not load OSM tiles).
 - Validation: next VPS deploy — tiles load, no 403s in browser console.
 
+## [2026-06-11] test | Referrer-Policy regression coverage in test_infra_config.py (#253)
+
+- Added `test_nginx_referrer_policy_production` to `src/backend/tests/test_infra_config.py`.
+- Guards: (1) nginx.conf HTTPS block has `strict-origin-when-cross-origin`; (2) localhost/redirect blocks do not contain Referrer-Policy at all; (3) nginx.ci.conf retains `no-referrer`.
+
+## [2026-06-11] test | PR #253 review-fix batch — T1-T5 test improvements
+
+- **T1** — Added regression test for nginx Referrer-Policy in `test_infra_config.py`.
+- **T2** — Added tile-layer render assertion to `HeatmapViewer.test.tsx`.
+- **T3** — Replaced `next/dynamic` mock with `react-leaflet` mock in `NearbyPublicReportAreas.test.tsx`; added TileLayer assertion with real dynamic import.
+- **T4** — Changed `TileLayer` mock from `null` to rendered element in analyst `page.test.tsx`; added tile-layer assertion.
+- **T5** — Created 6 new smoke test files for untested TileLayer components: `PublicFireMapInner`, `MapPickerInner`, `ClusterMapInner`, `NearbyStationsMapInner`, `ValidatorMapInner`, `FireStationsMapInner`.
+- Verifies the OSM tile fix won't regress in future nginx.conf edits.
+
+## [2026-06-11] fix | T3: NearbyPublicReportAreas test mocks react-leaflet instead of next/dynamic (#253)
+
+- Replaced `vi.mock('next/dynamic', ...)` (returned MockMap div) with `vi.mock('react-leaflet', ...)` (provides MapContainer, TileLayer, Circle, Marker, Popup, useMap).
+- The react-leaflet mock asserts TileLayer rendering via `screen.findByTestId('tile-layer')`.
+- Added `setView`/`fitBounds` stubs on useMap to prevent FitBounds crash.
+- Used `vi.useRealTimers()` in the first test so @loadable/component's 200ms delay fires and the dynamic import resolves.
+- All 4 tests pass.
+
 ## [2026-06-09] fix | PR #238 rebase + review fixes — 6 files
 
 - Rebased `feat/m13-email-triggers` onto origin/master (1345808). Resolved 2 conflicts:
@@ -437,6 +459,16 @@ Investigated sluggishness when switching between dashboard tabs. Root cause is f
 - Updated `scripts/seed-dev-users.sh`, `scripts/seed-dev-users.ps1`, Keycloak realm exports, and SQL bootstrap rows so fresh and reseeded local stacks create login-capable encoder accounts with `Password123!`, verified email, first/last profile fields, no required actions, and repairable legacy usernames.
 - Added `test_dev_user_seed_mapping.py` to guard the canonical mapping across scripts, SQL bootstrap, and Keycloak realm exports.
 - Updated local dev and database synthesis pages to document the corrected account mapping. No FRS gap entry changed because this is a dev identity/bootstrap alignment fix.
+
+## [2026-06-02] tooling | Pi enforcement layer for AGENTS.md gotchas
+
+- Created `.pi/extensions/enforce-agents-md.ts` — a pi extension that actively enforces AGENTS.md gotchas.
+- **CI gate**: blocks `git commit`/`git push` until `ruff check`, `ruff format --check`, `pytest -v`, `npm run lint`, and `npx vitest run` all pass (gotcha #12).
+- **Path protection**: blocks `write`/`edit` to `.env`, `.git/`, `node_modules/`, `.pi/extensions/`, `__pycache__/`.
+- **Dangerous command guard**: requires confirmation for `rm -rf`, `sudo`, `chmod 777`, `git push --force`, destructive docker commands.
+- **System prompt injection**: injects the 13 gotchas as a "Mandatory Pre-Commit Checklist" into every agent turn via `before_agent_start`.
+- **Session guard**: warns on uncommitted changes before `/new` or `/resume`.
+- **Commands**: `/ci` runs all CI checks manually; `/ci-status` shows last results.
 
 ## [2026-05-30] merge | Master conflict resolution for encoder/validator branch
 

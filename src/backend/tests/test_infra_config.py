@@ -214,3 +214,29 @@ def test_local_nginx_override_is_explicitly_local_only() -> None:
     assert "listen 80" in local_config
     assert "ssl_certificate" not in local_config
     assert "./nginx/nginx.local.conf:/etc/nginx/nginx.conf:ro" in local_compose
+
+
+@pytest.mark.skipif(_IN_DOCKER, reason="compose/config files not mounted in Docker container")
+def test_nginx_referrer_policy_production() -> None:
+    """Verify the HTTPS server block uses strict-origin-when-cross-origin for OSM tiles,
+    the localhost dev block was not changed, and the CI config retains no-referrer."""
+    config = (_repo_root() / "nginx" / "nginx.conf").read_text(encoding="utf-8")
+    ci_config = (_repo_root() / "nginx" / "nginx.ci.conf").read_text(encoding="utf-8")
+
+    # PR #253 changed the HTTPS block from no-referrer to strict-origin-when-cross-origin
+    # so OSM tile requests include the origin, allowing tile server to accept them.
+    assert "add_header Referrer-Policy strict-origin-when-cross-origin always;" in config
+
+    # The localhost dev server block was intentionally left untouched by PR #253.
+    # Verify the change did not leak into the dev block by checking that every
+    # occurrence of Referrer-Policy in nginx.conf is in the HTTPS block.
+    https_block_pos = config.find("listen 443 ssl")
+    assert https_block_pos >= 0, "listen 443 ssl not found in nginx.conf"
+    before_https = config[:https_block_pos]
+    assert "Referrer-Policy" not in before_https, (
+        "The localhost/redirect server blocks should not have a Referrer-Policy header. "
+        "PR #253 only changed the HTTPS block."
+    )
+
+    # CI config was intentionally not changed — retains no-referrer.
+    assert "add_header Referrer-Policy no-referrer always;" in ci_config
