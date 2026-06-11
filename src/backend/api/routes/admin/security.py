@@ -174,7 +174,7 @@ def update_security_log(
         decision_dict: dict[str, Any] = {
             "action": body.action,
             "note": body.note,
-            "reviewed_by": _admin["user_id"],
+            "reviewed_by": str(_admin["user_id"]),
             "reviewed_at": now,
         }
         updates.append("hitl_decision = CAST(:hitl_decision AS jsonb)")
