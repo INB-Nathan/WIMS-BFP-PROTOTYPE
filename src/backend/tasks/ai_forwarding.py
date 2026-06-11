@@ -5,6 +5,9 @@ suricata_redis.subscribe_alerts when HIGH or CRITICAL alerts are ingested.
 Each alert is sent to Ollama for structured XAI analysis via
 analyze_threat_log(), and the results are persisted to
 wims.security_threat_logs.xai_narrative / xai_confidence.
+
+Auto-AI analysis is gated behind the 'auto_ai_analysis_enabled' system_config
+key (default false) per FRS M8a.iii on-request mode requirement.
 """
 
 from __future__ import annotations
@@ -42,6 +45,16 @@ def _ensure_group(r: redis.Redis) -> None:
             raise
 
 
+def _auto_ai_enabled(db) -> bool:
+    from utils.config import get_config
+
+    try:
+        val = get_config(db, "auto_ai_analysis_enabled", "false")
+        return str(val).strip().lower() == "true"
+    except Exception:
+        return False
+
+
 @celery_app.task(
     name="tasks.ai_forwarding.process_queue",
     autoretry_for=(redis.ConnectionError, redis.TimeoutError),
@@ -54,7 +67,9 @@ def process_ai_queue() -> int:
     XREADGROUP consumer on the 'ai:queue' Redis stream.
 
     Reads queued alert IDs, calls analyze_threat_log() for each,
-    and acks the message on success.
+    and acks the message ONLY on success.
+
+    Gated behind auto_ai_analysis_enabled config key (default false).
 
     Returns the number of alerts analyzed.
     """
@@ -67,6 +82,7 @@ def process_ai_queue() -> int:
     try:
         _ensure_group(r)
     except Exception:
+        logger.warning("Failed to ensure Redis AI consumer group")
         return 0
 
     try:
@@ -78,34 +94,42 @@ def process_ai_queue() -> int:
         return 0
 
     processed = 0
-    for stream_name, messages in entries:
-        for message_id, fields in messages:
-            log_id_str = fields.get("log_id", "")
-            if not log_id_str:
-                r.xack(STREAM_KEY, GROUP_NAME, message_id)
-                continue
+    db = get_session()
+    try:
+        set_rls_context(db, SYSTEM_SURICATA_USER_ID)
 
-            try:
-                log_id = int(log_id_str)
-            except (TypeError, ValueError):
-                r.xack(STREAM_KEY, GROUP_NAME, message_id)
-                continue
+        if not _auto_ai_enabled(db):
+            for stream_name, messages in entries:
+                for message_id, fields in messages:
+                    r.xack(STREAM_KEY, GROUP_NAME, message_id)
+            return 0
 
-            db = get_session()
-            try:
-                set_rls_context(db, SYSTEM_SURICATA_USER_ID)
-                from services.ai_service import analyze_threat_log
+        for stream_name, messages in entries:
+            for message_id, fields in messages:
+                log_id_str = fields.get("log_id", "")
+                if not log_id_str:
+                    r.xack(STREAM_KEY, GROUP_NAME, message_id)
+                    continue
 
-                asyncio.run(analyze_threat_log(log_id, db))
-                db.commit()
-                processed += 1
-                logger.info("AI analysis completed for security log %s", log_id)
-            except Exception as exc:
-                logger.error("AI analysis failed for log_id %s: %s", log_id, exc)
-                db.rollback()
-            finally:
-                db.close()
+                try:
+                    log_id = int(log_id_str)
+                except (TypeError, ValueError):
+                    r.xack(STREAM_KEY, GROUP_NAME, message_id)
+                    continue
 
-            r.xack(STREAM_KEY, GROUP_NAME, message_id)
+                try:
+                    from services.ai_service import analyze_threat_log
+
+                    asyncio.run(analyze_threat_log(log_id, db))
+                    processed += 1
+                    r.xack(STREAM_KEY, GROUP_NAME, message_id)
+                    logger.info("AI analysis completed for security log %s", log_id)
+                except Exception as exc:
+                    logger.error("AI analysis failed for log_id %s: %s", log_id, exc)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
     return processed

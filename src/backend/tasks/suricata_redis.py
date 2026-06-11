@@ -7,6 +7,7 @@ ingest_suricata_eve) is retained as a fallback for Redis connectivity loss.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -26,6 +27,18 @@ GROUP_NAME = "wims-celery-workers"
 CONSUMER_NAME = f"celery-worker-{uuid.uuid4().hex[:8]}"
 
 SYSTEM_SURICATA_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+DEDUP_KEY_PREFIX = "wims:suricata:dedup"
+DEDUP_TTL_SECONDS = 300
+
+
+def _dedup_fingerprint(row: dict) -> str:
+    parts = [
+        row.get("source_ip", ""),
+        str(row.get("suricata_sid", "")),
+        row.get("severity_level", ""),
+    ]
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:32]
 
 
 def _connect() -> redis.Redis:
@@ -104,6 +117,7 @@ def subscribe_suricata_alerts() -> int:
         return 0
 
     processed = 0
+    acks: list[str] = []
     db = get_session()
     try:
         set_rls_context(db, SYSTEM_SURICATA_USER_ID)
@@ -115,10 +129,17 @@ def subscribe_suricata_alerts() -> int:
                     ev = json.loads(raw)
                 except (json.JSONDecodeError, TypeError):
                     logger.warning("Invalid JSON in stream message %s", message_id)
-                    r.xack(STREAM_KEY, GROUP_NAME, message_id)
+                    acks.append(message_id)
                     continue
 
                 row = eve_to_threat_log_row(ev, raw_payload=raw)
+
+                fp = _dedup_fingerprint(row)
+                dedup_key = f"{DEDUP_KEY_PREFIX}:{fp}"
+                if not r.set(dedup_key, "1", nx=True, ex=DEDUP_TTL_SECONDS):
+                    acks.append(message_id)
+                    continue
+
                 log_id = _insert_log(db, row)
 
                 if log_id is not None:
@@ -136,9 +157,15 @@ def subscribe_suricata_alerts() -> int:
                             maxlen=1000,
                         )
 
-                r.xack(STREAM_KEY, GROUP_NAME, message_id)
+                acks.append(message_id)
 
         db.commit()
+        for mid in acks:
+            try:
+                r.xack(STREAM_KEY, GROUP_NAME, mid)
+            except redis.RedisError:
+                logger.warning("Failed to ack stream message %s", mid)
+
         if processed > 0:
             logger.info("Redis stream: processed %d alert(s)", processed)
         return processed
