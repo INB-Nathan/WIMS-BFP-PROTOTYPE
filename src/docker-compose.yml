@@ -119,7 +119,7 @@ services:
     networks:
       - wims_internal
     healthcheck:
-      test: ["CMD-SHELL", "S=$$(bao status -address=http://localhost:8200 -format=json 2>/dev/null); echo \"$$S\" | grep -q '\"initialized\":true' && echo \"$$S\" | grep -q '\"sealed\":false'"]
+      test: ["CMD-SHELL", "bao status -address=http://localhost:8200 -format=json >/tmp/hc.json 2>/dev/null && grep -q initialized.*true /tmp/hc.json && grep -q sealed.*false /tmp/hc.json"]
       interval: 5s
       timeout: 5s
       retries: 10
