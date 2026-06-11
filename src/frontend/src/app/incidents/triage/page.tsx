@@ -454,7 +454,7 @@ export default function TriagePage() {
                     <td className="px-3 py-3 text-xs text-slate-500">{new Date(cluster.oldest_report_at).toLocaleString()}</td>
                     <td className="px-3 py-3">
                       <div className="flex gap-2">
-                        {cluster.assigned_to === null && (role === 'VALIDATOR' || role === 'NATIONAL_VALIDATOR') && (
+                        {cluster.assigned_to === null && role === 'NATIONAL_VALIDATOR' && (
                           <button disabled={busy} onClick={() => void claimCluster(cluster.cluster_id)} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50">
                             <ShieldCheck className="h-3 w-3" />
                             Claim
