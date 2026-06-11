@@ -428,3 +428,71 @@ class TestAuditLog:
         assert audit_params.get("action") == "OPERATION_CREATE", (
             f"Expected action='OPERATION_CREATE', got {audit_params}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 8. Map fields — latitude, longitude, radius_meters
+# ---------------------------------------------------------------------------
+
+
+class TestMapFields:
+    def test_create_with_map_fields(self, client: TestClient):
+        """POST with latitude/longitude/radius stores map fields."""
+        mock_db, get_db_override = _make_db()
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.post(
+            "/api/operations",
+            json={
+                "fire_status": "ACTIVE",
+                "start_time": "2026-06-10T08:00:00Z",
+                "location": "Test",
+                "latitude": 14.5995,
+                "longitude": 120.9842,
+                "radius_meters": 250.0,
+            },
+        )
+
+        assert resp.status_code == 201
+        # Verify INSERT params include map fields
+        inserts = [c for c in mock_db.captured_inserts if "INSERT INTO" in c["sql"]]
+        assert len(inserts) >= 1
+        params = inserts[0]["params"]
+        assert params["lat"] == 14.5995
+        assert params["lng"] == 120.9842
+        assert params["rad"] == 250.0
+
+    def test_list_operations_returns_map_fields(self, client: TestClient):
+        """GET /api/operations returns latitude/longitude/radius in response."""
+        row = _op_row()
+        row.latitude = 14.5995
+        row.longitude = 120.9842
+        row.radius_meters = 250.0
+        mock_db, get_db_override = _make_db(op_rows=[row])
+        app.dependency_overrides[get_db] = get_db_override
+
+        resp = client.get("/api/operations")
+
+        assert resp.status_code == 200
+        data = resp.json()[0]
+        assert data["latitude"] == 14.5995
+        assert data["longitude"] == 120.9842
+        assert data["radius_meters"] == 250.0
+
+    def test_update_map_fields(self, client: TestClient):
+        """PATCH updates latitude/longitude/radius on an operation."""
+        mock_db, get_db_override = _make_db()
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.patch(
+            "/api/operations/1",
+            json={"latitude": 15.0, "longitude": 121.0, "radius_meters": 500.0},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "operation_id" in data

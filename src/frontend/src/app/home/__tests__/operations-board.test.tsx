@@ -128,3 +128,36 @@ describe('Operations Board', () => {
     });
   });
 });
+
+describe('Operations Board — map fields', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('renders linked report count in the table', async () => {
+    const { default: HomePage } = await import('../page');
+    render(<HomePage />);
+    await waitFor(() => {
+      // The mock data has linked_report_ids: [5, 6] → should show "2"
+      expect(screen.getByText('2')).toBeDefined();
+    });
+  });
+
+  it('shows map picker when creating a new operation', async () => {
+    const { default: HomePage } = await import('../page');
+    render(<HomePage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('New Operation')).toBeDefined();
+    });
+
+    // Click New Operation to open the form modal
+    const newOpButton = screen.getByText('New Operation');
+    newOpButton.click();
+
+    await waitFor(() => {
+      // MapPickerInner contains a search input placeholder
+      expect(screen.getByPlaceholderText(/search/i)).toBeDefined();
+    });
+  });
+});
