@@ -36,6 +36,16 @@ Functional bugs reported by teammates during evaluation. All map to M12 User Man
 
 ---
 
+---
+
+## M4 Operations
+
+| # | Enhancement | Detail | Status |
+|---|---|---|---|
+| F-12 | Validator-maintained Operations Board | Replaced auto-derived ON-GOING/FIRE-OUT cards with editable board. wims.operations + junction table (migration 51). RLS-gated writes (NATIONAL_VALIDATOR only), global reads. CRUD + audit log. /home UI: tabs, status badge, validator-only forms. #232. | Implemented |
+
+---
+
 ## Related
 - [[gaps/ui-ux-gap-register]] — UI/UX improvement gaps
 - [[gaps/frs-codebase-gap-register]] — FRS/codebase verification targets

@@ -80,8 +80,7 @@ export default function RegionalDashboardPage() {
   const canAccessRegional =
     role === 'REGIONAL_ENCODER' ||
     role === 'NATIONAL_VALIDATOR' ||
-    role === 'ENCODER' ||
-    role === 'VALIDATOR';
+    role === 'ENCODER';
 
   useEffect(() => {
     if (!loading && !canAccessRegional) {

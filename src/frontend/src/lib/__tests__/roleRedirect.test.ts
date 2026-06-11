@@ -6,7 +6,6 @@ describe('role redirect helpers', () => {
     expect(defaultRouteForRole('REGIONAL_ENCODER')).toBe('/dashboard/regional');
     expect(defaultRouteForRole('ENCODER')).toBe('/dashboard/regional');
     expect(defaultRouteForRole('NATIONAL_VALIDATOR')).toBe('/dashboard/validator');
-    expect(defaultRouteForRole('VALIDATOR')).toBe('/dashboard/validator');
   });
 
   it('replaces stale operations redirects with the role dashboard', () => {

@@ -29,7 +29,7 @@ export default function IncidentsPage() {
       return;
     }
 
-    if (role === 'VALIDATOR') {
+    if (role === 'NATIONAL_VALIDATOR') {
       router.replace('/dashboard/validator');
       return;
     }
