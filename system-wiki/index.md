@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-11
 Total synthesis pages: 32
-Last changes: M15 ref table RLS revised to FRS M15 vi region-scoped SELECT with SECURITY DEFINER public_dmz fallback helper (PR #258).
+Last changes: OpenBao token-file mounting for backend/celery to avoid stale `.env.production` tokens after OpenBao volume resets.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

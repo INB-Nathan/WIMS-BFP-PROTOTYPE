@@ -202,12 +202,14 @@ services:
       - CSRF_TRUSTED_ORIGINS=http://localhost,https://localhost,http://127.0.0.1,http://127.0.0.1:3000
       - NEXT_PUBLIC_APP_URL=http://localhost
       - OPENBAO_ADDR=${OPENBAO_ADDR:-http://openbao:8200}
-      - OPENBAO_TOKEN=${OPENBAO_TOKEN:-}
+      - OPENBAO_TOKEN=
+      - OPENBAO_TOKEN_FILE=/openbao-creds/.wims-app-token
       - OPENBAO_TRANSIT_MOUNT=${OPENBAO_TRANSIT_MOUNT:-transit}
       - WIMS_CRYPTO_PROVIDER=${WIMS_CRYPTO_PROVIDER:-env_aesgcm}
     volumes:
       - incident_attachments_data:/app/storage
       - ./postgres-init:/app/postgres-init:ro
+      - openbao_data:/openbao-creds:ro
     networks:
       - wims_internal
     env_file:
@@ -243,12 +245,14 @@ services:
       - FIREBASE_SERVICE_ACCOUNT_JSON=${FIREBASE_SERVICE_ACCOUNT_JSON:-}
       - FIREBASE_CREDENTIALS_PATH=${FIREBASE_CREDENTIALS_PATH:-}
       - OPENBAO_ADDR=${OPENBAO_ADDR:-http://openbao:8200}
-      - OPENBAO_TOKEN=${OPENBAO_TOKEN:-}
+      - OPENBAO_TOKEN=
+      - OPENBAO_TOKEN_FILE=/openbao-creds/.wims-app-token
       - OPENBAO_TRANSIT_MOUNT=${OPENBAO_TRANSIT_MOUNT:-transit}
       - WIMS_CRYPTO_PROVIDER=${WIMS_CRYPTO_PROVIDER:-env_aesgcm}
     volumes:
       - ./suricata/logs:/var/log/suricata:ro
       - incident_attachments_data:/app/storage
+      - openbao_data:/openbao-creds:ro
       # SECURITY NOTE: Docker socket mount is required for live Suricata rule
       # reload (suricata-update + kill -USR2). Without the socket, the Celery
       # worker cannot exec into the wims-suricata container to trigger a

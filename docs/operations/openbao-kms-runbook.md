@@ -45,7 +45,8 @@ This starts:
    - Creates `wims-incident-pii` Transit key (**derived=true**, AES-256-GCM-96, for PII encryption). If the key already exists and is *not* derived, bootstrap fails with an explicit operator message that warns about data loss before recommending key deletion.
    - Creates `wims-backup` Transit key (**derived=true**, AES-256-GCM-96, for backup encryption). Same derived-validation guard.
    - Persists the generated root token and unseal key to `openbao_data:/vault/file/.bootstrap-creds` (chmod 600) so subsequent restarts can auto-unseal and authenticate without manual operator capture. **Dev/single-VPS only** — production must use a secrets manager.
-   - Writes the `wims-app` least-privilege policy
+   - Writes the `wims-app` least-privilege policy.
+   - Reuses a valid existing `wims-app` service token or creates a replacement and writes it to `openbao_data:/vault/file/.wims-app-token`; backend/celery read this through `OPENBAO_TOKEN_FILE=/openbao-creds/.wims-app-token`, so `.env.production` does not need manual token updates after an OpenBao volume reset.
 
 ### Verify readiness
 
@@ -75,7 +76,8 @@ cd src && docker compose down
 | Variable | Default | Purpose |
 |---|---|---|
 | `OPENBAO_ADDR` | (required) | OpenBao API URL, e.g. `http://openbao:8200` |
-| `OPENBAO_TOKEN` | — | Service token for backend/celery auth |
+| `OPENBAO_TOKEN` | — | Direct service/admin token. Bootstrap can use it for setup; backend/celery compose intentionally clears it in favor of `OPENBAO_TOKEN_FILE` to avoid stale `.env.production` tokens. |
+| `OPENBAO_TOKEN_FILE` | — | Path to a mounted plaintext token file. Compose sets `/openbao-creds/.wims-app-token` for backend/celery. Used when `OPENBAO_TOKEN` is empty. |
 | `OPENBAO_ROLE_ID` | — | AppRole RoleID (future alternative to token) |
 | `OPENBAO_SECRET_ID` | — | AppRole SecretID (future alternative to token) |
 | `OPENBAO_TRANSIT_MOUNT` | `transit` | Transit engine mount path |
@@ -122,10 +124,20 @@ On first boot, `bootstrap-openbao.sh` writes the generated root token and unseal
 On subsequent restarts the script reads this file as a fallback when
 `OPENBAO_TOKEN` / `OPENBAO_UNSEAL_KEY` env vars are not set.
 
-**This file is plaintext on disk inside a Docker volume.** It is acceptable for a
-single-VPS prototype where the volume is only accessible to root on the host.
-Production deployments MUST use a proper secrets manager (HashiCorp Vault KV v2,
-Docker secrets, or cloud KMS) and MUST NOT rely on this persistence mechanism.
+After writing the `wims-app` policy, bootstrap verifies any existing app token in
+`/vault/file/.wims-app-token`. If it is missing or invalid, bootstrap creates a
+replacement policy-scoped orphan token and writes only the token value to that file.
+Backend and Celery mount the same Docker volume read-only at `/openbao-creds` and
+set `OPENBAO_TOKEN_FILE=/openbao-creds/.wims-app-token`. Compose explicitly sets
+`OPENBAO_TOKEN=` for those services so stale tokens in `.env.production` do not
+override the regenerated token file after a volume reset. Restart backend/celery
+after bootstrap if OpenBao was reset while the app containers were already running.
+
+**These files are plaintext on disk inside a Docker volume.** This is acceptable
+for a single-VPS prototype where the volume is only accessible to root on the
+host. Production deployments MUST use a proper secrets manager (HashiCorp Vault
+KV v2, Docker secrets, or cloud KMS) and MUST NOT rely on this persistence
+mechanism.
 
 ---
 

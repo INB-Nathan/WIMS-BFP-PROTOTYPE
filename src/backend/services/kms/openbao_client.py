@@ -70,12 +70,14 @@ class OpenBaoClient:
         self._addr = raw_addr.rstrip("/")
 
         self._token = os.environ.get("OPENBAO_TOKEN", "")
+        if not self._token:
+            self._token = self._read_token_file(os.environ.get("OPENBAO_TOKEN_FILE", ""))
         self._role_id = os.environ.get("OPENBAO_ROLE_ID", "")
         self._secret_id = os.environ.get("OPENBAO_SECRET_ID", "")
 
         if not self._token and not (self._role_id and self._secret_id):
             raise OpenBaoClientError(
-                "No auth method configured — set OPENBAO_TOKEN or OPENBAO_ROLE_ID + OPENBAO_SECRET_ID",
+                "No auth method configured — set OPENBAO_TOKEN, OPENBAO_TOKEN_FILE, or OPENBAO_ROLE_ID + OPENBAO_SECRET_ID",
                 method="__init__",
             )
 
@@ -87,6 +89,20 @@ class OpenBaoClient:
             self.timeout = 2.0
 
     # ── HTTP helpers ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _read_token_file(path: str) -> str:
+        """Read an OpenBao token from a Docker-mounted secret/token file."""
+        if not path:
+            return ""
+        try:
+            with open(path, encoding="utf-8") as token_file:
+                return token_file.read().strip()
+        except OSError as e:
+            raise OpenBaoClientError(
+                f"OPENBAO_TOKEN_FILE is set but cannot be read: {path}",
+                method="__init__",
+            ) from e
 
     @property
     def _headers(self) -> dict[str, str]:

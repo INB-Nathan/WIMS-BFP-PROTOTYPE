@@ -36,7 +36,7 @@ status: draft
 
 **Health checks:** postgres (`pg_isready -U postgres -d wims`, interval 5s), redis (`redis-cli ping`, interval 5s), Keycloak (HTTP probe), and Suricata (`pgrep Suricata-Main`). Backend depends on healthy Postgres and Redis plus the completed Keycloak bootstrap.
 
-**Named volumes:** `postgres_data`, `ollama_data`, `incident_attachments_data`
+**Named volumes:** `postgres_data`, `ollama_data`, `incident_attachments_data`, `openbao_data`. `openbao_data` stores OpenBao file storage plus prototype bootstrap credentials (`.bootstrap-creds`) and the regenerated backend/celery app token (`.wims-app-token`), mounted read-only into backend/celery at `/openbao-creds`.
 
 **Required env interpolation:** Base `src/docker-compose.yml` intentionally uses `${VAR:?error}` for local/test secrets such as `POSTGRES_PASSWORD`, `KC_DB_PASSWORD`, `KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD`, `NEXT_PUBLIC_FIREBASE_API_KEY`, and `NEXT_PUBLIC_FIREBASE_VAPID_KEY`. GitHub CI jobs that run compose (`docker-build`, `security-scan`) copy root `.env.example` to `src/.env` before `docker compose config`, build, or stack startup so fail-fast interpolation remains enabled without committing real secrets.
 
@@ -56,6 +56,8 @@ status: draft
 | `KEYCLOAK_ADMIN_USER` | `${KEYCLOAK_ADMIN:?error}` |
 | `KEYCLOAK_ADMIN_PASSWORD` | `${KEYCLOAK_ADMIN_PASSWORD:?error}` |
 | `OLLAMA_URL` | `http://ollama:11434` |
+| `OPENBAO_ADDR` | `http://openbao:8200` |
+| `OPENBAO_TOKEN_FILE` | `/openbao-creds/.wims-app-token` when using Compose token-file auth |
 | `SURICATA_EVE_PATH` | `/var/log/suricata/eve.json` |
 | `EXPORT_DIR` | `/app/storage/exports` |
 | `BACKUP_DIR` | `/app/storage/backups` |

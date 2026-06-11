@@ -66,6 +66,13 @@ class TestOpenBaoClientInterface:
             monkeypatch.setenv(k, v)
         return vars_
 
+    @staticmethod
+    def _restore_live_auth(monkeypatch, token: str, token_file: str) -> None:
+        """Use real live OpenBao auth instead of the unit-test fake token."""
+        monkeypatch.setenv("OPENBAO_TOKEN", token)
+        if token_file:
+            monkeypatch.setenv("OPENBAO_TOKEN_FILE", token_file)
+
     # ── construction ─────────────────────────────────────────────────────────
 
     def test_constructs_from_env_vars(self, monkeypatch):
@@ -82,11 +89,46 @@ class TestOpenBaoClientInterface:
             OpenBaoClient()
 
     def test_missing_token_raises(self, monkeypatch):
-        """Token or AppRole must be configured."""
+        """Token, token file, or AppRole must be configured."""
         self._env(monkeypatch)
         monkeypatch.delenv("OPENBAO_TOKEN", raising=False)
+        monkeypatch.delenv("OPENBAO_TOKEN_FILE", raising=False)
         monkeypatch.delenv("OPENBAO_ROLE_ID", raising=False)
         with pytest.raises(OpenBaoClientError, match="token|auth"):
+            OpenBaoClient()
+
+    def test_reads_token_from_file_when_env_token_empty(self, monkeypatch, tmp_path):
+        """Docker token-file mount supports regenerated OpenBao app tokens."""
+        self._env(monkeypatch)
+        token_file = tmp_path / "openbao-token"
+        token_file.write_text("s.file-token\n", encoding="utf-8")
+        monkeypatch.setenv("OPENBAO_TOKEN", "")
+        monkeypatch.setenv("OPENBAO_TOKEN_FILE", str(token_file))
+
+        client = OpenBaoClient()
+
+        assert client._headers["X-Vault-Token"] == "s.file-token"
+
+    def test_env_token_takes_precedence_over_token_file(self, monkeypatch, tmp_path):
+        """Direct env token remains supported for tests/manual one-off runs."""
+        self._env(monkeypatch)
+        token_file = tmp_path / "openbao-token"
+        token_file.write_text("s.file-token\n", encoding="utf-8")
+        monkeypatch.setenv("OPENBAO_TOKEN", "s.env-token")
+        monkeypatch.setenv("OPENBAO_TOKEN_FILE", str(token_file))
+
+        client = OpenBaoClient()
+
+        assert client._headers["X-Vault-Token"] == "s.env-token"
+
+    def test_unreadable_token_file_raises_clear_error(self, monkeypatch, tmp_path):
+        """Bad OPENBAO_TOKEN_FILE paths fail early with an actionable message."""
+        self._env(monkeypatch)
+        missing_file = tmp_path / "missing-token"
+        monkeypatch.setenv("OPENBAO_TOKEN", "")
+        monkeypatch.setenv("OPENBAO_TOKEN_FILE", str(missing_file))
+
+        with pytest.raises(OpenBaoClientError, match="OPENBAO_TOKEN_FILE"):
             OpenBaoClient()
 
     def test_timeout_defaults_to_2_seconds(self, monkeypatch):
@@ -129,7 +171,10 @@ class TestOpenBaoClientInterface:
     @requires_openbao
     def test_encrypt_decrypt_roundtrip_happy_path(self, monkeypatch):
         """Roundtrip encrypt → decrypt using wims-incident-pii key."""
+        live_token = os.environ.get("OPENBAO_TOKEN", "")
+        live_token_file = os.environ.get("OPENBAO_TOKEN_FILE", "")
         self._env(monkeypatch)
+        self._restore_live_auth(monkeypatch, live_token, live_token_file)
         client = OpenBaoClient()
 
         plaintext = b"test-incident-pii-payload"
@@ -155,7 +200,10 @@ class TestOpenBaoClientInterface:
     @requires_openbao
     def test_decrypt_wrong_context_fails(self, monkeypatch):
         """Authentication context must match — wrong context = decrypt failure."""
+        live_token = os.environ.get("OPENBAO_TOKEN", "")
+        live_token_file = os.environ.get("OPENBAO_TOKEN_FILE", "")
         self._env(monkeypatch)
+        self._restore_live_auth(monkeypatch, live_token, live_token_file)
         client = OpenBaoClient()
 
         plaintext = b"sensitive-data"
@@ -180,7 +228,10 @@ class TestOpenBaoClientInterface:
     @requires_openbao
     def test_health_returns_structured_response(self, monkeypatch):
         """health() must not be None; struct exposes initialized/sealed/standby."""
+        live_token = os.environ.get("OPENBAO_TOKEN", "")
+        live_token_file = os.environ.get("OPENBAO_TOKEN_FILE", "")
         self._env(monkeypatch)
+        self._restore_live_auth(monkeypatch, live_token, live_token_file)
         client = OpenBaoClient()
         health = client.health()
         assert health is not None

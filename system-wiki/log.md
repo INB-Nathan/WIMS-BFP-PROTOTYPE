@@ -3,6 +3,15 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-11] fix | OpenBao token-file mounting for backend/celery
+
+- `src/openbao/init/bootstrap-openbao.sh`: after writing the `wims-app` policy, bootstrap now verifies any existing app token or creates a replacement policy-scoped orphan service token and persists the token value to `/vault/file/.wims-app-token` without logging it. This regenerates app auth after an OpenBao volume reset while avoiding token churn on normal restarts.
+- `src/docker-compose.yml`: backend and celery-worker mount `openbao_data` read-only at `/openbao-creds`, set `OPENBAO_TOKEN_FILE=/openbao-creds/.wims-app-token`, and explicitly clear direct `OPENBAO_TOKEN` so stale `.env.production` tokens cannot override the regenerated token file.
+- `src/backend/services/kms/openbao_client.py`: client now reads `OPENBAO_TOKEN_FILE` when `OPENBAO_TOKEN` is empty; direct env token and future AppRole settings remain supported.
+- `src/backend/tests/test_openbao_client.py`: added token-file unit coverage for file read, env-token precedence, and missing file errors.
+- `docs/operations/openbao-kms-runbook.md`, `.env.example`, `system-wiki/security/security-baseline.md`, and `system-wiki/architecture/infrastructure-config.md`: documented token-file lifecycle and the remaining plaintext-volume/prototype caveat.
+- No FRS gap register update (auth persistence implementation detail; no gap status changed).
+
 ## [2026-06-11] fix | OpenBao production lifecycle fixes — wait-API, health-unsealed, credential persistence, backend env
 
 - `src/backend/services/kms/openbao_client.py`: extracted `_url_for()` helper with explicit `/sys/` path branching. Health endpoint now correctly hits `/v1/sys/health`; Transit operations still use `/v1/{mount}/...`.

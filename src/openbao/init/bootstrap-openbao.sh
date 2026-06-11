@@ -30,6 +30,7 @@ _DEV_TOKEN="${OPENBAO_DEV_ROOT_TOKEN:-devroot}"
 # are unset.  This file *must* be stored on the openbao_data volume so it
 # survives container recreation.
 CREDS_FILE="/vault/file/.bootstrap-creds"
+APP_TOKEN_FILE="/vault/file/.wims-app-token"
 _PERSISTED_ROOT_TOKEN=""
 _PERSISTED_UNSEAL_KEY=""
 if [ -f "${CREDS_FILE}" ]; then
@@ -214,8 +215,33 @@ echo "Writing wims-app policy"
 bao policy write wims-app /tmp/wims-policy.hcl
 rm -f /tmp/wims-policy.hcl
 
+# ── Create/persist backend app token ─────────────────────────────────────────
+# The backend and Celery containers read this file via a read-only volume mount
+# (OPENBAO_TOKEN_FILE).  Keeping the auth token in the OpenBao volume prevents
+# stale .env.production tokens after an OpenBao volume reset.
+EXISTING_APP_TOKEN=""
+if [ -f "${APP_TOKEN_FILE}" ]; then
+  EXISTING_APP_TOKEN=$(cat "${APP_TOKEN_FILE}" 2>/dev/null || true)
+fi
+
+if [ -n "${EXISTING_APP_TOKEN}" ] && BAO_TOKEN="${EXISTING_APP_TOKEN}" bao token lookup >/dev/null 2>&1; then
+  echo "Existing wims-app service token is valid (token redacted)"
+else
+  echo "Creating wims-app service token (token redacted)"
+  APP_TOKEN_JSON=$(bao token create -policy=wims-app -no-default-policy -orphan -display-name=wims-app -format=json)
+  APP_TOKEN=$(echo "${APP_TOKEN_JSON}" | grep '"client_token"' | sed 's/.*"client_token"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/')
+  if [ -z "${APP_TOKEN}" ]; then
+    echo "ERROR: Failed to parse generated wims-app token" >&2
+    exit 1
+  fi
+  printf '%s\n' "${APP_TOKEN}" > "${APP_TOKEN_FILE}"
+  # Readable by the non-root backend appuser through the Docker volume mount.
+  chmod 0444 "${APP_TOKEN_FILE}"
+  echo "wims-app service token persisted to ${APP_TOKEN_FILE}"
+fi
+
 # ── Cleanup secrets from the environment ─────────────────────────────────────
-unset UNSEAL_KEY ROOT_TOKEN TOKEN _DEV_TOKEN _PERSISTED_ROOT_TOKEN _PERSISTED_UNSEAL_KEY _MAYBE_UNSEAL 2>/dev/null || true
+unset UNSEAL_KEY ROOT_TOKEN TOKEN APP_TOKEN APP_TOKEN_JSON EXISTING_APP_TOKEN _DEV_TOKEN _PERSISTED_ROOT_TOKEN _PERSISTED_UNSEAL_KEY _MAYBE_UNSEAL 2>/dev/null || true
 
 echo ""
 echo "==== OpenBao bootstrap complete ===="
@@ -224,6 +250,7 @@ echo "  PII key:        wims-incident-pii  (derived=true, aes256-gcm96)"
 echo "  Backup key:     wims-backup        (derived=true, aes256-gcm96)"
 echo "  App policy:     wims-app"
 echo ""
-echo "Secrets (root token / unseal key) are NOT printed to logs."
+echo "Secrets (root token / unseal key / app token) are NOT printed to logs."
 echo "On first init, prototype credentials are persisted in ${CREDS_FILE}."
+echo "The backend app token is persisted in ${APP_TOKEN_FILE}."
 echo "For production, replace this with an external secrets manager/AppRole/auto-unseal flow."
