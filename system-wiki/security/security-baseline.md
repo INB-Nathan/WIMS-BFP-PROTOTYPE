@@ -122,7 +122,20 @@ All write paths updated: `services/afor_import/commit.py` (AFOR commit), `api/ro
 - **Env configuration:** `OPENBAO_ROTATION_INTERVAL_DAYS` (default 90), `KMS_REWRAP_BATCH_SIZE` (default 500).
 - **Tests:** `tests/test_kms_rotation_task.py` — 17 unit tests (no live OpenBao). Covers rotation-due boundary logic, single-run guard, rotate + run row recording, rewrap row updates, skip already-at-target, per-row rewrap error isolation, UPDATE failure isolation, SUCCEEDED/FAILED status transitions, start_run UUID return, and Celery beat entry verification.
 - **Non-goals:** Does NOT delete/disable old OpenBao key versions. Does NOT implement backup_crypto.py integration (Phase 7). Does NOT run live migration/rotation against real data. Does NOT touch frontend.
-- **Overall GH #152 status:** Phases 1-6 implemented; #152 remains PARTIAL until backup_crypto.py Phase 7 and live OpenBao integration/ops are complete.
+- **Overall GH #152 status:** Phases 1-7 code paths implemented; #152 remains PARTIAL until live OpenBao integration/ops are complete (live restore drill pending).
+
+## OpenBao KMS Backup Encryption (GH #152 Phase 7)
+
+**Implemented 2026-06-11:** `backup_crypto.py` integrated with OpenBao Transit for new backup encryption, with legacy restore compatibility preserved.
+
+- **Feature flag:** `WIMS_BACKUP_CRYPTO_PROVIDER` (new backup-specific env var) overrides `WIMS_CRYPTO_PROVIDER`. Default: `env_aesgcm` (legacy AES-256-GCM with `WIMS_MASTER_KEY`). Opt in via `WIMS_BACKUP_CRYPTO_PROVIDER=openbao_transit`.
+- **Key name:** `OPENBAO_BACKUP_KEY_NAME` env var, default `wims-backup`.
+- **New OpenBao format (WIMSBAO1):** versioned envelope with `WIMSBAO1\n` magic header, JSON metadata line (`provider`, `key_name`, `created_at`, `ciphertext_version`), then OpenBao Transit ciphertext as UTF-8 bytes. Header contains no plaintext, raw keys, tokens, or secrets. Files retain `.enc` extension.
+- **Legacy compatibility:** `decrypt_backup()` auto-detects format — reads first 8 bytes for `WIMSBAO1\n` magic. If detected, dispatches to OpenBao Transit decrypt. Otherwise treats file as legacy env-AES nonce+ciphertext. `encrypt_backup()` and `decrypt_backup()` signatures unchanged.
+- **Context/AAD:** OpenBao Transit encrypt/decrypt uses `b"wims-backup"` as AAD context for encryption binding.
+- **Admin routes:** No changes needed — `src/backend/api/routes/admin/backups.py` calls `encrypt_backup()` / `decrypt_backup()` without modification.
+- **Tests:** `tests/test_backup_crypto_openbao.py` — 34 unit tests (no live OpenBao). Covers legacy env-AES roundtrip, OpenBao WIMSBAO1 header write/parse, OpenBao roundtrip, header auto-detection on decrypt, legacy decrypt without header, missing/invalid metadata, `OPENBAO_BACKUP_KEY_NAME` honoring, unknown provider error, and signature/output-path preservation.
+- **Non-goals:** Does NOT run live OpenBao backup/restore drill. Does NOT remove legacy env-AES restore. Does NOT change frontend.
 
 ## CSRF Protection
 

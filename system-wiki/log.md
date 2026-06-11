@@ -3,6 +3,14 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-11] feat | GH #152 Phase 7 — OpenBao-backed backup encryption + legacy restore compatibility
+
+- `src/backend/utils/backup_crypto.py`: rewritten to support pluggable crypto providers. Feature flag `WIMS_BACKUP_CRYPTO_PROVIDER` (priority) or `WIMS_CRYPTO_PROVIDER` (fallback), default `env_aesgcm`. New OpenBao format: `WIMSBAO1\n` magic header + JSON metadata line (provider, key_name, created_at, ciphertext_version) + OpenBao Transit ciphertext as UTF-8 bytes. No secrets in header. Context/AAD `b"wims-backup"`. Key name from `OPENBAO_BACKUP_KEY_NAME`, default `wims-backup`. `decrypt_backup()` auto-detects format via header magic; legacy env-AES nonce+ciphertext path preserved unchanged.
+- `src/backend/tests/test_backup_crypto_openbao.py`: 34 new unit tests (no live OpenBao). Covers feature-flag precedence, legacy roundtrip, WIMSBAO1 header write/parse, OpenBao roundtrip with mock client, header auto-detection on decrypt, legacy decrypt without header, missing/invalid metadata, `OPENBAO_BACKUP_KEY_NAME` honoring, unknown provider error, signature and output-path preservation.
+- Admin routes: no changes — `backups.py` calls unchanged `encrypt_backup()`/`decrypt_backup()`.
+- Wiki: `security-baseline.md` + gap register updated; Phase 7 implemented, #152 code paths complete, overall PARTIAL until live OpenBao restore drill.
+- No commit/push performed.
+
 ## [2026-06-11] feat | GH #152 Phase 6 — automated 90-day OpenBao KMS rotation + rewrap/resume run state
 
 - `src/postgres-init/55_kms_key_rotation_runs.sql`: new migration. Creates `wims.kms_key_rotation_runs` table with UUID PK, status enum, from/to version tracking, row counters, error message. Indexes for active-run guard and last-success lookup. RLS: SYSTEM_ADMIN only.
