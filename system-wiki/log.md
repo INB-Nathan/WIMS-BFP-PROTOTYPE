@@ -3,6 +3,23 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-10] rebase | PR #232 rebased onto master — 2 conflicts resolved
+
+- `system-wiki/log.md`: merged master's 6 PR #248 fix-batch entries with PR #232 operations board entry
+- `system-wiki/index.md`: merged both "Last changes" summaries
+- 2 commits (3128372, 1016b2d) now on top of master (ab0a0c6)
+
+## 2026-06-10 — fix(operations): frontend validator role name aligned to `VALIDATOR` (#232)
+- Updated `/home` gating and other frontend role checks from `NATIONAL_VALIDATOR` to `VALIDATOR`
+- Adjusted frontend role redirect, sidebar, dashboard, incidents, profile, admin/system, and related tests to use the frontend role value
+- Documented the frontend role-name surface in `frontend/route-map.md` and `frontend/frontend-infrastructure.md`
+
+## 2026-06-10 — feat(operations): #232 — Operations Board (migration 51, CRUD+audit, /home UI)
+- New wims.operations + wims.operation_citizen_reports tables (migration 51_operations.sql)
+- RLS: global SELECT USING(TRUE); INSERT/UPDATE/DELETE gated to NATIONAL_VALIDATOR
+- Backend: GET/POST/PATCH/DELETE /api/operations + link/unlink endpoints; all writes audit-logged
+- Frontend: /home Operations Board with ON-GOING/FIRE OUT/ALL tabs, inline status badge, validator-only CRUD
+- Branch: feat/operations-board
 ## [2026-06-10] feat | M10d automated breach notification + NPC 72h tracking (#171)
 
 - Migration `52_breach_notifications.sql`: `wims.breach_notifications` table with SERIAL PK, `threat_log_id FK→security_threat_logs`, `detected_at`, `npc_deadline_at` (= detected_at + 72h), `status` enum (DETECTED→DPO_NOTIFIED→NPC_SUBMITTED→CLOSED), `affected_systems`, `data_scope`, `notes`, `reported_by`, `npc_submitted_at`, timestamps. RLS ENABLE+FORCE; SELECT and ALL policies gated on `wims.current_user_role() = 'SYSTEM_ADMIN'`.

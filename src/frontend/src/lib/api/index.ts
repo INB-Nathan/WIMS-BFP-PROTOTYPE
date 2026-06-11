@@ -16,3 +16,4 @@ export * from './reference';
 export * from './regional';
 export * from './triage';
 export * from './map';
+export * from './operations';

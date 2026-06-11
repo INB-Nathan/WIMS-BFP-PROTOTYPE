@@ -54,6 +54,7 @@ from api.routes.user import router as user_profile_router
 from api.routes.map import router as public_map_router, operational_router as validator_map_router
 from api.routes.events import router as events_router
 from api.routes.geocode import router as geocode_router
+from api.routes.operations import router as operations_router
 
 # WIMS role resolution — canonical source in auth.py
 from auth import resolve_wims_role_from_token as _resolve_role_from_token
@@ -433,6 +434,7 @@ app.include_router(validator_map_router)  # GET /api/validator/operational-map (
 app.include_router(
     geocode_router
 )  # GET /api/geocode/reverse, /api/geocode/search (Nominatim proxy)
+app.include_router(operations_router)  # GET/POST/PATCH/DELETE /api/operations
 
 # ---------------------------------------------------------------------------
 # Celery
