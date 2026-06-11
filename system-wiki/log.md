@@ -3,6 +3,10 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-13] rebase | PR #263 rebased onto origin/master (26cf014)
+
+- Conflict in `system-wiki/log.md`: resolved by keeping all master entries (PR #265 review, PR #261 review, M9a AI inference, PR #264 review, M8 anomaly detection, M6a attachment encryption) and PR #263 M8 dashboard + severity filter entries in chronological order. Conflict in `system-wiki/gaps/frs-codebase-gap-register.md`: kept both M8 entries (behavioral anomaly detection #160 PARTIAL + security monitoring dashboard #164 CLOSED) as separate sub-items. No code conflicts.
+
 ## [2026-06-13] fix | PR #265 review — header injection sanitization, crypto_provider metadata, KMS byte tests, wiki typo
 
 - Q1 CRITICAL: `api/routes/incidents.py` serve_attachment — sanitize filename with `re.sub(r'[\x00-\x1f\x7f"]', '_', safe_name)` before Content-Disposition header interpolation. Prevents header injection via crafted filenames containing CRLF, double-quotes, or control characters.
