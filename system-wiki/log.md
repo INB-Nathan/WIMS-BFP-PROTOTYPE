@@ -152,6 +152,16 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `src/frontend/src/app/admin/monitoring/admin-security-monitoring.test.tsx`: 4 Vitest tests — summary cards render, chip toggle calls API with correct severity, empty state, distribution bar labels.
 - Deferred: SSE real-time push (polling sufficient for v1), global sidebar unreviewed badge.
 - Gap register updated: M8 monitoring dashboard CLOSED.
+
+## [2026-06-12] feat | GH #73 — M6 RA 10173 PII export, anonymization, consent logging (feat/m6-privacy-rights)
+
+- `src/postgres-init/59_consent_log.sql`: new `wims.consent_log` table. RLS: INSERT WITH CHECK (TRUE) for public consent recording; SELECT/UPDATE/DELETE SYSTEM_ADMIN only.
+- `src/backend/schemas/privacy.py`: `ConsentRequest`, `ConsentRecord`, `ExportResponse`, `AnonymizeRequest` (confirm validator), `AnonymizeResponse`.
+- `src/backend/api/routes/admin/privacy.py`: `GET /api/admin/privacy/export` (user → profile + consent_history; report → citizen_reports + decrypted incident_sensitive_details + consent_history; no-store headers; PII_EXPORT audit); `POST /api/admin/privacy/anonymize` (user → NULL contact_number; report → terminal-status guard (409 for non-terminal), NULL witness/PII/blob fields + involved_parties.full_name; PII_ANONYMIZE audit per table; warning:"irreversible" in response).
+- `src/backend/api/routes/consent.py`: `POST /api/auth/consent` (public, no auth; inserts to consent_log; CONSENT_GRANT/CONSENT_WITHDRAW audit with user_id=None).
+- `src/backend/api/routes/admin/__init__.py` + `src/backend/main.py`: router registrations.
+- `src/backend/tests/test_privacy.py`: 16 unit tests covering all ACs + corrections A-G.
+- Gap register: M6 #73 CLOSED; full DPA compliance (PIA/retention/DPO) noted as out-of-scope separate initiative.
 ## [2026-06-11] fix | OpenBao token-file mounting for backend/celery
 
 - `src/openbao/init/bootstrap-openbao.sh`: after writing the `wims-app` policy, bootstrap now verifies any existing app token or creates a replacement policy-scoped orphan service token and persists the token value to `/vault/file/.wims-app-token` without logging it. This regenerates app auth after an OpenBao volume reset while avoiding token churn on normal restarts.
