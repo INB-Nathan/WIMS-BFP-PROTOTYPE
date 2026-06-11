@@ -10,7 +10,7 @@ import {
 import { apiFetch, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
 import { fetchRegionalIncidentsOfflineAware } from '@/lib/api/offlineRegional';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
-import { getPendingOps, type OfflineOpDecrypted } from '@/lib/offlineStore';
+import { getPendingOps, getCachedIncidents, type OfflineOpDecrypted } from '@/lib/offlineStore';
 import Link from 'next/link';
 import {
   REGIONAL_INCIDENT_GENERAL_CATEGORIES,
@@ -75,6 +75,27 @@ interface HoverHint {
   y: number;
 }
 
+const FILTER_STORAGE_KEY = 'wims:regional_filters';
+
+interface PersistedFilters {
+  dateFilter: DateFilterValue;
+  statusFilter: string;
+  categoryFilter: string;
+  pageIndex: number;
+  pageSize: number;
+  specificDate: string;
+}
+
+function loadPersistedFilters(): Partial<PersistedFilters> {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(FILTER_STORAGE_KEY) : null;
+    return raw ? (JSON.parse(raw) as Partial<PersistedFilters>) : {};
+  } catch { return {}; }
+}
+
+function savePersistedFilters(f: PersistedFilters): void {
+  try { localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(f)); } catch {}
+}
 
 export default function RegionalDashboardPage() {
   const router = useRouter();
@@ -102,6 +123,7 @@ export default function RegionalDashboardPage() {
   const [isFromCache, setIsFromCache] = useState(false);
   const [cachedAt, setCachedAt] = useState<number | undefined>();
   const [queuedOps, setQueuedOps] = useState<OfflineOpDecrypted[]>([]);
+  const [cachedDetailIds, setCachedDetailIds] = useState<Set<number>>(new Set());
 
   // Stats visibility — persisted so the user's preference survives page reload.
   // Auto-collapsed when offline (stats can't refresh and would be misleading).
@@ -122,13 +144,14 @@ export default function RegionalDashboardPage() {
     });
   };
 
-  const [pageIndex, setPageIndex] = useState(0);
-  const [pageSize, setPageSize] = useState(10);
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [dateFilter, setDateFilter] = useState<DateFilterValue>('today');
-  const [specificDate, setSpecificDate] = useState('');
-  const [specificDateDraft, setSpecificDateDraft] = useState('');
+  const [savedFilters] = useState(() => loadPersistedFilters());
+  const [pageIndex, setPageIndex] = useState(savedFilters.pageIndex ?? 0);
+  const [pageSize, setPageSize] = useState(savedFilters.pageSize ?? 10);
+  const [categoryFilter, setCategoryFilter] = useState(savedFilters.categoryFilter ?? '');
+  const [statusFilter, setStatusFilter] = useState(savedFilters.statusFilter ?? '');
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>((savedFilters.dateFilter as DateFilterValue) ?? 'today');
+  const [specificDate, setSpecificDate] = useState(savedFilters.specificDate ?? '');
+  const [specificDateDraft, setSpecificDateDraft] = useState(savedFilters.specificDate ?? '');
   const [statsDateFilter, setStatsDateFilter] = useState<StatsDateFilterValue>('week');
   const [rejectionNoticeDismissed, setRejectionNoticeDismissed] = useState(false);
   const [pendingActionedBanner, setPendingActionedBanner] = useState(false);
@@ -141,6 +164,10 @@ export default function RegionalDashboardPage() {
   const dateBounds = useMemo(() => getRegionalDateBounds(dateFilter, specificDate), [dateFilter, specificDate]);
   const statsDateBounds = useMemo(() => getRegionalDateBounds(statsDateFilter, ''), [statsDateFilter]);
   const specificDateDraftIsValid = isDateOnly(specificDateDraft);
+
+  useEffect(() => {
+    savePersistedFilters({ dateFilter, statusFilter, categoryFilter, pageIndex, pageSize, specificDate });
+  }, [dateFilter, statusFilter, categoryFilter, pageIndex, pageSize, specificDate]);
 
   const updateFiltersWithoutScrollShift = useCallback((update: () => void) => {
     const x = window.scrollX;
@@ -223,6 +250,17 @@ export default function RegionalDashboardPage() {
       setIncidentsTotal(typeof data.total === 'number' ? data.total : 0);
       setIsFromCache(fromCache);
       setCachedAt(cAt);
+
+      if (fromCache && encoderId) {
+        const allCached = await getCachedIncidents(encoderId);
+        setCachedDetailIds(new Set(
+          allCached
+            .filter((c) => (c.data as Record<string, unknown>).nonsensitive !== undefined)
+            .map((c) => c.serverId),
+        ));
+      } else {
+        setCachedDetailIds(new Set());
+      }
 
       // Always surface queued create ops — online or offline — so the encoder
       // can see incidents awaiting sync right in the main list.
@@ -897,6 +935,8 @@ export default function RegionalDashboardPage() {
                   onHoverEnd={clearHoverHint}
                   onArchive={doEncoderArchive}
                   onUnarchive={doEncoderUnarchive}
+                  isDetailCached={isFromCache ? cachedDetailIds.has(inc.incident_id) : undefined}
+                  isOnline={isOnline}
                 />
               ))}
             </div>
@@ -994,30 +1034,36 @@ export default function RegionalDashboardPage() {
                     </tr>
                   );
                 })}
-                {incidents.map((inc, idx) => (
+                {incidents.map((inc, idx) => {
+                  const rowOfflineUncached = !isOnline && isFromCache && !cachedDetailIds.has(inc.incident_id);
+                  return (
                   <tr
                     key={inc.incident_id}
-                    onClick={() => router.push(`/dashboard/regional/incidents/${inc.incident_id}`)}
+                    onClick={() => { if (rowOfflineUncached) return; router.push(`/dashboard/regional/incidents/${inc.incident_id}`); }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
+                        if (rowOfflineUncached) return;
                         router.push(`/dashboard/regional/incidents/${inc.incident_id}`);
                       }
                     }}
-                    tabIndex={0}
-                    role="link"
+                    tabIndex={rowOfflineUncached ? -1 : 0}
+                    role={rowOfflineUncached ? 'row' : 'link'}
+                    aria-disabled={rowOfflineUncached || undefined}
                     aria-label={`View incident ${inc.incident_id}`}
-                    className="cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#C62828] focus-visible:ring-inset"
+                    className={rowOfflineUncached ? 'cursor-not-allowed opacity-60 transition-colors outline-none' : 'cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#C62828] focus-visible:ring-inset'}
                     style={{
                       backgroundColor: idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA',
                       borderBottom: '1px solid var(--border-color)',
                     }}
                     onMouseEnter={(e) => {
+                      if (rowOfflineUncached) return;
                       (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-light)';
                       scheduleHoverHint(inc.incident_id, e);
                     }}
-                    onMouseMove={hideHoverHintOnMove}
+                    onMouseMove={() => { if (!rowOfflineUncached) hideHoverHintOnMove(); }}
                     onMouseLeave={(e) => {
+                      if (rowOfflineUncached) return;
                       (e.currentTarget as HTMLElement).style.backgroundColor = idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA';
                       clearHoverHint();
                     }}
@@ -1049,7 +1095,14 @@ export default function RegionalDashboardPage() {
                       {formatIncidentDate(inc.updated_at)}
                     </td>
                     <td className="px-5 py-4">
-                      <StatusBadge status={inc.verification_status} />
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={inc.verification_status} />
+                        {rowOfflineUncached && (
+                          <span className="rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-500 whitespace-nowrap">
+                            Go online to view
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-5 py-4 whitespace-nowrap">
                       {inc.verification_status === 'VERIFIED' && (
@@ -1069,7 +1122,8 @@ export default function RegionalDashboardPage() {
                       )}
                     </td>
                   </tr>
-                ))
+                  );
+                })
                 }</>
               )}
             </tbody>

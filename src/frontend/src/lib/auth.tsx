@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { useRouter } from 'next/navigation';
 import { refreshToken } from './auth-refresh';
+import { getConnectivitySnapshot } from './connectivity';
 
 export interface User {
     id: string;
@@ -138,6 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const proactivelyRefreshJwtOnly = async () => {
+            if (!getConnectivitySnapshot().isOnline) return;
             await refreshAccessToken();
         };
 

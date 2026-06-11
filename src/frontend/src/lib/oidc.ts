@@ -72,6 +72,7 @@ function buildOidcConfig(): UserManagerSettings {
     response_type: 'code' as const,
     scope: 'openid profile email',
     post_logout_redirect_uri: baseUrl,
+    automaticSilentRenew: false,
   };
 }
 

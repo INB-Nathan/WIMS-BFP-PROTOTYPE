@@ -51,7 +51,8 @@ services:
       - "127.0.0.1:8025:8025"
 
   keycloak:
-    image: quay.io/keycloak/keycloak:24.0.0
+    build: ./keycloak
+    image: wims-keycloak-demo-otp:local
     container_name: wims-keycloak
     command: start-dev --import-realm
     volumes:

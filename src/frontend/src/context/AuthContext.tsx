@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import { createUserManager } from '@/lib/oidc';
 import { refreshToken } from '@/lib/auth-refresh';
 import { clearAllCachedIncidents } from '@/lib/offlineStore';
+import { getConnectivitySnapshot } from '@/lib/connectivity';
 
 export interface User {
   id: string;
@@ -145,9 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const proactivelyRefreshJwtOnly = async () => {
-      // Silent refresh — only rotates the cookie, does NOT touch user state.
-      // This is safe to call concurrently from multiple tabs because of the
-      // navigator.locks gate inside refreshAccessToken().
+      if (!getConnectivitySnapshot().isOnline) return;
       await refreshAccessToken();
     };
 

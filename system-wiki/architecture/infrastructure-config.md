@@ -4,7 +4,7 @@ created: 2026-05-16
 updated: 2026-06-12
 type: architecture
 tags: [wims-bfp, docker, nginx, suricata, keycloak, infrastructure]
-sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/nginx/, src/suricata/, src/keycloak/import/bfp-realm.json, .github/workflows/ci.yml]
+sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/nginx/, src/suricata/, src/keycloak/import/bfp-realm.json, src/keycloak/Dockerfile, .github/workflows/ci.yml]
 status: draft
 ---
 
@@ -27,7 +27,7 @@ status: draft
 | postgres | wims-postgres | `postgis/postgis:15-3.4-alpine` | 5432 |
 | redis | wims-redis | `redis:7.2-alpine` | 6379 |
 | mailhog | wims-mailhog | `mailhog/mailhog:v1.0.1` | 1025 (SMTP), 8025 (Web UI) |
-| keycloak | wims-keycloak | `quay.io/keycloak/keycloak:24.0.0` | 8080 |
+| keycloak | wims-keycloak | `wims-keycloak-demo-otp:local` built from `./keycloak` | 8080 |
 | keycloak-bootstrap | wims-keycloak-bootstrap | `quay.io/keycloak/keycloak:24.0.0` | (one-shot, no ports) |
 | backend | wims-backend | Dockerfile at `./backend/Dockerfile` (python:3.11-slim) | 8000 (internal) |
 | frontend | wims-frontend | `./frontend/Dockerfile` (Next.js) | 3000 (internal) |
@@ -37,6 +37,8 @@ status: draft
 **Health checks:** postgres (`pg_isready -U postgres -d wims`, interval 5s), redis (`redis-cli ping`, interval 5s), Keycloak (HTTP probe), and Suricata (`pgrep Suricata-Main`). Backend depends on healthy Postgres and Redis plus the completed Keycloak bootstrap.
 
 **Named volumes:** `postgres_data`, `ollama_data`, `incident_attachments_data`, `openbao_data`. `openbao_data` stores OpenBao file storage plus prototype bootstrap credentials (`.bootstrap-creds`) and the regenerated backend/celery app token (`.wims-app-token`), mounted read-only into backend/celery at `/openbao-creds`.
+
+**Temporary Keycloak provider:** The base Keycloak image is currently wrapped by `src/keycloak/Dockerfile` to build and install `src/keycloak/demo-otp-provider`, which registers `wims-demo-otp-form` for presentation-only browser OTP bypass code `123123`. Remove this provider and restore `quay.io/keycloak/keycloak:24.0.0` before PR; see `docs/agents/remove-demo-otp-bypass.md`.
 
 **Required env interpolation:** Base `src/docker-compose.yml` intentionally uses `${VAR:?error}` for local/test secrets such as `POSTGRES_PASSWORD`, `KC_DB_PASSWORD`, `KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD`, `NEXT_PUBLIC_FIREBASE_API_KEY`, and `NEXT_PUBLIC_FIREBASE_VAPID_KEY`. GitHub CI jobs that run compose (`docker-build`, `security-scan`) copy root `.env.example` to `src/.env` before `docker compose config`, build, or stack startup so fail-fast interpolation remains enabled without committing real secrets.
 

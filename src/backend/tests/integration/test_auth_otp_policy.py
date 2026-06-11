@@ -3,10 +3,16 @@ from pathlib import Path
 
 
 REALM_PATH = Path(__file__).resolve().parents[3] / "keycloak" / "bfp-realm.json"
+IMPORT_REALM_PATH = Path(__file__).resolve().parents[3] / "keycloak" / "import" / "bfp-realm.json"
 
 
 def _load_realm() -> dict:
     with REALM_PATH.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _load_import_realm() -> dict:
+    with IMPORT_REALM_PATH.open("r", encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -51,6 +57,48 @@ def test_otp_trusted_device_window_is_7_days():
 
     # Explicit 7-day trusted-device window
     assert otp_cfg.get("config", {}).get("otpRememberDeviceFor") == "7d"
+
+
+def test_browser_otp_uses_temporary_demo_provider():
+    realm = _load_realm()
+    browser_conditional_flow = _flow_by_alias(realm, "Browser - Conditional OTP")
+
+    otp_executions = [
+        execution
+        for execution in browser_conditional_flow.get("authenticationExecutions", [])
+        if execution.get("authenticatorConfig") == "otp-trusted-device"
+    ]
+
+    assert len(otp_executions) == 1
+    assert otp_executions[0].get("authenticator") == "wims-demo-otp-form"
+    assert otp_executions[0].get("requirement") == "REQUIRED"
+
+
+def test_direct_grant_otp_does_not_use_demo_provider():
+    realm = _load_realm()
+    direct_grant_flow = _flow_by_alias(realm, "Direct Grant - Conditional OTP")
+
+    direct_grant_authenticators = {
+        execution.get("authenticator")
+        for execution in direct_grant_flow.get("authenticationExecutions", [])
+    }
+
+    assert "direct-grant-validate-otp" in direct_grant_authenticators
+    assert "wims-demo-otp-form" not in direct_grant_authenticators
+
+
+def test_import_realm_browser_otp_uses_temporary_demo_provider():
+    realm = _load_import_realm()
+    browser_conditional_flow = _flow_by_alias(realm, "Browser - Conditional OTP")
+
+    otp_executions = [
+        execution
+        for execution in browser_conditional_flow.get("authenticationExecutions", [])
+        if execution.get("authenticatorConfig") == "otp-trusted-device"
+    ]
+
+    assert len(otp_executions) == 1
+    assert otp_executions[0].get("authenticator") == "wims-demo-otp-form"
 
 
 def test_non_target_roles_not_forced_to_otp():

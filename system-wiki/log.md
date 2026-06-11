@@ -2549,3 +2549,17 @@ Fixed the verified connectivity state machine so the app can recover from offlin
 - `__tests__/offlineStore.ops.test.ts` (new): 9 tests covering `recoverStaleSyncingOps` (stale threshold, null lastAttemptAt, encoder scoping), `updateOfflineOp` (preserves createdAt), and `getOfflineOp` (returns decrypted payload).
 
 **Validation:** 28 test files, 190 tests — all passing. `npm run lint`: 0 errors. `npm run build`: clean. `npx tsc --noEmit`: no new errors (pre-existing test/mock type errors unchanged).
+## [2026-06-11] feat | Temporary Keycloak OTP demo bypass
+
+Added a presentation-only Keycloak browser OTP provider that keeps normal OTP validation but also accepts fixed code `123123` for MFA-prompted accounts.
+
+**Changes:**
+- `src/keycloak/demo-otp-provider`: new Keycloak SPI provider registering `wims-demo-otp-form`; it accepts `123123`, logs a warning/event detail, checks enabled/brute-force state, and delegates all other OTPs to the built-in OTP form logic.
+- `src/keycloak/Dockerfile` and `src/docker-compose.yml`: Keycloak now builds a local image with the provider jar installed before startup.
+- `src/keycloak/bfp-realm.json` and `src/keycloak/import/bfp-realm.json`: browser OTP execution now uses `wims-demo-otp-form`; Direct Grant OTP remains `direct-grant-validate-otp`.
+- `docs/agents/remove-demo-otp-bypass.md`: added agent instructions for removing the shortcut before PR.
+- `system-wiki/security/security-baseline.md`, `system-wiki/architecture/infrastructure-config.md`, and `system-wiki/index.md`: documented the temporary bypass and removal expectation.
+
+**Validation:** Docker provider image build passed (`docker build -t wims-keycloak-demo-otp:test ./keycloak`), including Maven package and `kc.sh build` provider registration. Focused OTP policy pytest passed locally.
+
+**Wiki update:** Updated the relevant security/infrastructure synthesis pages and this log. No FRS gap status changed.
