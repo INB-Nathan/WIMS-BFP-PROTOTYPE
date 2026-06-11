@@ -12,6 +12,9 @@ export interface Operation {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  latitude: number | null;
+  longitude: number | null;
+  radius_meters: number | null;
   linked_report_ids: number[];
 }
 
@@ -21,6 +24,9 @@ export interface OperationCreate {
   location: string;
   size_hectares?: number;
   notes?: string;
+  latitude?: number;
+  longitude?: number;
+  radius_meters?: number;
 }
 
 export interface OperationUpdate {
@@ -29,6 +35,9 @@ export interface OperationUpdate {
   location?: string;
   size_hectares?: number;
   notes?: string;
+  latitude?: number;
+  longitude?: number;
+  radius_meters?: number;
 }
 
 export async function fetchOperations(status?: FireStatus[]): Promise<Operation[]> {

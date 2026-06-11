@@ -20,6 +20,9 @@ class OperationCreate(BaseModel):
     location: str
     size_hectares: Optional[float] = None
     notes: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    radius_meters: Optional[float] = None
 
 
 class OperationUpdate(BaseModel):
@@ -28,6 +31,9 @@ class OperationUpdate(BaseModel):
     location: Optional[str] = None
     size_hectares: Optional[float] = None
     notes: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    radius_meters: Optional[float] = None
 
 
 class OperationResponse(BaseModel):
@@ -40,6 +46,9 @@ class OperationResponse(BaseModel):
     created_by: Optional[uuid.UUID]
     created_at: datetime
     updated_at: datetime
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    radius_meters: Optional[float] = None
     linked_report_ids: list[int] = []
 
     class Config:

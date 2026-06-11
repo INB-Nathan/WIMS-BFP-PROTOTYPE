@@ -3,12 +3,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useUserProfile } from '@/lib/auth';
 import Link from 'next/link';
-import { Search, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Search, Loader2, Pencil, Plus, Trash2, Link2 } from 'lucide-react';
+import { MapPickerInner } from '@/components/MapPickerInner';
 import {
   fetchOperations,
   createOperation,
   updateOperation,
   deleteOperation,
+  linkReport,
+  unlinkReport,
   type Operation,
   type FireStatus,
   type OperationCreate,
@@ -32,6 +35,7 @@ export default function HomePage() {
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<Operation | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [linkingTarget, setLinkingTarget] = useState<Operation | null>(null);
 
   const loadOps = useCallback(async () => {
     setOpsLoading(true);
@@ -48,6 +52,16 @@ export default function HomePage() {
   useEffect(() => {
     if (!authLoading) void loadOps();
   }, [authLoading, loadOps]);
+
+  async function handleLink(opId: number, reportId: number) {
+    await linkReport(opId, reportId);
+    await loadOps();
+  }
+
+  async function handleUnlink(opId: number, reportId: number) {
+    await unlinkReport(opId, reportId);
+    await loadOps();
+  }
 
   const filteredOps = ops.filter((op) => {
     const matchTab =
@@ -206,7 +220,14 @@ export default function HomePage() {
                         )}
                       </td>
                       <td className="px-3 py-3 text-xs text-slate-500">
-                        {op.linked_report_ids.length}
+                        <button
+                          onClick={() => setLinkingTarget(op)}
+                          className="inline-flex items-center gap-1 hover:text-blue-600 transition-colors"
+                          title="Manage linked reports"
+                        >
+                          <Link2 className="h-3 w-3" />
+                          {op.linked_report_ids.length}
+                        </button>
                       </td>
                       <td className="px-3 py-3 text-xs text-slate-500">
                         {new Date(op.updated_at).toLocaleString()}
@@ -260,6 +281,15 @@ export default function HomePage() {
           }}
         />
       )}
+
+      {linkingTarget && (
+        <ReportLinkingModal
+          operation={linkingTarget}
+          onClose={() => { setLinkingTarget(null); loadOps(); }}
+          onLink={handleLink}
+          onUnlink={handleUnlink}
+        />
+      )}
     </div>
   );
 }
@@ -284,6 +314,9 @@ function OperationFormModal({
   const [location, setLocation] = useState(initial?.location ?? '');
   const [sizeHa, setSizeHa] = useState(initial?.size_hectares?.toString() ?? '');
   const [notes, setNotes] = useState(initial?.notes ?? '');
+  const [lat, setLat] = useState<number | null>(initial?.latitude ?? null);
+  const [lng, setLng] = useState<number | null>(initial?.longitude ?? null);
+  const [radius, setRadius] = useState<number | null>(initial?.radius_meters ?? null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -298,6 +331,9 @@ function OperationFormModal({
         location,
         size_hectares: sizeHa ? parseFloat(sizeHa) : undefined,
         notes: notes || undefined,
+        latitude: lat ?? undefined,
+        longitude: lng ?? undefined,
+        radius_meters: radius ?? undefined,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
@@ -355,7 +391,59 @@ function OperationFormModal({
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">
-              Size (hectares)
+              Pin on Map
+            </label>
+            <MapPickerInner
+              center={lat && lng ? [lat, lng] : [14.5995, 120.9842]}
+              zoom={12}
+              value={lat && lng ? { lat, lng } : null}
+              onChange={(newLat, newLng) => {
+                setLat(newLat);
+                setLng(newLng);
+                // Auto-fill location from coordinates if empty
+                if (!location) setLocation(`(${newLat.toFixed(5)}, ${newLng.toFixed(5)})`);
+              }}
+              mapHeight="220px"
+            />
+            {lat !== null && lng !== null && (
+              <p className="text-xs text-slate-500 mt-1">
+                📍 {lat.toFixed(5)}, {lng.toFixed(5)}
+                <button
+                  type="button"
+                  onClick={() => { setLat(null); setLng(null); setRadius(null); }}
+                  className="ml-2 text-red-600 hover:underline"
+                >
+                  Clear pin
+                </button>
+              </p>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">
+              Fire Radius (meters)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="10"
+              value={radius ?? ''}
+              onChange={(e) => {
+                const val = e.target.value ? parseFloat(e.target.value) : null;
+                setRadius(val);
+                // Auto-calculate hectares: π * r² / 10000
+                if (val && val > 0) {
+                  const ha = (Math.PI * val * val) / 10000;
+                  setSizeHa(ha.toFixed(2));
+                }
+              }}
+              placeholder="e.g. 500"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">
+              Size (hectares){' '}
+              <span className="text-slate-400 font-normal">— auto from radius</span>
             </label>
             <input
               type="number"
@@ -392,6 +480,129 @@ function OperationFormModal({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ReportLinkingModal — search + link citizen reports to an operation
+// ---------------------------------------------------------------------------
+
+function ReportLinkingModal({
+  operation,
+  onClose,
+  onLink,
+  onUnlink,
+}: {
+  operation: Operation;
+  onClose: () => void;
+  onLink: (opId: number, reportId: number) => Promise<void>;
+  onUnlink: (opId: number, reportId: number) => Promise<void>;
+}) {
+  const [reportIdInput, setReportIdInput] = useState('');
+  const [linking, setLinking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleLinkSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const id = parseInt(reportIdInput, 10);
+    if (!id || id < 1) {
+      setError('Enter a valid report ID');
+      return;
+    }
+    if (operation.linked_report_ids.includes(id)) {
+      setError('This report is already linked');
+      return;
+    }
+    setLinking(true);
+    setError(null);
+    try {
+      await onLink(operation.operation_id, id);
+      setReportIdInput('');
+    } catch {
+      setError('Failed to link report');
+    } finally {
+      setLinking(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-md bg-white p-5 shadow-xl space-y-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-semibold text-slate-900">
+          Linked Reports — {operation.location}
+        </h3>
+
+        {/* Currently linked reports */}
+        <div>
+          <p className="text-xs font-medium text-slate-700 mb-2">Currently linked:</p>
+          {operation.linked_report_ids.length === 0 ? (
+            <p className="text-xs text-slate-500">No reports linked yet.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {operation.linked_report_ids.map((rid) => (
+                <span
+                  key={rid}
+                  className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 border border-blue-200"
+                >
+                  Report #{rid}
+                  <button
+                    type="button"
+                    onClick={() => void onUnlink(operation.operation_id, rid)}
+                    className="ml-0.5 rounded-full p-0.5 hover:bg-blue-200 transition-colors"
+                    aria-label={`Unlink report ${rid}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Link new report */}
+        <form onSubmit={(e) => void handleLinkSubmit(e)} className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">
+              Link a citizen report by ID
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min="1"
+                value={reportIdInput}
+                onChange={(e) => setReportIdInput(e.target.value)}
+                placeholder="Report ID"
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              />
+              <button
+                type="submit"
+                disabled={linking}
+                className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {linking ? 'Linking…' : 'Link'}
+              </button>
+            </div>
+            {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+          </div>
+        </form>
+
+        <div className="flex gap-3 justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+          >
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
