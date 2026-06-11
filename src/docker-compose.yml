@@ -105,6 +105,45 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # --- Key Management (OpenBao) ---
+  openbao:
+    image: openbao/openbao:2.2.0
+    container_name: wims-openbao
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - openbao_data:/vault/file
+      - ./openbao/config:/vault/config:ro
+    environment:
+      BAO_SKIP_VERIFY: "true"
+    networks:
+      - wims_internal
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8200/v1/sys/health >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: always
+    entrypoint: ["bao", "server", "-config=/vault/config/openbao.hcl"]
+
+  openbao-bootstrap:
+    image: openbao/openbao:2.2.0
+    container_name: wims-openbao-bootstrap
+    entrypoint: ["/bin/sh", "/vault/init/bootstrap-openbao.sh"]
+    volumes:
+      - ./openbao/init:/vault/init:ro
+      - ./openbao/config:/vault/config:ro
+    environment:
+      OPENBAO_ADDR: http://openbao:8200
+      OPENBAO_TOKEN: ${OPENBAO_DEV_ROOT_TOKEN:-devroot}
+    networks:
+      - wims_internal
+    depends_on:
+      openbao:
+        condition: service_healthy
+    restart: "no"
+
   ollama:
     image: ollama/ollama:0.5.1
     container_name: wims-ollama
@@ -295,3 +334,4 @@ volumes:
   postgres_data:
   ollama_data:
   incident_attachments_data:
+  openbao_data:
