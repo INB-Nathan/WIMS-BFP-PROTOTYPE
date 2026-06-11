@@ -283,6 +283,7 @@ def upload_incident_bundle(
         provider = get_crypto_provider()
         crypto_provider_val: str = provider.crypto_provider
         kms_key_name_val: str | None = provider.kms_key_name
+        pii_key_version: int = provider.current_version
         try:
             nonce_b64, ct_b64 = provider.encrypt_json(pii_for_blob, aad)
         except (SecurityProviderError, Exception) as exc:
@@ -307,7 +308,7 @@ def upload_incident_bundle(
                     personnel_on_duty, other_personnel, casualty_details,
                     is_icp_present, icp_location,
                     pii_blob_enc, encryption_iv,
-                    crypto_provider, kms_key_name
+                    crypto_provider, kms_key_name, key_version
                 ) VALUES (
                     :incident_id, :street_address, :landmark,
                     NULL, NULL, :receiver_name,
@@ -318,7 +319,7 @@ def upload_incident_bundle(
                     NULL::jsonb,
                     :is_icp_present, :icp_location,
                     :pii_blob_enc, :pii_nonce,
-                    :crypto_provider, :kms_key_name
+                    :crypto_provider, :kms_key_name, :key_version
                 )
                 """
             ),
@@ -345,6 +346,7 @@ def upload_incident_bundle(
                 "pii_nonce": enc_iv,
                 "crypto_provider": crypto_provider_val,
                 "kms_key_name": kms_key_name_val,
+                "key_version": pii_key_version,
             },
         )
 

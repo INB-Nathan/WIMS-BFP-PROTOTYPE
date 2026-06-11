@@ -726,6 +726,7 @@ def commit_afor_import_command(
             sp = deps.get_security_provider()
             nonce_b64, ct_b64 = sp.encrypt_json(pii_for_blob, aad)
             crypto_provider_val = getattr(sp, "crypto_provider", "env_aesgcm")
+            pii_key_version = getattr(sp, "current_version", 1)
             kms_key_name_val = getattr(sp, "kms_key_name", None)
             enc_iv = nonce_b64 if crypto_provider_val == "env_aesgcm" else None
         except SecurityProviderError as exc:
@@ -735,6 +736,7 @@ def commit_afor_import_command(
                 exc,
             )
             crypto_provider_val = "env_aesgcm"
+            pii_key_version = 1
             kms_key_name_val = None
             enc_iv = None
 
@@ -750,7 +752,7 @@ def commit_afor_import_command(
                     personnel_on_duty, other_personnel, casualty_details,
                     is_icp_present, icp_location,
                     pii_blob_enc, encryption_iv,
-                    crypto_provider, kms_key_name
+                    crypto_provider, kms_key_name, key_version
                 ) VALUES (
                     :incident_id, :street_address, :landmark,
                     NULL, NULL, :receiver_name,
@@ -763,7 +765,7 @@ def commit_afor_import_command(
                     NULL::jsonb,
                     :is_icp_present, :icp_location,
                     :pii_blob_enc, :pii_nonce,
-                    :crypto_provider, :kms_key_name
+                    :crypto_provider, :kms_key_name, :key_ver
                 )
             """),
             {
@@ -790,6 +792,7 @@ def commit_afor_import_command(
                 "pii_nonce": enc_iv,
                 "crypto_provider": crypto_provider_val,
                 "kms_key_name": kms_key_name_val,
+                "key_ver": pii_key_version,
             },
         )
 

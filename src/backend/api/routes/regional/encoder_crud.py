@@ -171,18 +171,24 @@ def create_incident(
                 pii_dict[f] = val
         try:
             provider = get_crypto_provider()
+            pii_key_version: int = provider.current_version
             nonce_b64, ct_b64 = provider.encrypt_json(
                 pii_dict, f"incident_id:{incident_id}".encode()
             )
             crypto_provider_val = provider.crypto_provider
             kms_key_name_val = provider.kms_key_name
             enc_iv = nonce_b64 if crypto_provider_val == "env_aesgcm" else None
-            sd_cols.extend(["pii_blob_enc", "encryption_iv", "crypto_provider", "kms_key_name"])
-            sd_vals.extend([":pii_blob", ":enc_iv", ":crypto_provider", ":kms_key_name"])
+            sd_cols.extend(
+                ["pii_blob_enc", "encryption_iv", "crypto_provider", "kms_key_name", "key_version"]
+            )
+            sd_vals.extend(
+                [":pii_blob", ":enc_iv", ":crypto_provider", ":kms_key_name", ":key_ver"]
+            )
             sd_params["pii_blob"] = ct_b64
             sd_params["enc_iv"] = enc_iv
             sd_params["crypto_provider"] = crypto_provider_val
             sd_params["kms_key_name"] = kms_key_name_val
+            sd_params["key_ver"] = pii_key_version
         except (SecurityProviderError, Exception):
             logger.warning(
                 "PII encryption failed — storing without blob (incident_id=%s)",

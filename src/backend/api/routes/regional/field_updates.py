@@ -185,6 +185,7 @@ def _apply_incident_field_updates(
         try:
             # Re-encrypt with env-default provider (new writes always use env)
             provider = get_crypto_provider()
+            pii_key_version: int = provider.current_version
             nonce_b64, ct_b64 = provider.encrypt_json(
                 existing_pii, f"incident_id:{incident_id}".encode()
             )
@@ -197,12 +198,14 @@ def _apply_incident_field_updates(
                     "encryption_iv = :enc_iv",
                     "crypto_provider = :crypto_provider",
                     "kms_key_name = :kms_key_name",
+                    "key_version = :key_ver",
                 ]
             )
             sd_params["pii_blob"] = ct_b64
             sd_params["enc_iv"] = enc_iv
             sd_params["crypto_provider"] = crypto_provider_val
             sd_params["kms_key_name"] = kms_key_name_val
+            sd_params["key_ver"] = pii_key_version
         except (SecurityProviderError, Exception):
             logger.warning("PII re-encryption failed for incident %s", incident_id)
     if sd_updates:
