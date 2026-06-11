@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useUserProfile } from '@/lib/auth';
 import Link from 'next/link';
-import { Search, Loader2, Pencil, Plus, Trash2, Link2 } from 'lucide-react';
+import { Search, Loader2, Pencil, Plus, Trash2, Link2, Map as MapIcon, List } from 'lucide-react';
 import { MapPickerInner } from '@/components/MapPickerInner';
+import OperationsMap from '@/components/OperationsMap';
 import {
   fetchOperations,
   createOperation,
@@ -36,6 +37,7 @@ export default function HomePage() {
   const [editTarget, setEditTarget] = useState<Operation | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [linkingTarget, setLinkingTarget] = useState<Operation | null>(null);
+  const [viewMode, setViewMode] = useState<'table' | 'map'>('table');
 
   const loadOps = useCallback(async () => {
     setOpsLoading(true);
@@ -148,24 +150,74 @@ export default function HomePage() {
             )}
           </div>
 
-          {/* Filter tabs */}
-          <div className="flex gap-2 flex-wrap">
-            {(['ON-GOING', 'FIRE OUT', 'ALL'] as TabValue[]).map((tab) => (
+          {/* Filter tabs + View toggle */}
+          <div className="flex gap-2 flex-wrap items-center justify-between">
+            <div className="flex gap-2 flex-wrap">
+              {(['ON-GOING', 'FIRE OUT', 'ALL'] as TabValue[]).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`rounded-md border px-3 py-1.5 text-sm font-medium ${
+                    activeTab === tab
+                      ? 'border-red-300 bg-red-50 text-red-700'
+                      : 'border-slate-300 bg-white text-slate-700'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-1 rounded-md border border-slate-300 overflow-hidden">
               <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`rounded-md border px-3 py-1.5 text-sm font-medium ${
-                  activeTab === tab
-                    ? 'border-red-300 bg-red-50 text-red-700'
-                    : 'border-slate-300 bg-white text-slate-700'
+                onClick={() => setViewMode('table')}
+                className={`flex items-center gap-1 px-3 py-1.5 text-sm font-medium ${
+                  viewMode === 'table'
+                    ? 'bg-red-50 text-red-700'
+                    : 'bg-white text-slate-600 hover:bg-slate-50'
                 }`}
               >
-                {tab}
+                <List className="h-4 w-4" /> Table
               </button>
-            ))}
+              <button
+                onClick={() => setViewMode('map')}
+                className={`flex items-center gap-1 px-3 py-1.5 text-sm font-medium border-l border-slate-300 ${
+                  viewMode === 'map'
+                    ? 'bg-red-50 text-red-700'
+                    : 'bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <MapIcon className="h-4 w-4" /> Map
+              </button>
+            </div>
           </div>
 
-          {/* Table */}
+          {/* Map view */}
+          {viewMode === 'map' && !opsLoading && (
+            <div className="space-y-4">
+              <OperationsMap operations={filteredOps} />
+              {filteredOps.filter((op) => op.latitude == null || op.longitude == null).length > 0 && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-sm font-medium text-amber-800">
+                    {filteredOps.filter((op) => op.latitude == null || op.longitude == null).length} operation(s)
+                    without map coordinates
+                  </p>
+                  <ul className="mt-2 space-y-1">
+                    {filteredOps
+                      .filter((op) => op.latitude == null || op.longitude == null)
+                      .map((op) => (
+                        <li key={op.operation_id} className="text-sm text-amber-700">
+                          {op.location} — {op.fire_status}
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Table view */}
+          {viewMode === 'table' && (
+          <div>
           {opsLoading ? (
             <div className="flex justify-center p-8">
               <Loader2 className="h-6 w-6 animate-spin text-slate-500" />
@@ -258,6 +310,8 @@ export default function HomePage() {
               </table>
             </div>
           )}
+          </div>
+        )}
         </div>
       </div>
 

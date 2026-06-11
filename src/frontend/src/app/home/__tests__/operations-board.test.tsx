@@ -46,6 +46,24 @@ vi.mock('next/link', () => ({
   ),
 }));
 
+// Must mock react-leaflet — MapContainer uses browser APIs unavailable in jsdom
+vi.mock('react-leaflet', () => ({
+  MapContainer: ({ children }: { children: React.ReactNode }) => (
+    <div className="leaflet-container">{children}</div>
+  ),
+  TileLayer: () => <div />,
+  Circle: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  Popup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  useMap: () => ({
+    getZoom: () => 12,
+    getCenter: () => ({ lat: 14.5995, lng: 120.9842 }),
+    setView: () => {},
+    on: () => {},
+    off: () => {},
+  }),
+  useMapEvents: () => ({}),
+}));
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -159,5 +177,177 @@ describe('Operations Board — map fields', () => {
       // MapPickerInner contains a search input placeholder
       expect(screen.getByPlaceholderText(/search/i)).toBeDefined();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reproduction tests — Operations Board Map View (should FAIL on base)
+// ---------------------------------------------------------------------------
+
+describe('Operations Board — Map View Toggle', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('renders Table and Map view toggle buttons', async () => {
+    const { default: HomePage } = await import('../page');
+    render(<HomePage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Table')).toBeDefined();
+      expect(screen.getByText('Map')).toBeDefined();
+    });
+  });
+
+  it('switching to Map view renders the map container', async () => {
+    const { fetchOperations } = await import('@/lib/api/operations');
+    (fetchOperations as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      {
+        operation_id: 1,
+        fire_status: 'ACTIVE',
+        start_time: '2026-06-10T08:00:00Z',
+        location: 'Manila',
+        size_hectares: 5.0,
+        notes: null,
+        created_by: null,
+        created_at: '2026-06-10T08:00:00Z',
+        updated_at: '2026-06-10T08:00:00Z',
+        latitude: 14.5995,
+        longitude: 120.9842,
+        radius_meters: 500,
+        linked_report_ids: [],
+      },
+    ]);
+
+    const { default: HomePage } = await import('../page?map-view');
+    render(<HomePage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Map')).toBeDefined();
+    });
+
+    screen.getByText('Map').click();
+
+    await waitFor(() => {
+      const container = document.querySelector('.leaflet-container');
+      expect(container).toBeTruthy();
+    });
+  });
+
+  it('switching back to Table view shows the operations table', async () => {
+    const { default: HomePage } = await import('../page');
+    render(<HomePage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Map')).toBeDefined();
+    });
+
+    screen.getByText('Map').click();
+
+    await waitFor(() => {
+      expect(document.querySelector('.leaflet-container')).toBeTruthy();
+    });
+
+    screen.getByText('Table').click();
+
+    await waitFor(() => {
+      expect(screen.getByText('Quezon City, Barangay Tatalon')).toBeDefined();
+    });
+  });
+
+  it('filter tabs filter operations in map view', async () => {
+    const { fetchOperations } = await import('@/lib/api/operations');
+    (fetchOperations as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      {
+        operation_id: 1,
+        fire_status: 'ACTIVE',
+        start_time: '2026-06-10T08:00:00Z',
+        location: 'Manila',
+        size_hectares: 5.0,
+        notes: null,
+        created_by: null,
+        created_at: '2026-06-10T08:00:00Z',
+        updated_at: '2026-06-10T08:00:00Z',
+        latitude: 14.5995,
+        longitude: 120.9842,
+        radius_meters: 500,
+        linked_report_ids: [],
+      },
+      {
+        operation_id: 2,
+        fire_status: 'FIRE_OUT',
+        start_time: '2026-06-09T08:00:00Z',
+        location: 'Cebu',
+        size_hectares: 2.0,
+        notes: null,
+        created_by: null,
+        created_at: '2026-06-09T08:00:00Z',
+        updated_at: '2026-06-09T08:00:00Z',
+        latitude: 10.3157,
+        longitude: 123.8854,
+        radius_meters: 300,
+        linked_report_ids: [],
+      },
+    ]);
+
+    const { default: HomePage } = await import('../page?map-filter');
+    render(<HomePage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Map')).toBeDefined();
+    });
+
+    screen.getByText('Map').click();
+
+    await waitFor(() => {
+      expect(document.querySelector('.leaflet-container')).toBeTruthy();
+    });
+
+    screen.getByText('FIRE OUT').click();
+
+    await waitFor(() => {
+      expect(screen.getByText('Cebu')).toBeDefined();
+      expect(screen.queryByText('Manila')).toBeNull();
+    });
+  });
+
+  it('shows fallback text for operations without map coordinates', async () => {
+    const { fetchOperations } = await import('@/lib/api/operations');
+    (fetchOperations as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        operation_id: 1,
+        fire_status: 'ACTIVE',
+        start_time: '2026-06-10T08:00:00Z',
+        location: 'No Coordinates City',
+        size_hectares: 3.0,
+        notes: null,
+        created_by: null,
+        created_at: '2026-06-10T08:00:00Z',
+        updated_at: '2026-06-10T08:00:00Z',
+        latitude: null,
+        longitude: null,
+        radius_meters: null,
+        linked_report_ids: [],
+      },
+    ]);
+
+    const { default: HomePage } = await import('../page?no-coords-v2');
+    const { act } = await import('react');
+    await act(async () => { render(<HomePage />); });
+
+    await waitFor(() => {
+      expect(screen.getByText('Map')).toBeDefined();
+    });
+
+    await act(async () => { screen.getByText('Map').click(); });
+
+    await waitFor(() => {
+      expect(document.querySelector('.leaflet-container')).toBeTruthy();
+    });
+
+    // Fallback list appears below the map after a short delay
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(document.body.innerHTML).toContain('without map coordinates');
+    expect(screen.getByText(/No Coordinates City/)).toBeDefined();
   });
 });
