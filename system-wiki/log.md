@@ -2,6 +2,14 @@
 
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
+
+## [2026-06-11] feat | GH #152 Phase 5 — migration tooling: legacy env-AES → OpenBao Transit
+
+- `src/backend/scripts/migrate_pii_to_openbao.py`: new migration script. Reads `incident_sensitive_details` rows with legacy env-AES blobs (`crypto_provider IS NULL OR crypto_provider = 'env_aesgcm'`). Supports `--dry-run`, `--batch-size N` (default 500), `--incident-id ID`, `--resume-after ID`, `--limit N`. Decrypts with `SecurityProvider`, re-encrypts with `KmsSecurityProvider`, stores `crypto_provider='openbao_transit'`, `kms_key_name`, `encryption_iv=NULL`. Idempotent (skips already-openbao rows). Error isolation per row. Commit per batch. Detects `key_version` column dynamically via `information_schema`. Exit code 1 if errors > 0. Requires `DATABASE_URL`, `WIMS_MASTER_KEY`, `OPENBAO_ADDR` + token.
+- `src/backend/tests/test_migrate_pii_to_openbao.py`: 23 unit tests (no live OpenBao). Covers dry-run, successful migration, idempotent skip, decryption/encryption/update error isolation, CLI flag behavior, key version column detection, and exit codes.
+- Wiki: `security-baseline.md` + gap register updated; Phase 5 marked implemented, #152 overall still PARTIAL (Phases 6-7 remain).
+- No commit/push performed.
+
 ## [2026-06-11] feat | GH #152 Phase 4 — flag-gated new writes via OpenBao Transit
 
 - `api/routes/regional/afor.py` and `__init__.py`: wire `get_crypto_provider()` instead of legacy `helpers.get_security_provider()` for AFOR commit path. This ensures `WIMS_CRYPTO_PROVIDER` env var controls encryption provider for all new writes including AFOR imports.

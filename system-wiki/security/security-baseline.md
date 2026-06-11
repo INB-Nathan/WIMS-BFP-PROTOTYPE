@@ -87,7 +87,7 @@ All write paths updated: `services/afor_import/commit.py` (AFOR commit), `api/ro
 - **Write paths:** All 5 write paths (`incidents.py` bundle, `encoder_crud.py` create, `field_updates.py`/`helpers.py` re-encrypt, `commit.py` AFOR) now store `crypto_provider` and `kms_key_name` on INSERT/UPDATE. For `env_aesgcm` rows, `encryption_iv` contains the real nonce; for `openbao_transit` rows, `encryption_iv` is NULL.
 - **Read paths:** `encoder.py` detail view, `field_updates.py` conflict fetch, `helpers.py` field update, and `encrypt_backlog.py` all dispatch `decrypt_json` by row `crypto_provider`. Legacy rows default to `env_aesgcm` — no migration needed.
 - **Tests:** 45 unit tests pass (17 crypto + 9 openbao client + 19 provider dispatch), 3 skipped (requires live OpenBao).
-- **Remaining (Phase 5-7):** rewrap-on-rotation, Celery 90-day key rotation, migration tooling from env AES to OpenBao, and backup_crypto.py integration are NOT yet implemented.
+- **Remaining (Phase 6-7):** rewrap-on-rotation, Celery 90-day key rotation, and backup_crypto.py integration are NOT yet implemented. (Phase 5 migration tooling now implemented.)
 
 ## OpenBao KMS Flag-Gated New Writes (GH #152 Phase 4)
 
@@ -98,6 +98,19 @@ All write paths updated: `services/afor_import/commit.py` (AFOR commit), `api/ro
 - **Response contract:** API/detail responses strip `crypto_provider`, `kms_key_name`, `pii_blob_enc`, `encryption_iv` (encoder detail view already did; conflict fetch `_fetch_incident_edit_fields` now additionally strips `crypto_provider`/`kms_key_name`).
 - **Tests:** 10 new unit tests in `tests/test_openbao_new_writes.py` covering env-AES metadata, OpenBao Transit metadata, nonce sentinel guarding, response metadata stripping, and wiring verification. All 57 tests pass (54 passed + 3 skipped for live OpenBao).
 - **Non-goals:** No legacy-row migration (Phase 5), no Celery 90-day rotation (Phase 6), no backup_crypto.py (Phase 7), no frontend changes.
+
+## OpenBao KMS Migration Tooling (GH #152 Phase 5)
+
+**Implemented 2026-06-11:** Controlled migration script to convert existing legacy env-AES PII blobs to OpenBao Transit rows in bounded, resumable batches.
+
+- **Script:** `src/backend/scripts/migrate_pii_to_openbao.py` — reads `incident_sensitive_details` rows with `pii_blob_enc IS NOT NULL` and `crypto_provider IS NULL OR crypto_provider = 'env_aesgcm'`. Supports `--dry-run`, `--batch-size N` (default 500), `--incident-id ID`, `--resume-after ID`, `--limit N`.
+- **Idempotent:** rows already `crypto_provider='openbao_transit'` are skipped.
+- **Error isolation:** one bad row increments errors, logs `incident_id`, continues to next row.
+- **Transaction policy:** commit per batch; rollback only current batch on fatal flush error.
+- **Key version:** detects `key_version` column dynamically via `information_schema`; updates it from `kms_provider.current_version` when the column exists.
+- **Requires:** `DATABASE_URL` (or `SQLALCHEMY_DATABASE_URL`), `WIMS_MASTER_KEY` (legacy decrypt), `OPENBAO_ADDR` + token (OpenBao encrypt).
+- **Tests:** `tests/test_migrate_pii_to_openbao.py` — 23 unit tests (no live OpenBao). Covers dry-run, successful migration, idempotent skip, decryption/encryption/update error isolation, CLI flag behavior, key version column detection, and exit codes.
+- **Non-goals:** Does NOT implement Celery 90-day rotation (Phase 6). Does NOT implement backup encryption (Phase 7). Does NOT migrate live data automatically. Does NOT alter frontend.
 
 ## CSRF Protection
 
