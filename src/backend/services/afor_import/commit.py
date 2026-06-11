@@ -722,17 +722,23 @@ def commit_afor_import_command(
         aad = f"incident_id:{incident_id}".encode("utf-8")
         nonce_b64: str | None = None
         ct_b64: str | None = None
-        pii_key_version: int = 1
         try:
             sp = deps.get_security_provider()
             nonce_b64, ct_b64 = sp.encrypt_json(pii_for_blob, aad)
-            pii_key_version = sp.current_version
+            crypto_provider_val = getattr(sp, "crypto_provider", "env_aesgcm")
+            pii_key_version = getattr(sp, "current_version", 1)
+            kms_key_name_val = getattr(sp, "kms_key_name", None)
+            enc_iv = nonce_b64 if crypto_provider_val == "env_aesgcm" else None
         except SecurityProviderError as exc:
             logger.warning(
                 "PII encryption unavailable for incident_id=%s during AFOR commit; proceeding without encrypted blob (%s)",
                 incident_id,
                 exc,
             )
+            crypto_provider_val = "env_aesgcm"
+            pii_key_version = 1
+            kms_key_name_val = None
+            enc_iv = None
 
         db.execute(
             text("""
@@ -745,7 +751,8 @@ def commit_afor_import_command(
                     prepared_by_officer, noted_by_officer,
                     personnel_on_duty, other_personnel, casualty_details,
                     is_icp_present, icp_location,
-                    pii_blob_enc, encryption_iv, key_version
+                    pii_blob_enc, encryption_iv,
+                    crypto_provider, kms_key_name, key_version
                 ) VALUES (
                     :incident_id, :street_address, :landmark,
                     NULL, NULL, :receiver_name,
@@ -757,7 +764,8 @@ def commit_afor_import_command(
                     CAST(:other_personnel AS jsonb),
                     NULL::jsonb,
                     :is_icp_present, :icp_location,
-                    :pii_blob_enc, :pii_nonce, :key_ver
+                    :pii_blob_enc, :pii_nonce,
+                    :crypto_provider, :kms_key_name, :key_ver
                 )
             """),
             {
@@ -781,7 +789,9 @@ def commit_afor_import_command(
                 "icp_location": sens.get("icp_location", ""),
                 # Encrypted PII blob
                 "pii_blob_enc": ct_b64,
-                "pii_nonce": nonce_b64,
+                "pii_nonce": enc_iv,
+                "crypto_provider": crypto_provider_val,
+                "kms_key_name": kms_key_name_val,
                 "key_ver": pii_key_version,
             },
         )

@@ -19,10 +19,10 @@ from database import set_rls_context
 from schemas.incident import IncidentCreate, IncidentResponse
 from services.analytics.filters import append_common_filters, build_analytics_filters
 from services.analytics_read_model import sync_incident_to_analytics
+from services.kms import get_crypto_provider
 from services.regional_incidents.helpers import (
     normalize_general_category as _normalize_general_category,
     insert_incident_verification_history as _insert_incident_verification_history,
-    get_security_provider as _get_security_provider,
 )
 from tasks.exports import export_analyst_incidents_task
 from utils.crypto import SecurityProviderError
@@ -280,18 +280,21 @@ def upload_incident_bundle(
         aad = f"incident_id:{incident_id}".encode("utf-8")
         nonce_b64: str | None = None
         ct_b64: str | None = None
-        pii_key_version: int = 1
+        provider = get_crypto_provider()
+        crypto_provider_val: str = provider.crypto_provider
+        kms_key_name_val: str | None = provider.kms_key_name
+        pii_key_version: int = provider.current_version
         try:
-            sp = _get_security_provider()
-            nonce_b64, ct_b64 = sp.encrypt_json(pii_for_blob, aad)
-            pii_key_version = sp.current_version
-        except SecurityProviderError as exc:
+            nonce_b64, ct_b64 = provider.encrypt_json(pii_for_blob, aad)
+        except (SecurityProviderError, Exception) as exc:
             logger.warning(
                 "PII encryption unavailable for incident_id=%s during bundle upload; "
                 "proceeding without encrypted blob (%s)",
                 incident_id,
                 exc,
             )
+
+        enc_iv = nonce_b64 if crypto_provider_val == "env_aesgcm" else None
 
         db.execute(
             text(
@@ -304,7 +307,8 @@ def upload_incident_bundle(
                     disposition_prepared_by, disposition_noted_by,
                     personnel_on_duty, other_personnel, casualty_details,
                     is_icp_present, icp_location,
-                    pii_blob_enc, encryption_iv, key_version
+                    pii_blob_enc, encryption_iv,
+                    crypto_provider, kms_key_name, key_version
                 ) VALUES (
                     :incident_id, :street_address, :landmark,
                     NULL, NULL, :receiver_name,
@@ -314,7 +318,8 @@ def upload_incident_bundle(
                     CAST(:personnel_on_duty AS jsonb), CAST(:other_personnel AS jsonb),
                     NULL::jsonb,
                     :is_icp_present, :icp_location,
-                    :pii_blob_enc, :pii_nonce, :key_version
+                    :pii_blob_enc, :pii_nonce,
+                    :crypto_provider, :kms_key_name, :key_version
                 )
                 """
             ),
@@ -338,7 +343,9 @@ def upload_incident_bundle(
                 "icp_location": sens.get("icp_location", ""),
                 # Encrypted blob
                 "pii_blob_enc": ct_b64,
-                "pii_nonce": nonce_b64,
+                "pii_nonce": enc_iv,
+                "crypto_provider": crypto_provider_val,
+                "kms_key_name": kms_key_name_val,
                 "key_version": pii_key_version,
             },
         )

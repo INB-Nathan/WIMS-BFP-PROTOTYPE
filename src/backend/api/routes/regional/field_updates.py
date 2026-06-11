@@ -15,19 +15,14 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from services.afor_import import ALARM_LEVEL_MAP
+from services.kms import get_crypto_provider
 from services.regional_incidents.helpers import (
     normalize_general_category as _normalize_general_category,
-    get_security_provider as _get_security_provider_from_helpers,
 )
 from utils.crypto import SecurityProviderError
 from schemas.regional import IncidentUpdateRequest
 
 logger = logging.getLogger("wims.regional")
-
-
-def _get_security_provider():
-    """Return the SecurityProvider singleton (wraps helpers import)."""
-    return _get_security_provider_from_helpers()
 
 
 def _apply_incident_field_updates(
@@ -163,21 +158,22 @@ def _apply_incident_field_updates(
     if has_encryptable_update:
         existing = db.execute(
             text(
-                "SELECT pii_blob_enc, encryption_iv, key_version FROM wims.incident_sensitive_details WHERE incident_id = :iid"
+                "SELECT pii_blob_enc, encryption_iv, crypto_provider"
+                " FROM wims.incident_sensitive_details WHERE incident_id = :iid"
             ),
             {"iid": incident_id},
         ).fetchone()
         existing_pii: dict[str, Any] = {}
-        if existing and existing[0] and existing[1]:
+        if existing and existing[0]:
+            # Dual-read dispatch: decrypt with the row's original provider
             try:
-                sp = _get_security_provider()
-                existing_pii = sp.decrypt_json(
-                    existing[1],
-                    existing[0],
-                    f"incident_id:{incident_id}".encode(),
-                    key_version=existing[2] or 1,
+                sd_provider = get_crypto_provider(
+                    {"crypto_provider": existing[2]} if existing[2] is not None else None
                 )
-            except SecurityProviderError:
+                existing_pii = sd_provider.decrypt_json(
+                    existing[1], existing[0], f"incident_id:{incident_id}".encode()
+                )
+            except (SecurityProviderError, Exception):
                 logger.warning(
                     "Failed to decrypt existing PII for incident %s — overwriting",
                     incident_id,
@@ -187,15 +183,30 @@ def _apply_incident_field_updates(
             if val is not None:
                 existing_pii[field] = val
         try:
-            sp = _get_security_provider()
-            nonce_b64, ct_b64 = sp.encrypt_json(existing_pii, f"incident_id:{incident_id}".encode())
+            # Re-encrypt with env-default provider (new writes always use env)
+            provider = get_crypto_provider()
+            pii_key_version: int = provider.current_version
+            nonce_b64, ct_b64 = provider.encrypt_json(
+                existing_pii, f"incident_id:{incident_id}".encode()
+            )
+            crypto_provider_val = provider.crypto_provider
+            kms_key_name_val = provider.kms_key_name
+            enc_iv = nonce_b64 if crypto_provider_val == "env_aesgcm" else None
             sd_updates.extend(
-                ["pii_blob_enc = :pii_blob", "encryption_iv = :enc_iv", "key_version = :key_ver"]
+                [
+                    "pii_blob_enc = :pii_blob",
+                    "encryption_iv = :enc_iv",
+                    "crypto_provider = :crypto_provider",
+                    "kms_key_name = :kms_key_name",
+                    "key_version = :key_ver",
+                ]
             )
             sd_params["pii_blob"] = ct_b64
-            sd_params["enc_iv"] = nonce_b64
-            sd_params["key_ver"] = sp.current_version
-        except SecurityProviderError:
+            sd_params["enc_iv"] = enc_iv
+            sd_params["crypto_provider"] = crypto_provider_val
+            sd_params["kms_key_name"] = kms_key_name_val
+            sd_params["key_ver"] = pii_key_version
+        except (SecurityProviderError, Exception):
             logger.warning("PII re-encryption failed for incident %s", incident_id)
     if sd_updates:
         db.execute(
@@ -305,17 +316,17 @@ def _fetch_incident_edit_fields(db: Session, incident_id: int) -> dict[str, Any]
     ).fetchone()
     sd_dict: dict[str, Any] = dict(sd._mapping) if sd and hasattr(sd, "_mapping") else {}
 
-    if sd_dict.get("pii_blob_enc") and sd_dict.get("encryption_iv"):
+    if sd_dict.get("pii_blob_enc"):
         try:
-            sp = _get_security_provider()
-            pii = sp.decrypt_json(
-                sd_dict["encryption_iv"],
+            provider = get_crypto_provider(sd_dict)
+            enc_iv = sd_dict.get("encryption_iv")
+            pii = provider.decrypt_json(
+                enc_iv if enc_iv else None,
                 sd_dict["pii_blob_enc"],
                 f"incident_id:{incident_id}".encode(),
-                key_version=sd_dict.get("key_version") or 1,
             )
             sd_dict.update(pii)
-        except SecurityProviderError:
+        except (SecurityProviderError, Exception):
             pass
 
     fi = db.execute(
@@ -332,11 +343,12 @@ def _fetch_incident_edit_fields(db: Session, incident_id: int) -> dict[str, Any]
 
     result: dict[str, Any] = {**ns_dict, **sd_dict, **fi_dict}
 
-    # Strip encrypted blob columns from the conflict payload — the frontend
-    # merge panel never needs raw ciphertext.
+    # Strip internal crypto metadata from the conflict payload — the frontend
+    # merge panel never needs raw ciphertext or provider metadata.
     result.pop("pii_blob_enc", None)
     result.pop("encryption_iv", None)
-    result.pop("key_version", None)
+    result.pop("crypto_provider", None)
+    result.pop("kms_key_name", None)
 
     def _serialize_value(v: Any) -> Any:
         if v is None:

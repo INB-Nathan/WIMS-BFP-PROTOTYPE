@@ -12,10 +12,9 @@ from services.regional_incidents import RegionalIncidentLifecycleDependencies
 from services.regional_incidents.helpers import (
     insert_incident_verification_history as _insert_incident_verification_history,
     generate_reference_number as _generate_reference_number,
-    get_security_provider as _get_security_provider_from_helpers,
     ivh_has_hash_columns,
 )
-from utils.crypto import SecurityProvider
+from services.kms import get_crypto_provider
 
 router = APIRouter(prefix="/api/regional", tags=["regional"])
 
@@ -23,9 +22,9 @@ router = APIRouter(prefix="/api/regional", tags=["regional"])
 from .field_updates import _apply_incident_field_updates  # noqa: E402
 
 
-def _get_security_provider() -> SecurityProvider:
-    """Return the SecurityProvider singleton (wraps helpers import)."""
-    return _get_security_provider_from_helpers()
+def _get_security_provider():
+    """Return the correct crypto provider based on WIMS_CRYPTO_PROVIDER env var."""
+    return get_crypto_provider()
 
 
 def _fi_has_resubmitted_column(db: Session) -> bool:

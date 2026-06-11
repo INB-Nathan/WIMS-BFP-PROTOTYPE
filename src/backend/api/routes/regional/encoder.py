@@ -11,21 +11,16 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user, get_regional_encoder
 from auth import get_db_with_rls
+from services.kms import get_crypto_provider
 from services.regional_incidents.helpers import (
     _CATEGORY_DB_VARIANTS,
     _ivh_has_column as _incident_verification_history_has_column,
     _ivh_uses_target_columns as _incident_verification_history_uses_target_columns,
-    get_security_provider as _get_security_provider_from_helpers,
 )
 from utils.crypto import SecurityProviderError
 
 logger = logging.getLogger("wims.regional")
 router = APIRouter()
-
-
-def _get_security_provider():
-    """Return the SecurityProvider singleton (wraps helpers import)."""
-    return _get_security_provider_from_helpers()
 
 
 @router.get("/incidents")
@@ -338,16 +333,17 @@ def get_regional_incident_detail(
 
     sd_dict = row_to_dict(sd_row)
 
-    # ── Decrypt PII blob if present (new writes use encrypted blob; old rows fall back) ──
+    # ── Decrypt PII blob if present (dual-read: env_aesgcm or openbao_transit) ──
     pii_plaintext: dict = {}
-    if sd_dict.get("pii_blob_enc") and sd_dict.get("encryption_iv"):
+    if sd_dict.get("pii_blob_enc"):
         try:
             aad = f"incident_id:{incident_id}".encode("utf-8")
-            pii_plaintext = _get_security_provider().decrypt_json(
-                sd_dict["encryption_iv"],
+            provider = get_crypto_provider(sd_dict)
+            enc_iv = sd_dict.get("encryption_iv")
+            pii_plaintext = provider.decrypt_json(
+                enc_iv if enc_iv else None,
                 sd_dict["pii_blob_enc"],
                 aad,
-                key_version=sd_dict.get("key_version") or 1,
             )
             # Inject decrypted PII/narrative/casualty/damage fields so frontend contract is unchanged
             sd_dict["caller_name"] = pii_plaintext.get("caller_name")
@@ -356,7 +352,7 @@ def get_regional_incident_detail(
             sd_dict["occupant_name"] = pii_plaintext.get("occupant_name")
             sd_dict["narrative_report"] = pii_plaintext.get("narrative_report")
             sd_dict["casualty_details"] = pii_plaintext.get("casualty_details")
-        except SecurityProviderError:
+        except (SecurityProviderError, Exception):
             # Auth/key failure on a blob that claims to be valid — possible tampering
             # or key rotation without re-encrypt. Log with incident_id; never log
             # nonce, ciphertext, or plaintext. Return legacy plaintext as fallback.
@@ -365,12 +361,12 @@ def get_regional_incident_detail(
                 "incident_id=%s",
                 incident_id,
             )
-            pass
 
     # Do not expose internal blob columns in API response
     sd_dict.pop("pii_blob_enc", None)
     sd_dict.pop("encryption_iv", None)
-    sd_dict.pop("key_version", None)
+    sd_dict.pop("crypto_provider", None)
+    sd_dict.pop("kms_key_name", None)
 
     nonsensitive = row_to_dict(ns)
     # Inject estimated_damage_php from encrypted blob if available

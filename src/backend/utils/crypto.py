@@ -44,6 +44,7 @@ class SecurityProvider:
 
     KEY_ENV = "WIMS_MASTER_KEY"
     NONCE_BYTES = 12  # RFC 5116
+    PROVIDER = "env_aesgcm"
 
     def __init__(self) -> None:
         self._keyring: dict[int, AESGCM] = {}
@@ -118,6 +119,16 @@ class SecurityProvider:
     def _aesgcm(self) -> AESGCM:
         """Active AESGCM instance for the current key version."""
         return self._keyring[self._current_version]
+
+    # ── Provider metadata (Phase 3 #152) ──────────────────────────────────
+
+    @property
+    def crypto_provider(self) -> str:
+        return self.PROVIDER
+
+    @property
+    def kms_key_name(self) -> str | None:
+        return None
 
     # -------------------------------------------------------------------------
     # Public API

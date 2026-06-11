@@ -1,7 +1,7 @@
 ---
 title: Security Baseline
 created: 2026-05-14
-updated: 2026-06-08
+updated: 2026-06-11
 type: security
 tags: [wims-bfp, security, auth, rbac, rls, audit-log, ids, xai, privacy, fail-closed]
 sources: [raw/frs/frs-auth.md, raw/frs/frs-complianceanddataprivacy.md, raw/frs/frs-intrusiondetectionandnetworkingmonitoring.md, raw/frs/frs-threatdetectionwithexplainableai.md, raw/codebase/codebase-snapshot-2026-05-14.md]
@@ -75,7 +75,77 @@ FRS Module 6 requires AES-256-GCM encryption for sensitive incident fields. **Ex
 
 All write paths updated: `services/afor_import/commit.py` (AFOR commit), `api/routes/regional.py` (manual create/edit), `api/routes/incidents.py` (`upload_incident_bundle`). Read path in `api/routes/regional.py` decrypts blob and injects fields into API responses.
 
-**Remaining GH #150 gaps:** `wims.incident_attachments` filesystem storage unencrypted (GH #151). OpenBao KMS + key rotation pending (GH #152).
+**Remaining GH #150 gaps:** `wims.incident_attachments` filesystem storage unencrypted (GH #151). OpenBao KMS + key rotation partially implemented — Phase 3 done (GH #152).
+
+## OpenBao KMS Provider Metadata (GH #152 Phase 3)
+
+**Implemented 2026-06-11:** Provider metadata schema and dual-read dispatch for multi-KMS support.
+
+- **Migration** `54_openbao_provider_metadata.sql` adds `crypto_provider TEXT NOT NULL DEFAULT 'env_aesgcm'` and `kms_key_name TEXT` to `wims.incident_sensitive_details`. The PII blob consistency constraint is relaxed: OpenBao Transit rows allow `pii_blob_enc IS NOT NULL` with `encryption_iv IS NULL`.
+- **Provider dispatch:** `services/kms/__init__.py` exports `get_crypto_provider(row=None)`. Row `crypto_provider` wins over `WIMS_CRYPTO_PROVIDER` env var (defaults `env_aesgcm`). Unknown providers raise a clear error.
+- **KmsSecurityProvider:** `services/kms/openbao_client.py` provides a `SecurityProvider`-compatible wrapper around `OpenBaoClient`. `encrypt_json` returns sentinel nonce `"OPENBAO_TRANSIT"` + Transit ciphertext; `decrypt_json` ignores nonce. Key name from `OPENBAO_PII_KEY_NAME` > `OPENBAO_TRANSIT_KEY_NAME` > `wims-incident-pii`.
+- **Write paths:** All 5 write paths (`incidents.py` bundle, `encoder_crud.py` create, `field_updates.py`/`helpers.py` re-encrypt, `commit.py` AFOR) now store `crypto_provider` and `kms_key_name` on INSERT/UPDATE. For `env_aesgcm` rows, `encryption_iv` contains the real nonce; for `openbao_transit` rows, `encryption_iv` is NULL.
+- **Read paths:** `encoder.py` detail view, `field_updates.py` conflict fetch, `helpers.py` field update, and `encrypt_backlog.py` all dispatch `decrypt_json` by row `crypto_provider`. Legacy rows default to `env_aesgcm` — no migration needed.
+- **Tests:** 45 unit tests pass (17 crypto + 9 openbao client + 19 provider dispatch), 3 skipped (requires live OpenBao).
+- **Remaining (Phase 6-7):** rewrap-on-rotation, Celery 90-day key rotation, and backup_crypto.py integration are NOT yet implemented. (Phase 5 migration tooling now implemented.)
+
+## OpenBao KMS Flag-Gated New Writes (GH #152 Phase 4)
+
+**Implemented 2026-06-11:** When `WIMS_CRYPTO_PROVIDER=openbao_transit`, new incident PII writes use `KmsSecurityProvider.encrypt_json()` via OpenBao Transit. All write paths now dispatch through `services.kms.get_crypto_provider()`.
+
+- **AFOR commit wiring:** `api/routes/regional/afor.py` and `__init__.py` now wire `get_crypto_provider()` instead of the legacy `helpers.get_security_provider()` singleton. This ensures the AFOR import path (`commit.py`) respects `WIMS_CRYPTO_PROVIDER`.
+- **Write behaviour:** When `WIMS_CRYPTO_PROVIDER` is unset or `env_aesgcm`, new rows store `crypto_provider='env_aesgcm'`, `encryption_iv=<real nonce>`, `kms_key_name=NULL` — unchanged legacy behaviour. When `openbao_transit`, new rows store `crypto_provider='openbao_transit'`, `kms_key_name='wims-incident-pii'` (default), `pii_blob_enc=<Transit ciphertext>`, `encryption_iv=NULL`.
+- **Response contract:** API/detail responses strip `crypto_provider`, `kms_key_name`, `pii_blob_enc`, `encryption_iv` (encoder detail view already did; conflict fetch `_fetch_incident_edit_fields` now additionally strips `crypto_provider`/`kms_key_name`).
+- **Tests:** 10 new unit tests in `tests/test_openbao_new_writes.py` covering env-AES metadata, OpenBao Transit metadata, nonce sentinel guarding, response metadata stripping, and wiring verification. All 57 tests pass (54 passed + 3 skipped for live OpenBao).
+- **Non-goals:** No legacy-row migration (Phase 5), no Celery 90-day rotation (Phase 6), no backup_crypto.py (Phase 7), no frontend changes.
+
+## OpenBao KMS Migration Tooling (GH #152 Phase 5)
+
+**Implemented 2026-06-11:** Controlled migration script to convert existing legacy env-AES PII blobs to OpenBao Transit rows in bounded, resumable batches.
+
+- **Script:** `src/backend/scripts/migrate_pii_to_openbao.py` — reads `incident_sensitive_details` rows with `pii_blob_enc IS NOT NULL` and `crypto_provider IS NULL OR crypto_provider = 'env_aesgcm'`. Supports `--dry-run`, `--batch-size N` (default 500), `--incident-id ID`, `--resume-after ID`, `--limit N`.
+- **Idempotent:** rows already `crypto_provider='openbao_transit'` are skipped.
+- **Error isolation:** one bad row increments errors, logs `incident_id`, continues to next row.
+- **Transaction policy:** commit per batch; rollback only current batch on fatal flush error.
+- **Key version:** detects `key_version` column dynamically via `information_schema`; updates it from `kms_provider.current_version` when the column exists.
+- **Requires:** `DATABASE_URL` (or `SQLALCHEMY_DATABASE_URL`), `WIMS_MASTER_KEY` (legacy decrypt), `OPENBAO_ADDR` + token (OpenBao encrypt).
+- **Tests:** `tests/test_migrate_pii_to_openbao.py` — 23 unit tests (no live OpenBao). Covers dry-run, successful migration, idempotent skip, decryption/encryption/update error isolation, CLI flag behavior, key version column detection, and exit codes.
+- **Non-goals:** Does NOT implement Celery 90-day rotation (Phase 6 — now implemented). Does NOT implement backup encryption (Phase 7). Does NOT migrate live data automatically. Does NOT alter frontend.
+
+## OpenBao KMS Automated Key Rotation (GH #152 Phase 6)
+
+**Implemented 2026-06-11:** Scheduled daily 90-day OpenBao Transit key rotation + resumable rewrap orchestration.
+
+- **Migration** `55_kms_key_rotation_runs.sql`: creates `wims.kms_key_rotation_runs` table with UUID PK, status enum (RUNNING/SUCCEEDED/FAILED), from/to version tracking, row counters (`rows_scanned`, `rows_rewrapped`, `rows_skipped`, `rows_failed`), and error message. Indexes support active-run guard and last-success lookup. RLS restricts to SYSTEM_ADMIN.
+- **Rotation task** `tasks/kms_rotation.py`: Celery task `ensure_pii_key_rotation` checks active RUNNING guard, reads OpenBao key metadata, determines if 90-day rotation is due via `is_rotation_due()`, rotates key, records run row, rewraps `openbao_transit` rows to new key version via `rewrap_openbao_rows()`, and marks run SUCCEEDED or FAILED. Rewrap uses cursor-paginated batches with per-batch commit. Per-row errors increment failure counter and continue. AAD is `incident_id:{id}`.
+- **Celery beat** `celery_config.py`: daily schedule entry `ensure-pii-key-rotation-daily` at 03:30 UTC.
+- **Env configuration:** `OPENBAO_ROTATION_INTERVAL_DAYS` (default 90), `KMS_REWRAP_BATCH_SIZE` (default 500).
+- **Tests:** `tests/test_kms_rotation_task.py` — 17 unit tests (no live OpenBao). Covers rotation-due boundary logic, single-run guard, rotate + run row recording, rewrap row updates, skip already-at-target, per-row rewrap error isolation, UPDATE failure isolation, SUCCEEDED/FAILED status transitions, start_run UUID return, and Celery beat entry verification.
+- **Non-goals:** Does NOT delete/disable old OpenBao key versions. Does NOT implement backup_crypto.py integration (Phase 7). Does NOT run live migration/rotation against real data. Does NOT touch frontend.
+- **Overall GH #152 status:** Phases 1-7 code paths implemented; #152 remains PARTIAL until live OpenBao integration/ops are complete (live restore drill pending).
+
+## OpenBao KMS Backup Encryption (GH #152 Phase 7)
+
+**Implemented 2026-06-11:** `backup_crypto.py` integrated with OpenBao Transit for new backup encryption, with legacy restore compatibility preserved.
+
+- **Feature flag:** `WIMS_BACKUP_CRYPTO_PROVIDER` (new backup-specific env var) overrides `WIMS_CRYPTO_PROVIDER`. Default: `env_aesgcm` (legacy AES-256-GCM with `WIMS_MASTER_KEY`). Opt in via `WIMS_BACKUP_CRYPTO_PROVIDER=openbao_transit`.
+- **Key name:** `OPENBAO_BACKUP_KEY_NAME` env var, default `wims-backup`.
+- **New OpenBao format (WIMSBAO1):** versioned envelope with `WIMSBAO1\n` magic header, JSON metadata line (`provider`, `key_name`, `created_at`, `ciphertext_version`), then OpenBao Transit ciphertext as UTF-8 bytes. Header contains no plaintext, raw keys, tokens, or secrets. Files retain `.enc` extension.
+- **Legacy compatibility:** `decrypt_backup()` auto-detects format — reads first 8 bytes for `WIMSBAO1\n` magic. If detected, dispatches to OpenBao Transit decrypt. Otherwise treats file as legacy env-AES nonce+ciphertext. `encrypt_backup()` and `decrypt_backup()` signatures unchanged.
+- **Context/AAD:** OpenBao Transit encrypt/decrypt uses `b"wims-backup"` as AAD context for encryption binding.
+- **Admin routes:** No changes needed — `src/backend/api/routes/admin/backups.py` calls `encrypt_backup()` / `decrypt_backup()` without modification.
+- **Tests:** `tests/test_backup_crypto_openbao.py` — 34 unit tests (no live OpenBao). Covers legacy env-AES roundtrip, OpenBao WIMSBAO1 header write/parse, OpenBao roundtrip, header auto-detection on decrypt, legacy decrypt without header, missing/invalid metadata, `OPENBAO_BACKUP_KEY_NAME` honoring, unknown provider error, and signature/output-path preservation.
+- **Non-goals:** Does NOT run live OpenBao backup/restore drill. Does NOT remove legacy env-AES restore. Does NOT change frontend.
+
+## OpenBao KMS Phase 8 — Hardening, Runbook, Live Validation Hooks (GH #152)
+
+**Implemented 2026-06-11:** Phase 8 adds production-readiness artifacts and validation hooks for OpenBao KMS operations.
+
+- **Operations runbook:** `docs/operations/openbao-kms-runbook.md` — covers local dev bootstrap, env var reference, production topology, unseal strategy (Shamir M-of-N / platform auto-unseal), least-privilege policy summary, migration runbook (dry run, production run, rollback/resume), rotation runbook (scheduled beat, inspection, triage), backup restore drill (legacy + OpenBao), incident response (down/sealed/auth failure/rotation failure/backup decrypt failure), and explicit secret hygiene rules.
+- **Live integration tests:** `src/backend/tests/integration/test_openbao_kms_live.py` — 5 live tests (health, encrypt/decrypt roundtrip, wrong-context rejection, rewrap ciphertext-change + plaintext-preservation, backup encrypt/decrypt roundtrip with WIMSBAO1 header verification). All tests skip cleanly when OpenBao is unavailable or unconfigured. No hard Docker dependency.
+- **Smoke script:** intentionally skipped — the integration tests cover the same surface and can be invoked with a single `pytest` command; a separate smoke script would be redundant.
+- **No-secret logging verified:** all existing code paths (client, rotation, migration, backup_crypto, rewrap) log only operation metadata; no ciphertext, plaintext, nonces, keys, or tokens appear in log statements.
+- **Overall GH #152 status:** Phases 1-8 code paths, runbook, and test hooks implemented. **Live environment validation remains pending** — until live OpenBao is available in this environment and the integration tests pass against it, #152 is PARTIAL. Do not claim #152 or FRS Module 6 fully closed until the live backup restore drill and integration tests are executed in the target environment.
 
 ## CSRF Protection
 

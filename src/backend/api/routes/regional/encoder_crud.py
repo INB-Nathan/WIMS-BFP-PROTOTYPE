@@ -21,8 +21,8 @@ from services.regional_incidents import (
     unarchive_finalized_incident,
     unpend_incident_command,
 )
+from services.kms import get_crypto_provider
 from services.regional_incidents.helpers import (
-    get_security_provider as _get_security_provider_from_helpers,
     insert_incident_verification_history as _insert_incident_verification_history,
     normalize_general_category as _normalize_general_category,
 )
@@ -33,11 +33,6 @@ from .field_updates import _apply_incident_field_updates, _fetch_incident_edit_f
 
 logger = logging.getLogger("wims.regional")
 router = APIRouter()
-
-
-def _get_security_provider():
-    """Return the SecurityProvider singleton (wraps helpers import)."""
-    return _get_security_provider_from_helpers()
 
 
 # Import shared helpers from the package init (available since __init__ defines them before submodule imports)
@@ -175,14 +170,26 @@ def create_incident(
             if val is not None and val != "" and val != {} and val != []:
                 pii_dict[f] = val
         try:
-            sp = _get_security_provider()
-            nonce_b64, ct_b64 = sp.encrypt_json(pii_dict, f"incident_id:{incident_id}".encode())
-            sd_cols.extend(["pii_blob_enc", "encryption_iv", "key_version"])
-            sd_vals.extend([":pii_blob", ":enc_iv", ":key_ver"])
+            provider = get_crypto_provider()
+            pii_key_version: int = provider.current_version
+            nonce_b64, ct_b64 = provider.encrypt_json(
+                pii_dict, f"incident_id:{incident_id}".encode()
+            )
+            crypto_provider_val = provider.crypto_provider
+            kms_key_name_val = provider.kms_key_name
+            enc_iv = nonce_b64 if crypto_provider_val == "env_aesgcm" else None
+            sd_cols.extend(
+                ["pii_blob_enc", "encryption_iv", "crypto_provider", "kms_key_name", "key_version"]
+            )
+            sd_vals.extend(
+                [":pii_blob", ":enc_iv", ":crypto_provider", ":kms_key_name", ":key_ver"]
+            )
             sd_params["pii_blob"] = ct_b64
-            sd_params["enc_iv"] = nonce_b64
-            sd_params["key_ver"] = sp.current_version
-        except SecurityProviderError:
+            sd_params["enc_iv"] = enc_iv
+            sd_params["crypto_provider"] = crypto_provider_val
+            sd_params["kms_key_name"] = kms_key_name_val
+            sd_params["key_ver"] = pii_key_version
+        except (SecurityProviderError, Exception):
             logger.warning(
                 "PII encryption failed — storing without blob (incident_id=%s)",
                 incident_id,
