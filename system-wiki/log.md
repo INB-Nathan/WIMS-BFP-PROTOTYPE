@@ -4,7 +4,7 @@ Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 ## [2026-06-10] feat | M6 PII key versioning + rotation script (#67)
 
-- Migration `50_incident_pii_key_version.sql`: `ALTER TABLE wims.incident_sensitive_details ADD COLUMN IF NOT EXISTS key_version SMALLINT NOT NULL DEFAULT 1`. All existing rows default to v1.
+- Migration `53_incident_pii_key_version.sql`: `ALTER TABLE wims.incident_sensitive_details ADD COLUMN IF NOT EXISTS key_version SMALLINT NOT NULL DEFAULT 1`. All existing rows default to v1.
 - `utils/crypto.py`: versioned keyring (`_keyring: dict[int, AESGCM]`). v1 always from `WIMS_MASTER_KEY`; v2, v3, … from `WIMS_MASTER_KEY_V2`, `WIMS_MASTER_KEY_V3`, etc. (scanned until gap). `WIMS_KEY_CURRENT_VERSION` (default "1") selects encryption key. `_aesgcm` is now a property returning `_keyring[_current_version]` — existing test at line 69 stays green. `encrypt_json` signature unchanged (still 2-tuple). `decrypt_json` gains `key_version: int = 1` parameter.
 - Threaded `key_version` through all 6 encrypt call sites: `incidents.py`, `encoder_crud.py`, `field_updates.py`, `afor_import/commit.py`, `regional_incidents/helpers.py`, `scripts/encrypt_backlog.py`. Each persists `sp.current_version` into the DB row.
 - Threaded `key_version` through all 5 decrypt call sites: `regional/encoder.py`, `field_updates.py` (×2), `regional_incidents/helpers.py`, `scripts/encrypt_backlog.py`. SELECT queries extended to fetch `key_version`; each passes it to `decrypt_json`.
@@ -2288,3 +2288,34 @@ Updated `src/backend/tests/test_csrf_middleware.py` to match PR #215's removal o
 - Updated the Suricata health check to match the running `Suricata-Main` process.
 - Fixed the production CSP so Next.js inline bootstrap scripts can hydrate the server-rendered loading shell and initialize `/api/auth/session`.
 - Updated `architecture/infrastructure-config.md` and `index.md`; no FRS/codebase gap changed.
+## [2026-06-11] fix | PR #252 crypto improvements — gap-scanning, error message, test fixes
+
+- **`utils/crypto.py`:** Keyring scanning now supports gaps (V2 missing, V3 present).
+  Changed from "stop at first gap" to "scan up to V100, skip missing versions, stop after
+  5 consecutive misses." Updated docstring.
+- **`utils/crypto.py`:** Auth-failure error message in `decrypt_json` now includes
+  `key_version=N` so operators can distinguish wrong-key-version from data tampering.
+- **`tests/test_crypto.py`:** Replaced brittle `test_v2_key_loaded_in_keyring` (accessed
+  `sp._keyring` private attribute) with `test_v2_key_loaded_behavioral` (encrypt/decrypt
+  roundtrip proving V2 key is loaded).
+- **`tests/test_crypto.py`:** Added `test_v3_without_v2_gap_skips_v2` — verifies gap
+  scanning, V3 encrypt/decrypt roundtrip, V2 missing, V1 still works.
+- **Wiki:** Updated `system-wiki/gaps/frs-codebase-gap-register.md` M6 entry to reflect
+  gap-scanning support.
+- **`tests/integration/test_pii_key_version.py` (new):** Integration tests for
+  `key_version` persistence through the `create_incident` call site — validates
+  V2 key_version flows into INSERT params, V2 roundtrip encrypt/decrypt, V1
+  default, and no-PII omission. Mocks DB and SecurityProvider. No Docker required.
+## [2026-06-11] fix | rotate_pii_keys.py state restoration + streaming + tests (#252)
+- **Fix A (S2/Q4):** `_current_version` now restored in `try/finally` after encrypt
+  even when `encrypt_json` raises `SecurityProviderError`. Prevents stale
+  `_current_version` leaking across rows on re-encryption failure.
+- **Fix B (Q5):** Replaced `fetchall()` with `yield_per(batch_size)` for
+  server-side cursor streaming — avoids loading all rows into memory. Dry-run
+  no longer accumulates an unbounded `pending` list; logs each candidate and
+  continues immediately.
+- **Tests (`test_rotate_pii_keys.py`, new):** 19 tests covering dry-run,
+  idempotency, batch flushing (boundary, single, exact multiple), error
+  isolation (decryption failure skips row, continues), state restoration
+  (success + re-encrypt failure + multi-row stability), exit codes (1 on
+  error, 0 on clean), and edge cases (empty, single row, mixed versions).

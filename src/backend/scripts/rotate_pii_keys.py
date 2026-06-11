@@ -69,22 +69,24 @@ def rotate(dry_run: bool, target_version: int | None, batch_size: int) -> dict:
     stats = {"total": 0, "rotated": 0, "already_current": 0, "errors": 0, "dry_run": dry_run}
 
     with Session(engine) as db:
-        rows = db.execute(
+        result = db.execute(
             text("""
                 SELECT incident_id, pii_blob_enc, encryption_iv, key_version
                 FROM wims.incident_sensitive_details
                 WHERE pii_blob_enc IS NOT NULL
             """)
-        ).fetchall()
+        )
 
-        stats["total"] = len(rows)
         logger.info(
-            "Found %d rows with PII blobs. Target version: %d.", len(rows), effective_target
+            "Starting rotation scan. Target version: %d (batch_size=%d).",
+            effective_target,
+            batch_size,
         )
 
         pending: list[dict] = []
 
-        for row in rows:
+        for row in result.yield_per(batch_size):
+            stats["total"] += 1
             incident_id = row.incident_id
             stored_version = row.key_version or 1
 
@@ -107,15 +109,26 @@ def rotate(dry_run: bool, target_version: int | None, batch_size: int) -> dict:
                 stats["errors"] += 1
                 continue
 
+            # Re-encrypt with target key, restoring _current_version on failure
+            original_version = sp._current_version  # noqa: SLF001
             try:
-                # Temporarily switch effective key for re-encryption
-                original_version = sp._current_version  # noqa: SLF001
                 sp._current_version = effective_target  # noqa: SLF001
                 nonce_b64, ct_b64 = sp.encrypt_json(pii, aad)
-                sp._current_version = original_version  # noqa: SLF001
             except SecurityProviderError:
                 logger.error("Re-encryption failed for incident_id=%s — skipping.", incident_id)
                 stats["errors"] += 1
+                continue
+            finally:
+                sp._current_version = original_version  # noqa: SLF001
+
+            if dry_run:
+                logger.info(
+                    "[DRY RUN] Would rotate incident_id=%s from key_version=%d to %d.",
+                    incident_id,
+                    stored_version,
+                    effective_target,
+                )
+                stats["rotated"] += 1
                 continue
 
             pending.append(
@@ -128,7 +141,7 @@ def rotate(dry_run: bool, target_version: int | None, batch_size: int) -> dict:
             )
             stats["rotated"] += 1
 
-            if not dry_run and len(pending) >= batch_size:
+            if len(pending) >= batch_size:
                 _flush(db, pending)
                 pending.clear()
 

@@ -38,7 +38,7 @@ class SecurityProvider:
     Environment:
         WIMS_MASTER_KEY              base64-encoded 32-byte AES-256 key (version 1, required).
         WIMS_MASTER_KEY_V2           base64-encoded 32-byte key for version 2 (optional).
-        WIMS_MASTER_KEY_V3           … and so on, scanned consecutively until a gap.
+        WIMS_MASTER_KEY_V3           … and so on, scanned up to V100 (gaps skipped).
         WIMS_KEY_CURRENT_VERSION     integer; selects which key new encryptions use (default "1").
     """
 
@@ -57,14 +57,19 @@ class SecurityProvider:
             )
         self._keyring[1] = self._load_key(self.KEY_ENV, raw_v1)
 
-        # V2, V3, … scanned until a gap
+        # V2, V3, … up to V100.  Gaps in the sequence are allowed (e.g. V2
+        # missing, V3 present).  The scan stops after 5 consecutive missing
+        # versions to bound startup time.
+        missing = 0
         version = 2
-        while True:
+        while missing < 5 and version <= 100:
             env_name = f"WIMS_MASTER_KEY_V{version}"
             raw = os.environ.get(env_name)
-            if not raw:
-                break
-            self._keyring[version] = self._load_key(env_name, raw)
+            if raw:
+                self._keyring[version] = self._load_key(env_name, raw)
+                missing = 0
+            else:
+                missing += 1
             version += 1
 
         # Determine which version new encryptions use
@@ -211,8 +216,8 @@ class SecurityProvider:
         except Exception as e:
             # Cryptography library raises InvalidTag on auth failure
             raise SecurityProviderError(
-                "AES-256-GCM authentication failed — wrong key, tampered ciphertext, "
-                f"or mismatched AAD. Detail: {e}"
+                f"AES-256-GCM authentication failed with key_version={key_version} — "
+                f"wrong key version, tampered ciphertext, or mismatched AAD. Detail: {e}"
             ) from e
 
         try:
