@@ -159,7 +159,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         await waitFor(() => expect(screen.getByText('Suricata Alert #1')).toBeInTheDocument());
         fireEvent.click(screen.getByRole('button', { name: /Request More Info/i }));
         await waitFor(() => expect(screen.getByRole('button', { name: /Confirm/i })).toBeInTheDocument());
-        const noteTextarea = screen.getByRole('textbox');
+        const noteTextarea = screen.getByPlaceholderText('Optional note for analyst...');
         fireEvent.change(noteTextarea, { target: { value: 'Check source IP and port' } });
         fireEvent.click(screen.getByRole('button', { name: /Confirm/i }));
         await waitFor(() => {

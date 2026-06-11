@@ -207,9 +207,17 @@ jobs:
             echo "Checking database connectivity..."
             compose run --rm -T backend python -c "from database import get_engine; from sqlalchemy import text; engine = get_engine(); conn = engine.connect(); conn.execute(text('SELECT 1')); conn.close(); print('DB connection OK')" || { echo 'DB connectivity check failed — aborting deploy'; exit 1; }
 
-            # Build and restart
+            # Build and restart. --wait makes one-shot dependency failures such
+            # as model provisioning fail the deployment instead of being ignored.
             echo "Building and restarting production stack..."
-            compose up -d --build
+            compose up -d --build --wait --wait-timeout 600
+
+            # ─── Apply new database migrations (idempotent — all use IF NOT EXISTS) ───
+            echo "Applying database migrations..."
+            for script in $(ls -v /opt/wims-bfp/src/src/postgres-init/*.sql); do
+              echo "  Running: $(basename $script)"
+              compose exec -T postgres psql -U postgres -d wims -v ON_ERROR_STOP=1 -f "$script"
+            done
 
             # ─── Post-deploy health check ───────────────────────────────────────
             echo "Waiting for backend to be ready..."
@@ -236,6 +244,12 @@ jobs:
             echo "Checking public gateway health..."
             curl -fsS https://wimsbfp.tech/health >/dev/null
             curl -fsS https://wimsbfp.tech/auth/realms/bfp/.well-known/openid-configuration >/dev/null
+            # This route traverses nginx -> backend and catches stale Docker DNS
+            # upstreams that the nginx-served /health endpoint cannot detect.
+            curl -fsS https://wimsbfp.tech/api/public/emergency-services >/dev/null
+
+            echo "Checking Ollama model provisioning..."
+            docker exec wims-ollama ollama list | grep -q 'qwen2.5:3b'
 
             echo "Deploy successful — commit $DEPLOY_COMMIT"
             echo "DEPLOY_COMMIT=$DEPLOY_COMMIT $(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> /opt/wims-bfp/.deploy_history

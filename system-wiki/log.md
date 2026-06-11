@@ -20,6 +20,17 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Backend: GET/POST/PATCH/DELETE /api/operations + link/unlink endpoints; all writes audit-logged
 - Frontend: /home Operations Board with ON-GOING/FIRE OUT/ALL tabs, inline status badge, validator-only CRUD
 - Branch: feat/operations-board
+## [2026-06-10] feat | M10d automated breach notification + NPC 72h tracking (#171)
+
+- Migration `52_breach_notifications.sql`: `wims.breach_notifications` table with SERIAL PK, `threat_log_id FK→security_threat_logs`, `detected_at`, `npc_deadline_at` (= detected_at + 72h), `status` enum (DETECTED→DPO_NOTIFIED→NPC_SUBMITTED→CLOSED), `affected_systems`, `data_scope`, `notes`, `reported_by`, `npc_submitted_at`, timestamps. RLS ENABLE+FORCE; SELECT and ALL policies gated on `wims.current_user_role() = 'SYSTEM_ADMIN'`.
+- `admin/security.py`: Inside CONFIRM_THREAT block, for HIGH/CRITICAL severity: (1) INSERT breach record into transaction while RLS context still active (`SET LOCAL` scoped); (2) `log_system_audit(..., "BREACH_DETECTED", "breach_notifications", breach_id)`; (3) post-commit: dispatch `breach_alert` email via `send_email_task.delay()` alongside existing `security_alert` email — same admin recipients, bypasses `email_opt_in`.
+- New `schemas/breach.py`: `BreachStatus` enum, `BreachResponse`, `BreachUpdate`.
+- New `api/routes/admin/breach.py`: `GET /api/admin/breach` (list, detected_at DESC), `GET /api/admin/breach/{id}`, `PATCH /api/admin/breach/{id}` (status/notes/affected_systems/data_scope; `npc_submitted_at` auto-set on NPC_SUBMITTED; `BREACH_STATUS_UPDATE` audit). Registered in `api/routes/admin/__init__.py`.
+- New `services/email/templates/breach_alert.html.j2`: BFP maroon header, RA 10173 regulatory context, NPC deadline row, breach_id, severity badge.
+- Frontend: `lib/api/breach.ts` (types + `fetchBreaches`/`updateBreach`); `/admin/breach/page.tsx` with deadline countdown + overdue row red highlight + status advance buttons; "Breach Notifications" nav item added to Sidebar under Administration (SYSTEM_ADMIN only).
+- Tests: `tests/test_breach_notifications.py` (13 unit tests); `app/admin/breach/__tests__/breach-list.test.tsx` (8 Vitest tests).
+
+**Files:** `52_breach_notifications.sql`, `schemas/breach.py`, `api/routes/admin/breach.py`, `api/routes/admin/__init__.py`, `api/routes/admin/security.py`, `services/email/templates/breach_alert.html.j2`, `lib/api/breach.ts`, `lib/api/index.ts`, `app/admin/breach/page.tsx`, `components/Sidebar.tsx`, `tests/test_breach_notifications.py`, `app/admin/breach/__tests__/breach-list.test.tsx`, `system-wiki/gaps/frs-codebase-gap-register.md`
 
 ## [2026-06-10] fix | PR #248 — post-review fix batch 1 (audit order, float guard, generic 500, barrel export, legacy HITL, duplicate guard)
 
@@ -68,6 +79,16 @@ Format: `## [YYYY-MM-DD] action | subject`
 - PR #248 explicitly covers M8 (security/XAI) + M9c (configuration management). Gap register already marks M9c as IMPLEMENTED.
 
 **Files:** `backend/api-route-map.md`, `frontend/route-map.md`
+
+## [2026-06-09] feat | M9b full-text search on security + audit logs (tsvector + GIN) (#169)
+## [2026-06-09] feat | M9b full-text search on security + audit logs (tsvector + GIN) (#169)
+
+- Migration `48_log_search_vectors.sql` (idempotent): adds `search_vector tsvector GENERATED ALWAYS AS STORED` to `wims.security_threat_logs` (covers `raw_payload`, `xai_narrative`, `severity_level`, `source_ip`, `destination_ip`) and `wims.system_audit_trails` (covers `action_type`, `table_affected`, `user_agent`). Creates GIN indexes `idx_security_logs_search` and `idx_audit_trails_search`.
+- Extended `GET /api/admin/security-logs`: new optional `q` param — appends `search_vector @@ websearch_to_tsquery('english', :q)` to WHERE; ORDER BY switches from `timestamp DESC` to `ts_rank(...) DESC` when q is set. Existing filters (source_ip, severity, date_from, date_to) compose with q.
+- Extended `GET /api/admin/audit-logs`: same pattern — `q` param with tsquery WHERE and ts_rank ORDER BY; existing filters (user_id, action_type, table_affected, ip_address, date_from, date_to) compose with q.
+- Updated `src/frontend/src/lib/api/legacy.ts`: `fetchAdminSecurityLogs` accepts `params?: { q?: string }`; `fetchAuditLogs` params extended with `q?: string`. Both append `?q=...` only when q is truthy.
+- Added search bars to `src/frontend/src/app/admin/system/page.tsx`: text input above "Threat Telemetry" table and above "System Audit" table; submit on Enter or search button; Clear button appears when input is non-empty; Refresh button preserves active search term; HITL action reload preserves active search.
+- New `tests/test_log_fulltext_search.py`: 10 unit tests — tsquery/ts_rank present when q set, absent when q absent, :q bound (not interpolated), q+severity combination. All pass; ruff clean.
 ## [2026-06-09] fix | PR #238 rebase + review fixes — 6 files
 
 - Rebased `feat/m13-email-triggers` onto origin/master (1345808). Resolved 2 conflicts:
@@ -2307,3 +2328,12 @@ Updated `src/backend/tests/test_csrf_middleware.py` to match PR #215's removal o
 - Updated the Suricata health check to match the running `Suricata-Main` process.
 - Fixed the production CSP so Next.js inline bootstrap scripts can hydrate the server-rendered loading shell and initialize `/api/auth/session`.
 - Updated `architecture/infrastructure-config.md` and `index.md`; no FRS/codebase gap changed.
+
+## [2026-06-10] fix | Make VPS deploy resilient to recreated backend and Ollama provisioning
+
+- Diagnosed public API `502` responses after deploy: nginx retained the previous backend container IP while backend-local `/health` remained healthy.
+- Added Docker embedded DNS resolution and a shared nginx upstream zone so backend addresses refresh after Compose recreation.
+- Corrected `ollama-model-pull` from `ollama ollama pull qwen2.5:3b` to the image-entrypoint-compatible `ollama pull qwen2.5:3b`.
+- Made backend startup depend on successful Ollama model provisioning.
+- Strengthened `deploy.yml` with Compose `--wait`, a real public backend route probe, and required-model verification.
+- Updated `architecture/infrastructure-config.md` and `architecture/pwa-tests-cicd.md`; no FRS/codebase gap changed.

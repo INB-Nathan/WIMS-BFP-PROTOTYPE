@@ -128,7 +128,7 @@ services:
   ollama-model-pull:
     image: ollama/ollama:0.5.1
     container_name: wims-ollama-model-pull
-    command: ollama pull qwen2.5:3b
+    command: pull qwen2.5:3b
     environment:
       - OLLAMA_HOST=http://ollama:11434
     networks:
@@ -177,7 +177,9 @@ services:
       keycloak-bootstrap:
         condition: service_completed_successfully
       ollama:
-        condition: service_started
+        condition: service_healthy
+      ollama-model-pull:
+        condition: service_completed_successfully
 
   celery-worker:
     build: ./backend

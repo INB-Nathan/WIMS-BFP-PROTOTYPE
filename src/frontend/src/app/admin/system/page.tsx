@@ -43,6 +43,7 @@ import {
     Activity,
     Server,
     Database,
+    Search,
 } from 'lucide-react';
 
 interface AdminUser {
@@ -119,6 +120,8 @@ export default function AdminSystemPage() {
     const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
     const [workers, setWorkers] = useState<WorkerStatus[]>([]);
     const [monitoringLastChecked, setMonitoringLastChecked] = useState<Date | null>(null);
+    const [securitySearchQ, setSecuritySearchQ] = useState('');
+    const [auditSearchQ, setAuditSearchQ] = useState('');
     const [loadingUsers, setLoadingUsers] = useState(false);
     const [loadingLogs, setLoadingLogs] = useState(false);
     const [loadingAudit, setLoadingAudit] = useState(false);
@@ -270,10 +273,11 @@ export default function AdminSystemPage() {
         }
     };
 
-    const loadSecurityLogs = async () => {
+    const loadSecurityLogs = async (q = securitySearchQ.trim()) => {
         setLoadingLogs(true);
         try {
-            const data = await fetchAdminSecurityLogs();
+            const trimmed = q.trim();
+            const data = await fetchAdminSecurityLogs(trimmed ? { q: trimmed } : undefined);
             setSecurityLogs(data as SecurityLog[]);
         } catch {
             setSecurityLogs([]);
@@ -282,10 +286,11 @@ export default function AdminSystemPage() {
         }
     };
 
-    const loadAuditLogs = async () => {
+    const loadAuditLogs = async (q = auditSearchQ.trim()) => {
         setLoadingAudit(true);
         try {
-            const data = await fetchAuditLogs({ limit: 50, offset: 0 });
+            const trimmed = q.trim();
+            const data = await fetchAuditLogs({ limit: 50, offset: 0, ...(trimmed ? { q: trimmed } : {}) });
             setAuditLogs({
                 items: data.items.map((item): AuditItem => ({
                     audit_id: item.audit_id,
@@ -367,7 +372,7 @@ export default function AdminSystemPage() {
             await updateAdminSecurityLog(selectedLog.log_id, { action, note });
             setSelectedLog(null);
             setActionNote('');
-            await loadSecurityLogs();
+            await loadSecurityLogs(securitySearchQ);
         } catch (e: unknown) {
             alert((e as { message?: string })?.message ?? 'Update failed');
         } finally {
@@ -704,10 +709,41 @@ export default function AdminSystemPage() {
                         <ShieldAlert className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
                         <span>Threat Telemetry</span>
                     </div>
-                    <button onClick={loadSecurityLogs} disabled={loadingLogs} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
+                    <button onClick={() => loadSecurityLogs(securitySearchQ)} disabled={loadingLogs} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
                         <RefreshCw className={`w-4 h-4 ${loadingLogs ? 'animate-spin' : ''}`} /> Refresh
                     </button>
                 </div>
+                <form
+                    onSubmit={e => { e.preventDefault(); loadSecurityLogs(securitySearchQ.trim()); }}
+                    className="px-6 py-3 border-b border-gray-100 flex items-center gap-2"
+                >
+                    <input
+                        type="text"
+                        aria-label="Search security logs"
+                        value={securitySearchQ}
+                        onChange={e => setSecuritySearchQ(e.target.value)}
+                        placeholder="Search logs (narrative, IP, severity…)"
+                        className="flex-1 border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
+                        style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                    />
+                    <button
+                        type="submit"
+                        className="flex items-center gap-1 px-3 py-1.5 rounded text-sm text-white"
+                        style={{ backgroundColor: 'var(--sidebar-bg)' }}
+                        aria-label="Search security logs"
+                    >
+                        <Search className="w-3 h-3" />
+                    </button>
+                    {securitySearchQ && (
+                        <button
+                            type="button"
+                            onClick={() => { setSecuritySearchQ(''); loadSecurityLogs(''); }}
+                            className="text-xs px-2 py-1 text-gray-500 hover:text-gray-700"
+                        >
+                            Clear
+                        </button>
+                    )}
+                </form>
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
@@ -761,10 +797,41 @@ export default function AdminSystemPage() {
                         <FileText className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
                         <span>System Audit</span>
                     </div>
-                    <button onClick={loadAuditLogs} disabled={loadingAudit} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
+                    <button onClick={() => loadAuditLogs(auditSearchQ)} disabled={loadingAudit} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
                         <RefreshCw className={`w-4 h-4 ${loadingAudit ? 'animate-spin' : ''}`} /> Refresh
                     </button>
                 </div>
+                <form
+                    onSubmit={e => { e.preventDefault(); loadAuditLogs(auditSearchQ.trim()); }}
+                    className="px-6 py-3 border-b border-gray-100 flex items-center gap-2"
+                >
+                    <input
+                        type="text"
+                        aria-label="Search audit logs"
+                        value={auditSearchQ}
+                        onChange={e => setAuditSearchQ(e.target.value)}
+                        placeholder="Search audit trail (action, table, user agent…)"
+                        className="flex-1 border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
+                        style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                    />
+                    <button
+                        type="submit"
+                        className="flex items-center gap-1 px-3 py-1.5 rounded text-sm text-white"
+                        style={{ backgroundColor: 'var(--sidebar-bg)' }}
+                        aria-label="Search audit logs"
+                    >
+                        <Search className="w-3 h-3" />
+                    </button>
+                    {auditSearchQ && (
+                        <button
+                            type="button"
+                            onClick={() => { setAuditSearchQ(''); loadAuditLogs(''); }}
+                            className="text-xs px-2 py-1 text-gray-500 hover:text-gray-700"
+                        >
+                            Clear
+                        </button>
+                    )}
+                </form>
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
