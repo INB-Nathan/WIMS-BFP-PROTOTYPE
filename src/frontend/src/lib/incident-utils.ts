@@ -93,6 +93,7 @@ export function statusBorderColor(status: string | null | undefined): string {
   if (normalized === 'VERIFIED') return '#22C55E';
   if (normalized === 'REJECTED') return '#EF4444';
   if (normalized === 'DRAFT') return '#9CA3AF';
+  if (normalized === 'PENDING_SYNC') return '#F59E0B';
   if (normalized === 'PENDING' || normalized === 'PENDING_VALIDATION') return '#F59E0B';
   return '#E5E7EB';
 }

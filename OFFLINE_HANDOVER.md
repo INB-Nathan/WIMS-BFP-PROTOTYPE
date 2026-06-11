@@ -305,3 +305,11 @@ Chrome DevTools → Network → Offline blocks ALL requests including `http://lo
 ### IncidentCard
 - `isDetailCached?: boolean` and `isOnline?: boolean` props
 - `offlineUncached` flag disables click, shows "Go online to view" badge, sets `cursor-not-allowed opacity-60`
+
+### Offline incident sync/view stabilization (2026-06-11 follow-up)
+- **Root cause of upload-bundle 500:** Postgres rejected `INSERT ... ON CONFLICT` on `wims.fire_incidents` because immutable-record rules exist on that table (`psycopg2.errors.FeatureNotSupported: INSERT with ON CONFLICT clause cannot be used with table that has INSERT or UPDATE rules`).
+- **Backend fix:** `src/backend/api/routes/incidents.py` and `src/backend/api/routes/regional/encoder_crud.py` now use `pg_advisory_xact_lock(hashtext('fire_incidents_client_id'), hashtext(client_id))` plus a normal `SELECT` before insert for idempotent offline retries. This preserves `client_id/localId` retry safety without `ON CONFLICT`.
+- **UI fix:** Queued offline creates on `/dashboard/regional` now render through the same `IncidentCard` rich tile component with status `PENDING_SYNC` and open `/dashboard/regional/incidents/{localId}`.
+- **Detail fix:** `/dashboard/regional/incidents/[id]` now accepts non-numeric local IDs, reconstructs a normal `RegionalIncidentDetailResponse` from the encrypted offline op, and renders the standard read-only incident view. Editing a pending-sync incident updates the existing offline op via `offlineLocalId`; server-only actions remain unavailable until sync creates the real server incident.
+- **Compatibility:** The old `/dashboard/regional/incidents/local/[localId]` page still exists for older links, but the dashboard no longer routes users there.
+- **Validation:** Backend targeted tests passed: `tests/test_upload_bundle_idempotency.py` and `tests/test_encoder_crud_idempotency.py` (4 passed). Frontend targeted lint passed for the touched files. Offline/sync Vitest suite passed: `syncEngine.test.ts`, `offlineRegional.test.ts`, and `offlineStore.ops.test.ts` (24 passed).

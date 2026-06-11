@@ -47,6 +47,7 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 - Summary category cards aggregate legacy/current category aliases, including `VEHICULAR` + `TRANSPORTATION`, so counts match incident rows after backend category normalization.
 - Empty state: centered "No incidents found" guidance with a BFP-red "Search All Time" button that switches the list date filter to All Time.
 - Rows/cards are keyboard-focusable/clickable; a delayed floating "Click to view" bubble appears after hover and disappears on mouse movement or leave instead of using permanent Open text/actions. Archive-view rows/cards now open the same incident detail route instead of 404ing, because archived records are allowed through the role-scoped detail query.
+- Pending offline create ops render as the same rich incident cards with `PENDING_SYNC` status and open the standard `/dashboard/regional/incidents/{localId}` detail route. The detail page reconstructs a normal read-only incident view from the encrypted offline op and only switches into the shared `IncidentForm` when the encoder clicks Edit.
 - Rejected workload UX: the alert is dismissible, its "Show rejected" action clears classification/date filters and switches date scope to All Time, and the Rejected status chip carries a red count badge. When switching away from Rejected or Drafts, an inherited All Time date scope is reset to Today so broad date ranges do not leak into normal workload views.
 
 **Wildland Fire Classifications** — conditionally rendered when `stats.wildland_total > 0`:
@@ -169,6 +170,10 @@ The Phase 3 architecture refactor moved selected official incident transition be
 - `regional.py` still owns FastAPI auth dependencies, RLS session dependency injection, request models, response plumbing, and read/query endpoints.
 
 Compatibility decision: encoder submit still writes `PENDING`; validator queue defaults include both `PENDING` and `PENDING_VALIDATION`.
+
+### Offline Create Idempotency
+
+Offline create sync replays through `POST /api/incidents/upload-bundle` with `client_id = offlineOps.localId`. The endpoint no longer uses `INSERT ... ON CONFLICT` because PostgreSQL rejects that clause on `wims.fire_incidents` while immutable-record rules are present. The upload-bundle endpoint and direct regional create endpoint now acquire a transaction-scoped advisory lock keyed by `client_id`, check for an existing row, and perform a normal insert only when no row exists.
 
 ### Audit Logs (`regional.py` lines ~4000–4500)
 

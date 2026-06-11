@@ -157,6 +157,32 @@ def upload_incident_bundle(
             sens = {}
 
         item_client_id = str(item.get("client_id") or "").strip() or None
+        if client_id_col_exists and item_client_id:
+            try:
+                uuid.UUID(item_client_id)
+            except (ValueError, AttributeError):
+                raise HTTPException(status_code=422, detail="client_id must be a valid UUID")
+
+            # fire_incidents has immutable-record rules, and PostgreSQL rejects
+            # INSERT ... ON CONFLICT on tables with INSERT/UPDATE rules. This
+            # lock keeps same-client retries idempotent without using ON CONFLICT.
+            db.execute(
+                text(
+                    "SELECT pg_advisory_xact_lock("
+                    "hashtext('fire_incidents_client_id'), hashtext(:cid))"
+                ),
+                {"cid": item_client_id},
+            )
+            existing_row = db.execute(
+                text(
+                    "SELECT incident_id FROM wims.fire_incidents"
+                    " WHERE client_id = CAST(:cid AS uuid) LIMIT 1"
+                ),
+                {"cid": item_client_id},
+            ).fetchone()
+            if existing_row:
+                results["imported"].append(int(existing_row[0]))
+                continue
 
         lon = _safe_float(item.get("longitude"), 0.0)
         lat = _safe_float(item.get("latitude"), 0.0)
@@ -222,16 +248,6 @@ def upload_incident_bundle(
         if client_updated_at:
             inc_params["client_updated_at"] = client_updated_at
 
-        # ON CONFLICT makes idempotency atomic: concurrent retries with the same
-        # client_id can't both succeed (unique index uq_fire_incidents_client_id).
-        # DO NOTHING + empty RETURNING signals a conflict; a follow-up SELECT
-        # returns the already-inserted incident_id.
-        _conflict_clause = ""
-        if client_id_col_exists and item_client_id:
-            _conflict_clause = (
-                " ON CONFLICT (client_id) WHERE client_id IS NOT NULL DO NOTHING"
-            )
-
         inc_row = db.execute(
             text(
                 f"""
@@ -242,7 +258,6 @@ def upload_incident_bundle(
                     (:batch_id, CAST(:uid AS uuid), :region_id,
                      ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
                      'DRAFT', :incident_type_code, NULL{_cid_val}{_ts_vals})
-                {_conflict_clause}
                 RETURNING incident_id
                 """
             ),

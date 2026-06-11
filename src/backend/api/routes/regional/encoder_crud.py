@@ -74,12 +74,22 @@ def create_incident(
         except (ValueError, AttributeError):
             raise HTTPException(status_code=422, detail="client_id must be a valid UUID v4")
 
-        _col_exists_query = db.execute(
-            text(
-                "SELECT 1 FROM information_schema.columns WHERE table_schema='wims' AND table_name='fire_incidents' AND column_name='client_id'"
+        _has_client_id_col = (
+            db.execute(
+                text(
+                    "SELECT 1 FROM information_schema.columns WHERE table_schema='wims' AND table_name='fire_incidents' AND column_name='client_id'"
+                )
+            ).fetchone()
+            is not None
+        )
+        if _has_client_id_col:
+            db.execute(
+                text(
+                    "SELECT pg_advisory_xact_lock("
+                    "hashtext('fire_incidents_client_id'), hashtext(:cid))"
+                ),
+                {"cid": client_id},
             )
-        ).fetchone()
-        if _col_exists_query:
             existing = db.execute(
                 text(
                     "SELECT incident_id, verification_status, incident_type_code FROM wims.fire_incidents WHERE client_id = CAST(:cid AS uuid) LIMIT 1"
@@ -94,30 +104,21 @@ def create_incident(
                     "incident_type_code": existing[2],
                     "parent_incident_id": body.parent_incident_id,
                 }
+    else:
+        _has_client_id_col = False
 
-    # Reference number is assigned only at validator approval — not at create time
+    # Reference number is assigned only at validator approval - not at create time
     type_code = (body.incident_type_code or "").strip().upper() or None
 
-    # Insert fire_incidents core row (include client_id if the column exists).
-    # ON CONFLICT makes the idempotency check atomic: a concurrent retry with the
-    # same client_id cannot race past the pre-check SELECT above and produce a
-    # duplicate-key error on uq_fire_incidents_client_id.
-    _has_client_id_col = (
-        client_id
-        and db.execute(
-            text(
-                "SELECT 1 FROM information_schema.columns WHERE table_schema='wims' AND table_name='fire_incidents' AND column_name='client_id'"
-            )
-        ).fetchone()
-        is not None
-    )
+    # Insert fire_incidents core row. PostgreSQL rejects INSERT ... ON CONFLICT
+    # on tables with immutable-record rules, so client_id retries are serialized
+    # above with an advisory transaction lock before a normal insert.
     if _has_client_id_col:
         incident_row = db.execute(
             text("""
                 INSERT INTO wims.fire_incidents
                     (encoder_id, region_id, location, verification_status, incident_type_code, parent_incident_id, client_id)
                 VALUES (:eid, :rid, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 'DRAFT', :type_code, :parent_id, CAST(:cid AS uuid))
-                ON CONFLICT (client_id) WHERE client_id IS NOT NULL DO NOTHING
                 RETURNING incident_id
             """),
             {
@@ -130,34 +131,16 @@ def create_incident(
                 "cid": client_id,
             },
         ).fetchone()
-        if incident_row is None:
-            # ON CONFLICT path: a concurrent request already created this incident.
-            existing_row = db.execute(
-                text(
-                    "SELECT incident_id, verification_status, incident_type_code"
-                    " FROM wims.fire_incidents WHERE client_id = CAST(:cid AS uuid) LIMIT 1"
-                ),
-                {"cid": client_id},
-            ).fetchone()
-            if existing_row:
-                return {
-                    "status": "created",
-                    "incident_id": existing_row[0],
-                    "verification_status": existing_row[1],
-                    "incident_type_code": existing_row[2],
-                    "parent_incident_id": body.parent_incident_id,
-                }
-            raise HTTPException(
-                status_code=409, detail="Duplicate client_id but incident not found"
-            )
     else:
         incident_row = db.execute(
-            text("""
+            text(
+                """
                 INSERT INTO wims.fire_incidents
                     (encoder_id, region_id, location, verification_status, incident_type_code, parent_incident_id)
                 VALUES (:eid, :rid, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 'DRAFT', :type_code, :parent_id)
                 RETURNING incident_id
-            """),
+                """
+            ),
             {
                 "eid": encoder_id,
                 "rid": region_id,
@@ -200,6 +183,7 @@ def create_incident(
         "total_response_time_minutes",
         "recommendations",
     }
+    # Reference number is assigned only at validator approval — not at create time
     ns_params = {"iid": incident_id}
     ns_cols = ["incident_id"]
     ns_vals = [":iid"]

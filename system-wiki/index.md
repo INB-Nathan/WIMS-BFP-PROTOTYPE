@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-12
 Total synthesis pages: 32
-Last changes: Offline-first encoder PWA/sync architecture with IndexedDB v3 ops queue, encrypted read cache, full-fidelity incident create sync via upload-bundle endpoint, and connectivity state machine. National Analyst offline-first read caching with encrypted IndexedDB analytics cache and offline-aware frontend wrappers. Connectivity recovery treats `navigator.onLine` as a hint, continues `/health` probes while offline, adds Next.js `/health` route for non-nginx dev runs, and shows Reconnecting in header. Session-aware sync loop prevention, auth-refresh offline detection, and Celery Beat explicit task registration.
+Last changes: Offline-first encoder PWA/sync architecture with IndexedDB v3 ops queue, encrypted read cache, full-fidelity incident create sync via upload-bundle endpoint, and connectivity state machine. National Analyst offline-first read caching with encrypted IndexedDB analytics cache and offline-aware frontend wrappers. Connectivity recovery treats `navigator.onLine` as a hint, continues `/health` probes while offline, adds Next.js `/health` route for non-nginx dev runs, and shows Reconnecting in header. Offline-created regional incidents sync without `ON CONFLICT` on immutable-rule tables and render through the normal rich tile/detail route with `PENDING_SYNC` status. Session-aware sync loop prevention, auth-refresh offline detection, and Celery Beat explicit task registration.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

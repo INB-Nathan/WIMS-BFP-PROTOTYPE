@@ -2563,3 +2563,19 @@ Added a presentation-only Keycloak browser OTP provider that keeps normal OTP va
 **Validation:** Docker provider image build passed (`docker build -t wims-keycloak-demo-otp:test ./keycloak`), including Maven package and `kc.sh build` provider registration. Focused OTP policy pytest passed locally.
 
 **Wiki update:** Updated the relevant security/infrastructure synthesis pages and this log. No FRS gap status changed.
+
+## [2026-06-11] fix | Offline incident create sync and normal detail viewing
+
+Fixed the regional encoder offline-create sync path and removed the visible split between normal incident viewing and "edit local incident" for pending offline creates.
+
+**Changes:**
+- `src/backend/api/routes/incidents.py`: replaced `INSERT ... ON CONFLICT` in `upload_incident_bundle` with a transaction-scoped advisory lock plus `client_id` lookup before normal insert. This fixes the 500 caused by PostgreSQL rejecting `ON CONFLICT` on `wims.fire_incidents` while immutable-record rules exist.
+- `src/backend/api/routes/regional/encoder_crud.py`: applied the same advisory-lock idempotency pattern to direct regional creates that carry `client_id`.
+- `src/frontend/src/app/dashboard/regional/page.tsx`: pending offline create ops now render through the shared rich `IncidentCard` with status `PENDING_SYNC` and route to `/dashboard/regional/incidents/{localId}`.
+- `src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx`: non-numeric local IDs now load the encrypted offline op and render the standard read-only incident detail view; Edit saves back to the queued op with `offlineLocalId`.
+- `src/frontend/src/components/ui/StatusBadge.tsx` and `src/frontend/src/lib/incident-utils.ts`: added `PENDING_SYNC` label/color support.
+- Focused tests updated for the new idempotency and offline detail mocks.
+
+**Validation:** Backend targeted pytest passed: `tests/test_upload_bundle_idempotency.py` and `tests/test_encoder_crud_idempotency.py` (4 passed). Frontend targeted lint passed for touched files. Offline/sync Vitest suite passed: `syncEngine.test.ts`, `offlineRegional.test.ts`, and `offlineStore.ops.test.ts` (24 passed). Python compile passed for the touched backend route files.
+
+**Wiki update:** Updated `system-wiki/frontend/frontend-infrastructure.md`, `system-wiki/subsystems/regional-dashboard.md`, `system-wiki/index.md`, and this log. No FRS gap status changed.

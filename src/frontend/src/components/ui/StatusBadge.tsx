@@ -2,6 +2,7 @@
 
 export const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   DRAFT:              { bg: '#F3F4F6', text: '#6B7280' },
+  PENDING_SYNC:       { bg: '#FEF3C7', text: '#92400E' },
   PENDING:            { bg: '#FEF9C3', text: '#92400E' },
   PENDING_VALIDATION: { bg: '#DBEAFE', text: '#1D4ED8' },
   VERIFIED:           { bg: '#DCFCE7', text: '#15803D' },
@@ -11,6 +12,7 @@ export const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
 
 export const STATUS_LABELS: Record<string, string> = {
   DRAFT:              'Draft',
+  PENDING_SYNC:       'Pending Sync',
   PENDING:            'Pending',
   PENDING_VALIDATION: 'Awaiting Validation',
   VERIFIED:           'Verified',

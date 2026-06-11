@@ -45,11 +45,13 @@ def test_create_incident_returns_existing_for_known_client_id():
     col_exists = MagicMock()
     col_exists.fetchone.return_value = (1,)  # client_id column exists
 
+    lock_result = MagicMock()
+
     pre_check = MagicMock()
     pre_check.fetchone.return_value = (existing_id, "DRAFT", None)  # existing row found
 
     db = MagicMock()
-    db.execute.side_effect = [col_exists, pre_check]
+    db.execute.side_effect = [col_exists, lock_result, pre_check]
 
     body = _make_body(client_id=client_id)
     user = _make_user()
@@ -58,52 +60,56 @@ def test_create_incident_returns_existing_for_known_client_id():
 
     assert result["incident_id"] == existing_id
     assert result["status"] == "created"
-    # Only two executes: column check + pre-existing SELECT.
+    # Three executes: column check + advisory lock + pre-existing SELECT.
     # No INSERT must fire on this path.
-    assert db.execute.call_count == 2
+    assert db.execute.call_count == 3
     db.commit.assert_not_called()
 
 
 # ── 2. Concurrent race — INSERT ON CONFLICT path ─────────────────────────────
 
 
-def test_create_incident_resolves_concurrent_duplicate_via_on_conflict():
-    """A concurrent retry that races past the pre-check resolves via ON CONFLICT fallback."""
+def test_create_incident_inserts_new_client_id_without_on_conflict(monkeypatch):
+    """A new client_id uses a normal INSERT because fire_incidents has immutable rules."""
     client_id = "aaaaaaaa-0000-0000-0000-000000000002"
-    existing_id = 77
+    created_id = 77
 
-    col_exists_precheck = MagicMock()
-    col_exists_precheck.fetchone.return_value = (1,)  # column exists (pre-check path)
+    col_exists = MagicMock()
+    col_exists.fetchone.return_value = (1,)  # column exists
 
-    pre_check_miss = MagicMock()
-    pre_check_miss.fetchone.return_value = None  # race: not found yet
+    lock_result = MagicMock()
 
-    col_exists_insert = MagicMock()
-    col_exists_insert.fetchone.return_value = (1,)  # column exists (insert path)
+    existing_miss = MagicMock()
+    existing_miss.fetchone.return_value = None
 
-    insert_conflict = MagicMock()
-    insert_conflict.fetchone.return_value = None  # ON CONFLICT DO NOTHING
+    insert_result = MagicMock()
+    insert_result.fetchone.return_value = (created_id,)
 
-    fallback_select = MagicMock()
-    fallback_select.fetchone.return_value = (existing_id, "DRAFT", None)
+    detail_insert = MagicMock()
 
     db = MagicMock()
     db.execute.side_effect = [
-        col_exists_precheck,
-        pre_check_miss,
-        col_exists_insert,
-        insert_conflict,
-        fallback_select,
+        col_exists,
+        lock_result,
+        existing_miss,
+        insert_result,
+        detail_insert,
     ]
+    monkeypatch.setattr(
+        "api.routes.regional.encoder_crud._insert_incident_verification_history",
+        lambda *_a, **_kw: None,
+    )
 
     body = _make_body(client_id=client_id)
     user = _make_user()
 
     result = create_incident(body, user, db)
 
-    assert result["incident_id"] == existing_id
+    assert result["incident_id"] == created_id
     assert result["status"] == "created"
-    assert db.execute.call_count == 5
+    assert db.execute.call_count >= 4
+    inserted_sql = str(db.execute.call_args_list[3].args[0])
+    assert "ON CONFLICT" not in inserted_sql
 
 
 # ── 3. Malformed client_id — validated before any DB call ────────────────────

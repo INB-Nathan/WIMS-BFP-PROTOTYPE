@@ -453,6 +453,45 @@ export default function RegionalDashboardPage() {
     return { category, station, location, savedAt };
   };
 
+  const getQueuedIncidentItem = (op: OfflineOpDecrypted): RegionalIncidentListItem => {
+    const p = op.payload as Record<string, unknown>;
+    const ns = (p.incident_nonsensitive_details ?? {}) as Record<string, unknown>;
+    const sens = (p.incident_sensitive_details ?? {}) as Record<string, unknown>;
+    const createdAt = typeof p.created_at === 'string' ? p.created_at : new Date(op.createdAt).toISOString();
+    const updatedAt = typeof p.updated_at === 'string' ? p.updated_at : createdAt;
+    const city = (ns.city_municipality as string | undefined) ?? null;
+    const province = (ns.province_district as string | undefined) ?? null;
+    const street = ((sens.street_address ?? ns.incident_address) as string | undefined) ?? null;
+    return {
+      incident_id: -Math.abs(op.createdAt),
+      verification_status: 'PENDING_SYNC',
+      created_at: createdAt,
+      updated_at: updatedAt,
+      notification_dt: (ns.notification_dt as string | undefined) ?? createdAt,
+      general_category: (ns.general_category ?? ns.classification_of_involved ?? null) as string | null,
+      sub_category: (ns.sub_category ?? ns.incident_type ?? ns.type_of_involved_general_category ?? null) as string | null,
+      alarm_level: (ns.alarm_level as string | undefined) ?? null,
+      fire_station_name: (ns.fire_station_name as string | undefined) ?? null,
+      structures_affected: Number(ns.structures_affected ?? 0),
+      households_affected: Number(ns.households_affected ?? 0),
+      families_affected: Number(ns.families_affected ?? 0),
+      individuals_affected: Number(ns.individuals_affected ?? 0),
+      vehicles_affected: Number(ns.vehicles_affected ?? 0),
+      responder_type: (ns.responder_type as string | undefined) ?? null,
+      fire_origin: (ns.fire_origin as string | undefined) ?? null,
+      extent_of_damage: (ns.extent_of_damage as string | undefined) ?? null,
+      owner_name: (sens.owner_name as string | undefined) ?? null,
+      establishment_name: (sens.establishment_name as string | undefined) ?? null,
+      caller_name: (sens.caller_name as string | undefined) ?? null,
+      caller_number: (sens.caller_number as string | undefined) ?? null,
+      street_address: street,
+      is_wildland: false,
+      city_municipality: city,
+      province_district: province,
+      location_display: [province, city].filter(Boolean).join(' - ') || street,
+    };
+  };
+
   const incidentCards = [
     {
       key: 'total-period',
@@ -945,7 +984,7 @@ export default function RegionalDashboardPage() {
             <div className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
               Loading incidents...
             </div>
-          ) : !incidentsLoading && incidents.length === 0 ? (
+          ) : !incidentsLoading && incidents.length === 0 && queuedOps.length === 0 ? (
             <div className="flex min-h-[260px] flex-col items-center justify-center px-5 py-14 text-center">
               <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
                 {incidentsError ? 'Could not load incidents.' : 'No incidents found'}
@@ -969,19 +1008,35 @@ export default function RegionalDashboardPage() {
           ) : (
             <div className={`grid min-h-[420px] gap-4 p-5 transition-opacity lg:grid-cols-2 ${incidentsLoading ? 'opacity-60' : ''}`}>
               {queuedOps.map((op) => {
+                const queuedIncident = getQueuedIncidentItem(op);
                 const { category, station, location, savedAt } = getQueuedOpDisplay(op);
                 return (
+                  <div key={`queued-${op.localId}`} className="contents">
+                  <IncidentCard
+                    key={`queued-card-${op.localId}`}
+                    inc={queuedIncident}
+                    isArchiveView={false}
+                    onCardClick={() => router.push(`/dashboard/regional/incidents/${op.localId}`)}
+                    onHoverStart={scheduleHoverHint}
+                    onHoverMove={hideHoverHintOnMove}
+                    onHoverEnd={clearHoverHint}
+                    onArchive={doEncoderArchive}
+                    onUnarchive={doEncoderUnarchive}
+                    isDetailCached
+                    isOnline={isOnline}
+                  />
+                  {false && (
                   <div
                     key={`queued-${op.localId}`}
                     role="button"
                     tabIndex={0}
                     className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 flex flex-col gap-2 cursor-pointer hover:border-amber-400 hover:bg-amber-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                     title="Edit this locally saved incident"
-                    onClick={() => router.push(`/dashboard/regional/incidents/local/${op.localId}`)}
+                    onClick={() => router.push(`/dashboard/regional/incidents/${op.localId}`)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        router.push(`/dashboard/regional/incidents/local/${op.localId}`);
+                        router.push(`/dashboard/regional/incidents/${op.localId}`);
                       }
                     }}
                   >
@@ -998,6 +1053,8 @@ export default function RegionalDashboardPage() {
                     <div className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
                       {station !== '—' ? `${station} · ` : ''}{location}
                     </div>
+                  </div>
+                  )}
                   </div>
                 );
               })}
@@ -1039,7 +1096,7 @@ export default function RegionalDashboardPage() {
                     Loading incidents…
                   </td>
                 </tr>
-              ) : incidents.length === 0 ? (
+              ) : incidents.length === 0 && queuedOps.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-12">
                     <div className="flex min-h-[180px] flex-col items-center justify-center text-center">
@@ -1069,18 +1126,18 @@ export default function RegionalDashboardPage() {
                 {queuedOps.map((op) => {
                   const { category, station, location, savedAt } = getQueuedOpDisplay(op);
                   return (
-                    <tr
+                <tr
                       key={`queued-${op.localId}`}
                       className="border-b bg-amber-50/50 cursor-pointer hover:bg-amber-100/70 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400"
-                      title="Edit this locally saved incident"
+                      title="View pending sync incident"
                       tabIndex={0}
                       role="link"
-                      aria-label={`Edit local incident (${category})`}
-                      onClick={() => router.push(`/dashboard/regional/incidents/local/${op.localId}`)}
+                      aria-label={`View pending sync incident (${category})`}
+                      onClick={() => router.push(`/dashboard/regional/incidents/${op.localId}`)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
-                          router.push(`/dashboard/regional/incidents/local/${op.localId}`);
+                          router.push(`/dashboard/regional/incidents/${op.localId}`);
                         }
                       }}
                     >

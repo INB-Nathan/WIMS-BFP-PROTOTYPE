@@ -16,7 +16,7 @@ import {
 } from '@/lib/api';
 import { fetchRegionalIncidentOfflineAware } from '@/lib/api/offlineRegional';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
-import { queueOfflineOp } from '@/lib/offlineStore';
+import { getOfflineOp, queueOfflineOp, type OfflineOpDecrypted } from '@/lib/offlineStore';
 import { toast as sonnerToast } from 'sonner';
 import dynamic from 'next/dynamic';
 import { UpdateRequestDiffPanel } from '@/components/UpdateRequestDiffPanel';
@@ -167,6 +167,7 @@ function MetricCard({ label, value }: { label: string; value: unknown }) {
 function StatusBadge({ status }: { status: string }) {
   const statusColors: Record<string, string> = {
     DRAFT: 'border-gray-200 bg-gray-100 text-gray-800',
+    PENDING_SYNC: 'border-amber-200 bg-amber-100 text-amber-900',
     PENDING: 'border-yellow-200 bg-yellow-100 text-yellow-900',
     PENDING_VALIDATION: 'border-blue-200 bg-blue-100 text-blue-900',
     VERIFIED: 'border-green-200 bg-green-100 text-green-900',
@@ -410,11 +411,46 @@ function AlarmTimelineSection({ timeline }: { timeline: AlarmTimeline }) {
 }
 
 // ── Main page ────────────────────────────────────────────────────────────────
+function detailFromOfflineOp(op: OfflineOpDecrypted): RegionalIncidentDetailResponse {
+  const payload = op.payload as {
+    incident_nonsensitive_details?: Record<string, unknown>;
+    incident_sensitive_details?: Record<string, unknown>;
+    latitude?: number | null;
+    longitude?: number | null;
+    created_at?: string;
+    updated_at?: string;
+  };
+  const ns = payload.incident_nonsensitive_details ?? {};
+  return {
+    incident_id: op.localId as unknown as number,
+    verification_status: 'PENDING_SYNC',
+    created_at: payload.created_at ?? new Date(op.createdAt).toISOString(),
+    updated_at: payload.updated_at ?? new Date(op.createdAt).toISOString(),
+    region_id: op.regionId,
+    latitude: payload.latitude ?? null,
+    longitude: payload.longitude ?? null,
+    reference_number: null,
+    incident_type_code: (ns.incident_type_code as string | undefined) ?? null,
+    parent_incident_id: null,
+    is_duplicate: false,
+    duplicate_of: null,
+    is_wildland: false,
+    wildland_fire_type: null,
+    wildland_area_hectares: null,
+    wildland_area_display: null,
+    nonsensitive: ns,
+    sensitive: payload.incident_sensitive_details ?? {},
+    rejection_reason: null,
+    rejection_at: null,
+  };
+}
+
 export default function RegionalIncidentDetailPage() {
   const router = useRouter();
   const params = useParams();
   const rawId = params?.id as string | undefined;
-  const incidentId = rawId != null ? parseInt(rawId, 10) : NaN;
+  const incidentId = rawId && /^\d+$/.test(rawId) ? parseInt(rawId, 10) : NaN;
+  const localIncidentId = rawId && Number.isNaN(incidentId) ? rawId : null;
 
   const { user, loading: authLoading } = useAuth();
   const { isOnline } = useNetworkStatus();
@@ -475,6 +511,34 @@ export default function RegionalIncidentDetailPage() {
   }, [authLoading, canAccessRegional, router]);
 
   const load = useCallback(async () => {
+    if (localIncidentId) {
+      setLoading(true);
+      setError(null);
+      try {
+        const op = await getOfflineOp(localIncidentId);
+        if (!op) {
+          setDetail(null);
+          setError('This pending sync incident was not found on this device.');
+          return;
+        }
+        if (op.syncStatus === 'synced' && op.serverId) {
+          router.replace(`/dashboard/regional/incidents/${op.serverId}`);
+          return;
+        }
+        const localDetail = detailFromOfflineOp(op);
+        setDetail(localDetail);
+        loadedUpdatedAtRef.current = null;
+        setIsFromCache(true);
+        setCachedAt(op.createdAt);
+        setIsEditing(false);
+      } catch (e) {
+        setDetail(null);
+        setError(e instanceof Error ? e.message : 'Failed to load pending sync incident.');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     if (Number.isNaN(incidentId)) {
       setError('Invalid incident id.');
       setLoading(false);
@@ -496,7 +560,7 @@ export default function RegionalIncidentDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [incidentId, user]);
+  }, [incidentId, localIncidentId, router, user]);
 
   useEffect(() => {
     if (authLoading || !canAccessRegional) return;
@@ -782,6 +846,11 @@ export default function RegionalIncidentDetailPage() {
 
   const handleEditClick = () => {
     if (!detail) return;
+    if (localIncidentId) {
+      setIsEditing(true);
+      setActionError(null);
+      return;
+    }
     const status = detail.verification_status;
     if (status === 'PENDING') {
       setShowWithdrawPopup(true);
@@ -886,6 +955,7 @@ export default function RegionalIncidentDetailPage() {
     });
   })();
   const canSubmitOrDelete = isEncoder && detail &&
+    !localIncidentId &&
     (detail.verification_status === 'DRAFT' ||
      detail.verification_status === 'PENDING' ||
      detail.verification_status === 'REJECTED');
@@ -1289,7 +1359,8 @@ export default function RegionalIncidentDetailPage() {
       {detail && isEditing && incidentFormData && (
         <IncidentForm
           initialData={incidentFormData}
-          existingIncidentId={detail.incident_id}
+          existingIncidentId={localIncidentId ? undefined : detail.incident_id}
+          offlineLocalId={localIncidentId ?? undefined}
           initialErrors={missingFieldKeys.length > 0 ? missingFieldKeys : undefined}
           clientUpdatedAt={loadedUpdatedAtRef.current}
           onConflict={(draft, serverVersion) => {

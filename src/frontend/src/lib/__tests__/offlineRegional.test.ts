@@ -5,6 +5,7 @@ const mockConnectivity = vi.hoisted(() => ({
   reachable: false,
   fetchRegionalIncident: vi.fn(),
   getCachedIncident: vi.fn(),
+  getOfflineOpByServerId: vi.fn(),
 }));
 
 vi.mock('../api/legacy', () => ({
@@ -16,6 +17,7 @@ vi.mock('../offlineStore', () => ({
   cacheIncident: vi.fn(),
   getCachedIncidents: vi.fn(),
   getCachedIncident: mockConnectivity.getCachedIncident,
+  getOfflineOpByServerId: mockConnectivity.getOfflineOpByServerId,
 }));
 
 vi.mock('../connectivity', () => ({
@@ -38,6 +40,7 @@ describe('fetchRegionalIncidentOfflineAware', () => {
     mockConnectivity.online = false;
     mockConnectivity.reachable = false;
     mockConnectivity.getCachedIncident.mockResolvedValue(null);
+    mockConnectivity.getOfflineOpByServerId.mockResolvedValue(null);
   });
 
   it('shows a friendly unavailable-offline error when the incident is not cached', async () => {

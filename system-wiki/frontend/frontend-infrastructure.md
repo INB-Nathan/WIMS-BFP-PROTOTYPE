@@ -373,6 +373,12 @@ Regional Encoder offline decisions now use verified app reachability rather than
 
 `apiFetch()` now treats `refreshToken()` as successful only when `result.ok === true`, preventing failed refresh results from being retried as authenticated requests. `refreshToken()` classifies 5xx/429 refresh-route responses as offline/auth-service-unavailable rather than expired auth. `useAutoSync()` suppresses repeated auth-expired toasts, retries once after re-login/session restore when pending ops exist, and listens for service-worker `run-sync` messages. `public/sw.js` cache `v4` falls back to cached app shell or friendly offline HTML for navigations instead of returning `Response.error()`.
 
+### Offline Incident Sync/View Stabilization (2026-06-11)
+
+Offline-created incidents now use the same regional dashboard/detail surfaces as server-created incidents. `src/frontend/src/app/dashboard/regional/page.tsx` converts pending `offlineOps` create records into normal rich `IncidentCard` tiles with `verification_status = PENDING_SYNC` and routes them to `/dashboard/regional/incidents/{localId}` instead of the legacy `/local/{localId}` edit-only page. `src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx` accepts non-numeric local IDs, reads the encrypted op with `getOfflineOp(localId)`, reconstructs a `RegionalIncidentDetailResponse`, and renders the standard read-only incident detail view. Editing that view passes `offlineLocalId` to `IncidentForm`, so saves update the queued create op in place.
+
+Offline create sync no longer uses `INSERT ... ON CONFLICT` on `wims.fire_incidents`. Because immutable-record rules exist on that table, PostgreSQL rejects `ON CONFLICT`; `src/backend/api/routes/incidents.py` and `src/backend/api/routes/regional/encoder_crud.py` now serialize idempotent `client_id` retries with `pg_advisory_xact_lock(...)`, select any existing row by `client_id`, and then perform a normal insert when absent.
+
 ### `analytics/AnalystIncidentList.tsx`
 
 Paginated incident table for analyst dashboard with column visibility, row selection across pagination, and "Analyze selected" workflow transfer.
