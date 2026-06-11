@@ -192,7 +192,7 @@ def get_system_metrics(
     cpu = _psutil.cpu_percent(interval=0.1)
     mem = _psutil.virtual_memory()
     disk = _psutil.disk_usage("/")
-    net = _psutil.net_io_counters()
+    _net = _psutil.net_io_counters()  # None on hosts with no active NICs
 
     # AI inference stats — read from Redis for cross-process accuracy (Celery + web workers).
     # Falls back to count=0/avg=null gracefully when Redis is unreachable.
@@ -226,7 +226,7 @@ def get_system_metrics(
         },
         "ai_inference": ai_inference,
         "network": {
-            "bytes_sent": net.bytes_sent,
-            "bytes_recv": net.bytes_recv,
+            "bytes_sent": _net.bytes_sent if _net is not None else 0,
+            "bytes_recv": _net.bytes_recv if _net is not None else 0,
         },
     }
