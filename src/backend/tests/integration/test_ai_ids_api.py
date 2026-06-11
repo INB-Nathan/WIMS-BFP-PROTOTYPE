@@ -16,6 +16,7 @@ from __future__ import annotations
 from auth import get_current_wims_user, get_db_with_rls, get_system_admin
 from main import app
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -27,6 +28,7 @@ if str(_backend_root) not in sys.path:
 
 import pytest
 import respx
+import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
@@ -127,10 +129,20 @@ def test_analyze_threat_log_success(mock_system_admin, threat_log_row, db_sessio
     """
     log_id = threat_log_row
 
-    # Mock Ollama API
+    # Mock Ollama API — returns structured 5-key format (#161)
     respx.post("http://wims-ollama:11434/api/generate").respond(
         status_code=200,
-        json={"response": '{"narrative": "Simulated attack detected.", "confidence": 0.95}'},
+        json={
+            "response": json.dumps(
+                {
+                    "anomaly_description": "Simulated attack detected.",
+                    "log_evidence": "Source IP 192.168.1.100 sent malicious payload.",
+                    "risk_assessment": "Potential SQL injection attempt.",
+                    "recommended_action": "Block source IP and investigate.",
+                    "confidence": 0.95,
+                }
+            )
+        },
     )
 
     with TestClient(app) as client:
@@ -147,5 +159,139 @@ def test_analyze_threat_log_success(mock_system_admin, threat_log_row, db_sessio
     ).fetchone()
 
     assert row is not None, "Log row not found after analyze"
-    assert row[0] == "Simulated attack detected.", f"Expected xai_narrative, got {row[0]!r}"
+    narrative = row[0]
+    assert isinstance(narrative, str), f"Expected JSON string, got {type(narrative)}"
+    parsed = json.loads(narrative)
+    assert parsed["anomaly_description"] == "Simulated attack detected."
+    assert parsed["log_evidence"] == "Source IP 192.168.1.100 sent malicious payload."
+    assert parsed["risk_assessment"] == "Potential SQL injection attempt."
+    assert parsed["recommended_action"] == "Block source IP and investigate."
     assert row[1] == 0.95, f"Expected xai_confidence 0.95, got {row[1]!r}"
+
+
+@respx.mock
+def test_analyze_threat_log_ollama_unavailable_returns_502(mock_system_admin, threat_log_row):
+    """
+    POST .../analyze when Ollama is unreachable (ConnectError)
+    must return 502 Bad Gateway — not a generic 500.
+    """
+    log_id = threat_log_row
+
+    respx.post("http://wims-ollama:11434/api/generate").mock(
+        side_effect=httpx.ConnectError("Connection refused")
+    )
+
+    with TestClient(app) as client:
+        resp = client.post(f"/api/admin/security-logs/{log_id}/analyze")
+
+    assert resp.status_code == 502, (
+        f"Expected 502 when Ollama unreachable, got {resp.status_code}: {resp.text}"
+    )
+    assert "unavailable" in resp.json()["detail"].lower()
+
+
+@respx.mock
+def test_analyze_threat_log_ollama_timeout_returns_502(mock_system_admin, threat_log_row):
+    """
+    POST .../analyze when Ollama times out (TimeoutException)
+    must return 502 Bad Gateway — not a generic 500.
+    """
+    log_id = threat_log_row
+
+    respx.post("http://wims-ollama:11434/api/generate").mock(
+        side_effect=httpx.TimeoutException("Request timed out")
+    )
+
+    with TestClient(app) as client:
+        resp = client.post(f"/api/admin/security-logs/{log_id}/analyze")
+
+    assert resp.status_code == 502, (
+        f"Expected 502 when Ollama times out, got {resp.status_code}: {resp.text}"
+    )
+    assert "timed out" in resp.json()["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Audit-logs analyze fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def audit_trail_rows(db_session):
+    """Insert dummy system_audit_trail rows and return audit_ids. Clean up after."""
+    ids = []
+    for i in range(3):
+        result = db_session.execute(
+            text("""
+                INSERT INTO wims.system_audit_trails
+                    (user_id, action_type, table_affected, record_id, ip_address, user_agent)
+                VALUES
+                    (:user_id, :action_type, :table_affected, :record_id, :ip_address, :user_agent)
+                RETURNING audit_id
+            """),
+            {
+                "user_id": "00000000-0000-0000-0000-000000000001",
+                "action_type": "LOGIN",
+                "table_affected": "wims.users",
+                "record_id": i + 1,
+                "ip_address": "192.168.1." + str(100 + i),
+                "user_agent": "pytest",
+            },
+        )
+        row = result.fetchone()
+        ids.append(row[0])
+    db_session.commit()
+    yield ids
+    for audit_id in ids:
+        db_session.execute(
+            text("DELETE FROM wims.system_audit_trails WHERE audit_id = :aid"),
+            {"aid": audit_id},
+        )
+    db_session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Audit-logs analyze tests
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+def test_analyze_audit_logs_ollama_unavailable_returns_502(mock_system_admin, audit_trail_rows):
+    """
+    POST /admin/audit-logs/analyze when Ollama is unreachable (ConnectError)
+    must return 502 Bad Gateway.
+    """
+    audit_ids = audit_trail_rows
+
+    respx.post("http://wims-ollama:11434/api/generate").mock(
+        side_effect=httpx.ConnectError("Connection refused")
+    )
+
+    with TestClient(app) as client:
+        resp = client.post("/api/admin/audit-logs/analyze", json={"audit_ids": audit_ids})
+
+    assert resp.status_code == 502, (
+        f"Expected 502 when Ollama unreachable, got {resp.status_code}: {resp.text}"
+    )
+    assert "unavailable" in resp.json()["detail"].lower()
+
+
+@respx.mock
+def test_analyze_audit_logs_ollama_timeout_returns_502(mock_system_admin, audit_trail_rows):
+    """
+    POST /admin/audit-logs/analyze when Ollama times out (TimeoutException)
+    must return 502 Bad Gateway.
+    """
+    audit_ids = audit_trail_rows
+
+    respx.post("http://wims-ollama:11434/api/generate").mock(
+        side_effect=httpx.TimeoutException("Request timed out")
+    )
+
+    with TestClient(app) as client:
+        resp = client.post("/api/admin/audit-logs/analyze", json={"audit_ids": audit_ids})
+
+    assert resp.status_code == 502, (
+        f"Expected 502 when Ollama times out, got {resp.status_code}: {resp.text}"
+    )
+    assert "timed out" in resp.json()["detail"].lower()

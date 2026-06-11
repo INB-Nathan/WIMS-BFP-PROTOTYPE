@@ -36,28 +36,28 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Rebased `feat/m13-email-triggers` onto origin/master (1345808). Resolved 2 conflicts:
   - `src/backend/celery_config.py`: merged M7a `update-suricata-rules-weekly` + M13 `send-weekly-report-email` beat entries
   - `.zap/rules.tsv`: kept HEAD (M7a) justification for rule 90004 (COEP unsafe-none)
-- **Q1 (critical):** Fixed double-toggle bug in `profile/page.tsx` — removed `div.onClick` handlers that canceled out checkbox `onChange` (React 18 batching).
+- **Q1 (critical):** Fixed double-toggle bug in `profile/page.tsx` â€” removed `div.onClick` handlers that canceled out checkbox `onChange` (React 18 batching).
 - **S1:** Updated notification prefs copy from "report status changes" to "system alerts and weekly reports" (matches actual email dispatch).
 - **Q4:** Profile save callback now refreshes `notifPrefs` from API response (was discarding `email_opt_in`/`push_opt_in` on profile save).
 - **Q2/Q3:** Added `NEXT_PUBLIC_APP_URL` env var to backend + celery-worker containers in `docker-compose.yml` and `docker-compose.prod.yml` (email links no longer default to localhost in prod).
-- **S2:** Updated stale section comment in `tasks/notifications.py` — no longer claims triggers are "out of scope."
+- **S2:** Updated stale section comment in `tasks/notifications.py` â€” no longer claims triggers are "out of scope."
 - **S3:** Weekly report email query now filters by `email_opt_in = TRUE`; security alert query intentionally bypasses (critical alerts).
 - **S4:** Added `autoretry_for=(Exception,)` with backoff to `send_weekly_report_email` Celery task.
 - **S5:** Moved `import requests` inside `test_mailhog_email_delivery` function body (integration-only dependency).
 
-## [2026-06-09] feat | M13 user notification preferences — email_opt_in + push_opt_in (#72)
+## [2026-06-09] feat | M13 user notification preferences â€” email_opt_in + push_opt_in (#72)
 
 - Migration `47_notification_preferences.sql`: adds `email_opt_in BOOLEAN NOT NULL DEFAULT TRUE` and `push_opt_in BOOLEAN NOT NULL DEFAULT TRUE` to `wims.users`. Defaults preserve existing behaviour; JIT-provisioning INSERT is unaffected.
 - Extended `GET /api/user/me/profile`: now queries `contact_number, email_opt_in, push_opt_in` from `wims.users`; NULL values default to `TRUE`.
 - Extended `PATCH /api/user/me` (`ProfileUpdate` schema): accepts `email_opt_in` and `push_opt_in` booleans; persists in a single DB UPDATE; skips Keycloak call when only pref fields are sent.
 - Updated `src/frontend/src/lib/api/legacy.ts`: extended `fetchMyProfile()` return type and `updateMyProfile()` payload type for both pref booleans.
 - Added "Notification Preferences" card to `src/frontend/src/app/profile/page.tsx`: Email + Push toggle switches loaded from GET and saved via PATCH, matching existing card/form styling.
-- `tasks/notifications.send_status_notification` left push-only. `citizen_reports` is anonymous by privacy design (data minimization — no email collected at submission); email-on-status-change is therefore N/A for this flow. The `email_opt_in` column on `wims.users` is the gate for any future registered-recipient notification flow where a user identity is present.
+- `tasks/notifications.send_status_notification` left push-only. `citizen_reports` is anonymous by privacy design (data minimization â€” no email collected at submission); email-on-status-change is therefore N/A for this flow. The `email_opt_in` column on `wims.users` is the gate for any future registered-recipient notification flow where a user identity is present.
 - Fixed `tests/test_profile_email.py`: updated `_get_db_session()` mock to return 3-column tuple after GET query expansion.
-- New `tests/test_notification_prefs.py`: 7 unit tests — GET prefs (true, false, null→default), PATCH prefs (email_opt_in, push_opt_in, both together, Keycloak skipped on prefs-only).
+- New `tests/test_notification_prefs.py`: 7 unit tests â€” GET prefs (true, false, nullâ†’default), PATCH prefs (email_opt_in, push_opt_in, both together, Keycloak skipped on prefs-only).
 - All preference tests pass; ruff check + format pass; frontend lint: 0 errors.
 
-## [2026-06-09] feat | M13b email notification triggers — security_alert + weekly_report (#176)
+## [2026-06-09] feat | M13b email notification triggers â€” security_alert + weekly_report (#176)
 
 - Wired `security_alert` email trigger in `src/backend/api/routes/admin/security.py`: after CONFIRM_THREAT HITL action commits, if severity is HIGH or CRITICAL, dispatch `send_email_task.delay()` to all active SYSTEM_ADMIN users. Dashboard link points to `/admin/security-dashboard`.
 - Added `send_weekly_report_email` Celery task (`tasks/notifications.py`): queries 7-day incident totals from `analytics_incident_facts` and top region from `ref_regions`; dispatches `send_email_task.delay()` with `template_name="weekly_report"` to all active SYSTEM_ADMIN emails. Runs Monday 07:00 UTC via Celery beat.
@@ -68,23 +68,35 @@ Format: `## [YYYY-MM-DD] action | subject`
 - All 6 unit tests pass; ruff check + format pass.
 
 
+## [2026-06-09] implementation | M8 surgical fixes â€” structured XAI, CRITICAL severity, HITL audit, remove auto-DRAFT, audit SLM (#161, #162, #163, #165)
+
+- **`services/ai_service.py`:** Restructured XAI prompt from flat narrative to 5-key JSON (anomaly_description, log_evidence, risk_assessment, recommended_action, confidence). Added `analyze_audit_logs()` function for Ollama-based audit trail pattern analysis.
+- **`services/suricata_ingestion.py`:** Added CRITICAL severity level (sev >= 4 â†’ CRITICAL). Removed auto-creation of DRAFT fire incidents from HIGH/CRITICAL alerts â€” ingestion now logs a warning with requires_review, admin must manually trigger via `POST /admin/security-logs/{id}/create-incident`.
+- **`api/routes/admin/security.py`:** Added `log_system_audit()` call to `update_security_log()` (HITL decisions now audited with action_type=HITL_REVIEW). Added `POST /security-logs/{log_id}/create-incident` endpoint for manual DRAFT incident creation from reviewed alerts.
+- **`api/routes/admin/audit.py`:** Added `POST /audit-logs/analyze` endpoint for AI analysis of batched audit trail entries via Ollama.
+- **`frontend admin/system/page.tsx`:** Structured XAI display now parses JSON and renders 4 labeled sections (Anomaly Description, Log Evidence, Risk Assessment, Recommended Action) with fallback to legacy plain-text. Added "Create Incident from Alert" button in the decision panel.
+- **`lib/api/legacy.ts`:** Added `createIncidentFromAlert()` API client function.
+- **`tests/test_suricata_ingestion.py`:** Added CRITICAL (severity 4) mapping test.
+- **`tests/test_suricata_auto_incident.py`:** Updated to verify HIGH alerts no longer auto-create incidents (call_count == 0).
+- **`system-wiki/gaps/frs-codebase-gap-register.md`:** #161, #162, #163, #165 all CLOSED.
+
 ## [2026-06-08] implementation | M7a host network mode + AF_PACKET capture (#156, #158)
 
-- **`src/docker-compose.yml` (wims-suricata):** Switched to `network_mode: "host"` — Suricata now directly sees host ingress traffic (nginx ports 80/443) instead of only internal Docker bridge traffic (mDNS + inter-container). Removed `networks: wims_internal` (incompatible with host networking). Added `cap_add: [NET_ADMIN, NET_RAW]` for promiscuous capture. Changed command to `--af-packet=eth0 --runmode workers` for zero-copy AF_PACKET capture with multi-threaded processing.
+- **`src/docker-compose.yml` (wims-suricata):** Switched to `network_mode: "host"` â€” Suricata now directly sees host ingress traffic (nginx ports 80/443) instead of only internal Docker bridge traffic (mDNS + inter-container). Removed `networks: wims_internal` (incompatible with host networking). Added `cap_add: [NET_ADMIN, NET_RAW]` for promiscuous capture. Changed command to `--af-packet=eth0 --runmode workers` for zero-copy AF_PACKET capture with multi-threaded processing.
 - **AF_PACKET verified available:** `suricata --build-info` confirms `AF_PACKET support: yes`. `--list-runmodes` shows `AF_PACKET_DEV` with single/workers/autofp modes.
 - **`system-wiki/security/security-baseline.md`:** Documented network topology, host networking caveats (Linux-only), and AF_PACKET + workers capture mode.
 - **`system-wiki/gaps/frs-codebase-gap-register.md`:** #156 and #158 both CLOSED.
 
-## [2026-06-09] feat | M9c Configuration management — system_config table, admin API + UI (#170)
+## [2026-06-09] feat | M9c Configuration management â€” system_config table, admin API + UI (#170)
 
 - New migration `49_system_config.sql`: `wims.system_config (config_key PK, config_value, description, updated_by, updated_at)`. Seeded with 4 keys: `alert_severity_threshold=3`, `session_timeout_minutes=30`, `offline_storage_mb=50`, `ai_timeout_seconds=60`. RLS: SELECT `USING (TRUE)` (open; Celery consumers read without GUC), INSERT/UPDATE/DELETE restricted to `current_user_role() = 'SYSTEM_ADMIN'`.
-- New `utils/config.py`: `get_config(db, key, default)` — shared helper importable from services and routes with no import cycle.
+- New `utils/config.py`: `get_config(db, key, default)` â€” shared helper importable from services and routes with no import cycle.
 - New `api/routes/admin/config.py`: `GET /api/admin/config` (all rows) + `PATCH /api/admin/config/{key}` (update value + audit-log). Key whitelist enforced; unknown keys return 400. Registered in `admin/__init__.py`.
 - **Live consumers**: `suricata_ingestion.eve_to_threat_log_row` accepts `high_threshold` kwarg (default 3); `ingest_eve_file` reads `alert_severity_threshold` from config once per invocation before the line loop. `ai_service.analyze_threat_log` and `generate_incident_narrative` both read `ai_timeout_seconds` from config (replaces hardcoded `60.0`).
-- **Expose-only (no live enforcement)**: `session_timeout_minutes` — exposed in GET only; actual JWT expiry is Keycloak-realm-level (`ssoSessionIdleTimeout`), not changeable from WIMS without Keycloak Admin API integration (out of scope). `offline_storage_mb` — advisory cap enforced client-side: `offlineStore.queueIncident` estimates total queue bytes and throws with a user-readable message if over cap; `initOfflineStorageLimit(mb)` lets app startup override the default 50.
-- **Deferred**: Redis hot-reload (config version counter) — config reads go direct to DB. Documented in config page disclaimer.
+- **Expose-only (no live enforcement)**: `session_timeout_minutes` â€” exposed in GET only; actual JWT expiry is Keycloak-realm-level (`ssoSessionIdleTimeout`), not changeable from WIMS without Keycloak Admin API integration (out of scope). `offline_storage_mb` â€” advisory cap enforced client-side: `offlineStore.queueIncident` estimates total queue bytes and throws with a user-readable message if over cap; `initOfflineStorageLimit(mb)` lets app startup override the default 50.
+- **Deferred**: Redis hot-reload (config version counter) â€” config reads go direct to DB. Documented in config page disclaimer.
 - New `frontend/src/app/admin/system/config/page.tsx`: per-key input + Save (PATCH per key), loaded via `fetchAdminConfig`. New `fetchAdminConfig` + `updateAdminConfig` appended to `legacy.ts`. Does NOT modify `system/page.tsx`.
-- 15 unit tests in `tests/test_system_config.py`: GET seed keys, value+description, RBAC; PATCH happy-path, audit trail, unknown key 400, missing row 404, RBAC; 6 suricata threshold unit tests (default 3 preserved; threshold=2 escalates MEDIUM→HIGH); AI timeout consumer verifies `httpx.AsyncClient(timeout=120.0)` when config returns "120".
+- 15 unit tests in `tests/test_system_config.py`: GET seed keys, value+description, RBAC; PATCH happy-path, audit trail, unknown key 400, missing row 404, RBAC; 6 suricata threshold unit tests (default 3 preserved; threshold=2 escalates MEDIUMâ†’HIGH); AI timeout consumer verifies `httpx.AsyncClient(timeout=120.0)` when config returns "120".
 
 ## [2026-06-07] feat | #166 Expand health endpoint + 60s system metrics Celery task
 
@@ -95,14 +107,14 @@ Format: `## [YYYY-MM-DD] action | subject`
 - New Celery task `snapshot_system_metrics` (runs every 60s via beat): collects psutil CPU/memory/disk, INSERTs into `wims.system_metrics`, prunes rows older than 7 days.
 - Updated: `api/routes/admin/monitoring.py`, `tasks/monitoring.py`, `celery_config.py`, `system-wiki/gaps/frs-codebase-gap-register.md`.
 
-## [2026-06-07] implementation | M7b rule foundation — ET Open rules + suricata-update automation (#155, #159)
+## [2026-06-07] implementation | M7b rule foundation â€” ET Open rules + suricata-update automation (#155, #159)
 
-- **`src/suricata/rules/suricata.rules`:** Combined file — our 15 custom OWASP+BFP rules prepended to full ET Open ruleset (~136k lines, ~68k signatures). Loaded via Suricata's default configuration (no custom suricata.yaml needed).
+- **`src/suricata/rules/suricata.rules`:** Combined file â€” our 15 custom OWASP+BFP rules prepended to full ET Open ruleset (~136k lines, ~68k signatures). Loaded via Suricata's default configuration (no custom suricata.yaml needed).
 - **`src/docker-compose.yml`:** Mounted `suricata/rules` (rw) and `/var/run/docker.sock` in celery-worker for suricata-update execution.
 - **`src/backend/requirements.txt`:** Added `docker>=7.0.0` SDK for container exec from Celery tasks.
 - **`src/backend/tasks/suricata.py`:** Added `update_suricata_rules` Celery task (weekly suricata-update + USR2 live reload) and `_count_active_rules` helper; graceful degradation when Docker SDK unavailable.
 - **`src/backend/celery_config.py`:** Added `update-suricata-rules-weekly` beat entry (crontab Sunday 03:00 UTC).
-- **`src/backend/tests/test_suricata_rules.py`:** Created — 7 end-to-end/integration tests: no-missing-rules warning, >1000 rules loaded, suricata.rules present with default config loading, and pipeline tests for OWASP/ET-Open/BFP-custom SIDs flowing into DB.
+- **`src/backend/tests/test_suricata_rules.py`:** Created â€” 7 end-to-end/integration tests: no-missing-rules warning, >1000 rules loaded, suricata.rules present with default config loading, and pipeline tests for OWASP/ET-Open/BFP-custom SIDs flowing into DB.
 - **`src/backend/tests/test_suricata_ingestion.py`:** Added `test_et_open_sid_maps_correctly` unit test for ET Open SID mapping.
 - **`system-wiki/security/security-baseline.md`:** Documented three-tier rule architecture with SID ranges and update cadence.
 - **`system-wiki/gaps/frs-codebase-gap-register.md`:** #155 and #159 gaps updated.
@@ -111,26 +123,26 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 - Added `Content-Security-Policy` header to production TLS nginx block covering: self, OSM tiles, unpkg Leaflet icons, Google Fonts, Next.js inline styles, Firebase Messaging SW (`worker-src`).
 - Added `Cross-Origin-Embedder-Policy: unsafe-none` (require-corp would break 8 map components loading from CDNs without CORP).
-- `.zap/rules.tsv`: 10038 and 90004 promoted from IGNORE → WARN.
-- Reviewer found: Keycloak inline event handlers blocked by `script-src 'self'` (non-blocking — core OIDC login works), `connect-src wimsbfp.tech` redundant with `'self'`.
+- `.zap/rules.tsv`: 10038 and 90004 promoted from IGNORE â†’ WARN.
+- Reviewer found: Keycloak inline event handlers blocked by `script-src 'self'` (non-blocking â€” core OIDC login works), `connect-src wimsbfp.tech` redundant with `'self'`.
 
 ## [2026-06-07] fix | #220 CD workflow placeholder build-args + production vars
 
 - Removed dead "Set placeholder envs" step (wrote to `$GITHUB_ENV`, but build-args read `vars.*` context).
 - Dropped `NEXT_PUBLIC_OIDC_CLIENT_ID` from build-args (not an ARG in Dockerfile).
 - Added `NEXT_PUBLIC_OIDC_AUTHORITY` (required ARG, was missing from workflow).
-- Updated all fallback values: localhost → `wimsbfp.tech` production URLs.
-- Set 4 GitHub repo variables: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_OIDC_REDIRECT_URI`, `NEXT_PUBLIC_OIDC_AUTHORITY`, `KEYCLOAK_AUDIENCE` (corrected from `account` → `wims-web` per #194).
+- Updated all fallback values: localhost â†’ `wimsbfp.tech` production URLs.
+- Set 4 GitHub repo variables: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_OIDC_REDIRECT_URI`, `NEXT_PUBLIC_OIDC_AUTHORITY`, `KEYCLOAK_AUDIENCE` (corrected from `account` â†’ `wims-web` per #194).
 
 ## [2026-06-07] fix | #227 Hide NearbyPublicReportAreas on safety step
 
 - Wrapped `<NearbyPublicReportAreas />` in `step !== 'safety'` conditional in `page.tsx`.
-- PublicFireMap was already correctly inside `step === 'safety'` — no change needed.
+- PublicFireMap was already correctly inside `step === 'safety'` â€” no change needed.
 - Spec had inverted current-behavior table; only 1 of 2 proposed changes was necessary.
 
 ## [2026-06-07] feat | #228 Data Retention Policy page, consent notice, footer link
 
-- Created `src/frontend/src/app/privacy/page.tsx` — server component rendering all 7 policy sections.
+- Created `src/frontend/src/app/privacy/page.tsx` â€” server component rendering all 7 policy sections.
   - Hero+card pattern matching fire-stations style (bfp-gradient hero, white rounded-xl card).
   - Numbered maroon circle section badges, amber consent callout, styled retention tables.
   - Uses existing globals.css CSS variable tokens.
@@ -138,32 +150,32 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Added footer privacy link to both report and privacy pages.
 - Registered `/privacy` as public route in `LayoutShell` (two `isPublic`/`isPublicRoute` checks).
 - Preview HTML + PDF generated at `src/frontend/public/preview/privacy-hero.{html,pdf}`.
-- Review fixes applied: `--text-secondary` darkened to `#5a6a7a` (WCAG AA), `<main>` landmark added, §4A parenthetical restored.
+- Review fixes applied: `--text-secondary` darkened to `#5a6a7a` (WCAG AA), `<main>` landmark added, Â§4A parenthetical restored.
 
 ## [2025-06-06] refactor | Decompose monolithic route files into packages (issue #204)
 
 - **`src/backend/api/routes/regional.py` (3040 lines) -> `api/routes/regional/` package:**
-  - `__init__.py` — Shared helpers (`_get_security_provider`, `_fi_has_resubmitted_column`, `_regional_lifecycle_dependencies`, `_incident_verification_history_has_hash_columns`) + router registration.
-  - `afor.py` (137 lines) — AFOR import/commit routes.
-  - `duplicates.py` (138 lines) — Duplicate check route.
-  - `field_updates.py` (343 lines) — `_apply_incident_field_updates` and `_fetch_incident_edit_fields` (helper functions, not routes).
-  - `stats.py` (304 lines) — Encoder and validator stats endpoints.
-  - `encoder.py` (554 lines) — Encoder read/lookup routes (incidents list, drafts, detail, audit log).
-  - `encoder_crud.py` (618 lines) — Encoder write routes (create, update, delete, archive, submit).
-  - `validator.py` (983 lines) — Validator routes (queue, verify, correct, bulk-approve, archive, diff, history, audit logs).
+  - `__init__.py` â€” Shared helpers (`_get_security_provider`, `_fi_has_resubmitted_column`, `_regional_lifecycle_dependencies`, `_incident_verification_history_has_hash_columns`) + router registration.
+  - `afor.py` (137 lines) â€” AFOR import/commit routes.
+  - `duplicates.py` (138 lines) â€” Duplicate check route.
+  - `field_updates.py` (343 lines) â€” `_apply_incident_field_updates` and `_fetch_incident_edit_fields` (helper functions, not routes).
+  - `stats.py` (304 lines) â€” Encoder and validator stats endpoints.
+  - `encoder.py` (554 lines) â€” Encoder read/lookup routes (incidents list, drafts, detail, audit log).
+  - `encoder_crud.py` (618 lines) â€” Encoder write routes (create, update, delete, archive, submit).
+  - `validator.py` (983 lines) â€” Validator routes (queue, verify, correct, bulk-approve, archive, diff, history, audit logs).
 
 - **`src/backend/api/routes/admin.py` (1361 lines) -> `api/routes/admin/` package:**
-  - `__init__.py` — Router registration.
-  - `users.py` (401 lines) — User CRUD, sessions, force-logout.
-  - `backups.py` (313 lines) — Backup/restore management.
-  - `security.py` (153 lines) — Security threat log analysis and HITL actions.
-  - `rate_limits.py` (114 lines) — Dynamic rate-limit configuration.
-  - `monitoring.py` (136 lines) — System health, worker status, system metrics.
-  - `analytics.py` (22 lines) — Analytics backfill.
-  - `audit.py` (58 lines) — System audit trail viewer.
-  - `scheduled_reports.py` (124 lines) — Scheduled report CRUD.
+  - `__init__.py` â€” Router registration.
+  - `users.py` (401 lines) â€” User CRUD, sessions, force-logout.
+  - `backups.py` (313 lines) â€” Backup/restore management.
+  - `security.py` (153 lines) â€” Security threat log analysis and HITL actions.
+  - `rate_limits.py` (114 lines) â€” Dynamic rate-limit configuration.
+  - `monitoring.py` (136 lines) â€” System health, worker status, system metrics.
+  - `analytics.py` (22 lines) â€” Analytics backfill.
+  - `audit.py` (58 lines) â€” System audit trail viewer.
+  - `scheduled_reports.py` (124 lines) â€” Scheduled report CRUD.
 
-- **Session route overlap resolved:** Moved `revoke_user_session` (`DELETE /sessions/{user_id}/{session_id}`) from admin into `sessions.py`. Dropped duplicate `get_user_sessions` (`GET /sessions/{user_id}`) from admin — `sessions.py` already had `list_user_sessions` at same path.
+- **Session route overlap resolved:** Moved `revoke_user_session` (`DELETE /sessions/{user_id}/{session_id}`) from admin into `sessions.py`. Dropped duplicate `get_user_sessions` (`GET /sessions/{user_id}`) from admin â€” `sessions.py` already had `list_user_sessions` at same path.
 
 - **Test patches updated:** `test_dynamic_rate_limits.py` and `test_backup_api.py` patches updated from `api.routes.admin.*` to `api.routes.admin.{rate_limits,backups}.*`.
 
@@ -173,16 +185,16 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 - **Line count compliance:** All route files now under 1000 lines (largest: `validator.py` at 983 lines).
 
-## [2026-06-05] rebase | PR #182 rebased onto origin/master — conflict resolution
+## [2026-06-05] rebase | PR #182 rebased onto origin/master â€” conflict resolution
 
 - **`src/backend/main.py`:** Made `_startup_admin_engine`/`_startup_admin_session_factory` lazy inside `_get_admin_session()` to avoid `create_engine("")` crash at module import when `DATABASE_ADMIN_URL`/`DATABASE_URL` are unset (e.g., during test collection outside Docker).
 - **`src/backend/api/routes/user.py`:** Removed unused `from database import get_db` import (routes use `get_db_with_rls` from `auth`).
 - **`src/backend/tests/test_profile_email.py`:** Fixed stale import `from database import get_db_with_rls` -> `from auth import get_db_with_rls`.
 - **`src/backend/tests/test_infra_config.py`:** Updated `test_non_edge_services_bind_host_ports_to_loopback` to accept PR #182's `8090:80` local-dev port alongside master's `80:80`/`443:443`.
 - **`src/nginx/nginx.local.conf`:** Added "Local development only" header comment to satisfy `test_local_nginx_override_is_explicitly_local_only`.
-- **`src/nginx/nginx.conf`:** Resolved production `/api/` CORS conflict — kept master's `map $http_origin $cors_origin` at http scope, dropped PR's duplicate location-level `set`/`if`.
+- **`src/nginx/nginx.conf`:** Resolved production `/api/` CORS conflict â€” kept master's `map $http_origin $cors_origin` at http scope, dropped PR's duplicate location-level `set`/`if`.
 - **`src/docker-compose.yml`:** Combined PR's `wims_app_user` DATABASE_URL and `DATABASE_ADMIN_URL` (using `${POSTGRES_PASSWORD:?error}` not hardcoded `password`).
-- **System-wiki conflicts:** Merged log/index/route-map/infrastructure-config/pwa-tests-cicd/local-dev-deploy-guide — kept all master and PR entries, dates, and source references.
+- **System-wiki conflicts:** Merged log/index/route-map/infrastructure-config/pwa-tests-cicd/local-dev-deploy-guide â€” kept all master and PR entries, dates, and source references.
 - **20 PR commits + 12 master commits integrated** via commit-preserving rebase; 1 fixup commit for post-rebase import/lint/test corrections.
 
 ## [2026-06-05] fix | PR #217 auth callback rate-limit test isolation
@@ -190,29 +202,29 @@ Format: `## [YYYY-MM-DD] action | subject`
 - **`src/backend/tests/conftest.py`:** Expanded the autouse Redis rate-limit cleanup from only `public_rate_limit:*` keys to both `public_rate_limit:*` and auth callback `rate_limit:*` keys, using `scan_iter` and closing the Redis client. This prevents `tests/integration/test_auth_callback.py::test_callback_tampered_token_returns_401` from inheriting a spent PKCE callback sliding-window budget and returning 429 instead of the expected auth-layer 401.
 - **`system-wiki/architecture/pwa-tests-cicd.md`:** Documented the two rate-limit key namespaces cleared by the root test fixture.
 
-## [2026-06-05] fix | PR #217 review follow-ups — Keycloak email API, test coverage, frontend note, UUID cast
+## [2026-06-05] fix | PR #217 review follow-ups â€” Keycloak email API, test coverage, frontend note, UUID cast
 
-- **`src/backend/services/keycloak_admin.py`:** Replaced hallucinated `adm.send_execute_actions_email(actions=["UPDATE_PASSWORD"])` with the correct python-keycloak 7.1.1 API `adm.send_update_account(payload=["UPDATE_PASSWORD"], lifespan=604800)`. Replaced bare `except Exception:` around the email call with `except KeycloakError as e:` — email failures are still non-fatal but now log concrete evidence.
-- **`src/backend/tests/test_keycloak_admin.py` (new):** 8 unit tests for `create_keycloak_user()` email path: happy-path `send_update_account` call, `KeycloakError` during email is non-fatal (warning logged, user still created), `KeycloakError` during `create_user` is fatal, password-set failure triggers cleanup, role-assignment failure is non-fatal, contact-number attribute, and password generation length/randomness. All external calls mocked — no Docker/Keycloak required.
+- **`src/backend/services/keycloak_admin.py`:** Replaced hallucinated `adm.send_execute_actions_email(actions=["UPDATE_PASSWORD"])` with the correct python-keycloak 7.1.1 API `adm.send_update_account(payload=["UPDATE_PASSWORD"], lifespan=604800)`. Replaced bare `except Exception:` around the email call with `except KeycloakError as e:` â€” email failures are still non-fatal but now log concrete evidence.
+- **`src/backend/tests/test_keycloak_admin.py` (new):** 8 unit tests for `create_keycloak_user()` email path: happy-path `send_update_account` call, `KeycloakError` during email is non-fatal (warning logged, user still created), `KeycloakError` during `create_user` is fatal, password-set failure triggers cleanup, role-assignment failure is non-fatal, contact-number attribute, and password generation length/randomness. All external calls mocked â€” no Docker/Keycloak required.
 - **`src/frontend/src/app/admin/system/page.tsx`:** Added `note` field to `createdUser` state type; user creation result now captures `result.note`. The hardcoded "Distribute this temporary password..." message is replaced by `createdUser.note` with a sensible fallback.
 - **`src/backend/tests/integration/test_auth_callback.py`:** Standardized `cleanup_test_user` DELETE to use explicit `CAST(:kid AS uuid)` matching the verification query pattern.
 - **`system-wiki/architecture/pwa-tests-cicd.md`:** Updated stale test file reference from deleted `test_auth_flow.py` to `test_auth_callback.py`.
 - **Wiki synced:** `system-wiki/architecture/pwa-tests-cicd.md`, `system-wiki/log.md`. No FRS gap register change (auth email was a bug fix, not an FRS alignment change).
 
-## [2026-06-05] fix | PR #216 review follow-ups — event bus thread-safety, async pool hardening, stale comments, dead useEffect
+## [2026-06-05] fix | PR #216 review follow-ups â€” event bus thread-safety, async pool hardening, stale comments, dead useEffect
 
-- **`src/backend/services/event_bus.py`:** Added `threading.Lock` (`_sync_pool_lock`) with double-checked locking around lazy `_SYNC_POOL` initialization — prevents TOCTOU race in sync publisher path. Added `socket_connect_timeout=0.5`, `socket_timeout=0.5`, `health_check_interval=30` to async pool (`_get_async_pool`) for consistency with sync pool hardening.
+- **`src/backend/services/event_bus.py`:** Added `threading.Lock` (`_sync_pool_lock`) with double-checked locking around lazy `_SYNC_POOL` initialization â€” prevents TOCTOU race in sync publisher path. Added `socket_connect_timeout=0.5`, `socket_timeout=0.5`, `health_check_interval=30` to async pool (`_get_async_pool`) for consistency with sync pool hardening.
 - **`src/backend/main.py`:** Replaced stale comment referencing removed side-effect task imports with accurate autodiscover description.
 - **`src/frontend/next.config.ts`:** Replaced misleading comment about nonexistent tsconfig test file exclusions with accurate statement.
 - **`src/frontend/src/context/AuthContext.tsx`:** Removed empty `useEffect` that fired on every `loading` state change but contained only a comment.
-- **Wiki synced:** `system-wiki/backend/backend-infrastructure.md` — added Event Bus section documenting connection pools, thread safety, async/sync publishers, channels, and singleton.
+- **Wiki synced:** `system-wiki/backend/backend-infrastructure.md` â€” added Event Bus section documenting connection pools, thread safety, async/sync publishers, channels, and singleton.
 
-## [2026-06-05] fix | PR #216 CI fix batch — backend ruff format + frontend type checks
+## [2026-06-05] fix | PR #216 CI fix batch â€” backend ruff format + frontend type checks
 
-- **Backend ruff format:** Applied auto-formatter to `public_dmz.py`, `celery_config.py`, `main.py`, `event_bus.py` — trailing commas, quote style, blank lines. Zero logic changes.
+- **Backend ruff format:** Applied auto-formatter to `public_dmz.py`, `celery_config.py`, `main.py`, `event_bus.py` â€” trailing commas, quote style, blank lines. Zero logic changes.
 - **Frontend type fixes (7 files):**
   - `legacy.ts`: Added typed interfaces (`SystemHealthResponse`, `SystemMetricsResponse`, `WorkerStatusResponse`) replacing `Promise<unknown>` returns for `fetchSystemHealth`, `fetchSystemMetrics`, `fetchWorkerStatus`. Added `is_danger` field to `TriageClusterEntry`.
-  - `page.tsx`: Fixed `CATEGORIES.icon` type from `ReactNode` → `ReactElement<{ className?: string }>` for `cloneElement` compatibility. Changed `reportingContext`/`safetyStatus` to use `?? undefined` for `appendCivilianReport` call.
+  - `page.tsx`: Fixed `CATEGORIES.icon` type from `ReactNode` â†’ `ReactElement<{ className?: string }>` for `cloneElement` compatibility. Changed `reportingContext`/`safetyStatus` to use `?? undefined` for `appendCivilianReport` call.
   - `tracking/page.tsx`: Widened `getCategoryLabel` to accept `string | null`.
   - `offlineStore.ts`: Changed `PendingIncident.id` from optional to required (always present from IndexedDB auto-increment).
   - `useAutoSync.ts`, `useNetworkStatus.ts`: Added `| null` + `null` initial value for `useRef<ReturnType<typeof setTimeout>>()` calls (React 19 strictness).
@@ -221,23 +233,23 @@ Format: `## [YYYY-MM-DD] action | subject`
   - `analyst/incidents/[id]/page.tsx`: Fixed `EmptyState` icon type from `ReactNode` to `LucideIcon`; added `LucideIcon` import.
   - `validator/map/page.tsx`: Added generic type parameter to `apiFetch` call.
 - All pre-existing type errors that were masked by removed `ignoreBuildErrors: true` in `next.config.ts` (PR #184 cleanup).
-- CI validation: ruff check ✓, ruff format --check ✓, frontend lint ✓, vitest 22/22 ✓, frontend build ✓.
+- CI validation: ruff check âœ“, ruff format --check âœ“, frontend lint âœ“, vitest 22/22 âœ“, frontend build âœ“.
 - Commit: `f621411` pushed to `fix/slice4-perf-quality`.
 
-## [2026-06-05] fix | PR #213 CI follow-up — compose env setup and backend format gate
+## [2026-06-05] fix | PR #213 CI follow-up â€” compose env setup and backend format gate
 
 - **CI compose env setup:** `.github/workflows/ci.yml` now copies root `.env.example` to `src/.env` before `docker-build` compose validation/build and before `security-scan` stack startup. This preserves `${VAR:?error}` fail-fast behavior in `src/docker-compose.yml` while giving ephemeral CI the required local/test values.
 - **Backend format gate:** `src/backend/tests/test_jwt_fallback.py` was formatted with `ruff format` so the backend CI `ruff format --check .` step can pass.
 - **Wiki sync:** `system-wiki/architecture/pwa-tests-cicd.md` documents the CI env-file pre-step; `system-wiki/architecture/infrastructure-config.md` documents required compose interpolation, CI handling, updated backend env values, authoritative Keycloak import path, and production CORS map behavior; `system-wiki/index.md` updated its last-change summary.
 
-## [2026-06-05] fix | PR #213 review follow-ups — stale role, Firebase env, JWT tests, wiki sync
+## [2026-06-05] fix | PR #213 review follow-ups â€” stale role, Firebase env, JWT tests, wiki sync
 
 **PR #213 three-axis review follow-ups applied (worktree: pr-213):**
 
 - **Stale `"VALIDATOR"` removed from `regional.py:599`:** Replaced `("NATIONAL_VALIDATOR", "SYSTEM_ADMIN", "NATIONAL_ANALYST", "VALIDATOR")` with just the three canonical roles. Legacy `VALIDATOR` role was removed from `bfp-realm.json` in #206; this code reference was missed.
 - **`.env.example` Firebase section hardened:** Replaced committed real Firebase API key and VAPID key with `REPLACE_WITH_YOUR_...` placeholders. Documented all 7 Firebase env vars (2 required with `:?error`, 5 optional with `:-default`). Added warning comment.
-- **JWT `to_pem` fallback unit tests:** Added `tests/test_jwt_fallback.py` with 6 unit tests covering: valid key with `to_pem`, key without `to_pem` tries next, all-candidate-keys-fail force-refreshes JWKS, no-to_pem-on-any-key returns 401, `jwt.decode` receives PEM string, and JWTError in candidate loop tries next key. All use `@pytest.mark.unit` and mock authenticator internals — no Docker required.
-- **Nginx CORS: DELETE preserved intentionally.** The PR body claimed DELETE was removed from CORS methods but it was not (and should not be) — backend has DELETE endpoints (`DELETE /api/regional/incidents/{id}`, draft management). The `$cors_origin` map deny-by-default is the actual CORS hardening.
+- **JWT `to_pem` fallback unit tests:** Added `tests/test_jwt_fallback.py` with 6 unit tests covering: valid key with `to_pem`, key without `to_pem` tries next, all-candidate-keys-fail force-refreshes JWKS, no-to_pem-on-any-key returns 401, `jwt.decode` receives PEM string, and JWTError in candidate loop tries next key. All use `@pytest.mark.unit` and mock authenticator internals â€” no Docker required.
+- **Nginx CORS: DELETE preserved intentionally.** The PR body claimed DELETE was removed from CORS methods but it was not (and should not be) â€” backend has DELETE endpoints (`DELETE /api/regional/incidents/{id}`, draft management). The `$cors_origin` map deny-by-default is the actual CORS hardening.
 - **Wiki sync:**
   - `system-wiki/security/security-baseline.md`: Updated stale `$scheme://$host` CORS line to describe production `$cors_origin` map.
   - `system-wiki/architecture/infrastructure-config.md`: Removed legacy `VALIDATOR`/`ANALYST` from Roles table; added note about #206 removal.
@@ -245,7 +257,7 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 **Files changed:** `regional.py`, `.env.example`, `test_jwt_fallback.py` (new), `security-baseline.md`, `infrastructure-config.md`, `frs-codebase-gap-register.md`, `log.md`
 
-## [2026-06-03] fix | PR #212 review fixes — Redis pool bounding, thread-safety, test hygiene
+## [2026-06-03] fix | PR #212 review fixes â€” Redis pool bounding, thread-safety, test hygiene
 
 - **Redis connection pool:** Added `max_connections=10` to `_get_redis()` in `civilian.py`, matching `map.py`'s bounded-pool pattern. Prevents unbounded connection growth under load.
 - **Thread-safety:** Added `threading.Lock` with double-checked locking around `_get_redis()` singleton initialization. Eliminates the narrow startup race where multiple threads could create concurrent connections before the global reference is published.
@@ -257,13 +269,13 @@ Format: `## [YYYY-MM-DD] action | subject`
 - **Wiki updated:** `system-wiki/subsystems/civilian-reporting-phase2.md` updated frontmatter date, cache behavior section (pool bounding, thread-safety, warning log keys, count guard), and test coverage section (fixture rename, Redis hygiene).
 - **Verification:** `ruff check` + `ruff format --check` pass on both changed files. `git diff --check` clean. All 25 pytest tests pass (15 report-clusters + 10 submission tests).
 
-## [2026-06-03] fix | PR #211 M13b email infra — bound task + retry + STARTTLS + plain-text + tests
+## [2026-06-03] fix | PR #211 M13b email infra â€” bound task + retry + STARTTLS + plain-text + tests
 
 **PR #211 review fixes applied:**
 
-- **Critical — `send_email_task` bound task signature:** Added `self` as first parameter (matching `bind=True` decorator). Changed retry logging from module-level proxy (`send_email_task.request.retries`, `celery_app.tasks["..."].max_retries`) to `self.request.retries` and `self.max_retries`.
-- **Critical — Tests exercise Celery task path:** `TestEmailServiceTask` now calls `module.send_email_task.run(...)` with a real Celery app (memory broker, eager mode) instead of calling `module._send_email(...)` directly. This exercises the `bind=True` self parameter and would catch the signature mismatch.
-- **Retry exceptions narrowed:** `autoretry_for` changed from `(Exception,)` to `(aiosmtplib.SMTPException, ConnectionError, TimeoutError, OSError)` — transient SMTP/network failures only. Permanent template/context/type errors fail fast.
+- **Critical â€” `send_email_task` bound task signature:** Added `self` as first parameter (matching `bind=True` decorator). Changed retry logging from module-level proxy (`send_email_task.request.retries`, `celery_app.tasks["..."].max_retries`) to `self.request.retries` and `self.max_retries`.
+- **Critical â€” Tests exercise Celery task path:** `TestEmailServiceTask` now calls `module.send_email_task.run(...)` with a real Celery app (memory broker, eager mode) instead of calling `module._send_email(...)` directly. This exercises the `bind=True` self parameter and would catch the signature mismatch.
+- **Retry exceptions narrowed:** `autoretry_for` changed from `(Exception,)` to `(aiosmtplib.SMTPException, ConnectionError, TimeoutError, OSError)` â€” transient SMTP/network failures only. Permanent template/context/type errors fail fast.
 - **STARTTLS configurable:** Added `SMTP_STARTTLS` env var (default `false` for MailHog/dev). Passed to `aiosmtplib.send(start_tls=SMTP_STARTTLS)`. Added entry to `.env.example`.
 - **Plain-text alternative body:** Added `_html_to_plain_text()` helper; `send_email_async` now adds `msg.add_alternative(plain_text, subtype="plain")` for multipart/alternative emails.
 - **Render error logging:** Moved `render_email()` call inside `try/except` in `send_email_async` with dedicated `logger.error("Failed to render email template...")`.
@@ -274,13 +286,13 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 **Files changed:** `tasks/notifications.py`, `services/email/sender.py`, `tests/test_email_infra.py`, `.env.example`, `main.py`, `services/email/templates/security_alert.html.j2`
 
-## [2026-06-03] fix | PR #223 CI security-scan startup — CI-only HTTP nginx config
+## [2026-06-03] fix | PR #223 CI security-scan startup â€” CI-only HTTP nginx config
 
-- **Root cause:** PR #223 changed `src/nginx/nginx.local.conf` from HTTP-only to HTTPS (HTTP→HTTPS redirect + TLS server block requiring `/etc/letsencrypt/live/wimsbfp.tech/` certs). The `docker-compose.override.yml` (auto-loaded by plain `docker compose up`) mounts `nginx.local.conf` but provides no cert volume. The GitHub Actions `security-scan` job ran plain `docker compose up -d --build`, so nginx failed to start because cert files were missing. The health-poller timed out at 180s before Nmap/ZAP could run.
-- **Fix:** Created `src/nginx/nginx.ci.conf` (HTTP-only nginx config — port 80, no TLS, no certs required, preserves PR #223's `$scheme://$host` CORS hardening) and `src/docker-compose.ci.yml` (mounts `nginx.ci.conf` instead of `nginx.local.conf`). Updated `.github/workflows/ci.yml` `security-scan` job to bring up the stack with `docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build` and tear down with the same file list. The CI now uses a plain HTTP path that does not depend on TLS certificates.
+- **Root cause:** PR #223 changed `src/nginx/nginx.local.conf` from HTTP-only to HTTPS (HTTPâ†’HTTPS redirect + TLS server block requiring `/etc/letsencrypt/live/wimsbfp.tech/` certs). The `docker-compose.override.yml` (auto-loaded by plain `docker compose up`) mounts `nginx.local.conf` but provides no cert volume. The GitHub Actions `security-scan` job ran plain `docker compose up -d --build`, so nginx failed to start because cert files were missing. The health-poller timed out at 180s before Nmap/ZAP could run.
+- **Fix:** Created `src/nginx/nginx.ci.conf` (HTTP-only nginx config â€” port 80, no TLS, no certs required, preserves PR #223's `$scheme://$host` CORS hardening) and `src/docker-compose.ci.yml` (mounts `nginx.ci.conf` instead of `nginx.local.conf`). Updated `.github/workflows/ci.yml` `security-scan` job to bring up the stack with `docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build` and tear down with the same file list. The CI now uses a plain HTTP path that does not depend on TLS certificates.
 - **Local dev impact:** The local override still loads `nginx.local.conf` (HTTPS) and now mounts `src/.ssl` to `/etc/letsencrypt`, so developers can generate self-signed certs once and then use plain `docker compose up`. Developers who do not need HTTPS locally can use the CI compose path (`-f docker-compose.yml -f docker-compose.ci.yml`). Updated `system-wiki/operations/local-dev-deploy-guide.md` Section 1 and Pitfall 2 to document both paths.
 - **CI docs:** Updated `system-wiki/architecture/pwa-tests-cicd.md` to note the CI-specific compose override.
-- **Gap register:** No change — M11b remains CLOSED; this is an infrastructure/CI wiring fix.
+- **Gap register:** No change â€” M11b remains CLOSED; this is an infrastructure/CI wiring fix.
 - **Verification:** `docker compose -f docker-compose.yml -f docker-compose.ci.yml config --quiet` passes; `git diff --check` clean.
 
 ## [2026-06-03] fix | PR #214 infra/auth config review fixes
@@ -292,12 +304,12 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Repaired local-dev docs to remove obsolete self-signed-cert setup for base compose and documented the production-only TLS mount split.
 - Clarified that the admin `rate_limit_config:login` key/tier is a legacy compatibility label for the auth callback flow.
 
-## [2026-06-03] fix | CI security scan — ZAP artifact upload compatibility
+## [2026-06-03] fix | CI security scan â€” ZAP artifact upload compatibility
 
 - Updated `.github/workflows/ci.yml` `security-scan` ZAP baseline action to set `artifact_name: 'zap-scan'` and bump `zaproxy/action-baseline` from `v0.12.0` to `v0.15.0`, avoiding the legacy action packaging that failed during GitHub artifact container creation.
 - Updated `system-wiki/architecture/pwa-tests-cicd.md` to document the explicit ZAP artifact name override and action version compatibility fix.
 
-## [2026-06-03] fix | CI security scan — ZAP rules file for pre-existing WARN alerts
+## [2026-06-03] fix | CI security scan â€” ZAP rules file for pre-existing WARN alerts
 
 - Created `.zap/rules.tsv` with 7 IGNORE entries for pre-existing ZAP WARN alerts (IDs: 10038, 10049, 10055, 10063, 10096, 10109, 90004). These are configuration gaps (missing CSP/COEP on nginx, upstream Keycloak issues, Next.js informational flags) that predate PR #208.
 - Updated `.github/workflows/ci.yml` `security-scan` job to reference `rules_file_name: '.zap/rules.tsv'` in the ZAP baseline action step.
@@ -305,9 +317,9 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 ## [2026-06-03] style | M14: add trailing newline to test_public_submission.py (W292 lint fix)
 
-## [2026-06-03] fix | M14 region resolution — nearest ref_fire_stations (civilian.py pattern)
+## [2026-06-03] fix | M14 region resolution â€” nearest ref_fire_stations (civilian.py pattern)
 
-**Root cause:** `wims.ref_regions` has NO PostGIS geometry column — only `region_id, region_name, region_code`. PostGIS `GEOGRAPHY(POINT,4326)` lives ONLY on `wims.ref_fire_stations.location`. The `region_geom` column never existed; `ORDER BY region_id` was a dumb fallback. `civilian.py`'s `_resolve_nearest()` resolves region by finding the nearest fire station and reading its `region_id` attribute — matching approach inlines here.
+**Root cause:** `wims.ref_regions` has NO PostGIS geometry column â€” only `region_id, region_name, region_code`. PostGIS `GEOGRAPHY(POINT,4326)` lives ONLY on `wims.ref_fire_stations.location`. The `region_geom` column never existed; `ORDER BY region_id` was a dumb fallback. `civilian.py`'s `_resolve_nearest()` resolves region by finding the nearest fire station and reading its `region_id` attribute â€” matching approach inlines here.
 
 **Fix (`src/backend/api/routes/public_dmz.py`):** Replaced region resolution with:
 ```sql
@@ -318,28 +330,28 @@ Attribute access: `station_row.region_id if station_row else None`. Fallback to 
 
 **Fix (`src/backend/tests/test_public_submission.py`):** Added module-level `_FakeRow` class (attribute access + index + unpack), replacing all per-test `MockRow` classes. `test_region_resolved_via_nearest_fire_station` asserts first `execute()` call uses `ref_fire_stations` with `<->` operator. `test_submission_creates_row_with_null_encoder_id` uses `_FakeRow(incident_id=..., verification_status=..., created_at=...)`.
 
-**`src/postgres-init/32_ref_fire_stations.sql` seeds ref_fire_stations with all 237+ PH fire stations and their `location GEOGRAPHY(POINT, 4326)` — no migration needed for live integration tests.** `ref_regions` fallback handles thin-seed DB edge case.
+**`src/postgres-init/32_ref_fire_stations.sql` seeds ref_fire_stations with all 237+ PH fire stations and their `location GEOGRAPHY(POINT, 4326)` â€” no migration needed for live integration tests.** `ref_regions` fallback handles thin-seed DB edge case.
 
-**Deferred:** Polygon geometry on `ref_regions` would enable true centroid-based resolution. Currently via nearest fire station — acceptable per FRS M14 functional spec.
+**Deferred:** Polygon geometry on `ref_regions` would enable true centroid-based resolution. Currently via nearest fire station â€” acceptable per FRS M14 functional spec.
 
-## [2026-06-02] fix | M14 test failures — geometry column, MockRow subscript, rate-limit isolation
+## [2026-06-02] fix | M14 test failures â€” geometry column, MockRow subscript, rate-limit isolation
 
 **Root causes and fixes for 10 failing tests on `feat/m14-public-submission` (PR #320):**
 
 **(A) Wrong geometry column:** `wims.ref_regions` has no geometry column. The ST_Distance query in `public_dmz.py` used `region_geom` which does not exist. Replaced with simple `ORDER BY region_id LIMIT 1` fallback (no PostGIS geometry on ref_regions in current schema). Coordinate-based nearest-centroid is deferred until geometry is added to ref_regions.
 
-**(B) MockRow not subscriptable:** `test_region_resolved_via_nearest_centroid` returns `MockRow()` from `fetchone()` in a tuple context — `region_row[0]` was called on a MockRow instance with no `__getitem__`. Added `__getitem__` to the MockRow class to return positional values matching a real SQLAlchemy Row.
+**(B) MockRow not subscriptable:** `test_region_resolved_via_nearest_centroid` returns `MockRow()` from `fetchone()` in a tuple context â€” `region_row[0]` was called on a MockRow instance with no `__getitem__`. Added `__getitem__` to the MockRow class to return positional values matching a real SQLAlchemy Row.
 
 **(C) Rate-limit state bleeds across tests:** The 3/IP/hr Redis limiter counted 127.0.0.1 across the whole test file. Added `flush_public_rate_limit` autouse fixture to `conftest.py` that clears `public_rate_limit:*` keys before each test. Rate-limit tests themselves use random fake IPs and clean up after themselves.
 
 **Files changed:**
-- `src/backend/api/routes/public_dmz.py` — removed `region_geom` from query
-- `src/backend/tests/test_public_submission.py` — added MockRow `__getitem__`
-- `src/backend/tests/conftest.py` — added `flush_public_rate_limit` autouse fixture
+- `src/backend/api/routes/public_dmz.py` â€” removed `region_geom` from query
+- `src/backend/tests/test_public_submission.py` â€” added MockRow `__getitem__`
+- `src/backend/tests/conftest.py` â€” added `flush_public_rate_limit` autouse fixture
 
-## [2026-06-02] implement | M14 public report endpoint — un-deprecated, nearest-centroid, rate limit, Retry-After
+## [2026-06-02] implement | M14 public report endpoint â€” un-deprecated, nearest-centroid, rate limit, Retry-After
 
-**FRS reference:** Module 14 — Public Submission (FRS `#177`)
+**FRS reference:** Module 14 â€” Public Submission (FRS `#177`)
 
 **Changes implemented (`src/backend/api/routes/public_dmz.py`):**
 - `POST /api/v1/public/report`: restored from 410 deprecation to active endpoint
@@ -349,26 +361,26 @@ Attribute access: `station_row.region_id if station_row else None`. Fallback to 
 - Writes to `wims.fire_incidents` with `encoder_id = NULL`, `verification_status = 'PENDING_VALIDATION'`
 - No Keycloak JWT required, no RLS context set
 
-**Test file added:** `src/backend/tests/test_public_submission.py` — validates 201 response, NULL encoder_id, PENDING_VALIDATION status, rate limit 429, Retry-After header.
+**Test file added:** `src/backend/tests/test_public_submission.py` â€” validates 201 response, NULL encoder_id, PENDING_VALIDATION status, rate limit 429, Retry-After header.
 
 ## [2026-06-02] hygiene | env hygiene (#205 key placeholder, #194 audience) + Redis connection pooling (#195)
 
 - `.env.example`: Replaced real `WIMS_MASTER_KEY` value with `REPLACE_WITH_REAL_BASE64_32BYTE_KEY` placeholder; added generation comment.
-- `.env.example`: Changed `KEYCLOAK_AUDIENCE` from `account` → `wims-web` with comment noting it must match Keycloak client audience.
+- `.env.example`: Changed `KEYCLOAK_AUDIENCE` from `account` â†’ `wims-web` with comment noting it must match Keycloak client audience.
 - `src/backend/services/event_bus.py`: Added module-level sync `ConnectionPool` (`_sync_pool`) shared across `publish_*_sync()` functions (lines ~247, 285, 322). Added module-level async `ConnectionPool` (`_async_pool`) shared via `_get_async_pool()` reused in `_ensure_pub()`/`_ensure_sub()`.
-- `src/backend/api/routes/public_dmz.py`: Replaced per-request `aioredis.from_url` in `_get_redis()` with module-level `ConnectionPool` (`_redis_pool`, max_connections=20) via `_get_redis_pool()`. No behavioral change — only connection reuse.
+- `src/backend/api/routes/public_dmz.py`: Replaced per-request `aioredis.from_url` in `_get_redis()` with module-level `ConnectionPool` (`_redis_pool`, max_connections=20) via `_get_redis_pool()`. No behavioral change â€” only connection reuse.
 
 ## [2026-06-02] fix | Redis connection pooling, timeouts, error logging, test cleanup for report-clusters endpoint
 
 **Session context:** Applied production-quality fixes from three-axis review of issues #127/#128.
 
 **Fixes:**
-- **P1 — Redis connection leak:** Replaced per-request `redis.from_url()` with module-level `_get_redis()` singleton using connection pooling, `socket_connect_timeout=0.5`, `socket_timeout=0.5`, and `health_check_interval=30`.
-- **P2 — No Redis timeouts:** Added `socket_connect_timeout=0.5` and `socket_timeout=0.5` to prevent requests from hanging under Redis failure.
-- **P3 — Bare `except Exception: pass`:** Added `logger.warning(...)` with `exc_info=True` to all three previously-silent except blocks.
-- **P4 — 15× `import redis` in test function bodies:** Moved to single module-level import at `test_civilian_api.py:15`.
-- **P5 — 15× Redis FLUSHDB boilerplate:** Replaced ~70 lines of repeated setup with `autouse` `_clean_redis` fixture.
-- **P6 — Truncation test:** Renamed `test_get_report_clusters_truncation_flag` → `test_get_report_clusters_returns_truncated_false_when_under_cap`, removed dead `monkeypatch` parameter.
+- **P1 â€” Redis connection leak:** Replaced per-request `redis.from_url()` with module-level `_get_redis()` singleton using connection pooling, `socket_connect_timeout=0.5`, `socket_timeout=0.5`, and `health_check_interval=30`.
+- **P2 â€” No Redis timeouts:** Added `socket_connect_timeout=0.5` and `socket_timeout=0.5` to prevent requests from hanging under Redis failure.
+- **P3 â€” Bare `except Exception: pass`:** Added `logger.warning(...)` with `exc_info=True` to all three previously-silent except blocks.
+- **P4 â€” 15Ã— `import redis` in test function bodies:** Moved to single module-level import at `test_civilian_api.py:15`.
+- **P5 â€” 15Ã— Redis FLUSHDB boilerplate:** Replaced ~70 lines of repeated setup with `autouse` `_clean_redis` fixture.
+- **P6 â€” Truncation test:** Renamed `test_get_report_clusters_truncation_flag` â†’ `test_get_report_clusters_returns_truncated_false_when_under_cap`, removed dead `monkeypatch` parameter.
 
 **Verification:** `ruff check .` passes; `ruff format --check .` passes; frontend `npx vitest run` 145/145 pass (no regressions).
 
@@ -378,7 +390,7 @@ Attribute access: `station_row.region_id if station_row else None`. Fallback to 
 
 ## [2026-06-01] investigation | Frontend tab-switching performance
 
-Investigated sluggishness when switching between dashboard tabs. Root cause is full data re-fetch on every navigation: Next.js App Router remounts page components on route change, all `useEffect` data-fetch chains re-run from scratch with no caching. Three contributing causes identified (P-01, P-02, P-03). Analyst dashboard worst-case: 7 parallel API calls on every mount (`analyst/page.tsx:321-340`). No fix applied in this session — gap documented for a future TanStack Query refactor.
+Investigated sluggishness when switching between dashboard tabs. Root cause is full data re-fetch on every navigation: Next.js App Router remounts page components on route change, all `useEffect` data-fetch chains re-run from scratch with no caching. Three contributing causes identified (P-01, P-02, P-03). Analyst dashboard worst-case: 7 parallel API calls on every mount (`analyst/page.tsx:321-340`). No fix applied in this session â€” gap documented for a future TanStack Query refactor.
 
 **Verification:** Source inspection of `LayoutShell.tsx`, `AuthContext.tsx`, `dashboard/validator/page.tsx`, `dashboard/regional/page.tsx`, `dashboard/analyst/page.tsx`, and `src/frontend/src/lib/api/` slices. The LayoutShell cache-clear `useEffect` and auth `loading` spinner are one-time-on-mount only; they do not contribute to per-navigation sluggishness.
 
@@ -472,17 +484,17 @@ Investigated sluggishness when switching between dashboard tabs. Root cause is f
 
 ## [2026-05-30] merge | Master conflict resolution for encoder/validator branch
 
-## [2026-06-03] fix | M13b test_email_infra — relative path + leak-proof sys.modules mock
+## [2026-06-03] fix | M13b test_email_infra â€” relative path + leak-proof sys.modules mock
 
 **Root causes and fixes:**
 
-**Bug 1 — hardcoded Windows absolute path:** `TestEmailServiceTask` used `"E:/WIMS-GIT/WIMS-BFP-PROTOTYPE/src/backend/tasks/notifications.py"` directly in both test methods. On Linux CI this causes `FileNotFoundError`. Fixed: added `from pathlib import Path` and a module-level constant:
+**Bug 1 â€” hardcoded Windows absolute path:** `TestEmailServiceTask` used `"E:/WIMS-GIT/WIMS-BFP-PROTOTYPE/src/backend/tasks/notifications.py"` directly in both test methods. On Linux CI this causes `FileNotFoundError`. Fixed: added `from pathlib import Path` and a module-level constant:
 ```python
 _NOTIFICATIONS_PATH = str(Path(__file__).resolve().parents[1] / "tasks" / "notifications.py")
 ```
 `parents[1]` = `backend/` from `tests/`, so the path works on any OS.
 
-**Bug 2 — sys.modules mock leaks into later tests:** Both `TestEmailServiceTask` methods set `sys.modules[mod] = MagicMock()` before loading, but cleanup `sys.modules.pop(mod, None)` was a **trailing statement** outside any `try/finally`. If `FileNotFoundError` (or any assertion failure inside the load) aborted the test, `sqlalchemy`'s MagicMock remained in `sys.modules` — causing `test_immutable_records::test_66` to fail with `can't adapt type 'MagicMock'`. Fixed: wrapped the entire mock-load-assert block in `try/finally` with **restore** (not just pop):
+**Bug 2 â€” sys.modules mock leaks into later tests:** Both `TestEmailServiceTask` methods set `sys.modules[mod] = MagicMock()` before loading, but cleanup `sys.modules.pop(mod, None)` was a **trailing statement** outside any `try/finally`. If `FileNotFoundError` (or any assertion failure inside the load) aborted the test, `sqlalchemy`'s MagicMock remained in `sys.modules` â€” causing `test_immutable_records::test_66` to fail with `can't adapt type 'MagicMock'`. Fixed: wrapped the entire mock-load-assert block in `try/finally` with **restore** (not just pop):
 ```python
 saved = {m: sys.modules.get(m) for m in mods}
 try:
@@ -499,17 +511,17 @@ finally:
 
 **Files changed:** `src/backend/tests/test_email_infra.py` only.
 
-## [2026-06-02] implement | M13b email infrastructure — Jinja2 HTML templates + SMTP + Celery retry task
+## [2026-06-02] implement | M13b email infrastructure â€” Jinja2 HTML templates + SMTP + Celery retry task
 
-**FRS reference:** Module 13b — Email Notifications (FRS `#176`)
+**FRS reference:** Module 13b â€” Email Notifications (FRS `#176`)
 
 **Changes implemented:**
-- `src/backend/services/email/sender.py` — pure Jinja2 HTML email rendering (no mrml dependency):
+- `src/backend/services/email/sender.py` â€” pure Jinja2 HTML email rendering (no mrml dependency):
   - `render_email(template_name, context) -> (subject, html)`: loads `.html.j2` from `services/email/templates/`, extracts subject from `{# subject: ... #}` header, Jinja2-renders body
   - `send_email_async(to, template, context)`: renders + sends via `aiosmtplib`
   - `send_email(to, template, context)`: synchronous wrapper for Celery tasks
   - SMTP config via env: `SMTP_HOST` (default "mailhog"), `SMTP_PORT` (default 1025), `SMTP_FROM` (default "no-reply@bfp.gov.ph"), optional `SMTP_USER`/`SMTP_PASSWORD`
-- `src/backend/services/email/templates/` — 4 email-safe inline-CSS HTML templates with BFP maroon (#8B0000) branding:
+- `src/backend/services/email/templates/` â€” 4 email-safe inline-CSS HTML templates with BFP maroon (#8B0000) branding:
   - `password_reset.html.j2` (vars: full_name, reset_link, expiry_minutes)
   - `account_locked.html.j2` (vars: full_name, unlock_time, support_contact)
   - `security_alert.html.j2` (vars: severity, summary, detected_at, dashboard_link)
@@ -520,17 +532,17 @@ finally:
 - `src/backend/tests/test_email_infra.py`: render tests for all 4 templates, mock aiosmtplib send test, task retry behavior test
 
 **Deferred triggers (follow-up issues):**
-- Keycloak account lockout email → #138
-- Weekly analytics report Celery beat → #176
-- Security alert email on CONFIRM_THREAT HITL action → #176
+- Keycloak account lockout email â†’ #138
+- Weekly analytics report Celery beat â†’ #176
+- Security alert email on CONFIRM_THREAT HITL action â†’ #176
 
-## [2026-06-02] fix | M13b CI failure — add jinja2 to requirements.txt
+## [2026-06-02] fix | M13b CI failure â€” add jinja2 to requirements.txt
 
-**Root cause:** `services/email/sender.py` imports jinja2 (and aiosmtplib). When `tasks/notifications.py` was updated to wire in `sender`, the chain `from main import app` → `import tasks.notifications` → `from services.email.sender import render_email` pulled jinja2 into the entire app namespace. CI (Python 3.12) failed at collection because `jinja2` was not in `requirements.txt` — only `aiosmtplib` was.
+**Root cause:** `services/email/sender.py` imports jinja2 (and aiosmtplib). When `tasks/notifications.py` was updated to wire in `sender`, the chain `from main import app` â†’ `import tasks.notifications` â†’ `from services.email.sender import render_email` pulled jinja2 into the entire app namespace. CI (Python 3.12) failed at collection because `jinja2` was not in `requirements.txt` â€” only `aiosmtplib` was.
 
 **Fix:** Added `jinja2>=3.1.4` to `src/backend/requirements.txt` (aiosmtplib>=3.0.0 was already present). No other files changed.
 
-**Verification (host, Python 3.9):** `from services.email.sender import render_email, send_email_async` → `email sender import ok`. `python -m pytest tests/ --collect-only -q` → 18 tests collected, 32 errors — all errors are pre-existing unrelated failures (missing `fastapi`, `sqlalchemy`, `pydantic` PEP 604 union syntax on Python 3.9, `cryptography`, etc.); zero jinja2 collection errors remain.
+**Verification (host, Python 3.9):** `from services.email.sender import render_email, send_email_async` â†’ `email sender import ok`. `python -m pytest tests/ --collect-only -q` â†’ 18 tests collected, 32 errors â€” all errors are pre-existing unrelated failures (missing `fastapi`, `sqlalchemy`, `pydantic` PEP 604 union syntax on Python 3.9, `cryptography`, etc.); zero jinja2 collection errors remain.
 
 **Note:** Host is Python 3.9; CI is Python 3.12. The jinja2 fix resolves the CI failure. The pre-existing host failures are out of scope for this fix.
 
@@ -542,20 +554,20 @@ finally:
 - Updated `src/backend/services/regional_incidents/helpers.py` so `insert_incident_verification_history()` accepts optional `data_hash` and `sync_status`, keeping the extracted helper compatible with master's M4b verification audit migration.
 - Preserved both master's M2/M4/M8/M9 log entries and this branch's archive/unarchive and duplicate-detection log entries.
 
-## [2026-05-30] redesign | duplicate detection — conservative anchor-gated model
+## [2026-05-30] redesign | duplicate detection â€” conservative anchor-gated model
 
-**Root cause of false positives:** The previous 5-criterion scoring model (distance ≤500m | same category+type | same date | time within 1 hr | same city, threshold 3/5) could reach 3/5 with purely administrative/temporal signals — same city + same date + same time — without any location or address proximity. Multiple separate fires per day in the same city is normal for BFP operations.
+**Root cause of false positives:** The previous 5-criterion scoring model (distance â‰¤500m | same category+type | same date | time within 1 hr | same city, threshold 3/5) could reach 3/5 with purely administrative/temporal signals â€” same city + same date + same time â€” without any location or address proximity. Multiple separate fires per day in the same city is normal for BFP operations.
 
 **New model** (`src/backend/services/duplicate_detection.py`): Anchor gate + Python scoring.
 
 Architecture change: SQL now fetches candidates with `ST_Distance` and all address/text fields (via LEFT JOIN to `incident_nonsensitive_details` and `incident_sensitive_details`). Python applies the anchor gate and scores each candidate.
 
 **Anchor gate** (any one required):
-- Coordinate proximity ≤ 250 m
+- Coordinate proximity â‰¤ 250 m
 - Matching barangay + matching street_address OR landmark
-- Matching non-empty establishment_name AND (distance ≤ 500 m OR barangay matches)
+- Matching non-empty establishment_name AND (distance â‰¤ 500 m OR barangay matches)
 
-**Scoring** (max 12 pts): distance tiers (3/2/1), category+type match (3/1), time delta (2/1), address match (2/1), establishment (+1), fire station (+1). Confidence: LIKELY ≥ 7, POSSIBLE ≥ 4.
+**Scoring** (max 12 pts): distance tiers (3/2/1), category+type match (3/1), time delta (2/1), address match (2/1), establishment (+1), fire station (+1). Confidence: LIKELY â‰¥ 7, POSSIBLE â‰¥ 4.
 
 **API change**: 409 DUPLICATE_DETECTED response now includes `"confidence": "LIKELY" | "POSSIBLE"`. Frontend modals use this to show "Likely Duplicate" vs "Possible Duplicate".
 
@@ -565,13 +577,13 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 
 ## [2026-05-30] fix | PR #143 review fixes: geocode proxy, tests, component extraction, PII dedup, ruff format
 
-**Changes implemented (review-fix batch @ `2ab506a` → `2bc229b`):**
+**Changes implemented (review-fix batch @ `2ab506a` â†’ `2bc229b`):**
 
 - **Nominatim geocode proxy** (`src/backend/api/routes/geocode.py`, `src/frontend/src/lib/geocode.ts`): All geocode requests now route through the backend (`/api/geocode/reverse`, `/api/geocode/search`) instead of the frontend calling `nominatim.openstreetmap.org` directly. Fire incident coordinates never leave the server to a third party. Backend proxy uses `httpx.AsyncClient` with timeout handling (504) and upstream error passthrough (502). Forward search restricted to Philippines (`countrycodes=ph`). Router registered in `main.py`.
 
-- **Duplicate detection unit tests** (`src/backend/tests/test_duplicate_detection.py`): 293-line test suite, 21 unit tests. Covers threshold logic (score ≥ 3), effective_date derivation from notification_dt, parameter forwarding for all 5 criteria (parametrized), null lat/lon/notification_dt handling, exclude_statuses construction, verified_window_seconds, and combined edge cases. All 21 pass.
+- **Duplicate detection unit tests** (`src/backend/tests/test_duplicate_detection.py`): 293-line test suite, 21 unit tests. Covers threshold logic (score â‰¥ 3), effective_date derivation from notification_dt, parameter forwarding for all 5 criteria (parametrized), null lat/lon/notification_dt handling, exclude_statuses construction, verified_window_seconds, and combined edge cases. All 21 pass.
 
-- **IncidentForm component extraction** (`src/frontend/src/components/IncidentFormSections.tsx`, `src/frontend/src/lib/geocode.ts`): IncidentForm.tsx reduced from 2,269 → 1,977 lines (below 2k ceiling). Form sections extracted to `IncidentFormSections.tsx` (365 lines). Geocode logic extracted to `lib/geocode.ts` (78 lines) with `reverseGeocode()` and `searchGeocode()` calling the backend proxy.
+- **IncidentForm component extraction** (`src/frontend/src/components/IncidentFormSections.tsx`, `src/frontend/src/lib/geocode.ts`): IncidentForm.tsx reduced from 2,269 â†’ 1,977 lines (below 2k ceiling). Form sections extracted to `IncidentFormSections.tsx` (365 lines). Geocode logic extracted to `lib/geocode.ts` (78 lines) with `reverseGeocode()` and `searchGeocode()` calling the backend proxy.
 
 - **PII decryption deduplication** (`src/backend/services/regional_incidents/helpers.py`): `decrypt_pii_blob()` defined once as a shared helper instead of duplicated inline decryption at both list and detail endpoints in `regional.py`. Uses lazy `SecurityProvider` singleton with proper `SecurityProviderError` logging.
 
@@ -609,15 +621,15 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 
 - **Rejected count badge** (`src/frontend/src/app/dashboard/regional/page.tsx`): Rejected filter chip button changed to `relative`. Badge moved from inline `span` to `absolute -right-2 -top-2` with `ring-2 ring-white`, matching validator Pending chip style.
 
-- **Rejected chip click → All Time** (`regional/page.tsx`): Clicking the Rejected status chip now calls `showRejectedFilter()` which sets `dateFilter = 'all'`, ensuring the full rejected backlog is visible.
+- **Rejected chip click â†’ All Time** (`regional/page.tsx`): Clicking the Rejected status chip now calls `showRejectedFilter()` which sets `dateFilter = 'all'`, ensuring the full rejected backlog is visible.
 
-- **"Show rejected" notification → scroll** (`regional/page.tsx`): New `showRejectedAndScroll` handler: applies the filter then `scrollIntoView({ behavior: 'smooth' })` on the incidents section ref after a 60 ms delay, guiding the encoder directly to the list.
+- **"Show rejected" notification â†’ scroll** (`regional/page.tsx`): New `showRejectedAndScroll` handler: applies the filter then `scrollIntoView({ behavior: 'smooth' })` on the incidents section ref after a 60 ms delay, guiding the encoder directly to the list.
 
-- **Encoder notification toasts → sticky** (`regional/page.tsx`): Pending-actioned banner and rejection alert moved to a `sticky top-0 z-40` container at the top of the page content. Both are now visible while scrolling. Pending-actioned banner gained a **Refresh** button (calls `refreshAll()` and dismisses).
+- **Encoder notification toasts â†’ sticky** (`regional/page.tsx`): Pending-actioned banner and rejection alert moved to a `sticky top-0 z-40` container at the top of the page content. Both are now visible while scrolling. Pending-actioned banner gained a **Refresh** button (calls `refreshAll()` and dismisses).
 
-- **Validator Pending filter → All Time** (`src/frontend/src/app/dashboard/validator/page.tsx`): Clicking Pending now also sets `dateFilter = 'all'` to surface the full validation backlog.
+- **Validator Pending filter â†’ All Time** (`src/frontend/src/app/dashboard/validator/page.tsx`): Clicking Pending now also sets `dateFilter = 'all'` to surface the full validation backlog.
 
-- **Validator new-incident banner → sticky** (`validator/page.tsx`): `newIncidentBanner` moved before the page header and wrapped in `sticky top-0 z-40`, matching the encoder pattern.
+- **Validator new-incident banner â†’ sticky** (`validator/page.tsx`): `newIncidentBanner` moved before the page header and wrapped in `sticky top-0 z-40`, matching the encoder pattern.
 
 - **Incident detail 24H labeling** (`src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx`): Removed `(24H)` suffix from `fmt24h`, `mark24h`, and `splitAlarmDateTime` return values. Added `(24H)` to the relevant labels: "Date & Time of Notification (24H)", `FIELD_LABELS.notification_dt + " (24H)"`, "Time Returned to Base (24H)", DataTable columns "Time Dispatched (24H)" / "Time Arrived at Scene (24H)", alarm timeline column "Time (24H)".
 
@@ -657,7 +669,7 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 
 - **Encoder dashboard** (`src/frontend/src/app/dashboard/regional/page.tsx`): Added `STATS_DATE_FILTERS` constant (Today/This Week/This Month/All Time), `statsDateFilter` state defaulting to `'week'`, `statsDateBounds` memo, and stats filter chip UI above the stats cards. `loadStats` is reactive to `statsDateBounds`. First card title shows the selected period.
 
-- **Validator dashboard** (`src/frontend/src/app/dashboard/validator/page.tsx`): Same stats filter pattern added — `STATS_DATE_FILTERS`, `StatsDateFilterValue`, `STATS_PERIOD_LABEL`, `statsDateFilter` (default `'week'`), `statsDateBounds`. Stats useEffect wired to `statsDateBounds`. Wildland and classification card titles include period label. Stats filter chip row rendered above stats cards.
+- **Validator dashboard** (`src/frontend/src/app/dashboard/validator/page.tsx`): Same stats filter pattern added â€” `STATS_DATE_FILTERS`, `StatsDateFilterValue`, `STATS_PERIOD_LABEL`, `statsDateFilter` (default `'week'`), `statsDateBounds`. Stats useEffect wired to `statsDateBounds`. Wildland and classification card titles include period label. Stats filter chip row rendered above stats cards.
 
 **Verification:** Backend: `python -m py_compile src/backend/api/routes/regional.py`. Frontend: `npx vitest run`, `npm run lint`.
 
@@ -673,7 +685,7 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 
 - **Barangay overwrite guard** (`IncidentForm.tsx`): Added `barangayManuallySetRef`. When the encoder types directly into the Barangay field, the ref is set and subsequent map-pin reverse-geocode results no longer overwrite the typed value.
 
-- **Duplicate detection redesign** (`src/backend/services/duplicate_detection.py`, `lifecycle.py`): Replaced the previous 5 km spatial + ±1-day date + OR-category fallback algorithm with a **5-criterion scoring system** (threshold: 3 of 5). Criteria: (1) distance ≤ 500 m, (2) same general category AND type code, (3) same exact fire date, (4) fire time within 1 hour, (5) same city/municipality (falls back to province/district). Candidate pool is ±3 days. All three `check_for_duplicate` call sites in `lifecycle.py` updated to pass `notification_dt`, `city_municipality`, and `province_district`.
+- **Duplicate detection redesign** (`src/backend/services/duplicate_detection.py`, `lifecycle.py`): Replaced the previous 5 km spatial + Â±1-day date + OR-category fallback algorithm with a **5-criterion scoring system** (threshold: 3 of 5). Criteria: (1) distance â‰¤ 500 m, (2) same general category AND type code, (3) same exact fire date, (4) fire time within 1 hour, (5) same city/municipality (falls back to province/district). Candidate pool is Â±3 days. All three `check_for_duplicate` call sites in `lifecycle.py` updated to pass `notification_dt`, `city_municipality`, and `province_district`.
 
 - **Validator new-submission polling** (`src/frontend/src/app/dashboard/validator/page.tsx`): Reduced poll interval from 30 s to 10 s to surface new submissions faster.
 
@@ -718,38 +730,38 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - Updated `subsystems/regional-dashboard.md`, `subsystems/validator-hub.md`, and `gaps/ui-ux-gap-register.md`.
 - Verification: not run at user request.
 ## [2026-05-29] implement | M8d HITL structured decision buttons + JSONB audit log
-- **FRS reference:** Module 8d — Human-in-the-Loop (HITL) Validation (FRS `frs-threatdetectionwithexplainableai.md` M8d)
+- **FRS reference:** Module 8d â€” Human-in-the-Loop (HITL) Validation (FRS `frs-threatdetectionwithexplainableai.md` M8d)
 - Migration `39_hitl_decision.sql` adds `hitl_decision JSONB` column to `wims.security_threat_logs`; stores `{ "action": "CONFIRM_THREAT"|"FALSE_POSITIVE"|"REQUEST_MORE_INFO", "note": string|null, "reviewed_by": uuid, "reviewed_at": ISO8601 }`
-- Backend `PATCH /admin/security-logs/{log_id}` (`admin.py`): `SecurityLogUpdate` schema extended with `action` and `note` fields; when `action` is provided, maps to human-readable `admin_action_taken` label, writes JSONB decision record, sets `reviewed_by = admin user_id`, sets `resolved_at = now()` for CONFIRM_THREAT and FALSE_POSITIVE only (REQUEST_MORE_INFO leaves `resolved_at` null); invalid action → HTTP 400
+- Backend `PATCH /admin/security-logs/{log_id}` (`admin.py`): `SecurityLogUpdate` schema extended with `action` and `note` fields; when `action` is provided, maps to human-readable `admin_action_taken` label, writes JSONB decision record, sets `reviewed_by = admin user_id`, sets `resolved_at = now()` for CONFIRM_THREAT and FALSE_POSITIVE only (REQUEST_MORE_INFO leaves `resolved_at` null); invalid action â†’ HTTP 400
 - Frontend `updateAdminSecurityLog` in `legacy.ts`: signature extended with `{ action?, note?, admin_action_taken?, resolved_at? }`; called with `{ action, note }` from HITL buttons
-- Frontend modal (`page.tsx`): replaced free-text `actionNote` textarea + single Save button with three structured HITL decision buttons — "Confirm Threat" (red, calls `handleHitlDecision('CONFIRM_THREAT')`), "False Positive" (gray, calls `handleHitlDecision('FALSE_POSITIVE')`), "Request More Info" (blue, reveals inline note textarea + Confirm/Cancel; calls `handleHitlDecision('REQUEST_MORE_INFO', note)`); logs with existing `admin_action_taken` show read-only display
+- Frontend modal (`page.tsx`): replaced free-text `actionNote` textarea + single Save button with three structured HITL decision buttons â€” "Confirm Threat" (red, calls `handleHitlDecision('CONFIRM_THREAT')`), "False Positive" (gray, calls `handleHitlDecision('FALSE_POSITIVE')`), "Request More Info" (blue, reveals inline note textarea + Confirm/Cancel; calls `handleHitlDecision('REQUEST_MORE_INFO', note)`); logs with existing `admin_action_taken` show read-only display
 - GET `/admin/security-logs` now also returns `hitl_decision` JSONB column in response
 - Tests: `TestPatchSecurityLogHitl` class added to `test_admin_new_routes.py` (6 cases: CONFIRM_THREAT/FALSE_POSITIVE/REQUEST_MORE_INFO behavior, invalid action 400, no-fields 400, not-found 404); `admin-system-hitl.test.tsx` added (6 cases: 3 buttons render, each calls correct API action, Request More Info reveals note input, actioned logs show read-only)
 - Applied migration to Docker postgres; verified `hitl_decision jsonb` column present
-- Verification: backend `pytest -v -k security` → 41 passed; frontend `npx vitest run` → 8 passed (6 HITL + 2 existing AI analyze); `npm run lint` → 0 errors (pre-existing warnings only)
+- Verification: backend `pytest -v -k security` â†’ 41 passed; frontend `npx vitest run` â†’ 8 passed (6 HITL + 2 existing AI analyze); `npm run lint` â†’ 0 errors (pre-existing warnings only)
 
 ## [2026-05-29] implement | M2c sync success/failure toast notifications
-- **FRS reference:** Module 2c — Offline-First IndexedDB Queue (FRS `frs-offlinefirst.md` M2c)
+- **FRS reference:** Module 2c â€” Offline-First IndexedDB Queue (FRS `frs-offlinefirst.md` M2c)
 - `useAutoSync.ts` `doSync()`: after `syncPendingIncidents()` returns, dispatches `toast.success`/`toast.warning`/`toast.error` based on `result.synced` and `result.failed` counts; success for clean sync, warning for partial, error for complete failure
 - `sonner` toast library added to `package.json` dependencies; `toast` imported from `sonner` in `useAutoSync.ts`
 - `layout.tsx`: `<Toaster />` component rendered to mount toast portal
 - Closes ISSUE#142
 
-## [2026-05-29] implement | M2b offline CRUD — IndexedDB queue operations
-- **FRS reference:** Module 2b — Encryption of Offline Payloads (FRS `frs-offlinefirst.md` M2b)
-- `offlineStore.ts`: `getQueuedIncident(id)`, `updateQueuedIncident(id, payload)`, `deleteQueuedIncident(id)`, `markSynced(id)`, `getPendingIncidents()` — full CRUD lifecycle for the IndexedDB incident queue
+## [2026-05-29] implement | M2b offline CRUD â€” IndexedDB queue operations
+- **FRS reference:** Module 2b â€” Encryption of Offline Payloads (FRS `frs-offlinefirst.md` M2b)
+- `offlineStore.ts`: `getQueuedIncident(id)`, `updateQueuedIncident(id, payload)`, `deleteQueuedIncident(id)`, `markSynced(id)`, `getPendingIncidents()` â€” full CRUD lifecycle for the IndexedDB incident queue
 - `syncEngine.ts`: `syncPendingIncidents()` iterates pending items, POSTs to backend, marks synced on success, retains on failure; returns `SyncResult { synced, failed, errors }`
 - Closes ISSUE#140
 
 ## [2026-05-29] implement | M2b AES-256-GCM encryption of offline payloads
-- **FRS reference:** Module 2b — Encryption of Offline Payloads (FRS `frs-offlinefirst.md` M2b)
-- `offlineStore.ts`: `encryptPayload(payload)` uses Web Crypto API — `AES-GCM` with `crypto.getRandomValues()` for 12-byte IV; stored item has `encrypted` field (base64) instead of plaintext `payload`; `decryptPayload(encrypted)` reverses on read
+- **FRS reference:** Module 2b â€” Encryption of Offline Payloads (FRS `frs-offlinefirst.md` M2b)
+- `offlineStore.ts`: `encryptPayload(payload)` uses Web Crypto API â€” `AES-GCM` with `crypto.getRandomValues()` for 12-byte IV; stored item has `encrypted` field (base64) instead of plaintext `payload`; `decryptPayload(encrypted)` reverses on read
 - `crypto-keys` IndexedDB store holds per-user AES key; key derived from user secret via PBKDF2 (with salt) if not already stored
-- Transparent encrypt on `addToQueue` / `updateQueuedIncident`; transparent decrypt on `getQueuedIncident`; `markSynced` operates on raw record (never needs payload, only `status` field) — no decryption required
+- Transparent encrypt on `addToQueue` / `updateQueuedIncident`; transparent decrypt on `getQueuedIncident`; `markSynced` operates on raw record (never needs payload, only `status` field) â€” no decryption required
 - Closes ISSUE#139
 
 ## [2026-05-29] implement | M4b data_hash + sync_status in verification audit trail
-- **FRS reference:** Module 4b — Immutable Incident Record (FRS `frs-incidentworkflow.md` M4b)
+- **FRS reference:** Module 4b â€” Immutable Incident Record (FRS `frs-incidentworkflow.md` M4b)
 - Migration `40_verification_audit_fields.sql`: adds `data_hash TEXT` (SHA-256 of canonical incident payload) and `sync_status TEXT` (pending/synced/failed) columns to `wims.incident_verification_history`; trigger `_insert_incident_verification_history` updated to compute hash on insert; stored procedure `verify_incident_command` updated to accept and store sync status
 - Backend `verify_incident_command` now records `data_hash` via `sha256(concat_ws(...))` of all canonical incident fields and `sync_status` as 'synced' upon successful verification
 - Closes ISSUE#145
@@ -761,7 +773,7 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - Replaced standalone `loadHealth()` mount useEffect with `loadMonitoring()` in both the mount effect (for initial load) and a dedicated M9a 60s interval `useEffect`; the manual System Health Refresh button still calls `loadHealth()`.
 - Rendered new "System Monitoring" section before "System Health": CPU/RAM/disk progress bars with absolute values, and a Celery worker table (hostname, status, active tasks, last seen).
 - Added `src/frontend/src/app/admin/system/admin-system-monitoring.test.tsx` with 6 tests: initial fetch call count, DOM rendering (CPU%/memory/disk/worker hostname), 60s interval second call, unmount cleanup, partial metrics failure resilience, and section heading presence.
-- Updated `gaps/frs-codebase-gap-register.md`: M9 PARTIAL → M9a CLOSED, updated date to 2026-05-29.
+- Updated `gaps/frs-codebase-gap-register.md`: M9 PARTIAL â†’ M9a CLOSED, updated date to 2026-05-29.
 - **Remaining M9 gap:** full-text log search in admin system page.
 ## [2026-05-27] feat | Analyst export: region_name end-to-end + curated default columns (#112 #113)
 
@@ -773,7 +785,7 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - Added 5 frontend tests in new `ExportPreviewModal.test.tsx`: default list contract, pre-check behavior, `barangay_name` absence, `region_id` unchecked, and `region_name` checked.
 - Added `.gitattributes` with `*.sh text eol=lf` to prevent UTF-8 BOM corruption in shell script shebangs (companion to the `fix(scripts)` commit).
 
-**Verification:** Backend `pytest -v` — 328 passed, 10 skipped. Frontend `npx vitest run` — 119 passed.
+**Verification:** Backend `pytest -v` â€” 328 passed, 10 skipped. Frontend `npx vitest run` â€” 119 passed.
 
 **Wiki updates:** This log. No FRS/codebase gap register change needed (analyst export UX enhancement, not a new FRS module requirement).
 
@@ -846,7 +858,7 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 **Diagnosis:**
 - After successful Keycloak login, `GET /api/auth/session` returned 500 because the Next.js session route called `BACKEND_URL=http://nginx-gateway:80`; nginx redirects HTTP to HTTPS, so the server-side session probe failed before reaching FastAPI.
 - Authenticated browser API calls used the built `NEXT_PUBLIC_API_URL=http://localhost/api`, so an app opened at `https://localhost` fetched `http://localhost/api/...` and hit CORS/preflight redirect failures.
-- Keycloak `wims-web` client had `webOrigins: ["+"]` (literal string, not a wildcard in Keycloak 24 — causes 400 on all auth requests) and `clientAuthenticatorType: "client-secret"` (contradicts `publicClient: true`).
+- Keycloak `wims-web` client had `webOrigins: ["+"]` (literal string, not a wildcard in Keycloak 24 â€” causes 400 on all auth requests) and `clientAuthenticatorType: "client-secret"` (contradicts `publicClient: true`).
 
 **Implementation:**
 - `src/docker-compose.yml`: `BACKEND_URL=http://backend:8000` (session route calls FastAPI directly, bypassing nginx HTTPS redirect).
@@ -861,7 +873,7 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 
 **Wiki updates:** `frontend/frontend-infrastructure.md`, `architecture/infrastructure-config.md`, `operations/auth-loop-debug-guide.md` (new) created. Log entry added.
 
-**Root causes:** RC-1 (session route → nginx → HTTPS redirect), RC-2 (NEXT_PUBLIC_* baked at build), RC-3 (webOrigins "+" in Keycloak 24), RC-4 (clientAuthenticatorType on public client), RC-5 (security-admin-console in master realm — not bfp realm — kcadm targeting error and relative redirectUri mismatch), RC-6 (master realm data survives docker compose down -v). See `operations/auth-loop-debug-guide.md` for full debug protocol.
+**Root causes:** RC-1 (session route â†’ nginx â†’ HTTPS redirect), RC-2 (NEXT_PUBLIC_* baked at build), RC-3 (webOrigins "+" in Keycloak 24), RC-4 (clientAuthenticatorType on public client), RC-5 (security-admin-console in master realm â€” not bfp realm â€” kcadm targeting error and relative redirectUri mismatch), RC-6 (master realm data survives docker compose down -v). See `operations/auth-loop-debug-guide.md` for full debug protocol.
 
 ---
 
@@ -881,24 +893,24 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - Updated `.gitignore` and `src/.gitignore` so VPS-local artifacts (`.deploy_history`, `firebase-creds.json`, `letsencrypt/`, `.env.production`) stay out of git while `.env.production.example` remains tracked.
 - Verified deployment with `docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d --build`.
 
-## [2026-05-19] update | Civilian Reporting Architecture — ADR-0001 accepted
+## [2026-05-19] update | Civilian Reporting Architecture â€” ADR-0001 accepted
 
 **Session context:** Grill-with-docs session. Complete HCI overhaul of civilian emergency reporting flow and triage queue.
 
 **Decisions recorded in:** `system-wiki/decisions/0001-civilian-reporting-overhaul.md`
 
 **Key decisions:**
-- `citizen_reports` (staging, 14 cols) separate from `fire_incidents` (AFOR canonical) — prevents flooding
+- `citizen_reports` (staging, 14 cols) separate from `fire_incidents` (AFOR canonical) â€” prevents flooding
 - `GET /api/triage/queue` unifies both tables at read time via PostGIS `ST_DWithin` clustering
 - Category = STRUCTURAL / NON_STRUCTURAL / TRANSPORTATION / UNSURE + icon sub-category grids
 - Severity derived at read time from spatial/temporal clustering (link_count)
-- Append creates new `citizen_reports` row with `linked_to_report_id` — NOT in-place update
+- Append creates new `citizen_reports` row with `linked_to_report_id` â€” NOT in-place update
 - Rate limits: 5 new reports/IP/hr, 1 append/device_id/5min
 - "What to do while waiting" = deterministic static content per category, no risk encouragement
 - Triage: validator dashboard overview widget + dedicated `/incidents/triage` page
 - Fire station auto-assigned from `nearest_station_id` at promotion; validator can override
 
-## [2026-05-19] update | National Analyst HCI/UX review — 10 issues filed to GitHub
+## [2026-05-19] update | National Analyst HCI/UX review â€” 10 issues filed to GitHub
 
 **Session context:** National Analyst perspective walkthrough (Iteration 1 + 2 + 3). Keycloak auth blocked runtime browser testing; all findings confirmed via source inspection.
 
@@ -908,44 +920,44 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - 5 Medium (P2/P3): No copy incident ID; opaque export filename; "Unselect page" label confusion; Top-N missing `damage_cost`; no rows-per-page selector
 
 **Actions taken:**
-- Partial patch applied to `ExportPreviewModal.tsx`: `barangay_name` removed from `ALL_COLUMNS`, `region_name` added, full 24-column list synced with backend `ALLOWED_EXPORT_COLUMNS` — **NOT yet committed**
-- Created 10 GitHub issues: [#111](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/111)–[#120](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/120)
-- Updated `gaps/ui-ux-gap-register.md`: added new "National Analyst UX — Iteration 2 Review (2026-05-19)" section, added missing `[[ui-ux/evaluation-national-analyst]]` cross-reference
+- Partial patch applied to `ExportPreviewModal.tsx`: `barangay_name` removed from `ALL_COLUMNS`, `region_name` added, full 24-column list synced with backend `ALLOWED_EXPORT_COLUMNS` â€” **NOT yet committed**
+- Created 10 GitHub issues: [#111](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/111)â€“[#120](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/120)
+- Updated `gaps/ui-ux-gap-register.md`: added new "National Analyst UX â€” Iteration 2 Review (2026-05-19)" section, added missing `[[ui-ux/evaluation-national-analyst]]` cross-reference
 
 **Blocked on:**
-- Keycloak auth to `wims-web` realm (dev mode) — needs `wims-bfp` realm credentials for local browser testing
+- Keycloak auth to `wims-web` realm (dev mode) â€” needs `wims-bfp` realm credentials for local browser testing
 - `region_name` export requires backend JOIN in `analytics_read_model.py` / `exports.py`
 
-## [2026-05-22] update | Civilian public report UX — safety-first flow resolved
+## [2026-05-22] update | Civilian public report UX â€” safety-first flow resolved
 - Grill-with-docs decision: `/report` must ask `safety_status` before reporting context/location so life-safety guidance appears before cognitively heavier source/location questions.
 - Updated `system-wiki/prd/civilian-reporting-phase-2.md` and `system-wiki/subsystems/civilian-reporting-phase2.md` to record safety-first public flow and immediate emergency guidance for life-safety reports.
 - Added calm emergency landing block requirement: dominant 911 action plus short safety instructions; guidance-only, not a separate data state, no pre-submit nearest-station lookup, and no additional hotline numbers. Life-safety reports keep 911 guidance visible through the flow.
-- First interactive step is one question only: “Are you or anyone else in danger?” with `safety_status` choices. Reporting context/location stays on the next step.
+- First interactive step is one question only: â€œAre you or anyone else in danger?â€ with `safety_status` choices. Reporting context/location stays on the next step.
 - `UNKNOWN` safety status remains non-life-safety for backend priority/fast-submit, but UI shows cautious guidance: call 911 if anyone may be in danger and stay away from smoke/fire.
-- Category selection treats `UNSURE` as a safe default: specific categories first, then a prominent “I’m not sure / Hindi sigurado” action with reassuring copy that BFP can still review the report.
-- Location step uses unified plain-language prompt: “Where is the fire?” with helper copy to use current location if there, otherwise place the pin on the fire location; context-specific GPS/pin details are secondary.
-- After safety, `/report` asks location before reporting context. Location can offer “Use my current location” and “Place pin manually”; reporting context is captured afterward for validator interpretation/GPS trust scoring.
-- Both life-safety and non-life-safety use the shared core order: safety → location → reporting context → category. Life-safety then shows “Send now”; non-life-safety continues to details/review.
-- If current GPS is chosen as fire location and user later selects `SECONDHAND`, UI challenges it: “Is this current location where the fire is?” Yes keeps it; No returns to manual pin placement.
-- If current GPS is chosen and user later selects `NEARBY`, UI shows a non-blocking reminder: “If the fire is not exactly where you are, place the pin on the fire instead.” Continue remains available.
-- Life-safety reports skip optional details by default after minimum required fields; category step shows primary “Send now” that submits immediately and secondary “Add details if safe.” Optional details remain available but keep “Send now” as the primary action. Minimum fields: `safety_status`, `latitude`, `longitude`, `reporting_context`, explicit `category` tap including prominent `UNSURE`, and `device_id`; `sub_category`, observed/reported time, witness fields, and `previous_report_id` are optional. Non-life-safety keeps details/review.
-- Post-submit success screen uses explicit emergency boundary copy for every submission, not only life-safety reports: show “Report submitted,” tell users to call 911 now if anyone is in immediate danger, clarify that the report helps BFP review public signals but does not replace an emergency call, then show report ID/tracking and nearest station if available.
+- Category selection treats `UNSURE` as a safe default: specific categories first, then a prominent â€œIâ€™m not sure / Hindi siguradoâ€ action with reassuring copy that BFP can still review the report.
+- Location step uses unified plain-language prompt: â€œWhere is the fire?â€ with helper copy to use current location if there, otherwise place the pin on the fire location; context-specific GPS/pin details are secondary.
+- After safety, `/report` asks location before reporting context. Location can offer â€œUse my current locationâ€ and â€œPlace pin manuallyâ€; reporting context is captured afterward for validator interpretation/GPS trust scoring.
+- Both life-safety and non-life-safety use the shared core order: safety â†’ location â†’ reporting context â†’ category. Life-safety then shows â€œSend nowâ€; non-life-safety continues to details/review.
+- If current GPS is chosen as fire location and user later selects `SECONDHAND`, UI challenges it: â€œIs this current location where the fire is?â€ Yes keeps it; No returns to manual pin placement.
+- If current GPS is chosen and user later selects `NEARBY`, UI shows a non-blocking reminder: â€œIf the fire is not exactly where you are, place the pin on the fire instead.â€ Continue remains available.
+- Life-safety reports skip optional details by default after minimum required fields; category step shows primary â€œSend nowâ€ that submits immediately and secondary â€œAdd details if safe.â€ Optional details remain available but keep â€œSend nowâ€ as the primary action. Minimum fields: `safety_status`, `latitude`, `longitude`, `reporting_context`, explicit `category` tap including prominent `UNSURE`, and `device_id`; `sub_category`, observed/reported time, witness fields, and `previous_report_id` are optional. Non-life-safety keeps details/review.
+- Post-submit success screen uses explicit emergency boundary copy for every submission, not only life-safety reports: show â€œReport submitted,â€ tell users to call 911 now if anyone is in immediate danger, clarify that the report helps BFP review public signals but does not replace an emergency call, then show report ID/tracking and nearest station if available.
 - Tracking page uses the same emergency boundary across all statuses. Waiting/uncertain states keep it prominent; `ACTIONED` may render it lower/softer but must still clarify that immediate danger requires calling 911 and that the report does not replace an emergency call.
-- Nearest-station contact remains post-submit/tracking only and secondary to 911: label it “Nearest BFP station for follow-up,” include “For immediate danger, call 911 first,” and label fallback `911` as the emergency number rather than a station phone.
-- Bilingual copy scope is stress-critical only, not full i18n: 911/immediate danger, do-not-approach/photo warnings, “does not replace emergency call,” “Send now,” “Add details if safe,” `UNSURE` reassurance, location helper, and the 911 sentence in submit/rate-limit/network errors must be English/Filipino. Report IDs, technical statuses, station follow-up labels, observed time, and previous report ID may stay English-only.
+- Nearest-station contact remains post-submit/tracking only and secondary to 911: label it â€œNearest BFP station for follow-up,â€ include â€œFor immediate danger, call 911 first,â€ and label fallback `911` as the emergency number rather than a station phone.
+- Bilingual copy scope is stress-critical only, not full i18n: 911/immediate danger, do-not-approach/photo warnings, â€œdoes not replace emergency call,â€ â€œSend now,â€ â€œAdd details if safe,â€ `UNSURE` reassurance, location helper, and the 911 sentence in submit/rate-limit/network errors must be English/Filipino. Report IDs, technical statuses, station follow-up labels, observed time, and previous report ID may stay English-only.
 - Submit errors are safety-first: any failure says the report could not be sent and tells users to call 911 now if immediate danger exists; validation/location errors point to missing fields or pin placement, rate limits explain too many reports from the network and suggest tracking/updating an existing report, and network/server errors ask the user to retry when connected without weakening the 911 boundary.
 - Reporting-context cards should not remain text-only: use low-ambiguity icons to reduce reading load under stress, with eye/direct-view for `WITNESS`, map/proximity for `NEARBY`, and message/speech for `SECONDHAND`; exact icon choice remains implementation-flexible.
 - **CTA visual contract:** disabled CTAs must not use the active BFP red/gradient treatment. Disabled state uses visibly inactive/muted styling (e.g. gray background, not red/gradient). Enabled primary CTAs use high-contrast BFP red/gradient. Rationale: stress-friendly cognitive clarity mandate; prevents regression where stressed users misread disabled buttons as active; serves as a QA and code-review guardrail. Documented in both PRD and subsystem docs.
-- **Open implementation gap:** the current code in `page.tsx` defaults to `step = 'context'` and renders the reporting-context question as the first interactive step, before safety. The documented safety-first order (safety → location → context → category) has not been implemented. The step ordering in `page.tsx` must be refactored so `safety` is the initial step value, and the conditional rendering reflects the documented order.
+- **Open implementation gap:** the current code in `page.tsx` defaults to `step = 'context'` and renders the reporting-context question as the first interactive step, before safety. The documented safety-first order (safety â†’ location â†’ context â†’ category) has not been implemented. The step ordering in `page.tsx` must be refactored so `safety` is the initial step value, and the conditional rendering reflects the documented order.
 - **Open implementation gap:** the submitted success screen (`step === 'submitted'`) shows the 911/call-now emergency boundary only when `isLifeSafety` is true. The docs require this boundary for every submission regardless of safety status. Non-life-safety users currently see "Report Submitted" then nearest station with no emergency guidance in between. The 911 boundary and "does not replace an emergency call" copy must render for all submissions.
 - **Open implementation gap:** tracking page (`tracking/page.tsx`) shows 911 guidance only for `REJECTED_*` statuses. Docs require the same emergency boundary for ALL statuses: PENDING, UNDER_REVIEW, LINKED, ACTIONED. For waiting/uncertain statuses it should be visually prominent; for ACTIONED it may be lower/softer but must still appear. Currently users on PENDING/LINKED/ACTIONED see no 911 guidance at all.
-- **Open implementation gap:** submit error handling — `handleSubmit` in `page.tsx` uses a monolithic catch block that sets a generic error message (`err.message ?? 'Submission failed. Please try again.'`). There is no 911 boundary, no error-type-specific guidance (validation vs rate limit vs network), and no bilingual copy. Docs require: 911 boundary on every error, practical next-step copy specific to the error type, and 911 sentence in English/Filipino for all submit failures.
-- **Open implementation gap:** context challenge prompts — docs require two GPS/context consistency checks: (1) if user selects `SECONDHAND` after current GPS was acquired, show "Is this current location where the fire is?" with yes/no; "No" returns to manual pin placement; (2) if user selects `NEARBY` after current GPS, show a non-blocking reminder that if the fire is not exactly where they are they should place the pin on the fire. Code does not implement either prompt — `tryAdvanceFromContext()` only checks GPS distance mismatch for NEARBY/SECONDHAND, not whether GPS was the source.
-- **Open implementation gap:** station phone fallback labeling — `tracking/page.tsx` (lines 310-321) renders `nearest_station_phone` as a station phone regardless of its value. If the backend returns `911` as the fallback station phone (when no real station is assigned), the UI labels it "Nearest BFP Station" with "911" as a click-to-call link. Docs require: when the fallback value is `911`, label it "Emergency Number" and treat it as secondary to the 911 boundary, not as a BFP station. Code makes no such distinction; the semantic label must change based on whether the phone value is `911` or a real station number.
-- **Open implementation gap:** life-safety secondary affordance — docs require the category step for life-safety to show both a primary "Send now" that submits immediately with minimum fields and a secondary "Add details if safe" that opens optional details while keeping "Send now" as the primary action within that screen; `page.tsx` (lines 942-951) only has a single "Fast Submit" button with no "Add details" affordance before it. A user who wants to add witness info or observed time for a life-safety report would not know they can — there is no secondary routing action.
-- **Open implementation gap:** review step 911 boundary — docs require the 911 emergency boundary on every pre-submit screen including the non-life-safety review step; `page.tsx` (lines 456-545) renders a bilingual "Do not move closer" notice (line 501-504) but no 911 guidance between the data summary and the submit button. The 911 boundary and "does not replace an emergency call" copy must appear before the final submit CTA on the review step.
-- **Open implementation gap:** calm emergency landing block — docs require `/report` to start with dominant 911 guidance (call 911 if anyone is in immediate danger, move away from smoke/fire, do not get closer to take photos) as a passive static block before the first interactive step; `page.tsx` starts the form directly with the interactive step selection with no initial emergency guidance block. The block is guidance-only, does not create a separate data state, and must appear as the landing content on `/report` before any user action.
-- **Open implementation gap:** GPS-denied/timeout 911 boundary — docs require 911 guidance to persist throughout the entire flow for life-safety reports and require location/submission failure microcopy to include 911 reminders; when GPS is denied or times out (lines 709-720), the location error panel shows only a "Try again / Subukan ulit" retry button with no 911 call-to-action, even when the user is on a life-safety path. The panel must display a bilingual 911 boundary reminder regardless of whether the user is on the life-safety path. Per user direction, the fix is not a GPS-handler-specific change but rather ensuring the location/map selection screen honors the persistent 911 guidance boundary when on the life-safety path.
+- **Open implementation gap:** submit error handling â€” `handleSubmit` in `page.tsx` uses a monolithic catch block that sets a generic error message (`err.message ?? 'Submission failed. Please try again.'`). There is no 911 boundary, no error-type-specific guidance (validation vs rate limit vs network), and no bilingual copy. Docs require: 911 boundary on every error, practical next-step copy specific to the error type, and 911 sentence in English/Filipino for all submit failures.
+- **Open implementation gap:** context challenge prompts â€” docs require two GPS/context consistency checks: (1) if user selects `SECONDHAND` after current GPS was acquired, show "Is this current location where the fire is?" with yes/no; "No" returns to manual pin placement; (2) if user selects `NEARBY` after current GPS, show a non-blocking reminder that if the fire is not exactly where they are they should place the pin on the fire. Code does not implement either prompt â€” `tryAdvanceFromContext()` only checks GPS distance mismatch for NEARBY/SECONDHAND, not whether GPS was the source.
+- **Open implementation gap:** station phone fallback labeling â€” `tracking/page.tsx` (lines 310-321) renders `nearest_station_phone` as a station phone regardless of its value. If the backend returns `911` as the fallback station phone (when no real station is assigned), the UI labels it "Nearest BFP Station" with "911" as a click-to-call link. Docs require: when the fallback value is `911`, label it "Emergency Number" and treat it as secondary to the 911 boundary, not as a BFP station. Code makes no such distinction; the semantic label must change based on whether the phone value is `911` or a real station number.
+- **Open implementation gap:** life-safety secondary affordance â€” docs require the category step for life-safety to show both a primary "Send now" that submits immediately with minimum fields and a secondary "Add details if safe" that opens optional details while keeping "Send now" as the primary action within that screen; `page.tsx` (lines 942-951) only has a single "Fast Submit" button with no "Add details" affordance before it. A user who wants to add witness info or observed time for a life-safety report would not know they can â€” there is no secondary routing action.
+- **Open implementation gap:** review step 911 boundary â€” docs require the 911 emergency boundary on every pre-submit screen including the non-life-safety review step; `page.tsx` (lines 456-545) renders a bilingual "Do not move closer" notice (line 501-504) but no 911 guidance between the data summary and the submit button. The 911 boundary and "does not replace an emergency call" copy must appear before the final submit CTA on the review step.
+- **Open implementation gap:** calm emergency landing block â€” docs require `/report` to start with dominant 911 guidance (call 911 if anyone is in immediate danger, move away from smoke/fire, do not get closer to take photos) as a passive static block before the first interactive step; `page.tsx` starts the form directly with the interactive step selection with no initial emergency guidance block. The block is guidance-only, does not create a separate data state, and must appear as the landing content on `/report` before any user action.
+- **Open implementation gap:** GPS-denied/timeout 911 boundary â€” docs require 911 guidance to persist throughout the entire flow for life-safety reports and require location/submission failure microcopy to include 911 reminders; when GPS is denied or times out (lines 709-720), the location error panel shows only a "Try again / Subukan ulit" retry button with no 911 call-to-action, even when the user is on a life-safety path. The panel must display a bilingual 911 boundary reminder regardless of whether the user is on the life-safety path. Per user direction, the fix is not a GPS-handler-specific change but rather ensuring the location/map selection screen honors the persistent 911 guidance boundary when on the life-safety path.
 
 ## [2026-05-19] update | Consolidate gap-register and functional-bug-register
 - gap-register: condensed verbose multi-line entries into tight bullet points; M9 marked NOT-yet-implemented; barangay TOP-N marked OPTIONAL; Phase 2 analyst export confirmed pending; all other items confirmed/shortened.
@@ -960,11 +972,11 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 
 ## [2026-05-16] create | Final ingestion: remaining routes, backend infra, components, docs/scripts
 - Created 5 new synthesis pages completing the wiki coverage:
-  - [[backend/remaining-routes]] — Full API reference for 7 route files: incidents.py (8 routes: upload-bundle, attachments, analyst list/detail/wildland, export), analytics.py (15 routes: heatmap, trends, comparative, export dispatch/download, type-distribution, top-barangays, response-time, compare-regions, top-n, filter-options, execution-plans), public_dmz.py (rate-limited unauthenticated submission), civilian.py (submit + track reports), sessions.py (list + terminate), user.py (profile + password change), ref.py (regions, provinces, cities).
-  - [[backend/backend-infrastructure]] — Auth: KeycloakAuthenticator with JWKS caching/validation + 7 FastAPI dependencies. DB: engine, session factory, get_db/get_db_with_rls, set_rls_context GUC. main.py: 10 route registrations, rate-limit middleware (5/15min Lua+Redis on login), PKCE callback. Models: 6 ORM models (User, FireIncident, CitizenReport, IVH, SecurityThreatLog) + geometry validation. Schemas: 6 Pydantic models. Celery: Redis broker/backend, 3 periodic tasks (MV refresh 6h, Suricata 10s, draft expiry daily).
-  - [[frontend/components-deep]] — Deep docs for 12 components: TypeDistributionChart, TopBarangaysChart, TrendCharts, ResponseTimeChart, HeatmapViewer (all pure presentational Recharts/Leaflet), ExportPreviewModal (state machine: idle→queued→polling→downloading→done/error), AnalystIncidentList (478-line paginated/sortable/selectable table with detail drawer), DuplicateIncidentModal, DuplicateResolutionModal, LayoutShell (auth guard + PWA SW cleanup), Header (breadcrumbs + live PST clock + role badge), WildlandAforManualForm (927-line 11-section form).
-  - [[architecture/docs-and-scripts]] — docs/ (10 files: ARCHITECTURE, CHANGELOG, API_AND_FUNCTIONS, M4-PR, M4-INCIDENT-WORKFLOW-DETAILS, VALIDATOR_WORKFLOW_CHANGELOG, 3 PR docs). scripts/ indexed; rejected barangay loader artifacts are not part of the committed script surface.
-- Updated index.md: 24 → 31 synthesis pages, all new pages linked.
+  - [[backend/remaining-routes]] â€” Full API reference for 7 route files: incidents.py (8 routes: upload-bundle, attachments, analyst list/detail/wildland, export), analytics.py (15 routes: heatmap, trends, comparative, export dispatch/download, type-distribution, top-barangays, response-time, compare-regions, top-n, filter-options, execution-plans), public_dmz.py (rate-limited unauthenticated submission), civilian.py (submit + track reports), sessions.py (list + terminate), user.py (profile + password change), ref.py (regions, provinces, cities).
+  - [[backend/backend-infrastructure]] â€” Auth: KeycloakAuthenticator with JWKS caching/validation + 7 FastAPI dependencies. DB: engine, session factory, get_db/get_db_with_rls, set_rls_context GUC. main.py: 10 route registrations, rate-limit middleware (5/15min Lua+Redis on login), PKCE callback. Models: 6 ORM models (User, FireIncident, CitizenReport, IVH, SecurityThreatLog) + geometry validation. Schemas: 6 Pydantic models. Celery: Redis broker/backend, 3 periodic tasks (MV refresh 6h, Suricata 10s, draft expiry daily).
+  - [[frontend/components-deep]] â€” Deep docs for 12 components: TypeDistributionChart, TopBarangaysChart, TrendCharts, ResponseTimeChart, HeatmapViewer (all pure presentational Recharts/Leaflet), ExportPreviewModal (state machine: idleâ†’queuedâ†’pollingâ†’downloadingâ†’done/error), AnalystIncidentList (478-line paginated/sortable/selectable table with detail drawer), DuplicateIncidentModal, DuplicateResolutionModal, LayoutShell (auth guard + PWA SW cleanup), Header (breadcrumbs + live PST clock + role badge), WildlandAforManualForm (927-line 11-section form).
+  - [[architecture/docs-and-scripts]] â€” docs/ (10 files: ARCHITECTURE, CHANGELOG, API_AND_FUNCTIONS, M4-PR, M4-INCIDENT-WORKFLOW-DETAILS, VALIDATOR_WORKFLOW_CHANGELOG, 3 PR docs). scripts/ indexed; rejected barangay loader artifacts are not part of the committed script surface.
+- Updated index.md: 24 â†’ 31 synthesis pages, all new pages linked.
 - Updated agent-routing-guide.md to point to remaining-routes and backend-infrastructure.
 - Total system-wiki documents: 31 synthesis pages + 3 reference files = 34 documents.
 - The wiki now covers 100% of the codebase surface area:
@@ -983,40 +995,40 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 
 ## [2026-05-16] create | Comprehensive wiki ingestion: frontend infra, DB SQL, services, utils/tasks, infra config, PWA/tests/CI
 - Created 8 new synthesis pages across all layers:
-  - [[frontend/frontend-infrastructure]] — Auth context (Keycloak OIDC, 4-min token refresh, cross-tab lock), 47 API client functions, utility libraries (afor-utils, ph-regions, regional-incidents, workflow-transfer), full component tree (Sidebar, IncidentForm~1956 lines, MapPickerInner with Nominatim, IncidentDiffPanel, SyncStatusBar, and 8 analytics chart components).
-  - [[database/sql-init-files]] — All 31 SQL init files documented: RLS policies (16 tables force-enabled), helpers (current_user_uuid/role/region_id GUC system, exec_as_system_admin), 4 materialized views, immutable records RULES, PKI encrypt PII schema, seed data (12 verified incidents, 18 regions, 81 provinces, thousands of cities, 5 seed users).
-  - [[backend/services]] — Analytics read model (17 functions: sync/batch/backfill/heatmap/trends/top-n/export/compare), duplicate detection (5km radius + ±1 day spatial + text fallback), Keycloak admin (8 functions: create/set/update/logout/change/get), AI/XAI service (qwen2.5:3b via Ollama with JSON format output).
-  - [[backend/utilities-and-tasks]] — Crypto (AES-256-GCM PII blob with incident-bound AAD), audit trail (writes system_audit_trails), Redis session revocation (12h TTL), backup crypto (AES-256-GCM .sql.enc format), 4 Celery export tasks (CSV/PDF/XLSX with 26-column whitelist).
-  - [[architecture/infrastructure-config]] — Docker Compose (8 services, health checks, volumes), Nginx (proxy table, CORS, cookie domain rewrite, missing WebSocket/SSE), Suricata (EVE output, no custom suricata.yaml, classification.config with 37 categories), Keycloak realm (2641-line export: 5-min tokens, 30-min SSO idle, conditional OTP per role, 23 seed users, wims-admin-service confidential client with hardcoded secret).
-  - [[architecture/pwa-tests-cicd]] — PWA/offline-first: IndexedDB queue (idb), sync engine (LWW conflict resolution on 409), network status hook, auto-sync with 2s debounce, service worker with Background Sync API, manifest (standalone PWA). Tests: 30 test files (10 unit, 19 integration), SQL contract pattern (inspect.getsource), e2e Keycloak+MailHog. CI: 5 parallel jobs + merge-gate. CD: GHCR image push on master.
+  - [[frontend/frontend-infrastructure]] â€” Auth context (Keycloak OIDC, 4-min token refresh, cross-tab lock), 47 API client functions, utility libraries (afor-utils, ph-regions, regional-incidents, workflow-transfer), full component tree (Sidebar, IncidentForm~1956 lines, MapPickerInner with Nominatim, IncidentDiffPanel, SyncStatusBar, and 8 analytics chart components).
+  - [[database/sql-init-files]] â€” All 31 SQL init files documented: RLS policies (16 tables force-enabled), helpers (current_user_uuid/role/region_id GUC system, exec_as_system_admin), 4 materialized views, immutable records RULES, PKI encrypt PII schema, seed data (12 verified incidents, 18 regions, 81 provinces, thousands of cities, 5 seed users).
+  - [[backend/services]] â€” Analytics read model (17 functions: sync/batch/backfill/heatmap/trends/top-n/export/compare), duplicate detection (5km radius + Â±1 day spatial + text fallback), Keycloak admin (8 functions: create/set/update/logout/change/get), AI/XAI service (qwen2.5:3b via Ollama with JSON format output).
+  - [[backend/utilities-and-tasks]] â€” Crypto (AES-256-GCM PII blob with incident-bound AAD), audit trail (writes system_audit_trails), Redis session revocation (12h TTL), backup crypto (AES-256-GCM .sql.enc format), 4 Celery export tasks (CSV/PDF/XLSX with 26-column whitelist).
+  - [[architecture/infrastructure-config]] â€” Docker Compose (8 services, health checks, volumes), Nginx (proxy table, CORS, cookie domain rewrite, missing WebSocket/SSE), Suricata (EVE output, no custom suricata.yaml, classification.config with 37 categories), Keycloak realm (2641-line export: 5-min tokens, 30-min SSO idle, conditional OTP per role, 23 seed users, wims-admin-service confidential client with hardcoded secret).
+  - [[architecture/pwa-tests-cicd]] â€” PWA/offline-first: IndexedDB queue (idb), sync engine (LWW conflict resolution on 409), network status hook, auto-sync with 2s debounce, service worker with Background Sync API, manifest (standalone PWA). Tests: 30 test files (10 unit, 19 integration), SQL contract pattern (inspect.getsource), e2e Keycloak+MailHog. CI: 5 parallel jobs + merge-gate. CD: GHCR image push on master.
 - Updated [[operations/agent-routing-guide]]: every task now points to specific service/utility/infra pages.
-- Updated [[index.md]]: 16 → 24 total synthesis pages, all new pages listed under their sections.
+- Updated [[index.md]]: 16 â†’ 24 total synthesis pages, all new pages listed under their sections.
 - Total system-wiki documents: 24 synthesis pages + 3 reference files = 27 documents.
 
 ## [2026-05-16] create | API reference files for all three dashboard subsystems
 - Created `system-wiki/subsystems/references/` with three function-level API reference files:
-  - [[subsystems/references/admin-api-ref]] — Every function in admin.py documented: 16 route handlers, 4 Pydantic schemas, 2 helpers. Each entry includes route decorator, auth dep, DB session type, all parameters with types, return shape, all HTTP errors with conditions, and detailed behavior notes (audit logging, RLS context, Keycloak sync, backup encryption, retention policy).
-  - [[subsystems/references/regional-api-ref]] — Every function in regional.py (~5050 lines) documented: 40+ route handlers, 10+ schemas, 25+ helpers, both AFOR parsers (BfpXlsxParser, WildlandXlsxParser). Covers AFOR import pipeline, incident CRUD, stats, verification workflow, audit logs, duplicate detection, barangay reverse-geocoding.
-  - [[subsystems/references/triage-api-ref]] — Every function in triage.py: get_pending_reports, promote_report, bulk_promote_reports, BulkPromoteRequest schema, _require_encoder_or_validator guard dependency.
+  - [[subsystems/references/admin-api-ref]] â€” Every function in admin.py documented: 16 route handlers, 4 Pydantic schemas, 2 helpers. Each entry includes route decorator, auth dep, DB session type, all parameters with types, return shape, all HTTP errors with conditions, and detailed behavior notes (audit logging, RLS context, Keycloak sync, backup encryption, retention policy).
+  - [[subsystems/references/regional-api-ref]] â€” Every function in regional.py (~5050 lines) documented: 40+ route handlers, 10+ schemas, 25+ helpers, both AFOR parsers (BfpXlsxParser, WildlandXlsxParser). Covers AFOR import pipeline, incident CRUD, stats, verification workflow, audit logs, duplicate detection, barangay reverse-geocoding.
+  - [[subsystems/references/triage-api-ref]] â€” Every function in triage.py: get_pending_reports, promote_report, bulk_promote_reports, BulkPromoteRequest schema, _require_encoder_or_validator guard dependency.
 - Updated all three subsystem pages to include "## API Reference" sections linking to the reference files.
 - Updated `index.md` to list reference files under their parent subsystem entries.
 - Total synthesis pages: 16 pages + 3 reference files = 19 total wiki documents.
 
 ## [2026-05-17] update | analyst incident detail backend + sensitive endpoint + numeric hardening + index fix
-- `GET /incidents/analyst/{incident_id}` — fully rewired:
+- `GET /incidents/analyst/{incident_id}` â€” fully rewired:
   - Added `form_kind` field via `CASE WHEN w.incident_id IS NOT NULL THEN 'WILDLAND_AFOR' ELSE 'STRUCTURAL_AFOR'` using LEFT JOIN on `incident_wildland_afor`
   - Added all 19 structural fields from `incident_nonsensitive_details`: `fire_origin`, `extent_of_damage`, `structures_affected`, `households_affected`, `individuals_affected`, `vehicles_affected`, `resources_deployed`, `alarm_timeline`, `problems_encountered`, `stage_of_fire`, `extent_total_floor_area_sqm`, `extent_total_land_area_hectares`, `water_tankers_used`, `breathing_apparatus_used`, `total_gas_consumed_liters`, `families_affected`, `responder_type`, `fire_station_name`, `distance_from_station_km`
   - When `has_wildland_afor = true`, inlines `wildland` (full row dict), `alarm_statuses`, and `assistance_rows` from joined tables
-  - Sensitive fields (narrative, PII, disposition) intentionally excluded — use `/sensitive` endpoint
-  - **Index fix (another agent):** Live DB query confirmed the SELECT returns 38 columns (indexes 0–37). `form_kind` at row[18], `fire_station_name` at row[36], `distance_from_station_km` at row[37]. Original indices were off by 2 due to stale indexing from removed `barangay_name` JOIN. All row indices updated to actual positions; endpoint returns 200 for incident 12.
-- New `GET /incidents/analyst/{incident_id}/sensitive` — separate endpoint for PII:
+  - Sensitive fields (narrative, PII, disposition) intentionally excluded â€” use `/sensitive` endpoint
+  - **Index fix (another agent):** Live DB query confirmed the SELECT returns 38 columns (indexes 0â€“37). `form_kind` at row[18], `fire_station_name` at row[36], `distance_from_station_km` at row[37]. Original indices were off by 2 due to stale indexing from removed `barangay_name` JOIN. All row indices updated to actual positions; endpoint returns 200 for incident 12.
+- New `GET /incidents/analyst/{incident_id}/sensitive` â€” separate endpoint for PII:
   - Same auth: `NATIONAL_ANALYST` or `SYSTEM_ADMIN`
   - Returns: `caller_name`, `caller_number`, `owner_name`, `establishment_name`, `occupant_name`, `narrative_report`, `prepared_by_officer`, `noted_by_officer`, `disposition`, `fire_origin`, `extent_of_damage`, `alarm_timeline`
   - Verifies incident is VERIFIED and not archived before returning any data (404 otherwise)
 - Numeric field hardening: replaced bare `float()` casts on `NUMERIC` columns with `_analyst_json_value()` helper for `estimated_damage_php`, `extent_total_floor_area_sqm`, `extent_total_land_area_hectares`, `total_gas_consumed_liters`, `distance_from_station_km`. Prevents `ValueError` when garbage strings (e.g. `'BFP'` in `total_gas_consumed_liters` for incident 12) land in numeric columns.
-- Removed dead `ref_barangays` LEFT JOIN — `barangay_id` is never written by encoder workflow; JOIN always returned empty. Comment added referencing future purge tracking. `barangay_name` dropped from response; frontend `FieldRow` renders `N/A`.
-- Frontend `api.ts` — `AnalystIncidentDetailResponse` extended with all new fields + `form_kind` + optional wildland sub-objects; `AnalystIncidentSensitiveResponse` interface added; `fetchAnalystIncidentSensitive()` function added.
-- Frontend analyst detail page (`/dashboard/analyst/incidents/[id]`) — fully redesigned by parallel agent: 8 collapsible sections (A–H), blur/reveal sensitive data with per-field eye-icon toggle, locked wildland section for STRUCTURAL_AFOR, lazy-load sensitive endpoint on user click. Reviews passed.
+- Removed dead `ref_barangays` LEFT JOIN â€” `barangay_id` is never written by encoder workflow; JOIN always returned empty. Comment added referencing future purge tracking. `barangay_name` dropped from response; frontend `FieldRow` renders `N/A`.
+- Frontend `api.ts` â€” `AnalystIncidentDetailResponse` extended with all new fields + `form_kind` + optional wildland sub-objects; `AnalystIncidentSensitiveResponse` interface added; `fetchAnalystIncidentSensitive()` function added.
+- Frontend analyst detail page (`/dashboard/analyst/incidents/[id]`) â€” fully redesigned by parallel agent: 8 collapsible sections (Aâ€“H), blur/reveal sensitive data with per-field eye-icon toggle, locked wildland section for STRUCTURAL_AFOR, lazy-load sensitive endpoint on user click. Reviews passed.
 - Updated `system-wiki/backend/api-route-map.md`: added `/incidents/analyst/{incident_id}/sensitive` route entry.
 - SQL contract tests pass: 4/4 (`test_analyst_incidents_sql_contract.py`).
 
@@ -1026,16 +1038,16 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - Rejection reasons: normal stack startup became network-dependent, Docker Compose lost/broke existing backend/celery/Keycloak settings, and the proposed SQL attempted invalid `NULL` inserts into `ref_barangays.city_id`.
 - The stable state is now: keep `31_barangay_geometry.sql` as an optional schema hook, remove barangay from Analyst Top-N selectors, and use municipality/fire-station/region for reliable hotspot ranking.
 - Created `system-wiki/subsystems/` directory with three new synthesis pages:
-  - [[subsystems/admin-hub]] — System admin hub: identity management, security telemetry, audit logs, health check, scheduled reports, backup management. Documents all 25+ admin.py endpoints and all 8 admin hub frontend panels.
-  - [[subsystems/regional-dashboard]] — Regional encoder dashboard: AFOR import pipeline (5050-line regional.py), incident CRUD, drafts management, encoder audit trail, incident detail page with editable IncidentForm.
-  - [[subsystems/validator-hub]] — National validator dashboard: verification queue, single/bulk approve workflow, duplicate resolution with Promise-based pattern, audit trail with CSV export, diff panels.
+  - [[subsystems/admin-hub]] â€” System admin hub: identity management, security telemetry, audit logs, health check, scheduled reports, backup management. Documents all 25+ admin.py endpoints and all 8 admin hub frontend panels.
+  - [[subsystems/regional-dashboard]] â€” Regional encoder dashboard: AFOR import pipeline (5050-line regional.py), incident CRUD, drafts management, encoder audit trail, incident detail page with editable IncidentForm.
+  - [[subsystems/validator-hub]] â€” National validator dashboard: verification queue, single/bulk approve workflow, duplicate resolution with Promise-based pattern, audit trail with CSV export, diff panels.
 - Updated `index.md` (new Subsystems section, total 16 pages).
 - Updated `operations/agent-routing-guide.md` (auth, incident-CRUD, and validation tasks now reference the subsystem pages).
 
-## [2026-05-16] fix | TOP-N barangay dimension — code resolved, verification pending
+## [2026-05-16] fix | TOP-N barangay dimension â€” code resolved, verification pending
 - Implemented reverse-geocoding fix via OpenCode subagent (commit `4fb24b7`).
-- Created `src/postgres-init/31_barangay_geometry.sql` — adds `geometry GEOGRAPHY(POLYGON, 4326)` + GiST index to `ref_barangays`.
-- Added `_reverse_geocode_barangay(db, incident_id, lon, lat)` to `src/backend/api/routes/regional.py` — called after incident INSERT in 3 locations (_commit_wildland_afor_row, AFOR structural commit loop, create_incident). Uses `ST_Contains` + calls `sync_incident_to_analytics`. Gracefully skips if geometry not yet loaded.
+- Created `src/postgres-init/31_barangay_geometry.sql` â€” adds `geometry GEOGRAPHY(POLYGON, 4326)` + GiST index to `ref_barangays`.
+- Added `_reverse_geocode_barangay(db, incident_id, lon, lat)` to `src/backend/api/routes/regional.py` â€” called after incident INSERT in 3 locations (_commit_wildland_afor_row, AFOR structural commit loop, create_incident). Uses `ST_Contains` + calls `sync_incident_to_analytics`. Gracefully skips if geometry not yet loaded.
 - Updated gap register: RESOLVED in code, verification pending (needs PSGC polygon data loaded + existing incidents re-synced).
 
 ## [2026-05-16] gap | TOP-N barangay dimension broken for AFOR-imported/manual incidents
@@ -1201,19 +1213,19 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 
 ## [2026-05-14] handoff | Session complete, handoff file created
 - AGENTS.md updated: added "System Wiki & Agent Context Routing" section pointing agents to system-wiki/.
-- Session handoff created: `sessions/2026-05-14_1605_x1n4te_system-wiki-initialization-uiux-evaluations.md` — full session summary, recommended skills, known conventions, open questions.
+- Session handoff created: `sessions/2026-05-14_1605_x1n4te_system-wiki-initialization-uiux-evaluations.md` â€” full session summary, recommended skills, known conventions, open questions.
 - Open items for next session: wiki-dir/ cleanup decision, next desk-check page, groupmate wiki access, GitHub Issues conversion of gap register.
 
 ## [2026-05-14] add | National analyst dashboard evaluation
 - Raw notes added to `raw/ui-ux/evaluation-national-analyst.md`.
-- Synthesis created at `ui-ux/evaluation-national-analyst.md` — layout issues (L-01–L-04), filter issues (F-01–F-02), plus FRS/codebase gaps not explicitly raised by user (G-01–G-08).
-- Cross-referenced with FRS M5 (Analytics), GitHub issues #84–#89.
-- Key findings from FRS not raised by user: Top municipalities view missing (G-01), Average response time by region missing (G-02), P0 CRITICAL data pipeline bug (#84 — verify_incident() no analytics sync).
-- Execution order per #89: Phase 0 → Phase 1 → Phase 2/3 (parallel) → Phase 5 → Phase 4.
+- Synthesis created at `ui-ux/evaluation-national-analyst.md` â€” layout issues (L-01â€“L-04), filter issues (F-01â€“F-02), plus FRS/codebase gaps not explicitly raised by user (G-01â€“G-08).
+- Cross-referenced with FRS M5 (Analytics), GitHub issues #84â€“#89.
+- Key findings from FRS not raised by user: Top municipalities view missing (G-01), Average response time by region missing (G-02), P0 CRITICAL data pipeline bug (#84 â€” verify_incident() no analytics sync).
+- Execution order per #89: Phase 0 â†’ Phase 1 â†’ Phase 2/3 (parallel) â†’ Phase 5 â†’ Phase 4.
 - Added to `ui-ux-gap-register.md` (National Analyst Dashboard section) and `index.md` (UI/UX Evaluations section).
 - SCHEMA.md authority model: "Empty or incomplete FRS source files" rule preserved (applies if future sources are empty).
 
-## [2026-05-20] implement | Civilian Reporting Phase 2 — Issue 1: schema/bootstrap
+## [2026-05-20] implement | Civilian Reporting Phase 2 â€” Issue 1: schema/bootstrap
 
 **Session context:** Issue 1 of 12 vertical slices. Schema and bootstrap only; no API/frontend/validator work.
 
@@ -1222,7 +1234,7 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - `citizen_report_clusters` and `citizen_report_cluster_members`: folded into `05_citizen_reports.sql` (Phase 2 cluster workflow state with anchor/claim/merge tracking).
 - `ref_fire_stations.phone`: added to table definition in `32_ref_fire_stations.sql`; `32b_citizen_reports_station_fk.sql` defers FK constraint for `nearest_station_id`.
 - `01_extensions_roles.sql`: made idempotent with `DO $$ EXCEPTION WHEN duplicate_object $$` blocks for all roles and wims_app.
-- `10_rls_policies.sql`: Phase 2 citizen_reports RLS policies — public signal records, ANONYMOUS insert/select allowed, validator/admin write access.
+- `10_rls_policies.sql`: Phase 2 citizen_reports RLS policies â€” public signal records, ANONYMOUS insert/select allowed, validator/admin write access.
 - `11_analytics_facts.sql`: added `DROP POLICY IF EXISTS` for idempotent bootstrap re-runs.
 - Bootstrap test (`test_wims_initial_schema_bootstrap.py`): updated to apply all numbered SQL files in sequence, added Phase 2 column/constraint/index assertions, updated `test_database_schema.py` TestForensicConstraint to test ACTIONED instead of deprecated VERIFIED.
 
@@ -1230,7 +1242,7 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - `test_database_schema.py` (7/7 pass against live DB): all constraint tests including Phase 2 status values.
 - `test_wims_initial_schema_bootstrap.py`: bootstrap test has idempotency gaps in multiple pre-existing SQL files (13_export_reports.sql, 15_validator_workflow.sql, 17_cross_region_validator.sql, 17_immutable_records.sql) that use `CREATE POLICY` without `DROP POLICY IF EXISTS`. These are pre-existing issues outside Issue 1 scope. On first fresh-DB run (from template0) the bootstrap test passes.
 
-**Verification against live running DB (test_database_schema.py — 7/7 pass):**
+**Verification against live running DB (test_database_schema.py â€” 7/7 pass):**
 - `citizen_reports` has all Phase 2 columns including `source_url`, `previous_report_id`, `link_count`, `status_explanation`.
 - `citizen_report_clusters` table exists with all ADR columns (anchor_report_id, status, status_note, internal_note, acted_by, assigned_to, review_started_at, created_at, updated_at, closed_at, merged_into_cluster_id).
 - `citizen_report_cluster_members` table exists with all ADR columns (cluster_id, report_id, linked_by, created_at).
@@ -1239,12 +1251,12 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - ACTIONED status requires validated_by (TestForensicConstraint updated from deprecated VERIFIED).
 
 **Known gaps (out of Issue 1 scope):**
-- `05_citizen_reports.sql` comment says status_explanation CHECK is commented — re-enable in Issue 2 API phase.
+- `05_citizen_reports.sql` comment says status_explanation CHECK is commented â€” re-enable in Issue 2 API phase.
 - Bootstrap test idempotency: many pre-existing SQL files not idempotent; test passes on first fresh run but fails on re-run from same Docker session due to "policy already exists" errors. Resolvable by adding DROP POLICY IF EXISTS to ~8 SQL files but that's Scope Creep.
 - `test_wims_initial_schema_bootstrap.py` uses hardcoded file list; relaxed to auto-discover all numbered .sql files.
 - `_postgres_init_dir()` override check updated to not require `01_wims_initial.sql` specifically (actual Docker path uses `01_extensions_roles.sql`).
 
-## [2026-05-20] implement | Civilian Reporting Phase 2 — Issue 2: submission/tracking API
+## [2026-05-20] implement | Civilian Reporting Phase 2 â€” Issue 2: submission/tracking API
 
 **Session context:** Issue 2 of 12 vertical slices. Backend API/schema/tests only; no public frontend or validator UI work.
 
@@ -1281,7 +1293,7 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - Created `plans/civilian-reporting-phase-2-implementation-issues.md` with 12 vertical implementation slices covering schema, APIs, public UX, tracking, triage projection, cluster workflow, validator UI, terminal actions, split/merge, timeout job, and final integration.
 
 ## [2026-05-14] split | Functional bugs moved from UI/UX register to standalone register
-- `gaps/functional-bug-register.md` created — holds 5 teammate-reported functional/auth bugs (M12).
+- `gaps/functional-bug-register.md` created â€” holds 5 teammate-reported functional/auth bugs (M12).
 - Teammate bugs section removed from `gaps/ui-ux-gap-register.md`; cross-links added in both directions.
 - `gaps/frs-codebase-gap-register.md` Related section updated to include `functional-bug-register`.
 - `index.md` Gaps section updated: all 3 gap registers now listed separately.
@@ -1290,13 +1302,13 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 ## [2026-05-14] add | Teammate-reported bugs to UI/UX gap register
 - 5 bugs added to `gaps/ui-ux-gap-register.md` (Teammate-Reported Bugs section):
   - System Audit record_id shows "-" on create user actions (M12).
-  - First login allows missing First Name, Last Name, device name — Keycloak profile validation not enforced.
-  - No username change opportunity on first login — admin expects but no UI exists.
-  - Session lifespan too short / fast logout — Keycloak token config issue.
-  - No account recovery if TOTP authenticator is deleted — hard lockout, no fallback.
+  - First login allows missing First Name, Last Name, device name â€” Keycloak profile validation not enforced.
+  - No username change opportunity on first login â€” admin expects but no UI exists.
+  - Session lifespan too short / fast logout â€” Keycloak token config issue.
+  - No account recovery if TOTP authenticator is deleted â€” hard lockout, no fallback.
 
 ## [2026-05-14] split | UI/UX gaps separated from FRS codebase gap register
-- Created `gaps/ui-ux-gap-register.md` — standalone gap register for UI/UX issues.
+- Created `gaps/ui-ux-gap-register.md` â€” standalone gap register for UI/UX issues.
 - Removed UI/UX section from `gaps/frs-codebase-gap-register.md`; added cross-link.
 - `index.md` updated: total pages 12 -> 13, Gaps section now lists both registers separately.
 - Updated header in `ui-ux-gap-register.md` to reflect teammate as well as user evaluations.
@@ -1312,60 +1324,60 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - SCHEMA.md updated: added `ui-ux` to types and `ui-ux`, `hci` to domains taxonomy.
 - `index.md` updated: total pages 10 -> 12, added UI/UX Evaluations section, updated Raw Source Captures description.
 ## [2026-05-14] split | UI/UX gaps separated from FRS codebase gap register
-- Created `gaps/ui-ux-gap-register.md` — standalone gap register for UI/UX issues.
+- Created `gaps/ui-ux-gap-register.md` â€” standalone gap register for UI/UX issues.
 - Removed UI/UX section from `gaps/frs-codebase-gap-register.md`; added cross-link.
 - `index.md` updated: total pages 12 -> 13, Gaps section now lists both registers separately.
 - Updated header in `ui-ux-gap-register.md` to reflect teammate as well as user evaluations.
 ## [2026-05-14] add | Teammate-reported bugs to UI/UX gap register
 - 5 bugs added to `gaps/ui-ux-gap-register.md` (Teammate-Reported Bugs section):
   - System Audit record_id shows "-" on create user actions (M12).
-  - First login allows missing First Name, Last Name, device name — Keycloak profile validation not enforced.
-  - No username change opportunity on first login — admin expects but no UI exists.
-  - Session lifespan too short / fast logout — Keycloak token config issue.
-  - No account recovery if TOTP authenticator is deleted — hard lockout, no fallback.
+  - First login allows missing First Name, Last Name, device name â€” Keycloak profile validation not enforced.
+  - No username change opportunity on first login â€” admin expects but no UI exists.
+  - Session lifespan too short / fast logout â€” Keycloak token config issue.
+  - No account recovery if TOTP authenticator is deleted â€” hard lockout, no fallback.
 ## [2026-05-14] split | Functional bugs moved from UI/UX register to standalone register
-- `gaps/functional-bug-register.md` created — holds 5 teammate-reported functional/auth bugs (M12).
+- `gaps/functional-bug-register.md` created â€” holds 5 teammate-reported functional/auth bugs (M12).
 - Teammate bugs section removed from `gaps/ui-ux-gap-register.md`; cross-links added in both directions.
 - `gaps/frs-codebase-gap-register.md` Related section updated to include `functional-bug-register`.
 - `index.md` Gaps section updated: all 3 gap registers now listed separately.
 - `log.md` entries updated to reflect split.
 ## [2026-05-14] add | National analyst dashboard evaluation
 - Raw notes added to `raw/ui-ux/evaluation-national-analyst.md`.
-- Synthesis created at `ui-ux/evaluation-national-analyst.md` — layout issues (L-01–L-04), filter issues (F-01–F-02), plus FRS/codebase gaps not explicitly raised by user (G-01–G-08).
-- Cross-referenced with FRS M5 (Analytics), GitHub issues #84–#89.
-- Key findings from FRS not raised by user: Top municipalities view missing (G-01), Average response time by region missing (G-02), P0 CRITICAL data pipeline bug (#84 — verify_incident() no analytics sync).
-- Execution order per #89: Phase 0 → Phase 1 → Phase 2/3 (parallel) → Phase 5 → Phase 4.
+- Synthesis created at `ui-ux/evaluation-national-analyst.md` â€” layout issues (L-01â€“L-04), filter issues (F-01â€“F-02), plus FRS/codebase gaps not explicitly raised by user (G-01â€“G-08).
+- Cross-referenced with FRS M5 (Analytics), GitHub issues #84â€“#89.
+- Key findings from FRS not raised by user: Top municipalities view missing (G-01), Average response time by region missing (G-02), P0 CRITICAL data pipeline bug (#84 â€” verify_incident() no analytics sync).
+- Execution order per #89: Phase 0 â†’ Phase 1 â†’ Phase 2/3 (parallel) â†’ Phase 5 â†’ Phase 4.
 - Added to `ui-ux-gap-register.md` (National Analyst Dashboard section) and `index.md` (UI/UX Evaluations section).
 - SCHEMA.md authority model: "Empty or incomplete FRS source files" rule preserved (applies if future sources are empty).
-## [2026-05-17] add | PR QA pages for May 2026 batch (PRs #102–#105)
+## [2026-05-17] add | PR QA pages for May 2026 batch (PRs #102â€“#105)
 - Created `pr-qa/` directory with 5 QA pages: batch overview + 4 individual PR docs
-- PR #102 (laqqui): M4 post-fix — AFOR import gaps, field persistence, validator audit 500, VALIDATOR role 404, immutable rule fix, seed incidents, barangay geometry reversal. 7 bug clusters all resolved. ✅ APPROVE
-- PR #103 (orljorstin, #70): Prometheus /metrics endpoint, worker heartbeat (30s), /api/admin/monitoring/workers, /api/admin/monitoring/system, worker_heartbeat.sql. 7/7 tests pass. Merge after #104. ✅ APPROVE
-- PR #104 (orljorstin, #69): XAI incident narrative generation via Qwen2.5-3B, POST /incidents/{id}/narrative, batch endpoint, ai_narrative + confidence columns. 8/8 tests pass. Prompt injection noted as low risk. ✅ APPROVE
-- PR #105 (orljorstin, #68): Suricata HIGH auto-incident creation, duplicate guard, security_alert_id FK, service account svc_suricata (pre-provisioned in 03_users.sql). 10/10 tests. ✅ APPROVE
-- Critical finding: PR #105's service account concern resolved — svc_suricata UUID 00000000-0000-0000-0000-000000000001 already seeded in 03_users.sql with NATIONAL_ANALYST role.
+- PR #102 (laqqui): M4 post-fix â€” AFOR import gaps, field persistence, validator audit 500, VALIDATOR role 404, immutable rule fix, seed incidents, barangay geometry reversal. 7 bug clusters all resolved. âœ… APPROVE
+- PR #103 (orljorstin, #70): Prometheus /metrics endpoint, worker heartbeat (30s), /api/admin/monitoring/workers, /api/admin/monitoring/system, worker_heartbeat.sql. 7/7 tests pass. Merge after #104. âœ… APPROVE
+- PR #104 (orljorstin, #69): XAI incident narrative generation via Qwen2.5-3B, POST /incidents/{id}/narrative, batch endpoint, ai_narrative + confidence columns. 8/8 tests pass. Prompt injection noted as low risk. âœ… APPROVE
+- PR #105 (orljorstin, #68): Suricata HIGH auto-incident creation, duplicate guard, security_alert_id FK, service account svc_suricata (pre-provisioned in 03_users.sql). 10/10 tests. âœ… APPROVE
+- Critical finding: PR #105's service account concern resolved â€” svc_suricata UUID 00000000-0000-0000-0000-000000000001 already seeded in 03_users.sql with NATIONAL_ANALYST role.
 - FRS gap closures: M6-G (XAI narratives), M6-F (Suricata auto-incident), M9 (Prometheus monitoring partial), M4 (incident workflow fixes).
-- Merge order: #102 → #104 → #103 → #105
-- Index updated: total pages 13 → 18
+- Merge order: #102 â†’ #104 â†’ #103 â†’ #105
+- Index updated: total pages 13 â†’ 18
 
 ## [2026-05-23] docs | prominent mandatory wiki update rule in AGENTS
 - `AGENTS.md`: added a top-level "Mandatory System Wiki Update Rule" and a "Before Final Response Checklist" so agents, including less capable models, see the system-wiki update requirement before and after implementation work.
 - No synthesis page or FRS gap register change was needed because this updates agent operating instructions, not WIMS-BFP runtime behavior or FRS/codebase alignment.
 
-## [2026-05-23] fix | deploy health check routing mismatch — /health vs /api/health
-- `.github/workflows/deploy.yml`: health check was curling `http://localhost/api/health` which nginx proxies to `backend:8000/api/health` — but the backend route is `/health` (no `api` prefix), so every attempt returned 404. Fixed by running `docker exec wims-backend python -c "import httpx; httpx.get('http://localhost:8000/health', timeout=5).raise_for_status()"` instead of the host-level curl. This checks the backend directly from within its own container network namespace, bypassing nginx, and uses Python/httpx which is already installed.
+## [2026-05-23] fix | deploy health check routing mismatch â€” /health vs /api/health
+- `.github/workflows/deploy.yml`: health check was curling `http://localhost/api/health` which nginx proxies to `backend:8000/api/health` â€” but the backend route is `/health` (no `api` prefix), so every attempt returned 404. Fixed by running `docker exec wims-backend python -c "import httpx; httpx.get('http://localhost:8000/health', timeout=5).raise_for_status()"` instead of the host-level curl. This checks the backend directly from within its own container network namespace, bypassing nginx, and uses Python/httpx which is already installed.
 - Root cause: the FastAPI route is `GET /health` at line 255 of `main.py`, but the nginx `location /api/` proxy passes the full `/api/health` path upstream, so uvicorn never matches it.
 - `system-wiki/architecture/pwa-tests-cicd.md`: updated VPS Deploy health check description.
 - `system-wiki/log.md` and `system-wiki/index.md`: last-changes updated.
-- Verification: `docker exec wims-backend python -c "import httpx; print(httpx.get('http://localhost:8000/health').text)"` → `{"status":"ok"}` confirmed.
-- `.github/workflows/deploy.yml`: added 15-second settle delay before the post-restart health polling loop, and extended polling from 30×2s = 60s to 45×2s = 90s total capacity. Root cause: uvicorn cold-start + SQLAlchemy lazy engine initialization + Keycloak token validation on /health causes the backend to be unavailable for ~60+ seconds after a rolling restart under load. The 30-attempt limit was insufficient.
+- Verification: `docker exec wims-backend python -c "import httpx; print(httpx.get('http://localhost:8000/health').text)"` â†’ `{"status":"ok"}` confirmed.
+- `.github/workflows/deploy.yml`: added 15-second settle delay before the post-restart health polling loop, and extended polling from 30Ã—2s = 60s to 45Ã—2s = 90s total capacity. Root cause: uvicorn cold-start + SQLAlchemy lazy engine initialization + Keycloak token validation on /health causes the backend to be unavailable for ~60+ seconds after a rolling restart under load. The 30-attempt limit was insufficient.
 - `system-wiki/architecture/pwa-tests-cicd.md`: documented the new settle delay and extended polling window in the VPS Deploy section.
-- Root cause also confirmed: nginx.conf serves `/health` directly at line 16 (returns `{"status":"ok","via":"nginx-gateway"}`), so the health check curl hits nginx on port 80 — not the backend — but the deploy script's `docker compose up -d backend` does not wait for uvicorn to be responsive, causing the timing mismatch.
+- Root cause also confirmed: nginx.conf serves `/health` directly at line 16 (returns `{"status":"ok","via":"nginx-gateway"}`), so the health check curl hits nginx on port 80 â€” not the backend â€” but the deploy script's `docker compose up -d backend` does not wait for uvicorn to be responsive, causing the timing mismatch.
 - Verification: syntax check passed.
 
-## [2026-05-23] fix | deploy SSH envs passthrough — DEPLOY_COMMIT unbound variable
+## [2026-05-23] fix | deploy SSH envs passthrough â€” DEPLOY_COMMIT unbound variable
 
-- `.github/workflows/deploy.yml`: added `DEPLOY_COMMIT` to the `Deploy via SSH` step's `envs:` list and added the corresponding `export DEPLOY_COMMIT="$DEPLOY_COMMIT"` in the script block. The `deploy` job's `env:` block already set `DEPLOY_COMMIT: ${{ github.sha }}`, but the SSH action's `envs:` passthrough did not include it. When `set -euo pipefail` fired at line 172, `DEPLOY_COMMIT` was unbound → exit 1, before the health check could even run. The actual health check had passed (confirmed by the `Backend /health check passed` line that appeared before the error).
+- `.github/workflows/deploy.yml`: added `DEPLOY_COMMIT` to the `Deploy via SSH` step's `envs:` list and added the corresponding `export DEPLOY_COMMIT="$DEPLOY_COMMIT"` in the script block. The `deploy` job's `env:` block already set `DEPLOY_COMMIT: ${{ github.sha }}`, but the SSH action's `envs:` passthrough did not include it. When `set -euo pipefail` fired at line 172, `DEPLOY_COMMIT` was unbound â†’ exit 1, before the health check could even run. The actual health check had passed (confirmed by the `Backend /health check passed` line that appeared before the error).
 
 - `system-wiki/architecture/pwa-tests-cicd.md`: documented the `envs:` passthrough requirement and the root cause.
 
@@ -1373,7 +1385,7 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - `.github/workflows/deploy.yml`: changed rollback image capture from `docker compose ... --format json | jq ...` to `docker compose ... images -q backend | head -n 1`, avoiding a missing `jq` dependency on the VPS.
 - `src/frontend/src/app/dashboard/analyst/queue-baseline.test.tsx`: replaced default 1s label waits for the Top-N Metric/Dimension controls with explicit 5s async `findByLabelText` waits. The test was intermittently seeing the dashboard loading/header state before Top-N rendered under CI load.
 - `system-wiki/architecture/pwa-tests-cicd.md` and `system-wiki/index.md`: updated deployment/test notes.
-- Verification: `.github/workflows/deploy.yml` parsed successfully with Ruby YAML; `git diff --check` passed; `cd src/frontend && npx vitest run` → 20 files / 130 tests passed.
+- Verification: `.github/workflows/deploy.yml` parsed successfully with Ruby YAML; `git diff --check` passed; `cd src/frontend && npx vitest run` â†’ 20 files / 130 tests passed.
 
 ## [2026-05-23] fix | deploy workflow SSH step divergence and DB probe
 - `.github/workflows/deploy.yml`: changed the VPS SSH deploy script to `set -euo pipefail`, replace ambiguous `git pull origin master` with `git fetch origin master` + `git checkout -B master origin/master`, and rewrite the backend DB connectivity check as a one-line `python -c` command using `database.get_engine()`.
@@ -1388,12 +1400,12 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - Verification: `.github/workflows/deploy.yml` parsed successfully with Ruby YAML.
 
 ## [2026-05-19] update | analyst incident detail page full redesign (working tree)
-- `src/frontend/src/app/dashboard/analyst/incidents/[id]/page.tsx` — complete UI overhaul (+597/-617 lines, 935 total):
+- `src/frontend/src/app/dashboard/analyst/incidents/[id]/page.tsx` â€” complete UI overhaul (+597/-617 lines, 935 total):
   - **Page header**: ref-number title, status/type/alarm icon badges, location line, styled export buttons
   - **QuickStats bar**: 4 KPI tiles (Response Time, Est. Damage, Structures Hit, Families Hit) with accent colors + tooltips
-  - **SECTION_ICONS map**: semantic icons per section A–H + Wildland
+  - **SECTION_ICONS map**: semantic icons per section Aâ€“H + Wildland
   - **CollapsibleSection** rebuilt: icon container, description subtitle, badge, locked state, full ARIA (`aria-expanded`, `aria-controls`, `role="region"`)
-  - **FieldRow** rebuilt: `twocol` mode (2-col grid), `highlight` mode (red text for key metrics), null-safe with "—" fallback
+  - **FieldRow** rebuilt: `twocol` mode (2-col grid), `highlight` mode (red text for key metrics), null-safe with "â€”" fallback
   - **AlarmVisual**: step-by-step timeline with numbered circles + connecting lines for spatial alarm-level encoding
   - **WildlandSection**: locked for STRUCTURAL_AFOR, shows alarm_statuses + assistance_rows tables when WILDLAND_AFOR
   - **SensitiveSection** rebuilt: gradient card gate, per-field blur+reveal eye toggle, "Hide All" button, revealed field counter, lazy-load on user click
@@ -1405,7 +1417,7 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 ## [2026-05-20] fix | civilian reporting phase 2 issue 5 triage queue tests
 - `src/backend/api/routes/triage.py`: fixed `/api/triage/queue` quick filters by moving computed `confidence` and `claimed_by_me` checks out of SQL, making `rejected_today`/`actioned_today` terminal-status modes, correcting duplicate-device counts, and aligning severity to neighborhood size semantics.
 - `src/backend/tests/integration/test_triage_queue.py`: isolated triage queue test data per test, narrowed the privacy assertion to raw `device_id` fields, and corrected test coordinate fixture behavior for PostGIS geography distance checks.
-- Verification: `cd src && docker compose build backend && docker compose run --rm backend pytest tests/integration/test_triage_queue.py -v` → 39 passed.
+- Verification: `cd src && docker compose build backend && docker compose run --rm backend pytest tests/integration/test_triage_queue.py -v` â†’ 39 passed.
 
 ## [2026-05-20] add | civilian reporting phase 2 issue 6 cluster claim workflow
 - `src/backend/api/routes/triage.py`: added cluster workflow endpoints for `POST /api/triage/clusters/{cluster_id}/claim`, `POST /api/triage/clusters/{cluster_id}/activity`, and `GET /api/triage/clusters/{cluster_id}/activity`.
@@ -1413,7 +1425,7 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - Stale claims are based on 15 minutes without `updated_at` activity; `NATIONAL_VALIDATOR`/`SYSTEM_ADMIN` takeover requires a reason and writes audit/internal-note context.
 - Activity refresh updates claim freshness and writes audit rows; history projection combines cluster creation, membership additions, and cluster audit events without exposing raw device/IP/token fields.
 - `src/backend/tests/integration/test_triage_queue.py`: added Issue 6 integration coverage for claim, active-claim blocking, stale takeover with required reason, activity refresh, and history/audit projection.
-- Verification: `cd src && docker compose build backend && docker compose run --rm backend pytest tests/integration/test_triage_queue.py -v` → 43 passed.
+- Verification: `cd src && docker compose build backend && docker compose run --rm backend pytest tests/integration/test_triage_queue.py -v` â†’ 43 passed.
 
 ## [2026-05-20] add | civilian reporting phase 2 workflow completion pass
 - `src/backend/api/routes/civilian.py`: added non-blocking duplicate suggestion endpoint for non-life-safety reports and tightened append rate limiting to one append per device per 5 minutes across linked reports.
@@ -1423,7 +1435,7 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - `src/frontend/src/app/incidents/triage/page.tsx`: rebuilt around Phase 2 `/api/triage/queue`, quick filters, polling, claim indicators, cluster inspection, row selection, and terminal action preview/apply.
 - `src/frontend/src/app/report/page.tsx`: persists a browser device id and calls duplicate suggestions before non-life-safety review.
 - Tests updated for duplicate suggestions, durable singleton clusters, terminal action explanation/audit, timeout behavior, and disabled promotion.
-- Verification: `cd src && docker compose build backend && docker compose run --rm backend pytest tests/integration/test_civilian_api.py tests/integration/test_triage_queue.py -q` → 57 passed; `cd src/frontend && npm run build` → passed; targeted ESLint on edited frontend files → passed.
+- Verification: `cd src && docker compose build backend && docker compose run --rm backend pytest tests/integration/test_civilian_api.py tests/integration/test_triage_queue.py -q` â†’ 57 passed; `cd src/frontend && npm run build` â†’ passed; targeted ESLint on edited frontend files â†’ passed.
 
 ## [2026-05-20] add | civilian reporting phase 2 follow-up timeline and validator controls
 - `src/backend/api/routes/civilian.py` and `src/backend/schemas/civilian.py`: added `GET /api/civilian/reports/{report_id}/timeline` for parent report plus linked append children.
@@ -1432,46 +1444,46 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - `src/frontend/src/app/incidents/triage/page.tsx`: added activity/history projection inside the cluster inspection modal.
 - `src/postgres-init/36_ref_fire_stations_phone_null.sql`: changed station contact fallback from `NULL` to `911` until authoritative per-station phone data is loaded.
 - Tests updated for timeline, correction, split, and merge behavior.
-- Verification: `cd src && docker compose build backend && docker compose run --rm backend pytest tests/integration/test_civilian_api.py tests/integration/test_triage_queue.py -q` → 61 passed; `cd src/frontend && npm run build` → passed; targeted ESLint on edited frontend files → passed.
+- Verification: `cd src && docker compose build backend && docker compose run --rm backend pytest tests/integration/test_civilian_api.py tests/integration/test_triage_queue.py -q` â†’ 61 passed; `cd src/frontend && npm run build` â†’ passed; targeted ESLint on edited frontend files â†’ passed.
 
-## [2026-05-23] merge | PR #122 + #123 to master — admin hub gaps + analytics phantom columns
+## [2026-05-23] merge | PR #122 + #123 to master â€” admin hub gaps + analytics phantom columns
 
 **Session context:** Merged two PRs to master, resolved 4 merge conflicts (auth-refresh.ts, auth.tsx, AuthContext.tsx, nginx.conf), fixed pre-existing test bug in `test_regional_afor_unified_import.py`.
 
 **Merge decisions:**
-- `auth-refresh.ts` — kept **master** (singleton ref + Web Locks API + doRefresh fallback pattern)
-- `auth.tsx` — kept **master** (`@/lib/auth-refresh` absolute import path)
-- `AuthContext.tsx` — kept **master** (refreshInFlightRef per-tab deduplication)
-- `nginx.conf` — kept **pr122-local** (full TLS + upstream{} block, master had placeholder)
+- `auth-refresh.ts` â€” kept **master** (singleton ref + Web Locks API + doRefresh fallback pattern)
+- `auth.tsx` â€” kept **master** (`@/lib/auth-refresh` absolute import path)
+- `AuthContext.tsx` â€” kept **master** (refreshInFlightRef per-tab deduplication)
+- `nginx.conf` â€” kept **pr122-local** (full TLS + upstream{} block, master had placeholder)
 
 **Key changes landed:**
 - PR #122: `POST /admin/restore`, `GET/DELETE /admin/sessions/{user_id}[/{session_id}]`, `PATCH /admin/scheduled-reports/{id}`, Redis `decode_responses=True` fix, barangay support in MapPicker + AFOR parser
-- PR #123: trimmed 9 phantom columns from `analytics_incident_facts` sync/INSERT/UPDATE (columns existed in code but not in DB schema — caused `UndefinedColumn`, making facts table permanently empty)
+- PR #123: trimmed 9 phantom columns from `analytics_incident_facts` sync/INSERT/UPDATE (columns existed in code but not in DB schema â€” caused `UndefinedColumn`, making facts table permanently empty)
 
 **Pre-existing test bug fixed:**
-- `test_commit_structural_persists_wgs84_coordinates` — seed data triggered 1000m duplicate detection, returning `DUPLICATE_CHECK_REQUIRED` instead of `incident_ids`. Fixed by re-committing with `resolutions: [{"row_index": 0, "action": "force"}]`
+- `test_commit_structural_persists_wgs84_coordinates` â€” seed data triggered 1000m duplicate detection, returning `DUPLICATE_CHECK_REQUIRED` instead of `incident_ids`. Fixed by re-committing with `resolutions: [{"row_index": 0, "action": "force"}]`
 
-**Tests:** 322 passed. 4 failures — all `test_keycloak_password_reset.py` requiring live Keycloak (environment limitation, not code).
+**Tests:** 322 passed. 4 failures â€” all `test_keycloak_password_reset.py` requiring live Keycloak (environment limitation, not code).
 
-## [2026-05-20] update | Civilian Reporting Phase 2 — final completion pass
+## [2026-05-20] update | Civilian Reporting Phase 2 â€” final completion pass
 
 **Session context:** Handoff continuation. Completed remaining Phase 2 slices from `civilian-reporting-phase-2.md` and `frs-codebase-gap-register.md`.
 
 **Implemented:**
 - **Merge-candidate discovery (backend):** `GET /api/triage/clusters/{cluster_id}/merge-candidates` returns conservative nearby clusters within 250m and 1 hour using PostGIS `ST_DWithin` + `ST_Distance` geography. Filters out own cluster and `CLUSTER_CLOSED` targets.
 - **Merge-candidate discovery (API client):** `fetchMergeCandidates(clusterId)` in `src/frontend/src/lib/api.ts` with `MergeCandidateEntry` interface.
-- **Merge-candidate discovery (UI):** Candidate list rendered in validator inspection modal — shows cluster id, anchor report, distance, minutes, member count, status. Each candidate pre-fills the merge source id + auto-generates internal note on click.
+- **Merge-candidate discovery (UI):** Candidate list rendered in validator inspection modal â€” shows cluster id, anchor report, distance, minutes, member count, status. Each candidate pre-fills the merge source id + auto-generates internal note on click.
 - **Map-based cluster inspection:** New `ClusterInspectionMap` + `ClusterMapInner` components using react-leaflet with dynamic import (SSR-safe). Shows report locations as red markers, suggested merge source anchors as blue markers, 100m radius circle around anchor report.
-- **Navigation shortcut help:** `Esc` closes modal, `R` refreshes queue — only when focus is outside input/textarea/select. Shortcut hint displayed in modal header ("Esc close · R refresh").
+- **Navigation shortcut help:** `Esc` closes modal, `R` refreshes queue â€” only when focus is outside input/textarea/select. Shortcut hint displayed in modal header ("Esc close Â· R refresh").
 - **Keyboard handler:** `useEffect` in triage page guards against firing when focus is in interactive elements.
 - **Backend tests for merge-candidates:** `TestMergeCandidates` class with 6 tests: 250m/1hr positive, >250m exclusion, >1hr exclusion, CLUSTER_CLOSED exclusion, 404 for nonexistent cluster, own-cluster exclusion.
-- **Frontend Vitest tests:** `src/frontend/src/app/incidents/triage/page.test.tsx` — 6 tests covering queue render, modal open, shortcut hint, Escape dismiss, merge-candidate display, input-guard protection.
+- **Frontend Vitest tests:** `src/frontend/src/app/incidents/triage/page.test.tsx` â€” 6 tests covering queue render, modal open, shortcut hint, Escape dismiss, merge-candidate display, input-guard protection.
 - **Components created:** `ClusterInspectionMap.tsx`, `ClusterMapInner.tsx`.
 
 **Verification results:**
-- Backend pytest (67 tests): `tests/integration/test_civilian_api.py` + `tests/integration/test_triage_queue.py` → **67 passed**
-- Frontend build: `npm run build` → passed
-- ESLint on edited frontend files → passed (no errors)
+- Backend pytest (67 tests): `tests/integration/test_civilian_api.py` + `tests/integration/test_triage_queue.py` â†’ **67 passed**
+- Frontend build: `npm run build` â†’ passed
+- ESLint on edited frontend files â†’ passed (no errors)
 - Frontend Vitest (6 tests in triage page): **6 passed**
 
 **Wiki updated:**
@@ -1488,7 +1500,7 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - `system-wiki/gaps/frs-codebase-gap-register.md`
 
 ## [2026-05-23] fix | moved nginx /health location directive from http{} level to HTTPS server{} block
-- Commit `32780a0`: moved nginx `/health` location directive from `http{}` level to HTTPS `server{}` block — fixes "location directive is not allowed here" config validity error. `/health` now served directly by nginx gateway, not proxied.
+- Commit `32780a0`: moved nginx `/health` location directive from `http{}` level to HTTPS `server{}` block â€” fixes "location directive is not allowed here" config validity error. `/health` now served directly by nginx gateway, not proxied.
 
 ## [2026-05-23] plan | staged architecture refactor pages
 - Added seven phase planning pages under `system-wiki/plans/` for the architecture refactor sequence:
@@ -1509,19 +1521,19 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 
 ## [2026-05-24] complete | Architecture Refactor Phase 0 Safety Baseline
 
-**Session context:** Baseline survey for architecture refactor chain (phases 0–6). No production code changed.
+**Session context:** Baseline survey for architecture refactor chain (phases 0â€“6). No production code changed.
 
 **Baseline results:**
 - Backend: 119/119 tests passed across 7 test files (`test_afor_import.py`, `test_regional_afor_unified_import.py`, `test_regional_crud.py`, `test_triage_queue.py`, `test_analytics_api.py`, `test_analyst_export.py`, `test_analyst_incidents_sql_contract.py`).
 - Frontend: 43/43 tests passed across 5 test files (`api.test.ts`, `incidents/triage/page.test.tsx`, `report/tracking/page.test.tsx`, `CalmEmergencyBlock.test.tsx`, `dashboard/analyst/page.test.tsx`).
-- 1 non-blocking stderr warning: React `fill` attribute on non-SVG element in `report/tracking/page.test.tsx` — does not affect functionality.
+- 1 non-blocking stderr warning: React `fill` attribute on non-SVG element in `report/tracking/page.test.tsx` â€” does not affect functionality.
 
 **Drift decisions deferred:**
-- `PENDING` vs `PENDING_VALIDATION` → Phase 3.
-- Civilian duplicate spatial rule (500m vs 100m/1hr) → Phase 4.
-- `top-barangays` endpoint existence → Phase 5.
+- `PENDING` vs `PENDING_VALIDATION` â†’ Phase 3.
+- Civilian duplicate spatial rule (500m vs 100m/1hr) â†’ Phase 4.
+- `top-barangays` endpoint existence â†’ Phase 5.
 
-**Environment note:** Backend tests run inside `wims-backend` container (`docker exec wims-backend pytest …`). Host Python lacks `jose`/`psycopg2`/Docker-backed DB session.
+**Environment note:** Backend tests run inside `wims-backend` container (`docker exec wims-backend pytest â€¦`). Host Python lacks `jose`/`psycopg2`/Docker-backed DB session.
 
 **No production code edited.** Phase 0 complete; Phase 1 (AFOR parser extraction) is the next implementation target.
 
@@ -1530,9 +1542,9 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 **Session context:** Pick up from prior session's handoff. Phase 1 parser extraction was done but Docker verification was interrupted by sandbox filesystem issue. Restarted Docker build and reran integration tests.
 
 **Implementation:**
-- `src/backend/services/afor_import/__init__.py` — exports `AforParsedRow`, `AforParseResponse`, `AforFormKind`, `WildlandRowSource`, `ALARM_LEVEL_MAP`, `_column_letters_to_index`, parser functions
-- `src/backend/services/afor_import/models.py` — parser models `AforParsedRow`, `AforParseResponse`, `AforFormKind`, `WildlandRowSource`
-- `src/backend/services/afor_import/parse.py` — parser implementation (structural/wildland/workbook/CSV)
+- `src/backend/services/afor_import/__init__.py` â€” exports `AforParsedRow`, `AforParseResponse`, `AforFormKind`, `WildlandRowSource`, `ALARM_LEVEL_MAP`, `_column_letters_to_index`, parser functions
+- `src/backend/services/afor_import/models.py` â€” parser models `AforParsedRow`, `AforParseResponse`, `AforFormKind`, `WildlandRowSource`
+- `src/backend/services/afor_import/parse.py` â€” parser implementation (structural/wildland/workbook/CSV)
 - Removed duplicated AFOR parser from `src/backend/api/routes/regional.py`; route now imports from `services.afor_import`
 - Updated `src/backend/tests/test_afor_import.py` to import parser symbols from `services.afor_import`
 
@@ -1541,22 +1553,22 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - Added missing `_column_letters_to_index()` to `parse.py`
 - Fixed malformed `_parse_ha_from_area_text()` after extraction
 
-**Verification:** Host `pytest tests/test_afor_import.py` → 13 passed. Docker integration after final parser fix → all pass.
+**Verification:** Host `pytest tests/test_afor_import.py` â†’ 13 passed. Docker integration after final parser fix â†’ all pass.
 
 ## [2026-05-24] complete | Phase 2 AFOR Commit Extraction
 
 **Session context:** Followed Phase 1 directly. Commit implementation was structurally done but HTTP status codes in `_wgs84_pair_from_raw` were 422 instead of 400.
 
 **Implementation:**
-- `src/backend/services/afor_import/models.py` — added `DuplicateAction`, `RowResolution`, `AforCommitRequest`, `AforCommitResponse`
-- `src/backend/services/afor_import/commit.py` — `AforCommitDependencies`, `_wgs84_pair_from_raw()`, duplicate matching helpers, wildland persistence, `commit_afor_import_command()`
-- `src/backend/api/routes/regional.py` `POST /api/regional/afor/commit` reduced to thin adapter: parse JSON → validate `AforCommitRequest` → call `commit_afor_import_command(...)` → return response
+- `src/backend/services/afor_import/models.py` â€” added `DuplicateAction`, `RowResolution`, `AforCommitRequest`, `AforCommitResponse`
+- `src/backend/services/afor_import/commit.py` â€” `AforCommitDependencies`, `_wgs84_pair_from_raw()`, duplicate matching helpers, wildland persistence, `commit_afor_import_command()`
+- `src/backend/api/routes/regional.py` `POST /api/regional/afor/commit` reduced to thin adapter: parse JSON â†’ validate `AforCommitRequest` â†’ call `commit_afor_import_command(...)` â†’ return response
 - Removed old AFOR commit helper block from `regional.py`
 
 **Fix applied during verification:**
 - `_wgs84_pair_from_raw` raised `HTTPException(status_code=422)` everywhere; original code used `status_code=400`. Fixed all 5 occurrences to `400`.
 
-**Verification:** Docker `pytest tests/test_afor_import.py tests/integration/test_regional_afor_unified_import.py` → 24 passed. `pytest tests/integration/test_regional_crud.py` → 15 passed.
+**Verification:** Docker `pytest tests/test_afor_import.py tests/integration/test_regional_afor_unified_import.py` â†’ 24 passed. `pytest tests/integration/test_regional_crud.py` â†’ 15 passed.
 
 **Cleanup:** Removed unused `sync_incidents_batch` import from `regional.py`.
 
@@ -1678,9 +1690,9 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 ## [2026-05-24] feat | Civilian routing overhaul + timeout fix
 
 **Changes implemented:**
-- Report form entry moved from `/report` to `/` (root) — `app/page.tsx` now renders the full report form; `app/report/page.tsx` deleted.
-- Tracking page moved from `/report/tracking` to `/tracking` — `app/tracking/page.tsx` + `app/tracking/page.test.tsx` created; old files deleted; internal `href="/report"` replaced with `href="/"` in all tracking page navigation CTAs.
-- Login page moved from `/login` to `/auth/login` — `app/auth/login/page.tsx` created; `app/login/page.tsx` deleted.
+- Report form entry moved from `/report` to `/` (root) â€” `app/page.tsx` now renders the full report form; `app/report/page.tsx` deleted.
+- Tracking page moved from `/report/tracking` to `/tracking` â€” `app/tracking/page.tsx` + `app/tracking/page.test.tsx` created; old files deleted; internal `href="/report"` replaced with `href="/"` in all tracking page navigation CTAs.
+- Login page moved from `/login` to `/auth/login` â€” `app/auth/login/page.tsx` created; `app/login/page.tsx` deleted.
 - `CalmEmergencyBlock.tsx` moved from `app/report/` to `app/` alongside page.tsx.
 - 8 hardcoded `/login` paths updated to `/auth/login` across: `AuthContext.tsx` (post-logout redirect + OIDC `post_logout_redirect_uri`), `lib/auth.tsx` (signOut), `lib/api/transport.ts` (401 redirect), `callback/page.tsx` (3 error paths), `LayoutShell.tsx` (2 isPublic checks).
 - `LayoutShell.tsx` isPublic guard: removed `/report` and `startsWith('/report')`, added `/auth/login` and `startsWith('/tracking')`.
@@ -1688,28 +1700,28 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 - ADR `0001-civilian-reporting-overhaul.md` Consequences updated to record new public entry point (`/`), login (`/auth/login`), and tracking (`/tracking`) routes.
 
 **Verification:**
-- `npm run lint` → 0 errors, 16 warnings (pre-existing).
-- `npx vitest run src/app/tracking/page.test.tsx` → 1 passed.
-- `npx vitest run src/app/CalmEmergencyBlock.test.tsx` → 3 passed.
+- `npm run lint` â†’ 0 errors, 16 warnings (pre-existing).
+- `npx vitest run src/app/tracking/page.test.tsx` â†’ 1 passed.
+- `npx vitest run src/app/CalmEmergencyBlock.test.tsx` â†’ 3 passed.
 - All route file locations verified to exist at new paths, deleted from old paths.
-- `npx vitest run src/app/incidents/triage/page.test.tsx` → 6 passed (new `is_danger` field in mock data).
-- Docker exec wims-backend python aging_flags test → 4/4 checks passed (30m/65m/95m/125m thresholds all correct).
+- `npx vitest run src/app/incidents/triage/page.test.tsx` â†’ 6 passed (new `is_danger` field in mock data).
+- Docker exec wims-backend python aging_flags test â†’ 4/4 checks passed (30m/65m/95m/125m thresholds all correct).
 
 **Danger indicator implementation:**
 - `policies.py`: added `DANGER_MINUTES = 120` constant; `aging_flags()` now returns 3-tuple `(is_aging, is_timeout_risk, is_danger)`.
 - `models.py`: `TriageReportEntry.is_danger` and `TriageClusterEntry.is_danger` added (bool, "> 120 min no validator action").
 - `queue_projection.py`: `is_danger` unpacked from `aging_flags()`, propagated to entry, cluster-level aggregation added.
-- `triage/page.tsx`: `is_danger` badge rendered in queue cards — pulsing red "Needs attention — 2h+" label, suppresses `is_timeout_risk` badge when both would show.
+- `triage/page.tsx`: `is_danger` badge rendered in queue cards â€” pulsing red "Needs attention â€” 2h+" label, suppresses `is_timeout_risk` badge when both would show.
 - `triage/page.test.tsx`: `is_danger: false` added to mock cluster entries.
-- 24-hour auto-reject (REJECTED_TIMEOUT) in `civilian_reports.py` unchanged — distinct from 2h visual danger indicator.
-- ADR `0001-civilian-reporting-overhaul.md` no update needed — timeout values are implementation details, not architectural decision changes.
+- 24-hour auto-reject (REJECTED_TIMEOUT) in `civilian_reports.py` unchanged â€” distinct from 2h visual danger indicator.
+- ADR `0001-civilian-reporting-overhaul.md` no update needed â€” timeout values are implementation details, not architectural decision changes.
 
 ## [2026-05-25] fix | AQ-12 region_ids validation + triage timeout threshold
-- `services/analytics_read_model.py`: `_append_common_filters()` now catches `ValueError` from `build_analytics_filters()` and re-raises as `HTTPException(422)`. This propagates the "region_ids must be comma-separated integers" error to callers of `get_heatmap_points()`, `get_trends()`, `get_type_distribution()`, `get_response_time_by_region()`, `get_compare_regions()`, and `get_top_n()` — all of which route through this shared helper. Fixes `test_region_ids_must_be_valid_integers` (AQ-12).
+- `services/analytics_read_model.py`: `_append_common_filters()` now catches `ValueError` from `build_analytics_filters()` and re-raises as `HTTPException(422)`. This propagates the "region_ids must be comma-separated integers" error to callers of `get_heatmap_points()`, `get_trends()`, `get_type_distribution()`, `get_response_time_by_region()`, `get_compare_regions()`, and `get_top_n()` â€” all of which route through this shared helper. Fixes `test_region_ids_must_be_valid_integers` (AQ-12).
 - `tasks/civilian_reports.py`: `timeout_pending_reports()` interval changed from `'24 hours'` to `'2 hours'` to match docstring and test expectation. Fixes `test_timeout_task_rejects_old_pending_but_not_under_review`.
 
-## [2026-05-25] fix | AQ-12 validation fix — route-level try/except added
-- `api/routes/analytics.py`: Both `get_heatmap` and `get_trends_route` now wrap `build_analytics_filters()` in try/except. `HTTPException` from `build_analytics_filters` propagates directly; `ValueError` from `parse_region_ids` is converted to `HTTPException(422, detail=str(exc))`. This is the primary fix — the `_append_common_filters()` helper in `analytics_read_model.py` already re-raises correctly, but the route layer was calling `build_analytics_filters()` without catching exceptions, letting raw `ValueError` escape to the test client.
+## [2026-05-25] fix | AQ-12 validation fix â€” route-level try/except added
+- `api/routes/analytics.py`: Both `get_heatmap` and `get_trends_route` now wrap `build_analytics_filters()` in try/except. `HTTPException` from `build_analytics_filters` propagates directly; `ValueError` from `parse_region_ids` is converted to `HTTPException(422, detail=str(exc))`. This is the primary fix â€” the `_append_common_filters()` helper in `analytics_read_model.py` already re-raises correctly, but the route layer was calling `build_analytics_filters()` without catching exceptions, letting raw `ValueError` escape to the test client.
 - Status: `test_region_ids_must_be_valid_integers` (AQ-12) fixed.
 
 ## [2026-05-26] docs | Agent skill configuration
@@ -1743,20 +1755,20 @@ Architecture change: SQL now fetches candidates with `ST_Distance` and all addre
 
 Six-commit batch implementing Analyst UX QoL (#113,#115,#116,#117,#119,#120), Public Fire Report Areas map (#126-#135,#147) with civilian pressure report clusters, TLS 1.3 enforcement (#153) + cipher suite hardening (#154), expanded AES-256-GCM encryption scope (#150) to narratives/casualties/damage, real-time SSE notification infrastructure (#175), and system wiki synthesis updates.
 
-- Updated `system-wiki/backend/api-route-map.md` — new `/api/public/clusters`, `/api/public/emergency-services`, `/api/validator/operational-map`, `/api/events/stream` routes.
-- Updated `system-wiki/backend/remaining-routes.md` — marked completed routes moved to api-route-map.
-- Updated `system-wiki/frontend/route-map.md` — new public map, validator operational map, SSE hook, analyst QoL components.
-- Updated `system-wiki/security/security-baseline.md` — TLS 1.3-only, ChaCha20-Poly1305, AES-256-GCM expansion to 7 fields (from 4).
-- Updated `system-wiki/gaps/frs-codebase-gap-register.md` — closed M6a (AES-GCM scope), M6b (data-in-transit), partial M13 (SSE backend); tracked public map data-source gap (civilian reports vs fire_incidents table).
+- Updated `system-wiki/backend/api-route-map.md` â€” new `/api/public/clusters`, `/api/public/emergency-services`, `/api/validator/operational-map`, `/api/events/stream` routes.
+- Updated `system-wiki/backend/remaining-routes.md` â€” marked completed routes moved to api-route-map.
+- Updated `system-wiki/frontend/route-map.md` â€” new public map, validator operational map, SSE hook, analyst QoL components.
+- Updated `system-wiki/security/security-baseline.md` â€” TLS 1.3-only, ChaCha20-Poly1305, AES-256-GCM expansion to 7 fields (from 4).
+- Updated `system-wiki/gaps/frs-codebase-gap-register.md` â€” closed M6a (AES-GCM scope), M6b (data-in-transit), partial M13 (SSE backend); tracked public map data-source gap (civilian reports vs fire_incidents table).
 
-## [2026-05-30] fix | PR #179 re-review implementation — SSE, dead code, pool config
+## [2026-05-30] fix | PR #179 re-review implementation â€” SSE, dead code, pool config
 
 Applied 4 blocking fixes from PR #179 re-review (`docs/reviews/pr-179-re-review.md`):
 
-- **B1 — SSE publishing dead from 5 sync endpoints** (CRITICAL): Added `publish_incident_event_sync()` and `publish_verification_event_sync()` to `services/event_bus.py` (matching existing `publish_security_event_sync` pattern). Replaced 5 dead `asyncio.get_running_loop()` + `except RuntimeError: pass` blocks in `regional.py` (×2), `admin.py` (×1), `workflow.py` (×2) with direct sync calls. Removed now-unused `import asyncio` from `admin.py` and `workflow.py`. Fixes silent SSE event loss from `update_incident`, `verify_incident`, `update_security_log`, `claim_cluster_command`, and `apply_terminal_action_command`.
-- **B2 — Dead EmergencyPanel in PublicFireMapInner.tsx**: Removed unrendered EmergencyPanel component, unused `emergencyContacts`/`nearbyStations` state, `fetchEmergencyServices` useEffect, `useMap` import, and `EmergencyContact`/`NearbyStation` type imports (−79 lines).
-- **B3 — Dead no-op pii_dict reassignment**: Removed `if not pii_dict: pii_dict = {}` from `regional.py` (already `{}`).
-- **B4 — Dead Redis pool constants**: Wired `_REDIS_POOL_MAX_CONNECTIONS` into `aioredis.from_url()` in `map.py`.
+- **B1 â€” SSE publishing dead from 5 sync endpoints** (CRITICAL): Added `publish_incident_event_sync()` and `publish_verification_event_sync()` to `services/event_bus.py` (matching existing `publish_security_event_sync` pattern). Replaced 5 dead `asyncio.get_running_loop()` + `except RuntimeError: pass` blocks in `regional.py` (Ã—2), `admin.py` (Ã—1), `workflow.py` (Ã—2) with direct sync calls. Removed now-unused `import asyncio` from `admin.py` and `workflow.py`. Fixes silent SSE event loss from `update_incident`, `verify_incident`, `update_security_log`, `claim_cluster_command`, and `apply_terminal_action_command`.
+- **B2 â€” Dead EmergencyPanel in PublicFireMapInner.tsx**: Removed unrendered EmergencyPanel component, unused `emergencyContacts`/`nearbyStations` state, `fetchEmergencyServices` useEffect, `useMap` import, and `EmergencyContact`/`NearbyStation` type imports (âˆ’79 lines).
+- **B3 â€” Dead no-op pii_dict reassignment**: Removed `if not pii_dict: pii_dict = {}` from `regional.py` (already `{}`).
+- **B4 â€” Dead Redis pool constants**: Wired `_REDIS_POOL_MAX_CONNECTIONS` into `aioredis.from_url()` in `map.py`.
 
 No schema, auth, or FRS alignment changes.
 
@@ -1768,11 +1780,11 @@ No schema, auth, or FRS alignment changes.
 - Updated tests and wiki synthesis pages. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; this implements planned public map behavior without changing FRS alignment status.
 
 ## [2026-05-29] style | Public page visual unification with /fire-stations
-- Restyled `/` (report page) — all 4 render paths (main multi-step form, review, update, submitted) now use the full-width BFP gradient hero → EmergencyReferenceCard → max-w-lg content card pattern matching `/fire-stations`.
-- Restyled `/tracking` page — same full-width hero + card pattern, moved EmergencyReferenceCard out of card into top-of-page position.
-- Rewrote `CalmEmergencyBlock` component — replaced compact amber-bordered box with modern card-style layout featuring Shield icon, "Safety First / Kaligtasan Muna" heading, and three icon-labeled safety rules.
-- Removed fire station markers from `NearbyPublicReportAreasInner` — map now shows only cluster circles and the user anchor pin; stations were cluttering the civilian-facing cluster visualization.
-- Cleaned up `NearbyPublicReportAreas` wrapper — removed unused `fetchEmergencyServices` call, `servicesData` state, and `EmergencyServiceResponse` type import; clusters load independently.
+- Restyled `/` (report page) â€” all 4 render paths (main multi-step form, review, update, submitted) now use the full-width BFP gradient hero â†’ EmergencyReferenceCard â†’ max-w-lg content card pattern matching `/fire-stations`.
+- Restyled `/tracking` page â€” same full-width hero + card pattern, moved EmergencyReferenceCard out of card into top-of-page position.
+- Rewrote `CalmEmergencyBlock` component â€” replaced compact amber-bordered box with modern card-style layout featuring Shield icon, "Safety First / Kaligtasan Muna" heading, and three icon-labeled safety rules.
+- Removed fire station markers from `NearbyPublicReportAreasInner` â€” map now shows only cluster circles and the user anchor pin; stations were cluttering the civilian-facing cluster visualization.
+- Cleaned up `NearbyPublicReportAreas` wrapper â€” removed unused `fetchEmergencyServices` call, `servicesData` state, and `EmergencyServiceResponse` type import; clusters load independently.
 - Build passes, lint 0 errors (15 pre-existing warnings), 119/119 Vitest tests pass.
 - No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; this is a visual restyle with no FRS/codebase alignment change.
 ## [2026-05-27] polish | Encoder/Validator dashboard queue usability
@@ -1916,7 +1928,7 @@ No schema, auth, or FRS alignment changes.
 
 **Wiki updates:** Updated `frontend/route-map.md`, `subsystems/regional-dashboard.md`, `gaps/ui-ux-gap-register.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; this is frontend presentation polish only.
 
-## [2026-05-28] fix | CI pipeline — ESLint error, missing packages, backend format
+## [2026-05-28] fix | CI pipeline â€” ESLint error, missing packages, backend format
 
 **Changes implemented:**
 - `src/frontend/src/components/IncidentRevisionHistory.tsx`: Restructured `useEffect` data-fetch to use an async IIFE, moving `setLoading(true)` and `setError(null)` out of the effect's synchronous top-level body. Fixes `react-hooks/set-state-in-effect` ESLint error that was blocking CI. Also added a `cancelled` guard to prevent state updates after unmount.
@@ -2017,21 +2029,21 @@ No schema, auth, or FRS alignment changes.
 
 **Wiki updates:** Updated `system-wiki/architecture/infrastructure-config.md`, `system-wiki/operations/local-dev-deploy-guide.md`, and this log. No `system-wiki/gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed.
 
-## [2026-06-03] implement | M11b CSRF protection — SameSite=Strict, __Host- prefix, Origin/Referer middleware, CORS restrictions
+## [2026-06-03] implement | M11b CSRF protection â€” SameSite=Strict, __Host- prefix, Origin/Referer middleware, CORS restrictions
 
-**FRS reference:** Module 11b — Penetration Testing Scope: CSRF (FRS `frs-penentrationtestingandsecurityvalidation.md` 11.b.i.e)
+**FRS reference:** Module 11b â€” Penetration Testing Scope: CSRF (FRS `frs-penentrationtestingandsecurityvalidation.md` 11.b.i.e)
 
 **Changes implemented:**
 
 - **Cookie hardening (Phase 1):** `__Host-` prefix + `Secure` + `SameSite=Strict` on `__Host-access_token` and `__Host-refresh_token` cookies across 4 route handlers: `sync/route.ts`, `refresh/route.ts`, `logout/route.ts`, and backend `auth.py` read path.
-- **CSRF middleware (Phase 2):** `src/backend/utils/csrf.py` — `csrf_middleware` registered in `main.py` via `app.middleware("http")`. Validates Origin/Referer on POST/PUT/PATCH/DELETE against configurable allowlist. GET/HEAD/OPTIONS bypassed. Logs block events at WARNING level.
+- **CSRF middleware (Phase 2):** `src/backend/utils/csrf.py` â€” `csrf_middleware` registered in `main.py` via `app.middleware("http")`. Validates Origin/Referer on POST/PUT/PATCH/DELETE against configurable allowlist. GET/HEAD/OPTIONS bypassed. Logs block events at WARNING level.
 - **Nginx CORS restriction (Phase 3):** `Access-Control-Allow-Origin` changed from `$http_origin` (reflected any origin) to `$scheme://$host` in both `nginx.conf` and `nginx.local.conf`.
 - **Docker env vars (Phase 4):** `CSRF_TRUSTED_ORIGINS` in `docker-compose.yml` and `docker-compose.prod.yml`.
-- **Test suite (Phase 5):** `tests/test_csrf_middleware.py` — 28 test cases covering origin normalization, allowlist builder, safe method bypass, invalid/missing Origin, valid Origin, Referer fallback, PUT/PATCH/DELETE variants, and VPS production origin.
-- **Pen-test checklist (Phase 6):** `docs/pentest/CSRF-CHECKLIST.md` — cookie attributes, Origin validation steps, cross-origin attack simulation, CORS, OIDC flow integrity, and test coverage verification.
+- **Test suite (Phase 5):** `tests/test_csrf_middleware.py` â€” 28 test cases covering origin normalization, allowlist builder, safe method bypass, invalid/missing Origin, valid Origin, Referer fallback, PUT/PATCH/DELETE variants, and VPS production origin.
+- **Pen-test checklist (Phase 6):** `docs/pentest/CSRF-CHECKLIST.md` â€” cookie attributes, Origin validation steps, cross-origin attack simulation, CORS, OIDC flow integrity, and test coverage verification.
 - **Wiki updates (Phase 7):** This log, `security/security-baseline.md` (new CSRF Protection section), `gaps/frs-codebase-gap-register.md` (M11b CLOSED entry).
 
-**Verification:** `pytest tests/test_csrf_middleware.py -v` — all 28 tests pass.
+**Verification:** `pytest tests/test_csrf_middleware.py -v` â€” all 28 tests pass.
 
 ## [2026-06-03] ruff format applied to tests/test_public_submission.py
 
@@ -2039,32 +2051,32 @@ No schema, auth, or FRS alignment changes.
 
 ## [2026-06-03] mock RETURNING row now supplies a real created_at datetime to satisfy PublicIncidentResponse
 
-## [2026-06-02] feat | M11a vulnerability scanning — ZAP baseline + Nmap in CI
+## [2026-06-02] feat | M11a vulnerability scanning â€” ZAP baseline + Nmap in CI
 
 - Added `security-scan` job to `.github/workflows/ci.yml` on branch `feat/m11-ci-scanning` (PR target: #172).
 - Job brings up full `src/` Docker stack (docker compose up -d --build), polls http://localhost until 200 or 180s timeout.
-- Nmap `-sV` scan of localhost; grep checks for unexpected open ports — fail if any port outside allowlist (80, 443, 3000, 8080, 8090) is open.
+- Nmap `-sV` scan of localhost; grep checks for unexpected open ports â€” fail if any port outside allowlist (80, 443, 3000, 8080, 8090) is open.
 - OWASP ZAP baseline scan via `zaproxy/action-baseline@v0.12.0` against `http://localhost`; `fail_action: true` so HIGH/CRITICAL findings block the merge gate.
 - ZAP auto-uploads HTML/JSON report as artifact; nmap report uploaded via `actions/upload-artifact@v4` (if: always()).
 - Stack torn down with `docker compose down -v` (if: always()).
-- `security-scan` added to `merge-gate` `needs:` list — consistent with migrations/backend (no `continue-on-error`).
+- `security-scan` added to `merge-gate` `needs:` list â€” consistent with migrations/backend (no `continue-on-error`).
 - Wiki gap register entry #172 / M11a vulnerability scanning marked CLOSED.
 
 ## [2026-06-02] test(#127): comprehensive report-clusters API tests
 
 **Session context:** The `GET /api/civilian/report-clusters` endpoint and its Redis stale-if-error cache were already implemented in `civilian.py` (kanban-batch-1). The endpoint correctly implements both #127 (public report-area cluster API) and #128 (Redis stale-if-error cache).
 
-**What was added — 13 integration tests covering all acceptance criteria:**
+**What was added â€” 13 integration tests covering all acceptance criteria:**
 
-- **National mode** (`test_get_report_clusters_national_mode`, `test_get_report_clusters_national_below_threshold_returns_empty`): verifies no lat/lon → national mode, min 10 reports, cap 25, no center/radius returned. Sub-threshold returns empty.
-- **Local mode** (`test_get_report_clusters_local_mode`, `test_get_report_clusters_local_below_threshold_returns_empty`): verifies lat/lon → local mode, min 3 reports, center returned, sub-threshold returns empty.
-- **Status exclusion** (`test_get_report_clusters_excludes_terminal_report_statuses`): ACTIONED, REJECTED_BOGUS, REJECTED_DUPLICATE, REJECTED_INSUFFICIENT, REJECTED_TIMEOUT excluded. All-terminal cluster → empty areas.
+- **National mode** (`test_get_report_clusters_national_mode`, `test_get_report_clusters_national_below_threshold_returns_empty`): verifies no lat/lon â†’ national mode, min 10 reports, cap 25, no center/radius returned. Sub-threshold returns empty.
+- **Local mode** (`test_get_report_clusters_local_mode`, `test_get_report_clusters_local_below_threshold_returns_empty`): verifies lat/lon â†’ local mode, min 3 reports, center returned, sub-threshold returns empty.
+- **Status exclusion** (`test_get_report_clusters_excludes_terminal_report_statuses`): ACTIONED, REJECTED_BOGUS, REJECTED_DUPLICATE, REJECTED_INSUFFICIENT, REJECTED_TIMEOUT excluded. All-terminal cluster â†’ empty areas.
 - **Cluster exclusion** (`test_get_report_clusters_excludes_closed_actioned_clusters`): CLUSTER_CLOSED and CLUSTER_ACTIONED clusters excluded.
 - **Pressure count** (`test_get_report_clusters_includes_pending_under_review_linked`): PENDING, UNDER_REVIEW, and LINKED all counted in pressure.
-- **Active requirement** (`test_get_report_clusters_requires_active_report_in_cluster`): cluster with only terminal-status reports excluded even if count ≥ min.
+- **Active requirement** (`test_get_report_clusters_requires_active_report_in_cluster`): cluster with only terminal-status reports excluded even if count â‰¥ min.
 - **Privacy** (`test_get_report_clusters_privacy_fields_absent`): verifies cluster_id, report_id, total_reports, created_at, timestamps, category, severity, safety_status, witness, contact, device not leaked.
 - **Ephemeral area_id** (`test_get_report_clusters_area_id_is_ephemeral`): area_id is 16-char hex hash, not raw cluster_id.
-- **Buckets** (`test_get_report_clusters_count_and_age_buckets`): count_bucket ∈ {3-4, 5-9, 10-19, 20+}, age_bucket ∈ {0-15 min, 15-30 min, 30-60 min}.
+- **Buckets** (`test_get_report_clusters_count_and_age_buckets`): count_bucket âˆˆ {3-4, 5-9, 10-19, 20+}, age_bucket âˆˆ {0-15 min, 15-30 min, 30-60 min}.
 - **Dynamic radius** (`test_get_report_clusters_dynamic_radius_bounds`): radius in [100, 1000], rounded to 100m.
 - **Truncation** (`test_get_report_clusters_truncation_flag`): truncated flag behavior.
 - **Response shape** (`test_get_report_clusters_response_has_required_top_level_fields`): all required top-level fields present.
@@ -2077,13 +2089,13 @@ No schema, auth, or FRS alignment changes.
 
 **Note:** Issues #127 and #128 are effectively already implemented in the existing `get_report_clusters` endpoint. #131 (frontend fireLocation sharing) is the next target.
 
-## [2026-06-03] fix | PR #210 M14 public submission rate limiter — cross-event-loop pool crash
+## [2026-06-03] fix | PR #210 M14 public submission rate limiter â€” cross-event-loop pool crash
 
 **Root cause:** `_get_redis()` cached a global `ConnectionPool` created on the first request's event loop. FastAPI `TestClient` creates a *new* event loop per request, so subsequent requests failed with `RuntimeError: Future attached to a different loop` when borrowing a connection from the cached pool. The error was silently caught by `except Exception: return` (fail-open), causing all rate-limit requests to return 201 instead of the 4th request returning 429.
 
 **Fix (`src/backend/api/routes/public_dmz.py`):**
 - Removed the module-level `_redis_pool` global and `_get_redis_pool()` function.
-- `_get_redis()` now creates a fresh `ConnectionPool` per call (max_connections=5). Pool creation is lightweight — no TCP until the first command. Production uvicorn uses a single event loop, so the per-call overhead is negligible.
+- `_get_redis()` now creates a fresh `ConnectionPool` per call (max_connections=5). Pool creation is lightweight â€” no TCP until the first command. Production uvicorn uses a single event loop, so the per-call overhead is negligible.
 - Retained the existing Lua script logic (sliding-window sorted set with `ZREMRANGEBYSCORE 0`).
 
 **Fix (`src/backend/tests/conftest.py`):**
@@ -2093,13 +2105,13 @@ No schema, auth, or FRS alignment changes.
 - Changed both test Redis client fallback URLs from `redis://redis:6379/0` (Docker hostname, unresolvable from the host) to `redis://localhost:6379/0` for consistency with conftest.
 
 **Validation:**
-- `pytest tests/test_public_submission.py -v` — 9/9 passed (including both rate-limit tests).
-- `ruff format --check` — all 3 changed files clean.
-- `git status --short` — no conflict markers.
+- `pytest tests/test_public_submission.py -v` â€” 9/9 passed (including both rate-limit tests).
+- `ruff format --check` â€” all 3 changed files clean.
+- `git status --short` â€” no conflict markers.
 
 **Wiki updated:** This log; `backend/remaining-routes.md` (rate-limit connection model, Lua summary, key naming). No FRS gap change (connection pool model is an implementation detail, not a requirement change).
 
-## [2026-06-03] fix | PR #210 M14 public submission rate limiter — close per-request Redis pools
+## [2026-06-03] fix | PR #210 M14 public submission rate limiter â€” close per-request Redis pools
 
 **Follow-up validation finding:** The cross-event-loop fix correctly removed the global async Redis pool, but a fresh per-call pool must also be closed after the Lua script runs to avoid accumulating idle sockets under sustained public submissions.
 
@@ -2114,46 +2126,46 @@ No schema, auth, or FRS alignment changes.
 - **CSRF exemption for public DMZ:** `src/backend/utils/csrf.py` now exempts the `/api/v1/public/` path prefix from Origin/Referer validation. The public DMZ endpoint is unauthenticated (no Keycloak JWT, no cookie dependency) and protected by rate limiting + Pydantic validation; CSRF validation is not meaningful there. All other auth/session/admin routes still require trusted Origin/Referer.
 - **Redis fail-open logging:** `src/backend/api/routes/public_dmz.py` now imports `logging` and logs warnings via `wims.public_dmz` logger when Redis connection creation fails in `_get_redis()` and when Lua eval/rate-limit execution fails in `rate_limit_public_dmz()`. Intentional 429 responses are not logged.
 - **Coordinate query guard:** Added `coord_row is None` check after PostGIS coordinate SELECT; raises HTTP 500 `"Failed to retrieve inserted incident coordinates"` instead of allowing uncaught `TypeError`.
-- **Test cleanup (`src/backend/tests/test_public_submission.py`):** Removed redundant `import sys`/`sys.path.insert`, moved `import redis` to module level, removed unused `monkeypatch` parameters from 4 test methods, mocked `test_valid_submission_returns_201` with `_MockDB`/dependency overrides, switched rate-limit test IPs to valid RFC 5737 TEST-NET addresses (`203.0.113.<n>`), added 4 fallback/error-path tests (station→region fallback, both empty→500, INSERT no row→500, coordinate no row→500).
+- **Test cleanup (`src/backend/tests/test_public_submission.py`):** Removed redundant `import sys`/`sys.path.insert`, moved `import redis` to module level, removed unused `monkeypatch` parameters from 4 test methods, mocked `test_valid_submission_returns_201` with `_MockDB`/dependency overrides, switched rate-limit test IPs to valid RFC 5737 TEST-NET addresses (`203.0.113.<n>`), added 4 fallback/error-path tests (stationâ†’region fallback, both emptyâ†’500, INSERT no rowâ†’500, coordinate no rowâ†’500).
 - **CSRF tests (`src/backend/tests/test_csrf_middleware.py`):** Added `TestPublicDmzCsrfExemption` class: `test_public_dmz_post_without_origin_not_blocked_by_csrf` verifies POST to `/api/v1/public/report` without Origin/Referer does not return 403; `test_auth_post_without_origin_still_blocked` verifies auth endpoints still blocked.
 - **Wiki updates:** Updated `subsystems/civilian-reporting-phase2.md` (Public DMZ Boundary restored, CSRF-exempt), `security/security-baseline.md` (CSRF exemption for public DMZ), `backend/remaining-routes.md` (logging + coord guard), and this log.
 
 **Verification:** `pytest tests/test_public_submission.py -v` 13/13 passed; `pytest tests/test_csrf_middleware.py -v` 31/31 passed; `ruff format --check .` and `ruff check .` passed; `git diff --check` clean.
 
-**Wiki updated:** Yes — see above. No `gaps/frs-codebase-gap-register.md` update needed; no FRS gap changed.
+**Wiki updated:** Yes â€” see above. No `gaps/frs-codebase-gap-register.md` update needed; no FRS gap changed.
 
 ## [2026-06-04] docs | Record PR #207 pytest lock-hang invariant in synthesis
 
 Updated `system-wiki/architecture/pwa-tests-cicd.md` and `system-wiki/index.md` after the PR #207 backend hang fix. The testing/CI synthesis now records that `src/backend/main.py` must not run startup DDL on `wims.users.email`; `src/postgres-init/44_add_email_to_users.sql` owns that schema change, and runtime DDL can block behind open SQLAlchemy test sessions in `src/backend/tests/test_immutable_records.py`. No gap-register update needed; this is CI/test-infrastructure behavior, not an FRS alignment change.
 
-## [2026-06-04] fix | Backend pytest hang — remove email DDL from startup (PR #207)
+## [2026-06-04] fix | Backend pytest hang â€” remove email DDL from startup (PR #207)
 
-**Root cause:** `apply_schema_patches()` in `main.py` ran `ALTER TABLE wims.users ADD COLUMN IF NOT EXISTS email` at startup. This required `AccessExclusiveLock` on `wims.users`. The `test_immutable_records.py` `db()` fixture opened a session with `autocommit=False`, which held an `AccessShareLock` from `SELECT` queries during `encoder_region`/`validator_region` fixture setup. When `verified_incident` fixture created `TestClient(app)`, startup tried the DDL, which queued behind the existing lock indefinitely — hanging pytest/CI.
+**Root cause:** `apply_schema_patches()` in `main.py` ran `ALTER TABLE wims.users ADD COLUMN IF NOT EXISTS email` at startup. This required `AccessExclusiveLock` on `wims.users`. The `test_immutable_records.py` `db()` fixture opened a session with `autocommit=False`, which held an `AccessShareLock` from `SELECT` queries during `encoder_region`/`validator_region` fixture setup. When `verified_incident` fixture created `TestClient(app)`, startup tried the DDL, which queued behind the existing lock indefinitely â€” hanging pytest/CI.
 
-**Fix:** Removed the email DDL block from `apply_schema_patches()`. Migration `44_add_email_to_users.sql` already runs on CI's fresh database initialization (mounted into `/docker-entrypoint-initdb.d/`). The `no_update_verified` rule patch remains — it operates on `wims.fire_incidents`, not `wims.users`, so no lock conflict with the test fixtures.
+**Fix:** Removed the email DDL block from `apply_schema_patches()`. Migration `44_add_email_to_users.sql` already runs on CI's fresh database initialization (mounted into `/docker-entrypoint-initdb.d/`). The `no_update_verified` rule patch remains â€” it operates on `wims.fire_incidents`, not `wims.users`, so no lock conflict with the test fixtures.
 
-**Files changed:** `src/backend/main.py` — removed ~10 lines of email DDL, updated docstring with rationale.
+**Files changed:** `src/backend/main.py` â€” removed ~10 lines of email DDL, updated docstring with rationale.
 
 **Verification:**
-- Reproduction command (previously hung): `docker compose run --rm --no-deps backend pytest tests/test_dynamic_rate_limits.py tests/test_fire_incident_location.py tests/test_immutable_records.py::test_84_verified_incident_appears_in_analytics -vv -s --tb=short` → 17 passed in 4.35s.
-- Full immutable records: `pytest tests/test_immutable_records.py` → 7 passed in 5.57s.
-- Profile email tests: `pytest tests/test_profile_email.py` → 10 passed in 2.78s.
+- Reproduction command (previously hung): `docker compose run --rm --no-deps backend pytest tests/test_dynamic_rate_limits.py tests/test_fire_incident_location.py tests/test_immutable_records.py::test_84_verified_incident_appears_in_analytics -vv -s --tb=short` â†’ 17 passed in 4.35s.
+- Full immutable records: `pytest tests/test_immutable_records.py` â†’ 7 passed in 5.57s.
+- Profile email tests: `pytest tests/test_profile_email.py` â†’ 10 passed in 2.78s.
 - `ruff check` + `ruff format --check` clean on touched file.
 
 **Wiki updates:** This log entry. No `gaps/frs-codebase-gap-register.md` update needed (CI hang fix, not FRS alignment change).
 
-## [2026-06-02] fix | S1 username sync gap — DB username now synced when email changes
+## [2026-06-02] fix | S1 username sync gap â€” DB username now synced when email changes
 
 Fixes the S1 finding from single-agent review of `fix/profile-email-and-polish`:
 
-- **S1 — `wims.users.username` not synced when email changes:** When `PATCH /api/user/me` updates email, Keycloak sets `username = email` but the DB sync block only updated `wims.users.email`. Now the DB `UPDATE` also sets `username = :uname`.
+- **S1 â€” `wims.users.username` not synced when email changes:** When `PATCH /api/user/me` updates email, Keycloak sets `username = email` but the DB sync block only updated `wims.users.email`. Now the DB `UPDATE` also sets `username = :uname`.
 - Added `username` assertion to `test_update_email_syncs_to_db` in `test_profile_email.py`.
 
 **Verification:** Backend syntax check passed (Docker not running for full pytest). Frontend 9/9 profile tests pass.
 
 **Wiki updates:** This log entry. No `gaps/frs-codebase-gap-register.md` update needed.
 
-## [2026-06-02] fix | Second-pass review fixes — index, dead code, import, wiki
+## [2026-06-02] fix | Second-pass review fixes â€” index, dead code, import, wiki
 
 Follow-up fixes from three-axis re-review of `fix/profile-email-and-polish`:
 
@@ -2170,12 +2182,12 @@ Follow-up fixes from three-axis re-review of `fix/profile-email-and-polish`:
 
 Applied fixes from three-axis review of `fix/profile-email-and-polish`:
 
-- **P1 — Dead-code email fallback:** Added `email` to `user_dict` in `get_current_wims_user()` (`auth.py:370`) from the JWT token payload, so the fallback in `GET /user/me/profile` now has a real value.
-- **P1 — Email format validation:** Replaced `email_not_blank` validator with Pydantic `EmailStr` in `ProfileUpdate` schema; `email-validator>=2.0.0` was already in `requirements.txt`.
-- **P2 — DB sync partial status:** Split `contact_number` and `email` DB sync into independent try/except blocks; returns `{"status": "partial", ...}` when DB sync fails instead of silently swallowing the failure.
-- **P3 — Email column index:** Added `CREATE INDEX IF NOT EXISTS idx_users_email ON wims.users(email)` to `44_add_email_to_users.sql`.
-- **P3 — Profile re-fetch error handling:** Added `.catch()` to `fetchMyProfile().then()` after profile save in `profile/page.tsx`.
-- **P4 — API type fix:** Changed `email?: string` to `email: string` in `fetchMyProfile()` return type in `legacy.ts`.
+- **P1 â€” Dead-code email fallback:** Added `email` to `user_dict` in `get_current_wims_user()` (`auth.py:370`) from the JWT token payload, so the fallback in `GET /user/me/profile` now has a real value.
+- **P1 â€” Email format validation:** Replaced `email_not_blank` validator with Pydantic `EmailStr` in `ProfileUpdate` schema; `email-validator>=2.0.0` was already in `requirements.txt`.
+- **P2 â€” DB sync partial status:** Split `contact_number` and `email` DB sync into independent try/except blocks; returns `{"status": "partial", ...}` when DB sync fails instead of silently swallowing the failure.
+- **P3 â€” Email column index:** Added `CREATE INDEX IF NOT EXISTS idx_users_email ON wims.users(email)` to `44_add_email_to_users.sql`.
+- **P3 â€” Profile re-fetch error handling:** Added `.catch()` to `fetchMyProfile().then()` after profile save in `profile/page.tsx`.
+- **P4 â€” API type fix:** Changed `email?: string` to `email: string` in `fetchMyProfile()` return type in `legacy.ts`.
 - Added 2 new backend tests: invalid email format rejection, DB sync failure partial status.
 
 **Verification:** Backend 10/10 passed. Frontend 154/154 passed across 22 test files.
@@ -2200,7 +2212,7 @@ Applied fixes from three-axis review of `fix/profile-email-and-polish`:
 
 ## [2026-06-02] fix | Review fixes applied to email editing branch
 
-- Added `44_add_email_to_users.sql` migration for email column (was missing — UPDATE would fail silently).
+- Added `44_add_email_to_users.sql` migration for email column (was missing â€” UPDATE would fail silently).
 - `main.py` startup patch: `ALTER TABLE wims.users ADD COLUMN IF NOT EXISTS email` for existing containers.
 - `keycloak_admin.py`: `get_user_profile()` now returns email from Keycloak (was never in the dict).
 - `keycloak_admin.py`: updated stale CRIT-0 comment in `update_user_profile()`.
@@ -2220,24 +2232,24 @@ Implemented verified PR #207 review fixes across profile email handling and docu
 
 **Wiki updates:** Updated `backend/remaining-routes.md`, `frontend/route-map.md`, `database/schema-overview.md`, `security/security-baseline.md`, `architecture/pwa-tests-cicd.md`, `index.md`, and this log. No `gaps/frs-codebase-gap-register.md` update needed; no FRS/codebase gap changed. Self-service email verification remains a residual follow-up because enabling Keycloak verify-email/required action safely would affect realm/admin flow behavior beyond this bounded PR fix.
 
-## [2026-06-05] fix | Slice 3 — backend bugs & cleanup (PR #215, rebased onto origin/master)
+## [2026-06-05] fix | Slice 3 â€” backend bugs & cleanup (PR #215, rebased onto origin/master)
 
 **Fixes across 7 issues:**
 - #183: Wrapped sync `is_token_revoked()` in `asyncio.to_thread()` to avoid event loop blocking.
-- #185: Renamed `DELETE /sessions/{user_id}/{session_id}` → `/sessions/{user_id}` to match bulk-termination behavior.
+- #185: Renamed `DELETE /sessions/{user_id}/{session_id}` â†’ `/sessions/{user_id}` to match bulk-termination behavior.
 - #187: Removed stub `/api/auth/login` always-401 endpoint; retargeted rate limiter to `/api/auth/callback`.
-- #188: Fixed admin.py docstring from "No DELETE endpoints" → "No incident DELETE endpoints".
+- #188: Fixed admin.py docstring from "No DELETE endpoints" â†’ "No incident DELETE endpoints".
 - #193: Added `RETURNING attachment_id` to attachment INSERT; returns actual DB ID now.
 - #197: Moved logger definition before `apply_schema_patches()` in main.py.
 - #200: Bundle upload now reports failed incidents with index + reason; `incident_ids` kept for backward compat.
 
 **Review fixes applied during rebase:** Orphaned `incident_ids` variable removed, null-guard on attachment RETURNING added, docstring clarified to point to admin.py single-session route.
 
-**Rate-limit test resolution:** The stale `test_rate_limiting.py` (targeted removed `/api/auth/login`) was not deleted — master had already rewritten it to target `POST /api/auth/callback` and mark it as a manual live-stack check excluded from CI. PR #215 retains master's callback-targeted manual test.
+**Rate-limit test resolution:** The stale `test_rate_limiting.py` (targeted removed `/api/auth/login`) was not deleted â€” master had already rewritten it to target `POST /api/auth/callback` and mark it as a manual live-stack check excluded from CI. PR #215 retains master's callback-targeted manual test.
 
 **Files:** `auth.py`, `main.py`, `incidents.py`, `sessions.py`, `admin.py`
 
-## [2026-06-05] fix | PR #215 — CSRF test alignment with removed stub login
+## [2026-06-05] fix | PR #215 â€” CSRF test alignment with removed stub login
 
 Updated `src/backend/tests/test_csrf_middleware.py` to match PR #215's removal of the stub `/api/auth/login` endpoint:
 - Replaced all 17 `/api/auth/login` references with the live `/api/auth/callback` route.
@@ -2259,3 +2271,12 @@ Updated `src/backend/tests/test_csrf_middleware.py` to match PR #215's removal o
 - 16 new unit tests added in `tests/test_admin_new_routes.py` (8 audit filter tests, 7 security filter tests, 1 no-filters-baseline).
 
 **Wiki update:** Updated `system-wiki/backend/api-route-map.md` to note filter query params on `/audit-logs` and `/security-logs`.
+## [2026-06-10] fix | Restore VPS production runtime
+
+- Restored the VPS with the explicit production Compose override so nginx mounts `/etc/letsencrypt` and serves the valid `wimsbfp.tech` certificate.
+- Synchronized persisted PostgreSQL role passwords with `.env.production` after authentication failures blocked backend startup patches and Keycloak.
+- Replaced ineffective Celery package autodiscovery with explicit task-module imports so scheduled tasks register with workers.
+- Applied the missing `system_config` migration to the persisted database and added the omitted `wims_app_user` table privileges required by Celery and application routes.
+- Updated the Suricata health check to match the running `Suricata-Main` process.
+- Fixed the production CSP so Next.js inline bootstrap scripts can hydrate the server-rendered loading shell and initialize `/api/auth/session`.
+- Updated `architecture/infrastructure-config.md` and `index.md`; no FRS/codebase gap changed.

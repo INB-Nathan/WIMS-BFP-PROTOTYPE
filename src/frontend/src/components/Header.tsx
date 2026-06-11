@@ -149,7 +149,7 @@ function getRoleBadgeColor(role: string | null): { bg: string; text: string } {
             return { bg: '#fee2e2', text: '#991b1b' };
         case 'ADMIN':
             return { bg: '#fef3c7', text: '#92400e' };
-        case 'VALIDATOR':
+        case 'NATIONAL_VALIDATOR':
             return { bg: '#dbeafe', text: '#1e40af' };
         case 'NATIONAL_ANALYST':
             return { bg: '#ede9fe', text: '#5b21b6' };

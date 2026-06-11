@@ -1,7 +1,7 @@
 ---
 title: Functional Bug Register
 created: 2026-05-14
-updated: 2026-05-19
+updated: 2026-06-10
 type: bug
 tags: [wims-bfp, bug, functional, m12, needs-fix]
 sources: []
@@ -34,6 +34,24 @@ Functional bugs reported by teammates during evaluation. All map to M12 User Man
 | F-06 | Analyst incident list returns HTTP 500 | `/api/incidents/analyst-list` selected schema fields that do not exist in the current database contract (`nd.barangay`, `r.short_name`, `aif.casualty_severity`, `aif.data_hash`, `aif.sync_status`). Fixed by using `ref_barangays` / `analytics_incident_facts.barangay_name`, `ref_regions.region_code` / `region_name`, deriving casualty severity from casualty counts, and reading `data_hash` from `fire_incidents`. Regression coverage added in `src/backend/tests/test_analyst_incidents_sql_contract.py`. | User manual test | Fixed in code; smoke-checked against local Postgres; browser should now show an empty list when no incidents exist |
 | F-08 | Export PDF/CSV/Excel returns 409 Conflict on analyst incident detail page | Celery task failed with `PermissionError: [Errno 13] Permission denied: '/app/storage/exports'` because the Docker named volume `incident_attachments_data` was mounted at `/app/storage` and the Celery worker's `appuser` could not create the `exports` subdirectory (volume owned by `root:root`). Also, the bulk export task used a writer expecting 3 args `(path, rows, columns)` but the internal API passed only 2. Fixed by: (1) adding `mkdir -p /app/storage/exports` in Dockerfile before image build; (2) creating `_write_csv_bulk / _write_xlsx_bulk / _write_pdf_bulk` adapter wrappers; (3) implementing AFOR-template-based writers `_write_afor_excel`, `_write_afor_pdf`, `_write_afor_csv` for single-incident exports. | User on localhost/dashboard/analyst/incidents/12 | Fixed in code; rebuild complete; testing pending |
 | F-09 | All 8 map components show blank tiles / 403 in prod | nginx prod HTTPS block sent `Referrer-Policy: no-referrer`, suppressing the Referer header required by OSM tile servers. Affected: PublicFireMapInner, MapPickerInner, ClusterMapInner, NearbyPublicReportAreasInner, NearbyStationsMapInner, ValidatorMapInner, FireStationsMapInner, HeatmapViewer. Fix: `src/nginx/nginx.conf` HTTPS block — `Referrer-Policy: strict-origin-when-cross-origin`. #233. Regression test added in `test_nginx_referrer_policy_production` (`tests/test_infra_config.py`). | Issue triage | Fixed in code; regression test added (#253); pending VPS deploy |
+
+---
+
+---
+
+## M3 Triage UI Enhancements
+
+| # | Enhancement | Detail | Status |
+|---|---|---|---|
+| F-11 | Triage queue HCI polish | Split clusters/singletons into separate tables, mode-aware inspection modal, metrics bar, empty states, Unreviewed filter chip. #219. | Implemented |
+
+---
+
+## M4 Operations
+
+| # | Enhancement | Detail | Status |
+|---|---|---|---|
+| F-12 | Validator-maintained Operations Board | Replaced auto-derived ON-GOING/FIRE-OUT cards with editable board. wims.operations + junction table (migration 51). RLS-gated writes (NATIONAL_VALIDATOR only), global reads. CRUD + audit log. /home UI: tabs, status badge, validator-only forms. #232. | Implemented |
 
 ---
 

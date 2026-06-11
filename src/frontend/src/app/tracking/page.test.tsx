@@ -30,9 +30,8 @@ describe('ReportTrackerPage', () => {
     vi.mocked(fetchReportStatus).mockResolvedValue({
       report_id: 42,
       status: 'ACTIONED',
-      description: 'Smoke visible near the market',
       created_at: '2026-05-19T08:00:00Z',
-    });
+    } as never);
     window.history.pushState({}, '', '/tracking?id=42');
 
     const { default: ReportTrackerPage } = await import('./page');

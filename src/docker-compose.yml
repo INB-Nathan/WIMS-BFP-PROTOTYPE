@@ -112,12 +112,31 @@ services:
       - ollama_data:/root/.ollama
     networks:
       - wims_internal
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     deploy:
       resources:
         limits:
           cpus: '2'
           memory: 4gb
     restart: always
+
+  ollama-model-pull:
+    image: ollama/ollama:0.5.1
+    container_name: wims-ollama-model-pull
+    command: pull qwen2.5:3b
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    networks:
+      - wims_internal
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
 
   # --- Applications ---
   backend:
@@ -158,7 +177,9 @@ services:
       keycloak-bootstrap:
         condition: service_completed_successfully
       ollama:
-        condition: service_started
+        condition: service_healthy
+      ollama-model-pull:
+        condition: service_completed_successfully
 
   celery-worker:
     build: ./backend
@@ -244,8 +265,9 @@ services:
     volumes:
       - ./suricata/logs:/var/log/suricata
       - ./suricata/rules:/var/lib/suricata/rules
+      - ./suricata/suricata.yaml:/etc/suricata/suricata.yaml:ro
     healthcheck:
-      test: ["CMD", "pgrep", "suricata"]
+      test: ["CMD", "pgrep", "Suricata-Main"]
       interval: 30s
       timeout: 10s
       retries: 3

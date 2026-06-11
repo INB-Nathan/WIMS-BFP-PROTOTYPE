@@ -9,6 +9,7 @@ import {
     createAdminUser,
     fetchAdminSecurityLogs,
     updateAdminSecurityLog,
+    createIncidentFromAlert,
     fetchAuditLogs,
     analyzeSecurityLog,
     fetchRegions,
@@ -42,6 +43,7 @@ import {
     Activity,
     Server,
     Database,
+    Search,
 } from 'lucide-react';
 
 interface AdminUser {
@@ -118,6 +120,8 @@ export default function AdminSystemPage() {
     const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
     const [workers, setWorkers] = useState<WorkerStatus[]>([]);
     const [monitoringLastChecked, setMonitoringLastChecked] = useState<Date | null>(null);
+    const [securitySearchQ, setSecuritySearchQ] = useState('');
+    const [auditSearchQ, setAuditSearchQ] = useState('');
     const [loadingUsers, setLoadingUsers] = useState(false);
     const [loadingLogs, setLoadingLogs] = useState(false);
     const [loadingAudit, setLoadingAudit] = useState(false);
@@ -269,10 +273,11 @@ export default function AdminSystemPage() {
         }
     };
 
-    const loadSecurityLogs = async () => {
+    const loadSecurityLogs = async (q = securitySearchQ.trim()) => {
         setLoadingLogs(true);
         try {
-            const data = await fetchAdminSecurityLogs();
+            const trimmed = q.trim();
+            const data = await fetchAdminSecurityLogs(trimmed ? { q: trimmed } : undefined);
             setSecurityLogs(data as SecurityLog[]);
         } catch {
             setSecurityLogs([]);
@@ -281,10 +286,11 @@ export default function AdminSystemPage() {
         }
     };
 
-    const loadAuditLogs = async () => {
+    const loadAuditLogs = async (q = auditSearchQ.trim()) => {
         setLoadingAudit(true);
         try {
-            const data = await fetchAuditLogs({ limit: 50, offset: 0 });
+            const trimmed = q.trim();
+            const data = await fetchAuditLogs({ limit: 50, offset: 0, ...(trimmed ? { q: trimmed } : {}) });
             setAuditLogs({
                 items: data.items.map((item): AuditItem => ({
                     audit_id: item.audit_id,
@@ -366,9 +372,23 @@ export default function AdminSystemPage() {
             await updateAdminSecurityLog(selectedLog.log_id, { action, note });
             setSelectedLog(null);
             setActionNote('');
-            await loadSecurityLogs();
+            await loadSecurityLogs(securitySearchQ);
         } catch (e: unknown) {
             alert((e as { message?: string })?.message ?? 'Update failed');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleCreateIncident = async () => {
+        if (!selectedLog) return;
+        setIsSubmitting(true);
+        try {
+            const result = await createIncidentFromAlert(selectedLog.log_id);
+            alert(`Incident #${result.incident_id} created from this alert.`);
+            await loadSecurityLogs();
+        } catch (e: unknown) {
+            alert((e as { message?: string })?.message ?? 'Create incident failed');
         } finally {
             setIsSubmitting(false);
         }
@@ -689,10 +709,41 @@ export default function AdminSystemPage() {
                         <ShieldAlert className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
                         <span>Threat Telemetry</span>
                     </div>
-                    <button onClick={loadSecurityLogs} disabled={loadingLogs} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
+                    <button onClick={() => loadSecurityLogs(securitySearchQ)} disabled={loadingLogs} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
                         <RefreshCw className={`w-4 h-4 ${loadingLogs ? 'animate-spin' : ''}`} /> Refresh
                     </button>
                 </div>
+                <form
+                    onSubmit={e => { e.preventDefault(); loadSecurityLogs(securitySearchQ.trim()); }}
+                    className="px-6 py-3 border-b border-gray-100 flex items-center gap-2"
+                >
+                    <input
+                        type="text"
+                        aria-label="Search security logs"
+                        value={securitySearchQ}
+                        onChange={e => setSecuritySearchQ(e.target.value)}
+                        placeholder="Search logs (narrative, IP, severity…)"
+                        className="flex-1 border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
+                        style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                    />
+                    <button
+                        type="submit"
+                        className="flex items-center gap-1 px-3 py-1.5 rounded text-sm text-white"
+                        style={{ backgroundColor: 'var(--sidebar-bg)' }}
+                        aria-label="Search security logs"
+                    >
+                        <Search className="w-3 h-3" />
+                    </button>
+                    {securitySearchQ && (
+                        <button
+                            type="button"
+                            onClick={() => { setSecuritySearchQ(''); loadSecurityLogs(''); }}
+                            className="text-xs px-2 py-1 text-gray-500 hover:text-gray-700"
+                        >
+                            Clear
+                        </button>
+                    )}
+                </form>
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
@@ -746,10 +797,41 @@ export default function AdminSystemPage() {
                         <FileText className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
                         <span>System Audit</span>
                     </div>
-                    <button onClick={loadAuditLogs} disabled={loadingAudit} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
+                    <button onClick={() => loadAuditLogs(auditSearchQ)} disabled={loadingAudit} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
                         <RefreshCw className={`w-4 h-4 ${loadingAudit ? 'animate-spin' : ''}`} /> Refresh
                     </button>
                 </div>
+                <form
+                    onSubmit={e => { e.preventDefault(); loadAuditLogs(auditSearchQ.trim()); }}
+                    className="px-6 py-3 border-b border-gray-100 flex items-center gap-2"
+                >
+                    <input
+                        type="text"
+                        aria-label="Search audit logs"
+                        value={auditSearchQ}
+                        onChange={e => setAuditSearchQ(e.target.value)}
+                        placeholder="Search audit trail (action, table, user agent…)"
+                        className="flex-1 border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
+                        style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                    />
+                    <button
+                        type="submit"
+                        className="flex items-center gap-1 px-3 py-1.5 rounded text-sm text-white"
+                        style={{ backgroundColor: 'var(--sidebar-bg)' }}
+                        aria-label="Search audit logs"
+                    >
+                        <Search className="w-3 h-3" />
+                    </button>
+                    {auditSearchQ && (
+                        <button
+                            type="button"
+                            onClick={() => { setAuditSearchQ(''); loadAuditLogs(''); }}
+                            className="text-xs px-2 py-1 text-gray-500 hover:text-gray-700"
+                        >
+                            Clear
+                        </button>
+                    )}
+                </form>
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
@@ -789,16 +871,58 @@ export default function AdminSystemPage() {
                         </div>
                         <div className="p-6 space-y-4 text-[var(--foreground)]">
                             <div className="bg-purple-50 dark:bg-purple-950/40 p-4 rounded-lg border border-purple-100 dark:border-purple-800">
-                                <h4 className="text-xs font-bold text-white dark:text-white uppercase mb-2">AI Narrative</h4>
+                                <h4 className="text-xs font-bold text-white dark:text-white uppercase mb-2">AI Analysis</h4>
                                 {selectedLog.xai_narrative ? (
-                                    <>
-                                        <p className="text-sm text-[var(--foreground)]">{selectedLog.xai_narrative}</p>
-                                        {selectedLog.xai_confidence != null && (
-                                            <div className="mt-2 text-xs text-purple-800 dark:text-purple600 font-medium text-right">
-                                                Confidence: {((selectedLog.xai_confidence ?? 0) * 100).toFixed(1)}%
-                                            </div>
-                                        )}
-                                    </>
+                                    (() => {
+                                        try {
+                                            const parsed = JSON.parse(selectedLog.xai_narrative);
+                                            if (typeof parsed === 'object' && parsed !== null) {
+                                                return (
+                                                    <div className="space-y-3">
+                                                        {parsed.anomaly_description && (
+                                                            <div>
+                                                                <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Anomaly Description</p>
+                                                                <p className="text-sm text-[var(--foreground)]">{parsed.anomaly_description}</p>
+                                                            </div>
+                                                        )}
+                                                        {parsed.log_evidence && (
+                                                            <div>
+                                                                <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Log Evidence</p>
+                                                                <p className="text-sm text-[var(--foreground)]">{parsed.log_evidence}</p>
+                                                            </div>
+                                                        )}
+                                                        {parsed.risk_assessment && (
+                                                            <div>
+                                                                <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Risk Assessment</p>
+                                                                <p className="text-sm text-[var(--foreground)]">{parsed.risk_assessment}</p>
+                                                            </div>
+                                                        )}
+                                                        {parsed.recommended_action && (
+                                                            <div>
+                                                                <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Recommended Action</p>
+                                                                <p className="text-sm text-[var(--foreground)]">{parsed.recommended_action}</p>
+                                                            </div>
+                                                        )}
+                                                        {selectedLog.xai_confidence != null && (
+                                                            <div className="mt-2 text-xs text-purple-800 dark:text-purple-600 font-medium text-right">
+                                                                Confidence: {((selectedLog.xai_confidence ?? 0) * 100).toFixed(1)}%
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            }
+                                        } catch {}
+                                        return (
+                                            <>
+                                                <p className="text-sm text-[var(--foreground)]">{selectedLog.xai_narrative}</p>
+                                                {selectedLog.xai_confidence != null && (
+                                                    <div className="mt-2 text-xs text-purple-800 dark:text-purple-600 font-medium text-right">
+                                                        Confidence: {((selectedLog.xai_confidence ?? 0) * 100).toFixed(1)}%
+                                                    </div>
+                                                )}
+                                            </>
+                                        );
+                                    })()
                                 ) : (
                                     <div className="flex items-center gap-2">
                                         <button
@@ -827,6 +951,15 @@ export default function AdminSystemPage() {
                             {!selectedLog.admin_action_taken && (
                                 <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                                     <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-3">Take a decision</p>
+                                    <div className="mb-3">
+                                        <button
+                                            onClick={() => handleCreateIncident()}
+                                            disabled={isSubmitting}
+                                            className="px-4 py-2 bg-orange-600 text-white rounded font-medium hover:bg-orange-700 disabled:opacity-50 w-full"
+                                        >
+                                            Create Incident from Alert
+                                        </button>
+                                    </div>
                                     {pendingMoreInfo ? (
                                         <div className="space-y-2">
                                             <textarea

@@ -14,7 +14,7 @@ export default function IncidentDetailPage() {
   useEffect(() => {
     if (loading) return;
 
-    if (role === 'NATIONAL_VALIDATOR' || role === 'VALIDATOR') {
+    if (role === 'NATIONAL_VALIDATOR') {
       router.replace('/dashboard/validator');
       return;
     }

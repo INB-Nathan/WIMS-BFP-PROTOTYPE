@@ -51,10 +51,12 @@ def test_security_alert_dispatched_on_confirm_threat_high():
     ):
         result = update_security_log(123, body, mock_admin, mock_db)
         assert result["status"] == "ok"
-        mock_task.delay.assert_called_once()
-        call_kwargs = mock_task.delay.call_args.kwargs
-        assert call_kwargs["template_name"] == "security_alert"
-        assert call_kwargs["context"]["severity"] == "HIGH"
+        # M10d: HIGH/CRITICAL CONFIRM_THREAT now dispatches two emails:
+        # security_alert (M13b) + breach_alert (M10d)
+        assert mock_task.delay.call_count == 2
+        first_call = mock_task.delay.call_args_list[0].kwargs
+        assert first_call["template_name"] == "security_alert"
+        assert first_call["context"]["severity"] == "HIGH"
 
 
 def test_security_alert_dispatched_on_confirm_threat_critical():
@@ -99,10 +101,11 @@ def test_security_alert_dispatched_on_confirm_threat_critical():
     ):
         result = update_security_log(456, body, mock_admin, mock_db)
         assert result["status"] == "ok"
-        mock_task.delay.assert_called_once()
-        call_kwargs = mock_task.delay.call_args.kwargs
-        assert call_kwargs["template_name"] == "security_alert"
-        assert call_kwargs["context"]["severity"] == "CRITICAL"
+        # M10d: CRITICAL CONFIRM_THREAT dispatches security_alert + breach_alert
+        assert mock_task.delay.call_count == 2
+        first_call = mock_task.delay.call_args_list[0].kwargs
+        assert first_call["template_name"] == "security_alert"
+        assert first_call["context"]["severity"] == "CRITICAL"
 
 
 def test_security_alert_not_dispatched_on_false_positive():

@@ -1,7 +1,7 @@
 ---
 title: Infrastructure Configuration
 created: 2026-05-16
-updated: 2026-06-05
+updated: 2026-06-10
 type: architecture
 tags: [wims-bfp, docker, nginx, suricata, keycloak, infrastructure]
 sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/nginx/, src/suricata/, src/keycloak/import/bfp-realm.json, .github/workflows/ci.yml]
@@ -34,7 +34,7 @@ status: draft
 | wims-suricata | wims-suricata | `jasonish/suricata:7.0.5` | (none) |
 | nginx-gateway | wims-nginx-gateway | `nginx:1.27.3-alpine` | 80, 443 |
 
-**Health checks:** postgres (`pg_isready -U postgres -d wims`, interval 5s), redis (`redis-cli ping`, interval 5s). Backend depends on both service_healthy.
+**Health checks:** postgres (`pg_isready -U postgres -d wims`, interval 5s), redis (`redis-cli ping`, interval 5s), Keycloak (HTTP probe), and Suricata (`pgrep Suricata-Main`). Backend depends on healthy Postgres and Redis plus the completed Keycloak bootstrap.
 
 **Named volumes:** `postgres_data`, `ollama_data`, `incident_attachments_data`
 
@@ -90,15 +90,21 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.
 
 Use explicit `-f` flags on the VPS. Plain `docker compose up` auto-loads `docker-compose.override.yml`, mounts `src/nginx/nginx.local.conf`, and publishes port 443 to an HTTP-only nginx process. The symptom is HTTP working while HTTPS fails with connection refused or an SSL EOF. The production command mounts `/etc/letsencrypt` into the container and loads `src/nginx/nginx.conf`, which terminates TLS for `wimsbfp.tech`.
 
+Changing `.env.production` does not update database roles already stored in the `postgres_data` volume. If Keycloak or backend startup reports password authentication failures after an environment change, synchronize the persisted `postgres`, `keycloak`, and `wims_app_user` role passwords before recreating dependent services.
+
 **Operational note:** On 2026-05-26, a login outage occurred when the VPS services were running with only the base `docker-compose.yml` values. Public Keycloak discovery returned `403 {"error":"invalid_request","error_description":"HTTPS required"}` and/or advertised localhost/port-8080 auth URLs. Recreating Keycloak, backend, frontend, and nginx with the production override restored `KC_HOSTNAME_URL=${PUBLIC_BASE_URL}/auth`, backend `KEYCLOAK_ISSUER=${PUBLIC_BASE_URL}/auth/realms/bfp`, and frontend public auth build/runtime values. After the restart, `https://wimsbfp.tech/auth/realms/bfp/.well-known/openid-configuration` returned 200 and advertised `https://wimsbfp.tech/auth/...` endpoints only.
 
-**GitOps deploy workflow:** `.github/workflows/deploy.yml` mirrors the production command above via a shell `compose()` helper that always includes `docker-compose.yml`, `docker-compose.prod.yml`, and `.env.production`. It validates `compose config --quiet`, checks DB connectivity with the production compose stack, rebuilds/restarts the full stack with `up -d --build`, then checks backend health plus public nginx `/health` and Keycloak discovery endpoints. TLS provisioning skips issuance when `/etc/letsencrypt/live/wimsbfp.tech/` already contains a cert/key; first-time issuance uses certbot standalone and the renewal hook reloads the running nginx container with `docker exec wims-nginx-gateway nginx -s reload`.
+**GitOps deploy workflow:** `.github/workflows/deploy.yml` mirrors the production command above via a shell `compose()` helper that always includes `docker-compose.yml`, `docker-compose.prod.yml`, and `.env.production`. It validates `compose config --quiet`, checks DB connectivity, and rebuilds/restarts with `up -d --build --wait`. Post-deploy checks cover backend-local `/health`, public nginx `/health`, Keycloak discovery, a real public backend route (`/api/public/emergency-services`), and the required Ollama model. The public backend probe catches stale nginx upstream addresses that nginx's self-served `/health` cannot detect. TLS provisioning skips issuance when `/etc/letsencrypt/live/wimsbfp.tech/` already contains a cert/key; first-time issuance uses certbot standalone and the renewal hook reloads the running nginx container with `docker exec wims-nginx-gateway nginx -s reload`.
 
 **Current VPS public origin:** `src/.env.production` sets `PUBLIC_BASE_URL=https://wimsbfp.tech`, replacing the previous `https://165-22-101-73.nip.io` deployment origin. Production frontend build args, runtime auth variables, backend `KEYCLOAK_ISSUER`, and Keycloak `KC_HOSTNAME_URL` derive from this value through `src/docker-compose.prod.yml`.
 
 **Current certificate state:** `src/nginx/nginx.conf` expects `/etc/letsencrypt/live/wimsbfp.tech/fullchain.pem` and `privkey.pem`. A Let’s Encrypt certificate for `wimsbfp.tech` was issued on the VPS on 2026-05-26 and certbot renewal is installed with an nginx reload hook.
 
 **TLS mount:** `src/docker-compose.yml` no longer mounts certificate paths in the dev-neutral base service. Production TLS is added only by `src/docker-compose.prod.yml`, which binds `${LETSENCRYPT_DIR:-/opt/wims-bfp/letsencrypt}:/etc/letsencrypt:ro` for `wims-nginx-gateway`. On the VPS, `src/.env.production` sets `LETSENCRYPT_DIR=/etc/letsencrypt`, so the gateway receives the host certificate tree directly. Do not replace this with a repo-local symlink directory; Docker bind mounts expose the directory itself, so mounting `/opt/wims-bfp/letsencrypt` when it only contains `letsencrypt -> /etc/letsencrypt` hides the expected `/etc/letsencrypt/live/<domain>/...` paths from nginx.
+
+**Docker DNS upstream refresh:** Both nginx configs use Docker's embedded resolver (`127.0.0.11`) and a shared upstream zone with `server backend:8000 resolve`. Nginx refreshes the backend address after Compose recreates backend instead of retaining the old IP and returning `502 Connection refused`.
+
+**Ollama model provisioning:** `ollama-model-pull` is a one-shot service that runs `ollama pull qwen2.5:3b` through the image's existing `ollama` entrypoint. Its Compose command is therefore `pull qwen2.5:3b`, not `ollama pull ...`. Backend startup waits for successful model provisioning.
 
 **Frontend/auth env:** `docker-compose.prod.yml` sets browser-facing frontend build/runtime variables to the public HTTPS origin (`${PUBLIC_BASE_URL}`) or relative paths (`/api`, `/auth`). The development compose file also uses relative `/api` and `/auth` for browser-facing access, so local HTTP desk checks stay same-origin and avoid CORS preflight redirects. The Next.js server-side auth routes use `BACKEND_URL=http://backend:8000` in both development and production, and route handlers append `/api/...` explicitly. Keycloak advertises `KC_HOSTNAME_URL=${PUBLIC_BASE_URL}/auth` in production to keep OIDC discovery issuer/endpoints aligned with the nginx `/auth/` proxy path. For `POST /api/auth/sync`, the route forwards nginx-provided `X-Real-IP`/sanitized `X-Forwarded-For` to backend `POST /api/auth/callback` so backend Redis rate limiting keys by end-user IP rather than by the frontend container.
 
@@ -120,6 +126,7 @@ Use explicit `-f` flags on the VPS. Plain `docker compose up` auto-loads `docker
 - Cookie domain rewrite: `proxy_cookie_domain nginx-gateway $host` — rewrites backend's `Domain=nginx-gateway` to the request host so the browser accepts it
 - TLS terminates in nginx on port 443 for `wimsbfp.tech` using `/etc/letsencrypt/live/wimsbfp.tech/fullchain.pem` and `privkey.pem`
 - Gateway security headers: nginx disables version tokens, hides proxied `X-Powered-By`, and adds HSTS, `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: no-referrer`, and a restrictive camera/microphone permissions policy while allowing same-origin geolocation.
+- Production CSP currently permits inline scripts because Next.js emits inline bootstrap scripts required for React hydration. Replace `'unsafe-inline'` with per-request nonces when nonce propagation is implemented.
 - Port 80 redirects to HTTPS
 - `/health` is served directly by nginx from the HTTPS server block for gateway uptime checks
 - **No WebSocket/SSE** specific proxy settings (no `proxy_http_version 1.1`, no Upgrade header)
@@ -136,6 +143,8 @@ Use explicit `-f` flags on the VPS. Plain `docker compose up` auto-loads `docker
 - `src/suricata/rules/` → `/var/lib/suricata/rules/` — only `classification.config` present (no .rules files)
 
 **EVE output** is consumed by the backend service via `SURICATA_EVE_PATH=/var/log/suricata/eve.json`. The backend reads `eve.json` for real-time event ingestion via `services/suricata_ingestion.py`.
+
+The container exposes the running process as `Suricata-Main`; the Compose health check matches that process name with `pgrep`.
 
 **Note:** No custom `suricata.yaml` exists — the container uses its built-in default configuration. The compose file notes this is for prototype only; production would use `network_mode: "host"`.
 

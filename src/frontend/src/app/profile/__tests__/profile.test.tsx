@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ProfilePage from '../page';
+import type { User } from '@/context/AuthContext';
 
 const mockReplace = vi.fn();
 
@@ -43,14 +44,14 @@ function mockAnalystUser(overrides: Record<string, unknown> = {}) {
       role: 'NATIONAL_ANALYST',
       assignedRegionId: null,
       ...overrides,
-    } as unknown as Record<string, unknown>,
+    } as User,
     loading: false,
     loggingOut: false,
     isAuthenticated: true,
     login: vi.fn(),
     logout: vi.fn(),
     refreshSession: vi.fn(),
-  });
+  } as ReturnType<typeof useAuth>);
 }
 
 /**

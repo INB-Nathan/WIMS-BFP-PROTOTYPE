@@ -661,8 +661,8 @@ class TestPatchSecurityLogHitl:
         response = client.patch("/api/admin/security-logs/1", json={"action": "CONFIRM_THREAT"})
 
         assert response.status_code == 200
-        # CONFIRM_THREAT: call 1 = severity prefetch, call 2 = UPDATE
-        assert mock_db.execute.call_count == 2
+        # CONFIRM_THREAT: call 1 = severity prefetch, call 2 = UPDATE, call 3 = audit INSERT
+        assert mock_db.execute.call_count == 3
         update_call = next(
             c for c in mock_db.execute.call_args_list if "admin_action_taken" in c[0][1]
         )
@@ -676,6 +676,14 @@ class TestPatchSecurityLogHitl:
         assert '"reviewed_by": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"' in decision
         assert '"reviewed_at":' in decision
         assert "resolved_at = now()" in sql
+        # T3: verify audit INSERT content
+        audit_call = next(
+            c for c in mock_db.execute.call_args_list if "system_audit_trails" in str(c[0][0])
+        )
+        audit_params = audit_call[0][1]
+        assert audit_params["action"] == "HITL_REVIEW", "Audit action_type mismatch"
+        assert audit_params["table"] == "security_threat_logs", "Audit table mismatch"
+        assert audit_params["rec"] == 1, "Audit record_id mismatch"
 
     def test_false_positive_sets_label_and_jsonb(self, client: TestClient):
         """PATCH { "action": "FALSE_POSITIVE" } sets admin_action_taken + hitl_decision JSONB + resolved_at."""
@@ -686,12 +694,14 @@ class TestPatchSecurityLogHitl:
         response = client.patch("/api/admin/security-logs/2", json={"action": "FALSE_POSITIVE"})
 
         assert response.status_code == 200
-        call_args = mock_db.execute.call_args
-        params = call_args[0][1]
+        update_call = next(
+            c for c in mock_db.execute.call_args_list if "admin_action_taken" in c[0][1]
+        )
+        params = update_call[0][1]
         assert params["admin_action_taken"] == "False Positive (Dismissed)"
         decision = params["hitl_decision"]
         assert '"action": "FALSE_POSITIVE"' in decision
-        assert "resolved_at = now()" in str(call_args[0][0])
+        assert "resolved_at = now()" in str(update_call[0][0])
 
     def test_request_more_info_sets_label_jsonb_leaves_resolved_at_null(self, client: TestClient):
         """PATCH { "action": "REQUEST_MORE_INFO" } sets label + JSONB but NOT resolved_at."""
@@ -705,13 +715,15 @@ class TestPatchSecurityLogHitl:
         )
 
         assert response.status_code == 200
-        call_args = mock_db.execute.call_args
-        params = call_args[0][1]
+        update_call = next(
+            c for c in mock_db.execute.call_args_list if "admin_action_taken" in c[0][1]
+        )
+        params = update_call[0][1]
         assert params["admin_action_taken"] == "More Info Requested"
         decision = params["hitl_decision"]
         assert '"action": "REQUEST_MORE_INFO"' in decision
         assert '"note": "Check source IP"' in decision
-        sql_str = str(call_args[0][0])
+        sql_str = str(update_call[0][0])
         assert "resolved_at = NULL" in sql_str
         assert "resolved_at = now()" not in sql_str
 
@@ -752,3 +764,275 @@ class TestPatchSecurityLogHitl:
 
         response = client.patch("/api/admin/security-logs/99999", json={"action": "CONFIRM_THREAT"})
         assert response.status_code == 404
+
+
+class TestLegacyHitlAuditTrail:
+    """T7: Verify legacy admin_action_taken path also logs audit."""
+
+    def test_legacy_admin_action_taken_writes_audit(self, client: TestClient):
+        """PATCH { "admin_action_taken": "Manual review" } fires audit INSERT."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch(
+            "/api/admin/security-logs/1",
+            json={"admin_action_taken": "Manual review done"},
+        )
+
+        assert response.status_code == 200
+        audit_call = next(
+            c for c in mock_db.execute.call_args_list if "system_audit_trails" in str(c[0][0])
+        )
+        audit_params = audit_call[0][1]
+        assert audit_params["action"] == "HITL_REVIEW"
+
+
+class TestCreateIncidentFromAlert:
+    """T2: POST /admin/security-logs/{id}/create-incident — manual DRAFT creation."""
+
+    def _mock_log_row(self):
+        return ("1", "10.0.0.1", "12345", '{"event_type":"alert"}')
+
+    def test_create_incident_returns_200(self, client: TestClient):
+        """POST returns 200 with incident_id and sets reviewed_by."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db = MagicMock()
+        mock_result = MagicMock()
+        mock_result.rowcount = 1
+        mock_result.fetchone.side_effect = [
+            ("1", "10.0.0.1", "12345", "{}"),  # log row lookup
+            None,  # _security_incident_exists
+            (42,),  # INSERT RETURNING incident_id
+        ]
+        mock_db.execute.return_value = mock_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+        response = client.post("/api/admin/security-logs/1/create-incident")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["incident_id"] == 42
+        # verify reviewed_by UPDATE and audit INSERT were called
+        calls_sql = [str(c[0][0]) for c in mock_db.execute.call_args_list]
+        assert any("SET reviewed_by" in sql for sql in calls_sql), "reviewed_by not set"
+        assert any("system_audit_trails" in sql for sql in calls_sql), "audit not inserted"
+
+    def test_create_incident_not_found(self, client: TestClient):
+        """POST returns 404 when security log does not exist."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = None
+        mock_db.execute.return_value = mock_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+        response = client.post("/api/admin/security-logs/99999/create-incident")
+
+        assert response.status_code == 404
+
+    def test_create_incident_duplicate_returns_409(self, client: TestClient):
+        """POST returns 409 when _security_incident_exists returns True."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchone.side_effect = [
+            ("1", "10.0.0.1", "12345", "{}"),  # log row
+            (1,),  # _security_incident_exists → exists
+        ]
+        mock_db.execute.return_value = mock_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+        response = client.post("/api/admin/security-logs/1/create-incident")
+
+        assert response.status_code == 409
+
+
+class TestAuditLogsAnalyze:
+    """T1: POST /admin/audit-logs/analyze — Ollama-based analysis."""
+
+    def test_empty_ids_returns_400(self, client: TestClient):
+        """POST with empty audit_ids returns 400."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.post("/api/admin/audit-logs/analyze", json={"audit_ids": []})
+
+        assert response.status_code == 400
+
+    def test_too_many_ids_returns_400(self, client: TestClient):
+        """POST with >50 audit_ids returns 400."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.post("/api/admin/audit-logs/analyze", json={"audit_ids": list(range(51))})
+
+        assert response.status_code == 400
+
+    def test_unknown_ids_returns_404(self, client: TestClient):
+        """POST with non-existent audit_ids returns 404."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = []
+        mock_db.execute.return_value = mock_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+        response = client.post("/api/admin/audit-logs/analyze", json={"audit_ids": [99999]})
+
+        assert response.status_code == 404
+
+
+# =============================================================================
+# Additional CreateIncident tests — 500 rollback + 403 encoder denied
+# =============================================================================
+
+
+class TestCreateIncidentFromAlertExtended:
+    def test_failure_rolls_back_and_returns_500(self, client: TestClient):
+        """POST create-incident when _create_security_incident raises rolls back and returns 500."""
+        from unittest.mock import patch
+
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        mock_db.execute.return_value.fetchone.side_effect = [
+            (1, "10.0.0.1", 2012345, "suspicious payload"),
+            None,
+        ]
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        with patch(
+            "api.routes.admin.security._create_security_incident",
+            side_effect=RuntimeError("DB down"),
+        ):
+            response = client.post("/api/admin/security-logs/1/create-incident")
+
+        assert response.status_code == 500
+        assert "Failed to create incident from alert" in response.json()["detail"]
+        assert mock_db.rollback.called
+        assert not mock_db.commit.called
+
+    def test_encoder_denied_returns_403(self, client: TestClient):
+        """POST create-incident by non-admin (encoder) returns 403."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_encoder_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.post("/api/admin/security-logs/1/create-incident")
+
+        assert response.status_code == 403
+        assert "SYSTEM_ADMIN" in response.json()["detail"]
+
+
+# =============================================================================
+# POST /admin/audit-logs/analyze — M8 batch limit (config-driven)
+# =============================================================================
+
+
+class TestAnalyzeAuditLogsBatchLimit:
+    def test_over_limit_returns_400(self, client: TestClient):
+        """POST /admin/audit-logs/analyze with more audit_ids than config limit returns 400."""
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+
+        now = datetime.now(timezone.utc)
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            (1, "uid-1", "LOGIN", "wims.users", 1, "192.168.1.1", now),
+            (2, "uid-2", "LOGOUT", "wims.users", 1, "192.168.1.2", now),
+        ]
+        mock_db = MagicMock()
+        mock_db.execute.return_value = mock_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        with patch("services.ai_service.get_config", return_value="2"):
+            response = client.post(
+                "/api/admin/audit-logs/analyze",
+                json={"audit_ids": [1, 2, 3, 4, 5]},
+            )
+
+        assert response.status_code == 400
+        detail = response.json()["detail"]
+        assert "Maximum" in detail
+
+    def test_at_limit_passes(self, client: TestClient):
+        """POST /admin/audit-logs/analyze with audit_ids exactly at the limit must NOT be rejected."""
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+
+        now = datetime.now(timezone.utc)
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            (1, "uid-1", "LOGIN", "wims.users", 1, "192.168.1.1", now),
+            (2, "uid-2", "LOGOUT", "wims.users", 1, "192.168.1.2", now),
+        ]
+        mock_db = MagicMock()
+        mock_db.execute.return_value = mock_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        with patch("services.ai_service.get_config", return_value="2"):
+            response = client.post(
+                "/api/admin/audit-logs/analyze",
+                json={"audit_ids": [1, 2]},
+            )
+
+        assert response.status_code != 400, (
+            f"Expected non-400 for 2 audit_ids at limit 2, got {response.status_code}"
+        )
+
+    def test_invalid_config_falls_back_to_default(self, client: TestClient):
+        """POST /admin/audit-logs/analyze when config returns non-integer falls back to default 50."""
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+
+        now = datetime.now(timezone.utc)
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            (1, "uid-1", "LOGIN", "wims.users", 1, "192.168.1.1", now),
+        ]
+        mock_db = MagicMock()
+        mock_db.execute.return_value = mock_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        with patch("services.ai_service.get_config", return_value="not-a-number"):
+            response = client.post(
+                "/api/admin/audit-logs/analyze",
+                json={"audit_ids": [1]},
+            )
+
+        # Should not 400 — fallback to 50 means 1 audit_id is fine
+        assert response.status_code != 400, (
+            f"Expected non-400 with invalid config (fallback to 50), got {response.status_code}"
+        )

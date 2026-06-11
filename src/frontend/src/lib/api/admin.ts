@@ -2,6 +2,7 @@ export {
   analyzeSecurityLog,
   changeMyPassword,
   createAdminUser,
+  createIncidentFromAlert,
   fetchActiveSessions,
   fetchAdminSecurityLogs,
   fetchAdminUsers,
