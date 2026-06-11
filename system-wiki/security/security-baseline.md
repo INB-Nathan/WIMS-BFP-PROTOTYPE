@@ -147,6 +147,29 @@ All write paths updated: `services/afor_import/commit.py` (AFOR commit), `api/ro
 - **No-secret logging verified:** all existing code paths (client, rotation, migration, backup_crypto, rewrap) log only operation metadata; no ciphertext, plaintext, nonces, keys, or tokens appear in log statements.
 - **Overall GH #152 status:** Phases 1-8 code paths, runbook, and test hooks implemented. **Live environment validation remains pending** — until live OpenBao is available in this environment and the integration tests pass against it, #152 is PARTIAL. Do not claim #152 or FRS Module 6 fully closed until the live backup restore drill and integration tests are executed in the target environment.
 
+## OpenBao KMS Production Lifecycle Fixes (2026-06-11)
+
+**Health routing fix:** `OpenBaoClient._url_for()` helper ensures sys API paths (e.g. `/sys/health`) bypass the Transit mount prefix. Health calls now correctly hit `/v1/sys/health` instead of the invalid `/v1/transit/sys/health`. Unit tests (`TestOpenBaoClientRouting`) validate URL construction for health, encrypt, decrypt, rewrap, rotate, and metadata endpoints.
+
+**Bootstrap lifecycle rewrite:** `src/openbao/init/bootstrap-openbao.sh` now handles three states:
+1. Uninitialised → init (1/1 Shamir for dev), unseal, bootstrap Transit
+2. Initialised + sealed → unseal only if `OPENBAO_UNSEAL_KEY` is provided; fail-fast with manual-unseal message otherwise
+3. Initialised + unsealed → authenticate with `OPENBAO_TOKEN` env, then persisted root token, then `OPENBAO_DEV_ROOT_TOKEN`
+
+Never prints root token or unseal key to logs. Idempotent for Transit enable and key creation.
+
+**Derived Transit key enforcement:** `wims-incident-pii` and `wims-backup` keys are created with `derived=true` (AES-256-GCM-96). This cryptographically binds every encrypt/decrypt operation to its context/AAD. If a key already exists but is *not* derived, bootstrap fails with an explicit operator message — destructive recreation is forbidden, but silent weakening of context enforcement is also forbidden. `convergent_encryption` is never set.
+
+**Compose healthcheck fix:** `openbao` healthcheck now requires BOTH `initialized=true` AND `sealed=false` — previously only checked `initialized=true`, which passed initialized-but-sealed clusters (the VPS failure state). Bootstrap depends on `service_started` (not `service_healthy`) so first-boot init is not deadlocked by the sealed=false requirement.
+
+**Credential persistence:** On first boot, the bootstrap script persists the generated root token and unseal key to `/vault/file/.bootstrap-creds` (chmod 600) inside the `openbao_data` Docker volume. Subsequent restarts read this file as a fallback when env vars are unset. Token fallback chain: env `OPENBAO_TOKEN` > persisted `OPENBAO_ROOT_TOKEN` > `OPENBAO_DEV_ROOT_TOKEN` (default `devroot`). Unseal key fallback chain: env `OPENBAO_UNSEAL_KEY` > persisted. **Dev/single-VPS only** — production must use a proper secrets manager.
+
+**Backend/celery env plumbing:** `OPENBAO_ADDR`, `OPENBAO_TOKEN`, and `OPENBAO_TRANSIT_MOUNT` env vars are plumbed into `backend` and `celery-worker` compose services with safe defaults (empty token, default addr). `WIMS_CRYPTO_PROVIDER` defaults to `env_aesgcm` — OpenBao is only used when explicitly opted in. No dependency on `openbao` or `openbao-bootstrap` is added to backend/celery (avoids forcing optional infrastructure on default env-aesgcm boot).
+
+**Safe key-delete warning:** The non-derived-key error message now explicitly warns that deleting the key destroys decryptability of any data encrypted with it, and lists migration/restore/reset as prerequisites before deletion.
+
+**Tests:** 8 new unit tests in `TestOpenBaoClientRouting` proving sys paths bypass mount. Existing `test_decrypt_wrong_context_fails_live` remains correct under derived keys — wrong context = decrypt failure by design.
+
 ## CSRF Protection
 
 FRS Module 11b requires Cross-Site Request Forgery testing. The following layers are enforced:

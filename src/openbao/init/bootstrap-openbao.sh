@@ -1,34 +1,153 @@
 #!/bin/sh
+# ---------------------------------------------------------------------------
+# bootstrap-openbao.sh — idempotent OpenBao Transit initialisation for WIMS
+#
+# Handles three lifecycle states:
+#   1. Not initialised  → init (1/1 Shamir), unseal, bootstrap Transit
+#   2. Initialised+sealed → unseal only if OPENBAO_UNSEAL_KEY is provided,
+#      otherwise fail-fast with a manual-unseal message
+#   3. Initialised+unsealed → authenticate and bootstrap Transit
+#
+# Transit keys are created with  derived=true  (AES-256-GCM-96) so that
+# context/AAD is cryptographically enforced.  Keys that already exist are
+# validated; non-derived keys cause a hard failure.
+#
+# Secrets (root token, unseal key) are *never* logged.
+# ---------------------------------------------------------------------------
 set -eu
 
+# ── Configuration ────────────────────────────────────────────────────────────
 OPENBAO_ADDR="${OPENBAO_ADDR:-http://openbao:8200}"
-OPENBAO_TOKEN="${OPENBAO_TOKEN:-devroot}"
 TRANSIT_MOUNT="${TRANSIT_MOUNT:-transit}"
+OPENBAO_TOKEN="${OPENBAO_TOKEN:-}"
+OPENBAO_UNSEAL_KEY="${OPENBAO_UNSEAL_KEY:-}"
+
+# Dev convenience: if OPENBAO_TOKEN is empty, try OPENBAO_DEV_ROOT_TOKEN
+_DEV_TOKEN="${OPENBAO_DEV_ROOT_TOKEN:-devroot}"
+
+# ── Read persisted first-boot credentials (dev/single-VPS lifecycle only) ────
+# Existence implies first init already ran; values are fallbacks when env vars
+# are unset.  This file *must* be stored on the openbao_data volume so it
+# survives container recreation.
+CREDS_FILE="/vault/file/.bootstrap-creds"
+_PERSISTED_ROOT_TOKEN=""
+_PERSISTED_UNSEAL_KEY=""
+if [ -f "${CREDS_FILE}" ]; then
+  _PERSISTED_ROOT_TOKEN=$(grep -o 'OPENBAO_ROOT_TOKEN=.*' "${CREDS_FILE}" | head -1 | cut -d= -f2- || true)
+  _PERSISTED_UNSEAL_KEY=$(grep -o 'OPENBAO_UNSEAL_KEY=.*' "${CREDS_FILE}" | head -1 | cut -d= -f2- || true)
+fi
 
 export BAO_ADDR="${OPENBAO_ADDR}"
-export BAO_TOKEN="${OPENBAO_TOKEN}"
+export BAO_TOKEN=""
 export BAO_SKIP_VERIFY=true
 
-echo "Waiting for OpenBao at ${OPENBAO_ADDR}"
+# ── Wait for OpenBao API to be reachable ─────────────────────────────────────
+# NOTE: we do NOT wait for `bao status` exit code 0 because a sealed or
+# uninitialised OpenBao may return non-zero while still producing valid JSON.
+# Instead we capture the JSON and look for the `"initialized"` field.
+echo "=== OpenBao bootstrap ==="
+echo "Waiting for OpenBao API at ${OPENBAO_ADDR} ..."
+STATUS_JSON=""
 attempt=1
-while ! bao status -format=json >/dev/null 2>&1; do
+while true; do
+  STATUS_JSON=$(bao status -format=json 2>/dev/null || true)
+  if echo "${STATUS_JSON}" | grep -q '"initialized"'; then
+    break
+  fi
   if [ "${attempt}" -ge 30 ]; then
-    echo "OpenBao did not become ready after ${attempt} attempts" >&2
-    bao status -format=json 2>&1 || true
+    echo "ERROR: OpenBao API did not become reachable after ${attempt} attempts" >&2
     exit 1
   fi
   attempt=$((attempt + 1))
   sleep 2
 done
+echo "OpenBao API is reachable"
 
-echo "Authenticating with root token"
-bao token lookup >/dev/null || {
-  echo "Authentication failed — check OPENBAO_TOKEN" >&2
+# ── Determine cluster state ──────────────────────────────────────────────────
+INITIALIZED=$(echo "${STATUS_JSON}" | grep -o '"initialized"[[:space:]]*:[[:space:]]*[^,}]*' | cut -d: -f2 | tr -d ' "')
+SEALED=$(echo "${STATUS_JSON}" | grep -o '"sealed"[[:space:]]*:[[:space:]]*[^,}]*' | cut -d: -f2 | tr -d ' "')
+
+echo "Cluster state: initialized=${INITIALIZED}, sealed=${SEALED}"
+
+# ── Case 1: Not initialised ─────────────────────────────────────────────────
+if [ "${INITIALIZED}" = "false" ]; then
+  echo "OpenBao is not initialised — running operator init (key-shares=1, key-threshold=1)"
+  INIT_OUTPUT=$(bao operator init -key-shares=1 -key-threshold=1 -format=json)
+
+  # Extract secrets *without* printing them
+  UNSEAL_KEY=$(echo "${INIT_OUTPUT}" | grep -o '"unseal_keys_b64"[[:space:]]*:[[:space:]]*\["[^"]*"' | sed 's/.*\["//;s/"//')
+  ROOT_TOKEN=$(echo "${INIT_OUTPUT}" | grep -o '"root_token"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*":[[:space:]]*"//;s/"//')
+
+  if [ -z "${UNSEAL_KEY}" ] || [ -z "${ROOT_TOKEN}" ]; then
+    echo "ERROR: Failed to parse init output — root token or unseal key missing" >&2
+    exit 1
+  fi
+
+  echo "Unsealing OpenBao (unseal key redacted)"
+  bao operator unseal "${UNSEAL_KEY}" >/dev/null
+
+  # Persist credentials so subsequent restarts can auto-unseal / auth
+  # without the operator having to capture the init output manually.
+  # DEV / SINGLE-VPS PROTOTYPE ONLY — production uses a secrets manager.
+  {
+    echo "OPENBAO_ROOT_TOKEN=${ROOT_TOKEN}"
+    echo "OPENBAO_UNSEAL_KEY=${UNSEAL_KEY}"
+  } > "${CREDS_FILE}"
+  chmod 600 "${CREDS_FILE}"
+
+  export BAO_TOKEN="${ROOT_TOKEN}"
+  echo "OpenBao initialised and unsealed (credentials persisted to ${CREDS_FILE})"
+
+# ── Case 2: Initialised but sealed ──────────────────────────────────────────
+elif [ "${SEALED}" = "true" ]; then
+  # Determine unseal key: env > persisted
+  _MAYBE_UNSEAL="${OPENBAO_UNSEAL_KEY:-${_PERSISTED_UNSEAL_KEY:-}}"
+  if [ -z "${_MAYBE_UNSEAL}" ]; then
+    echo "" >&2
+    echo "ERROR: OpenBao is sealed and no unseal key is available." >&2
+    echo "Set OPENBAO_UNSEAL_KEY or ensure ${CREDS_FILE} exists from first init." >&2
+    echo "Manual operator unseal:" >&2
+    echo "" >&2
+    echo "  export BAO_ADDR=${OPENBAO_ADDR}" >&2
+    echo "  bao operator unseal" >&2
+    echo "" >&2
+    echo "After unsealing, re-run bootstrap or set OPENBAO_UNSEAL_KEY." >&2
+    exit 1
+  fi
+
+  echo "OpenBao is sealed — unsealing (key redacted)"
+  bao operator unseal "${_MAYBE_UNSEAL}" >/dev/null
+
+  # Token fallback chain: env OPENBAO_TOKEN > persisted root > dev default
+  TOKEN="${OPENBAO_TOKEN:-${_PERSISTED_ROOT_TOKEN:-${_DEV_TOKEN:-}}}"
+  if [ -z "${TOKEN}" ]; then
+    echo "ERROR: Unsealed but no token available (set OPENBAO_TOKEN or OPENBAO_DEV_ROOT_TOKEN)" >&2
+    exit 1
+  fi
+  export BAO_TOKEN="${TOKEN}"
+  echo "OpenBao unsealed"
+
+# ── Case 3: Initialised and unsealed ────────────────────────────────────────
+else
+  # Token fallback chain: env OPENBAO_TOKEN > persisted root > dev default
+  TOKEN="${OPENBAO_TOKEN:-${_PERSISTED_ROOT_TOKEN:-${_DEV_TOKEN:-}}}"
+  if [ -z "${TOKEN}" ]; then
+    echo "ERROR: OpenBao is unsealed but no token available (set OPENBAO_TOKEN or OPENBAO_DEV_ROOT_TOKEN)" >&2
+    exit 1
+  fi
+  export BAO_TOKEN="${TOKEN}"
+  echo "OpenBao is already initialised and unsealed"
+fi
+
+# ── Authenticate ─────────────────────────────────────────────────────────────
+if ! bao token lookup >/dev/null 2>&1; then
+  echo "ERROR: Token authentication failed — check the configured token" >&2
   exit 1
-}
+fi
+echo "Authenticated"
 
-# Enable Transit secrets engine if not already enabled
-if ! bao secrets list -format=json | grep -q "\"${TRANSIT_MOUNT}/\""; then
+# ── Enable Transit secrets engine ────────────────────────────────────────────
+if ! bao secrets list -format=json 2>/dev/null | grep -q "\"${TRANSIT_MOUNT}/\""; then
   echo "Enabling Transit secrets engine at ${TRANSIT_MOUNT}/"
   bao secrets enable -path="${TRANSIT_MOUNT}" transit
   echo "Transit enabled"
@@ -36,49 +155,74 @@ else
   echo "Transit already enabled at ${TRANSIT_MOUNT}/"
 fi
 
-# Create PII encryption key
-echo "Creating transit key: wims-incident-pii"
-bao write -f "${TRANSIT_MOUNT}/keys/wims-incident-pii" type=aes256-gcm96 2>/dev/null \
-  || echo "Key wims-incident-pii already exists (ok)"
+# ── Create or validate derived Transit keys ──────────────────────────────────
+create_or_verify_derived_key() {
+  KEY_NAME="$1"
+  echo "Checking Transit key: ${KEY_NAME}"
 
-# Create backup encryption key
-echo "Creating transit key: wims-backup"
-bao write -f "${TRANSIT_MOUNT}/keys/wims-backup" type=aes256-gcm96 2>/dev/null \
-  || echo "Key wims-backup already exists (ok)"
+  # Check whether the key already exists
+  if bao read -format=json "${TRANSIT_MOUNT}/keys/${KEY_NAME}" >/dev/null 2>&1; then
+    # Key exists — verify it is derived
+    KEY_META=$(bao read -format=json "${TRANSIT_MOUNT}/keys/${KEY_NAME}" 2>/dev/null)
+    IS_DERIVED=$(echo "${KEY_META}" | grep -o '"derived"[[:space:]]*:[[:space:]]*true' || true)
+    if [ -z "${IS_DERIVED}" ]; then
+      echo "" >&2
+      echo "ERROR: Key '${KEY_NAME}' exists but is NOT derived=true." >&2
+      echo "Context/AAD enforcement requires derived keys." >&2
+      echo "" >&2
+      echo "WARNING: Deleting this key WILL destroy the ability to decrypt any" >&2
+      echo "data already encrypted with it.  Before proceeding you MUST:" >&2
+      echo "  1. Migrate existing encrypted data to a derived key, OR" >&2
+      echo "  2. Restore from backup after re-keying, OR" >&2
+      echo "  3. Reset the affected environment (dev/test only)." >&2
+      echo "" >&2
+      echo "Manual operator action (DESTRUCTIVE — data loss if unprepared):" >&2
+      echo "  export BAO_ADDR=${OPENBAO_ADDR}" >&2
+      echo "  export BAO_TOKEN=<root-or-admin-token>" >&2
+      echo "  bao delete ${TRANSIT_MOUNT}/keys/${KEY_NAME}" >&2
+      echo "Then re-run bootstrap to recreate it as derived=true." >&2
+      exit 1
+    fi
+    echo "Key '${KEY_NAME}' exists and is derived=true (ok)"
+  else
+    echo "Creating Transit key: ${KEY_NAME} (type=aes256-gcm96, derived=true)"
+    bao write -f "${TRANSIT_MOUNT}/keys/${KEY_NAME}" type=aes256-gcm96 derived=true || {
+      echo "ERROR: Failed to create key '${KEY_NAME}'" >&2
+      exit 1
+    }
+    echo "Key '${KEY_NAME}' created"
+  fi
+}
 
-# Write WIMS app policy via temp policy file
-cat > /tmp/wims-policy.hcl << 'EOF'
-path "transit/encrypt/wims-incident-pii" {
-  capabilities = ["create", "update"]
-}
-path "transit/decrypt/wims-incident-pii" {
-  capabilities = ["create", "update"]
-}
-path "transit/rewrap/wims-incident-pii" {
-  capabilities = ["create", "update"]
-}
-path "transit/keys/wims-incident-pii" {
-  capabilities = ["read"]
-}
-path "transit/encrypt/wims-backup" {
-  capabilities = ["create", "update"]
-}
-path "transit/decrypt/wims-backup" {
-  capabilities = ["create", "update"]
-}
-path "transit/rewrap/wims-backup" {
-  capabilities = ["create", "update"]
-}
-path "transit/keys/wims-backup" {
-  capabilities = ["read"]
-}
-EOF
+create_or_verify_derived_key "wims-incident-pii"
+create_or_verify_derived_key "wims-backup"
+
+# ── Write least-privilege policy ─────────────────────────────────────────────
+cat > /tmp/wims-policy.hcl << 'POLICY_EOF'
+path "transit/encrypt/wims-incident-pii" { capabilities = ["create", "update"] }
+path "transit/decrypt/wims-incident-pii" { capabilities = ["create", "update"] }
+path "transit/rewrap/wims-incident-pii" { capabilities = ["create", "update"] }
+path "transit/keys/wims-incident-pii" { capabilities = ["read"] }
+path "transit/encrypt/wims-backup" { capabilities = ["create", "update"] }
+path "transit/decrypt/wims-backup" { capabilities = ["create", "update"] }
+path "transit/rewrap/wims-backup" { capabilities = ["create", "update"] }
+path "transit/keys/wims-backup" { capabilities = ["read"] }
+POLICY_EOF
 
 echo "Writing wims-app policy"
 bao policy write wims-app /tmp/wims-policy.hcl
+rm -f /tmp/wims-policy.hcl
 
-echo "OpenBao bootstrap complete"
-echo "  Transit mount: ${TRANSIT_MOUNT}/"
-echo "  PII key:       wims-incident-pii"
-echo "  Backup key:    wims-backup"
-echo "  App policy:    wims-app (use this for backend/celery tokens)"
+# ── Cleanup secrets from the environment ─────────────────────────────────────
+unset UNSEAL_KEY ROOT_TOKEN TOKEN _DEV_TOKEN _PERSISTED_ROOT_TOKEN _PERSISTED_UNSEAL_KEY _MAYBE_UNSEAL 2>/dev/null || true
+
+echo ""
+echo "==== OpenBao bootstrap complete ===="
+echo "  Transit mount:  ${TRANSIT_MOUNT}/"
+echo "  PII key:        wims-incident-pii  (derived=true, aes256-gcm96)"
+echo "  Backup key:     wims-backup        (derived=true, aes256-gcm96)"
+echo "  App policy:     wims-app"
+echo ""
+echo "Secrets (root token / unseal key) are NOT printed to logs."
+echo "On first init, prototype credentials are persisted in ${CREDS_FILE}."
+echo "For production, replace this with an external secrets manager/AppRole/auto-unseal flow."

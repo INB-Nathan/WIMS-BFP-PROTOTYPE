@@ -1,8 +1,8 @@
 # OpenBao KMS Operations Runbook
 
 **Issue**: GH #152 Phase 8 — hardening, validation hooks, operator runbook  
-**Last updated**: 2026-06-11  
-**Status**: Phase 1-7 code paths implemented; live ops drill pending
+**Last updated**: 2026-06-11 (credential persistence, health-unsealed guard, backend env plumbing, derived-key safe-delete warning)  
+**Status**: Phase 1-7 code paths implemented; live ops drill pending; derived-key guard active
 
 ---
 
@@ -37,11 +37,14 @@ docker compose up openbao openbao-bootstrap
 
 This starts:
 1. **`wims-openbao`** — OpenBao 2.2.0 server with `openbao.hcl` file storage backend
-2. **`wims-openbao-bootstrap`** — one-shot container that waits for health, then:
-   - Authenticates with `OPENBAO_TOKEN` (default `devroot` set via `OPENBAO_DEV_ROOT_TOKEN`)
-   - Enables the Transit secrets engine at the configured mount path
-   - Creates `wims-incident-pii` Transit key (AES-256-GCM-96, for PII encryption)
-   - Creates `wims-backup` Transit key (AES-256-GCM-96, for backup encryption)
+2. **`wims-openbao-bootstrap`** — one-shot container that handles the full lifecycle:
+   - **First boot (uninitialised):** automatically initialises OpenBao with 1 key share / 1 threshold, unseals, then bootstraps Transit. Root token and unseal key are captured internally and never logged.
+   - **Sealed after restart:** if `OPENBAO_UNSEAL_KEY` is provided, automatically unseals; otherwise fails fast with a manual-unseal message.
+   - **Already initialised + unsealed:** authenticates using the token chain `OPENBAO_TOKEN` env > persisted root token > `OPENBAO_DEV_ROOT_TOKEN` (default `devroot`).
+   - Enables the Transit secrets engine at the configured mount path (idempotent).
+   - Creates `wims-incident-pii` Transit key (**derived=true**, AES-256-GCM-96, for PII encryption). If the key already exists and is *not* derived, bootstrap fails with an explicit operator message that warns about data loss before recommending key deletion.
+   - Creates `wims-backup` Transit key (**derived=true**, AES-256-GCM-96, for backup encryption). Same derived-validation guard.
+   - Persists the generated root token and unseal key to `openbao_data:/vault/file/.bootstrap-creds` (chmod 600) so subsequent restarts can auto-unseal and authenticate without manual operator capture. **Dev/single-VPS only** — production must use a secrets manager.
    - Writes the `wims-app` least-privilege policy
 
 ### Verify readiness
@@ -50,8 +53,8 @@ This starts:
 # Check health
 curl -sf http://localhost:8200/v1/sys/health | jq .
 
-# List transit keys
-curl -sf -H "X-Vault-Token: devroot" http://localhost:8200/v1/transit/keys | jq '.data.keys'
+# List transit keys (use the configured service/admin token; do not assume devroot after auto-init)
+curl -sf -H "X-Vault-Token: ${OPENBAO_TOKEN:?set OPENBAO_TOKEN}" http://localhost:8200/v1/transit/keys | jq '.data.keys'
 ```
 
 Expected output: `["wims-incident-pii", "wims-backup"]`.
@@ -109,7 +112,20 @@ cd src && docker compose down
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OPENBAO_DEV_ROOT_TOKEN` | `devroot` | Root token for local dev bootstrap container |
+| `OPENBAO_DEV_ROOT_TOKEN` | `devroot` | Final fallback token for local dev/manual-init flows; auto-init persists a generated root token instead |
+| `OPENBAO_UNSEAL_KEY` | — | Unseal key for automated unseal after restart (required only when OpenBao is sealed and you want scripted unseal) |
+
+### Credential persistence (dev / single-VPS only)
+
+On first boot, `bootstrap-openbao.sh` writes the generated root token and unseal key to
+`/vault/file/.bootstrap-creds` (inside the `openbao_data` Docker volume, chmod 600).
+On subsequent restarts the script reads this file as a fallback when
+`OPENBAO_TOKEN` / `OPENBAO_UNSEAL_KEY` env vars are not set.
+
+**This file is plaintext on disk inside a Docker volume.** It is acceptable for a
+single-VPS prototype where the volume is only accessible to root on the host.
+Production deployments MUST use a proper secrets manager (HashiCorp Vault KV v2,
+Docker secrets, or cloud KMS) and MUST NOT rely on this persistence mechanism.
 
 ---
 
@@ -172,6 +188,18 @@ bao operator unseal  # enter key 3  # threshold met → unsealed
 curl -sf -H "X-Vault-Token: <root>" "${OPENBAO_ADDR}/v1/sys/health" | jq .sealed
 # Expected: false
 ```
+
+### Automated bootstrap lifecycle (dev / single-VPS)
+
+The `openbao-bootstrap` container handles the full lifecycle via `bootstrap-openbao.sh`:
+
+1. **First boot (uninitialised):** the script initialises OpenBao (1 key share, 1 threshold for dev), unseals, then bootstraps Transit. Root token and unseal key are persisted to `/vault/file/.bootstrap-creds` (chmod 600). No pre-existing tokens needed.
+2. **Sealed restart:** the script tries `OPENBAO_UNSEAL_KEY` env var, falls back to the persisted file, otherwise fails fast with a clear manual-unseal message.
+3. **Already unsealed:** the script authenticates using the token chain: `OPENBAO_TOKEN` env > persisted root token > `OPENBAO_DEV_ROOT_TOKEN` (default `devroot`).
+4. **API reachability:** the script waits for OpenBao's status endpoint to return valid JSON (containing `"initialized"`), not for exit code 0, so sealed/uninitialized clusters can be detected before init/unseal branches.
+5. **Healthcheck:** the `openbao` service healthcheck requires BOTH `initialized=true` AND `sealed=false`. Bootstrap depends on `service_started` (not `service_healthy`) so first-boot init is not deadlocked by the sealed=false requirement.
+
+**Critical:** all Transit keys are created with `derived=true` (AES-256-GCM-96). This cryptographically binds encryption operations to a context/AAD value — wrong context decrypts will fail by design. If a key exists but is not derived, bootstrap fails with an operator message that warns about data loss before recommending deletion.
 
 ---
 

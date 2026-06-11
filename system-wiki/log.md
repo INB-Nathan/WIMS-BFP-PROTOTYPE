@@ -3,6 +3,16 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-11] fix | OpenBao production lifecycle fixes — wait-API, health-unsealed, credential persistence, backend env
+
+- `src/backend/services/kms/openbao_client.py`: extracted `_url_for()` helper with explicit `/sys/` path branching. Health endpoint now correctly hits `/v1/sys/health`; Transit operations still use `/v1/{mount}/...`.
+- `src/openbao/init/bootstrap-openbao.sh`: full rewrite of wait/init/unseal lifecycle. Wait loop captures status JSON and checks for `"initialized"` field (not exit code 0) so sealed/uninitialized clusters are detected before reaching init/unseal branches. Handles three states (uninitialised → init+unseal+persist; sealed → env/persisted unseal or fail-fast; unsealed → env/persisted/dev token chain). First-boot root token and unseal key persisted to `/vault/file/.bootstrap-creds` (chmod 600, dev/single-VPS only). Transit keys created with `derived=true type=aes256-gcm96`. Non-derived key error now warns about data loss before recommending deletion. Secrets never logged.
+- `src/docker-compose.yml`: OpenBao healthcheck now requires `initialized=true` AND `sealed=false`. Bootstrap depends on `service_started` to avoid first-boot deadlock. Bootstrap container mounts `openbao_data` volume for credential persistence. `OPENBAO_ADDR`, `OPENBAO_TOKEN`, `OPENBAO_TRANSIT_MOUNT`, `WIMS_CRYPTO_PROVIDER` plumbed into backend and celery-worker with safe defaults — no dependency forcing optional OpenBao on default env-aesgcm boot.
+- `src/backend/tests/test_openbao_client.py`: 8 new `TestOpenBaoClientRouting` unit tests proving sys paths bypass mount and Transit paths use mount prefix.
+- `docs/operations/openbao-kms-runbook.md`: updated bootstrap description with persistence lifecycle, credential persistence section, healthcheck/backend env docs, and safe key-delete warning.
+- `system-wiki/security/security-baseline.md`: updated Production Lifecycle Fixes section with credential persistence, health-unsealed guard, backend env plumbing, and safe-delete warning.
+- No FRS gap register update (no gap status change — these are implementation fixes, not new gaps).
+
 ## [2026-06-11] feat | GH #152 Phase 8 — OpenBao KMS hardening, live validation hooks, ops runbook
 
 - `docs/operations/openbao-kms-runbook.md`: new operations runbook covering local dev bootstrap, env var reference table, production topology (internal-only network, TLS, HA/Raft), unseal strategy (Shamir M-of-N / platform auto-unseal), least-privilege policy summary, migration runbook (dry-run, production run, rollback/resume), rotation runbook (scheduled beat, DB inspection, triage), backup restore drill (legacy + OpenBao), incident response scenarios (down/sealed/auth failure/rotation failure/backup decrypt failure), and explicit secret hygiene rules.

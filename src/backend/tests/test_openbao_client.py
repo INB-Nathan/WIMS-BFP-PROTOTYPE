@@ -184,3 +184,90 @@ class TestOpenBaoClientInterface:
         client = OpenBaoClient()
         health = client.health()
         assert health is not None
+
+
+# ── URL routing tests: sys calls bypass transit mount ────────────────────────
+
+
+class TestOpenBaoClientRouting:
+    """Verify that _url_for builds correct URLs for sys vs Transit paths.
+
+    Regression guard for: health endpoint accidentally routed through
+    /v1/transit/sys/health instead of /v1/sys/health.
+    """
+
+    # ── helpers ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _client(monkeypatch, mount: str = "transit") -> OpenBaoClient:
+        monkeypatch.setenv("OPENBAO_ADDR", "http://openbao:8200")
+        monkeypatch.setenv("OPENBAO_TOKEN", "s.fake-token")
+        monkeypatch.setenv("OPENBAO_TRANSIT_MOUNT", mount)
+        return OpenBaoClient()
+
+    # ── health / sys paths ───────────────────────────────────────────────
+
+    def test_health_url_uses_sys_prefix(self, monkeypatch):
+        """health() → /v1/sys/health, NOT /v1/transit/sys/health."""
+        client = self._client(monkeypatch)
+        url = client._url_for("/sys/health")
+        assert url == "http://openbao:8200/v1/sys/health"
+        assert "/transit" not in url
+
+    def test_sys_paths_bypass_mount(self, monkeypatch):
+        """All /sys/* paths bypass the Transit mount prefix."""
+        client = self._client(monkeypatch)
+        assert client._url_for("/sys/seal-status") == "http://openbao:8200/v1/sys/seal-status"
+        assert client._url_for("/sys/leader") == "http://openbao:8200/v1/sys/leader"
+        assert client._url_for("/sys/metrics") == "http://openbao:8200/v1/sys/metrics"
+
+    # ── Transit paths ────────────────────────────────────────────────────
+
+    def test_encrypt_url_uses_mount_prefix(self, monkeypatch):
+        """encrypt(key) → /v1/{mount}/encrypt/{key}."""
+        client = self._client(monkeypatch)
+        assert (
+            client._url_for("encrypt/wims-incident-pii")
+            == "http://openbao:8200/v1/transit/encrypt/wims-incident-pii"
+        )
+
+    def test_decrypt_url_uses_mount_prefix(self, monkeypatch):
+        """decrypt(key) → /v1/{mount}/decrypt/{key}."""
+        client = self._client(monkeypatch)
+        assert (
+            client._url_for("decrypt/wims-incident-pii")
+            == "http://openbao:8200/v1/transit/decrypt/wims-incident-pii"
+        )
+
+    def test_rewrap_url_uses_mount_prefix(self, monkeypatch):
+        """rewrap(key) → /v1/{mount}/rewrap/{key}."""
+        client = self._client(monkeypatch)
+        assert (
+            client._url_for("rewrap/wims-incident-pii")
+            == "http://openbao:8200/v1/transit/rewrap/wims-incident-pii"
+        )
+
+    def test_metadata_url_uses_mount_prefix(self, monkeypatch):
+        """metadata / keys → /v1/{mount}/keys/{key}."""
+        client = self._client(monkeypatch)
+        assert (
+            client._url_for("keys/wims-incident-pii")
+            == "http://openbao:8200/v1/transit/keys/wims-incident-pii"
+        )
+
+    def test_rotate_url_uses_mount_prefix(self, monkeypatch):
+        """rotate(key) → /v1/{mount}/keys/{key}/rotate."""
+        client = self._client(monkeypatch)
+        assert (
+            client._url_for("keys/wims-incident-pii/rotate")
+            == "http://openbao:8200/v1/transit/keys/wims-incident-pii/rotate"
+        )
+
+    # ── Custom mount ─────────────────────────────────────────────────────
+
+    def test_custom_mount_respected(self, monkeypatch):
+        """Non-default mount path is used in Transit URLs but sys bypasses it."""
+        client = self._client(monkeypatch, mount="my-transit")
+        assert client._url_for("encrypt/foo") == "http://openbao:8200/v1/my-transit/encrypt/foo"
+        # sys paths still bypass
+        assert client._url_for("/sys/health") == "http://openbao:8200/v1/sys/health"

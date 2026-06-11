@@ -95,10 +95,22 @@ class OpenBaoClient:
             h["X-Vault-Token"] = self._token
         return h
 
+    def _url_for(self, path: str) -> str:
+        """Build the full API URL for a given path.
+
+        Sys paths (e.g. ``/sys/health``) bypass the mount prefix so they
+        never land under ``/v1/transit/sys/...``.  All other paths are
+        assumed to be Transit operations and are routed under
+        ``/v1/{mount}/...``.
+        """
+        if path.startswith("/sys/"):
+            return f"{self._addr}/v1{path}"
+        return f"{self._addr}/v1/{self._mount}/{path.lstrip('/')}"
+
     def _request(
         self, method: str, path: str, json_body: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        url = f"{self._addr}/v1/{self._mount}/{path.lstrip('/')}"
+        url = self._url_for(path)
         try:
             with httpx.Client(timeout=self.timeout) as c:
                 resp = c.request(method, url, headers=self._headers, json=json_body)
