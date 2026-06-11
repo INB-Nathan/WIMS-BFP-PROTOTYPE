@@ -313,6 +313,116 @@ class TestWriteAnomaly:
 
 
 # ---------------------------------------------------------------------------
+# Window-floor dedup stability
+#
+# Two detector runs within the same window must produce IDENTICAL dedup keys.
+# The key's timestamp component comes from `window_start` — the SQL GROUP BY
+# floor expression applied to EVENT timestamps, not the Python run time.
+# ---------------------------------------------------------------------------
+
+
+def _make_write_db_for_run(anomaly_id=None):
+    """Stand-alone helper (usable outside TestWriteAnomaly) that mocks a
+    two-execute DB: anomaly_detections INSERT then security_threat_logs INSERT."""
+    insert_result = MagicMock()
+    insert_result.fetchone.return_value = (anomaly_id,) if anomaly_id else None
+    threat_result = MagicMock()
+    mock_db = MagicMock()
+    mock_db.execute.side_effect = [insert_result, threat_result]
+    return mock_db
+
+
+class TestWindowFloorDedup:
+    """Prove that two runs at different minutes within the same window produce
+    the same dedup key, so ON CONFLICT correctly fires on the second run."""
+
+    def test_bulk_delete_key_is_window_floor_not_run_minute(self):
+        """window_start from SQL is the floor (e.g. 14:00), not the run time."""
+        # Events fired at 14:01; SQL returns window_start = 14:00 (floor)
+        window_floor = datetime(2026, 6, 12, 14, 0, 0, tzinfo=timezone.utc)
+
+        db = _make_db(fetch_rows=[(_USER_A, window_floor, 11)])
+        result = _detect_bulk_delete(db)
+
+        assert len(result) == 1
+        # Key must encode the FLOOR (14:00 → "202606121400"), not any other minute
+        assert result[0]["dedup_key"].endswith("202606121400")
+
+    def test_bulk_delete_same_window_two_runs_produce_identical_key(self):
+        """Run at HH:02 and run at HH:04 on events at HH:01 → same dedup key."""
+        window_floor = datetime(2026, 6, 12, 14, 0, 0, tzinfo=timezone.utc)
+
+        # Run 1 (conceptually at 14:02): SQL has already computed window_start = 14:00
+        db_run1 = _make_db(fetch_rows=[(_USER_A, window_floor, 11)])
+        r1 = _detect_bulk_delete(db_run1)
+
+        # Run 2 (conceptually at 14:04): same events, same window_start
+        db_run2 = _make_db(fetch_rows=[(_USER_A, window_floor, 11)])
+        r2 = _detect_bulk_delete(db_run2)
+
+        assert r1[0]["dedup_key"] == r2[0]["dedup_key"]
+
+    def test_bulk_delete_two_runs_yield_exactly_one_write(self):
+        """Simulate two task runs on the same window: first inserts, second deduplicates.
+
+        Asserts exactly 1 anomaly_detections row and 1 security_threat_logs row
+        total across both runs.
+        """
+        window_floor = datetime(2026, 6, 12, 14, 0, 0, tzinfo=timezone.utc)
+
+        db_run1 = _make_db(fetch_rows=[(_USER_A, window_floor, 11)])
+        r1 = _detect_bulk_delete(db_run1)
+
+        db_run2 = _make_db(fetch_rows=[(_USER_A, window_floor, 11)])
+        r2 = _detect_bulk_delete(db_run2)
+
+        # First run: new insert → anomaly_detections + security_threat_logs
+        write_db_run1 = _make_write_db_for_run(anomaly_id=1)
+        inserted_run1 = _write_anomaly(write_db_run1, **r1[0])
+
+        # Second run: ON CONFLICT fires (fetchone returns None)
+        write_db_run2 = _make_write_db_for_run(anomaly_id=None)
+        inserted_run2 = _write_anomaly(write_db_run2, **r2[0])
+
+        assert inserted_run1 is True
+        assert inserted_run2 is False
+        # Run 1: 2 executes (anomaly_detections INSERT + threat_log INSERT)
+        assert write_db_run1.execute.call_count == 2
+        # Run 2: 1 execute only (anomaly_detections INSERT, no threat_log)
+        assert write_db_run2.execute.call_count == 1
+
+    def test_rapid_ip_key_is_window_floor_not_run_minute(self):
+        """RAPID_IP_SWITCH window_start is the SQL-floored bucket start."""
+        window_floor = datetime(2026, 6, 12, 14, 0, 0, tzinfo=timezone.utc)
+
+        db = _make_db(fetch_rows=[(_USER_A, window_floor, 2, ["1.1.1.1", "2.2.2.2"])])
+        result = _detect_rapid_ip_switch(db)
+
+        assert len(result) == 1
+        assert result[0]["dedup_key"].endswith("202606121400")
+
+    def test_rapid_ip_two_runs_yield_exactly_one_write(self):
+        """Two runs on the same 10-min window → first inserts, second deduplicates."""
+        window_floor = datetime(2026, 6, 12, 14, 0, 0, tzinfo=timezone.utc)
+
+        db_run1 = _make_db(fetch_rows=[(_USER_A, window_floor, 2, ["1.1.1.1", "2.2.2.2"])])
+        r1 = _detect_rapid_ip_switch(db_run1)
+
+        db_run2 = _make_db(fetch_rows=[(_USER_A, window_floor, 2, ["1.1.1.1", "2.2.2.2"])])
+        r2 = _detect_rapid_ip_switch(db_run2)
+
+        assert r1[0]["dedup_key"] == r2[0]["dedup_key"]
+
+        write_db_run1 = _make_write_db_for_run(anomaly_id=7)
+        write_db_run2 = _make_write_db_for_run(anomaly_id=None)
+
+        assert _write_anomaly(write_db_run1, **r1[0]) is True
+        assert _write_anomaly(write_db_run2, **r2[0]) is False
+        assert write_db_run1.execute.call_count == 2
+        assert write_db_run2.execute.call_count == 1
+
+
+# ---------------------------------------------------------------------------
 # Full task — detect_behavioral_anomalies
 # ---------------------------------------------------------------------------
 
