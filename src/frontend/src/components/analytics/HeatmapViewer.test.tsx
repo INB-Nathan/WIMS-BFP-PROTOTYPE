@@ -65,6 +65,7 @@ describe('HeatmapViewer', () => {
     render(<HeatmapViewer geojson={geojson} />);
 
     expect(screen.getByTestId('map-container')).toBeInTheDocument();
+    expect(screen.getByTestId('tile-layer')).toBeInTheDocument();
     const markers = screen.getAllByTestId('circle-marker');
     expect(markers).toHaveLength(2);
     expect(markers[0]).toHaveAttribute('data-lat', '14.6');

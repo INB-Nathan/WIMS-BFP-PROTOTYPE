@@ -2,106 +2,35 @@
 
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
+## [2026-06-10] fix | M5 map: Referrer-Policy strict-origin-when-cross-origin so OSM tiles load in prod (#233)
 
-## [2026-06-10] rebase | PR #232 rebased onto master — 2 conflicts resolved
+- Root cause: prod HTTPS nginx block had `Referrer-Policy: no-referrer`, suppressing the Referer header OSM tile servers require. All 8 react-leaflet TileLayer components (PublicFireMapInner, MapPickerInner, ClusterMapInner, NearbyPublicReportAreasInner, NearbyStationsMapInner, ValidatorMapInner, FireStationsMapInner, HeatmapViewer) were returning 403 in production.
+- Fix: `src/nginx/nginx.conf` HTTPS block — changed `add_header Referrer-Policy no-referrer always` → `add_header Referrer-Policy strict-origin-when-cross-origin always`. One line. No frontend, no migration.
+- Dev/localhost block and `nginx.ci.conf` left untouched (CI does not load OSM tiles).
+- Validation: next VPS deploy — tiles load, no 403s in browser console.
 
-- Migration `52_breach_notifications.sql`: `wims.breach_notifications` table with SERIAL PK, `threat_log_id FKâ†’security_threat_logs`, `detected_at`, `npc_deadline_at` (= detected_at + 72h), `status` enum (DETECTEDâ†’DPO_NOTIFIEDâ†’NPC_SUBMITTEDâ†’CLOSED), `affected_systems`, `data_scope`, `notes`, `reported_by`, `npc_submitted_at`, timestamps. RLS ENABLE+FORCE; SELECT and ALL policies gated on `wims.current_user_role() = 'SYSTEM_ADMIN'`.
-- `admin/security.py`: Inside CONFIRM_THREAT block, for HIGH/CRITICAL severity: (1) INSERT breach record into transaction while RLS context still active (`SET LOCAL` scoped); (2) `log_system_audit(..., "BREACH_DETECTED", "breach_notifications", breach_id)`; (3) post-commit: dispatch `breach_alert` email via `send_email_task.delay()` alongside existing `security_alert` email â€” same admin recipients, bypasses `email_opt_in`.
-- New `schemas/breach.py`: `BreachStatus` enum, `BreachResponse`, `BreachUpdate`.
-- New `api/routes/admin/breach.py`: `GET /api/admin/breach` (list, detected_at DESC), `GET /api/admin/breach/{id}`, `PATCH /api/admin/breach/{id}` (status/notes/affected_systems/data_scope; `npc_submitted_at` auto-set on NPC_SUBMITTED; `BREACH_STATUS_UPDATE` audit). Registered in `api/routes/admin/__init__.py`.
-- New `services/email/templates/breach_alert.html.j2`: BFP maroon header, RA 10173 regulatory context, NPC deadline row, breach_id, severity badge.
-- Frontend: `lib/api/breach.ts` (types + `fetchBreaches`/`updateBreach`); `/admin/breach/page.tsx` with deadline countdown + overdue row red highlight + status advance buttons; "Breach Notifications" nav item added to Sidebar under Administration (SYSTEM_ADMIN only).
-- Tests: `tests/test_breach_notifications.py` (13 unit tests); `app/admin/breach/__tests__/breach-list.test.tsx` (8 Vitest tests).
-- `system-wiki/log.md`: merged master's 6 PR #248 fix-batch entries with PR #232 operations board entry
-- `system-wiki/index.md`: merged both "Last changes" summaries
-- 2 commits (3128372, 1016b2d) now on top of master (ab0a0c6)
+## [2026-06-11] test | Referrer-Policy regression coverage in test_infra_config.py (#253)
 
-## 2026-06-10 — fix(operations): frontend validator role name aligned to `VALIDATOR` (#232)
-- Updated `/home` gating and other frontend role checks from `NATIONAL_VALIDATOR` to `VALIDATOR`
-- Adjusted frontend role redirect, sidebar, dashboard, incidents, profile, admin/system, and related tests to use the frontend role value
-- Documented the frontend role-name surface in `frontend/route-map.md` and `frontend/frontend-infrastructure.md`
+- Added `test_nginx_referrer_policy_production` to `src/backend/tests/test_infra_config.py`.
+- Guards: (1) nginx.conf HTTPS block has `strict-origin-when-cross-origin`; (2) localhost/redirect blocks do not contain Referrer-Policy at all; (3) nginx.ci.conf retains `no-referrer`.
 
-## 2026-06-10 — feat(operations): #232 — Operations Board (migration 51, CRUD+audit, /home UI)
-- New wims.operations + wims.operation_citizen_reports tables (migration 51_operations.sql)
-- RLS: global SELECT USING(TRUE); INSERT/UPDATE/DELETE gated to NATIONAL_VALIDATOR
-- Backend: GET/POST/PATCH/DELETE /api/operations + link/unlink endpoints; all writes audit-logged
-- Frontend: /home Operations Board with ON-GOING/FIRE OUT/ALL tabs, inline status badge, validator-only CRUD
-- Branch: feat/operations-board
+## [2026-06-11] test | PR #253 review-fix batch — T1-T5 test improvements
 
-## [2026-06-10] fix | PR #248 â€” post-review fix batch 1 (audit order, float guard, generic 500, barrel export, legacy HITL, duplicate guard)
+- **T1** — Added regression test for nginx Referrer-Policy in `test_infra_config.py`.
+- **T2** — Added tile-layer render assertion to `HeatmapViewer.test.tsx`.
+- **T3** — Replaced `next/dynamic` mock with `react-leaflet` mock in `NearbyPublicReportAreas.test.tsx`; added TileLayer assertion with real dynamic import.
+- **T4** — Changed `TileLayer` mock from `null` to rendered element in analyst `page.test.tsx`; added tile-layer assertion.
+- **T5** — Created 6 new smoke test files for untested TileLayer components: `PublicFireMapInner`, `MapPickerInner`, `ClusterMapInner`, `NearbyStationsMapInner`, `ValidatorMapInner`, `FireStationsMapInner`.
+- Verifies the OSM tile fix won't regress in future nginx.conf edits.
 
-4 fix commits applied after maintainer-reviewer report:
-- `eb26ecb`: HITL audit for legacy `admin_action_taken` path, `reviewed_by` on create-incident, `_security_incident_exists()` duplicate guard.
-- `ddf7d31`: `createIncidentFromAlert` added to `admin.ts` barrel export.
-- `7fafea8`: Structured 5-key XAI format in test mocks, HITL audit `call_count` 2â†’3 in `test_admin_new_routes.py`.
-- `6adb1c3`: Audit-before-commit ordering in `update_security_log()` and `create_incident_from_alert()`, rowcount 404 before commit, float confidence crash guard + clamp in `analyze_threat_log()`/`analyze_audit_logs()`, replace leaking `str(e)` with generic 500 detail.
+## [2026-06-11] fix | T3: NearbyPublicReportAreas test mocks react-leaflet instead of next/dynamic (#253)
 
-**Files:** `security.py`, `ai_service.py`, `test_ai_ids_api.py`, `test_admin_new_routes.py`, `admin.ts`
+- Replaced `vi.mock('next/dynamic', ...)` (returned MockMap div) with `vi.mock('react-leaflet', ...)` (provides MapContainer, TileLayer, Circle, Marker, Popup, useMap).
+- The react-leaflet mock asserts TileLayer rendering via `screen.findByTestId('tile-layer')`.
+- Added `setView`/`fitBounds` stubs on useMap to prevent FitBounds crash.
+- Used `vi.useRealTimers()` in the first test so @loadable/component's 200ms delay fires and the dynamic import resolves.
+- All 4 tests pass.
 
-## [2026-06-10] fix | PR #248 â€” post-review fix batch 2 (httpx error handling, audit-logs analyze tests)
-
-- `9a1f34e`: Catch `httpx.TimeoutException` (â†’ 502 "Ollama request timed out") and `httpx.ConnectError` (â†’ 502 "Ollama service unavailable") in both `analyze_threat_log()` and `analyze_audit_logs()`. Added `logger = logging.getLogger("wims.ai_service")` with warnings before each 502 raise. Added 4 respx-mocked integration tests covering ConnectError/TimeoutException for both threat-log and audit-logs analyze endpoints. Added `audit_trail_rows` fixture.
-
-**Files:** `ai_service.py`, `test_ai_ids_api.py`
-
-## [2026-06-10] fix | PR #248 â€” post-review fix batch 3 (create-incident-from-alert tests)
-
-- `bfa3dff`: Added `TestCreateIncidentFromAlert` class in `test_admin_new_routes.py` with 5 mock-DB tests: 200 success (verified `incident_id=42`, `reviewed_by` UUID, audit INSERT with `action`/`table`/`rec`, commit called), 404 not found, 409 duplicate guard, 500 rollback on `RuntimeError`, 403 encoder denied. Uses `fetchone.side_effect` pattern to control mock DB responses.
-
-**Files:** `test_admin_new_routes.py`
-
-## [2026-06-10] fix | PR #248 â€” post-review fix batch 4 (HITL audit INSERT content verification)
-
-- `aaa75bf`: Added audit INSERT param assertions (`action`/`table`/`rec`/`uid`) to 3 existing structured-path HITL tests:
-  - `test_confirm_threat_sets_label_and_jsonb` â€” verifies `HITL_REVIEW`, `security_threat_logs`, rec=1, admin UUID
-  - `test_false_positive_sets_label_and_jsonb` â€” verifies same for rec=2
-  - `test_request_more_info_sets_label_jsonb_leaves_resolved_at_null` â€” verifies same for rec=3
-  - Pattern from `TestCreateIncidentFromAlert` â€” `next(c for c in call_args_list if "system_audit_trails"...)` plus param assertions
-  - Legacy path `test_legacy_admin_action_taken_logs_hitl_audit` (added by tdd-wims step) also validates audit INSERT for `admin_action_taken` path.
-
-**Files:** `test_admin_new_routes.py`
-
-## [2026-06-10] fix | PR #248 â€” post-review fix batch 5 (audit batch limit)
-
-- `7caa9d8`: Added max batch-size guard to `analyze_audit_logs()` in `ai_service.py` â€” reads `ai_audit_batch_limit` config key (default 50), raises 400 with `"audit_ids exceeds maximum batch size"` when exceeded. Added 3 tests in `TestAnalyzeAuditLogsBatchLimit`: over-limit returns 400, at-limit passes, invalid config falls back to default. Uses `patch("services.ai_service.get_config")` mock pattern.
-
-**Files:** `ai_service.py`, `test_admin_new_routes.py`
-
-## [2026-06-10] docs | PR #248 â€” resolve M9 scope bundling (P1-P4)
-
-- Documented M9c configuration management routes in `system-wiki/backend/api-route-map.md`: `GET /admin/config`, `PATCH /admin/config/{key}`.
-- Added missing M8 endpoints to route map: `POST /admin/audit-logs/analyze`, `POST /admin/security-logs/{log_id}/create-incident`.
-- Added M9c frontend config page to `system-wiki/frontend/route-map.md`: `/admin/system/config`.
-- PR #248 explicitly covers M8 (security/XAI) + M9c (configuration management). Gap register already marks M9c as IMPLEMENTED.
-
-**Files:** `backend/api-route-map.md`, `frontend/route-map.md`
-
-## [2026-06-10] feat | triage — cluster/singleton split, mode-aware modal, metrics bar (#219)
-
-- Split triage queue into Clusters table and Individual Reports table
-- Modal gated by mode prop (cluster: map+multi-select; singleton: location text only)
-- Metrics bar with live counts and last-polled timestamp
-- Phase C filter chips including Unreviewed (singleton-only)
-- Branch: feat/triage-queue-hci
-
-## [2026-06-09] feat | M9b full-text search on security + audit logs (tsvector + GIN) (#169)
-
-- Migration `48_log_search_vectors.sql` (idempotent): adds `search_vector tsvector GENERATED ALWAYS AS STORED` to `wims.security_threat_logs` (covers `raw_payload`, `xai_narrative`, `severity_level`, `source_ip`, `destination_ip`) and `wims.system_audit_trails` (covers `action_type`, `table_affected`, `user_agent`). Creates GIN indexes `idx_security_logs_search` and `idx_audit_trails_search`.
-- Extended `GET /api/admin/security-logs`: new optional `q` param â€” appends `search_vector @@ websearch_to_tsquery('english', :q)` to WHERE; ORDER BY switches from `timestamp DESC` to `ts_rank(...) DESC` when q is set. Existing filters (source_ip, severity, date_from, date_to) compose with q.
-- Extended `GET /api/admin/audit-logs`: same pattern â€” `q` param with tsquery WHERE and ts_rank ORDER BY; existing filters (user_id, action_type, table_affected, ip_address, date_from, date_to) compose with q.
-- Updated `src/frontend/src/lib/api/legacy.ts`: `fetchAdminSecurityLogs` accepts `params?: { q?: string }`; `fetchAuditLogs` params extended with `q?: string`. Both append `?q=...` only when q is truthy.
-- Added search bars to `src/frontend/src/app/admin/system/page.tsx`: text input above "Threat Telemetry" table and above "System Audit" table; submit on Enter or search button; Clear button appears when input is non-empty; Refresh button preserves active search term; HITL action reload preserves active search.
-- New `tests/test_log_fulltext_search.py`: 10 unit tests â€” tsquery/ts_rank present when q set, absent when q absent, :q bound (not interpolated), q+severity combination. All pass; ruff clean.
-## [2026-06-09] implementation | M7c Redis real-time security log pipeline (#157)
-
-- **`suricata/suricata.yaml`:** Extracted full base config (2181 lines) from `jasonish/suricata:7.0.5` with Redis output plugin added â€” alerts published to `suricata:alerts` stream at `127.0.0.1:6379`.
-- **`tasks/suricata_redis.py`:** NEW â€” Celery task `subscribe_suricata_alerts` using XREADGROUP on `suricata:alerts` (1s beat). Parses alerts, inserts into `security_threat_logs`, publishes HIGH/CRITICAL to `ai:queue`.
-- **`tasks/ai_forwarding.py`:** NEW â€” Celery task `process_ai_queue` using XREADGROUP on `ai:queue` (1s beat). Auto-triggers `analyze_threat_log()` for queued alerts.
-- **`docker-compose.yml`:** Mounted `suricata.yaml` into Suricata container.
-- **`celery_config.py`:** Added 2 beat entries at 1s intervals. File-tail task (`ingest_suricata_eve` at 10s) retained as fallback.
-- **`system-wiki/gaps/frs-codebase-gap-register.md`:** #157 CLOSED.
-
-## [2026-06-09] fix | PR #238 rebase + review fixes â€” 6 files
 ## [2026-06-09] fix | PR #238 rebase + review fixes — 6 files
 
 - Rebased `feat/m13-email-triggers` onto origin/master (1345808). Resolved 2 conflicts:
@@ -542,6 +471,16 @@ Investigated sluggishness when switching between dashboard tabs. Root cause is f
 - Updated `scripts/seed-dev-users.sh`, `scripts/seed-dev-users.ps1`, Keycloak realm exports, and SQL bootstrap rows so fresh and reseeded local stacks create login-capable encoder accounts with `Password123!`, verified email, first/last profile fields, no required actions, and repairable legacy usernames.
 - Added `test_dev_user_seed_mapping.py` to guard the canonical mapping across scripts, SQL bootstrap, and Keycloak realm exports.
 - Updated local dev and database synthesis pages to document the corrected account mapping. No FRS gap entry changed because this is a dev identity/bootstrap alignment fix.
+
+## [2026-06-02] tooling | Pi enforcement layer for AGENTS.md gotchas
+
+- Created `.pi/extensions/enforce-agents-md.ts` — a pi extension that actively enforces AGENTS.md gotchas.
+- **CI gate**: blocks `git commit`/`git push` until `ruff check`, `ruff format --check`, `pytest -v`, `npm run lint`, and `npx vitest run` all pass (gotcha #12).
+- **Path protection**: blocks `write`/`edit` to `.env`, `.git/`, `node_modules/`, `.pi/extensions/`, `__pycache__/`.
+- **Dangerous command guard**: requires confirmation for `rm -rf`, `sudo`, `chmod 777`, `git push --force`, destructive docker commands.
+- **System prompt injection**: injects the 13 gotchas as a "Mandatory Pre-Commit Checklist" into every agent turn via `before_agent_start`.
+- **Session guard**: warns on uncommitted changes before `/new` or `/resume`.
+- **Commands**: `/ci` runs all CI checks manually; `/ci-status` shows last results.
 
 ## [2026-05-30] merge | Master conflict resolution for encoder/validator branch
 
