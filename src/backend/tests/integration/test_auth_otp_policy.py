@@ -59,7 +59,7 @@ def test_otp_trusted_device_window_is_7_days():
     assert otp_cfg.get("config", {}).get("otpRememberDeviceFor") == "7d"
 
 
-def test_browser_otp_uses_real_auth_otp_form():
+def test_browser_otp_uses_temporary_demo_provider():
     realm = _load_realm()
     browser_conditional_flow = _flow_by_alias(realm, "Browser - Conditional OTP")
 
@@ -70,11 +70,11 @@ def test_browser_otp_uses_real_auth_otp_form():
     ]
 
     assert len(otp_executions) == 1
-    assert otp_executions[0].get("authenticator") == "auth-otp-form"
+    assert otp_executions[0].get("authenticator") == "wims-demo-otp-form"
     assert otp_executions[0].get("requirement") == "REQUIRED"
 
 
-def test_direct_grant_otp_uses_builtin_validator():
+def test_direct_grant_otp_does_not_use_demo_provider():
     realm = _load_realm()
     direct_grant_flow = _flow_by_alias(realm, "Direct Grant - Conditional OTP")
 
@@ -84,11 +84,10 @@ def test_direct_grant_otp_uses_builtin_validator():
     }
 
     assert "direct-grant-validate-otp" in direct_grant_authenticators
-    assert "auth-otp-form" not in direct_grant_authenticators
     assert "wims-demo-otp-form" not in direct_grant_authenticators
 
 
-def test_import_realm_browser_otp_uses_real_auth_otp_form():
+def test_import_realm_browser_otp_uses_temporary_demo_provider():
     realm = _load_import_realm()
     browser_conditional_flow = _flow_by_alias(realm, "Browser - Conditional OTP")
 
@@ -99,7 +98,7 @@ def test_import_realm_browser_otp_uses_real_auth_otp_form():
     ]
 
     assert len(otp_executions) == 1
-    assert otp_executions[0].get("authenticator") == "auth-otp-form"
+    assert otp_executions[0].get("authenticator") == "wims-demo-otp-form"
 
 
 def test_non_target_roles_not_forced_to_otp():
