@@ -47,6 +47,9 @@ def _row_to_response(
         created_by=row.created_by,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        latitude=getattr(row, "latitude", None),
+        longitude=getattr(row, "longitude", None),
+        radius_meters=getattr(row, "radius_meters", None),
         linked_report_ids=linked_report_ids,
     )
 
@@ -112,8 +115,10 @@ def create_operation(
     row = db.execute(
         text("""
             INSERT INTO wims.operations
-                (fire_status, start_time, location, size_hectares, notes, created_by)
-            VALUES (:fs, :st, :loc, :sh, :notes, :cb)
+                (fire_status, start_time, location, size_hectares, notes, created_by,
+                 latitude, longitude, radius_meters)
+            VALUES (:fs, :st, :loc, :sh, :notes, :cb,
+                    :lat, :lng, :rad)
             RETURNING *
         """),
         {
@@ -123,6 +128,9 @@ def create_operation(
             "sh": payload.size_hectares,
             "notes": payload.notes,
             "cb": str(current_user["user_id"]),
+            "lat": payload.latitude,
+            "lng": payload.longitude,
+            "rad": payload.radius_meters,
         },
     ).fetchone()
     log_system_audit(
