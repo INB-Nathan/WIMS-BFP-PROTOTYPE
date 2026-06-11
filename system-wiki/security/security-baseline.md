@@ -87,7 +87,17 @@ All write paths updated: `services/afor_import/commit.py` (AFOR commit), `api/ro
 - **Write paths:** All 5 write paths (`incidents.py` bundle, `encoder_crud.py` create, `field_updates.py`/`helpers.py` re-encrypt, `commit.py` AFOR) now store `crypto_provider` and `kms_key_name` on INSERT/UPDATE. For `env_aesgcm` rows, `encryption_iv` contains the real nonce; for `openbao_transit` rows, `encryption_iv` is NULL.
 - **Read paths:** `encoder.py` detail view, `field_updates.py` conflict fetch, `helpers.py` field update, and `encrypt_backlog.py` all dispatch `decrypt_json` by row `crypto_provider`. Legacy rows default to `env_aesgcm` — no migration needed.
 - **Tests:** 45 unit tests pass (17 crypto + 9 openbao client + 19 provider dispatch), 3 skipped (requires live OpenBao).
-- **Remaining (Phase 4-6):** new writes via OpenBao, rewrap-on-rotation, Celery 90-day key rotation, and migration tooling from env AES to OpenBao are NOT yet implemented.
+- **Remaining (Phase 5-7):** rewrap-on-rotation, Celery 90-day key rotation, migration tooling from env AES to OpenBao, and backup_crypto.py integration are NOT yet implemented.
+
+## OpenBao KMS Flag-Gated New Writes (GH #152 Phase 4)
+
+**Implemented 2026-06-11:** When `WIMS_CRYPTO_PROVIDER=openbao_transit`, new incident PII writes use `KmsSecurityProvider.encrypt_json()` via OpenBao Transit. All write paths now dispatch through `services.kms.get_crypto_provider()`.
+
+- **AFOR commit wiring:** `api/routes/regional/afor.py` and `__init__.py` now wire `get_crypto_provider()` instead of the legacy `helpers.get_security_provider()` singleton. This ensures the AFOR import path (`commit.py`) respects `WIMS_CRYPTO_PROVIDER`.
+- **Write behaviour:** When `WIMS_CRYPTO_PROVIDER` is unset or `env_aesgcm`, new rows store `crypto_provider='env_aesgcm'`, `encryption_iv=<real nonce>`, `kms_key_name=NULL` — unchanged legacy behaviour. When `openbao_transit`, new rows store `crypto_provider='openbao_transit'`, `kms_key_name='wims-incident-pii'` (default), `pii_blob_enc=<Transit ciphertext>`, `encryption_iv=NULL`.
+- **Response contract:** API/detail responses strip `crypto_provider`, `kms_key_name`, `pii_blob_enc`, `encryption_iv` (encoder detail view already did; conflict fetch `_fetch_incident_edit_fields` now additionally strips `crypto_provider`/`kms_key_name`).
+- **Tests:** 10 new unit tests in `tests/test_openbao_new_writes.py` covering env-AES metadata, OpenBao Transit metadata, nonce sentinel guarding, response metadata stripping, and wiring verification. All 57 tests pass (54 passed + 3 skipped for live OpenBao).
+- **Non-goals:** No legacy-row migration (Phase 5), no Celery 90-day rotation (Phase 6), no backup_crypto.py (Phase 7), no frontend changes.
 
 ## CSRF Protection
 

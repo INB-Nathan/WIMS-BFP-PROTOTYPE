@@ -23,18 +23,18 @@ from services.afor_import.commit import (
     commit_afor_import_command,
 )
 from services.regional_incidents.helpers import (
-    get_security_provider as _get_security_provider_from_helpers,
     insert_incident_verification_history as _insert_incident_verification_history,
     region_text_matches as _region_text_matches,
 )
+from services.kms import get_crypto_provider
 
 logger = logging.getLogger("wims.regional")
 router = APIRouter()
 
 
 def _get_security_provider():
-    """Return the SecurityProvider singleton (wraps helpers import)."""
-    return _get_security_provider_from_helpers()
+    """Return the correct crypto provider based on WIMS_CRYPTO_PROVIDER env var."""
+    return get_crypto_provider()
 
 
 @router.post("/afor/import", response_model=AforParseResponse)

@@ -2,6 +2,15 @@
 
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
+## [2026-06-11] feat | GH #152 Phase 4 — flag-gated new writes via OpenBao Transit
+
+- `api/routes/regional/afor.py` and `__init__.py`: wire `get_crypto_provider()` instead of legacy `helpers.get_security_provider()` for AFOR commit path. This ensures `WIMS_CRYPTO_PROVIDER` env var controls encryption provider for all new writes including AFOR imports.
+- `api/routes/regional/field_updates.py`: `_fetch_incident_edit_fields` now strips `crypto_provider` and `kms_key_name` from 409 conflict responses in addition to existing `pii_blob_enc`/`encryption_iv` stripping.
+- Write paths: all 6 write paths now dispatch through `services.kms.get_crypto_provider()`. When `WIMS_CRYPTO_PROVIDER=openbao_transit`, new rows store `crypto_provider='openbao_transit'`, `kms_key_name='wims-incident-pii'`, `pii_blob_enc=<Transit ciphertext>`, `encryption_iv=NULL`. When unset/`env_aesgcm`, existing behaviour unchanged.
+- Tests: `tests/test_openbao_new_writes.py` — 10 new unit tests covering env-AES metadata, OpenBao Transit metadata, nonce sentinel guard, response stripping, and wiring verification. All 57 tests pass (54 passed + 3 OpenBao-live skipped).
+- Wiki: `security-baseline.md` + gap register updated; Phase 4 marked implemented, #152 overall still PARTIAL (Phases 5-7 remain open).
+- No commit/push performed.
+
 ## [2026-06-10] fix | M5 map: Referrer-Policy strict-origin-when-cross-origin so OSM tiles load in prod (#233)
 
 ## [2026-06-11] feat | GH #152 Phase 3 — OpenBao KMS provider metadata + dual-read dispatch

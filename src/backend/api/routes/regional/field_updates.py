@@ -340,10 +340,12 @@ def _fetch_incident_edit_fields(db: Session, incident_id: int) -> dict[str, Any]
 
     result: dict[str, Any] = {**ns_dict, **sd_dict, **fi_dict}
 
-    # Strip encrypted blob columns from the conflict payload — the frontend
-    # merge panel never needs raw ciphertext.
+    # Strip internal crypto metadata from the conflict payload — the frontend
+    # merge panel never needs raw ciphertext or provider metadata.
     result.pop("pii_blob_enc", None)
     result.pop("encryption_iv", None)
+    result.pop("crypto_provider", None)
+    result.pop("kms_key_name", None)
 
     def _serialize_value(v: Any) -> Any:
         if v is None:
