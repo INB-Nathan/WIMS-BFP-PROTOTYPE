@@ -1788,7 +1788,7 @@
         },
         {
           "authenticatorConfig": "otp-trusted-device",
-          "authenticator": "wims-demo-otp-form",
+          "authenticator": "auth-otp-form",
           "authenticatorFlow": false,
           "requirement": "REQUIRED",
           "priority": 40,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid as _uuid_mod
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
@@ -68,12 +69,21 @@ def create_incident(
     # a create request after a network timeout (unknown whether the server processed it).
     client_id = (body.client_id or "").strip() or None
     if client_id:
+        try:
+            _uuid_mod.UUID(client_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=422, detail="client_id must be a valid UUID v4")
+
         _col_exists_query = db.execute(
-            text("SELECT 1 FROM information_schema.columns WHERE table_schema='wims' AND table_name='fire_incidents' AND column_name='client_id'")
+            text(
+                "SELECT 1 FROM information_schema.columns WHERE table_schema='wims' AND table_name='fire_incidents' AND column_name='client_id'"
+            )
         ).fetchone()
         if _col_exists_query:
             existing = db.execute(
-                text("SELECT incident_id, verification_status, incident_type_code FROM wims.fire_incidents WHERE client_id = :cid LIMIT 1"),
+                text(
+                    "SELECT incident_id, verification_status, incident_type_code FROM wims.fire_incidents WHERE client_id = CAST(:cid AS uuid) LIMIT 1"
+                ),
                 {"cid": client_id},
             ).fetchone()
             if existing:
@@ -88,16 +98,26 @@ def create_incident(
     # Reference number is assigned only at validator approval — not at create time
     type_code = (body.incident_type_code or "").strip().upper() or None
 
-    # Insert fire_incidents core row (include client_id if the column exists)
-    _has_client_id_col = client_id and db.execute(
-        text("SELECT 1 FROM information_schema.columns WHERE table_schema='wims' AND table_name='fire_incidents' AND column_name='client_id'")
-    ).fetchone() is not None
+    # Insert fire_incidents core row (include client_id if the column exists).
+    # ON CONFLICT makes the idempotency check atomic: a concurrent retry with the
+    # same client_id cannot race past the pre-check SELECT above and produce a
+    # duplicate-key error on uq_fire_incidents_client_id.
+    _has_client_id_col = (
+        client_id
+        and db.execute(
+            text(
+                "SELECT 1 FROM information_schema.columns WHERE table_schema='wims' AND table_name='fire_incidents' AND column_name='client_id'"
+            )
+        ).fetchone()
+        is not None
+    )
     if _has_client_id_col:
         incident_row = db.execute(
             text("""
                 INSERT INTO wims.fire_incidents
                     (encoder_id, region_id, location, verification_status, incident_type_code, parent_incident_id, client_id)
-                VALUES (:eid, :rid, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 'DRAFT', :type_code, :parent_id, :cid::uuid)
+                VALUES (:eid, :rid, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 'DRAFT', :type_code, :parent_id, CAST(:cid AS uuid))
+                ON CONFLICT (client_id) WHERE client_id IS NOT NULL DO NOTHING
                 RETURNING incident_id
             """),
             {
@@ -110,6 +130,26 @@ def create_incident(
                 "cid": client_id,
             },
         ).fetchone()
+        if incident_row is None:
+            # ON CONFLICT path: a concurrent request already created this incident.
+            existing_row = db.execute(
+                text(
+                    "SELECT incident_id, verification_status, incident_type_code"
+                    " FROM wims.fire_incidents WHERE client_id = CAST(:cid AS uuid) LIMIT 1"
+                ),
+                {"cid": client_id},
+            ).fetchone()
+            if existing_row:
+                return {
+                    "status": "created",
+                    "incident_id": existing_row[0],
+                    "verification_status": existing_row[1],
+                    "incident_type_code": existing_row[2],
+                    "parent_incident_id": body.parent_incident_id,
+                }
+            raise HTTPException(
+                status_code=409, detail="Duplicate client_id but incident not found"
+            )
     else:
         incident_row = db.execute(
             text("""

@@ -156,19 +156,7 @@ def upload_incident_bundle(
         if not isinstance(sens, dict):
             sens = {}
 
-        # Idempotency: skip insert if an incident with this client_id already exists.
-        item_client_id = (str(item.get("client_id") or "").strip() or None)
-        if item_client_id and client_id_col_exists:
-            existing = db.execute(
-                text(
-                    "SELECT incident_id FROM wims.fire_incidents"
-                    " WHERE client_id = CAST(:cid AS uuid) LIMIT 1"
-                ),
-                {"cid": item_client_id},
-            ).fetchone()
-            if existing:
-                results["imported"].append(int(existing[0]))
-                continue
+        item_client_id = str(item.get("client_id") or "").strip() or None
 
         lon = _safe_float(item.get("longitude"), 0.0)
         lat = _safe_float(item.get("latitude"), 0.0)
@@ -199,6 +187,7 @@ def upload_incident_bundle(
                 return None
             try:
                 from datetime import datetime, timezone
+
                 dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
                 now_utc = datetime.now(timezone.utc)
                 if dt > now_utc:
@@ -233,6 +222,16 @@ def upload_incident_bundle(
         if client_updated_at:
             inc_params["client_updated_at"] = client_updated_at
 
+        # ON CONFLICT makes idempotency atomic: concurrent retries with the same
+        # client_id can't both succeed (unique index uq_fire_incidents_client_id).
+        # DO NOTHING + empty RETURNING signals a conflict; a follow-up SELECT
+        # returns the already-inserted incident_id.
+        _conflict_clause = ""
+        if client_id_col_exists and item_client_id:
+            _conflict_clause = (
+                " ON CONFLICT (client_id) WHERE client_id IS NOT NULL DO NOTHING"
+            )
+
         inc_row = db.execute(
             text(
                 f"""
@@ -243,6 +242,7 @@ def upload_incident_bundle(
                     (:batch_id, CAST(:uid AS uuid), :region_id,
                      ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
                      'DRAFT', :incident_type_code, NULL{_cid_val}{_ts_vals})
+                {_conflict_clause}
                 RETURNING incident_id
                 """
             ),
@@ -250,6 +250,18 @@ def upload_incident_bundle(
         ).fetchone()
 
         if not inc_row:
+            # Empty RETURNING means the ON CONFLICT path fired — retrieve the existing row.
+            if client_id_col_exists and item_client_id:
+                existing_row = db.execute(
+                    text(
+                        "SELECT incident_id FROM wims.fire_incidents"
+                        " WHERE client_id = CAST(:cid AS uuid) LIMIT 1"
+                    ),
+                    {"cid": item_client_id},
+                ).fetchone()
+                if existing_row:
+                    results["imported"].append(int(existing_row[0]))
+                    continue
             results["failed"].append({"index": i, "reason": "Failed to insert incident row"})
             continue
 

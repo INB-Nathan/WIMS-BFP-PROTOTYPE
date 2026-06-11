@@ -18,6 +18,7 @@ import {
   cacheIncident,
   getCachedIncidents,
   getCachedIncident,
+  getOfflineOpByServerId,
 } from '../offlineStore';
 import { getConnectivitySnapshot, isReachable, markConnectivityOffline } from '../connectivity';
 
@@ -145,6 +146,43 @@ export async function fetchRegionalIncidentOfflineAware(
         cachedAt: cached.cachedAt,
       };
     }
+
+    // Fallback: the incident may have been created offline and synced, but
+    // the full detail was never fetched from the server into cachedIncidents.
+    // Reconstruct a detail response from the offlineOps create payload so
+    // the encoder can still view their own incident while offline.
+    const op = await getOfflineOpByServerId(incidentId, encoderId);
+    if (op) {
+      const p = op.payload as {
+        incident_nonsensitive_details?: Record<string, unknown>;
+        incident_sensitive_details?: Record<string, unknown>;
+        latitude?: number | null;
+        longitude?: number | null;
+      };
+      const syntheticDetail = {
+        incident_id: incidentId,
+        region_id: op.regionId,
+        latitude: p.latitude ?? null,
+        longitude: p.longitude ?? null,
+        verification_status: op.syncStatus === 'synced' ? 'DRAFT' : 'DRAFT',
+        nonsensitive: p.incident_nonsensitive_details ?? {},
+        sensitive: p.incident_sensitive_details ?? {},
+        created_at: new Date(op.createdAt).toISOString(),
+        updated_at: new Date(op.createdAt).toISOString(),
+        reference_number: null,
+        rejection_reason: null,
+        rejection_at: null,
+        is_duplicate: false,
+        duplicate_of: null,
+        incident_type_code: null,
+        is_wildland: false,
+        wildland_fire_type: null,
+        wildland_area_display: null,
+        wildland_area_hectares: null,
+      } as unknown as RegionalIncidentDetailResponse;
+      return { response: syntheticDetail, fromCache: true, cachedAt: op.createdAt };
+    }
+
     throw new Error(
       'This incident is not available offline. Connect to the internet to view it.',
     );
@@ -165,6 +203,37 @@ export async function fetchRegionalIncidentOfflineAware(
           fromCache: true,
           cachedAt: cached.cachedAt,
         };
+      }
+      const op = await getOfflineOpByServerId(incidentId, encoderId);
+      if (op) {
+        const p = op.payload as {
+          incident_nonsensitive_details?: Record<string, unknown>;
+          incident_sensitive_details?: Record<string, unknown>;
+          latitude?: number | null;
+          longitude?: number | null;
+        };
+        const syntheticDetail = {
+          incident_id: incidentId,
+          region_id: op.regionId,
+          latitude: p.latitude ?? null,
+          longitude: p.longitude ?? null,
+          verification_status: 'DRAFT',
+          nonsensitive: p.incident_nonsensitive_details ?? {},
+          sensitive: p.incident_sensitive_details ?? {},
+          created_at: new Date(op.createdAt).toISOString(),
+          updated_at: new Date(op.createdAt).toISOString(),
+          reference_number: null,
+          rejection_reason: null,
+          rejection_at: null,
+          is_duplicate: false,
+          duplicate_of: null,
+          incident_type_code: null,
+          is_wildland: false,
+          wildland_fire_type: null,
+          wildland_area_display: null,
+          wildland_area_hectares: null,
+        } as unknown as RegionalIncidentDetailResponse;
+        return { response: syntheticDetail, fromCache: true, cachedAt: op.createdAt };
       }
       throw new Error(
         'This incident is not saved on this device. Reconnect to load it.',

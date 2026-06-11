@@ -533,6 +533,23 @@ export async function saveDraftOp(
 }
 
 /**
+ * Find a create op whose serverId matches (set by the sync engine after a
+ * successful POST). Used to reconstruct the incident detail view offline when
+ * the full detail was never fetched from the server into cachedIncidents.
+ */
+export async function getOfflineOpByServerId(
+    serverId: number,
+    encoderId: string,
+): Promise<OfflineOpDecrypted | null> {
+    const db = await getDB();
+    const all: OfflineOp[] = await db.getAllFromIndex(OPS_STORE, 'by_encoder', encoderId);
+    const match = all.find((op) => op.operation === 'create' && op.serverId === serverId);
+    if (!match) return null;
+    const payload = await decryptPayload(match.payload);
+    return { ...match, payload };
+}
+
+/**
  * Get a single offline op by localId, decrypted.
  * Returns undefined if not found.
  */

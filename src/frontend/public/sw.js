@@ -9,7 +9,9 @@
  *   it delegates to the page rather than POSTing directly.
  */
 
-const CACHE_NAME = 'wims-bfp-cache-v5';
+const CACHE_NAME = 'wims-bfp-cache-v6';
+// Separate long-lived cache for map tiles so they survive main-cache evictions.
+const TILE_CACHE_NAME = 'wims-tiles-v1';
 const SYNC_TAG = 'sync-pending-incidents';
 const APP_SHELL = '/dashboard';
 const OFFLINE_HTML = `<!doctype html>
@@ -46,7 +48,7 @@ self.addEventListener('install', (event) => {
 
 // --- Activate ---
 self.addEventListener('activate', (event) => {
-  const cacheWhitelist = [CACHE_NAME];
+  const cacheWhitelist = [CACHE_NAME, TILE_CACHE_NAME];
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
@@ -66,14 +68,80 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = request.url;
 
-  // Never intercept API or auth routes — these must always hit the network so the
-  // app's own offline-aware wrappers (offlineRegional.ts) decide what to do.
+  // Never intercept API or auth routes.
   if (url.includes('/api/') || url.includes('/auth/')) {
     return;
   }
 
-  // Navigation requests: try the network first, fall back to the cached shell when
-  // offline so the encoder still lands on a usable page instead of a browser error.
+  // ── Map tiles (OpenStreetMap) and Leaflet CDN assets ─────────────────────
+  // Cache-first with a dedicated tile cache so tiles survive main-cache evictions.
+  // Falls back to a transparent placeholder on complete offline tile miss.
+  if (url.includes('tile.openstreetmap.org') || url.includes('unpkg.com/leaflet')) {
+    event.respondWith(
+      caches.open(TILE_CACHE_NAME).then(async (cache) => {
+        const cached = await cache.match(request);
+        if (cached) return cached;
+        try {
+          const response = await fetch(request);
+          if (response.ok || response.type === 'opaque') {
+            cache.put(request, response.clone());
+          }
+          return response;
+        } catch {
+          // 1×1 transparent GIF placeholder so Leaflet doesn't show broken tiles.
+          return new Response(
+            new Uint8Array([71,73,70,56,57,97,1,0,1,0,128,0,0,0,0,0,255,255,255,33,249,4,0,0,0,0,0,44,0,0,0,0,1,0,1,0,0,2,2,68,1,0,59]),
+            { headers: { 'Content-Type': 'image/gif' } }
+          );
+        }
+      })
+    );
+    return;
+  }
+
+  // ── Next.js RSC payloads (client-side navigation) ────────────────────────
+  // Next.js App Router fetches an RSC payload on every client-side navigation.
+  // These are NOT `mode: 'navigate'` — they are regular fetch() calls with an
+  // `RSC: 1` header. Without caching them the router-cache (5-min TTL) expiry
+  // makes offline navigation fail even when all JS chunks are cached.
+  // Store under the path-only key with an 'rsc:' prefix so RSC entries never
+  // collide with the HTML page entries stored by the navigation handler (both
+  // would otherwise be keyed by the same URL, causing cache.match() on offline
+  // navigation to return RSC flight data instead of the HTML shell).
+  const requestUrl = new URL(url);
+  const isRsc =
+    requestUrl.origin === self.location.origin &&
+    request.method === 'GET' &&
+    (request.headers.get('RSC') === '1' || requestUrl.searchParams.has('_rsc')) &&
+    !requestUrl.pathname.startsWith('/api/') &&
+    !requestUrl.pathname.startsWith('/auth/');
+
+  if (isRsc) {
+    const cacheKey = 'rsc:' + requestUrl.origin + requestUrl.pathname;
+    event.respondWith(
+      fetch(request)
+        .then(async (response) => {
+          if (response.ok) {
+            const cache = await caches.open(CACHE_NAME);
+            cache.put(cacheKey, response.clone());
+          }
+          return response;
+        })
+        .catch(async () => {
+          const cache = await caches.open(CACHE_NAME);
+          return (
+            (await cache.match(cacheKey)) ||
+            new Response('{}', {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            })
+          );
+        })
+    );
+    return;
+  }
+
+  // ── Full-page navigation ─────────────────────────────────────────────────
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request).then(async (response) => {
@@ -98,13 +166,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets: cache-first, then store successful same-origin GETs for later
-  // offline navigations to already-visited Next.js pages.
+  // ── Static assets (JS chunks, CSS, images, fonts) ───────────────────────
   event.respondWith(
     caches.match(request).then((response) => {
       if (response) return response;
       return fetch(request).then(async (networkResponse) => {
-        const requestUrl = new URL(request.url);
         if (
           request.method === 'GET' &&
           networkResponse.ok &&

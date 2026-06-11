@@ -19,7 +19,7 @@ vi.mock('@/context/AuthContext', () => ({
   useAuth: vi.fn(),
 }));
 
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, type User } from '@/context/AuthContext';
 
 const mockFetchMyProfile = vi.fn();
 const mockUpdateMyProfile = vi.fn();

@@ -59,10 +59,14 @@ type AuthCheckResult = 'authenticated' | 'auth' | 'offline';
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
 
+type ApiFetchResult =
+  | { ok: boolean; status: number; body: Record<string, unknown> }
+  | { ok: false; status: 0; error: string };
+
 async function apiFetch(
   path: string,
   options: RequestInit
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
+): Promise<ApiFetchResult> {
   try {
     const res = await fetch(path, {
       ...options,
@@ -73,7 +77,7 @@ async function apiFetch(
     return { ok: res.ok, status: res.status, body };
   } catch (err) {
     // Network error — connectivity lost
-    return { ok: false, status: 0, error: err instanceof Error ? err.message : 'Network error' } as never;
+    return { ok: false, status: 0, error: err instanceof Error ? err.message : 'Network error' };
   }
 }
 
@@ -86,7 +90,9 @@ async function checkSession(): Promise<AuthCheckResult> {
 
     if (res.ok) return 'authenticated';
     if (res.status === 401 || res.status === 403) return 'auth';
-    if (res.status >= 500 || res.status === 429) return 'offline';
+    // 429 / 5xx are server-side errors, not connectivity loss — treat as auth
+    // so callers surface "session issue" rather than the misleading "offline" message.
+    if (res.status >= 500 || res.status === 429) return 'auth';
     return 'auth';
   } catch {
     return 'offline';
@@ -134,14 +140,15 @@ async function processCreate(
   const res = await apiFetch(CREATE_BUNDLE_ENDPOINT, { method: 'POST', body: JSON.stringify(body) });
 
   if (res.ok) {
-    const ids = res.body.incident_ids as number[] | undefined;
+    const resBody = 'body' in res ? res.body : {};
+    const ids = resBody.incident_ids as number[] | undefined;
     const serverId = Array.isArray(ids) && ids.length > 0
       ? ids[0]
-      : (res.body.incident_id as number | undefined);
+      : (resBody.incident_id as number | undefined);
     if (!serverId) {
       // Bundle accepted (200) but nothing imported — treat as a retryable error so
       // the op stays queued rather than being marked synced with no server record.
-      const failed = res.body.failed as Array<{ reason?: string }> | undefined;
+      const failed = resBody.failed as Array<{ reason?: string }> | undefined;
       const reason = failed?.[0]?.reason ?? 'upload-bundle returned no incident id';
       return { ok: false, status: res.status, error: reason };
     }
@@ -149,15 +156,16 @@ async function processCreate(
     return { ok: true, serverId };
   }
 
-  if (res.status === 0) return { ok: false, status: 0, error: (res as unknown as { error: string }).error };
+  if (res.status === 0) return { ok: false, status: 0, error: 'error' in res ? res.error : 'Network error' };
 
+  const createBody = 'body' in res ? res.body : {};
   if (res.status === 409) {
-    const code = (res.body.detail as Record<string, string> | null)?.code ?? res.body.code as string;
+    const code = (createBody.detail as Record<string, string> | null)?.code ?? createBody.code as string;
     if (code === 'DUPLICATE_DETECTED') return { ok: false, conflictCode: '409_duplicate', status: 409 };
-    return { ok: false, conflictCode: '409_conflict', serverVersion: res.body.server_version as Record<string, unknown>, status: 409 };
+    return { ok: false, conflictCode: '409_conflict', serverVersion: createBody.server_version as Record<string, unknown>, status: 409 };
   }
 
-  return { ok: false, status: res.status, error: (res.body.detail as string) ?? `HTTP ${res.status}` };
+  return { ok: false, status: res.status, error: (createBody.detail as string) ?? `HTTP ${res.status}` };
 }
 
 async function processUpdate(
@@ -171,11 +179,13 @@ async function processUpdate(
   const res = await apiFetch(`${CREATE_ENDPOINT}/${serverId}`, { method: 'PUT', body: JSON.stringify(body) });
 
   if (res.ok) return { ok: true };
-  if (res.status === 0) return { ok: false, status: 0, error: (res as unknown as { error: string }).error };
+  if (res.status === 0) return { ok: false, status: 0, error: 'error' in res ? res.error : 'Network error' };
   if (res.status === 409) {
-    return { ok: false, conflictCode: '409_conflict', serverVersion: res.body.server_version as Record<string, unknown>, status: 409 };
+    const body = 'body' in res ? res.body : {};
+    return { ok: false, conflictCode: '409_conflict', serverVersion: body.server_version as Record<string, unknown>, status: 409 };
   }
-  return { ok: false, status: res.status, error: (res.body.detail as string) ?? `HTTP ${res.status}` };
+  const updateBody = 'body' in res ? res.body : {};
+  return { ok: false, status: res.status, error: (updateBody.detail as string) ?? `HTTP ${res.status}` };
 }
 
 async function processSubmit(
@@ -188,12 +198,14 @@ async function processSubmit(
   const res = await apiFetch(`${CREATE_ENDPOINT}/${serverId}/submit`, { method: 'PATCH', body: '{}' });
 
   if (res.ok) return { ok: true };
-  if (res.status === 0) return { ok: false, status: 0, error: (res as unknown as { error: string }).error };
+  if (res.status === 0) return { ok: false, status: 0, error: 'error' in res ? res.error : 'Network error' };
   if (res.status === 409) {
-    const code = (res.body.detail as Record<string, string> | null)?.code ?? res.body.code as string;
+    const submitBody = 'body' in res ? res.body : {};
+    const code = (submitBody.detail as Record<string, string> | null)?.code ?? submitBody.code as string;
     return { ok: false, conflictCode: code === 'DUPLICATE_DETECTED' ? '409_duplicate' : '409_conflict', status: 409 };
   }
-  return { ok: false, status: res.status, error: (res.body.detail as string) ?? `HTTP ${res.status}` };
+  const submitErrBody = 'body' in res ? res.body : {};
+  return { ok: false, status: res.status, error: (submitErrBody.detail as string) ?? `HTTP ${res.status}` };
 }
 
 async function processDelete(
@@ -205,11 +217,12 @@ async function processDelete(
     // Draft was never synced — just remove the local op, nothing to delete on server
     return { ok: true };
   }
-  const res = await apiFetch(`${CREATE_ENDPOINT}/draft/${serverId}`, { method: 'DELETE', body: undefined as unknown as string });
+  const res = await apiFetch(`${CREATE_ENDPOINT}/draft/${serverId}`, { method: 'DELETE' });
   if (res.ok) return { ok: true };
-  if (res.status === 0) return { ok: false, status: 0, error: (res as unknown as { error: string }).error };
+  if (res.status === 0) return { ok: false, status: 0, error: 'error' in res ? res.error : 'Network error' };
   if (res.status === 404) return { ok: true }; // already deleted on server — treat as success
-  return { ok: false, status: res.status, error: (res.body.detail as string) ?? `HTTP ${res.status}` };
+  const deleteBody = 'body' in res ? res.body : {};
+  return { ok: false, status: res.status, error: (deleteBody.detail as string) ?? `HTTP ${res.status}` };
 }
 
 // ── Main sync function ────────────────────────────────────────────────────────

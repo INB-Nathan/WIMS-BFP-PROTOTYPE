@@ -121,12 +121,14 @@ The `/health` endpoint is at `GET /health` — handled by nginx directly (no Nex
 ## 4. Service Worker
 
 File: `src/frontend/public/sw.js`  
-Cache name: `wims-bfp-cache-v4`  
+Cache name: `wims-bfp-cache-v5` (tile cache: `wims-tiles-v1`)  
 Registered in: `src/frontend/src/components/LayoutShell.tsx`
 
 ### What it caches
 - **Navigation requests** — HTML for every page visited while online (network-first, cached on success)
+- **RSC payloads** — Next.js App Router RSC fetches (identified by `RSC: 1` header or `_rsc` param); cached under path-normalized keys so the 5-minute router-cache TTL doesn't evict offline navigation
 - **Static assets** — `/_next/static/` chunks, scripts, styles, images, fonts (cache-first)
+- **Map tiles** — OSM tiles + Leaflet CDN assets (separate `wims-tiles-v1` cache; transparent GIF fallback when offline)
 - **Offline shell fallback** — if offline and page not in cache, serves `APP_SHELL (/dashboard)` or inline HTML
 
 ### Why the SW is critical for offline navigation
@@ -279,6 +281,22 @@ Chrome DevTools → Network → Offline blocks ALL requests including `http://lo
 ### IncidentForm
 - Classification type validation: cannot save if `classification_of_involved` is set but matching `type_of_involved_general_category` is empty/mismatched
 - Online create redirects to incident detail page (not dashboard)
+- Removed `base64ToBlob` dead code
+
+### Offline navigation hardening (post-review session)
+- `sw.js` v5: Added RSC payload caching (prevents 5-min router-cache expiry breaking offline nav); added OSM tile cache (`wims-tiles-v1`) with transparent GIF fallback
+- `afor/error.tsx`: Error boundary auto-reloads on reconnect when stale chunk detected (`ChunkLoadError`); shows "Reconnecting…" during connectivity probe instead of misleading offline message
+- `MapPickerInner.tsx`: Marker icons now from `leaflet/dist/images/` (bundled by Next.js, cached by SW); offline amber banner overlay
+- `offlineStore.ts`: Added `getOfflineOpByServerId` for offline detail reconstruction of synced incidents
+- `offlineRegional.ts`: Added `offlineOps` fallback in detail fetch — reconstructs `RegionalIncidentDetailResponse` from create payload when `cachedIncidents` has no entry
+- `dashboard/regional/layout.tsx`: Eager-imports `WildlandAforManualForm` in addition to `IncidentForm`
+
+### Security / correctness fixes (post-review)
+- `main.py`: Removed hardcoded `wimsapp` DB credential; password now derived from `DATABASE_URL` env var (or explicit `WIMS_APP_USER_PASSWORD`)
+- `incidents.py`: Idempotency race fixed — INSERT now uses `ON CONFLICT (client_id) DO NOTHING` rather than SELECT-then-INSERT; removes duplicate-key 500 under concurrent retries
+- `encoder_crud.py`: Added UUID validation for `client_id` before SQL cast (raises 422 on malformed input); same ON CONFLICT atomicity applied to direct create endpoint
+- `keycloak/Dockerfile`, `docker-compose.yml`, `bfp-realm.json`: Removed demo OTP bypass (`WimsDemoOtpFormAuthenticator` / `123123` hardcoded code); reverted to standard `auth-otp-form` authenticator and base Keycloak image
+- `syncEngine.ts`: Replaced `as never` / `as unknown as string` type erasure with `ApiFetchResult` discriminated union; `checkSession()` no longer maps 5xx/429 to `offline` (treats as auth/server error instead)
 
 ### syncEngine / useAutoSync
 - `SyncedIncidentSummary` type added; populated on successful create sync

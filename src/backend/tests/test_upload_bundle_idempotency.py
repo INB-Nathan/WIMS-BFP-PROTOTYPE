@@ -3,11 +3,17 @@
 The offline sync engine replays a queued create through POST /incidents/upload-bundle
 tagged with a client_id (the op's local UUID). If a network timeout masked a 201 the
 first time, the retry must return the existing incident instead of inserting a
-duplicate. This proves the idempotent branch returns the existing id and does NOT
-issue a second fire_incidents INSERT.
+duplicate.
 
 Uses MagicMock for the DB session (no live database), mirroring the pattern in
 test_incidents_create_endpoint.py.
+
+The idempotency path since Q4 fix:
+  1. assigned-region SELECT
+  2. batch INSERT
+  3. client_id column CHECK
+  4. fire_incidents INSERT ... ON CONFLICT DO NOTHING RETURNING → returns None (conflict)
+  5. fallback SELECT to retrieve existing incident_id
 """
 
 from __future__ import annotations
@@ -30,15 +36,19 @@ def test_upload_bundle_returns_existing_incident_for_duplicate_client_id(monkeyp
     col_exists_result = MagicMock()
     col_exists_result.fetchone.return_value = (1,)  # client_id column exists
 
-    existing_result = MagicMock()
-    existing_result.fetchone.return_value = (existing_incident_id,)  # idempotent hit
+    insert_conflict_result = MagicMock()
+    insert_conflict_result.fetchone.return_value = None  # ON CONFLICT DO NOTHING
+
+    fallback_select_result = MagicMock()
+    fallback_select_result.fetchone.return_value = (existing_incident_id,)  # conflict resolution
 
     db = MagicMock()
     db.execute.side_effect = [
         assigned_result,
         batch_result,
         col_exists_result,
-        existing_result,
+        insert_conflict_result,
+        fallback_select_result,
     ]
 
     monkeypatch.setattr("api.routes.incidents.sync_incident_to_analytics", lambda *_a: None)
@@ -63,6 +73,6 @@ def test_upload_bundle_returns_existing_incident_for_duplicate_client_id(monkeyp
     assert response["incident_ids"] == [existing_incident_id]
     assert response["imported"] == [existing_incident_id]
     assert response["failed"] == []
-    # Exactly four executes: assigned-region, batch insert, column check, idempotency
-    # lookup. The fifth (fire_incidents INSERT) must NOT fire on the idempotent path.
-    assert db.execute.call_count == 4
+    # Five executes: assigned-region, batch insert, column check, INSERT ON CONFLICT
+    # (returns None), fallback SELECT to resolve the conflicted client_id.
+    assert db.execute.call_count == 5
