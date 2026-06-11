@@ -280,9 +280,11 @@ def upload_incident_bundle(
         aad = f"incident_id:{incident_id}".encode("utf-8")
         nonce_b64: str | None = None
         ct_b64: str | None = None
+        pii_key_version: int = 1
         try:
             sp = _get_security_provider()
             nonce_b64, ct_b64 = sp.encrypt_json(pii_for_blob, aad)
+            pii_key_version = sp.current_version
         except SecurityProviderError as exc:
             logger.warning(
                 "PII encryption unavailable for incident_id=%s during bundle upload; "
@@ -302,7 +304,7 @@ def upload_incident_bundle(
                     disposition_prepared_by, disposition_noted_by,
                     personnel_on_duty, other_personnel, casualty_details,
                     is_icp_present, icp_location,
-                    pii_blob_enc, encryption_iv
+                    pii_blob_enc, encryption_iv, key_version
                 ) VALUES (
                     :incident_id, :street_address, :landmark,
                     NULL, NULL, :receiver_name,
@@ -312,7 +314,7 @@ def upload_incident_bundle(
                     CAST(:personnel_on_duty AS jsonb), CAST(:other_personnel AS jsonb),
                     NULL::jsonb,
                     :is_icp_present, :icp_location,
-                    :pii_blob_enc, :pii_nonce
+                    :pii_blob_enc, :pii_nonce, :key_version
                 )
                 """
             ),
@@ -337,6 +339,7 @@ def upload_incident_bundle(
                 # Encrypted blob
                 "pii_blob_enc": ct_b64,
                 "pii_nonce": nonce_b64,
+                "key_version": pii_key_version,
             },
         )
 
