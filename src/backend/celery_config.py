@@ -22,6 +22,7 @@ celery_app.conf.imports = (
     "tasks.civilian_reports",
     "tasks.drafts",
     "tasks.exports",
+    "tasks.kms_rotation",
     "tasks.monitoring",
     "tasks.narrative",
     "tasks.notifications",
@@ -83,6 +84,11 @@ celery_app.conf.update(
         "process-ai-queue": {
             "task": "tasks.ai_forwarding.process_queue",
             "schedule": 1.0,
+        },
+        # GH #152 Phase 6: Daily KMS key rotation check (03:30 UTC)
+        "ensure-pii-key-rotation-daily": {
+            "task": "tasks.kms_rotation.ensure_pii_key_rotation",
+            "schedule": crontab(hour=3, minute=30),
         },
     },
 )

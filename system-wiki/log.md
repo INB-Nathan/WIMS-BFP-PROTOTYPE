@@ -3,6 +3,15 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-11] feat | GH #152 Phase 6 — automated 90-day OpenBao KMS rotation + rewrap/resume run state
+
+- `src/postgres-init/55_kms_key_rotation_runs.sql`: new migration. Creates `wims.kms_key_rotation_runs` table with UUID PK, status enum, from/to version tracking, row counters, error message. Indexes for active-run guard and last-success lookup. RLS: SYSTEM_ADMIN only.
+- `src/backend/tasks/kms_rotation.py`: new Celery task module. `ensure_pii_key_rotation()` daily check — active RUNNING row guard, reads OpenBao metadata, `is_rotation_due()` helper (default 90-day interval from `OPENBAO_ROTATION_INTERVAL_DAYS` env), rotates key via `OpenBaoClient.rotate()`, records run row, rewraps `openbao_transit` rows in cursor-paginated batches via `rewrap_openbao_rows()`, marks SUCCEEDED/FAILED. Per-row errors increment failure counter and continue. Never logs plaintext/ciphertext/keys/tokens.
+- `src/backend/celery_config.py`: daily beat entry `ensure-pii-key-rotation-daily` at 03:30 UTC via crontab; `tasks.kms_rotation` added to imports tuple.
+- `src/backend/tests/test_kms_rotation_task.py`: 17 unit tests (no live OpenBao). Covers rotation-due boundary logic, single-run guard, rotate + run recording, rewrap row updates + skip, per-row rewrap/UPDATE error isolation, SUCCEEDED/FAILED status marking, and Celery beat entry verification.
+- Wiki: `security-baseline.md` + gap register updated; Phase 6 marked implemented, #152 overall still PARTIAL (Phase 7 + ops remain).
+- No commit/push performed.
+
 ## [2026-06-11] feat | GH #152 Phase 5 — migration tooling: legacy env-AES → OpenBao Transit
 
 - `src/backend/scripts/migrate_pii_to_openbao.py`: new migration script. Reads `incident_sensitive_details` rows with legacy env-AES blobs (`crypto_provider IS NULL OR crypto_provider = 'env_aesgcm'`). Supports `--dry-run`, `--batch-size N` (default 500), `--incident-id ID`, `--resume-after ID`, `--limit N`. Decrypts with `SecurityProvider`, re-encrypts with `KmsSecurityProvider`, stores `crypto_provider='openbao_transit'`, `kms_key_name`, `encryption_iv=NULL`. Idempotent (skips already-openbao rows). Error isolation per row. Commit per batch. Detects `key_version` column dynamically via `information_schema`. Exit code 1 if errors > 0. Requires `DATABASE_URL`, `WIMS_MASTER_KEY`, `OPENBAO_ADDR` + token.

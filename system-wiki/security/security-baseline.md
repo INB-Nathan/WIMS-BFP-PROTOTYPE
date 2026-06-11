@@ -110,7 +110,19 @@ All write paths updated: `services/afor_import/commit.py` (AFOR commit), `api/ro
 - **Key version:** detects `key_version` column dynamically via `information_schema`; updates it from `kms_provider.current_version` when the column exists.
 - **Requires:** `DATABASE_URL` (or `SQLALCHEMY_DATABASE_URL`), `WIMS_MASTER_KEY` (legacy decrypt), `OPENBAO_ADDR` + token (OpenBao encrypt).
 - **Tests:** `tests/test_migrate_pii_to_openbao.py` — 23 unit tests (no live OpenBao). Covers dry-run, successful migration, idempotent skip, decryption/encryption/update error isolation, CLI flag behavior, key version column detection, and exit codes.
-- **Non-goals:** Does NOT implement Celery 90-day rotation (Phase 6). Does NOT implement backup encryption (Phase 7). Does NOT migrate live data automatically. Does NOT alter frontend.
+- **Non-goals:** Does NOT implement Celery 90-day rotation (Phase 6 — now implemented). Does NOT implement backup encryption (Phase 7). Does NOT migrate live data automatically. Does NOT alter frontend.
+
+## OpenBao KMS Automated Key Rotation (GH #152 Phase 6)
+
+**Implemented 2026-06-11:** Scheduled daily 90-day OpenBao Transit key rotation + resumable rewrap orchestration.
+
+- **Migration** `55_kms_key_rotation_runs.sql`: creates `wims.kms_key_rotation_runs` table with UUID PK, status enum (RUNNING/SUCCEEDED/FAILED), from/to version tracking, row counters (`rows_scanned`, `rows_rewrapped`, `rows_skipped`, `rows_failed`), and error message. Indexes support active-run guard and last-success lookup. RLS restricts to SYSTEM_ADMIN.
+- **Rotation task** `tasks/kms_rotation.py`: Celery task `ensure_pii_key_rotation` checks active RUNNING guard, reads OpenBao key metadata, determines if 90-day rotation is due via `is_rotation_due()`, rotates key, records run row, rewraps `openbao_transit` rows to new key version via `rewrap_openbao_rows()`, and marks run SUCCEEDED or FAILED. Rewrap uses cursor-paginated batches with per-batch commit. Per-row errors increment failure counter and continue. AAD is `incident_id:{id}`.
+- **Celery beat** `celery_config.py`: daily schedule entry `ensure-pii-key-rotation-daily` at 03:30 UTC.
+- **Env configuration:** `OPENBAO_ROTATION_INTERVAL_DAYS` (default 90), `KMS_REWRAP_BATCH_SIZE` (default 500).
+- **Tests:** `tests/test_kms_rotation_task.py` — 17 unit tests (no live OpenBao). Covers rotation-due boundary logic, single-run guard, rotate + run row recording, rewrap row updates, skip already-at-target, per-row rewrap error isolation, UPDATE failure isolation, SUCCEEDED/FAILED status transitions, start_run UUID return, and Celery beat entry verification.
+- **Non-goals:** Does NOT delete/disable old OpenBao key versions. Does NOT implement backup_crypto.py integration (Phase 7). Does NOT run live migration/rotation against real data. Does NOT touch frontend.
+- **Overall GH #152 status:** Phases 1-6 implemented; #152 remains PARTIAL until backup_crypto.py Phase 7 and live OpenBao integration/ops are complete.
 
 ## CSRF Protection
 
