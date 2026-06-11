@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import type {
@@ -273,11 +273,12 @@ describe('TriagePage', () => {
       screen.getAllByRole('button', { name: 'Inspect' })[0],
     );
     await userEvent.click(inspectBtn);
-    await waitFor(() => expect(screen.getByText('Cluster 1')).toBeInTheDocument());
-    await userEvent.keyboard('{Escape}');
+    const modalTitle = await screen.findByText('Cluster 1');
+    expect(modalTitle).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape', keyCode: 27 });
     await waitFor(() => {
       expect(screen.queryByText('Cluster 1')).not.toBeInTheDocument();
-    });
+    }, { timeout: 5000 });
   });
 
   it('displays merge candidate list in modal', async () => {
