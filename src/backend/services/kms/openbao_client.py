@@ -6,10 +6,14 @@ Never stores raw keys in process memory.
 
 import base64
 import dataclasses
+import json
+import logging
 import os
 from typing import Any
 
 import httpx
+
+logger = logging.getLogger("wims.kms")
 
 
 # ── Exceptions ────────────────────────────────────────────────────────────────
@@ -189,3 +193,104 @@ class OpenBaoClient:
             min_decryptable_version=md.get("min_decryption_version", 1),
             keys=keys_parsed,
         )
+
+
+# ── KmsSecurityProvider: compatibility wrapper for SecurityProvider call sites ─
+
+
+class KmsSecurityProvider:
+    """OpenBao-backed encryption provider with SecurityProvider-compatible API.
+
+    Presents the same ``encrypt_json`` / ``decrypt_json`` surface as
+    ``utils.crypto.SecurityProvider`` so existing write/read call sites can
+    dispatch to OpenBao Transit without changing their encryption contract.
+
+    Key name from env: ``OPENBAO_PII_KEY_NAME``, fallback
+    ``OPENBAO_TRANSIT_KEY_NAME``, default ``wims-incident-pii``.
+    """
+
+    NONCE_SENTINEL = "OPENBAO_TRANSIT"
+    PROVIDER = "openbao_transit"
+
+    def __init__(self, client: OpenBaoClient | None = None) -> None:
+        self._client = client or OpenBaoClient()
+        self._key_name = (
+            os.environ.get("OPENBAO_PII_KEY_NAME")
+            or os.environ.get("OPENBAO_TRANSIT_KEY_NAME")
+            or "wims-incident-pii"
+        )
+        self.current_version: int = 1
+
+    # ── Provider metadata (Phase 3 #152) ──────────────────────────────────
+
+    @property
+    def crypto_provider(self) -> str:
+        return self.PROVIDER
+
+    @property
+    def kms_key_name(self) -> str:
+        return self._key_name
+
+    # ── encrypt_json / decrypt_json ───────────────────────────────────────
+
+    def encrypt_json(
+        self,
+        pii_dict: dict,
+        aad: bytes,
+    ) -> tuple[str, str]:
+        """Encrypt a PII dict via OpenBao Transit.
+
+        Returns ``(NONCE_SENTINEL, ciphertext)`` — the sentinel signals
+        callers that *no nonce* was used (Transit ciphertext is self-contained).
+        """
+        try:
+            plaintext = json.dumps(
+                pii_dict,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        except Exception as exc:
+            raise OpenBaoClientError(f"Failed to serialise PII dict to JSON: {exc}") from exc
+
+        try:
+            result = self._client.encrypt(self._key_name, plaintext, aad)
+        except OpenBaoClientError:
+            raise
+        except Exception as exc:
+            raise OpenBaoClientError(
+                f"OpenBao encrypt failed for key={self._key_name}: {exc}"
+            ) from exc
+
+        self.current_version = result.key_version
+        return (self.NONCE_SENTINEL, result.ciphertext)
+
+    def decrypt_json(
+        self,
+        nonce_b64: str | None,
+        ct_b64: str,
+        aad: bytes,
+        key_version: int = 1,
+    ) -> dict:
+        """Decrypt an OpenBao Transit ciphertext back to a PII dict.
+
+        The *nonce_b64* argument is ignored — Transit ciphertext is
+        self-contained and does not need a separate nonce.
+        """
+        _ = nonce_b64  # explicitly unused
+        _ = key_version
+
+        try:
+            plaintext = self._client.decrypt(self._key_name, ct_b64, aad)
+        except OpenBaoClientError:
+            raise
+        except Exception as exc:
+            raise OpenBaoClientError(
+                f"OpenBao decrypt failed for key={self._key_name}: {exc}"
+            ) from exc
+
+        try:
+            return json.loads(plaintext.decode("utf-8"))
+        except Exception as exc:
+            raise OpenBaoClientError(
+                f"Decrypted OpenBao payload is not valid UTF-8 JSON: {exc}"
+            ) from exc

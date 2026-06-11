@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import text
 from database import SessionLocal
+from services.kms import get_crypto_provider
 from utils.crypto import SecurityProvider, SecurityProviderError
 
 logger = logging.getLogger("wims.encrypt-backlog")
@@ -45,7 +46,11 @@ PII_FIELDS_EXPANDED = PII_FIELDS_ORIGINAL | {
 
 
 def run(db, sp: SecurityProvider) -> dict:
-    """Encrypt backlog plaintext data in-place. Returns counts."""
+    """Encrypt backlog plaintext data in-place. Returns counts.
+
+    The *sp* parameter is retained for backward compatibility but is only
+    used when ``get_crypto_provider()`` returns an ``env_aesgcm`` provider.
+    """
 
     stats = {
         "total_rows": 0,
@@ -63,7 +68,8 @@ def run(db, sp: SecurityProvider) -> dict:
                 narrative_report,
                 casualty_details,
                 pii_blob_enc,
-                encryption_iv
+                encryption_iv,
+                crypto_provider
             FROM wims.incident_sensitive_details
         """)
     ).fetchall()
@@ -87,16 +93,22 @@ def run(db, sp: SecurityProvider) -> dict:
         plaintext_casualty = row.casualty_details
         existing_blob = row.pii_blob_enc
         existing_iv = row.encryption_iv
+        row_crypto_provider = getattr(row, "crypto_provider", None)
 
-        # ── Decrypt existing blob if present ──────────────────────────────
+        # ── Decrypt existing blob if present (dual-read dispatch) ─────────
         existing_pii: dict = {}
         needs_reencrypt = False
 
-        if existing_blob and existing_iv:
+        if existing_blob:
             try:
                 aad = f"incident_id:{incident_id}".encode("utf-8")
-                existing_pii = sp.decrypt_json(existing_iv, existing_blob, aad)
-            except SecurityProviderError:
+                sd_provider = get_crypto_provider(
+                    {"crypto_provider": row_crypto_provider}
+                    if row_crypto_provider is not None
+                    else None
+                )
+                existing_pii = sd_provider.decrypt_json(existing_iv, existing_blob, aad)
+            except (SecurityProviderError, Exception):
                 logger.error(
                     "Decryption failed for incident_id=%s — skipping (possible key mismatch or tampering)",
                     incident_id,
@@ -135,8 +147,12 @@ def run(db, sp: SecurityProvider) -> dict:
         # ── Re-encrypt the updated blob ────────────────────────────────────
         try:
             aad = f"incident_id:{incident_id}".encode("utf-8")
-            nonce_b64, ct_b64 = sp.encrypt_json(existing_pii, aad)
-        except SecurityProviderError as exc:
+            provider = get_crypto_provider()
+            nonce_b64, ct_b64 = provider.encrypt_json(existing_pii, aad)
+            crypto_provider_val = provider.crypto_provider
+            kms_key_name_val = provider.kms_key_name
+            enc_iv = nonce_b64 if crypto_provider_val == "env_aesgcm" else None
+        except (SecurityProviderError, Exception) as exc:
             logger.error(
                 "Encryption failed for incident_id=%s: %s",
                 incident_id,
@@ -149,11 +165,15 @@ def run(db, sp: SecurityProvider) -> dict:
         set_clauses = [
             "pii_blob_enc = :blob",
             "encryption_iv = :nonce",
+            "crypto_provider = :crypto_provider",
+            "kms_key_name = :kms_key_name",
         ]
         params = {
             "iid": incident_id,
             "blob": ct_b64,
-            "nonce": nonce_b64,
+            "nonce": enc_iv,
+            "crypto_provider": crypto_provider_val,
+            "kms_key_name": kms_key_name_val,
         }
 
         # NULL out plaintext columns that are now encrypted

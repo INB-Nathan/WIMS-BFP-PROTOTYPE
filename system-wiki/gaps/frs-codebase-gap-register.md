@@ -1,7 +1,7 @@
 ---
 title: FRS Codebase Gap Register
 created: 2026-05-14
-updated: 2026-06-09
+updated: 2026-06-11
 type: gap
 tags: [wims-bfp, gap, frs, needs-verification]
 sources: [raw/frs, raw/codebase/codebase-snapshot-2026-05-14.md]
@@ -44,7 +44,7 @@ This register prevents agents from hallucinating completion. A module is not com
 
 ## FRS Gap Closures (May 2026 batch)
 - **M11a (OWASP ZAP Baseline + Nmap CI Scanning)**: CLOSED â€” PR (feat/m11-ci-scanning): `security-scan` job added to `.github/workflows/ci.yml`; brings full Docker stack, runs Nmap port allowlist check, runs ZAP baseline via `zaproxy/action-baseline@v0.12.0` with `fail_action: true`, uploads both reports as artifacts; `security-scan` added to `merge-gate` `needs:` list to block on HIGH/CRITICAL findings. Closes GH #172.
-- **M6a (Narrative/Casualty/Damage Encryption)**: PARTIAL â€” GH #150: `narrative_report`, `casualty_details`, `estimated_damage_php` added to AES-256-GCM encrypted blob. All write paths updated (commit.py, regional.py, incidents.py). Plaintext columns NULLed for narrative + casualties. Read path decrypts and injects. Attachments (GH #151) and OpenBao KMS (GH #152) still open.
+- **M6a (Narrative/Casualty/Damage Encryption)**: PARTIAL â€” GH #150: `narrative_report`, `casualty_details`, `estimated_damage_php` added to AES-256-GCM encrypted blob. All write paths updated (commit.py, regional.py, incidents.py). Plaintext columns NULLed for narrative + casualties. Read path decrypts and injects. Attachments (GH #151) still open. **GH #152 (OpenBao KMS): Phase 1-3 implemented** — OpenBao container (Phase 1), client module (Phase 2), provider metadata + dual-read dispatch (Phase 3). Phases 4-6 (new OpenBao writes, rewrap-on-rotation, 90-day Celery rotation, migration tooling) remain open.
 - **M7b (Suricata Detection Rules â€” OWASP Top 10 + BFP Custom + ET Open)**: CLOSED â€” `src/suricata/rules/suricata.rules` with 15 custom rules (SID 1000001â€“1000024) prepended to full ET Open ruleset (~68k signatures, 43.4 MB combined). Loaded via Suricata's default configuration â€” no custom suricata.yaml needed. Test suite: 7 end-to-end integration tests covering rule file presence, load count (>1000), config loading, and pipeline ingest (OWASP/ET-Open/BFP SIDs). Closes GH #155. Weekly ET Open update automation (#159) implemented as Celery beat task `update-suricata-rules-weekly` (Sunday 03:00 UTC) via Docker SDK surrogate with USR2 live reload.
 - **M6-G (XAI Narrative Generation)**: CLOSED â€” PR #104: narrative endpoint, batch generation, `ai_narrative` columns, Qwen2.5-3B via Ollama.
 - **M6-F (Suricata IDS Integration)**: CLOSED â€” PR #105: HIGH severity auto-incident creation, duplicate guard, `security_alert_id` FK, service account pre-provisioned.

@@ -15,6 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from services.afor_import import ALARM_LEVEL_MAP
+from services.kms import get_crypto_provider
 from utils.crypto import SecurityProvider, SecurityProviderError
 
 logger = logging.getLogger("wims.regional")
@@ -475,18 +476,22 @@ def apply_incident_field_updates(db: Session, incident_id: int, body: Any) -> No
     if has_pii_update:
         existing = db.execute(
             text(
-                "SELECT pii_blob_enc, encryption_iv FROM wims.incident_sensitive_details WHERE incident_id = :iid"
+                "SELECT pii_blob_enc, encryption_iv, crypto_provider"
+                " FROM wims.incident_sensitive_details WHERE incident_id = :iid"
             ),
             {"iid": incident_id},
         ).fetchone()
         existing_pii: dict[str, Any] = {}
-        if existing and existing[0] and existing[1]:
+        if existing and existing[0]:
+            # Dual-read dispatch: decrypt with the row's original provider
             try:
-                sp = get_security_provider()
-                existing_pii = sp.decrypt_json(
+                sd_provider = get_crypto_provider(
+                    {"crypto_provider": existing[2]} if existing[2] is not None else None
+                )
+                existing_pii = sd_provider.decrypt_json(
                     existing[1], existing[0], f"incident_id:{incident_id}".encode()
                 )
-            except SecurityProviderError:
+            except (SecurityProviderError, Exception):
                 logger.warning(
                     "Failed to decrypt existing PII for incident %s — overwriting", incident_id
                 )
@@ -495,12 +500,27 @@ def apply_incident_field_updates(db: Session, incident_id: int, body: Any) -> No
             if val is not None:
                 existing_pii[field] = val
         try:
-            sp = get_security_provider()
-            nonce_b64, ct_b64 = sp.encrypt_json(existing_pii, f"incident_id:{incident_id}".encode())
-            sd_updates.extend(["pii_blob_enc = :pii_blob", "encryption_iv = :enc_iv"])
+            # Re-encrypt with env-default provider (new writes always use env)
+            provider = get_crypto_provider()
+            nonce_b64, ct_b64 = provider.encrypt_json(
+                existing_pii, f"incident_id:{incident_id}".encode()
+            )
+            crypto_provider_val = provider.crypto_provider
+            kms_key_name_val = provider.kms_key_name
+            enc_iv = nonce_b64 if crypto_provider_val == "env_aesgcm" else None
+            sd_updates.extend(
+                [
+                    "pii_blob_enc = :pii_blob",
+                    "encryption_iv = :enc_iv",
+                    "crypto_provider = :crypto_provider",
+                    "kms_key_name = :kms_key_name",
+                ]
+            )
             sd_params["pii_blob"] = ct_b64
-            sd_params["enc_iv"] = nonce_b64
-        except SecurityProviderError:
+            sd_params["enc_iv"] = enc_iv
+            sd_params["crypto_provider"] = crypto_provider_val
+            sd_params["kms_key_name"] = kms_key_name_val
+        except (SecurityProviderError, Exception):
             logger.warning("PII re-encryption failed for incident %s", incident_id)
     if sd_updates:
         db.execute(

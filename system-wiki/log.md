@@ -4,6 +4,18 @@ Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 ## [2026-06-10] fix | M5 map: Referrer-Policy strict-origin-when-cross-origin so OSM tiles load in prod (#233)
 
+## [2026-06-11] feat | GH #152 Phase 3 — OpenBao KMS provider metadata + dual-read dispatch
+
+- Migration `54_openbao_provider_metadata.sql`: adds `crypto_provider TEXT NOT NULL DEFAULT 'env_aesgcm'` and `kms_key_name TEXT` to `wims.incident_sensitive_details`; relaxes PII blob consistency constraint for openbao_transit rows.
+- `services/kms/__init__.py`: `get_crypto_provider(row=None)` dispatches by row `crypto_provider` first, then `WIMS_CRYPTO_PROVIDER` env var (default `env_aesgcm`).
+- `services/kms/openbao_client.py`: `KmsSecurityProvider` class with `encrypt_json`/`decrypt_json` compatibility surface; sentinel nonce `OPENBAO_TRANSIT`; key name from `OPENBAO_PII_KEY_NAME` > `OPENBAO_TRANSIT_KEY_NAME` > `wims-incident-pii`.
+- `utils/crypto.py`: `SecurityProvider` gains `crypto_provider` and `kms_key_name` properties for provider-agnostic write paths.
+- Write paths updated (5 files): `incidents.py`, `encoder_crud.py`, `field_updates.py`, `helpers.py`, `commit.py` — all INSERT/UPDATE include `crypto_provider`, `kms_key_name`; `encryption_iv=NULL` for openbao_transit rows.
+- Read paths updated (4 files): `encoder.py`, `field_updates.py`, `helpers.py`, `encrypt_backlog.py` — all SELECT `crypto_provider` and dispatch decrypt by row provider; legacy rows default to env_aesgcm.
+- Tests: `tests/test_kms_crypto_provider.py` — 19 unit tests (provider dispatch, KmsSecurityProvider contract, SecurityProvider metadata). All 45 tests pass (17 crypto + 9 openbao client + 19 new), 3 OpenBao-live skipped.
+- Wiki: `security-baseline.md` + gap register updated; Phase 3 marked implemented, M6/OpenBao KMS overall remains PARTIAL (Phases 4-6 still open).
+- No commit/push performed.
+
 - Root cause: prod HTTPS nginx block had `Referrer-Policy: no-referrer`, suppressing the Referer header OSM tile servers require. All 8 react-leaflet TileLayer components (PublicFireMapInner, MapPickerInner, ClusterMapInner, NearbyPublicReportAreasInner, NearbyStationsMapInner, ValidatorMapInner, FireStationsMapInner, HeatmapViewer) were returning 403 in production.
 - Fix: `src/nginx/nginx.conf` HTTPS block — changed `add_header Referrer-Policy no-referrer always` → `add_header Referrer-Policy strict-origin-when-cross-origin always`. One line. No frontend, no migration.
 - Dev/localhost block and `nginx.ci.conf` left untouched (CI does not load OSM tiles).

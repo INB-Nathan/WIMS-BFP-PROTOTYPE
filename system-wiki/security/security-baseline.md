@@ -1,7 +1,7 @@
 ---
 title: Security Baseline
 created: 2026-05-14
-updated: 2026-06-08
+updated: 2026-06-11
 type: security
 tags: [wims-bfp, security, auth, rbac, rls, audit-log, ids, xai, privacy, fail-closed]
 sources: [raw/frs/frs-auth.md, raw/frs/frs-complianceanddataprivacy.md, raw/frs/frs-intrusiondetectionandnetworkingmonitoring.md, raw/frs/frs-threatdetectionwithexplainableai.md, raw/codebase/codebase-snapshot-2026-05-14.md]
@@ -75,7 +75,19 @@ FRS Module 6 requires AES-256-GCM encryption for sensitive incident fields. **Ex
 
 All write paths updated: `services/afor_import/commit.py` (AFOR commit), `api/routes/regional.py` (manual create/edit), `api/routes/incidents.py` (`upload_incident_bundle`). Read path in `api/routes/regional.py` decrypts blob and injects fields into API responses.
 
-**Remaining GH #150 gaps:** `wims.incident_attachments` filesystem storage unencrypted (GH #151). OpenBao KMS + key rotation pending (GH #152).
+**Remaining GH #150 gaps:** `wims.incident_attachments` filesystem storage unencrypted (GH #151). OpenBao KMS + key rotation partially implemented — Phase 3 done (GH #152).
+
+## OpenBao KMS Provider Metadata (GH #152 Phase 3)
+
+**Implemented 2026-06-11:** Provider metadata schema and dual-read dispatch for multi-KMS support.
+
+- **Migration** `54_openbao_provider_metadata.sql` adds `crypto_provider TEXT NOT NULL DEFAULT 'env_aesgcm'` and `kms_key_name TEXT` to `wims.incident_sensitive_details`. The PII blob consistency constraint is relaxed: OpenBao Transit rows allow `pii_blob_enc IS NOT NULL` with `encryption_iv IS NULL`.
+- **Provider dispatch:** `services/kms/__init__.py` exports `get_crypto_provider(row=None)`. Row `crypto_provider` wins over `WIMS_CRYPTO_PROVIDER` env var (defaults `env_aesgcm`). Unknown providers raise a clear error.
+- **KmsSecurityProvider:** `services/kms/openbao_client.py` provides a `SecurityProvider`-compatible wrapper around `OpenBaoClient`. `encrypt_json` returns sentinel nonce `"OPENBAO_TRANSIT"` + Transit ciphertext; `decrypt_json` ignores nonce. Key name from `OPENBAO_PII_KEY_NAME` > `OPENBAO_TRANSIT_KEY_NAME` > `wims-incident-pii`.
+- **Write paths:** All 5 write paths (`incidents.py` bundle, `encoder_crud.py` create, `field_updates.py`/`helpers.py` re-encrypt, `commit.py` AFOR) now store `crypto_provider` and `kms_key_name` on INSERT/UPDATE. For `env_aesgcm` rows, `encryption_iv` contains the real nonce; for `openbao_transit` rows, `encryption_iv` is NULL.
+- **Read paths:** `encoder.py` detail view, `field_updates.py` conflict fetch, `helpers.py` field update, and `encrypt_backlog.py` all dispatch `decrypt_json` by row `crypto_provider`. Legacy rows default to `env_aesgcm` — no migration needed.
+- **Tests:** 45 unit tests pass (17 crypto + 9 openbao client + 19 provider dispatch), 3 skipped (requires live OpenBao).
+- **Remaining (Phase 4-6):** new writes via OpenBao, rewrap-on-rotation, Celery 90-day key rotation, and migration tooling from env AES to OpenBao are NOT yet implemented.
 
 ## CSRF Protection
 
