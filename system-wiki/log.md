@@ -130,6 +130,17 @@ Format: `## [YYYY-MM-DD] action | subject`
 - No backfill: forward-only. Existing plaintext attachments served raw via `is_encrypted=false` fallback.
 - In-memory constraint: AESGCM requires full plaintext/ciphertext at once. 25 MB default cap is appropriate for photos and AFOR scans. Chunked streaming AEAD is deferred future work for large video evidence files.
 - 22 unit + route tests pass (`tests/test_attachment_encryption.py`). No frontend changes — serve route is new backend-only surface.
+
+## [2026-06-12] feat | GH #164 M8 — security monitoring dashboard + multi-severity filter
+
+- `src/backend/api/routes/admin/security.py`: extended `GET /api/admin/security-logs` severity param to accept comma-separated values (e.g. `?severity=HIGH,CRITICAL`); values validated against `_VALID_SEVERITIES` frozenset; individual bind params (`:sev0`, `:sev1`, …) used in dynamic `IN (…)` clause to prevent SQL injection; single-value path unchanged. New `GET /api/admin/security-logs/summary` endpoint (inserted before `/{log_id}` routes to avoid parameterized route conflict): returns `by_severity` dict (all four levels, zero-filled), `unreviewed_count` (hitl_decision IS NULL), `total`, and `recent_narratives` (5 most recent with xai_narrative).
+- `src/backend/tests/test_security_monitoring.py`: 12 new unit tests (mock DB, no stack required) — 6 for multi-severity filter (multi returns IN clause, individual bind params, single-value path, all-invalid ignored, mixed valid/invalid strips invalid) and 6 for summary shape/counts/empty-db/admin-gate.
+- `src/frontend/src/lib/api/legacy.ts`: extended `fetchAdminSecurityLogs` params with `severity?: string`; added `SecurityLogsSummary` interface and `fetchSecurityLogsSummary()`.
+- `src/frontend/src/app/admin/monitoring/page.tsx`: new SYSTEM_ADMIN-gated page at `/admin/monitoring` — summary cards (Total Threats, Unreviewed, High+Critical); inline SVG/CSS proportional severity distribution bar (no chart library); severity filter chips with `toggleSeverity`/`clearFilters`; threat feed table (timestamp, source IP, severity badge, SID, status, XAI confidence) with pagination; 30s auto-refresh via `setInterval`; recent XAI narratives panel; audit highlights panel (HITL_REVIEW, PII_EXPORT, PII_ANONYMIZE, BREACH_DETECTED).
+- `src/frontend/src/components/Sidebar.tsx`: added "Security Monitoring" nav item (`/admin/monitoring`, ShieldAlert icon) under Administration (SYSTEM_ADMIN).
+- `src/frontend/src/app/admin/monitoring/admin-security-monitoring.test.tsx`: 4 Vitest tests — summary cards render, chip toggle calls API with correct severity, empty state, distribution bar labels.
+- Deferred: SSE real-time push (polling sufficient for v1), global sidebar unreviewed badge.
+- Gap register updated: M8 monitoring dashboard CLOSED.
 ## [2026-06-11] fix | OpenBao token-file mounting for backend/celery
 
 - `src/openbao/init/bootstrap-openbao.sh`: after writing the `wims-app` policy, bootstrap now verifies any existing app token or creates a replacement policy-scoped orphan service token and persists the token value to `/vault/file/.wims-app-token` without logging it. This regenerates app auth after an OpenBao volume reset while avoiding token churn on normal restarts.

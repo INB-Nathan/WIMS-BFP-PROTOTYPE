@@ -24,6 +24,8 @@ router = APIRouter()
 
 VALID_HITL_ACTIONS = ("CONFIRM_THREAT", "FALSE_POSITIVE", "REQUEST_MORE_INFO")
 
+_VALID_SEVERITIES = frozenset({"LOW", "MEDIUM", "HIGH", "CRITICAL"})
+
 HITL_ACTION_LABELS: dict[str, str] = {
     "CONFIRM_THREAT": "Confirmed Threat",
     "FALSE_POSITIVE": "False Positive (Dismissed)",
@@ -58,8 +60,17 @@ def get_security_logs(
         where_clauses.append("source_ip = :source_ip")
         params["source_ip"] = source_ip
     if severity is not None:
-        where_clauses.append("severity_level = :severity")
-        params["severity"] = severity
+        requested = [s.strip().upper() for s in severity.split(",") if s.strip()]
+        valid_sevs = [s for s in requested if s in _VALID_SEVERITIES]
+        if valid_sevs:
+            if len(valid_sevs) == 1:
+                where_clauses.append("severity_level = :sev0")
+                params["sev0"] = valid_sevs[0]
+            else:
+                placeholders = ", ".join(f":sev{i}" for i in range(len(valid_sevs)))
+                where_clauses.append(f"severity_level IN ({placeholders})")
+                for i, s in enumerate(valid_sevs):
+                    params[f"sev{i}"] = s
     if date_from is not None:
         where_clauses.append("timestamp >= CAST(:date_from AS timestamptz)")
         params["date_from"] = date_from
@@ -125,6 +136,63 @@ def get_security_logs(
         "total": total,
         "limit": limit,
         "offset": offset,
+    }
+
+
+@router.get("/security-logs/summary")
+def get_security_logs_summary(
+    _admin: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Aggregated security telemetry summary for the monitoring dashboard.
+
+    Returns severity distribution counts, unreviewed threat count, total count,
+    and the 5 most recent logs that have an XAI narrative.
+    """
+    sev_rows = db.execute(
+        text(
+            "SELECT severity_level, COUNT(*) FROM wims.security_threat_logs GROUP BY severity_level"
+        )
+    ).fetchall()
+    by_severity: dict[str, int] = {"LOW": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0}
+    for row in sev_rows:
+        level = (row[0] or "").upper()
+        if level in by_severity:
+            by_severity[level] = int(row[1])
+
+    unreviewed = int(
+        db.execute(
+            text("SELECT COUNT(*) FROM wims.security_threat_logs WHERE hitl_decision IS NULL")
+        ).scalar()
+        or 0
+    )
+
+    total = int(db.execute(text("SELECT COUNT(*) FROM wims.security_threat_logs")).scalar() or 0)
+
+    narrative_rows = db.execute(
+        text(
+            "SELECT log_id, severity_level, xai_narrative, timestamp "
+            "FROM wims.security_threat_logs "
+            "WHERE xai_narrative IS NOT NULL "
+            "ORDER BY timestamp DESC "
+            "LIMIT 5"
+        )
+    ).fetchall()
+    recent_narratives = [
+        {
+            "log_id": r[0],
+            "severity_level": r[1],
+            "xai_narrative": r[2],
+            "timestamp": r[3].isoformat() if r[3] else None,
+        }
+        for r in narrative_rows
+    ]
+
+    return {
+        "by_severity": by_severity,
+        "unreviewed_count": unreviewed,
+        "total": total,
+        "recent_narratives": recent_narratives,
     }
 
 

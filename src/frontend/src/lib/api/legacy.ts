@@ -260,12 +260,15 @@ export async function changeMyPassword(payload: {
   });
 }
 
-/** Fetch security logs (admin) - ordered by timestamp desc, or by ts_rank when q is set */
+/** Fetch security logs (admin) - ordered by timestamp desc, or by ts_rank when q is set, supports severity filter */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function fetchAdminSecurityLogs(params?: { q?: string }): Promise<any[]> {
+export async function fetchAdminSecurityLogs(params?: { q?: string; severity?: string; limit?: number; offset?: number }): Promise<any[]> {
   try {
     const search = new URLSearchParams();
     if (params?.q) search.set('q', params.q);
+    if (params?.severity) search.set('severity', params.severity);
+    if (params?.limit != null) search.set('limit', String(params.limit));
+    if (params?.offset != null) search.set('offset', String(params.offset));
     const qs = search.toString();
     const data = await apiFetch<
       Record<string, unknown>[] | { items?: Record<string, unknown>[]; data?: Record<string, unknown>[] }
@@ -276,6 +279,24 @@ export async function fetchAdminSecurityLogs(params?: { q?: string }): Promise<a
     return [];
   }
 }
+
+export interface SecurityLogsSummary {
+  by_severity: { LOW: number; MEDIUM: number; HIGH: number; CRITICAL: number };
+  unreviewed_count: number;
+  total: number;
+  recent_narratives: Array<{
+    log_id: number;
+    severity_level: string;
+    xai_narrative: string | null;
+    timestamp: string;
+  }>;
+}
+
+/** Fetch security logs summary (admin) - GET /admin/security-logs/summary */
+export async function fetchSecurityLogsSummary(): Promise<SecurityLogsSummary> {
+  return apiFetch<SecurityLogsSummary>('/admin/security-logs/summary');
+}
+
 
 /** Analyze security log with AI (admin) - POST /admin/security-logs/{logId}/analyze */
 export async function analyzeSecurityLog(logId: number): Promise<{
