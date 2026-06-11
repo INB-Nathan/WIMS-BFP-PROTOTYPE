@@ -76,7 +76,14 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 **Files:** `backend/api-route-map.md`, `frontend/route-map.md`
 
-## [2026-06-09] feat | M9b full-text search on security + audit logs (tsvector + GIN) (#169)
+## [2026-06-10] feat | triage — cluster/singleton split, mode-aware modal, metrics bar (#219)
+
+- Split triage queue into Clusters table and Individual Reports table
+- Modal gated by mode prop (cluster: map+multi-select; singleton: location text only)
+- Metrics bar with live counts and last-polled timestamp
+- Phase C filter chips including Unreviewed (singleton-only)
+- Branch: feat/triage-queue-hci
+
 ## [2026-06-09] feat | M9b full-text search on security + audit logs (tsvector + GIN) (#169)
 
 - Migration `48_log_search_vectors.sql` (idempotent): adds `search_vector tsvector GENERATED ALWAYS AS STORED` to `wims.security_threat_logs` (covers `raw_payload`, `xai_narrative`, `severity_level`, `source_ip`, `destination_ip`) and `wims.system_audit_trails` (covers `action_type`, `table_affected`, `user_agent`). Creates GIN indexes `idx_security_logs_search` and `idx_audit_trails_search`.

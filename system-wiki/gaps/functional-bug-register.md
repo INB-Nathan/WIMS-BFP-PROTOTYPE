@@ -1,7 +1,7 @@
 ---
 title: Functional Bug Register
 created: 2026-05-14
-updated: 2026-05-19
+updated: 2026-06-10
 type: bug
 tags: [wims-bfp, bug, functional, m12, needs-fix]
 sources: []
@@ -35,6 +35,14 @@ Functional bugs reported by teammates during evaluation. All map to M12 User Man
 | F-08 | Export PDF/CSV/Excel returns 409 Conflict on analyst incident detail page | Celery task failed with `PermissionError: [Errno 13] Permission denied: '/app/storage/exports'` because the Docker named volume `incident_attachments_data` was mounted at `/app/storage` and the Celery worker's `appuser` could not create the `exports` subdirectory (volume owned by `root:root`). Also, the bulk export task used a writer expecting 3 args `(path, rows, columns)` but the internal API passed only 2. Fixed by: (1) adding `mkdir -p /app/storage/exports` in Dockerfile before image build; (2) creating `_write_csv_bulk / _write_xlsx_bulk / _write_pdf_bulk` adapter wrappers; (3) implementing AFOR-template-based writers `_write_afor_excel`, `_write_afor_pdf`, `_write_afor_csv` for single-incident exports. | User on localhost/dashboard/analyst/incidents/12 | Fixed in code; rebuild complete; testing pending |
 
 ---
+
+---
+
+## M3 Triage UI Enhancements
+
+| # | Enhancement | Detail | Status |
+|---|---|---|---|
+| F-11 | Triage queue HCI polish | Split clusters/singletons into separate tables, mode-aware inspection modal, metrics bar, empty states, Unreviewed filter chip. #219. | Implemented |
 
 ---
 
