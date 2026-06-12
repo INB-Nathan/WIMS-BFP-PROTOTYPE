@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-12  
 **Branch:** `offline-expansion`  
-**Commit:** `d9f79ad`  
+**Implementation commits:** `d9f79ad` (initial), `505a2f8` (parent spec-alignment fix)  
 **Parent:** `a46f618` (fix(#268): persist validator offline op metadata)  
 **PR:** GH #269
 
