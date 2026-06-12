@@ -3,6 +3,67 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-12] fix(#272) | close frontend offline review test gaps
+
+- **T2:** Added `src/frontend/src/app/dashboard/validator/page.test.tsx` with page-level coverage for validator offline indicator, validator-only queued-op badge, and stale-cache banner.
+- **T4:** Extended `src/frontend/src/app/dashboard/analyst/page.test.tsx` so offline-aware API mocks can return `fromCache: true`; added tests for offline banner, cached-data UI, and disabled exports while offline.
+- **T5:** Added `src/frontend/src/lib/__tests__/connectivity.test.ts` covering `connectivity.ts` snapshot state, subscriber notifications, offline marking, probe success/failure, in-flight probe deduplication, and `isReachable()`.
+- **Q6:** `src/frontend/src/app/admin/system/page.tsx` now subscribes to `connectivity.ts` and starts `probeConnectivity()` on mount. The admin offline banner now also shows "Backend unreachable — showing cached data" when the health probe reports offline even if `navigator.onLine` is true. `admin-system-monitoring.test.tsx` covers this reactive banner path.
+- `system-wiki/subsystems/admin-hub.md` and `system-wiki/architecture/pwa-tests-cicd.md` updated for the admin backend-unreachable banner and connectivity test coverage. No FRS gap register update (test/UX hardening of existing offline-first behavior).
+
+## [2026-06-12] fix(#272) | harden validator idempotency client ids
+
+- **Q1 (duplicate race):** `insert_incident_verification_history` in `helpers.py` now wraps the INSERT in try/except for `SAIntegrityError` and raises `DuplicateClientIdError` when the unique violation matches the `uq_incident_verification_history_client_id` constraint (migration 56). Lifecycle commands (`verify_incident_command`, `archive_finalized_incident`, `unarchive_finalized_incident`) catch `DuplicateClientIdError`, roll back, and return `{"status": "already_applied"}` instead of the previous HTTP 500 from the broad `except Exception` handler. The `verify_incident` route handler checks for `status == "already_applied"` and skips SSE event publishing.
+- **Q2 (UUID validation):** `archive_incident` and `unarchive_incident` routes in `validator.py` now validate the resolved `client_id` (from body XOR query param) via `uuid.UUID()` before any `CAST(:cid AS uuid)` SQL. Invalid IDs return HTTP 422 with a clear error message instead of propagating a database-level CAST error to an HTTP 500.
+- **Pydantic body validation** (already in place from partial edits): `VerificationActionRequest.client_id` and `ClientIdRequest.client_id` use `@field_validator` with `uuid.UUID()` reject malformed bodies at the FastAPI layer with 422.
+- **Tests (T1):** 7 new tests in `test_validator_idempotency.py` — 3 unit tests for `DuplicateClientIdError` raise/re-raise behavior (mocked `_insert_ivh_impl`), 4 integration tests proving invalid UUID in archive/unarchive query params and verification/archive body returns 422.
+- No FRS gap register update (bugfix hardening of existing #267 idempotency feature).
+
+## [2026-06-12] feat | GH #270 admin offline-first read caching
+
+- `src/frontend/src/lib/api/offlineAdmin.ts`: created with 5 offline-aware admin wrappers (`fetchSystemHealthOfflineAware`, `fetchSystemMetricsOfflineAware`, `fetchWorkerStatusOfflineAware`, `fetchActiveSessionsOfflineAware`, `fetchAuditLogsOfflineAware`) following the `offlineAware()` pattern from `offlineAnalytics.ts`. Each checks connectivity snapshot, caches successful responses in encrypted IndexedDB under `admin:`-prefixed keys, uses 60s TTL (30s for active sessions), falls back to cache on network error, and throws when offline with no cache.
+- `src/frontend/src/lib/api/admin.ts`: re-exports the 5 `*OfflineAware` functions and `OfflineAdminResult` type from `./offlineAdmin`.
+- `src/frontend/src/app/admin/system/page.tsx`: swapped 5 legacy `fetch*` imports for `*OfflineAware` variants; added `useNetworkStatus` hook; updated `loadHealth`, `loadMonitoring`, `loadSessions`, and `loadAuditLogs` to destructure `{ response, fromCache, cachedAt }`; added amber "You are offline — showing cached data" banner when `!networkStatus.isOnline`; added `(cached)` badge and relative "Last checked: X sec ago" timestamp on panels served from cache. User CRUD, security HITL, and scheduled reports remain online-only.
+- `src/frontend/src/lib/api/__tests__/offlineAdmin.test.ts`: 11 tests covering all 5 wrappers (offline-no-cache throw, online cache-write, network-error cache-fallback, 30s TTL staleness, audit-log cache key with params).
+- `src/frontend/src/app/admin/system/admin-system-monitoring.test.tsx`: updated mocks for `*OfflineAware` shape; added offline banner render test. Also updated `admin-system-hitl.test.tsx`, `admin-system-analyze-ai.test.tsx`, and `admin-system-search.test.tsx` with corresponding mock updates.
+- `system-wiki/subsystems/admin-hub.md`: added Offline Read Caching section.
+- `system-wiki/frontend/frontend-infrastructure.md`: added `api/offlineAdmin.ts` to the API slice layout table.
+- No FRS gap register update (this implements offline caching for existing admin monitoring reads; no FRS gap status changes).
+
+## [2026-06-12] feat | GH #269 validator dashboard offline wiring
+
+- `src/frontend/src/lib/api/offlineValidator.ts`: created with offline-aware validator wrappers: `submitVerificationOfflineAware`, `submitArchiveActionOfflineAware`, `archiveIncidentOfflineAware`, `unarchiveIncidentOfflineAware`, and `fetchValidatorQueueOfflineAware`. Each checks connectivity snapshot, queues via `queueIncident(payload, { opType, localId })` when offline or on network failure, and surfaces 409 `DUPLICATE_DETECTED` to the page. Verification supports `accept_replace` by carrying `original_incident_id`; queue fetch uses the encrypted `analytics-cache` store with 30-min TTL and user-scoped validator queue keys.
+- `src/frontend/src/lib/api/validator.ts`: extended to re-export the new offline-aware wrapper functions and types from `./offlineValidator`.
+- `src/frontend/src/lib/api/index.ts`: added `export * from './validator'` to the barrel so pages can import wrappers from `@/lib/api`.
+- `src/frontend/src/app/dashboard/validator/page.tsx` and `components/validator/ActionModal.tsx`: mounted `useNetworkStatus` and `useAutoSync`; replaced direct `apiFetch` calls for queue fetch, archive, unarchive, and verification with the offline-aware wrappers; added stale-cache amber banner, validator-only pending-ops badge, sync-complete notification, offline indicator, and `sync-complete`/`wims:sync-complete` SW message listener; kept delete, bulk approve, and forced duplicate "accept as new" online-only.
+- `src/frontend/src/lib/__tests__/offlineValidator.test.ts`: added reproduction test (verify offline queuing) plus archive/unarchive archive_action queuing tests (3 tests total, all passing).
+- `system-wiki/architecture/pwa-tests-cicd.md`: added `offlineValidator.ts` section with export table and dashboard wiring summary.
+- `system-wiki/frontend/frontend-infrastructure.md`: added `offlineValidator.ts` to API slice layout table.
+- `docs/implementations/validator-dashboard-offline-wiring.md`: implementation handoff doc created with base-fail/patch-pass evidence, mechanical gate results, spec compliance table, and residual risks.
+- No FRS gap register update (this implements existing offline-first behavior without changing FRS gap status).
+
+## [2026-06-12] feat | GH #268 validator offline op types and sync engine
+
+- `src/frontend/src/lib/offlineStore.ts`: added `OfflineOpType` (`'create' | 'verify' | 'archive_action'`), `VerifyPayload`, `ArchiveActionPayload`, and `QueueIncidentOptions`; `queueIncident(payload, options?)` now persists optional `opType` and `localId` metadata so real queued validator ops can dispatch/idempotently replay.
+- `src/frontend/src/lib/syncEngine.ts`: added op-type dispatch via `processVerify()` (PATCH `/api/regional/incidents/{id}/verification` with `{ action, notes, client_id, original_incident_id? }` and `credentials: 'include'` via `apiFetch`) and `processArchiveAction()` (PATCH `/api/regional/validator/incidents/{id}/archive` or `/unarchive` with `{ client_id }` and `credentials: 'include'`). Legacy items without `opType` continue to POST to `/api/v1/public/report` (backward-compatible). Network errors (no HTTP status) now abort the remaining batch; HTTP errors (4xx/5xx) continue. 409 `DUPLICATE_DETECTED` on verify/archive_action keeps the op pending.
+- `src/frontend/src/lib/__tests__/syncEngine.test.ts` and `src/frontend/src/lib/__tests__/offlineStore.test.ts`: tests cover verify dispatch, archive/unarchive dispatch, 409 conflict, backward compat, network error batch abort, HTTP error continuation, and persistence of `opType`/`localId` queue metadata.
+- `system-wiki/architecture/pwa-tests-cicd.md`: updated syncEngine section with op-type dispatch table, auth notes, and error abort behavior.
+- `docs/implementations/validator-offline-op-types-sync-engine.md`: implementation handoff doc created with base-fail/patch-pass evidence, mechanical gate results, spec compliance table, and residual risks.
+- No FRS gap register update (this implements offline op type dispatch for validator actions; no FRS gap status changes).
+
+## [2026-06-12] docs | Agent gotcha for spec deviations
+
+- `AGENTS.md`: added Gotcha #16 requiring agents/subagents to follow issue/PRD/spec/acceptance contracts exactly unless they explicitly state a deviation, justify it, and show how it improves correctness, safety, maintainability, or user value.
+- `system-wiki/operations/agent-routing-guide.md`: added the same delegation rule so implementation chains do not silently bypass explicit specs.
+- No FRS gap register update; this changes agent workflow guidance, not product behavior or FRS alignment.
+
+## [2026-06-12] feat | GH #266 analyst offline-first read caching
+
+- `src/frontend/src/lib/api/offlineAnalytics.ts`: added 9 offline-aware National Analyst read wrappers returning `{ response, fromCache, cachedAt? }` with 30-minute TTL, connectivity failover, cache-miss friendly errors, and network-error offline marking.
+- `src/frontend/src/lib/offlineStore.ts` and `src/frontend/src/lib/connectivity.ts`: bumped IndexedDB to v3 with encrypted `analytics-cache` KV entries and added shared connectivity snapshot/probe helpers.
+- Analyst dashboard, workflow, and incident detail pages now call the wrappers, mount network/autosync hooks, show cached-data banners, and block/offline-toast export actions where applicable.
+- `system-wiki/architecture/pwa-tests-cicd.md` and `system-wiki/frontend/frontend-infrastructure.md`: documented the encrypted analyst cache and wrapper exports. No FRS gap register update (issue implements existing offline-first behavior without changing gap status).
+
 ## [2026-06-12] fix | dynamic frontend DNS for nginx + frontend health check in deploy
 
 - `src/nginx/nginx.conf`: replaced all four static `proxy_pass http://frontend:3000[/]` references with a new `upstream frontend_servers { server frontend:3000 resolve; }` block. Nginx previously resolved `frontend` at startup and cached the IP indefinitely, so after a deploy recreated the frontend container with a new Docker IP, nginx kept proxying to the stale IP → `502 Bad Gateway`. The `resolve` flag on the upstream server directive forces nginx to re-resolve via Docker's embedded DNS (`resolver 127.0.0.11 valid=10s`), matching the existing `backend_servers` pattern.
@@ -2356,6 +2417,18 @@ Updated `src/backend/tests/test_csrf_middleware.py` to match PR #215's removal o
 - 16 new unit tests added in `tests/test_admin_new_routes.py` (8 audit filter tests, 7 security filter tests, 1 no-filters-baseline).
 
 **Wiki update:** Updated `system-wiki/backend/api-route-map.md` to note filter query params on `/audit-logs` and `/security-logs`.
+
+## [2026-06-12] feat(#267) | Idempotent validator verification via client_id
+
+- Added `client_id UUID` column to `wims.incident_verification_history` with partial unique index (`56_add_client_id_to_verification_history.sql`).
+- Added optional `client_id` field to `VerificationActionRequest` schema.
+- Three validator routes now support idempotent retry detection: `verify_incident`, `archive_incident`, and `unarchive_incident` accept `client_id` in the request body; archive/unarchive retain query-param compatibility.
+- When a duplicate `client_id` is detected, the endpoint returns `200 {"status": "already_applied"}` instead of re-processing.
+- `insert_incident_verification_history()` stores `client_id` when the column exists (column-aware guard pattern).
+- New test file `tests/test_validator_idempotency.py` with 5 focused tests covering verification, archive, unarchive, backward compatibility, and distinct client_id isolation.
+
+**Wiki update:** Updated `system-wiki/backend/api-route-map.md` with client_id params on three validator routes.
+
 ## [2026-06-10] fix | Restore VPS production runtime
 
 - Restored the VPS with the explicit production Compose override so nginx mounts `/etc/letsencrypt` and serves the valid `wimsbfp.tech` certificate.

@@ -1,12 +1,25 @@
 /**
  * syncEngine — core sync logic (FR-3B) + conflict resolution (FR-3F).
  *
- * Reads pending items from IndexedDB, POSTs each to the API,
- * and marks successful items as synced. Handles partial failures,
- * network errors, and 409 Conflict with last-write-wins resolution.
+ * Reads pending items from IndexedDB, dispatches each to the correct API
+ * endpoint based on opType, and marks successful items as synced.
+ * Handles partial failures, network errors (batch abort), and 409 Conflict
+ * with last-write-wins resolution for create ops.
+ *
+ * Supported opTypes:
+ *  - create (default/legacy) → POST /api/v1/public/report
+ *  - verify               → PATCH /api/regional/incidents/{id}/verification
+ *  - archive_action       → PATCH /api/regional/validator/incidents/{id}/archive|unarchive
  */
 
-import { getPendingIncidents, markSynced } from './offlineStore';
+import {
+  getPendingIncidents,
+  markSynced,
+  type ArchiveActionPayload,
+  type OfflineOpType,
+  type VerifyPayload,
+} from './offlineStore';
+import { apiFetch, ApiRequestError } from './api';
 
 const SYNC_ENDPOINT = '/api/v1/public/report';
 
@@ -24,6 +37,8 @@ export interface SyncResult {
 
 interface PendingItem {
   id: number;
+  opType?: OfflineOpType;
+  localId?: string;
   payload: Record<string, unknown>;
   createdAt: number;
   status: 'pending' | 'synced';
@@ -118,10 +133,80 @@ async function handleConflict(
 }
 
 /**
+ * Process a verify op: PATCH /api/regional/incidents/{id}/verification
+ * with cookie-based auth (apiFetch).
+ *
+ * Body includes client_id from localId for server-side idempotency (#267).
+ * 409 DUPLICATE_DETECTED keeps the op pending (conflict, don't overwrite).
+ */
+async function processVerify(item: PendingItem): Promise<{ ok: boolean; status?: number; error?: string }> {
+  const payload = item.payload as unknown as VerifyPayload;
+  try {
+    await apiFetch(`/api/regional/incidents/${payload.incident_id}/verification`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        action: payload.action,
+        notes: payload.notes ?? null,
+        client_id: item.localId ?? null,
+        ...(payload.original_incident_id !== undefined
+          ? { original_incident_id: payload.original_incident_id }
+          : {}),
+      }),
+    });
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof ApiRequestError) {
+      // 409 DUPLICATE_DETECTED — keep pending, don't overwrite
+      if (err.status === 409) {
+        return { ok: false, status: 409, error: 'Conflict: DUPLICATE_DETECTED' };
+      }
+      return { ok: false, status: err.status, error: err.message };
+    }
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
+
+/**
+ * Process an archive_action op: PATCH /api/regional/validator/incidents/{id}/archive
+ * or /unarchive with cookie-based auth (apiFetch).
+ *
+ * Body includes client_id from localId for server-side idempotency (#267).
+ */
+async function processArchiveAction(item: PendingItem): Promise<{ ok: boolean; status?: number; error?: string }> {
+  const payload = item.payload as unknown as ArchiveActionPayload;
+  const endpoint = payload.action === 'archive'
+    ? `/api/regional/validator/incidents/${payload.incident_id}/archive`
+    : `/api/regional/validator/incidents/${payload.incident_id}/unarchive`;
+  try {
+    await apiFetch(endpoint, {
+      method: 'PATCH',
+      body: JSON.stringify({ client_id: item.localId ?? null }),
+    });
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof ApiRequestError) {
+      // 409 DUPLICATE_DETECTED — keep pending, don't overwrite
+      if (err.status === 409) {
+        return { ok: false, status: 409, error: 'Conflict: DUPLICATE_DETECTED' };
+      }
+      return { ok: false, status: err.status, error: err.message };
+    }
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
+
+/**
  * Sync all pending incidents to the server.
  *
  * Processes items sequentially to avoid overwhelming the API.
- * Partial failures do not block other items.
+ * Dispatches to the correct endpoint based on opType:
+ *   - verify → processVerify (PATCH /regional/incidents/{id}/verification)
+ *   - archive_action → processArchiveAction (PATCH .../archive or /unarchive)
+ *   - default/create → syncItem (POST /api/v1/public/report, legacy)
+ *
+ * HTTP failures (4xx/5xx) keep the item pending and continue.
+ * Network errors (no HTTP status) abort the remaining batch to
+ * preserve ordering and avoid cascading timeouts.
  */
 export async function syncPendingIncidents(): Promise<SyncResult> {
   const pending = await getPendingIncidents();
@@ -135,7 +220,19 @@ export async function syncPendingIncidents(): Promise<SyncResult> {
   const errors: SyncError[] = [];
 
   for (const item of pending) {
-    const result = await syncItem(item);
+    let result: { ok: boolean; status?: number; error?: string };
+
+    switch (item.opType) {
+      case 'verify':
+        result = await processVerify(item);
+        break;
+      case 'archive_action':
+        result = await processArchiveAction(item);
+        break;
+      default:
+        result = await syncItem(item);
+        break;
+    }
 
     if (result.ok) {
       await markSynced(item.id);
@@ -147,6 +244,11 @@ export async function syncPendingIncidents(): Promise<SyncResult> {
         status: result.status,
         error: result.error,
       });
+
+      // Network error (no HTTP status) — abort remaining batch
+      if (!result.status) {
+        break;
+      }
     }
   }
 

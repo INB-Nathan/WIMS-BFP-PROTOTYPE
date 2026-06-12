@@ -20,13 +20,13 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import {
-  fetchAnalyticsFilterOptions,
-  fetchComparativeData,
-  fetchHeatmapData,
+  fetchAnalyticsFilterOptionsOfflineAware,
+  fetchComparativeDataOfflineAware,
+  fetchHeatmapDataOfflineAware,
   fetchRegions,
-  fetchResponseTimeByRegion,
-  fetchTopN,
-  fetchTrendData,
+  fetchResponseTimeByRegionOfflineAware,
+  fetchTopNOfflineAware,
+  fetchTrendDataOfflineAware,
   type AnalystIncidentListParams,
   type ComparativeResponse,
   type HeatmapGeoJSON,
@@ -40,6 +40,8 @@ import { ExportPreviewModal, type ExportFormat } from '@/components/analytics/Ex
 import { ResponseTimeChart } from '@/components/analytics/ResponseTimeChart';
 import { TrendCharts } from '@/components/analytics/TrendCharts';
 import { readAnalystWorkflowTransfer } from '@/lib/analyst-workflow-transfer';
+import { useAutoSync } from '@/lib/useAutoSync';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
 
 const HeatmapViewer = dynamic(
   () => import('@/components/analytics/HeatmapViewer').then((m) => m.HeatmapViewer),
@@ -183,6 +185,17 @@ function MetricTile({ label, value, detail }: { label: string; value: string; de
   );
 }
 
+function formatCachedAt(cachedAt?: number): string | null {
+  if (!cachedAt) return null;
+  return `Last updated ${new Date(cachedAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}`;
+}
+
+function CacheMetaText({ cachedAt }: { cachedAt?: number }) {
+  const label = formatCachedAt(cachedAt);
+  if (!label) return null;
+  return <p className="mb-3 text-xs font-medium text-amber-700">Showing cached data — {label}</p>;
+}
+
 function TopNTable({ data, metric }: { data: TopNItem[]; metric: string }) {
   if (data.length === 0) {
     return <p className="text-sm text-gray-500">No ranked data matches the active filters.</p>;
@@ -231,6 +244,8 @@ export default function AnalystWorkflowPage() {
   const WorkflowIcon = config?.icon ?? BarChart3;
 
   const { user, loading } = useAuth();
+  const networkStatus = useNetworkStatus();
+  useAutoSync();
   const role = (user as { role?: string })?.role ?? null;
 
   const [regions, setRegions] = useState<Region[]>([]);
@@ -264,6 +279,7 @@ export default function AnalystWorkflowPage() {
   const [loadingData, setLoadingData] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [accessDenied, setAccessDenied] = useState(false);
+  const [cacheMeta, setCacheMeta] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     if (!loading && role && !ANALYST_ROLES.includes(role)) {
@@ -299,11 +315,11 @@ export default function AnalystWorkflowPage() {
 
   useEffect(() => {
     if (!ANALYST_ROLES.includes(role ?? '')) return;
-    fetchAnalyticsFilterOptions('province', {
+    fetchAnalyticsFilterOptionsOfflineAware('province', {
       region_id: regionId ? parseInt(regionId, 10) : undefined,
       start_date: startDate || undefined,
       end_date: endDate || undefined,
-    }).then(setProvinceOptions).catch(() => setProvinceOptions([]));
+    }).then((result) => setProvinceOptions(result.response)).catch(() => setProvinceOptions([]));
   }, [endDate, regionId, role, startDate]);
 
   useEffect(() => {
@@ -312,12 +328,12 @@ export default function AnalystWorkflowPage() {
       setMunicipalityOptions([]);
       return;
     }
-    fetchAnalyticsFilterOptions('municipality', {
+    fetchAnalyticsFilterOptionsOfflineAware('municipality', {
       region_id: regionId ? parseInt(regionId, 10) : undefined,
       province,
       start_date: startDate || undefined,
       end_date: endDate || undefined,
-    }).then(setMunicipalityOptions).catch(() => setMunicipalityOptions([]));
+    }).then((result) => setMunicipalityOptions(result.response)).catch(() => setMunicipalityOptions([]));
   }, [endDate, province, regionId, role, startDate]);
 
   useEffect(() => {
@@ -360,27 +376,38 @@ export default function AnalystWorkflowPage() {
     setAccessDenied(false);
     setAppliedFilters(activeFilters);
     try {
+      setCacheMeta(undefined);
       if (workflow === 'heatmap') {
-        setHeatmap(await fetchHeatmapData(activeFilters));
+        const result = await fetchHeatmapDataOfflineAware(activeFilters);
+        setHeatmap(result.response);
+        setCacheMeta(result.fromCache ? result.cachedAt : undefined);
       } else if (workflow === 'trends') {
-        setTrends(await fetchTrendData({ ...activeFilters, interval }));
+        const result = await fetchTrendDataOfflineAware({ ...activeFilters, interval });
+        setTrends(result.response);
+        setCacheMeta(result.fromCache ? result.cachedAt : undefined);
       } else if (workflow === 'comparative') {
-        setComparative(await fetchComparativeData({
+        const result = await fetchComparativeDataOfflineAware({
           range_a_start: cmpRanges.rangeAStart,
           range_a_end: cmpRanges.rangeAEnd,
           range_b_start: cmpRanges.rangeBStart,
           range_b_end: cmpRanges.rangeBEnd,
           ...activeFilters,
-        }));
+        });
+        setComparative(result.response);
+        setCacheMeta(result.fromCache ? result.cachedAt : undefined);
       } else if (workflow === 'response-time') {
-        setResponseTime(await fetchResponseTimeByRegion(activeFilters));
+        const result = await fetchResponseTimeByRegionOfflineAware(activeFilters);
+        setResponseTime(result.response);
+        setCacheMeta(result.fromCache ? result.cachedAt : undefined);
       } else if (workflow === 'top-n') {
-        setTopNData(await fetchTopN({
+        const result = await fetchTopNOfflineAware({
           ...activeFilters,
           metric: topNMetric,
           dimension: topNDimension,
           limit: 10,
-        }));
+        });
+        setTopNData(result.response);
+        setCacheMeta(result.fromCache ? result.cachedAt : undefined);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -420,6 +447,7 @@ export default function AnalystWorkflowPage() {
   };
 
   const activeFilterCount = Object.values(activeFilters).filter((value) => value !== undefined && value !== '').length;
+  const exportUnavailableOffline = !networkStatus.isOnline;
   const evidenceFilters = useMemo<AnalystIncidentListParams>(() => (
     selectedIncidentIds.length > 0
       && selectedSetActive
@@ -474,6 +502,12 @@ export default function AnalystWorkflowPage() {
 
   return (
     <div className="space-y-6">
+      {exportUnavailableOffline && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+          You are offline. Cached workflow reads are available; analytics exports are unavailable until reconnect.
+        </div>
+      )}
+      <CacheMetaText cachedAt={cacheMeta} />
       <div className="rounded-md border border-gray-200 bg-white px-5 py-4 shadow-sm">
         <Link href="/dashboard/analyst" className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-red-700">
           <ArrowLeft className="h-4 w-4" /> Analyst dashboard
@@ -671,7 +705,9 @@ export default function AnalystWorkflowPage() {
                 key={format}
                 type="button"
                 onClick={() => setExportModal({ format, open: true })}
-                className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white"
+                disabled={exportUnavailableOffline}
+                title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
+                className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 style={{ backgroundColor: '#991B1B' }}
               >
                 <Download className="h-4 w-4" />

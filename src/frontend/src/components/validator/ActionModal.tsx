@@ -17,7 +17,7 @@ interface Props {
   onClose: () => void;
   onNotesChange: (notes: string) => void;
   onSetActionType: (type: ActionType) => void;
-  onSubmit: (force?: boolean) => void;
+  onSubmit: (force?: boolean, actionOverride?: ActionType) => void;
 }
 
 export function ActionModal({
@@ -118,8 +118,8 @@ export function ActionModal({
           <div className="flex flex-wrap gap-2 justify-end mt-4">
             <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-40">Back</button>
             <button onClick={() => { onSetActionType("reject"); }} disabled={loading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#991B1B' }}>Reject</button>
-            <button onClick={() => { onSetActionType("accept_replace"); onSubmit(); }} disabled={loading} className="px-4 py-2 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">{loading ? "Saving…" : "Replace Original"}</button>
-            <button onClick={() => { onSetActionType("accept"); onSubmit(true); }} disabled={loading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#16A34A' }}>{loading ? "Saving…" : "Accept as New"}</button>
+            <button onClick={() => { onSetActionType("accept_replace"); onSubmit(false, "accept_replace"); }} disabled={loading} className="px-4 py-2 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">{loading ? "Saving…" : "Replace Original"}</button>
+            <button onClick={() => { onSetActionType("accept"); onSubmit(true, "accept"); }} disabled={loading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#16A34A' }}>{loading ? "Saving…" : "Accept as New"}</button>
           </div>
         ) : (
           <div className="flex justify-end gap-3 mt-4">

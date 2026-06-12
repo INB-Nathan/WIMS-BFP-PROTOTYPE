@@ -1,7 +1,7 @@
 ---
 title: Backend API Route Map
 created: 2026-05-14
-updated: 2026-06-07
+updated: 2026-06-12
 type: backend
 tags: [wims-bfp, backend, api, implementation-map]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/backend/api/routes]
@@ -60,11 +60,11 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `regional/encoder_crud.py` | `PATCH` | `/incidents/{incident_id}/unarchive` | `encoder_unarchive_incident` |
 | `regional/encoder_crud.py` | `PATCH` | `/incidents/{incident_id}/submit` | `submit_incident_for_review` |
 | `regional/validator.py` | `GET` | `/validator/incidents` | `get_validator_incident_queue` |
-| `regional/validator.py` | `PATCH` | `/incidents/{incident_id}/verification` | `verify_incident` |
+| `regional/validator.py` | `PATCH` | `/incidents/{incident_id}/verification` | `verify_incident` | Accepts optional `client_id` in body for idempotency (#267) |
 | `regional/validator.py` | `PATCH` | `/incidents/{incident_id}/correct` | `correct_verified_incident` |
 | `regional/validator.py` | `POST` | `/validator/incidents/bulk-approve` | `bulk_approve_incidents` |
-| `regional/validator.py` | `PATCH` | `/validator/incidents/{incident_id}/archive` | `archive_incident` |
-| `regional/validator.py` | `PATCH` | `/validator/incidents/{incident_id}/unarchive` | `unarchive_incident` |
+| `regional/validator.py` | `PATCH` | `/validator/incidents/{incident_id}/archive` | `archive_incident` | Accepts optional `client_id` in body for idempotency (#267); query param retained for compatibility. |
+| `regional/validator.py` | `PATCH` | `/validator/incidents/{incident_id}/unarchive` | `unarchive_incident` | Accepts optional `client_id` in body for idempotency (#267); query param retained for compatibility. |
 | `regional/validator.py` | `DELETE` | `/validator/incidents/{incident_id}` | `delete_archived_incident` |
 | `regional/validator.py` | `GET` | `/validator/incidents/{incident_id}/diff` | `get_incident_diff` |
 | `regional/validator.py` | `GET` | `/validator/incidents/{incident_id}/history` | `get_incident_revision_history` |

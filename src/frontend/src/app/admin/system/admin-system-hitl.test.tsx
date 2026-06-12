@@ -57,15 +57,19 @@ const mockCreateIncidentFromAlert = vi.fn();
 const mockFetchAdminUsers = vi.fn();
 const mockFetchAuditLogs = vi.fn();
 
+vi.mock('@/lib/useNetworkStatus', () => ({
+    useNetworkStatus: () => ({ isOnline: true, isReconnecting: false }),
+}));
+
 vi.mock('@/lib/api', () => ({
     fetchAdminUsers: () => mockFetchAdminUsers(),
     updateAdminUser: vi.fn(),
     fetchAdminSecurityLogs: () => mockFetchAdminSecurityLogs(),
     updateAdminSecurityLog: (...args: unknown[]) => mockUpdateAdminSecurityLog(...args),
     fetchAuditLogs: () => mockFetchAuditLogs(),
+    fetchAuditLogsOfflineAware: async () => ({ response: await mockFetchAuditLogs(), fromCache: false }),
     analyzeSecurityLog: (logId: number) => mockAnalyzeSecurityLog(logId),
     createIncidentFromAlert: (logId: number) => mockCreateIncidentFromAlert(logId),
-    // Stubs required by AdminSystemPage mount (added in PR #125, now in master)
     fetchSystemHealth: vi.fn().mockResolvedValue({
         status: 'HEALTHY',
         components: {
@@ -74,14 +78,35 @@ vi.mock('@/lib/api', () => ({
             keycloak: { status: 'HEALTHY', latency_ms: 1 },
         },
     }),
+    fetchSystemHealthOfflineAware: vi.fn().mockResolvedValue({
+        response: {
+            status: 'HEALTHY',
+            components: {
+                database: { status: 'HEALTHY', latency_ms: 1 },
+                redis: { status: 'HEALTHY', latency_ms: 1 },
+                keycloak: { status: 'HEALTHY', latency_ms: 1 },
+            },
+        },
+        fromCache: false,
+    }),
     fetchSystemMetrics: vi.fn().mockResolvedValue({
         cpu_percent: 10,
         memory: { total_mb: 8000, used_mb: 2000, percent: 25 },
         disk: { total_gb: 100, used_gb: 40, percent: 40 },
     }),
+    fetchSystemMetricsOfflineAware: vi.fn().mockResolvedValue({
+        response: {
+            cpu_percent: 10,
+            memory: { total_mb: 8000, used_mb: 2000, percent: 25 },
+            disk: { total_gb: 100, used_gb: 40, percent: 40 },
+        },
+        fromCache: false,
+    }),
     fetchWorkerStatus: vi.fn().mockResolvedValue([]),
+    fetchWorkerStatusOfflineAware: vi.fn().mockResolvedValue({ response: [], fromCache: false }),
     fetchRegions: vi.fn().mockResolvedValue([]),
     fetchActiveSessions: vi.fn().mockResolvedValue([]),
+    fetchActiveSessionsOfflineAware: vi.fn().mockResolvedValue({ response: [], fromCache: false }),
     fetchUserSessions: vi.fn().mockResolvedValue({ sessions: [] }),
     terminateUserSessions: vi.fn(),
     revokeUserSessions: vi.fn(),

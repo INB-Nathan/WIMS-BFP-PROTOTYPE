@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError as SAIntegrityError
 from sqlalchemy.orm import Session
 
 from services.afor_import import ALARM_LEVEL_MAP
@@ -19,6 +20,17 @@ from services.kms import get_crypto_provider
 from utils.crypto import SecurityProvider, SecurityProviderError
 
 logger = logging.getLogger("wims.regional")
+
+
+class DuplicateClientIdError(Exception):
+    """Raised when a duplicate client_id unique violation occurs during IVH insert.
+
+    Callers in lifecycle.py should catch this, roll back the transaction,
+    and return {"status": "already_applied"} instead of an HTTP 500.
+    """
+
+    pass
+
 
 # ── Lazy SecurityProvider singleton ──────────────────────────────────────────
 _sp_instance: SecurityProvider | None = None
@@ -245,118 +257,192 @@ def insert_incident_verification_history(
     action_label: str | None = None,
     data_hash: str | None = None,
     sync_status: str = "SYNCED",
+    client_id: str | None = None,
 ) -> None:
-    """Insert IVH row with compatibility for both legacy and migrated schemas."""
+    """Insert IVH row with compatibility for both legacy and migrated schemas.
+
+    Raises DuplicateClientIdError when a client_id unique violation is
+    detected so callers can return an idempotent ``already_applied`` response
+    instead of surfacing an HTTP 500 (#272 Q1).
+    """
+    try:
+        _insert_ivh_impl(
+            db=db,
+            incident_id=incident_id,
+            actor_user_id=actor_user_id,
+            previous_status=previous_status,
+            new_status=new_status,
+            notes=notes,
+            action_label=action_label,
+            data_hash=data_hash,
+            sync_status=sync_status,
+            client_id=client_id,
+        )
+    except SAIntegrityError as e:
+        if client_id is not None:
+            err_msg = str(e).lower()
+            if "unique" in err_msg and "uq_incident_verification_history_client_id" in err_msg:
+                raise DuplicateClientIdError(
+                    f"Duplicate client_id '{client_id}' — idempotent retry detected"
+                ) from e
+        raise
+
+
+def _insert_ivh_impl(
+    db: Session,
+    *,
+    incident_id: int,
+    actor_user_id: str,
+    previous_status: str,
+    new_status: str,
+    notes: str,
+    action_label: str | None = None,
+    data_hash: str | None = None,
+    sync_status: str = "SYNCED",
+    client_id: str | None = None,
+) -> None:
+    """Implementation detail — same body as original insert_incident_verification_history."""
     has_action_label = _ivh_has_column(db, "action_label")
     has_data_hash = _ivh_has_column(db, "data_hash")
     has_sync_status = _ivh_has_column(db, "sync_status")
+    has_client_id = _ivh_has_column(db, "client_id")
 
     if _ivh_uses_target_columns(db):
         if has_action_label and has_data_hash and has_sync_status:
+            _ivh_columns = (
+                "target_type, target_id, action_by_user_id,"
+                "previous_status, new_status, notes, action_label,"
+                "data_hash, sync_status"
+            )
+            _ivh_values = (
+                "'OFFICIAL', :iid, CAST(:uid AS uuid),"
+                ":prev_status, :new_status, :notes, :action_label,"
+                ":data_hash, :sync_status"
+            )
+            _ivh_params = {
+                "iid": incident_id,
+                "uid": actor_user_id,
+                "prev_status": previous_status,
+                "new_status": new_status,
+                "notes": notes,
+                "action_label": action_label,
+                "data_hash": data_hash,
+                "sync_status": sync_status,
+            }
+            if has_client_id:
+                _ivh_columns += ", client_id"
+                _ivh_values += ", CAST(:client_id AS uuid)"
+                _ivh_params["client_id"] = client_id
             db.execute(
-                text("""
-                    INSERT INTO wims.incident_verification_history (
-                        target_type, target_id, action_by_user_id,
-                        previous_status, new_status, notes, action_label,
-                        data_hash, sync_status
-                    ) VALUES (
-                        'OFFICIAL', :iid, CAST(:uid AS uuid),
-                        :prev_status, :new_status, :notes, :action_label,
-                        :data_hash, :sync_status
-                    )
-                """),
-                {
-                    "iid": incident_id,
-                    "uid": actor_user_id,
-                    "prev_status": previous_status,
-                    "new_status": new_status,
-                    "notes": notes,
-                    "action_label": action_label,
-                    "data_hash": data_hash,
-                    "sync_status": sync_status,
-                },
+                text(
+                    f"INSERT INTO wims.incident_verification_history ({_ivh_columns})"
+                    f" VALUES ({_ivh_values})"
+                ),
+                _ivh_params,
             )
         elif has_action_label:
+            _ivh_columns = (
+                "target_type, target_id, action_by_user_id,"
+                "previous_status, new_status, notes, action_label"
+            )
+            _ivh_values = (
+                "'OFFICIAL', :iid, CAST(:uid AS uuid),"
+                ":prev_status, :new_status, :notes, :action_label"
+            )
+            _ivh_params = {
+                "iid": incident_id,
+                "uid": actor_user_id,
+                "prev_status": previous_status,
+                "new_status": new_status,
+                "notes": notes,
+                "action_label": action_label,
+            }
+            if has_client_id:
+                _ivh_columns += ", client_id"
+                _ivh_values += ", CAST(:client_id AS uuid)"
+                _ivh_params["client_id"] = client_id
             db.execute(
-                text("""
-                    INSERT INTO wims.incident_verification_history (
-                        target_type, target_id, action_by_user_id,
-                        previous_status, new_status, notes, action_label
-                    ) VALUES (
-                        'OFFICIAL', :iid, CAST(:uid AS uuid),
-                        :prev_status, :new_status, :notes, :action_label
-                    )
-                """),
-                {
-                    "iid": incident_id,
-                    "uid": actor_user_id,
-                    "prev_status": previous_status,
-                    "new_status": new_status,
-                    "notes": notes,
-                    "action_label": action_label,
-                },
+                text(
+                    f"INSERT INTO wims.incident_verification_history ({_ivh_columns})"
+                    f" VALUES ({_ivh_values})"
+                ),
+                _ivh_params,
             )
         elif has_data_hash and has_sync_status:
+            _ivh_columns = (
+                "target_type, target_id, action_by_user_id,"
+                "previous_status, new_status, notes,"
+                "data_hash, sync_status"
+            )
+            _ivh_values = (
+                "'OFFICIAL', :iid, CAST(:uid AS uuid),"
+                ":prev_status, :new_status, :notes,"
+                ":data_hash, :sync_status"
+            )
+            _ivh_params = {
+                "iid": incident_id,
+                "uid": actor_user_id,
+                "prev_status": previous_status,
+                "new_status": new_status,
+                "notes": notes,
+                "data_hash": data_hash,
+                "sync_status": sync_status,
+            }
+            if has_client_id:
+                _ivh_columns += ", client_id"
+                _ivh_values += ", CAST(:client_id AS uuid)"
+                _ivh_params["client_id"] = client_id
             db.execute(
-                text("""
-                    INSERT INTO wims.incident_verification_history (
-                        target_type, target_id, action_by_user_id,
-                        previous_status, new_status, notes,
-                        data_hash, sync_status
-                    ) VALUES (
-                        'OFFICIAL', :iid, CAST(:uid AS uuid),
-                        :prev_status, :new_status, :notes,
-                        :data_hash, :sync_status
-                    )
-                """),
-                {
-                    "iid": incident_id,
-                    "uid": actor_user_id,
-                    "prev_status": previous_status,
-                    "new_status": new_status,
-                    "notes": notes,
-                    "data_hash": data_hash,
-                    "sync_status": sync_status,
-                },
+                text(
+                    f"INSERT INTO wims.incident_verification_history ({_ivh_columns})"
+                    f" VALUES ({_ivh_values})"
+                ),
+                _ivh_params,
             )
         else:
+            _ivh_columns = (
+                "target_type, target_id, action_by_user_id,previous_status, new_status, notes"
+            )
+            _ivh_values = "'OFFICIAL', :iid, CAST(:uid AS uuid),:prev_status, :new_status, :notes"
+            _ivh_params = {
+                "iid": incident_id,
+                "uid": actor_user_id,
+                "prev_status": previous_status,
+                "new_status": new_status,
+                "notes": notes,
+            }
+            if has_client_id:
+                _ivh_columns += ", client_id"
+                _ivh_values += ", CAST(:client_id AS uuid)"
+                _ivh_params["client_id"] = client_id
             db.execute(
-                text("""
-                    INSERT INTO wims.incident_verification_history (
-                        target_type, target_id, action_by_user_id,
-                        previous_status, new_status, notes
-                    ) VALUES (
-                        'OFFICIAL', :iid, CAST(:uid AS uuid),
-                        :prev_status, :new_status, :notes
-                    )
-                """),
-                {
-                    "iid": incident_id,
-                    "uid": actor_user_id,
-                    "prev_status": previous_status,
-                    "new_status": new_status,
-                    "notes": notes,
-                },
+                text(
+                    f"INSERT INTO wims.incident_verification_history ({_ivh_columns})"
+                    f" VALUES ({_ivh_values})"
+                ),
+                _ivh_params,
             )
         return
 
+    _ivh_columns = "incident_id, action_by_user_id,previous_status, new_status, comments"
+    _ivh_values = ":iid, CAST(:uid AS uuid),:prev_status, :new_status, :comments"
+    _ivh_params = {
+        "iid": incident_id,
+        "uid": actor_user_id,
+        "prev_status": previous_status,
+        "new_status": new_status,
+        "comments": notes,
+    }
+    if has_client_id:
+        _ivh_columns += ", client_id"
+        _ivh_values += ", CAST(:client_id AS uuid)"
+        _ivh_params["client_id"] = client_id
     db.execute(
-        text("""
-            INSERT INTO wims.incident_verification_history (
-                incident_id, action_by_user_id,
-                previous_status, new_status, comments
-            ) VALUES (
-                :iid, CAST(:uid AS uuid),
-                :prev_status, :new_status, :comments
-            )
-        """),
-        {
-            "iid": incident_id,
-            "uid": actor_user_id,
-            "prev_status": previous_status,
-            "new_status": new_status,
-            "comments": notes,
-        },
+        text(
+            f"INSERT INTO wims.incident_verification_history ({_ivh_columns})"
+            f" VALUES ({_ivh_values})"
+        ),
+        _ivh_params,
     )
 
 

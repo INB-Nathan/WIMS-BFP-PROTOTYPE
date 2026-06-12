@@ -1,10 +1,10 @@
 ---
 title: PWA/Offline-First, Tests & CI/CD
 created: 2026-05-16
-updated: 2026-06-05
+updated: 2026-06-12
 type: architecture
-tags: [wims-bfp, pwa, offline-first, testing, ci-cd, service-worker]
-sources: [src/frontend/src/lib/, src/frontend/public/sw.js, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py, src/backend/tests/test_schema_patch_startup_guard.py]
+tags: [wims-bfp, pwa, offline-first, testing, ci-cd, service-worker, sync-engine, validator-offline]
+sources: [src/frontend/src/lib/, src/frontend/src/lib/api/offlineAnalytics.ts, src/frontend/src/lib/api/offlineValidator.ts, src/frontend/public/sw.js, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py, src/backend/tests/test_schema_patch_startup_guard.py]
 status: draft
 ---
 
@@ -12,30 +12,76 @@ status: draft
 
 ## Offline-First Infrastructure (FRS M2)
 
-### `offlineStore.ts` — IndexedDB Queue
+### `offlineStore.ts` — IndexedDB Queue + Encrypted Analytics Read Cache
 
 **File:** `src/frontend/src/lib/offlineStore.ts`
 
-Wraps IndexedDB (via Jake Archibald's `idb` library) with a single object store `incident-queue` in database `wims-bfp-db`.
+Wraps IndexedDB (via Jake Archibald's `idb` library) in database `wims-bfp-db`. The database is now version 3: legacy offline incident queue records remain in `incident-queue`, reusable AES-GCM key material remains in `crypto-keys`, and analyst offline read caching uses the encrypted `analytics-cache` object store keyed by `analytics:{cacheKey}`. Analytics cached values are stored only as `{ key, encrypted, cachedAt }`; no heatmap/detail/sensitive payload is written to IndexedDB in raw form.
 
 | Export | Signature | Description |
 |---|---|---|
-| `queueIncident(payload)` | `(Record<string,unknown>) => Promise<void>` | Inserts pending incident with `createdAt=Date.now()`, `status='pending'` |
+| `queueIncident(payload, options?)` | `(Record<string,unknown>, { opType?, localId? }?) => Promise<void>` | Inserts pending incident with `createdAt=Date.now()`, `status='pending'`; persists validator op metadata for sync dispatch/idempotency. |
 | `getPendingIncidents()` | `() => Promise<PendingIncident[]>` | Returns all records where `status === 'pending'` |
 | `markSynced(id)` | `(number) => Promise<void>` | Marks item synced then deletes it |
 | `clearSynced()` | `() => Promise<void>` | Deletes all synced items |
+| `cacheAnalyticsResponse(key, data, cachedAt?)` | `(string, unknown, number?) => Promise<void>` | Encrypts and stores an analyst read response in `analytics-cache` |
+| `getCachedAnalyticsResponse(key)` | `(string) => Promise<CachedAnalyticsResponse \| undefined>` | Decrypts a cached analyst response and returns `{ key, data, cachedAt }` |
+| `clearAnalyticsCache()` | `() => Promise<void>` | Clears the encrypted analyst read cache |
+
+### `connectivity.ts` — Reachability Snapshot
+
+**File:** `src/frontend/src/lib/connectivity.ts`
+
+Adds a small shared connectivity module for offline-aware API wrappers. It tracks `online`, `offline`, `checking`, and `reconnecting` states from `navigator.onLine` plus a `/health` probe, exposes `getConnectivitySnapshot()`, `subscribeConnectivity()`, `probeConnectivity()`, `isReachable()`, and `markConnectivityOffline()`, and lets wrappers fail over to IndexedDB when fetch/network errors imply an effective offline state. `src/frontend/src/lib/__tests__/connectivity.test.ts` covers snapshot shape, subscriber notifications, offline marking, probe success/failure, probe deduplication, and reachability helpers.
+
+### `api/offlineAnalytics.ts` — Analyst Offline-First Read Wrappers
+
+**File:** `src/frontend/src/lib/api/offlineAnalytics.ts`
+
+Adds 9 offline-aware read wrappers for the National Analyst surface: heatmap, trends, comparative, type distribution, response time, top-N, filter options, analyst incident detail, and analyst sensitive detail. Each wrapper returns `{ response, fromCache, cachedAt? }`, uses a 30-minute TTL, reads a valid encrypted cache without calling the network when connectivity is offline, caches successful online responses, marks connectivity offline on network-style errors (`TypeError`, `ERR_*`, `Failed to fetch`, `NetworkError`, `net::ERR`), and throws a friendly offline-unavailable error on cache miss/stale entries. Export queueing is not cached.
 
 ### `syncEngine.ts` — Core Sync Logic (FR-3B, FR-3F)
 
 **File:** `src/frontend/src/lib/syncEngine.ts`
 
-Reads pending items from IndexedDB, POSTs each to `/api/v1/public/report`, marks synced.
+Reads pending items from IndexedDB, dispatches each to the correct API endpoint based on `opType`, marks synced.
 
 | Export | Signature | Description |
 |---|---|---|
-| `syncPendingIncidents()` | `() => Promise<SyncResult>` | Iterates pending items, POSTs each, returns `{ synced, failed, errors }` |
+| `syncPendingIncidents()` | `() => Promise<SyncResult>` | Iterates pending items, dispatches by opType, returns `{ synced, failed, errors }` |
 
-**Conflict resolution:** Last-write-wins (LWW) on HTTP 409. If `server_updated_at` is older than local `createdAt`, retries with `X-Conflict-Resolution: overwrite` header.
+**Op-type dispatch (GH #268):**
+
+| opType | Endpoint | Method | Auth |
+|---|---|---|---|
+| `create` / default | `/api/v1/public/report` | POST | Public (no credentials) |
+| `verify` | `/api/regional/incidents/{id}/verification` | PATCH | Cookie (`apiFetch`) |
+| `archive_action` | `/api/regional/validator/incidents/{id}/archive` or `/unarchive` | PATCH | Cookie (`apiFetch`) |
+
+- **verify** sends `{ action, notes, client_id, original_incident_id? }` where `client_id` is the op's persisted `localId` UUID for server-side idempotency (#267).
+- **archive_action** sends `{ client_id }` to the archive/unarchive endpoint based on payload `action` field.
+- Legacy items without `opType` continue to POST to the public report endpoint (backward-compatible).
+- `credentials: 'include'` is set via `apiFetch` for auth-gated ops (validator endpoints).
+- 409 `DUPLICATE_DETECTED` on verify/archive_action keeps the op pending (conflict, don't overwrite).
+- **Network error (no HTTP status) aborts remaining batch** to preserve ordering; HTTP errors (4xx/5xx) continue to the next item.
+
+**Conflict resolution (create ops):** Last-write-wins (LWW) on HTTP 409. If `server_updated_at` is older than local `createdAt`, retries with `X-Conflict-Resolution: overwrite` header.
+
+### `api/offlineValidator.ts` — Validator Offline-First Action Wrappers (GH #269)
+
+**File:** `src/frontend/src/lib/api/offlineValidator.ts`
+
+Adds offline-aware write wrappers for the National Validator dashboard: queue fetch, verification, and archive/unarchive. Each action wrapper checks connectivity snapshot; when offline or navigator.onLine is false, queues via `queueIncident()` with appropriate `opType` (`'verify'` or `'archive_action'`) and a generated `localId` (`crypto.randomUUID()`). When online, calls the real API via `apiFetch`. On network errors mid-flight, marks connectivity offline and falls back to queuing. 409 responses (including `DUPLICATE_DETECTED`) are surfaced to the caller for UI handling.
+
+| Export | Signature | Description |
+|---|---|---|
+| `submitVerificationOfflineAware(incidentId, action, notes, originalIncidentId?)` | `(number, VerifyAction, string \| null, number?) => Promise<OfflineQueueResult>` | Accept/reject/accept_replace verification; returns `{ queued, localId }`. Queues as `opType: 'verify'` with `original_incident_id` when offline or on network failure. |
+| `submitArchiveActionOfflineAware(incidentId, action)` | `(number, 'archive' \| 'unarchive') => Promise<OfflineQueueResult>` | Generic archive/unarchive; returns `{ queued, localId }`. Queues as `opType: 'archive_action'`. |
+| `archiveIncidentOfflineAware(incidentId)` | `(number) => Promise<OfflineQueueResult>` | Convenience wrapper calling `submitArchiveActionOfflineAware(id, 'archive')`. |
+| `unarchiveIncidentOfflineAware(incidentId)` | `(number) => Promise<OfflineQueueResult>` | Convenience wrapper calling `submitArchiveActionOfflineAware(id, 'unarchive')`. |
+| `fetchValidatorQueueOfflineAware<T>(params, fetcher, userId?)` | `(Record<...>, () => Promise<T>, string?) => Promise<OfflineValidatorQueueResult<T>>` | Queue fetch with 30-min TTL encrypted read cache keyed as `validator:queue:{userId}:{params}`. Returns `{ response, fromCache, cachedAt? }`. Follows same pattern as `offlineAnalytics.ts`. |
+
+**Validator dashboard wiring (GH #269):** The `/dashboard/validator` page now mounts `useNetworkStatus()` and `useAutoSync()`, calls the wrappers for queue fetch, archive, unarchive, and verification (accept/reject/accept_replace). Delete, bulk approve, and forced duplicate "accept as new" remain online-only. A stale-cache amber banner appears when data is served from the encrypted IndexedDB cache. A validator-only pending ops count, sync-complete notification, and offline indicator badges are shown in the page header. The page listens for both current service-worker `sync-complete` messages and issue-named `wims:sync-complete` messages, then refreshes the queue after background sync completes.
 
 ### `useNetworkStatus.ts` — Network State Hook (FR-3A)
 

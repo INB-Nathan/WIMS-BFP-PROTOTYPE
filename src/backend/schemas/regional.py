@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import uuid as _uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class RegionalStatsResponse(BaseModel):
@@ -138,6 +139,37 @@ class VerificationActionRequest(BaseModel):
     action: str  # "accept" | "accept_replace" | "pending" | "reject"
     notes: str | None = None
     original_incident_id: int | None = None  # For accept_replace: ID to supersede
+    client_id: str | None = None  # UUID from offline queue — idempotency key (#267)
+
+    @field_validator("client_id")
+    @classmethod
+    def validate_client_id_uuid(cls, v: str | None) -> str | None:
+        """Ensure client_id is a valid UUID string or None."""
+        if v is None:
+            return v
+        try:
+            _uuid.UUID(v)
+        except (ValueError, AttributeError):
+            raise ValueError(f"client_id must be a valid UUID, got: {v!r}")
+        return v
+
+
+class ClientIdRequest(BaseModel):
+    """Optional idempotency key body for offline retryable validator actions."""
+
+    client_id: str | None = None
+
+    @field_validator("client_id")
+    @classmethod
+    def validate_client_id_uuid(cls, v: str | None) -> str | None:
+        """Ensure client_id is a valid UUID string or None."""
+        if v is None:
+            return v
+        try:
+            _uuid.UUID(v)
+        except (ValueError, AttributeError):
+            raise ValueError(f"client_id must be a valid UUID, got: {v!r}")
+        return v
 
 
 class CorrectionRequest(BaseModel):

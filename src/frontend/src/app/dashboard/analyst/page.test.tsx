@@ -17,6 +17,20 @@ vi.mock('@/context/AuthContext', () => ({
   useAuth: vi.fn(),
 }));
 
+vi.mock('@/lib/useNetworkStatus', () => ({
+  useNetworkStatus: () => ({ isOnline: analystOfflineMocks.networkOnline, isReconnecting: false }),
+}));
+
+vi.mock('@/lib/useAutoSync', () => ({
+  useAutoSync: () => ({ syncing: false, lastSyncedAt: null, pendingCount: 0, syncNow: vi.fn() }),
+}));
+
+const analystOfflineMocks = vi.hoisted(() => ({
+  fromCache: false,
+  cachedAt: undefined as number | undefined,
+  networkOnline: true,
+}));
+
 import { useAuth } from '@/context/AuthContext';
 
 const mockFetchHeatmapData = vi.fn();
@@ -32,17 +46,17 @@ const mockFetchAnalyticsFilterOptions = vi.fn();
 const mockFetchAnalystIncidentList = vi.fn();
 
 vi.mock('@/lib/api', () => ({
-  fetchHeatmapData: (f: object) => mockFetchHeatmapData(f),
-  fetchTrendData: (f: object) => mockFetchTrendData(f),
-  fetchComparativeData: (f: object) => mockFetchComparativeData(f),
+  fetchHeatmapDataOfflineAware: async (f: object) => ({ response: await mockFetchHeatmapData(f), fromCache: analystOfflineMocks.fromCache, cachedAt: analystOfflineMocks.cachedAt }),
+  fetchTrendDataOfflineAware: async (f: object) => ({ response: await mockFetchTrendData(f), fromCache: analystOfflineMocks.fromCache, cachedAt: analystOfflineMocks.cachedAt }),
+  fetchComparativeDataOfflineAware: async (f: object) => ({ response: await mockFetchComparativeData(f), fromCache: analystOfflineMocks.fromCache, cachedAt: analystOfflineMocks.cachedAt }),
   fetchRegions: () => mockFetchRegions(),
-  fetchTypeDistribution: (f: object) => mockFetchTypeDistribution(f),
+  fetchTypeDistributionOfflineAware: async (f: object) => ({ response: await mockFetchTypeDistribution(f), fromCache: analystOfflineMocks.fromCache, cachedAt: analystOfflineMocks.cachedAt }),
   fetchTopBarangays: (f: object) => mockFetchTopBarangays(f),
-  fetchResponseTimeByRegion: (f: object) => mockFetchResponseTimeByRegion(f),
+  fetchResponseTimeByRegionOfflineAware: async (f: object) => ({ response: await mockFetchResponseTimeByRegion(f), fromCache: analystOfflineMocks.fromCache, cachedAt: analystOfflineMocks.cachedAt }),
   fetchCompareRegions: (f: object) => mockFetchCompareRegions(f),
-  fetchTopN: (f: object) => mockFetchTopN(f),
-  fetchAnalyticsFilterOptions: (field: string, filters: object) =>
-    mockFetchAnalyticsFilterOptions(field, filters),
+  fetchTopNOfflineAware: async (f: object) => ({ response: await mockFetchTopN(f), fromCache: analystOfflineMocks.fromCache, cachedAt: analystOfflineMocks.cachedAt }),
+  fetchAnalyticsFilterOptionsOfflineAware: async (field: string, filters: object) =>
+    ({ response: await mockFetchAnalyticsFilterOptions(field, filters), fromCache: analystOfflineMocks.fromCache, cachedAt: analystOfflineMocks.cachedAt }),
   fetchAnalystIncidentList: (params: object) => mockFetchAnalystIncidentList(params),
 }));
 
@@ -57,6 +71,9 @@ vi.mock('react-leaflet', () => ({
 describe('Analyst dashboard page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    analystOfflineMocks.fromCache = false;
+    analystOfflineMocks.cachedAt = undefined;
+    analystOfflineMocks.networkOnline = true;
     vi.mocked(useAuth).mockReturnValue({
       user: { id: 'test-user', role: 'NATIONAL_ANALYST' },
       loading: false,
@@ -244,6 +261,49 @@ describe('Analyst dashboard page', () => {
       expect(filters.region_id).toBeUndefined();
       expect(filters.incident_type).toBeUndefined();
       expect(filters.alarm_level).toBeUndefined();
+    });
+  });
+
+  describe('offline / cached-data UI', () => {
+    beforeEach(() => {
+      analystOfflineMocks.fromCache = true;
+      analystOfflineMocks.cachedAt = Date.now() - 60_000;
+      analystOfflineMocks.networkOnline = false;
+    });
+
+    it('shows offline banner when the network is offline', async () => {
+      render(<AnalystDashboardPage />);
+
+      await waitFor(() => {
+        expect(mockFetchHeatmapData).toHaveBeenCalled();
+      });
+
+      expect(screen.getByText(/you are offline/i)).toBeInTheDocument();
+      expect(screen.getByText(/cached analyst reads/i)).toBeInTheDocument();
+    });
+
+    it('shows cached data indicators when APIs return fromCache:true', async () => {
+      render(<AnalystDashboardPage />);
+
+      await waitFor(() => {
+        expect(mockFetchHeatmapData).toHaveBeenCalled();
+      });
+
+      // At least one panel should display the cached-data label
+      const cachedLabels = screen.getAllByText(/showing cached data/i);
+      expect(cachedLabels.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('disables export buttons when offline', async () => {
+      render(<AnalystDashboardPage />);
+
+      await waitFor(() => {
+        expect(mockFetchHeatmapData).toHaveBeenCalled();
+      });
+
+      expect(screen.getByLabelText('Export CSV')).toBeDisabled();
+      expect(screen.getByLabelText('Export PDF')).toBeDisabled();
+      expect(screen.getByLabelText('Export Excel')).toBeDisabled();
     });
   });
 });

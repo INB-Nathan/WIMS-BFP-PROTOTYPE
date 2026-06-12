@@ -1,7 +1,7 @@
 ---
 title: System Admin Hub
 created: 2026-05-16
-updated: 2026-05-26
+updated: 2026-06-12
 type: operation
 tags: [wims-bfp, admin, system-admin, dashboard, identity, security]
 sources: [src/frontend/src/app/admin/system/page.tsx, src/backend/api/routes/admin.py, src/frontend/src/lib/api/legacy.ts]
@@ -96,6 +96,19 @@ All in `src/backend/api/routes/admin.py` (~935 lines). Every endpoint is gated b
 - **Partial sync failure tolerance** — user deactivation updates DB first, logs Keycloak sync failure as warning rather than rolling back
 - **Backup format** — `pg_dump` encrypted with AES-256-CBC; `_apply_backup_retention()` deletes oldest when count exceeds 100
 - **Backup dir** — lazy-created at `/app/storage/backups` (configurable via `BACKUP_DIR` env var)
+
+## Offline Read Caching (GH #270)
+
+The admin hub monitoring reads (system health, system metrics, worker status, active sessions, audit logs) are wrapped in offline-aware functions in `src/frontend/src/lib/api/offlineAdmin.ts`. Each wrapper:
+- Checks connectivity via `getConnectivitySnapshot()` before dispatching
+- Caches successful online responses in the encrypted IndexedDB analytics-cache store under `admin:`-prefixed keys
+- Uses 60s TTL for health/metrics/workers/audit; 30s TTL for active sessions
+- Falls back to fresh cache on network error (sets offline state + serves cached `{ response, fromCache: true, cachedAt }`)
+- Throws a descriptive error when offline with no cache (no silent fallback)
+
+The page shows an amber "You are offline — showing cached data" banner when `useNetworkStatus().isOnline` is false, and now also subscribes to `connectivity.ts` health-probe state to show "Backend unreachable — showing cached data" when the browser reports online but the backend probe is offline. It displays `(cached)` indicators plus relative "Last checked: X sec ago" timestamps only on panels served from cache.
+
+User CRUD, security HITL ops, and scheduled reports remain online-only.
 
 ## Gap / Status Notes
 

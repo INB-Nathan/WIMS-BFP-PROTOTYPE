@@ -13,16 +13,25 @@ if (!globalThis.crypto) {
     (globalThis as Record<string, unknown>).crypto = webcrypto;
 }
 
-const store = new Map<number, { id: number; encrypted: { iv: number[]; data: number[] }; createdAt: number; status: 'pending' | 'synced' }>();
+type StoredRecord = {
+    id: number;
+    opType?: 'create' | 'verify' | 'archive_action';
+    localId?: string;
+    encrypted: { iv: number[]; data: number[] };
+    createdAt: number;
+    status: 'pending' | 'synced';
+};
+
+const store = new Map<number, StoredRecord>();
 const keyStore = new Map<string, CryptoKey>();
 let nextId = 1;
-let getAllReturn: Array<{ id: number; encrypted: { iv: number[]; data: number[] }; createdAt: number; status: 'pending' | 'synced' }> = [];
+let getAllReturn: StoredRecord[] = [];
 
 function makeDbMock() {
     return {
         add: vi.fn((_s: string, item: Record<string, unknown>) => {
             const id = nextId++;
-            const record = { ...item, id } as { id: number; encrypted: { iv: number[]; data: number[] }; createdAt: number; status: 'pending' | 'synced' };
+            const record = { ...item, id } as StoredRecord;
             store.set(id, record);
             getAllReturn.push(record);
             return Promise.resolve(id);
@@ -44,7 +53,7 @@ function makeDbMock() {
             objectStore: vi.fn(() => ({
                 get: vi.fn((id: number) => Promise.resolve(store.get(id))),
                 put: vi.fn((item: { id: number }) => {
-                    store.set(item.id, item as { id: number; encrypted: { iv: number[]; data: number[] }; createdAt: number; status: 'pending' | 'synced' });
+                    store.set(item.id, item as StoredRecord);
                     return Promise.resolve();
                 }),
                 delete: vi.fn((id: number) => { store.delete(id); return Promise.resolve(); }),
@@ -83,6 +92,20 @@ describe('offlineStore', () => {
         expect(pending).toHaveLength(1);
         expect(pending[0].status).toBe('pending');
         expect(pending[0].payload.description).toBe('Fire at building');
+    });
+
+    it('queueIncident preserves op type metadata for validator sync', async () => {
+        await queueIncident(
+            { incident_id: 42, action: 'accept', notes: null },
+            { opType: 'verify', localId: 'verify-client-id' }
+        );
+
+        const pending = await getPendingIncidents();
+
+        expect(pending).toHaveLength(1);
+        expect(pending[0].opType).toBe('verify');
+        expect(pending[0].localId).toBe('verify-client-id');
+        expect(pending[0].payload).toEqual({ incident_id: 42, action: 'accept', notes: null });
     });
 
     it('getPendingIncidents returns only pending items', async () => {

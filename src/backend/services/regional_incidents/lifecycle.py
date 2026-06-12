@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from services.analytics_read_model import sync_incident_to_analytics
 from services.duplicate_detection import check_for_duplicate
+from services.regional_incidents.helpers import DuplicateClientIdError
 from services.regional_incidents.policies import (
     ENCODER_DELETABLE_STATUSES,
     ENCODER_SUBMITTABLE_STATUSES,
@@ -476,6 +477,7 @@ def verify_incident_command(
     request: Request,
     force: bool,
     deps: RegionalIncidentLifecycleDependencies,
+    client_id: str | None = None,
 ) -> dict[str, Any]:
     if deps.generate_reference_number is None:
         raise RuntimeError("generate_reference_number dependency is required")
@@ -675,6 +677,7 @@ def verify_incident_command(
                 action_label="REPLACED_EXISTING",
                 data_hash=None,
                 sync_status="SYNCED",
+                client_id=client_id,
             )
 
         db.execute(
@@ -713,8 +716,12 @@ def verify_incident_command(
             action_label=action_label_map.get(action_body.action, action_body.action.upper()),
             data_hash=data_hash if target_status == "VERIFIED" else None,
             sync_status="SYNCED",
+            client_id=client_id,
         )
         db.commit()
+    except DuplicateClientIdError:
+        db.rollback()
+        return {"status": "already_applied", "incident_id": incident_id}
     except Exception:
         db.rollback()
         logger.exception("Failed to apply verification action for incident_id=%s", incident_id)
@@ -900,6 +907,7 @@ def archive_finalized_incident(
     incident_id: int,
     validator_user_id: Any,
     deps: RegionalIncidentLifecycleDependencies,
+    client_id: str | None = None,
 ) -> dict[str, Any]:
     incident = db.execute(
         text("""
@@ -943,8 +951,12 @@ def archive_finalized_incident(
             new_status="ARCHIVED",
             notes="Archived by validator",
             action_label="ARCHIVED",
+            client_id=client_id,
         )
         db.commit()
+    except DuplicateClientIdError:
+        db.rollback()
+        return {"status": "already_applied", "incident_id": incident_id}
     except Exception:
         db.rollback()
         logger.exception("Failed to archive incident_id=%s", incident_id)
@@ -961,6 +973,7 @@ def unarchive_finalized_incident(
     incident_id: int,
     actor_user_id: Any,
     deps: RegionalIncidentLifecycleDependencies,
+    client_id: str | None = None,
 ) -> dict[str, Any]:
     incident = db.execute(
         text("""
@@ -1004,8 +1017,12 @@ def unarchive_finalized_incident(
             new_status=current_status,
             notes="Unarchived incident",
             action_label="UNARCHIVED",
+            client_id=client_id,
         )
         db.commit()
+    except DuplicateClientIdError:
+        db.rollback()
+        return {"status": "already_applied", "incident_id": incident_id}
     except Exception:
         db.rollback()
         logger.exception("Failed to unarchive incident_id=%s", incident_id)

@@ -33,12 +33,15 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import {
   downloadAnalyticsExport,
-  fetchAnalystIncidentDetail,
-  fetchAnalystIncidentSensitive,
+  fetchAnalystIncidentDetailOfflineAware,
+  fetchAnalystIncidentSensitiveOfflineAware,
   queueAnalyticsExport,
   type AnalystIncidentDetailResponse,
   type AnalystIncidentSensitiveResponse,
 } from "@/lib/api";
+import { useAutoSync } from "@/lib/useAutoSync";
+import { useNetworkStatus } from "@/lib/useNetworkStatus";
+import { toast } from "sonner";
 
 const ANALYST_ROLES = ["NATIONAL_ANALYST", "SYSTEM_ADMIN"];
 const DETAIL_EXPORT_COLUMNS = [
@@ -64,6 +67,11 @@ function formatMoney(value: number | null): string {
 function formatMinutes(value: number | null): string {
   if (value == null) return "N/A";
   return `${Number(value).toFixed(1)} min`;
+}
+
+function formatCachedAt(cachedAt?: number): string | null {
+  if (!cachedAt) return null;
+  return `Last updated ${new Date(cachedAt).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}`;
 }
 
 // ─── Semantic Icon Map ────────────────────────────────────────────────────────
@@ -423,13 +431,15 @@ function SensitiveSection({ incidentId }: SensitiveSectionProps) {
   const [sensitiveData, setSensitiveData] = useState<AnalystIncidentSensitiveResponse | null>(null);
   const [sensitiveLoading, setSensitiveLoading] = useState(false);
   const [sensitiveError, setSensitiveError] = useState<string | null>(null);
+  const [sensitiveCachedAt, setSensitiveCachedAt] = useState<number | undefined>(undefined);
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
 
   const loadSensitive = useCallback(async () => {
     setSensitiveLoading(true); setSensitiveError(null);
     try {
-      const data = await fetchAnalystIncidentSensitive(incidentId);
-      setSensitiveData(data);
+      const result = await fetchAnalystIncidentSensitiveOfflineAware(incidentId);
+      setSensitiveData(result.response);
+      setSensitiveCachedAt(result.fromCache ? result.cachedAt : undefined);
     } catch (e) {
       setSensitiveError(e instanceof Error ? e.message : "Failed to load protected information.");
     } finally { setSensitiveLoading(false); }
@@ -477,6 +487,7 @@ function SensitiveSection({ incidentId }: SensitiveSectionProps) {
   if (!sensitiveData) return null;
 
   const revealedCount = revealed.size;
+  const sensitiveCacheLabel = formatCachedAt(sensitiveCachedAt);
 
   return (
     <div className="overflow-hidden rounded-xl border border-amber-200 bg-white shadow-sm" role="region" aria-label="Protected information — accessed">
@@ -492,6 +503,11 @@ function SensitiveSection({ incidentId }: SensitiveSectionProps) {
               {revealedCount > 0 && (
                 <span className="ml-2 text-xs text-amber-600" aria-live="polite">
                   {revealedCount} field{revealedCount !== 1 ? "s" : ""} revealed
+                </span>
+              )}
+              {sensitiveCacheLabel && (
+                <span className="ml-2 text-xs text-amber-700" aria-live="polite">
+                  Showing cached data — {sensitiveCacheLabel}
                 </span>
               )}
             </div>
@@ -570,10 +586,13 @@ export default function AnalystIncidentDetailPage() {
   const rawId = params?.id as string | undefined;
   const incidentId = rawId != null ? parseInt(rawId, 10) : NaN;
   const { user, loading: authLoading } = useAuth();
+  const networkStatus = useNetworkStatus();
+  useAutoSync();
   const role = (user as { role?: string })?.role ?? null;
   const canAccess = ANALYST_ROLES.includes(role ?? "");
 
   const [detail, setDetail] = useState<AnalystIncidentDetailResponse | null>(null);
+  const [detailCachedAt, setDetailCachedAt] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exportTask, setExportTask] = useState<{ taskId: string; format: "csv" | "pdf" } | null>(null);
@@ -588,7 +607,11 @@ export default function AnalystIncidentDetailPage() {
   const load = useCallback(async () => {
     if (Number.isNaN(incidentId)) { setError("Invalid incident id."); setLoading(false); return; }
     setLoading(true); setError(null);
-    try { setDetail(await fetchAnalystIncidentDetail(incidentId)); }
+    try {
+      const result = await fetchAnalystIncidentDetailOfflineAware(incidentId);
+      setDetail(result.response);
+      setDetailCachedAt(result.fromCache ? result.cachedAt : undefined);
+    }
     catch (e) { setDetail(null); setError(e instanceof Error ? e.message : "Failed to load incident."); }
     finally { setLoading(false); }
   }, [incidentId]);
@@ -599,6 +622,10 @@ export default function AnalystIncidentDetailPage() {
   }, [authLoading, canAccess, load]);
 
   const queueExport = async (format: "csv" | "pdf") => {
+    if (!networkStatus.isOnline) {
+      toast.error("Export unavailable offline");
+      return;
+    }
     setExportError(null); setExportLoading(format);
     try {
       const response = await queueAnalyticsExport({ format, filters: { incident_id: incidentId }, columns: DETAIL_EXPORT_COLUMNS });
@@ -610,6 +637,10 @@ export default function AnalystIncidentDetailPage() {
 
   const downloadQueuedExport = async () => {
     if (!exportTask) return;
+    if (!networkStatus.isOnline) {
+      toast.error("Export unavailable offline");
+      return;
+    }
     setExportError(null); setExportLoading("download");
     try {
       const blob = await downloadAnalyticsExport(exportTask.taskId);
@@ -648,9 +679,21 @@ export default function AnalystIncidentDetailPage() {
   }
 
   const isWildland = detail.form_kind === "WILDLAND_AFOR";
+  const exportUnavailableOffline = !networkStatus.isOnline;
+  const detailCacheLabel = formatCachedAt(detailCachedAt);
 
   return (
     <main className="space-y-5" aria-label="Incident Detail">
+      {exportUnavailableOffline && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+          You are offline. Cached incident detail is available; PDF/CSV exports are unavailable until reconnect.
+        </div>
+      )}
+      {detailCacheLabel && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+          Showing cached incident detail — {detailCacheLabel}
+        </div>
+      )}
       {/* ── Page Header ─────────────────────────────────────────────────────────── */}
       <div className="space-y-4">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -714,9 +757,10 @@ export default function AnalystIncidentDetailPage() {
               type="button"
               onClick={() => void queueExport("pdf")}
               disabled={exportLoading !== null}
-              className="inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:opacity-90 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-offset-2"
+              title={exportUnavailableOffline ? "Unavailable offline" : undefined}
+              className="inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:opacity-90 disabled:opacity-50 aria-disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-offset-2"
               style={{ backgroundColor: '#991B1B',  }}
-              aria-disabled={exportLoading !== null}
+              aria-disabled={exportLoading !== null || exportUnavailableOffline}
             >
               <Download className="h-4 w-4" aria-hidden="true" />
               Export PDF
@@ -725,8 +769,9 @@ export default function AnalystIncidentDetailPage() {
               type="button"
               onClick={() => void queueExport("csv")}
               disabled={exportLoading !== null}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-              aria-disabled={exportLoading !== null}
+              title={exportUnavailableOffline ? "Unavailable offline" : undefined}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-50 aria-disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+              aria-disabled={exportLoading !== null || exportUnavailableOffline}
             >
               <Download className="h-4 w-4" aria-hidden="true" />
               Export CSV
@@ -756,7 +801,9 @@ export default function AnalystIncidentDetailPage() {
                   type="button"
                   onClick={() => void downloadQueuedExport()}
                   disabled={exportLoading !== null}
-                  className="rounded-lg bg-blue-700 px-4 py-1.5 font-semibold text-white transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                  title={exportUnavailableOffline ? "Unavailable offline" : undefined}
+                  className="rounded-lg bg-blue-700 px-4 py-1.5 font-semibold text-white transition-colors disabled:opacity-50 aria-disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                  aria-disabled={exportLoading !== null || exportUnavailableOffline}
                 >
                   {exportLoading === "download"
                     ? <span className="flex items-center gap-2"><RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> Downloading...</span>

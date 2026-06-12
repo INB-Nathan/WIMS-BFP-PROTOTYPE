@@ -1,7 +1,7 @@
 ---
 title: Frontend Infrastructure
 created: 2026-05-16
-updated: 2026-06-01
+updated: 2026-06-12
 type: frontend
 tags: [wims-bfp, frontend, components, api-client, auth, utilities]
 sources: [src/frontend/src/app/globals.css, src/frontend/src/context/AuthContext.tsx, src/frontend/src/lib/api.ts, src/frontend/src/lib/afor-utils.ts, src/frontend/src/lib/ph-regions.ts, src/frontend/src/lib/regional-incidents.ts, src/frontend/src/lib/analyst-workflow-transfer.ts, src/frontend/src/lib/edgeFunctions.ts, src/frontend/src/types/api.ts]
@@ -73,11 +73,13 @@ The API client is split into domain slices with a compatibility barrel. `src/fro
 | `api/errors.ts` | Error utility re-exports |
 | `api/civilian.ts` | Public civilian reporting/tracking/notification exports |
 | `api/triage.ts` | Validator triage queue and cluster workflow exports |
-| `api/analytics.ts` | Analyst analytics, exports, and incident-list exports |
+| `api/analytics.ts` | Analyst analytics, exports, incident-list exports, and offline-aware read wrapper exports |
 | `api/regional.ts` | Regional encoder incidents, drafts, AFOR import/commit, duplicate checks |
-| `api/admin.ts` | Admin/user/session/security/audit exports |
+| `api/admin.ts` | Admin/user/session/security/audit exports, including admin monitoring offline-aware wrappers |
+| `api/offlineAdmin.ts` | Offline-aware admin monitoring read wrappers for health, metrics, worker status, active sessions, and audit logs |
 | `api/reference.ts` | Reference data and nearby-station exports |
-| `api/validator.ts` | Validator-oriented compatibility exports |
+| `api/validator.ts` | Validator-oriented compatibility exports + offline-aware action wrappers |
+| `api/offlineValidator.ts` | Offline-aware validator queue fetch, verification, and archive/unarchive wrappers returning `{ queued, localId }` or `{ response, fromCache, cachedAt? }` |
 | `api/legacy.ts` | Temporary implementation holder during migration; new code should prefer domain slices |
 
 Public civilian functions use `publicApiFetch` and do not call authenticated `apiFetch`.
@@ -112,7 +114,9 @@ Public civilian functions use `publicApiFetch` and do not call authenticated `ap
 | `promoteReport(id)` | POST | `/triage/{id}/promote` | Promote report to incident |
 | `bulkPromoteReports(ids)` | POST | `/triage/bulk-promote` | Bulk promote reports |
 
-### Analytics Functions (15)
+### Analytics Functions (15 legacy reads/writes + 9 offline read wrappers)
+
+`api/offlineAnalytics.ts` wraps the analyst read functions for heatmap, trends, comparative, type distribution, response time, top-N, filter options, analyst incident detail, and analyst sensitive detail. The wrapper names end in `OfflineAware` and return `{ response, fromCache, cachedAt? }` while caching successful reads into the encrypted IndexedDB analytics cache documented in [[architecture/pwa-tests-cicd]].
 
 | Function | Method | Path | Purpose |
 |---|---|---|---|

@@ -209,3 +209,208 @@ describe('syncPendingIncidents', () => {
     expect(result.errors[0].error).toMatch(/Failed to fetch/);
   });
 });
+
+describe('op-type dispatch — verify ops', () => {
+  it('dispatches verify op to PATCH /regional/incidents/{id}/verification with client_id from localId', async () => {
+    const localId = 'verify-op-uuid-abc123';
+    const incidentId = 42;
+
+    vi.mocked(getPendingIncidents).mockResolvedValue([
+      {
+        id: 1,
+        opType: 'verify',
+        localId,
+        payload: {
+          incident_id: incidentId,
+          action: 'accept',
+          notes: 'Looks good',
+        },
+        createdAt: Date.now(),
+        status: 'pending',
+      },
+    ]);
+
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ previous_status: 'PENDING_VALIDATION', new_status: 'VERIFIED' }),
+    });
+    vi.mocked(markSynced).mockResolvedValue(undefined);
+
+    const result = await syncPendingIncidents();
+
+    // 1. Must dispatch to the verification endpoint (not /api/v1/public/report)
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchSpy.mock.calls[0];
+    expect(url).toMatch(/\/regional\/incidents\/42\/verification/);
+
+    // 2. Method must be PATCH (verification endpoint uses PATCH, not POST)
+    expect(options.method).toBe('PATCH');
+
+    // 3. Body must include client_id mapped from the op's localId
+    const body = JSON.parse(options.body as string);
+    expect(body.client_id).toBe(localId);
+    expect(body.action).toBe('accept');
+    expect(body.notes).toBe('Looks good');
+
+    // 4. Auth: must use cookie-based auth (credentials: 'include')
+    expect(options.credentials).toBe('include');
+
+    // 5. Successful sync marks the item synced
+    expect(markSynced).toHaveBeenCalledWith(1);
+    expect(result.synced).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('409 DUPLICATE_DETECTED on verify keeps op pending, does not markSynced', async () => {
+    vi.mocked(getPendingIncidents).mockResolvedValue([
+      {
+        id: 1,
+        opType: 'verify',
+        localId: 'dup-uuid',
+        payload: { incident_id: 99, action: 'accept', notes: null },
+        createdAt: Date.now(),
+        status: 'pending',
+      },
+    ]);
+
+    fetchSpy.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: () => Promise.resolve({ detail: 'Incident already in VERIFIED status' }),
+    });
+
+    const result = await syncPendingIncidents();
+
+    expect(markSynced).not.toHaveBeenCalled();
+    expect(result.synced).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(result.errors[0].status).toBe(409);
+    expect(result.errors[0].error).toMatch(/DUPLICATE_DETECTED/);
+  });
+});
+
+describe('op-type dispatch — archive_action ops', () => {
+  it('dispatches archive action to PATCH /regional/validator/incidents/{id}/archive with client_id', async () => {
+    const localId = 'archive-op-uuid-xyz';
+
+    vi.mocked(getPendingIncidents).mockResolvedValue([
+      {
+        id: 1,
+        opType: 'archive_action',
+        localId,
+        payload: { incident_id: 55, action: 'archive' },
+        createdAt: Date.now(),
+        status: 'pending',
+      },
+    ]);
+
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ status: 'already_applied', incident_id: 55 }),
+    });
+    vi.mocked(markSynced).mockResolvedValue(undefined);
+
+    const result = await syncPendingIncidents();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchSpy.mock.calls[0];
+    expect(url).toMatch(/\/regional\/validator\/incidents\/55\/archive/);
+    expect(options.method).toBe('PATCH');
+    expect(options.credentials).toBe('include');
+
+    const body = JSON.parse(options.body as string);
+    expect(body.client_id).toBe(localId);
+
+    expect(markSynced).toHaveBeenCalledWith(1);
+    expect(result.synced).toBe(1);
+    expect(result.failed).toBe(0);
+  });
+
+  it('dispatches unarchive action to PATCH .../unarchive endpoint', async () => {
+    vi.mocked(getPendingIncidents).mockResolvedValue([
+      {
+        id: 1,
+        opType: 'archive_action',
+        localId: 'unarchive-uuid',
+        payload: { incident_id: 77, action: 'unarchive' },
+        createdAt: Date.now(),
+        status: 'pending',
+      },
+    ]);
+
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ status: 'already_applied', incident_id: 77 }),
+    });
+    vi.mocked(markSynced).mockResolvedValue(undefined);
+
+    const result = await syncPendingIncidents();
+
+    const [url] = fetchSpy.mock.calls[0];
+    expect(url).toMatch(/\/regional\/validator\/incidents\/77\/unarchive/);
+    expect(result.synced).toBe(1);
+  });
+});
+
+describe('backward compatibility — legacy items (no opType)', () => {
+  it('items without opType still POST to /api/v1/public/report (legacy)', async () => {
+    vi.mocked(getPendingIncidents).mockResolvedValue([
+      { id: 1, payload: { description: 'Legacy public report' }, createdAt: Date.now(), status: 'pending' },
+    ]);
+    fetchSpy.mockResolvedValue({ ok: true, status: 201, json: () => Promise.resolve({ report_id: 42 }) });
+    vi.mocked(markSynced).mockResolvedValue(undefined);
+
+    const result = await syncPendingIncidents();
+
+    const [url, options] = fetchSpy.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/public\/report/);
+    expect(options.method).toBe('POST');
+    expect(result.synced).toBe(1);
+  });
+});
+
+describe('network error abort', () => {
+  it('network error on first of multiple items aborts remaining batch', async () => {
+    vi.mocked(getPendingIncidents).mockResolvedValue([
+      { id: 1, opType: 'verify', localId: 'a', payload: { incident_id: 1, action: 'accept' }, createdAt: Date.now(), status: 'pending' },
+      { id: 2, opType: 'verify', localId: 'b', payload: { incident_id: 2, action: 'pending' }, createdAt: Date.now(), status: 'pending' },
+      { id: 3, opType: 'verify', localId: 'c', payload: { incident_id: 3, action: 'reject' }, createdAt: Date.now(), status: 'pending' },
+    ]);
+
+    // First call: network error
+    fetchSpy.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+    const result = await syncPendingIncidents();
+
+    // Only the first item should have been attempted
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(result.failed).toBe(1);
+    expect(result.errors[0].error).toMatch(/Failed to fetch/);
+    // Remaining two items preserved (not attempted)
+    expect(markSynced).not.toHaveBeenCalled();
+  });
+
+  it('HTTP error on first item does NOT abort — continues to next', async () => {
+    vi.mocked(getPendingIncidents).mockResolvedValue([
+      { id: 1, opType: 'verify', localId: 'a', payload: { incident_id: 1, action: 'accept' }, createdAt: Date.now(), status: 'pending' },
+      { id: 2, opType: 'verify', localId: 'b', payload: { incident_id: 2, action: 'accept' }, createdAt: Date.now(), status: 'pending' },
+    ]);
+
+    fetchSpy
+      .mockResolvedValueOnce({ ok: false, status: 422, json: () => Promise.resolve({ detail: 'Validation error' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve({}) });
+    vi.mocked(markSynced).mockResolvedValue(undefined);
+
+    const result = await syncPendingIncidents();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(result.synced).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(markSynced).toHaveBeenCalledWith(2);
+    expect(markSynced).not.toHaveBeenCalledWith(1);
+  });
+});
