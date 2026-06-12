@@ -259,6 +259,53 @@ class KmsSecurityProvider:
     def kms_key_name(self) -> str:
         return self._key_name
 
+    # ── encrypt_bytes / decrypt_bytes ────────────────────────────────────
+
+    def encrypt_bytes(self, data: bytes, aad: bytes) -> tuple[str, bytes]:
+        """Encrypt raw bytes via OpenBao Transit.
+
+        Returns ``(NONCE_SENTINEL, ciphertext_utf8_bytes)``.  The sentinel
+        signals no separate nonce (Transit ciphertext is self-contained); the
+        OpenBao ciphertext string is UTF-8 encoded so the caller can write it
+        directly to disk as bytes.
+        """
+        try:
+            result = self._client.encrypt(self._key_name, data, aad)
+        except OpenBaoClientError:
+            raise
+        except Exception as exc:
+            raise OpenBaoClientError(
+                f"OpenBao encrypt_bytes failed for key={self._key_name}: {exc}"
+            ) from exc
+        self.current_version = result.key_version
+        return (self.NONCE_SENTINEL, result.ciphertext.encode("utf-8"))
+
+    def decrypt_bytes(
+        self,
+        nonce_b64: str | None,
+        ct_bytes: bytes,
+        aad: bytes,
+        key_version: int = 1,
+    ) -> bytes:
+        """Decrypt bytes encrypted with encrypt_bytes.
+
+        The nonce_b64 argument is ignored — OpenBao ciphertext is self-contained.
+        """
+        _ = nonce_b64
+        _ = key_version
+        try:
+            ct_str = ct_bytes.decode("utf-8")
+        except Exception as exc:
+            raise OpenBaoClientError(f"Failed to decode ciphertext bytes as UTF-8: {exc}") from exc
+        try:
+            return self._client.decrypt(self._key_name, ct_str, aad)
+        except OpenBaoClientError:
+            raise
+        except Exception as exc:
+            raise OpenBaoClientError(
+                f"OpenBao decrypt_bytes failed for key={self._key_name}: {exc}"
+            ) from exc
+
     # ── encrypt_json / decrypt_json ───────────────────────────────────────
 
     def encrypt_json(

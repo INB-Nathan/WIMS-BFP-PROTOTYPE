@@ -7,7 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -31,6 +31,21 @@ router = APIRouter(prefix="/api", tags=["incidents"])
 logger = logging.getLogger("wims.incidents")
 
 STORAGE_DIR = "/app/storage/attachments"
+
+# Maximum bytes read into memory per upload. AES-256-GCM requires the full
+# plaintext in one call — no streaming AEAD. Default 25 MB; override via env.
+# For large video evidence files a chunked AEAD approach would be needed (future).
+MAX_ATTACHMENT_BYTES = int(os.getenv("WIMS_MAX_ATTACHMENT_BYTES", str(25 * 1024 * 1024)))
+
+# Roles permitted to view/download incident attachments.
+_ATTACHMENT_VIEWER_ROLES = frozenset(
+    {
+        "SYSTEM_ADMIN",
+        "NATIONAL_ANALYST",
+        "NATIONAL_VALIDATOR",
+        "REGIONAL_ENCODER",
+    }
+)
 
 
 def _resolve_storage_dir() -> str:
@@ -486,48 +501,77 @@ def upload_incident_bundle(
 async def upload_attachment(
     incident_id: int,
     file: UploadFile = File(...),
-    db: Annotated[Session, Depends(get_db_with_rls)] = None,
     user: Annotated[dict, Depends(get_current_wims_user)] = None,
+    db: Annotated[Session, Depends(get_db_with_rls)] = None,
 ):
-    """
-    Upload an attachment (e.g., photo sketch) for a specific incident.
-    Saves to disk and records in wims.incident_attachments.
+    """Upload an attachment for an incident.
+
+    Reads the full file into memory (max MAX_ATTACHMENT_BYTES), hashes on
+    plaintext, then encrypts with AES-256-GCM before writing to disk.
+    The nonce (encryption_iv) and key_version are stored in the DB row.
+    Legacy files uploaded before this migration have is_encrypted=false and are
+    served raw — no backfill is performed.
     """
     storage_dir = _resolve_storage_dir()
 
-    # 1. Verify incident exists and belongs to user's region (standard isolation)
-    # For now, just check existence
+    # Verify incident exists (RLS ensures the caller can only see their region)
     incident = db.execute(
         text("SELECT incident_id FROM wims.fire_incidents WHERE incident_id = :iid"),
         {"iid": incident_id},
     ).fetchone()
-
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
 
-    # 2. Save file to disk
-    file_ext = os.path.splitext(file.filename)[1]
+    # Read into memory with hard size cap — AESGCM requires full plaintext at once
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await file.read(1024 * 1024):
+        total += len(chunk)
+        if total > MAX_ATTACHMENT_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Attachment exceeds maximum allowed size of "
+                    f"{MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB"
+                ),
+            )
+        chunks.append(chunk)
+    plaintext = b"".join(chunks)
+
+    # SHA-256 on plaintext (before encryption) — hash represents original content
+    sha256_digest = hashlib.sha256(plaintext).hexdigest()
+
+    # Generate filename; use UUID as AAD so ciphertext is bound to this file path
+    file_ext = os.path.splitext(file.filename or "")[1]
     unique_filename = f"{uuid.uuid4()}{file_ext}"
     storage_path = os.path.join(storage_dir, unique_filename)
+    aad = f"attachment:{unique_filename}".encode()
 
-    sha256_hash = hashlib.sha256()
+    provider = get_crypto_provider()
     try:
-        with open(storage_path, "wb") as buffer:
-            while content := await file.read(1024 * 1024):  # Read in chunks
-                sha256_hash.update(content)
-                buffer.write(content)
+        nonce_b64, ct_bytes = provider.encrypt_bytes(plaintext, aad)
     except Exception:
-        logger.exception("Failed to save uploaded file")
-        raise HTTPException(status_code=500, detail="Failed to save uploaded file")
+        logger.exception("Failed to encrypt attachment for incident_id=%s", incident_id)
+        raise HTTPException(status_code=500, detail="Failed to encrypt attachment")
 
-    # 3. Record in DB
+    try:
+        with open(storage_path, "wb") as fp:
+            fp.write(ct_bytes)
+    except Exception:
+        logger.exception("Failed to write encrypted attachment to disk")
+        raise HTTPException(status_code=500, detail="Failed to save attachment")
+
     try:
         att_row = db.execute(
             text("""
                 INSERT INTO wims.incident_attachments (
-                    incident_id, file_name, storage_path, mime_type, file_hash_sha256, uploaded_by
+                    incident_id, file_name, storage_path, mime_type,
+                    file_hash_sha256, uploaded_by,
+                    is_encrypted, encryption_iv, key_version
                 ) VALUES (
-                    :iid, :fname, :path, :mime, :hash, :uid
+                    :iid, :fname, :path, :mime,
+                    :hash, :uid,
+                    true, :iv, :kv
                 )
                 RETURNING attachment_id
             """),
@@ -536,14 +580,18 @@ async def upload_attachment(
                 "fname": file.filename,
                 "path": storage_path,
                 "mime": file.content_type,
-                "hash": sha256_hash.hexdigest(),
+                "hash": sha256_digest,
                 "uid": user["user_id"],
+                "iv": nonce_b64,
+                "kv": provider.current_version,
             },
         ).fetchone()
         if att_row is None:
             raise HTTPException(status_code=500, detail="Attachment insert returned no row")
         attachment_id = int(att_row[0])
         db.commit()
+    except HTTPException:
+        raise
     except Exception:
         db.rollback()
         if os.path.exists(storage_path):
@@ -556,6 +604,72 @@ async def upload_attachment(
         "attachment_id": attachment_id,
         "message": "Attachment uploaded successfully",
     }
+
+
+@router.get("/incidents/{incident_id}/attachments/{attachment_id}")
+async def serve_attachment(
+    incident_id: int,
+    attachment_id: int,
+    user: Annotated[dict, Depends(get_current_wims_user)] = None,
+    db: Annotated[Session, Depends(get_db_with_rls)] = None,
+):
+    """Download and transparently decrypt an incident attachment.
+
+    Encrypted files (is_encrypted=true) are decrypted with AES-256-GCM before
+    streaming.  Legacy plaintext files (is_encrypted=false) are served raw with
+    no decrypt step.  RLS on incident_attachments enforces regional isolation;
+    role check enforces staff-only access.
+    """
+    if user.get("role") not in _ATTACHMENT_VIEWER_ROLES:
+        raise HTTPException(status_code=403, detail="Incident viewing privileges required")
+
+    row = db.execute(
+        text("""
+            SELECT storage_path, encryption_iv, is_encrypted, key_version,
+                   mime_type, file_name
+            FROM wims.incident_attachments
+            WHERE attachment_id = :aid AND incident_id = :iid
+        """),
+        {"aid": attachment_id, "iid": incident_id},
+    ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    storage_path, encryption_iv, is_encrypted, key_version, mime_type, file_name = row
+
+    if not os.path.exists(storage_path):
+        logger.error(
+            "Attachment file missing on disk: attachment_id=%s path=%s",
+            attachment_id,
+            storage_path,
+        )
+        raise HTTPException(status_code=404, detail="Attachment file not found on disk")
+
+    with open(storage_path, "rb") as fp:
+        file_bytes = fp.read()
+
+    if is_encrypted:
+        unique_filename = os.path.basename(storage_path)
+        aad = f"attachment:{unique_filename}".encode()
+        provider = get_crypto_provider()
+        try:
+            plaintext = provider.decrypt_bytes(encryption_iv, file_bytes, aad, key_version or 1)
+        except Exception:
+            logger.exception(
+                "Decryption failed for attachment_id=%s; possible tampering or key mismatch",
+                attachment_id,
+            )
+            raise HTTPException(status_code=500, detail="Attachment decryption failed")
+    else:
+        plaintext = file_bytes
+
+    safe_name = os.path.basename(file_name or f"attachment_{attachment_id}")
+    return Response(
+        content=plaintext,
+        media_type=mime_type or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+    )
 
 
 @router.post("/incidents", response_model=IncidentResponse, status_code=201)
