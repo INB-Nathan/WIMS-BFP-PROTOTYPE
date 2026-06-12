@@ -1,78 +1,101 @@
-# feat(offline): offline-first architecture for Regional Encoder workflow
+# feat(offline): offline-first architecture for Regional Encoder
+
+Adds full offline capability for `REGIONAL_ENCODER` role. Encoders can create, view,
+edit, and submit incidents without an internet connection; data syncs automatically on
+reconnect. All 13 spec items (A1–G13) are implemented.
 
 ## Summary
 
-- **Critical bug fix**: `LayoutShell` was unregistering all service workers on every page load, destroying all PWA and offline capability. Now calls `registerServiceWorker()` instead.
-- **Critical bug fix**: `syncEngine.ts` was POSTing to the civilian endpoint (`/api/v1/public/report`) instead of the regional encoder endpoint (`/api/regional/incidents`).
-- **IndexedDB v3**: Added `offlineOps` store (operations queue with per-op metadata) and `cachedIncidents` store (encrypted read-path cache). Legacy `incident-queue` store preserved for backward compatibility.
-- **Unified offline store**: `IncidentForm` autosave migrated from `localStorage` to IndexedDB `offlineOps` store. A `draft` sync status distinguishes in-progress autosaves from queued submissions. `localStorage` fallback retained for private browsing.
-- **Sync engine rewrite**: `syncPendingIncidents(encoderId)` now processes ops sequentially (create → submit dependency chain), refreshes auth token before each batch, supports all four operation types (create, update, submit, delete), marks ops with fine-grained status (`pending`, `syncing`, `synced`, `conflict`, `error`), and aborts on network error.
-- **Idempotency key**: Every offline create op carries a client-generated UUID (`client_id`). Backend stores it with a `UNIQUE` partial index on `wims.fire_incidents`. On retry of a timed-out POST, the backend returns the existing incident instead of creating a duplicate.
-- **Self-healing migration**: `main.py` startup hook applies `ADD COLUMN IF NOT EXISTS client_id UUID` and the unique index on every container restart, so existing deployments gain the column without a full `down -v` cycle.
-- **Read-path cache**: `fetchRegionalIncidentsOfflineAware` and `fetchRegionalIncidentOfflineAware` wrappers write every successful API response into `cachedIncidents` (AES-256-GCM encrypted). When offline, they read from the cache and set `fromCache: true`.
-- **Stale data banner**: Regional dashboard and incident detail page show an amber "Showing cached data — last updated X ago" banner when serving from cache.
-- **Queued incidents section**: When offline, the regional dashboard shows pending `create` ops from `offlineOps` as a "Queued Locally" list above the cached incident table, so encoders know what will sync on reconnect.
-- **SyncStatusBar**: Mounted in the regional layout shell; shows offline/reconnecting/syncing/all-synced/conflict states. Includes conflict callout linking to the resolution tab.
-- **Auto-reconnect refresh**: `loadIncidents` in the regional dashboard includes `isOnline` as a dependency, so the incident list re-fetches from the server the moment connectivity returns and the stale banner clears automatically.
-- **Network error batch abort fix**: All four op processors (`processCreate`, `processUpdate`, `processSubmit`, `processDelete`) now propagate `status: 0` on network errors so the main sync loop correctly detects connectivity loss and aborts instead of continuing to the next op.
-- **Test rewrites**: `syncEngine.test.ts` and `useAutoSync.test.ts` fully updated to match the new API (`syncPendingIncidents(encoderId)`, `getPendingOpsCount`, `SyncResult.conflicts`, `SyncError.localId`).
+| Area | What was built |
+|---|---|
+| **Service worker** | `sw.js` v7 — navigation fallback to cached app shell; canonical path collapsing for incident-detail routes so any prefetched ID makes all IDs (including offline-created UUIDs) navigable offline; RSC miss returns `Response.error()` to trigger Next.js hard-nav fallback instead of crashing the router |
+| **IndexedDB (v3)** | `offlineOps` store (operations queue) + `cachedIncidents` store (encrypted read-path cache). Per-user non-extractable AES-256-GCM `CryptoKey` — derived from SHA-256(per-install salt ‖ userId). Account switch wipes all data automatically |
+| **Sync engine** | `syncPendingIncidents(encoderId)` — sequential ops (create → submit dependency chain), token refresh before each batch, four op types (create/update/submit/delete), `client_id` idempotency, abort on network error or auth failure. Sync-complete modal lists each synced item with op type and result |
+| **Idempotency** | Every offline `create` op carries a UUID `client_id`. The `POST /api/incidents/upload-bundle` endpoint returns the existing incident on duplicate `client_id`. Column added via self-healing `ADD COLUMN IF NOT EXISTS` in `main.py` startup and `postgres-init/45_add_client_id_to_incidents.sql` |
+| **Read-path cache** | `fetchRegionalIncidentsOfflineAware` + `fetchRegionalIncidentOfflineAware` write every successful response to IndexedDB. `buildCachedListResult()` applies the same status / category / date / archived filters as the online list — no ghost cards. Cache age shows most-recent refresh timestamp (`Math.max`) |
+| **Connectivity monitor** | Singleton `startConnectivityMonitor()` in `connectivity.ts` — one set of event listeners and one exponential-backoff recheck loop (2 s → 30 s) for the whole app. `useNetworkStatus` is a thin `useSyncExternalStore` subscriber; no per-hook intervals |
+| **Offline mode setup (E10)** | `offlineEnable.ts` + `OfflineModeManager`. User triggers "Enable offline mode" from My Profile; it prefetches routes, warms form/map JS chunks, and populates up to 100 list items + 40 full incident detail records. Dashboard shows a persistent banner until enabled |
+| **Per-user isolation (F12)** | `setActiveOfflineUser(userId)` called from `AuthContext` on every session. On account switch: all three IndexedDB stores wiped, new per-user key created. `clearAllOfflineData()` (Profile "Clear" button) resets everything |
+| **Restricted-route offline guard (D9)** | `/dashboard/regional/audit`, `/home`, `/afor/import` precached in SW; pages render their own "unavailable offline" guard instead of the browser's error page |
+| **Caller name/contact in list view** | Backend `GET /regional/incidents` now decrypts the AES PII blob per row; `caller_name` and `caller_number` are no longer null for encrypted records |
+| **Offline toast (A1)** | Shown once on going offline via `offlineToastShownRef`; never re-pops during probe cycles |
+| **PENDING withdrawal (C8)** | Detail page blocks edit when a queued-submit op is linked; Withdraw button removes the submit op and re-enables editing |
+| **Auth** | `IncidentForm` autosave uses IndexedDB `offlineOps` store (draft status). Logout clears cached incidents; pending ops are preserved (encrypted, encoder-scoped) so unsynced work survives re-login |
 
 ## Changed Files
 
+### New files
+
+| File | Purpose |
+|---|---|
+| `src/frontend/src/lib/connectivity.ts` | Singleton connectivity monitor — backoff loop, browser event listeners, `subscribeConnectivity`, `startConnectivityMonitor`, `probeConnectivity` |
+| `src/frontend/src/lib/offlineEnable.ts` | E10 flow — `enableOfflineMode()`, `isOfflineModeEnabled()`, `markOfflineModeEnabled()`, `clearOfflineModeEnabled()` |
+| `src/frontend/src/lib/api/offlineRegional.ts` | `fetchRegionalIncidentsOfflineAware`, `fetchRegionalIncidentOfflineAware`, `buildCachedListResult` |
+| `src/frontend/src/components/regional/OfflineModeManager.tsx` | `variant="banner"` (dashboard — persistent until enabled) + `variant="panel"` (Profile — Enable/Update/Clear + progress bar) |
+| `src/frontend/src/app/dashboard/regional/layout.tsx` | Mounts `SyncStatusBar` on all encoder pages |
+| `src/postgres-init/45_add_client_id_to_incidents.sql` | `client_id UUID` column + partial unique index on `wims.fire_incidents` |
+
+### Modified files
+
 | File | Change |
 |---|---|
-| `src/frontend/src/components/LayoutShell.tsx` | Remove SW unregistration; call `registerServiceWorker()` on mount |
-| `src/frontend/src/lib/offlineStore.ts` | Bump DB to v3; add `offlineOps` + `cachedIncidents` stores; export full ops + cache API |
-| `src/frontend/src/lib/syncEngine.ts` | Full rewrite — regional endpoints, token refresh, sequential ops, network error propagation |
-| `src/frontend/src/lib/useAutoSync.ts` | Use `getPendingOpsCount`; pass `encoderId` to sync; expose `conflictCount` |
-| `src/frontend/src/components/IncidentForm.tsx` | Migrate autosave to IndexedDB; draft recovery from IndexedDB on mount; offline submit queues op |
+| `src/frontend/public/sw.js` | v7 — `canonicalPath()` for detail routes; precached audit/home/regional routes; `Response.error()` on RSC miss; navigation handler stores canonical key |
+| `src/frontend/src/lib/offlineStore.ts` | Per-user AES key derivation (`setActiveOfflineUser`, `getKeySalt`, `keyStorageName`); account-switch wipe; `clearAllOfflineData()`; `getLinkedSubmitOpLocalId()` |
+| `src/frontend/src/lib/syncEngine.ts` | Bundle endpoint for create ops; `SyncedIncidentSummary` with `operation` + `result`; `OP_RESULT_LABEL` / `OP_PRECEDENCE`; `recordSynced()` helper |
+| `src/frontend/src/lib/useAutoSync.ts` | `offlineToastShownRef` (show-once toast); `encoderId` passed to sync; `conflictCount` exposed |
+| `src/frontend/src/lib/useNetworkStatus.ts` | Thin `useSyncExternalStore` subscriber; delegates loop to `startConnectivityMonitor()` |
+| `src/frontend/src/components/LayoutShell.tsx` | Removed SW unregistration; calls `registerServiceWorker()` |
+| `src/frontend/src/components/IncidentForm.tsx` | Autosave to IndexedDB `offlineOps`; draft recovery from IndexedDB on mount; offline submit queues op |
 | `src/frontend/src/components/SyncStatusBar.tsx` | Conflict callout; `conflictCount` from `useAutoSync` |
-| `src/frontend/src/app/dashboard/regional/layout.tsx` | New — mounts `SyncStatusBar` on all encoder pages |
-| `src/frontend/src/app/dashboard/regional/page.tsx` | Offline-aware list fetch; stale data banner; queued incidents section; reconnect re-fetch |
-| `src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx` | Offline-aware detail fetch; cache banner; background poll skips when offline |
-| `src/frontend/src/lib/api/offlineRegional.ts` | New — `fetchRegionalIncidentsOfflineAware` + `fetchRegionalIncidentOfflineAware` wrappers |
-| `src/backend/schemas/regional.py` | Add `client_id: str | None` to `IncidentCreateRequest` |
-| `src/backend/api/routes/regional.py` | Idempotency check on `POST /regional/incidents` using `client_id` |
-| `src/backend/main.py` | Startup self-healing patch: `ADD COLUMN IF NOT EXISTS client_id UUID` + unique index |
-| `src/postgres-init/45_add_client_id_to_incidents.sql` | New migration — `client_id UUID` column + partial unique index on `fire_incidents` |
-| `src/frontend/src/lib/__tests__/syncEngine.test.ts` | Full rewrite to match new `syncPendingIncidents(encoderId)` API |
-| `src/frontend/src/lib/__tests__/useAutoSync.test.ts` | Updated mocks for `getPendingOpsCount`, `SyncResult.conflicts`, `SyncError.localId` |
+| `src/frontend/src/app/dashboard/regional/page.tsx` | `OfflineModeManager variant="banner"`; offline-aware list; stale data banner; queued-create section; sync-complete modal; route prefetch |
+| `src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx` | Offline-aware detail fetch; C8 edit-block + Withdraw; context-aware PENDING_SYNC banner |
+| `src/frontend/src/app/profile/page.tsx` | `OfflineModeManager variant="panel"` |
+| `src/frontend/src/context/AuthContext.tsx` | `setActiveOfflineUser(user.id)` on session fetch and offline cache restore; `clearAllCachedIncidents()` on logout |
+| `src/backend/api/routes/regional/encoder.py` | `GET /regional/incidents` — decrypts PII blob per row so `caller_name` / `caller_number` / `owner_name` are populated |
+| `src/backend/api/routes/incidents.py` | `POST /api/incidents/upload-bundle` — idempotency check on `client_id`; returns existing incident on duplicate |
+| `src/backend/main.py` | Startup self-healing: `ADD COLUMN IF NOT EXISTS client_id UUID` + unique index |
 
 ## Architecture Notes
 
-### Why operations queue, not payload snapshots
+### Operations queue, not payload snapshots
 
-The old `incident-queue` store held raw payloads. This was sufficient for create-only offline submissions but breaks down the moment an encoder creates an incident offline, saves it, then submits it — also offline. By the time connectivity returns, the sync engine needs to know:
-1. POST the payload to create the incident and get back a `serverId`
+An encoder can create an incident offline, then submit it — also offline. The sync engine must:
+1. POST the payload → get `serverId`
 2. PATCH `/submit` on that `serverId`
 
-Without an operations queue the engine cannot resolve step 2's dependency on step 1. The new `offlineOps` store links ops via `linkedLocalId` and a within-batch `syncedServerIds: Map<string, number>` that is populated as creates succeed.
+Without an operations queue, step 2 cannot resolve its dependency on step 1. The `offlineOps` store links ops via `linkedLocalId`; a within-batch `syncedServerIds` map propagates `serverId` from create to submit.
 
-### Why sequential sync (not parallel)
+### Sequential sync
 
-Parallel dispatch would break the create→submit ordering guarantee. A create and its linked submit would race; if the submit fires first it has no `serverId` and fails. Sequential processing preserves causal ordering with negligible overhead for the expected queue size (single digits for field encoders).
+Parallel dispatch would break the create→submit ordering guarantee (the submit would fire with no `serverId`). Sequential processing preserves causal ordering with negligible overhead for the expected queue depth (single digits for field encoders).
 
-### Why `client_id` on the backend
+### Idempotency via `client_id`
 
-Network timeouts are indistinguishable from server-side failures from the client's perspective. Without idempotency, a timed-out POST that actually succeeded server-side results in a duplicate incident on retry. The `client_id` UUID + `UNIQUE` partial index turns the create endpoint idempotent: a duplicate `client_id` returns the existing row instead of inserting.
+Network timeouts are indistinguishable from server failures from the client. Without idempotency, a timed-out POST that succeeded server-side produces a duplicate on retry. The `client_id` UUID + `UNIQUE` partial index turns the bundle endpoint idempotent — duplicate `client_id` returns the existing row instead of inserting.
 
-### Security
+### Per-user AES key isolation
 
-All `offlineOps` and `cachedIncidents` payloads are encrypted with AES-256-GCM using a per-browser `CryptoKey` stored in IndexedDB. The key is never exported to `localStorage`. The key should be cleared on logout (Phase 1E cleanup). Auth is refreshed before every sync batch so a revoked session cannot submit queued ops.
+Each encoder account gets a non-extractable `CryptoKey` derived from `SHA-256(per-install random salt ‖ userId)`. The key cannot be exported. On account switch, all three IndexedDB stores are wiped and a new key is generated. This is cross-account isolation only — same-origin same-session can always decrypt its own data (documented limitation in `OFFLINE_HANDOVER.md`).
+
+### SW canonical path for incident detail
+
+All `/dashboard/regional/incidents/<id>` routes share one SW cache key (`__detail__`). Prefetching any incident ID caches the same `'use client'` shell that serves all IDs. This makes offline-created local UUIDs navigable without a per-ID prefetch.
+
+### PII in the list view
+
+`sd.caller_name` and `sd.caller_number` are `NULL` for AES-encrypted records (plaintext columns are always null for new writes; the data lives in `pii_blob_enc`). The list endpoint now decrypts the blob per row using the same `SecurityProvider` pattern as the detail endpoint, with `CRITICAL` log + plaintext fallback on `SecurityProviderError`.
 
 ## VPS Compatibility
 
-The DigitalOcean VPS setup is **fully compatible** without infrastructure changes. Specific checks:
-
 | Requirement | Status | Detail |
 |---|---|---|
-| HTTPS for Service Workers | ✅ | `wimsbfp.tech` has TLS 1.3 via Let's Encrypt. `__Host-` cookie prefix also requires HTTPS — satisfied on VPS. |
-| No nginx API response caching | ✅ | The nginx config has no `proxy_cache` directive on `/api/*` routes. Offline reads bypass nginx entirely (they read from IndexedDB). |
-| SW static file served from Next.js | ✅ | `sw.js` is in `public/` — nginx proxies `/` to `frontend:3000` which serves it. No nginx config change needed. |
-| `client_id` column migration | ✅ | Self-healing: `main.py` startup applies `ADD COLUMN IF NOT EXISTS` on every container restart. Existing incidents are unaffected (column is nullable). No `down -v` required. |
-| `credentials: 'include'` sync requests | ✅ | The nginx `/api/` block forwards cookies and sets `Access-Control-Allow-Credentials: true`. `proxy_cookie_domain nginx-gateway $host` keeps the cookie domain in sync with the browser. |
+| HTTPS for Service Workers | ✅ | `wimsbfp.tech` has TLS 1.3 via Let's Encrypt |
+| No nginx API response caching | ✅ | No `proxy_cache` directive on `/api/*`. Offline reads bypass nginx (IndexedDB) |
+| SW static file served from Next.js | ✅ | `sw.js` in `public/` — nginx proxies `/` to `frontend:3000`. No nginx change needed |
+| `client_id` column | ✅ | Self-healing via `main.py` startup + migration 45. Existing incidents unaffected (nullable) |
+| `credentials: 'include'` sync requests | ✅ | nginx `/api/` block forwards cookies; `proxy_cookie_domain` keeps domain valid |
 
-**One nginx note**: `sw.js` should ideally be served with `Cache-Control: no-cache` (not `no-store`) so browsers always re-validate it but can still serve a stale copy offline. Next.js defaults work here — it does not aggressively cache files in `public/`. If issues arise, add to the nginx HTTPS block:
+**nginx note for `sw.js`**: add `Cache-Control: no-cache` to prevent stale SW serving:
 ```nginx
 location = /sw.js {
     proxy_pass http://frontend:3000;
@@ -80,218 +103,80 @@ location = /sw.js {
 }
 ```
 
----
-
 ## How to Test Locally
 
-Service Workers require a **secure context** (HTTPS or `localhost`). The existing Docker stack serves `localhost` over plain HTTP — browsers treat `localhost` as a secure origin, so SW registration and `__Host-` cookies both work.
+Service Workers require a secure context. `http://localhost` qualifies — browsers treat it as secure.
 
 ```bash
-# 1. Start the full stack
 cd src && docker compose up --build -d
-
-# 2. Seed dev users (first boot only)
-bash scripts/seed-dev-users.sh
-
-# 3. Open http://localhost and log in as a REGIONAL_ENCODER
-#    (e.g. encoder01 / password from seed script)
-
-# 4. Navigate to the regional dashboard
-#    → You should see SyncStatusBar (green "All synced" when online)
+bash scripts/seed-dev-users.sh   # first boot only
+# Open http://localhost → log in as REGIONAL_ENCODER (encoder01 from seed script)
 ```
 
-**Simulate offline in Chrome/Firefox:**
+**Simulate offline (Chrome/Firefox):**
 ```
-DevTools → Network tab → throttle dropdown → "Offline"
+DevTools → Network → throttle → Offline
 ```
-Then:
-1. Open "Manual Entry" form → fill required fields → click Submit
-   - Expected: amber toast "Saved locally — will sync when connection is restored"
-   - SyncStatusBar shows "Offline · 1 incident queued"
-2. Refresh the page
-   - Expected: form draft is restored from IndexedDB (not lost)
-3. Dashboard page while offline
-   - Expected: amber "Showing cached data" banner; list populated from cache
-   - If you had queued a create: "Queued Locally (1)" section appears above the list
-4. Go back online (remove the throttle)
-   - Expected: SyncStatusBar shows "Syncing 1 incident..." then "All synced"
+
+1. Dashboard → **My Profile** → Enable offline mode → confirm progress bar completes
+2. Set throttle to Offline
+3. Navigate to dashboard — stale data banner appears; incident cards load from cache; caller name/contact visible
+4. Manual Entry → fill form → Submit — amber toast "Saved locally"; SyncStatusBar shows queued count
+5. Open a queued incident — view works; Edit blocked until submitted; Withdraw button clears the queued submit
+6. Navigate to Audit Log and AFOR Import — restricted-route guards show, no browser dino page
+7. Remove throttle — SyncStatusBar syncs, sync-complete modal lists results; banner disappears from dashboard
 
 **Verify in the database:**
 ```sql
--- Connect: docker exec -it wims-postgres psql -U wims wims
-SELECT incident_id, client_id, verification_status, created_at
-FROM wims.fire_incidents
+-- docker exec -it wims-postgres psql -U wims wims
+SELECT incident_id, client_id, verification_status FROM wims.fire_incidents
 ORDER BY created_at DESC LIMIT 5;
--- The row created via offline sync should have a non-null client_id UUID.
+-- Offline-synced rows have a non-null client_id UUID.
 ```
 
-**Simulate idempotency (duplicate-safe retry):**
-```bash
-# While online, POST the same incident twice with the same client_id
-curl -s -X POST http://localhost/api/regional/incidents \
-  -H "Content-Type: application/json" \
-  -b "__Host-access_token=<token>" \
-  -d '{"latitude":14.5,"longitude":121.0,"region_id":1,"client_id":"aaaaaaaa-0000-0000-0000-000000000001"}'
+## Auth flow for synced ops
 
-# Second POST with same client_id — should return the same incident_id, not a new row
-curl -s -X POST http://localhost/api/regional/incidents \
-  -H "Content-Type: application/json" \
-  -b "__Host-access_token=<token>" \
-  -d '{"latitude":14.5,"longitude":121.0,"region_id":1,"client_id":"aaaaaaaa-0000-0000-0000-000000000001"}'
-```
-
----
-
-## How Changes Are Validated as Authenticated
-
-Every sync request goes through the same auth stack as any other API call. There is no separate offline-auth mechanism — the offline queue just defers the request until connectivity returns, then submits normally.
-
-**Request path for a synced op:**
+Every queued op is submitted through the same auth stack as an online request — no separate mechanism.
 
 ```
-Browser (syncEngine.ts)
-  │
-  │  POST /api/regional/incidents
-  │  credentials: 'include'               ← sends __Host-access_token cookie automatically
-  │
-  ▼
-Nginx (/api/ block)
-  │  proxy_cookie_domain nginx-gateway $host  ← keeps cookie domain valid
-  ▼
-FastAPI (auth.py: get_current_user)
-  │  token = request.cookies.get("__Host-access_token")
-  │  if not token → 401
-  │  jwt.decode(token, keycloak_public_key, algorithms=["RS256"])
-  │    verifies: exp, iat, iss, aud, azp == "wims-web"
-  │    checks Redis session-revocation blacklist
-  ▼
-FastAPI (auth.py: get_current_wims_user)
-  │  SELECT user_id, role FROM wims.users
-  │  WHERE keycloak_id = token.sub AND is_active = TRUE
-  │  if not found → 403
-  ▼
-FastAPI (routes/regional.py: create_incident)
-  │  SET LOCAL wims.current_user_id = user_id   ← RLS GUC
-  │  INSERT INTO wims.fire_incidents ...
-  │    RLS policy enforces region_id matches encoder's assigned region
-  │  client_id UNIQUE index prevents duplicate if retried
-  ▼
-  201 Created / 200 OK (idempotent return)
+Browser (syncEngine.ts)  →  POST /api/incidents/upload-bundle
+                              credentials: 'include'  (HttpOnly __Host-access_token cookie)
+  ↓
+Nginx  →  FastAPI auth.py
+  jwt.decode(token, keycloak_public_key)  — verifies exp/iss/aud/azp
+  Redis blacklist check  — rejects revoked sessions instantly
+  ↓
+get_current_wims_user  →  SELECT user_id, role WHERE is_active = TRUE
+  ↓
+upload_incident_bundle  →  SET LOCAL wims.current_user_id  (RLS GUC)
+  INSERT ... client_id UNIQUE index prevents duplicate on retry
+  → 201 Created / 200 OK (idempotent)
 ```
 
-Key points:
-- The **Authorization header is not used** — only the `__Host-access_token` HttpOnly cookie. This cookie cannot be read by JavaScript (XSS-safe) and is `SameSite=Strict` (CSRF-safe).
-- The sync engine calls `refreshToken()` before every batch, which hits `/api/auth/refresh`. This exchanges the `__Host-refresh_token` (8-hour lifetime) for a fresh access token. If the refresh token is expired or revoked, `refreshToken()` returns `false` and the batch aborts with `abortReason: 'auth'` — no data is submitted.
-- The `client_id` UUID is an **idempotency key only**, not an auth mechanism. It prevents duplicate rows but carries no identity claims.
-- RLS at the database level enforces that the encoder can only write to their own region regardless of what `region_id` the client sends.
+- `refreshToken()` runs before every sync batch. Expired/revoked refresh token → batch aborts with `abortReason: 'auth'`; queued ops are preserved.
+- RLS enforces the encoder can only write to their assigned region regardless of client-supplied `region_id`.
+- `client_id` is an idempotency key only — no identity claim.
 
----
+## Offline session scenarios
 
-## What Happens if They Cannot Log In
-
-The offline capability is specifically for **encoders who lose connectivity mid-session**, not for unauthenticated access. Here is what happens in each scenario:
-
-### Scenario A — Encoder loses internet while already logged in (< 8 hours)
-
-This is the intended use case. The `__Host-refresh_token` has an 8-hour lifetime.
-
-| Phase | What Happens |
+| Scenario | Behaviour |
 |---|---|
-| Goes offline | App shell loads from SW cache. Dashboard reads from `cachedIncidents`. Form autosave continues to IndexedDB. |
-| Submits incident offline | Queued to `offlineOps` as `status: pending`. "Saved locally" toast. |
-| Reconnects within 8 hours | `syncEngine` calls `refreshToken()` → succeeds → gets a fresh 5-min access token → submits queued ops → "All synced". |
-| Reconnects after > 8 hours | `refreshToken()` → Keycloak rejects the expired refresh token → clears both cookies → returns `false`. Sync aborts with `abortReason: 'auth'`. SyncStatusBar shows "Session expired — please log in again." |
+| Loses internet mid-session (< 8 h) | App shell from SW cache; dashboard from IndexedDB; offline create/edit queued. On reconnect: `refreshToken()` succeeds → sync runs → "All synced" |
+| Reconnects after > 8 h | `refreshToken()` fails → session cleared → `abortReason: 'auth'`. Queued ops preserved in IndexedDB; sync resumes after re-login |
+| Never logged in on this device | Login requires Keycloak reachability. No offline login mechanism by design |
+| Account deactivated mid-session | Blacklist check fires at reconnect via `refreshToken()` failure → batch aborts; ops NOT submitted |
+| Private browsing | IndexedDB cleared when private window closes. Expected — private mode opts out of persistence |
 
-**Queued ops are NOT lost** when the session expires. They remain in IndexedDB until the encoder logs back in, at which point the next sync cycle will pick them up.
+## Validation
 
-### Scenario B — Encoder has never logged in on this device
-
-They cannot access the app at all. Keycloak must be reachable to complete the OIDC login flow — the browser redirect to `/auth/realms/bfp/protocol/openid-connect/auth` will fail with a network error. The login page itself requires connectivity.
-
-**There is no offline login mechanism.** This is by design — anonymous access to the encoder dashboard violates the role-based access requirements.
-
-### Scenario C — Encoder's account is deactivated mid-session
-
-The Redis session-revocation blacklist (`utils/session.py`) is checked on every authenticated request. However:
-- While **offline**, the blacklist check never fires (no network → no API calls).
-- The queued ops remain in IndexedDB locally.
-- When **reconnecting**, the sync engine calls `refreshToken()` first. If the account is deactivated, Keycloak will reject the refresh token → `refreshToken()` returns `false` → batch aborts → ops are NOT submitted.
-- The deactivation is enforced at reconnect, not at the moment of deactivation (unavoidable for offline-first systems — the device is unreachable).
-
-### Scenario D — Private browsing / incognito
-
-IndexedDB is available but cleared when the private session ends. Draft recovery and cached incidents will not survive closing the private window. The `localStorage` fallback for the form draft also does not persist across private sessions. This is expected behaviour — private mode opts out of persistence.
-
----
-
-## Testing
-
-```bash
-# Frontend unit tests (all 161 pass)
-cd src/frontend && npx vitest run
-
-# TypeScript — no errors in production files
-cd src/frontend && npx tsc --noEmit
+```
+Frontend: npx vitest run  → 193 passed (28 test files)
+          npm run lint     → 0 errors
+          npx tsc --noEmit → clean
+Backend:  ruff check .     → All checks passed!
 ```
 
-## Follow-up: critical correctness fixes (2026-06-07)
+## Deferred
 
-### 🛑 Offline-created incidents were losing all their detail on sync (fixed)
-
-The headline bug. Offline `create` ops store the **full nested** incident object
-(`incident_nonsensitive_details` + `incident_sensitive_details`), but the sync engine
-replayed them against the **flat** `POST /api/regional/incidents` endpoint
-(`IncidentCreateRequest`), which only reads scalar columns. Pydantic silently dropped
-both nested blobs, so an incident an encoder fully filled out offline would sync back
-with **only latitude/longitude/region** — no notification time, classification,
-casualties, resources, narrative, or PII. This directly violated "do not silently drop
-local work."
-
-**Fix:**
-- `syncEngine.ts` `processCreate` now replays through the same full-fidelity
-  `POST /api/incidents/upload-bundle` endpoint the **online** form already uses:
-  `{ region_id, incidents: [{ ...payload, client_id }] }`, reading `incident_ids[0]`.
-  Online and offline create paths are now unified (this also resolves the deferred
-  "online create path consistency" item below).
-- Idempotency moved to the bundle endpoint: `upload_incident_bundle`
-  (`api/routes/incidents.py`) detects the `client_id` column once, returns the existing
-  incident on a duplicate `client_id` (retry-after-timeout safe), and persists
-  `client_id` on the `fire_incidents` INSERT. Migration 45 + the `main.py` self-heal
-  still supply the column. The flat `/api/regional/incidents` endpoint is unchanged —
-  it is still used by the online duplicate-resolution "update request" flow.
-- New backend test `tests/test_upload_bundle_idempotency.py` proves a duplicate
-  `client_id` returns the existing incident with **no** second INSERT (MagicMock DB —
-  no Docker required). `syncEngine.test.ts` updated for the bundle envelope + response
-  shape, plus a new "bundle imports nothing → op stays queued" case.
-
-### Service worker: removed dead/broken background-sync handler
-
-`public/sw.js` was POSTing queued items to the **civilian** endpoint
-(`/api/v1/public/report`) and opening IndexedDB at **v1** while the app is now at v3
-(→ `VersionError` → silent no-op). Replaced with: cache bumped to `v3`, an offline
-**navigation fallback** to the cached app shell, and a `sync` handler that *delegates*
-to open clients (the page owns token refresh + the create→submit replay) instead of
-POSTing directly. Reconnect detection remains app-level (`useNetworkStatus` →
-`useAutoSync`).
-
-### Logout cleanup (shared-device privacy, without dropping work)
-
-`context/AuthContext.tsx` logout now calls `clearAllCachedIncidents()` so cached
-incident PII does not linger for the next user on a shared device. Pending offline ops
-are **intentionally preserved** (encrypted + encoder-scoped) so unsynced work resumes
-on re-login rather than being silently lost — a safer trade-off than clearing the
-crypto key.
-
-### Validation status (2026-06-07)
-
-- Frontend: `npx vitest run` → **162 passed**; `npm run lint` → **0 errors**;
-  `npx tsc --noEmit` → unchanged (13 pre-existing errors, none in offline files).
-- Backend: `ruff check .` → clean; `pytest tests/test_upload_bundle_idempotency.py
-  tests/test_incidents_create_endpoint.py` → **2 passed**.
-
-## Deferred (Phase 1E+)
-
-- **Conflict resolution UI**: Requires OCC branch (`65-featregional-...`) to be merged. `IncidentConflictMergePanel` already exists; needs to be wired to `syncStatus === 'conflict'` ops from the `offlineOps` store.
-- **AFOR import offline block**: Graceful "requires internet connection" message when encoder tries to upload while offline.
-- **Crypto key rotation on logout**: `clearCryptoKey()` is intentionally **not** called on logout (it would orphan encrypted pending ops). The read cache is cleared instead. Full key rotation needs a flow that first drains/migrates any pending ops for the outgoing encoder.
-- ~~**Online create path in `IncidentForm`**~~: ✅ Resolved — online and offline create now share `POST /api/incidents/upload-bundle` (see follow-up fixes above).
+- **Conflict resolution UI (M4-D)**: `IncidentConflictMergePanel` exists; needs wiring to `syncStatus === 'conflict'` ops. Blocked on OCC branch (`65-featregional-...`) merge.
+- **Crypto key rotation on logout**: `clearCryptoKey()` is intentionally not called on logout (would orphan encrypted pending ops). Read cache is cleared instead. Full rotation needs a drain-then-wipe flow.

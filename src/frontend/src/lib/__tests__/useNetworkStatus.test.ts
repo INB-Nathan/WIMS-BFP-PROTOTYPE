@@ -11,13 +11,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useNetworkStatus } from '../useNetworkStatus';
-import { __resetConnectivityForTests } from '../connectivity';
+import { __resetConnectivityForTests, __stopConnectivityMonitorForTests } from '../connectivity';
 
 // Save original
 const originalNavigator = globalThis.navigator;
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
+  // The connectivity monitor is a singleton; tear it down so each test starts
+  // with a fresh probe and freshly-registered listeners.
+  __stopConnectivityMonitorForTests();
   __resetConnectivityForTests('checking');
   // Default: online
   Object.defineProperty(globalThis, 'navigator', {
@@ -28,6 +31,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  __stopConnectivityMonitorForTests();
   __resetConnectivityForTests('checking');
   Object.defineProperty(globalThis, 'navigator', {
     value: originalNavigator,
@@ -112,8 +116,9 @@ vi.mocked(fetch)
     });
     expect(result.current.state).toBe('offline');
 
+    // The singleton backoff loop schedules its first recheck at 2s.
     await act(async () => {
-      vi.advanceTimersByTime(5000);
+      vi.advanceTimersByTime(2000);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -202,20 +207,21 @@ vi.mocked(fetch)
     expect(result.current.isReconnecting).toBe(false);
   });
 
-  it('cleans up event listeners on unmount', () => {
+  it('starts the global monitor once and does not duplicate listeners across mounts', () => {
     const addSpy = vi.spyOn(window, 'addEventListener');
-    const removeSpy = vi.spyOn(window, 'removeEventListener');
 
-    const { unmount } = renderHook(() => useNetworkStatus());
-
+    renderHook(() => useNetworkStatus());
     expect(addSpy).toHaveBeenCalledWith('online', expect.any(Function));
     expect(addSpy).toHaveBeenCalledWith('offline', expect.any(Function));
     expect(addSpy).toHaveBeenCalledWith('focus', expect.any(Function));
 
-    unmount();
+    const onlineListenerCount = addSpy.mock.calls.filter((c) => c[0] === 'online').length;
 
-    expect(removeSpy).toHaveBeenCalledWith('online', expect.any(Function));
-    expect(removeSpy).toHaveBeenCalledWith('offline', expect.any(Function));
-    expect(removeSpy).toHaveBeenCalledWith('focus', expect.any(Function));
+    // A second hook instance must NOT register another set of listeners — the
+    // monitor is a singleton (this is the fix for N parallel /health probes).
+    renderHook(() => useNetworkStatus());
+    const onlineListenerCountAfter = addSpy.mock.calls.filter((c) => c[0] === 'online').length;
+
+    expect(onlineListenerCountAfter).toBe(onlineListenerCount);
   });
 });

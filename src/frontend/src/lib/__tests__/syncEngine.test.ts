@@ -26,6 +26,7 @@ vi.mock('../offlineStore', () => ({
   purgeSyncedOps: vi.fn(),
   evictStaleCachedIncidents: vi.fn(),
   cacheIncident: vi.fn(),
+  getCachedIncident: vi.fn(() => Promise.resolve(undefined)),
 }));
 
 // ── Mock auth-refresh ────────────────────────────────────────────────────────

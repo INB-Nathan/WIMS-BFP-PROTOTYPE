@@ -43,6 +43,7 @@ export function useAutoSync(): AutoSyncState {
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasMountSynced = useRef(false);
   const authToastShownRef = useRef(false);
+  const offlineToastShownRef = useRef(false);
 
   const refreshPendingCount = useCallback(async () => {
     if (!user?.id) return;
@@ -116,15 +117,25 @@ export function useAutoSync(): AutoSyncState {
   }, [doSync]);
 
   // Show a persistent "You're offline" toast when connection is lost; dismiss on recovery.
-  // A fixed toast id prevents duplicate toasts during rapid online/offline flapping.
+  // Shown exactly once via a ref so the transient 'checking' state emitted on every
+  // background /health probe doesn't dismiss-then-reshow it (the re-pop bug). The
+  // toast persists across probe cycles and is cleared only when we are back online.
   useEffect(() => {
-    if (!isOnline && !isChecking) {
-      toast.warning("You're offline. Changes will sync when connection is restored.", {
+    if (isOnline) {
+      if (offlineToastShownRef.current) {
+        toast.dismiss(OFFLINE_TOAST_ID);
+        offlineToastShownRef.current = false;
+      }
+      return;
+    }
+    // Not online. While a probe is in flight ('checking'), leave the toast as-is.
+    if (isChecking) return;
+    if (!offlineToastShownRef.current) {
+      toast.warning('You are offline — some features are unavailable until you reconnect.', {
         id: OFFLINE_TOAST_ID,
         duration: Infinity,
       });
-    } else {
-      toast.dismiss(OFFLINE_TOAST_ID);
+      offlineToastShownRef.current = true;
     }
   }, [isOnline, isChecking]);
 

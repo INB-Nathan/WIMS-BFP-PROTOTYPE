@@ -16,7 +16,7 @@ import {
 } from '@/lib/api';
 import { fetchRegionalIncidentOfflineAware } from '@/lib/api/offlineRegional';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
-import { deleteOfflineOpCascade, getOfflineOp, queueOfflineOp, type OfflineOpDecrypted } from '@/lib/offlineStore';
+import { deleteOfflineOpCascade, deleteOfflineOp, getOfflineOp, getLinkedSubmitOpLocalId, queueOfflineOp, type OfflineOpDecrypted } from '@/lib/offlineStore';
 import { toast as sonnerToast } from 'sonner';
 import dynamic from 'next/dynamic';
 import { UpdateRequestDiffPanel } from '@/components/UpdateRequestDiffPanel';
@@ -472,6 +472,10 @@ export default function RegionalIncidentDetailPage() {
   const [regionMismatchMsg, setRegionMismatchMsg] = useState<string | null>(null);
   const [saveNotification, setSaveNotification] = useState<string | null>(null);
   const [showWithdrawPopup, setShowWithdrawPopup] = useState(false);
+  // localId of a queued submit op linked to an offline-created incident, if any.
+  // When set, the local PENDING_SYNC incident is "queued for submission" and must
+  // be withdrawn before editing (item C8).
+  const [queuedSubmitLocalId, setQueuedSubmitLocalId] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [duplicateFound, setDuplicateFound] = useState<{ matchedIncidentId: number; confidence?: 'LIKELY' | 'POSSIBLE' } | null>(null);
   const [pendingDuplicateFound, setPendingDuplicateFound] = useState<{ matchedIncidentId: number; confidence?: 'LIKELY' | 'POSSIBLE' } | null>(null);
@@ -531,6 +535,8 @@ export default function RegionalIncidentDetailPage() {
         setIsFromCache(true);
         setCachedAt(op.createdAt);
         setIsEditing(false);
+        // Detect a queued submit so edits require withdrawal first (item C8).
+        setQueuedSubmitLocalId(await getLinkedSubmitOpLocalId(localIncidentId));
       } catch (e) {
         setDetail(null);
         setError(e instanceof Error ? e.message : 'Failed to load pending sync incident.');
@@ -783,6 +789,19 @@ export default function RegionalIncidentDetailPage() {
 
   const handleUnpendAndEdit = async () => {
     setShowWithdrawPopup(false);
+    // Offline-originated pending: just drop the queued submit op, then edit (C8).
+    if (localIncidentId && queuedSubmitLocalId) {
+      setActionError(null);
+      try {
+        await deleteOfflineOp(queuedSubmitLocalId);
+        setQueuedSubmitLocalId(null);
+        sonnerToast.info('Submission withdrawn. You can now edit this incident.');
+        setIsEditing(true);
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : 'Failed to withdraw queued submission.');
+      }
+      return;
+    }
     setActionLoading(true);
     setActionError(null);
     try {
@@ -855,9 +874,27 @@ export default function RegionalIncidentDetailPage() {
     }
   };
 
+  const handleLocalWithdraw = async () => {
+    if (!queuedSubmitLocalId) return;
+    setActionError(null);
+    try {
+      await deleteOfflineOp(queuedSubmitLocalId);
+      setQueuedSubmitLocalId(null);
+      sonnerToast.info('Queued submission withdrawn. Saved as a draft on this device.');
+      await load();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to withdraw queued submission.');
+    }
+  };
+
   const handleEditClick = () => {
     if (!detail) return;
     if (localIncidentId) {
+      // Offline-originated pending: withdraw the queued submission before editing (C8).
+      if (queuedSubmitLocalId) {
+        setShowWithdrawPopup(true);
+        return;
+      }
       setIsEditing(true);
       setActionError(null);
       return;
@@ -1177,8 +1214,13 @@ export default function RegionalIncidentDetailPage() {
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4">
             <h2 className="text-lg font-bold text-gray-900">Withdraw to Edit?</h2>
             <p className="text-sm text-gray-600">
-              This incident is currently <strong>Pending Review</strong>. You can only edit incidents in Draft status.
-              Would you like to withdraw it from review so you can make changes? It will be set back to Draft.
+              {localIncidentId ? (
+                <>This incident is <strong>queued for submission</strong> and will be sent for review when you reconnect.
+                You can only edit it after withdrawing the queued submission. It will stay as a local draft.</>
+              ) : (
+                <>This incident is currently <strong>Pending Review</strong>. You can only edit incidents in Draft status.
+                Would you like to withdraw it from review so you can make changes? It will be set back to Draft.</>
+              )}
             </p>
             <div className="flex justify-end gap-3 pt-2">
               <button
@@ -1315,6 +1357,15 @@ export default function RegionalIncidentDetailPage() {
                     >
                       Withdraw
                     </button>
+                  ) : (localIncidentId && queuedSubmitLocalId) ? (
+                    <button
+                      onClick={handleLocalWithdraw}
+                      disabled={actionLoading}
+                      className="inline-flex items-center gap-1.5 rounded border border-yellow-300 bg-yellow-50 px-3 py-2 text-sm font-semibold text-yellow-900 hover:bg-yellow-100 disabled:opacity-50"
+                      title="Withdraw the queued submission and keep this as a local draft"
+                    >
+                      Withdraw
+                    </button>
                   ) : null}
                   {canDeleteIncident ? (
                     <button
@@ -1444,7 +1495,9 @@ export default function RegionalIncidentDetailPage() {
             <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 flex items-center gap-3" role="status">
               <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-amber-500" />
               <span className="text-sm text-amber-900 font-medium">
-                Stored on this device and waiting to sync. You can view, edit, or delete it before reconnecting.
+                {queuedSubmitLocalId
+                  ? 'Stored on this device and queued for submission. It will be submitted for review when you reconnect. Withdraw it first to edit.'
+                  : 'Stored on this device and waiting to sync. You can view, edit, or delete it before reconnecting.'}
               </span>
             </div>
           )}

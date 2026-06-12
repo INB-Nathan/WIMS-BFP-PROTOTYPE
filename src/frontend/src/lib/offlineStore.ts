@@ -142,22 +142,199 @@ async function getDB(): Promise<IDBPDatabase> {
     });
 }
 
-// ─── Crypto helpers ───────────────────────────────────────────────────────
+// ─── Per-user crypto isolation (item F12) ─────────────────────────────────
+//
+// Each encoder account on a shared device gets its OWN AES-256-GCM key. The key
+// is a *non-extractable* CryptoKey, so even code that reads it back from
+// IndexedDB cannot export the raw bytes. Its storage slot is named after
+// SHA-256(per-install random salt ‖ userId) rather than a guessable plaintext
+// string, so another account cannot locate the prior user's key by deriving the
+// name from a known uid alone — the random salt is required.
+//
+// The decisive protection is destruction-on-switch: when a *different* uid logs
+// in (see setActiveOfflineUser), every stored key, queued op, and cached
+// incident is cleared, so the previous user's encrypted blobs are both deleted
+// and rendered permanently undecryptable.
+//
+// Browser limitation (documented honestly): while a given user is the active
+// session, same-origin code running under that session can decrypt that user's
+// own data — there is no way around this in a pure client-side PWA without a
+// server-held or user-supplied secret. The guarantee here is strictly
+// cross-account: account B can never read account A's offline data.
+
+const LEGACY_KEY_NAME = 'aes-gcm-key';
+const KEY_SALT_NAME = '__wims_key_salt__';
+const ACTIVE_UID_LS_KEY = 'wims:offline_active_uid';
+
+let activeUserId: string | null = null;
+let saltCache: Uint8Array | null = null;
+
+async function getKeySalt(db: IDBPDatabase): Promise<Uint8Array> {
+    if (saltCache) return saltCache;
+    const stored = await db.get(KEY_STORE, KEY_SALT_NAME);
+    if (stored) {
+        saltCache = stored instanceof Uint8Array ? stored : new Uint8Array(stored as ArrayBuffer);
+        return saltCache;
+    }
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    await db.put(KEY_STORE, salt, KEY_SALT_NAME);
+    saltCache = salt;
+    return salt;
+}
+
+async function keyStorageName(db: IDBPDatabase): Promise<string> {
+    // No active user set yet (e.g. unit tests, or pre-login) → legacy single key.
+    if (!activeUserId) return LEGACY_KEY_NAME;
+    const salt = await getKeySalt(db);
+    const uidBytes = new TextEncoder().encode(activeUserId);
+    const buf = new Uint8Array(salt.length + uidBytes.length);
+    buf.set(salt, 0);
+    buf.set(uidBytes, salt.length);
+    const digest = await crypto.subtle.digest('SHA-256', buf);
+    const hex = Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+    return `aeskey:${hex}`;
+}
 
 async function getOrCreateKey(): Promise<CryptoKey> {
     const db = await getDB();
-    const existing = await db.get(KEY_STORE, 'aes-gcm-key');
+    const name = await keyStorageName(db);
+    const existing = await db.get(KEY_STORE, name);
     if (existing) return existing as CryptoKey;
     const key = await crypto.subtle.generateKey(
         { name: 'AES-GCM', length: 256 },
         false,
         ['encrypt', 'decrypt']
     );
-    await db.put(KEY_STORE, key, 'aes-gcm-key');
+    await db.put(KEY_STORE, key, name);
     return key;
 }
 
-async function encryptPayload(payload: unknown): Promise<EncryptedPayload> {
+/**
+ * Destroy ALL offline state on this device — every queued op, cached incident,
+ * and stored crypto key. Used when a different account logs in so the prior
+ * user's encrypted data cannot be carried over or decrypted.
+ */
+async function wipeAllOfflineData(): Promise<void> {
+    const db = await getDB();
+    await db.clear(OPS_STORE);
+    await db.clear(CACHE_STORE);
+    await db.clear(KEY_STORE);
+    saltCache = null;
+}
+
+/**
+ * Bind the offline store to the currently logged-in encoder. Call once whenever
+ * the authenticated user is (re)established.
+ *
+ * - Same uid as last time → no-op beyond ensuring the key exists (unsynced work
+ *   survives a re-login).
+ * - Different uid than last time → full wipe of the previous user's ops, cache,
+ *   and keys BEFORE the new user's key is created (item F12, requirement b:
+ *   covers the "forgot to log out" case — clearing happens on the new login,
+ *   not only on the prior user's logout).
+ */
+export async function setActiveOfflineUser(userId: string): Promise<void> {
+    if (!userId) return;
+    let prev: string | null = null;
+    try { prev = localStorage.getItem(ACTIVE_UID_LS_KEY); } catch { /* private mode */ }
+
+    activeUserId = userId;
+    try { localStorage.setItem(ACTIVE_UID_LS_KEY, userId); } catch { /* private mode */ }
+
+    if (prev && prev !== userId) {
+        await wipeAllOfflineData();
+    } else if (!prev) {
+        // First run under per-user keying: adopt any legacy single key so this
+        // user's existing offline work isn't orphaned by the upgrade.
+        const db = await getDB();
+        const name = await keyStorageName(db);
+        const derived = await db.get(KEY_STORE, name);
+        const legacy = await db.get(KEY_STORE, LEGACY_KEY_NAME);
+        if (!derived && legacy) {
+            await db.put(KEY_STORE, legacy, name);
+            await db.delete(KEY_STORE, LEGACY_KEY_NAME);
+        }
+    }
+
+    await getOrCreateKey();
+}
+
+/**
+ * Manual "clear offline data" for the current device (item F11). Wipes all
+ * queued ops, cached incidents, and keys. The caller should re-bind the active
+ * user afterwards (setActiveOfflineUser) before queueing new work.
+ */
+export async function clearAllOfflineData(): Promise<void> {
+    await wipeAllOfflineData();
+    activeUserId = null;
+    try { localStorage.removeItem(ACTIVE_UID_LS_KEY); } catch { /* private mode */ }
+}
+
+async function encryptPayload(payload: Record<string, unknown>): Promise<EncryptedPayload> {
+/**
+ * Destroy ALL offline state on this device — every queued op, cached incident,
+ * and stored crypto key. Used when a different account logs in so the prior
+ * user's encrypted data cannot be carried over or decrypted.
+ */
+async function wipeAllOfflineData(): Promise<void> {
+    const db = await getDB();
+    await db.clear(OPS_STORE);
+    await db.clear(CACHE_STORE);
+    await db.clear(KEY_STORE);
+    saltCache = null;
+}
+
+/**
+ * Bind the offline store to the currently logged-in encoder. Call once whenever
+ * the authenticated user is (re)established.
+ *
+ * - Same uid as last time → no-op beyond ensuring the key exists (unsynced work
+ *   survives a re-login).
+ * - Different uid than last time → full wipe of the previous user's ops, cache,
+ *   and keys BEFORE the new user's key is created (item F12, requirement b:
+ *   covers the "forgot to log out" case — clearing happens on the new login,
+ *   not only on the prior user's logout).
+ */
+export async function setActiveOfflineUser(userId: string): Promise<void> {
+    if (!userId) return;
+    let prev: string | null = null;
+    try { prev = localStorage.getItem(ACTIVE_UID_LS_KEY); } catch { /* private mode */ }
+
+    activeUserId = userId;
+    try { localStorage.setItem(ACTIVE_UID_LS_KEY, userId); } catch { /* private mode */ }
+
+    if (prev && prev !== userId) {
+        await wipeAllOfflineData();
+    } else if (!prev) {
+        // First run under per-user keying: adopt any legacy single key so this
+        // user's existing offline work isn't orphaned by the upgrade.
+        const db = await getDB();
+        const name = await keyStorageName(db);
+        const derived = await db.get(KEY_STORE, name);
+        const legacy = await db.get(KEY_STORE, LEGACY_KEY_NAME);
+        if (!derived && legacy) {
+            await db.put(KEY_STORE, legacy, name);
+            await db.delete(KEY_STORE, LEGACY_KEY_NAME);
+        }
+    }
+
+    await getOrCreateKey();
+}
+
+/**
+ * Manual "clear offline data" for the current device (item F11). Wipes all
+ * queued ops, cached incidents, and keys. The caller should re-bind the active
+ * user afterwards (setActiveOfflineUser) before queueing new work.
+ */
+export async function clearAllOfflineData(): Promise<void> {
+    await wipeAllOfflineData();
+    activeUserId = null;
+    try { localStorage.removeItem(ACTIVE_UID_LS_KEY); } catch { /* private mode */ }
+}
+
+async function encryptPayload(payload: Record<string, unknown>): Promise<EncryptedPayload> {
     const key = await getOrCreateKey();
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encoded = new TextEncoder().encode(JSON.stringify(payload));
@@ -176,12 +353,16 @@ async function decryptPayload<T = unknown>(enc: EncryptedPayload): Promise<T> {
 }
 
 /**
- * Clear the per-browser AES-GCM key on logout so cached data
- * becomes unreadable on shared devices.
+ * Clear the active user's AES-GCM key (and any legacy single key) so cached data
+ * becomes unreadable on shared devices. Note: logout does NOT call this — unsynced
+ * ops must survive a same-user re-login. A different-user login wipes everything
+ * via setActiveOfflineUser instead.
  */
 export async function clearCryptoKey(): Promise<void> {
     const db = await getDB();
-    await db.delete(KEY_STORE, 'aes-gcm-key');
+    const name = await keyStorageName(db);
+    await db.delete(KEY_STORE, name);
+    await db.delete(KEY_STORE, LEGACY_KEY_NAME);
 }
 
 // ─── Legacy API (incident-queue) — Phase 1A compat ────────────────────────
@@ -478,6 +659,21 @@ export async function resolveConflictOp(
 export async function deleteOfflineOp(localId: string): Promise<void> {
     const db = await getDB();
     await db.delete(OPS_STORE, localId);
+}
+
+/**
+ * Find a not-yet-synced submit op linked to a given create op's localId.
+ * Used to enforce "withdraw before edit" on offline-originated pending incidents
+ * (item C8): a PENDING_SYNC incident with a queued submit must be withdrawn
+ * (the submit op removed) before it can be edited.
+ */
+export async function getLinkedSubmitOpLocalId(createLocalId: string): Promise<string | null> {
+    const db = await getDB();
+    const all: OfflineOp[] = await db.getAll(OPS_STORE);
+    const match = all.find(
+        (op) => op.operation === 'submit' && op.linkedLocalId === createLocalId && op.syncStatus !== 'synced',
+    );
+    return match?.localId ?? null;
 }
 
 export async function deleteOfflineOpCascade(localId: string): Promise<void> {

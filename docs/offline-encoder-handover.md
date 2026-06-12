@@ -250,14 +250,156 @@ Chrome DevTools → Network → Offline blocks ALL requests including `http://lo
 - Auth cookie names must not change
 - Keycloak realm/client config must not change without approval
 - AES-256-GCM encryption of all IndexedDB stores must remain
-- `offlineOps` schema changes require explicit approval (would need DB version bump)
+- Per-user key isolation must remain (see §9a): keys are non-extractable, named by
+  `SHA-256(salt ‖ uid)`, and a different-uid login wipes all offline data + keys.
+  `setActiveOfflineUser` must be called whenever the authenticated user is set.
+- `offlineOps` schema changes require explicit approval (would need DB version bump).
+  Note: the F12 change adds no fields and does not bump the DB version — it only
+  changes the crypto-key storage slot naming, leaving the `offlineOps`/`cachedIncidents`
+  object stores byte-identical.
 - Sequential sync order (create → update/submit) must be preserved
 - `client_id/localId` idempotency key must be preserved on all creates
 - `automaticSilentRenew: false` in `oidc.ts` must remain — the library's built-in renew fires Keycloak token endpoints directly from the browser, breaking offline mode
 
 ---
 
+## 9a. Offline data lifecycle & per-user isolation (2026-06-12)
+
+### Per-user encryption isolation (item F12)
+Each encoder account on a shared device now gets its **own** AES-256-GCM key
+(`src/frontend/src/lib/offlineStore.ts`):
+
+- The key is a **non-extractable** `CryptoKey` (raw bytes cannot be exported even
+  when read back from IndexedDB).
+- Its storage slot is named `aeskey:<hex>` where `<hex> = SHA-256(random per-install
+  salt ‖ userId)` — **not** a guessable plaintext uid. The random salt
+  (`__wims_key_salt__`) is required to locate another user's key, so a second
+  account cannot derive the first user's key slot from a known uid alone.
+- `setActiveOfflineUser(userId)` binds the store to the logged-in encoder. It is
+  called from `AuthContext` on every session (re)establish, including the
+  offline cache-restore path.
+
+**Decisive protection — destruction on account switch:** when a *different* uid
+logs in, `setActiveOfflineUser` runs a **full wipe** (`offlineOps`,
+`cachedIncidents`, **and all keys**) *before* creating the new user's key. This
+clears prior data on the new login — covering the "previous user forgot to log
+out" case — not only on the prior user's logout. The previous user's blobs are
+both deleted and rendered permanently undecryptable.
+
+**First-run migration:** if a legacy single key (`aes-gcm-key`) exists and this is
+the first per-user binding (no prior active uid), that key is adopted under the
+new derived name so existing offline work is not orphaned by the upgrade.
+
+**Honest browser limitation:** while a user is the active session, same-origin
+code under that session can decrypt *that user's own* data — unavoidable in a
+pure client-side PWA without a server-held or user-supplied secret. The
+guarantee here is strictly **cross-account**: account B can never read account
+A's offline data.
+
+### Cleanup rule (item F11)
+Stale/unnecessary offline data is cleared by these rules:
+
+| Trigger | What is cleared |
+|---|---|
+| **Different uid logs in** | Everything (ops + cache + keys) — `setActiveOfflineUser` |
+| **Logout (same device)** | Read cache only (`clearAllCachedIncidents`); unsynced ops kept for same-user re-login |
+| **Manual "Clear offline data" button** | Everything (`clearAllOfflineData`), then re-binds current user |
+| **After a successful sync** | Synced ops older than 7 days (`purgeSyncedOps`); cached incidents older than 7 days (`evictStaleCachedIncidents`) |
+
+The manual control lives in `OfflineModeManager` on the regional dashboard.
+
+### "Enable offline mode" flow (item E10)
+`src/frontend/src/lib/offlineEnable.ts` + `src/frontend/src/components/regional/OfflineModeManager.tsx`:
+
+- A dismissible **banner** appears on the regional dashboard on first online load,
+  plus a persistent **Enable / Update offline data** button (and the **Clear
+  offline data** button above).
+- `enableOfflineMode()` (1) prefetches the offline-capable routes, (2) warms the
+  manual-entry form, wildland form, and map chunks via `import()` (SW caches
+  them under `/_next/static`), and (3) pre-populates the encrypted IndexedDB
+  cache with the encoder's incident list + a capped batch (40) of full incident
+  details so view/create/edit work offline without a prior manual visit.
+- This is now the **primary** offline-prep mechanism. The pre-existing
+  `router.prefetch` (dashboard mount) and eager `import()` (regional layout)
+  remain as a passive fallback.
+
+### Health-probe backoff while offline (item G13)
+`useNetworkStatus` no longer fires a fixed 5s `/health` probe while offline.
+Investigation: the probe errors were harmless (the `fetch` rejection is caught in
+`connectivity.ts`), but the browser logged a failed request every 5s as console
+noise. The recheck now uses a self-scheduling timeout with **exponential backoff**
+(2s → 30s ceiling) that resets on reconnect.
+
+---
+
 ## 10. Change Log (this branch)
+
+### 2026-06-12 — Stabilization pass 2 (review fixes)
+- **Single connectivity monitor (fixes constant /health failures):** the
+  `/health` recheck loop + browser online/offline/focus listeners now live in ONE
+  singleton in `connectivity.ts` (`startConnectivityMonitor`). Previously every
+  `useNetworkStatus` consumer (dashboard, sync bar, forms, …) ran its own 5s
+  interval, so the endpoint was probed many times in parallel. The single loop
+  uses exponential backoff (2s→30s) while offline. `useNetworkStatus` is now a
+  thin subscriber.
+- **Offline toast no longer re-pops:** the persistent "You are offline" toast is
+  shown once via a ref and only dismissed when back online; the transient
+  `checking` state emitted by each probe no longer dismisses-then-reshows it.
+  Wording updated to "You are offline — some features are unavailable…".
+- **Offline-mode controls moved to My Profile (`OfflineModeManager variant`):**
+  the dashboard now shows only the dismissible first-run banner; the persistent
+  Enable/Update + Clear controls live in the Profile tab. Dismissing the banner
+  toasts "You can enable offline mode anytime from your Profile tab."
+- **Cache-age banner accuracy (#4):** "last updated" now uses the MOST RECENT
+  cache write (`Math.max(cachedAt)`) instead of the oldest entry.
+- **Offline list now respects filters (#7):** the offline cache path
+  (`buildCachedListResult` in `offlineRegional.ts`) applies the same
+  status/category/date/archived filters as the online list, instead of dumping
+  every cached incident. This removes the "ghost" cards (e.g. yesterday's
+  incidents showing under a Today filter). Combined with per-user cache scoping
+  (§9a), the offline dashboard only shows the current encoder's relevant records.
+- **Offline navigation to unvisited/dynamic routes (#5, #6):** `sw.js` (v7) now
+  collapses all `/dashboard/regional/incidents/<id>` routes to ONE canonical
+  cache key, so prefetching/visiting any incident online makes EVERY incident —
+  including offline-created local UUIDs — viewable offline via soft navigation.
+  The detail page is `'use client'`, so the dashboard prefetches a placeholder
+  detail route on mount to warm this cache even with zero server incidents.
+  Restricted routes (`/dashboard/regional/audit`, `/home`, `/afor/import`) are
+  prefetched + precached so they open offline and render their own
+  "unavailable offline" guard instead of the browser's offline error page. On a
+  true RSC cache miss the SW now returns a network error (triggering Next's hard-
+  navigation fallback to the cached shell) instead of `{}` (which crashed the
+  router). **Requires the service worker to be registered** — use
+  `http://localhost` in dev (see §6); on a valid cert / VPS it registers
+  automatically.
+
+### 2026-06-12 — Encoder offline stabilization pass
+- **A2 — Richer sync-complete modal:** `SyncedIncidentSummary` now carries
+  `operation` (create/update/submit/delete) and a human `result` label. The
+  sync engine builds one entry per incident (merged by serverId; highest-order
+  action wins) for update/submit/delete ops too, not just creates. The dashboard
+  modal lists each item with classification, location, action, and resulting
+  status. (`syncEngine.ts`, `dashboard/regional/page.tsx`, `syncEngine.test.ts`)
+- **C8 — Withdraw-before-edit for offline-originated pending:** an offline-created
+  incident that was submitted offline (queued create + linked submit) now requires
+  withdrawing the queued submit before it can be edited, mirroring the online
+  PENDING rule. New `getLinkedSubmitOpLocalId` store helper; detail page gates
+  Edit behind a withdraw popup and adds a Withdraw button for the local case.
+  (`offlineStore.ts`, `incidents/[id]/page.tsx`)
+- **E10 / F11 / F12 / G13:** see section 9a above. New files
+  `lib/offlineEnable.ts`, `components/regional/OfflineModeManager.tsx`; modified
+  `offlineStore.ts` (per-user keys, `setActiveOfflineUser`, `clearAllOfflineData`,
+  `getLinkedSubmitOpLocalId`), `AuthContext.tsx` (binds active offline user),
+  `useNetworkStatus.ts` (backoff).
+- **Verified, unchanged:** B4 (offline-created incidents open in view + edit —
+  detail page handles non-numeric local IDs and `handleEditClick`), B5 (offline
+  edits to existing incidents queue `update` ops; the backend `encoder_crud`
+  update endpoint writes an `EDITED` activity-log entry on sync, so offline edits
+  appear in the activity log once connectivity returns — no backend change
+  needed), D9 (`/home`, `/audit`, `/afor/import` offline messaging).
+- **Tests:** full frontend Vitest suite green (193 tests). New F12 isolation
+  tests in `offlineStore.ops.test.ts` (account-switch wipe + same-user preserve).
+  Typecheck and lint clean on all touched files.
 
 ### Root cause fixes (HAR-confirmed)
 - **Fix A:** `oidc.ts` — `automaticSilentRenew: false` — prevents oidc-client-ts timer from calling Keycloak directly while offline

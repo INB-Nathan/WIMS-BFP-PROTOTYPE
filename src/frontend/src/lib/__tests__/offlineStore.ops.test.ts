@@ -28,6 +28,7 @@ type StoredOp = {
 // Per-test mutable state
 const opsStore = new Map<string, StoredOp>();
 const keyStore = new Map<string, CryptoKey>();
+const cacheStore = new Map<number, unknown>();
 
 function makeOpsDbMock() {
   return {
@@ -65,7 +66,13 @@ function makeOpsDbMock() {
     }),
     getAll: vi.fn(async (storeName?: string) => {
       if (storeName === 'offlineOps') return [...opsStore.values()];
+      if (storeName === 'cachedIncidents') return [...cacheStore.values()];
       return [];
+    }),
+    clear: vi.fn(async (storeName: string) => {
+      if (storeName === 'offlineOps') opsStore.clear();
+      else if (storeName === 'cachedIncidents') cacheStore.clear();
+      else if (storeName === 'crypto-keys') keyStore.clear();
     }),
   };
 }
@@ -81,6 +88,7 @@ const {
   updateOfflineOp,
   queueOfflineOp,
   getOfflineOp,
+  setActiveOfflineUser,
 } = await import('../offlineStore');
 
 const ENCODER_ID = 'enc-001';
@@ -109,6 +117,8 @@ function makeOp(overrides: Partial<StoredOp> = {}): StoredOp {
 beforeEach(() => {
   opsStore.clear();
   keyStore.clear();
+  cacheStore.clear();
+  try { localStorage.clear(); } catch { /* jsdom */ }
   vi.clearAllMocks();
 });
 
@@ -261,5 +271,37 @@ describe('deleteOfflineOpCascade', () => {
     expect(opsStore.has(linkedSubmit.localId)).toBe(false);
     expect(opsStore.has(linkedUpdate.localId)).toBe(false);
     expect(opsStore.has(unrelated.localId)).toBe(true);
+  });
+});
+
+describe('per-user isolation (F12)', () => {
+  it('wipes all offline ops + cache when a different uid logs in', async () => {
+    await setActiveOfflineUser('user-A');
+    await queueOfflineOp({
+      localId: 'a-1', operation: 'create', serverId: null, linkedLocalId: null,
+      serverUpdatedAt: null, regionId: 1, encoderId: 'user-A',
+      payload: { general_category: 'STRUCTURAL' }, createdAt: Date.now(),
+    });
+    cacheStore.set(42, { serverId: 42 });
+    expect(opsStore.size).toBe(1);
+    expect(cacheStore.size).toBe(1);
+
+    // A different account logs in on the same device → prior data destroyed.
+    await setActiveOfflineUser('user-B');
+    expect(opsStore.size).toBe(0);
+    expect(cacheStore.size).toBe(0);
+  });
+
+  it('preserves offline ops on a same-user re-login', async () => {
+    await setActiveOfflineUser('user-A');
+    await queueOfflineOp({
+      localId: 'a-2', operation: 'create', serverId: null, linkedLocalId: null,
+      serverUpdatedAt: null, regionId: 1, encoderId: 'user-A',
+      payload: { general_category: 'STRUCTURAL' }, createdAt: Date.now(),
+    });
+    expect(opsStore.size).toBe(1);
+
+    await setActiveOfflineUser('user-A'); // same uid → no wipe
+    expect(opsStore.size).toBe(1);
   });
 });

@@ -19,8 +19,8 @@
 
 import {
   getPendingOps, markOpSyncing, markOpPending, markOpSynced, markOpConflict, markOpError,
-  purgeSyncedOps, evictStaleCachedIncidents, cacheIncident,
-  type OfflineOpDecrypted,
+  purgeSyncedOps, evictStaleCachedIncidents, cacheIncident, getCachedIncident,
+  type OfflineOpDecrypted, type OfflineOpType,
 } from './offlineStore';
 import { refreshToken } from './auth-refresh';
 import { isReachable, markConnectivityOffline } from './connectivity';
@@ -44,7 +44,29 @@ export interface SyncedIncidentSummary {
   serverId: number;
   category: string;
   location: string;
+  // Which offline action was replayed for this incident. When several ops for the
+  // same incident sync in one batch (e.g. create + submit), this reflects the
+  // highest-order action so the encoder sees the final outcome.
+  operation: OfflineOpType;
+  // Human-readable resulting status, e.g. "Saved as draft", "Submitted for review".
+  result: string;
 }
+
+const OP_RESULT_LABEL: Record<OfflineOpType, string> = {
+  create: 'Saved as draft',
+  update: 'Changes saved',
+  submit: 'Submitted for review',
+  delete: 'Deleted',
+};
+
+// Higher number = higher-order action. Used to decide which operation label wins
+// when one incident has several ops synced in the same batch.
+const OP_PRECEDENCE: Record<OfflineOpType, number> = {
+  create: 0,
+  update: 1,
+  submit: 2,
+  delete: 3,
+};
 
 export interface SyncResult {
   synced: number;
@@ -252,10 +274,50 @@ export async function syncPendingIncidents(encoderId: string): Promise<SyncResul
   let conflicts = 0;
   let failed = 0;
   const errors: SyncError[] = [];
-  const syncedIncidents: SyncedIncidentSummary[] = [];
+  // Keyed by serverId so create + linked submit (etc.) collapse into one entry
+  // showing the final outcome. Negative keys hold ops whose serverId is unknown
+  // (e.g. an offline create that synced but returned no usable id path).
+  const syncedSummaries = new Map<number, SyncedIncidentSummary>();
   // Map from localId → serverId for create ops that succeed during this batch.
   // Needed so linked submit/update ops can resolve their serverId.
   const syncedServerIds = new Map<string, number>();
+
+  // Build/merge a summary entry for a synced op (item A2). Pulls category/location
+  // from the op payload when present, otherwise from the read cache, otherwise from
+  // an earlier op for the same incident in this batch.
+  const recordSynced = async (serverId: number, op: OfflineOpDecrypted) => {
+    const existing = syncedSummaries.get(serverId);
+    const payload = (op.payload ?? {}) as Record<string, unknown>;
+    const ns = (payload.incident_nonsensitive_details as Record<string, unknown>) ?? payload;
+    let category = (ns.general_category || ns.classification_of_involved || '') as string;
+    let location = (ns.incident_address || ns.street_address || '') as string;
+
+    if ((!category || !location) && existing) {
+      category = category || existing.category;
+      location = location || existing.location;
+    }
+    // Submit/delete ops carry an empty payload — fall back to the cached incident.
+    if (!category && !location) {
+      const cached = await getCachedIncident(serverId).catch(() => undefined);
+      const cd = (cached?.data ?? {}) as Record<string, unknown>;
+      const cns = (cd.nonsensitive as Record<string, unknown>) ?? cd;
+      category = (cns.general_category || cns.classification_of_involved || '') as string;
+      location = (cns.incident_address || cns.street_address || cd.location_display || '') as string;
+    }
+
+    const winningOp =
+      existing && OP_PRECEDENCE[existing.operation] >= OP_PRECEDENCE[op.operation]
+        ? existing.operation
+        : op.operation;
+
+    syncedSummaries.set(serverId, {
+      serverId,
+      category: category || existing?.category || '',
+      location: location || existing?.location || '',
+      operation: winningOp,
+      result: OP_RESULT_LABEL[winningOp],
+    });
+  };
 
   for (const op of ops) {
     // Skip ops that have hit the retry ceiling
@@ -279,15 +341,17 @@ export async function syncPendingIncidents(encoderId: string): Promise<SyncResul
 
     if (result.ok) {
       await markOpSynced(op.localId, result.serverId);
+      // Resolve the serverId this op acted on so its summary merges correctly.
+      const summaryServerId =
+        op.operation === 'create'
+          ? result.serverId ?? null
+          : resolveServerId(op, syncedServerIds);
       if (op.operation === 'create' && result.serverId) {
         // Cache the created incident so dashboard shows it offline immediately
         await cacheIncident(result.serverId, op.payload, encoderId);
-        const ns = (op.payload?.incident_nonsensitive_details as Record<string, unknown>) ?? op.payload ?? {};
-        syncedIncidents.push({
-          serverId: result.serverId,
-          category: (ns.general_category || ns.classification_of_involved || '') as string,
-          location: (ns.incident_address || ns.street_address || '') as string,
-        });
+      }
+      if (summaryServerId !== null) {
+        await recordSynced(summaryServerId, op);
       }
       synced++;
     } else if (result.conflictCode) {
@@ -308,7 +372,7 @@ export async function syncPendingIncidents(encoderId: string): Promise<SyncResul
     } else if (result.status === 401) {
       await markOpPending(op.localId, 'Session expired before this operation could sync.');
       errors.push({ localId: op.localId, operation: op.operation, status: 401, error: result.error ?? 'Session expired' });
-      return { synced, conflicts, failed, errors, syncedIncidents, abortReason: 'auth' };
+      return { synced, conflicts, failed, errors, syncedIncidents: [...syncedSummaries.values()], abortReason: 'auth' };
     } else {
       const errorCode = result.status === 403 ? '403' : result.status ? '4xx' : 'network';
       await markOpError(op.localId, errorCode, result.error ?? `HTTP ${result.status}`);
@@ -323,5 +387,5 @@ export async function syncPendingIncidents(encoderId: string): Promise<SyncResul
     await evictStaleCachedIncidents(encoderId);
   }
 
-  return { synced, conflicts, failed, errors, syncedIncidents };
+  return { synced, conflicts, failed, errors, syncedIncidents: [...syncedSummaries.values()] };
 }

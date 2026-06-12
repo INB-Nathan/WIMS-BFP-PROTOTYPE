@@ -27,6 +27,7 @@ import { formatIncidentDate, isDateOnly, getDateBounds as getDateBoundsUtil, cat
 import { NotificationToasts } from '@/components/regional/NotificationToasts';
 import { IncidentCard } from '@/components/regional/IncidentCard';
 import { WildlandFireBreakdown } from '@/components/regional/WildlandFireBreakdown';
+import { OfflineModeManager } from '@/components/regional/OfflineModeManager';
 
 interface RegionalStatsPayload {
   total_incidents?: number;
@@ -147,6 +148,16 @@ export default function RegionalDashboardPage() {
   useEffect(() => {
     router.prefetch('/afor/create');
     router.prefetch('/afor/import');
+    // Restricted pages: prefetch so their RSC is cached and they remain navigable
+    // offline (showing their own "unavailable offline" guard, not the browser's
+    // offline error page).
+    router.prefetch('/dashboard/regional/audit');
+    router.prefetch('/home');
+    // Warm the incident-detail route. The page is 'use client' (no server data
+    // fetch), so prefetching any concrete id caches the SAME shell/RSC that the
+    // SW keys canonically — making every incident, including offline-created
+    // local IDs, viewable offline even when the encoder has no server incidents.
+    router.prefetch('/dashboard/regional/incidents/1');
   }, [router]); // router is stable — this runs once on mount
   const toggleStats = () => {
     setShowStats((prev) => {
@@ -595,17 +606,31 @@ export default function RegionalDashboardPage() {
             </div>
             <ul className="max-h-60 divide-y divide-gray-100 overflow-y-auto px-6 py-2">
               {syncNotification.map((inc) => (
-                <li key={inc.serverId} className="flex items-center justify-between gap-4 py-3">
-                  <div>
+                <li key={`${inc.serverId}-${inc.operation}`} className="flex items-center justify-between gap-4 py-3">
+                  <div className="min-w-0">
                     <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                       {formatClassification(inc.category) || 'Incident'}
+                      <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--text-muted)' }}>
+                        #{inc.serverId}
+                      </span>
                     </p>
                     {inc.location && (
-                      <p className="mt-0.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{inc.location}</p>
+                      <p className="mt-0.5 truncate text-xs" style={{ color: 'var(--text-secondary)' }}>{inc.location}</p>
                     )}
+                    <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+                      {inc.operation === 'create' ? 'Created' : inc.operation === 'submit' ? 'Submitted' : inc.operation === 'update' ? 'Edited' : 'Deleted'}
+                    </p>
                   </div>
-                  <span className="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
-                    #{inc.serverId}
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      inc.operation === 'delete'
+                        ? 'bg-gray-100 text-gray-600'
+                        : inc.operation === 'submit'
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-green-100 text-green-700'
+                    }`}
+                  >
+                    {inc.result}
                   </span>
                 </li>
               ))}
@@ -631,6 +656,9 @@ export default function RegionalDashboardPage() {
           <button type="button" onClick={() => setArchiveError(null)} className="ml-3 underline text-red-600 hover:text-red-800">Dismiss</button>
         </div>
       )}
+
+      {/* Enable-offline-mode first-run prompt (E10). Full controls live in Profile. */}
+      <OfflineModeManager variant="banner" />
 
       <NotificationToasts
         pendingActionedBanner={pendingActionedBanner}

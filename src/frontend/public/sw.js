@@ -9,7 +9,7 @@
  *   it delegates to the page rather than POSTing directly.
  */
 
-const CACHE_NAME = 'wims-bfp-cache-v6';
+const CACHE_NAME = 'wims-bfp-cache-v7';
 // Separate long-lived cache for map tiles so they survive main-cache evictions.
 const TILE_CACHE_NAME = 'wims-tiles-v1';
 const SYNC_TAG = 'sync-pending-incidents';
@@ -29,11 +29,30 @@ const OFFLINE_HTML = `<!doctype html>
 const urlsToCache = [
   '/',
   '/dashboard',
+  '/dashboard/regional',
+  '/dashboard/regional/audit',
+  '/home',
   '/login',
   '/afor/create',
   '/afor/import',
   '/manifest.webmanifest',
 ];
+
+// Dynamic incident-detail routes (/dashboard/regional/incidents/<id>) all render
+// the SAME 'use client' page that reads the id from the URL and loads from
+// IndexedDB. Collapsing them to one canonical cache key means visiting OR
+// prefetching any single incident online makes EVERY incident — including
+// offline-created local UUIDs that were never fetched from the server — viewable
+// offline. The legacy /incidents/local/<id> route is excluded (it's a redirect shim).
+function canonicalPath(pathname) {
+  if (
+    /^\/dashboard\/regional\/incidents\/[^/]+\/?$/.test(pathname) &&
+    !/\/incidents\/local\//.test(pathname)
+  ) {
+    return '/dashboard/regional/incidents/__detail__';
+  }
+  return pathname;
+}
 
 // --- Install ---
 self.addEventListener('install', (event) => {
@@ -117,7 +136,7 @@ self.addEventListener('fetch', (event) => {
     !requestUrl.pathname.startsWith('/auth/');
 
   if (isRsc) {
-    const cacheKey = 'rsc:' + requestUrl.origin + requestUrl.pathname;
+    const cacheKey = 'rsc:' + requestUrl.origin + canonicalPath(requestUrl.pathname);
     event.respondWith(
       fetch(request)
         .then(async (response) => {
@@ -129,13 +148,13 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(async () => {
           const cache = await caches.open(CACHE_NAME);
-          return (
-            (await cache.match(cacheKey)) ||
-            new Response('{}', {
-              status: 200,
-              headers: { 'Content-Type': 'application/json' },
-            })
-          );
+          const hit = await cache.match(cacheKey);
+          if (hit) return hit;
+          // No cached RSC for this route. Returning '{}' would feed the App Router
+          // invalid flight data and crash the page. Returning a network error makes
+          // Next.js fall back to a hard navigation, which the navigate handler below
+          // serves from the cached page/app shell so in-app offline guards render.
+          return Response.error();
         })
     );
     return;
@@ -143,17 +162,24 @@ self.addEventListener('fetch', (event) => {
 
   // ── Full-page navigation ─────────────────────────────────────────────────
   if (request.mode === 'navigate') {
+    const canonicalKey = requestUrl.origin + canonicalPath(requestUrl.pathname);
     event.respondWith(
       fetch(request).then(async (response) => {
         const cache = await caches.open(CACHE_NAME);
         if (response.ok && request.method === 'GET') {
           cache.put(request, response.clone());
+          // Also store under the canonical key so any incident-detail page load
+          // is reusable as the offline shell for every incident-detail URL.
+          if (canonicalKey !== requestUrl.origin + requestUrl.pathname) {
+            cache.put(canonicalKey, response.clone());
+          }
         }
         return response;
       }).catch(async () => {
         const cache = await caches.open(CACHE_NAME);
         return (
           (await cache.match(request)) ||
+          (await cache.match(canonicalKey)) ||
           (await cache.match(APP_SHELL)) ||
           (await cache.match('/')) ||
           new Response(OFFLINE_HTML, {

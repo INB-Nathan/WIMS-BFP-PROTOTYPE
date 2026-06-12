@@ -12,7 +12,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { createUserManager } from '@/lib/oidc';
 import { refreshToken } from '@/lib/auth-refresh';
-import { clearAllCachedIncidents } from '@/lib/offlineStore';
+import { clearAllCachedIncidents, setActiveOfflineUser } from '@/lib/offlineStore';
 import { getConnectivitySnapshot } from '@/lib/connectivity';
 
 export interface User {
@@ -80,7 +80,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const raw = localStorage.getItem(SESSION_CACHE_KEY);
       if (raw) {
         const cached = JSON.parse(raw) as { user: User };
-        if (cached.user) setUser(cached.user);
+        if (cached.user) {
+          setUser(cached.user);
+          if (cached.user.id) void setActiveOfflineUser(cached.user.id);
+        }
       }
     } catch { /* localStorage unavailable or invalid JSON — skip */ }
   }, []);
@@ -101,6 +104,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await res.json();
         if (data.user) {
           setUser(data.user);
+          // Bind offline storage to this account — wipes prior user's offline data
+          // if a different uid is now logged in (item F12).
+          if (data.user.id) void setActiveOfflineUser(data.user.id);
           try { localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ user: data.user })); } catch { /* private mode */ }
         } else {
           setUser(null);

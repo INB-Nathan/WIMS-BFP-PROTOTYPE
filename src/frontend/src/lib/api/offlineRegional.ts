@@ -47,6 +47,60 @@ export interface OfflineAwareListResult {
   cachedAt?: number;
 }
 
+/**
+ * Build a list result from the per-user IndexedDB cache, applying the SAME
+ * filters the online list would (item #7 fix). Without this, the offline
+ * dashboard showed every cached incident — including ones from previous days or
+ * unrelated to the active filter — as "ghost" cards.
+ *
+ * `cachedAt` reports the MOST RECENT cache write (item #4 fix), i.e. when the
+ * data was last refreshed online — not the oldest entry.
+ */
+async function buildCachedListResult(
+  encoderId: string,
+  params: RegionalIncidentsQueryParams | undefined,
+): Promise<OfflineAwareListResult> {
+  const cached = await getCachedIncidents(encoderId);
+  const all = cached.map((c) => c.data as unknown as RegionalIncidentListItem);
+
+  const toTime = (v: unknown): number | null => {
+    if (!v) return null;
+    const t = new Date(String(v)).getTime();
+    return Number.isNaN(t) ? null : t;
+  };
+  const fromTime = toTime(params?.date_from);
+  const toEndTime = toTime(params?.date_to);
+  const wantArchived = params?.archived === true;
+
+  const items = all.filter((item) => {
+    // Archive view vs active view: cached items only belong to the active list
+    // unless explicitly archived. Treat a truthy is_archived/archived as archived.
+    const rec = item as unknown as Record<string, unknown>;
+    const isArchived = Boolean(rec.is_archived ?? rec.archived);
+    if (wantArchived !== isArchived) return false;
+
+    if (params?.status && item.verification_status !== params.status) return false;
+    if (params?.category && item.general_category !== params.category) return false;
+
+    if (fromTime !== null || toEndTime !== null) {
+      const itemTime = toTime(item.notification_dt) ?? toTime(item.created_at);
+      if (itemTime === null) return false;
+      if (fromTime !== null && itemTime < fromTime) return false;
+      if (toEndTime !== null && itemTime > toEndTime) return false;
+    }
+    return true;
+  });
+
+  const newestCachedAt =
+    cached.length > 0 ? Math.max(...cached.map((c) => c.cachedAt)) : undefined;
+
+  return {
+    response: { items, total: items.length, limit: items.length, offset: 0 },
+    fromCache: true,
+    cachedAt: newestCachedAt,
+  };
+}
+
 export interface OfflineAwareDetailResult {
   response: RegionalIncidentDetailResponse;
   fromCache: boolean;
@@ -70,15 +124,7 @@ export async function fetchRegionalIncidentsOfflineAware(
   const isOffline = getConnectivitySnapshot().state === 'offline';
 
   if (isOffline) {
-    const cached = await getCachedIncidents(encoderId);
-    const items = cached.map((c) => c.data as unknown as RegionalIncidentListItem);
-    const oldestCachedAt =
-      cached.length > 0 ? Math.min(...cached.map((c) => c.cachedAt)) : undefined;
-    return {
-      response: { items, total: items.length, limit: items.length, offset: 0 },
-      fromCache: true,
-      cachedAt: oldestCachedAt,
-    };
+    return buildCachedListResult(encoderId, params);
   }
 
   try {
@@ -99,15 +145,7 @@ export async function fetchRegionalIncidentsOfflineAware(
     if (isNetworkError(err)) {
       markConnectivityOffline();
       // Connection dropped after the online check — fall back to IndexedDB cache.
-      const cached = await getCachedIncidents(encoderId);
-      const items = cached.map((c) => c.data as unknown as RegionalIncidentListItem);
-      const oldestCachedAt =
-        cached.length > 0 ? Math.min(...cached.map((c) => c.cachedAt)) : undefined;
-      return {
-        response: { items, total: items.length, limit: items.length, offset: 0 },
-        fromCache: true,
-        cachedAt: oldestCachedAt,
-      };
+      return buildCachedListResult(encoderId, params);
     }
     throw err;
   }
