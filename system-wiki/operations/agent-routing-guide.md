@@ -26,6 +26,7 @@ Every WIMS-BFP agent touching this repo should read:
 |- Public anonymous submission: read [[security/security-baseline]], [[architecture/infrastructure-config]] (rate limiting), [[gaps/frs-codebase-gap-register]], then `public_dmz.py`, `triage.py`, and public report UI pages.
 |- Civilian reporting (Phase 2 update flow): read [[subsystems/civilian-reporting-phase2]], [[backend/api-route-map]] (new `GET /api/civilian/reports` endpoint), then `civilian.py`, `api.ts` (fetchMyReports), tracking page, and report page update-mode UI.
 |- Reference data: read [[database/schema-overview]], [[database/sql-init-files]] (geography seeds), then `ref.py` and geography seed files.
+- PR review (three-axis): run `/run-chain three-axis-review <PR_NUMBER>` to fetch the PR branch, run Standards/Spec/Quality reviewers, and post the report as a PR comment. Chain lives in `~/.pi/agent/chains/three-axis-review.chain.json` (user scope).
 - Infrastructure/Docker/CI: read [[architecture/infrastructure-config]], [[architecture/pwa-tests-cicd]].
 
 ## Delegation Rules

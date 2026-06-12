@@ -204,6 +204,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         /* IndexedDB unavailable (e.g. private mode) — non-fatal for logout */
       }
 
+      // Shared-device privacy: signal the service worker to evict the
+      // authenticated app cache (RSC payloads, navigation pages, static
+      // routes) so the next user cannot inspect cached content from
+      // this session. The long-lived tile cache is preserved.
+      if (typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'clear-auth-cache' });
+      }
+
       const userManager = createUserManager();
       const currentUser = await userManager.getUser();
 

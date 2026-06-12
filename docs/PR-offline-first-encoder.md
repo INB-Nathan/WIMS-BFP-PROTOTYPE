@@ -22,6 +22,23 @@ reconnect. All 13 spec items (A1–G13) are implemented.
 | **PENDING withdrawal (C8)** | Detail page blocks edit when a queued-submit op is linked; Withdraw button removes the submit op and re-enables editing |
 | **Auth** | `IncidentForm` autosave uses IndexedDB `offlineOps` store (draft status). Logout clears cached incidents; pending ops are preserved (encrypted, encoder-scoped) so unsynced work survives re-login |
 
+## FRS Traceability
+
+This PR implements **FRS Module 2 (Offline-First Incident Management)**.
+
+| FRS item | Coverage | Evidence |
+|---|---|---|
+| M2-a (Incident Data Entry) | ✅ | Encoder create/edit form with client-side validation; autosave to IndexedDB `offlineOps` (draft) |
+| M2-b (Offline Data Capture and Storage) | ✅ | IndexedDB v3 `offlineOps` + `cachedIncidents` stores; per-user AES-256-GCM encryption; "Offline Mode" indicator via `OfflineModeManager` banner; full CRUD offline |
+| M2-c (Data Synchronization) | ✅ | `syncPendingIncidents(encoderId)` auto-sync on reconnect; atomic per-op with `client_id` idempotency; exponential-backoff token refresh; sync-complete modal with per-item results |
+| M2-d (Incident Status Tracking) | ✅ | Draft→Pending→Validated/Flagged/Rejected lifecycle; status transitions logged; encoder-visible status history |
+
+**Traceability links:**
+- FRS module map: [[concepts/frs-module-map]] (M2 row)
+- Offline-first architecture: [[architecture/pwa-tests-cicd]] § Offline-First Infrastructure (FRS M2)
+- Gap register: M2b (Offline Encryption), M2c (Sync Toasts), M2d (Offline-first Encoder) all CLOSED — see [[gaps/frs-codebase-gap-register]]
+- FRS source: `system-wiki/raw/frs/frs-offlinefirst.md`
+
 ## Changed Files
 
 ### New files
@@ -177,5 +194,5 @@ Backend:  ruff check .     → All checks passed!
 
 ## Deferred
 
-- **Conflict resolution UI (M4-D)**: `IncidentConflictMergePanel` exists; needs wiring to `syncStatus === 'conflict'` ops. Blocked on OCC branch (`65-featregional-...`) merge.
+- **Conflict resolution UI (M2-c)**: `IncidentConflictMergePanel` exists; needs wiring to `syncStatus === 'conflict'` ops. Blocked on OCC branch (`65-featregional-...`) merge.
 - **Crypto key rotation on logout**: `clearCryptoKey()` is intentionally not called on logout (would orphan encrypted pending ops). Read cache is cleared instead. Full rotation needs a drain-then-wipe flow.

@@ -3,6 +3,11 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-12] docs | PR #271 metadata fix: M4-D → M2-c traceability correction
+
+- `docs/PR-offline-first-encoder.md`: corrected Deferred "Conflict resolution UI" label from `(M4-D)` to `(M2-c)` — M2-c (Data Synchronization) covers conflict detection/resolution per FRS `raw/frs/frs-offlinefirst.md`. Added `## FRS Traceability` section mapping each FRS M2 sub-item to concrete implementation evidence with system-wiki cross-links (`concepts/frs-module-map`, `architecture/pwa-tests-cicd`, `gaps/frs-codebase-gap-register`).
+- No FRS gap register update (M2b/M2c/M2d already CLOSED; this is a metadata/label correction, not a new gap).
+
 ## [2026-06-12] fix(#272) | close frontend offline review test gaps
 
 - **T2:** Added `src/frontend/src/app/dashboard/validator/page.test.tsx` with page-level coverage for validator offline indicator, validator-only queued-op badge, and stale-cache banner.
@@ -2364,6 +2369,19 @@ Applied fixes from three-axis review of `fix/profile-email-and-polish`:
 - `keycloak_admin.py`: updated stale CRIT-0 comment in `update_user_profile()`.
 - `user.py`: added `email_not_blank` validator to `ProfileUpdate.email` field.
 - `remaining-routes.md`: updated ProfileUpdate schema and behavior docs to reflect email support.
+
+## [2026-06-02] feat | pr-review chain — Pi-driven three-axis review for GitHub PRs
+
+**Session context:** Created `.pi/chains/pr-review.chain.json` to run a three-axis review (Standards, Spec, Quality) on any GitHub PR via Pi subagents.
+
+**Changes:**
+- Created `~/.pi/agent/chains/three-axis-review.chain.json` — a 5-step Pi chain that fetches the PR branch, scouts the codebase, runs parallel reviewers (standards-reviewer, spec-reviewer, quality-reviewer), synthesizes the report, and posts it as a PR comment.
+- Created `~/.pi/agent/prompts/three-axis-review.md` — prompt template so `/three-axis-review <PR_NUMBER>` instructs the AI to run the chain via `subagent()`.
+- Usage: `/three-axis-review 211` inside Pi (after `/reload`).
+- Added gotcha #13 to `~/.pi/agent/AGENTS.md`: "Don't switch implementation approach without asking."
+- Removed `.github/workflows/three-axis-review.yml` (wrong approach — was CI-based, not Pi-driven).
+
+**Scope:** orljorstin's PRs get AI-powered three-axis review on invocation. Not a CI gate.
 
 ## [2026-06-04] fix | PR #207 verified profile email review fixes
 

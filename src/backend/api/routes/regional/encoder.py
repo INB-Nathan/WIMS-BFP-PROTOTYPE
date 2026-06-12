@@ -150,7 +150,7 @@ def get_regional_incidents(
         owner_name = r[16]
         caller_name = r[18]
         caller_number = r[19]
-        has_sensitive_data = bool(r[21] and r[22])
+        has_sensitive_data = bool(r[21])
 
         if has_sensitive_data:
             try:

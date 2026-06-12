@@ -216,6 +216,18 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
+// --- Message handling: clear authenticated app cache on logout ---
+// AuthContext posts { type: 'clear-auth-cache' } during logout so cached
+// RSC payloads, navigation pages, and authenticated route content are
+// evicted for shared-device privacy. The long-lived tile cache is preserved.
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'clear-auth-cache') {
+    event.waitUntil(
+      caches.delete(CACHE_NAME)
+    );
+  }
+});
+
 // --- Background Sync: delegate to open clients ---
 self.addEventListener('sync', (event) => {
   if (event.tag === SYNC_TAG) {
