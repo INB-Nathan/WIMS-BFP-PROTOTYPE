@@ -10,8 +10,23 @@ const ANALYTICS_STORE = 'analytics-cache';
 // This is client-side enforcement only — no server eviction occurs.
 let _offlineStorageLimitMb = 50;
 
+export type OfflineOpType = 'create' | 'verify' | 'archive_action';
+
+export interface VerifyPayload {
+    incident_id: number;
+    action: string;
+    notes?: string | null;
+}
+
+export interface ArchiveActionPayload {
+    incident_id: number;
+    action: 'archive' | 'unarchive';
+}
+
 interface PendingIncident {
     id: number;
+    opType?: OfflineOpType;
+    localId?: string;
     payload: Record<string, unknown>;
     createdAt: number;
     status: 'pending' | 'synced';

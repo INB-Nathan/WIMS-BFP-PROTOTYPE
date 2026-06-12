@@ -3,6 +3,14 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-12] feat | GH #268 validator offline op types and sync engine
+
+- `src/frontend/src/lib/offlineStore.ts`: added `OfflineOpType` (`'create' | 'verify' | 'archive_action'`), `VerifyPayload`, `ArchiveActionPayload` types; extended `PendingIncident` with optional `opType?` and `localId?` fields.
+- `src/frontend/src/lib/syncEngine.ts`: added op-type dispatch via `processVerify()` (PATCH `/api/regional/incidents/{id}/verification` with `{ action, notes, client_id }` and `credentials: 'include'` via `apiFetch`) and `processArchiveAction()` (PATCH `/api/regional/validator/incidents/{id}/archive` or `/unarchive` with `{ client_id }` and `credentials: 'include'`). Legacy items without `opType` continue to POST to `/api/v1/public/report` (backward-compatible). Network errors (no HTTP status) now abort the remaining batch; HTTP errors (4xx/5xx) continue. 409 `DUPLICATE_DETECTED` on verify/archive_action keeps the op pending.
+- `src/frontend/src/lib/__tests__/syncEngine.test.ts`: 7 new tests covering verify dispatch, archive dispatch, unarchive dispatch, 409 conflict, backward compat, network error batch abort, and HTTP error continuation (17 total, all pass).
+- `system-wiki/architecture/pwa-tests-cicd.md`: updated syncEngine section with op-type dispatch table, auth notes, and error abort behavior.
+- No FRS gap register update (this implements offline op type dispatch for validator actions; no FRS gap status changes).
+
 ## [2026-06-12] docs | Agent gotcha for spec deviations
 
 - `AGENTS.md`: added Gotcha #16 requiring agents/subagents to follow issue/PRD/spec/acceptance contracts exactly unless they explicitly state a deviation, justify it, and show how it improves correctness, safety, maintainability, or user value.

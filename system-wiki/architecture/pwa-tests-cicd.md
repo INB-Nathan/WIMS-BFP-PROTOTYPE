@@ -3,7 +3,7 @@ title: PWA/Offline-First, Tests & CI/CD
 created: 2026-05-16
 updated: 2026-06-12
 type: architecture
-tags: [wims-bfp, pwa, offline-first, testing, ci-cd, service-worker]
+tags: [wims-bfp, pwa, offline-first, testing, ci-cd, service-worker, sync-engine, validator-offline]
 sources: [src/frontend/src/lib/, src/frontend/src/lib/api/offlineAnalytics.ts, src/frontend/public/sw.js, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py, src/backend/tests/test_schema_patch_startup_guard.py]
 status: draft
 ---
@@ -44,13 +44,28 @@ Adds 9 offline-aware read wrappers for the National Analyst surface: heatmap, tr
 
 **File:** `src/frontend/src/lib/syncEngine.ts`
 
-Reads pending items from IndexedDB, POSTs each to `/api/v1/public/report`, marks synced.
+Reads pending items from IndexedDB, dispatches each to the correct API endpoint based on `opType`, marks synced.
 
 | Export | Signature | Description |
 |---|---|---|
-| `syncPendingIncidents()` | `() => Promise<SyncResult>` | Iterates pending items, POSTs each, returns `{ synced, failed, errors }` |
+| `syncPendingIncidents()` | `() => Promise<SyncResult>` | Iterates pending items, dispatches by opType, returns `{ synced, failed, errors }` |
 
-**Conflict resolution:** Last-write-wins (LWW) on HTTP 409. If `server_updated_at` is older than local `createdAt`, retries with `X-Conflict-Resolution: overwrite` header.
+**Op-type dispatch (GH #268):**
+
+| opType | Endpoint | Method | Auth |
+|---|---|---|---|
+| `create` / default | `/api/v1/public/report` | POST | Public (no credentials) |
+| `verify` | `/api/regional/incidents/{id}/verification` | PATCH | Cookie (`apiFetch`) |
+| `archive_action` | `/api/regional/validator/incidents/{id}/archive` or `/unarchive` | PATCH | Cookie (`apiFetch`) |
+
+- **verify** sends `{ action, notes, client_id }` where `client_id` is the op's `localId` UUID for server-side idempotency (#267).
+- **archive_action** sends `{ client_id }` to the archive/unarchive endpoint based on payload `action` field.
+- Legacy items without `opType` continue to POST to the public report endpoint (backward-compatible).
+- `credentials: 'include'` is set via `apiFetch` for auth-gated ops (validator endpoints).
+- 409 `DUPLICATE_DETECTED` on verify/archive_action keeps the op pending (conflict, don't overwrite).
+- **Network error (no HTTP status) aborts remaining batch** to preserve ordering; HTTP errors (4xx/5xx) continue to the next item.
+
+**Conflict resolution (create ops):** Last-write-wins (LWW) on HTTP 409. If `server_updated_at` is older than local `createdAt`, retries with `X-Conflict-Resolution: overwrite` header.
 
 ### `useNetworkStatus.ts` — Network State Hook (FR-3A)
 
