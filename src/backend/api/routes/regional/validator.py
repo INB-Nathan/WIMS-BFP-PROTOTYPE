@@ -314,6 +314,12 @@ def verify_incident(
         deps=_regional_lifecycle_dependencies(),
         client_id=body.client_id,
     )
+
+    # Idempotent retry: if the lifecycle command detected a duplicate
+    # client_id (race after pre-check), return early without logging/SSE.
+    if result.get("status") == "already_applied":
+        return result
+
     logger.info(
         "Validator user_id=%s applied action='%s' to incident_id=%s",
         validator_user_id,
@@ -607,6 +613,16 @@ def archive_incident(
     validator_user_id = user["user_id"]
     resolved_client_id = body.client_id if body and body.client_id else client_id
 
+    # Validate resolved_client_id as UUID before any DB CAST (#272 Q2)
+    if resolved_client_id is not None:
+        try:
+            uuid.UUID(resolved_client_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(
+                status_code=422,
+                detail=f"client_id must be a valid UUID, got: {resolved_client_id!r}",
+            )
+
     # Idempotency check (#267)
     if resolved_client_id and _ivh_has_client_id_column(db):
         existing = db.execute(
@@ -644,6 +660,16 @@ def unarchive_incident(
     """
     validator_user_id = user["user_id"]
     resolved_client_id = body.client_id if body and body.client_id else client_id
+
+    # Validate resolved_client_id as UUID before any DB CAST (#272 Q2)
+    if resolved_client_id is not None:
+        try:
+            uuid.UUID(resolved_client_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(
+                status_code=422,
+                detail=f"client_id must be a valid UUID, got: {resolved_client_id!r}",
+            )
 
     # Idempotency check (#267)
     if resolved_client_id and _ivh_has_client_id_column(db):

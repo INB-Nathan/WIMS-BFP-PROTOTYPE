@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from services.analytics_read_model import sync_incident_to_analytics
 from services.duplicate_detection import check_for_duplicate
+from services.regional_incidents.helpers import DuplicateClientIdError
 from services.regional_incidents.policies import (
     ENCODER_DELETABLE_STATUSES,
     ENCODER_SUBMITTABLE_STATUSES,
@@ -718,6 +719,9 @@ def verify_incident_command(
             client_id=client_id,
         )
         db.commit()
+    except DuplicateClientIdError:
+        db.rollback()
+        return {"status": "already_applied", "incident_id": incident_id}
     except Exception:
         db.rollback()
         logger.exception("Failed to apply verification action for incident_id=%s", incident_id)
@@ -950,6 +954,9 @@ def archive_finalized_incident(
             client_id=client_id,
         )
         db.commit()
+    except DuplicateClientIdError:
+        db.rollback()
+        return {"status": "already_applied", "incident_id": incident_id}
     except Exception:
         db.rollback()
         logger.exception("Failed to archive incident_id=%s", incident_id)
@@ -1013,6 +1020,9 @@ def unarchive_finalized_incident(
             client_id=client_id,
         )
         db.commit()
+    except DuplicateClientIdError:
+        db.rollback()
+        return {"status": "already_applied", "incident_id": incident_id}
     except Exception:
         db.rollback()
         logger.exception("Failed to unarchive incident_id=%s", incident_id)

@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError as SAIntegrityError
 from sqlalchemy.orm import Session
 
 from services.afor_import import ALARM_LEVEL_MAP
@@ -19,6 +20,17 @@ from services.kms import get_crypto_provider
 from utils.crypto import SecurityProvider, SecurityProviderError
 
 logger = logging.getLogger("wims.regional")
+
+
+class DuplicateClientIdError(Exception):
+    """Raised when a duplicate client_id unique violation occurs during IVH insert.
+
+    Callers in lifecycle.py should catch this, roll back the transaction,
+    and return {"status": "already_applied"} instead of an HTTP 500.
+    """
+
+    pass
+
 
 # ── Lazy SecurityProvider singleton ──────────────────────────────────────────
 _sp_instance: SecurityProvider | None = None
@@ -247,7 +259,49 @@ def insert_incident_verification_history(
     sync_status: str = "SYNCED",
     client_id: str | None = None,
 ) -> None:
-    """Insert IVH row with compatibility for both legacy and migrated schemas."""
+    """Insert IVH row with compatibility for both legacy and migrated schemas.
+
+    Raises DuplicateClientIdError when a client_id unique violation is
+    detected so callers can return an idempotent ``already_applied`` response
+    instead of surfacing an HTTP 500 (#272 Q1).
+    """
+    try:
+        _insert_ivh_impl(
+            db=db,
+            incident_id=incident_id,
+            actor_user_id=actor_user_id,
+            previous_status=previous_status,
+            new_status=new_status,
+            notes=notes,
+            action_label=action_label,
+            data_hash=data_hash,
+            sync_status=sync_status,
+            client_id=client_id,
+        )
+    except SAIntegrityError as e:
+        if client_id is not None:
+            err_msg = str(e).lower()
+            if "unique" in err_msg and "uq_incident_verification_history_client_id" in err_msg:
+                raise DuplicateClientIdError(
+                    f"Duplicate client_id '{client_id}' — idempotent retry detected"
+                ) from e
+        raise
+
+
+def _insert_ivh_impl(
+    db: Session,
+    *,
+    incident_id: int,
+    actor_user_id: str,
+    previous_status: str,
+    new_status: str,
+    notes: str,
+    action_label: str | None = None,
+    data_hash: str | None = None,
+    sync_status: str = "SYNCED",
+    client_id: str | None = None,
+) -> None:
+    """Implementation detail — same body as original insert_incident_verification_history."""
     has_action_label = _ivh_has_column(db, "action_label")
     has_data_hash = _ivh_has_column(db, "data_hash")
     has_sync_status = _ivh_has_column(db, "sync_status")

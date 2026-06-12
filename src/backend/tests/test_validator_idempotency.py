@@ -498,3 +498,243 @@ def test_267_different_client_ids_produce_distinct_ivh_rows():
         assert resp.json()["status"] == "already_applied"
 
     app.dependency_overrides.clear()
+
+
+# ===========================================================================
+# #272 — DuplicateClientIdError unit test (T1)
+# ===========================================================================
+
+
+def test_272_duplicate_client_id_error_raised_on_unique_violation():
+    """
+    insert_incident_verification_history raises DuplicateClientIdError when
+    the underlying INSERT hits a client_id unique violation.
+
+    This is a lightweight unit test that patches the implementation helper
+    rather than requiring a live DB race condition.
+    """
+    from unittest.mock import MagicMock, patch
+    from sqlalchemy.exc import IntegrityError as SAIntegrityError
+    from services.regional_incidents.helpers import (
+        DuplicateClientIdError,
+        insert_incident_verification_history,
+    )
+
+    test_cid = "deadbeef-dead-beef-dead-beefdeadbeef"
+
+    # Simulate a PostgreSQL unique-violation error with the exact constraint name
+    orig = Exception(
+        "duplicate key value violates unique constraint "
+        '"uq_incident_verification_history_client_id"\n'
+        f"DETAIL: Key (client_id)=({test_cid}) already exists.\n"
+    )
+    fake_integrity_error = SAIntegrityError(
+        statement="INSERT INTO wims.incident_verification_history (...)",
+        params={"client_id": test_cid},
+        orig=orig,
+    )
+
+    mock_db = MagicMock()
+
+    with patch(
+        "services.regional_incidents.helpers._insert_ivh_impl",
+        side_effect=fake_integrity_error,
+    ):
+        with pytest.raises(DuplicateClientIdError, match=test_cid):
+            insert_incident_verification_history(
+                db=mock_db,
+                incident_id=1,
+                actor_user_id="00000000-0000-0000-0000-000000000001",
+                previous_status="PENDING",
+                new_status="VERIFIED",
+                notes="test",
+                client_id=test_cid,
+            )
+
+
+def test_272_saintegrity_error_reraises_when_client_id_is_none():
+    """
+    When client_id is None, a unique violation on a different column
+    must be re-raised as-is (not silently suppressed).
+    """
+    from unittest.mock import MagicMock, patch
+    from sqlalchemy.exc import IntegrityError as SAIntegrityError
+    from services.regional_incidents.helpers import insert_incident_verification_history
+
+    orig = Exception("duplicate key value violates unique constraint")
+    fake_integrity_error = SAIntegrityError(
+        statement="INSERT INTO wims.incident_verification_history (...)",
+        params={},
+        orig=orig,
+    )
+
+    mock_db = MagicMock()
+
+    with patch(
+        "services.regional_incidents.helpers._insert_ivh_impl",
+        side_effect=fake_integrity_error,
+    ):
+        with pytest.raises(SAIntegrityError):
+            insert_incident_verification_history(
+                db=mock_db,
+                incident_id=1,
+                actor_user_id="00000000-0000-0000-0000-000000000001",
+                previous_status="PENDING",
+                new_status="VERIFIED",
+                notes="test",
+                client_id=None,
+            )
+
+
+def test_272_saintegrity_error_reraises_when_not_client_id_violation():
+    """
+    When client_id is provided but the unique violation is not about
+    client_id, the error must be re-raised as-is.
+    """
+    from unittest.mock import MagicMock, patch
+    from sqlalchemy.exc import IntegrityError as SAIntegrityError
+    from services.regional_incidents.helpers import insert_incident_verification_history
+
+    orig = Exception('duplicate key value violates unique constraint "some_other_unique_index"\n')
+    fake_integrity_error = SAIntegrityError(
+        statement="INSERT INTO wims.incident_verification_history (...)",
+        params={"client_id": "deadbeef-dead-beef-dead-beefdeadbeef"},
+        orig=orig,
+    )
+
+    mock_db = MagicMock()
+
+    with patch(
+        "services.regional_incidents.helpers._insert_ivh_impl",
+        side_effect=fake_integrity_error,
+    ):
+        # Should re-raise SAIntegrityError, not DuplicateClientIdError
+        with pytest.raises(SAIntegrityError):
+            insert_incident_verification_history(
+                db=mock_db,
+                incident_id=1,
+                actor_user_id="00000000-0000-0000-0000-000000000001",
+                previous_status="PENDING",
+                new_status="VERIFIED",
+                notes="test",
+                client_id="deadbeef-dead-beef-dead-beefdeadbeef",
+            )
+
+
+# ===========================================================================
+# #272 Q2 — Invalid UUID validation (T1)
+# ===========================================================================
+
+
+def test_272_invalid_client_id_in_archive_query_param_returns_422():
+    """
+    An invalid client_id string in the archive query parameter must produce
+    a 422 validation error before reaching any DB CAST (#272 Q2).
+    """
+
+    async def _val():
+        return {
+            "user_id": _VALIDATOR_UID,
+            "keycloak_id": str(_VALIDATOR_UID),
+            "role": "NATIONAL_VALIDATOR",
+            "assigned_region_id": 13,
+        }
+
+    app.dependency_overrides[get_current_wims_user] = _val
+
+    with TestClient(app) as client:
+        resp = client.patch(
+            "/api/regional/validator/incidents/99999/archive",
+            params={"client_id": "not-a-valid-uuid"},
+        )
+        assert resp.status_code == 422, (
+            f"Expected 422 for invalid client_id query param, got {resp.status_code}: {resp.text}"
+        )
+        assert "client_id" in resp.text.lower()
+
+    app.dependency_overrides.clear()
+
+
+def test_272_invalid_client_id_in_unarchive_query_param_returns_422():
+    """
+    An invalid client_id string in the unarchive query parameter must produce
+    a 422 validation error before reaching any DB CAST (#272 Q2).
+    """
+
+    async def _val():
+        return {
+            "user_id": _VALIDATOR_UID,
+            "keycloak_id": str(_VALIDATOR_UID),
+            "role": "NATIONAL_VALIDATOR",
+            "assigned_region_id": 13,
+        }
+
+    app.dependency_overrides[get_current_wims_user] = _val
+
+    with TestClient(app) as client:
+        resp = client.patch(
+            "/api/regional/validator/incidents/99999/unarchive",
+            params={"client_id": "garbage-not-uuid"},
+        )
+        assert resp.status_code == 422, (
+            f"Expected 422 for invalid client_id query param, got {resp.status_code}: {resp.text}"
+        )
+        assert "client_id" in resp.text.lower()
+
+    app.dependency_overrides.clear()
+
+
+def test_272_invalid_client_id_in_archive_body_returns_422():
+    """
+    Pydantic validation in ClientIdRequest must reject malformed
+    client_id in the archive JSON body with a 422.
+    """
+
+    async def _val():
+        return {
+            "user_id": _VALIDATOR_UID,
+            "keycloak_id": str(_VALIDATOR_UID),
+            "role": "NATIONAL_VALIDATOR",
+            "assigned_region_id": 13,
+        }
+
+    app.dependency_overrides[get_current_wims_user] = _val
+
+    with TestClient(app) as client:
+        resp = client.patch(
+            "/api/regional/validator/incidents/99999/archive",
+            json={"client_id": "not-a-uuid"},
+        )
+        assert resp.status_code == 422, (
+            f"Expected 422 for invalid client_id body, got {resp.status_code}: {resp.text}"
+        )
+
+    app.dependency_overrides.clear()
+
+
+def test_272_invalid_client_id_in_verification_body_returns_422():
+    """
+    Pydantic validation in VerificationActionRequest must reject malformed
+    client_id in the verification JSON body with a 422.
+    """
+
+    async def _val():
+        return {
+            "user_id": _VALIDATOR_UID,
+            "keycloak_id": str(_VALIDATOR_UID),
+            "role": "NATIONAL_VALIDATOR",
+            "assigned_region_id": 13,
+        }
+
+    app.dependency_overrides[get_current_wims_user] = _val
+
+    with TestClient(app) as client:
+        resp = client.patch(
+            "/api/regional/incidents/99999/verification",
+            json={"action": "accept", "client_id": "bad-uuid-value"},
+        )
+        assert resp.status_code == 422, (
+            f"Expected 422 for invalid client_id body, got {resp.status_code}: {resp.text}"
+        )
+
+    app.dependency_overrides.clear()

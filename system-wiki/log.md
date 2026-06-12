@@ -3,6 +3,14 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-12] fix(#272) | harden validator idempotency client ids
+
+- **Q1 (duplicate race):** `insert_incident_verification_history` in `helpers.py` now wraps the INSERT in try/except for `SAIntegrityError` and raises `DuplicateClientIdError` when the unique violation matches the `uq_incident_verification_history_client_id` constraint (migration 56). Lifecycle commands (`verify_incident_command`, `archive_finalized_incident`, `unarchive_finalized_incident`) catch `DuplicateClientIdError`, roll back, and return `{"status": "already_applied"}` instead of the previous HTTP 500 from the broad `except Exception` handler. The `verify_incident` route handler checks for `status == "already_applied"` and skips SSE event publishing.
+- **Q2 (UUID validation):** `archive_incident` and `unarchive_incident` routes in `validator.py` now validate the resolved `client_id` (from body XOR query param) via `uuid.UUID()` before any `CAST(:cid AS uuid)` SQL. Invalid IDs return HTTP 422 with a clear error message instead of propagating a database-level CAST error to an HTTP 500.
+- **Pydantic body validation** (already in place from partial edits): `VerificationActionRequest.client_id` and `ClientIdRequest.client_id` use `@field_validator` with `uuid.UUID()` reject malformed bodies at the FastAPI layer with 422.
+- **Tests (T1):** 7 new tests in `test_validator_idempotency.py` — 3 unit tests for `DuplicateClientIdError` raise/re-raise behavior (mocked `_insert_ivh_impl`), 4 integration tests proving invalid UUID in archive/unarchive query params and verification/archive body returns 422.
+- No FRS gap register update (bugfix hardening of existing #267 idempotency feature).
+
 ## [2026-06-12] feat | GH #270 admin offline-first read caching
 
 - `src/frontend/src/lib/api/offlineAdmin.ts`: created with 5 offline-aware admin wrappers (`fetchSystemHealthOfflineAware`, `fetchSystemMetricsOfflineAware`, `fetchWorkerStatusOfflineAware`, `fetchActiveSessionsOfflineAware`, `fetchAuditLogsOfflineAware`) following the `offlineAware()` pattern from `offlineAnalytics.ts`. Each checks connectivity snapshot, caches successful responses in encrypted IndexedDB under `admin:`-prefixed keys, uses 60s TTL (30s for active sessions), falls back to cache on network error, and throws when offline with no cache.
