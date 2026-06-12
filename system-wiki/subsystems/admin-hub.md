@@ -106,7 +106,7 @@ The admin hub monitoring reads (system health, system metrics, worker status, ac
 - Falls back to fresh cache on network error (sets offline state + serves cached `{ response, fromCache: true, cachedAt }`)
 - Throws a descriptive error when offline with no cache (no silent fallback)
 
-The page shows an amber "You are offline — showing cached data" banner when `useNetworkStatus().isOnline` is false, and displays `(cached)` indicators plus relative "Last checked: X sec ago" timestamps only on panels served from cache.
+The page shows an amber "You are offline — showing cached data" banner when `useNetworkStatus().isOnline` is false, and now also subscribes to `connectivity.ts` health-probe state to show "Backend unreachable — showing cached data" when the browser reports online but the backend probe is offline. It displays `(cached)` indicators plus relative "Last checked: X sec ago" timestamps only on panels served from cache.
 
 User CRUD, security HITL ops, and scheduled reports remain online-only.
 

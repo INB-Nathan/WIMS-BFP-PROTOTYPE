@@ -32,7 +32,7 @@ Wraps IndexedDB (via Jake Archibald's `idb` library) in database `wims-bfp-db`. 
 
 **File:** `src/frontend/src/lib/connectivity.ts`
 
-Adds a small shared connectivity module for offline-aware API wrappers. It tracks `online`, `offline`, `checking`, and `reconnecting` states from `navigator.onLine` plus a `/health` probe, exposes `getConnectivitySnapshot()`, `isReachable()`, and `markConnectivityOffline()`, and lets wrappers fail over to IndexedDB when fetch/network errors imply an effective offline state.
+Adds a small shared connectivity module for offline-aware API wrappers. It tracks `online`, `offline`, `checking`, and `reconnecting` states from `navigator.onLine` plus a `/health` probe, exposes `getConnectivitySnapshot()`, `subscribeConnectivity()`, `probeConnectivity()`, `isReachable()`, and `markConnectivityOffline()`, and lets wrappers fail over to IndexedDB when fetch/network errors imply an effective offline state. `src/frontend/src/lib/__tests__/connectivity.test.ts` covers snapshot shape, subscriber notifications, offline marking, probe success/failure, probe deduplication, and reachability helpers.
 
 ### `api/offlineAnalytics.ts` — Analyst Offline-First Read Wrappers
 

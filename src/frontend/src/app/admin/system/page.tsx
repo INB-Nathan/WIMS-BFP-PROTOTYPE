@@ -23,6 +23,7 @@ import {
     fetchWorkerStatusOfflineAware,
 } from '@/lib/api';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import { getConnectivitySnapshot, subscribeConnectivity, probeConnectivity } from '@/lib/connectivity';
 import { Region } from '@/types/api';
 import {
     BarChart3,
@@ -122,6 +123,7 @@ export default function AdminSystemPage() {
     const { user, loading } = useAuth();
     const role = (user as { role?: string })?.role ?? null;
     const networkStatus = useNetworkStatus();
+    const [connectivitySnapshot, setConnectivitySnapshot] = useState(getConnectivitySnapshot);
 
     const [users, setUsers] = useState<AdminUser[]>([]);
     const [securityLogs, setSecurityLogs] = useState<SecurityLog[]>([]);
@@ -178,6 +180,18 @@ export default function AdminSystemPage() {
             router.replace('/dashboard');
         }
     }, [loading, role, router]);
+
+    // Subscribe to connectivity snapshot so the offline banner reflects
+    // health-probe results (backend unreachable) in addition to navigator.onLine.
+    useEffect(() => {
+        setConnectivitySnapshot(getConnectivitySnapshot());
+        const unsubscribe = subscribeConnectivity(() => {
+            setConnectivitySnapshot(getConnectivitySnapshot());
+        });
+        // Kick off a probe on mount so state transitions out of 'checking'.
+        probeConnectivity();
+        return unsubscribe;
+    }, []);
 
     const loadHealth = useCallback(async () => {
         try {
@@ -485,9 +499,11 @@ export default function AdminSystemPage() {
                 <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Identity governance, threat telemetry, and system audit.</p>
             </div>
 
-            {!networkStatus.isOnline && (
+            {(!networkStatus.isOnline || connectivitySnapshot.state === 'offline') && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-                    You are offline — showing cached data
+                    {!networkStatus.isOnline
+                        ? 'You are offline — showing cached data'
+                        : 'Backend unreachable — showing cached data'}
                 </div>
             )}
 

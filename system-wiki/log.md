@@ -3,6 +3,14 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-12] fix(#272) | close frontend offline review test gaps
+
+- **T2:** Added `src/frontend/src/app/dashboard/validator/page.test.tsx` with page-level coverage for validator offline indicator, validator-only queued-op badge, and stale-cache banner.
+- **T4:** Extended `src/frontend/src/app/dashboard/analyst/page.test.tsx` so offline-aware API mocks can return `fromCache: true`; added tests for offline banner, cached-data UI, and disabled exports while offline.
+- **T5:** Added `src/frontend/src/lib/__tests__/connectivity.test.ts` covering `connectivity.ts` snapshot state, subscriber notifications, offline marking, probe success/failure, in-flight probe deduplication, and `isReachable()`.
+- **Q6:** `src/frontend/src/app/admin/system/page.tsx` now subscribes to `connectivity.ts` and starts `probeConnectivity()` on mount. The admin offline banner now also shows "Backend unreachable — showing cached data" when the health probe reports offline even if `navigator.onLine` is true. `admin-system-monitoring.test.tsx` covers this reactive banner path.
+- `system-wiki/subsystems/admin-hub.md` and `system-wiki/architecture/pwa-tests-cicd.md` updated for the admin backend-unreachable banner and connectivity test coverage. No FRS gap register update (test/UX hardening of existing offline-first behavior).
+
 ## [2026-06-12] fix(#272) | harden validator idempotency client ids
 
 - **Q1 (duplicate race):** `insert_incident_verification_history` in `helpers.py` now wraps the INSERT in try/except for `SAIntegrityError` and raises `DuplicateClientIdError` when the unique violation matches the `uq_incident_verification_history_client_id` constraint (migration 56). Lifecycle commands (`verify_incident_command`, `archive_finalized_incident`, `unarchive_finalized_incident`) catch `DuplicateClientIdError`, roll back, and return `{"status": "already_applied"}` instead of the previous HTTP 500 from the broad `except Exception` handler. The `verify_incident` route handler checks for `status == "already_applied"` and skips SSE event publishing.

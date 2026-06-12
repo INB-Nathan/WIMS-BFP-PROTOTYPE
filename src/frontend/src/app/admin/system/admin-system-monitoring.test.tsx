@@ -67,8 +67,28 @@ const mockFetchActiveSessions = vi.fn();
 
 const networkStatusState = { isOnline: true, isReconnecting: false };
 
+const connectivityState = {
+    state: 'online' as const,
+    isOnline: true,
+    isChecking: false,
+    isReconnecting: false,
+    lastCheckedAt: Date.now(),
+};
+
 vi.mock('@/lib/useNetworkStatus', () => ({
     useNetworkStatus: () => networkStatusState,
+}));
+
+vi.mock('@/lib/connectivity', () => ({
+    getConnectivitySnapshot: () => ({ ...connectivityState }),
+    subscribeConnectivity: (cb: () => void) => {
+        // Store the callback for test-driven emit
+        (globalThis as Record<string, unknown>).__connectivityCb = cb;
+        return () => {
+            delete (globalThis as Record<string, unknown>).__connectivityCb;
+        };
+    },
+    probeConnectivity: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/lib/api', () => ({
@@ -242,5 +262,86 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
 
         // Restore
         networkStatusState.isOnline = true;
+    });
+
+    it('shows backend-unreachable banner when connectivity snapshot is offline but navigator is online (Q6)', async () => {
+        // Navigator says online, but connectivity probe reports offline
+        networkStatusState.isOnline = true;
+        connectivityState.state = 'offline';
+        connectivityState.isOnline = false;
+
+        mockFetchSystemHealth.mockResolvedValue(mockHealth);
+        mockFetchSystemMetrics.mockResolvedValue(mockSystemMetrics);
+        mockFetchWorkerStatus.mockResolvedValue(mockWorkers);
+
+        vi.useRealTimers();
+        render(<AdminSystemPage />);
+
+        await waitFor(() => {
+            expect(screen.getByText(/Backend unreachable/i)).toBeInTheDocument();
+        });
+        expect(screen.getByText(/showing cached data/i)).toBeInTheDocument();
+
+        // The navigator-only banner should NOT appear (we want the connectivity one)
+        expect(screen.queryByText(/You are offline/)).toBeNull();
+
+        // Restore
+        connectivityState.state = 'online';
+        connectivityState.isOnline = true;
+    });
+
+    it('shows no offline banner when both navigator and connectivity report online', async () => {
+        networkStatusState.isOnline = true;
+        connectivityState.state = 'online';
+        connectivityState.isOnline = true;
+
+        mockFetchSystemHealth.mockResolvedValue(mockHealth);
+        mockFetchSystemMetrics.mockResolvedValue(mockSystemMetrics);
+        mockFetchWorkerStatus.mockResolvedValue(mockWorkers);
+
+        vi.useRealTimers();
+        render(<AdminSystemPage />);
+
+        await waitFor(() => {
+            expect(screen.getByText('System Monitoring')).toBeInTheDocument();
+        });
+
+        expect(screen.queryByText(/You are offline/)).toBeNull();
+        expect(screen.queryByText(/Backend unreachable/)).toBeNull();
+    });
+
+    it('banner updates reactively when connectivity snapshot changes to offline', async () => {
+        // Start online
+        networkStatusState.isOnline = true;
+        connectivityState.state = 'online';
+        connectivityState.isOnline = true;
+
+        mockFetchSystemHealth.mockResolvedValue(mockHealth);
+        mockFetchSystemMetrics.mockResolvedValue(mockSystemMetrics);
+        mockFetchWorkerStatus.mockResolvedValue(mockWorkers);
+
+        vi.useRealTimers();
+        render(<AdminSystemPage />);
+
+        await waitFor(() => {
+            expect(screen.getByText('System Monitoring')).toBeInTheDocument();
+        });
+
+        // No banner yet
+        expect(screen.queryByText(/Backend unreachable/)).toBeNull();
+
+        // Simulate connectivity subscriber notification: flip to offline
+        connectivityState.state = 'offline';
+        connectivityState.isOnline = false;
+        const cb = (globalThis as Record<string, unknown>).__connectivityCb as (() => void) | undefined;
+        if (cb) cb();
+
+        await waitFor(() => {
+            expect(screen.getByText(/Backend unreachable/i)).toBeInTheDocument();
+        });
+
+        // Restore
+        connectivityState.state = 'online';
+        connectivityState.isOnline = true;
     });
 });
