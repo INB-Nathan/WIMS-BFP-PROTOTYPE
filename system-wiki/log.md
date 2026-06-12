@@ -3,6 +3,17 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-12] feat | GH #269 validator dashboard offline wiring
+
+- `src/frontend/src/lib/api/offlineValidator.ts`: created with offline-aware validator wrappers: `submitVerificationOfflineAware`, `submitArchiveActionOfflineAware`, `archiveIncidentOfflineAware`, `unarchiveIncidentOfflineAware`, and `fetchValidatorQueueOfflineAware`. Each checks connectivity snapshot, queues via `queueIncident(payload, { opType, localId })` when offline or on network failure, and surfaces 409 `DUPLICATE_DETECTED` to the page. Queue fetch uses the same encrypted `analytics-cache` store with 30-min TTL.
+- `src/frontend/src/lib/api/validator.ts`: extended to re-export the new offline-aware wrapper functions and types from `./offlineValidator`.
+- `src/frontend/src/lib/api/index.ts`: added `export * from './validator'` to the barrel so pages can import wrappers from `@/lib/api`.
+- `src/frontend/src/app/dashboard/validator/page.tsx`: mounted `useNetworkStatus` and `useAutoSync`; replaced direct `apiFetch` calls for queue fetch, archive, unarchive, and verification with the offline-aware wrappers; added stale-cache amber banner, pending-ops badge, offline indicator, and `wims:sync-complete` SW message listener; kept delete and bulk approve online-only.
+- `src/frontend/src/lib/__tests__/offlineValidator.test.ts`: added reproduction test (verify offline queuing) plus archive/unarchive archive_action queuing tests (3 tests total, all passing).
+- `system-wiki/architecture/pwa-tests-cicd.md`: added `offlineValidator.ts` section with export table and dashboard wiring summary.
+- `system-wiki/frontend/frontend-infrastructure.md`: added `offlineValidator.ts` to API slice layout table.
+- No FRS gap register update (this implements existing offline-first behavior without changing FRS gap status).
+
 ## [2026-06-12] feat | GH #268 validator offline op types and sync engine
 
 - `src/frontend/src/lib/offlineStore.ts`: added `OfflineOpType` (`'create' | 'verify' | 'archive_action'`), `VerifyPayload`, `ArchiveActionPayload`, and `QueueIncidentOptions`; `queueIncident(payload, options?)` now persists optional `opType` and `localId` metadata so real queued validator ops can dispatch/idempotently replay.

@@ -10,7 +10,15 @@ import {
   RefreshCw, Flame, Building2, TreePine, Car, Layers, Home, Users, Truck, Trees,
   Archive, CalendarDays,
 } from "lucide-react";
-import { apiFetch, ApiRequestError, fetchValidatorStats } from "@/lib/api";
+import {
+  apiFetch, ApiRequestError, fetchValidatorStats,
+  submitVerificationOfflineAware,
+  archiveIncidentOfflineAware,
+  unarchiveIncidentOfflineAware,
+  fetchValidatorQueueOfflineAware,
+} from "@/lib/api";
+import { useNetworkStatus } from "@/lib/useNetworkStatus";
+import { useAutoSync } from "@/lib/useAutoSync";
 import { formatClassification } from "@/lib/afor-utils";
 import { PH_REGIONS, getShortRegionName } from "@/lib/ph-regions";
 import { isDateOnly, getDateBounds, categoryCount as sharedCategoryCount } from "@/lib/incident-utils";
@@ -82,10 +90,13 @@ const categoryCount = sharedCategoryCount;
 
 export default function ValidatorDashboard() {
   const router = useRouter();
+  const networkStatus = useNetworkStatus();
+  const autoSync = useAutoSync();
   const [incidents, setIncidents] = useState<ValidatorIncident[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [cacheMeta, setCacheMeta] = useState<{ cachedAt?: number } | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_ALL);
   const [regionFilter, setRegionFilter] = useState<string>("");
@@ -269,7 +280,12 @@ export default function ValidatorDashboard() {
   const doArchive = async (inc: ValidatorIncident) => {
     setArchiveError(null);
     try {
-      await apiFetch(`/regional/validator/incidents/${inc.incident_id}/archive`, { method: "PATCH" });
+      const result = await archiveIncidentOfflineAware(inc.incident_id);
+      if (result.queued) {
+        // Queued for sync — refresh UI to reflect pending state
+        await fetchQueue();
+        return;
+      }
       await fetchQueue();
     } catch (err: unknown) {
       setArchiveError(err instanceof Error ? err.message : "Archive failed");
@@ -279,7 +295,11 @@ export default function ValidatorDashboard() {
   const doUnarchive = async (inc: ValidatorIncident) => {
     setArchiveError(null);
     try {
-      await apiFetch(`/regional/validator/incidents/${inc.incident_id}/unarchive`, { method: "PATCH" });
+      const result = await unarchiveIncidentOfflineAware(inc.incident_id);
+      if (result.queued) {
+        await fetchQueue();
+        return;
+      }
       await fetchQueue();
     } catch (err: unknown) {
       setArchiveError(err instanceof Error ? err.message : "Unarchive failed");
@@ -300,10 +320,15 @@ export default function ValidatorDashboard() {
     setAcceptingId(inc.incident_id);
     setActionError(null);
     try {
-      await apiFetch(`/regional/incidents/${inc.incident_id}/verification`, {
-        method: "PATCH",
-        body: JSON.stringify({ action: "accept", notes: null }),
-      });
+      const result = await submitVerificationOfflineAware(
+        inc.incident_id,
+        "accept",
+        null,
+      );
+      if (result.queued) {
+        await fetchQueue();
+        return;
+      }
       await fetchQueue();
     } catch (err: unknown) {
       if (err instanceof ApiRequestError && err.status === 409) {
@@ -407,12 +432,21 @@ export default function ValidatorDashboard() {
     if (regionFilter) params.set("region_id", regionFilter);
 
     try {
-      const data: QueueResponse = await apiFetch(`/regional/validator/incidents?${params.toString()}`);
-      setIncidents(data.items);
-      setTotal(data.total);
-      lastKnownTotal.current = data.total;
+      const paramsObj: Record<string, unknown> = Object.fromEntries(params.entries());
+      const result = await fetchValidatorQueueOfflineAware<QueueResponse>(
+        paramsObj,
+        () => apiFetch(`/regional/validator/incidents?${params.toString()}`),
+      );
+      setIncidents(result.response.items);
+      setTotal(result.response.total);
+      lastKnownTotal.current = result.response.total;
       setNewIncidentBanner(false);
       setRuntimeDuplicates(new Map());
+      if (result.fromCache) {
+        setCacheMeta({ cachedAt: result.cachedAt });
+      } else {
+        setCacheMeta(null);
+      }
       // Keep the pending-count badge in sync after every queue refresh.
       void fetchValidatorStats(statsDateBoundsRef.current).then(setStats).catch(() => {});
     } catch (err: unknown) {
@@ -443,6 +477,18 @@ export default function ValidatorDashboard() {
     return () => clearInterval(intervalId);
   }, []);
 
+  // Listen for wims:sync-complete messages from the service worker (SW sync
+  // finishes). When sync completes, refresh the queue and pending count.
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === 'sync-complete' && event.data?.tag === 'sync-pending-incidents') {
+        fetchQueue();
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', handler);
+    return () => navigator.serviceWorker?.removeEventListener('message', handler);
+  }, [fetchQueue]);
+
   // ---------------------------------------------------------------------------
   // Submit validator decision
   // ---------------------------------------------------------------------------
@@ -451,14 +497,57 @@ export default function ValidatorDashboard() {
     if (!actionTarget || !actionType) return;
     setActionLoading(true);
     setActionError(null);
-    const url = force
-      ? `/regional/incidents/${actionTarget.incident_id}/verification?force=true`
-      : `/regional/incidents/${actionTarget.incident_id}/verification`;
+
+    // force=true (accept_replace override) stays online-only for now — the sync
+    // engine does not yet replay force-override verifications.
+    if (force) {
+      const url = `/regional/incidents/${actionTarget.incident_id}/verification?force=true`;
+      try {
+        await apiFetch(url, {
+          method: "PATCH",
+          body: JSON.stringify({ action: actionType, notes: actionNotes.trim() || null }),
+        });
+        await fetchQueue();
+        setActionTarget(null);
+        setActionType(null);
+        setActionNotes("");
+        setValidatorDupTarget(null);
+        setValidatorDupMatchedId(null); setValidatorDupConfidence(null);
+      } catch (err: unknown) {
+        if (err instanceof ApiRequestError && err.status === 409) {
+          const detail = err.detail as { code?: string; matched_incident_id?: number; confidence?: 'LIKELY' | 'POSSIBLE' } | null;
+          if (detail?.code === "DUPLICATE_DETECTED" && detail.matched_incident_id) {
+            setRuntimeDuplicates((prev) => new Map(prev).set(actionTarget.incident_id, detail.matched_incident_id!));
+            setValidatorDupTarget(actionTarget);
+            setValidatorDupMatchedId(detail.matched_incident_id);
+            setValidatorDupConfidence(detail.confidence ?? null);
+            setActionTarget(null);
+            return;
+          }
+        }
+        setActionError(err instanceof Error ? err.message : "Action failed");
+      } finally {
+        setActionLoading(false);
+      }
+      return;
+    }
+
     try {
-      await apiFetch(url, {
-        method: "PATCH",
-        body: JSON.stringify({ action: actionType, notes: actionNotes.trim() || null }),
-      });
+      const result = await submitVerificationOfflineAware(
+        actionTarget.incident_id,
+        actionType,
+        actionNotes.trim() || null,
+      );
+      if (result.queued) {
+        // Queued for offline sync — refresh UI to reflect pending state
+        await fetchQueue();
+        setActionTarget(null);
+        setActionType(null);
+        setActionNotes("");
+        setValidatorDupTarget(null);
+        setValidatorDupMatchedId(null); setValidatorDupConfidence(null);
+        return;
+      }
       await fetchQueue();
       setActionTarget(null);
       setActionType(null);
@@ -542,6 +631,26 @@ export default function ValidatorDashboard() {
         </div>
       )}
 
+      {/* ── Stale cache banner ── */}
+      {cacheMeta && (
+        <div className="sticky top-0 z-40">
+          <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 shadow-md">
+            <span>
+              Showing cached data
+              {cacheMeta.cachedAt ? ` from ${new Date(cacheMeta.cachedAt).toLocaleTimeString()}` : ''}.
+              {' '}Reconnect to see the latest queue.
+            </span>
+            <button
+              onClick={fetchQueue}
+              className="ml-4 rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
+              style={{ backgroundColor: '#D97706' }}
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Page header ── */}
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
@@ -563,6 +672,35 @@ export default function ValidatorDashboard() {
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} aria-hidden />
             Refresh
           </button>
+          {autoSync.pendingCount > 0 && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold"
+              style={{
+                backgroundColor: '#FEF3C7',
+                borderColor: '#F59E0B',
+                color: '#92400E',
+              }}
+              title={`${autoSync.pendingCount} operation${autoSync.pendingCount !== 1 ? 's' : ''} queued for sync`}
+            >
+              {autoSync.syncing ? (
+                <RefreshCw className="h-3 w-3 animate-spin" />
+              ) : null}
+              {autoSync.pendingCount} queued
+            </span>
+          )}
+          {!networkStatus.isOnline && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold"
+              style={{
+                backgroundColor: '#FEE2E2',
+                borderColor: '#FCA5A5',
+                color: '#991B1B',
+              }}
+              title="You are offline. Changes will be queued and synced when you reconnect."
+            >
+              Offline
+            </span>
+          )}
           {selectedIds.size > 0 && (
             <button
               onClick={() => setShowBulkConfirmModal(true)}

@@ -77,7 +77,8 @@ The API client is split into domain slices with a compatibility barrel. `src/fro
 | `api/regional.ts` | Regional encoder incidents, drafts, AFOR import/commit, duplicate checks |
 | `api/admin.ts` | Admin/user/session/security/audit exports |
 | `api/reference.ts` | Reference data and nearby-station exports |
-| `api/validator.ts` | Validator-oriented compatibility exports |
+| `api/validator.ts` | Validator-oriented compatibility exports + offline-aware action wrappers |
+| `api/offlineValidator.ts` | Offline-aware validator queue fetch, verification, and archive/unarchive wrappers returning `{ queued, localId }` or `{ response, fromCache, cachedAt? }` |
 | `api/legacy.ts` | Temporary implementation holder during migration; new code should prefer domain slices |
 
 Public civilian functions use `publicApiFetch` and do not call authenticated `apiFetch`.

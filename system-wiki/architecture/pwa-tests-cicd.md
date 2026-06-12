@@ -4,7 +4,7 @@ created: 2026-05-16
 updated: 2026-06-12
 type: architecture
 tags: [wims-bfp, pwa, offline-first, testing, ci-cd, service-worker, sync-engine, validator-offline]
-sources: [src/frontend/src/lib/, src/frontend/src/lib/api/offlineAnalytics.ts, src/frontend/public/sw.js, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py, src/backend/tests/test_schema_patch_startup_guard.py]
+sources: [src/frontend/src/lib/, src/frontend/src/lib/api/offlineAnalytics.ts, src/frontend/src/lib/api/offlineValidator.ts, src/frontend/public/sw.js, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py, src/backend/tests/test_schema_patch_startup_guard.py]
 status: draft
 ---
 
@@ -66,6 +66,22 @@ Reads pending items from IndexedDB, dispatches each to the correct API endpoint 
 - **Network error (no HTTP status) aborts remaining batch** to preserve ordering; HTTP errors (4xx/5xx) continue to the next item.
 
 **Conflict resolution (create ops):** Last-write-wins (LWW) on HTTP 409. If `server_updated_at` is older than local `createdAt`, retries with `X-Conflict-Resolution: overwrite` header.
+
+### `api/offlineValidator.ts` — Validator Offline-First Action Wrappers (GH #269)
+
+**File:** `src/frontend/src/lib/api/offlineValidator.ts`
+
+Adds offline-aware write wrappers for the National Validator dashboard: queue fetch, verification, and archive/unarchive. Each action wrapper checks connectivity snapshot; when offline or navigator.onLine is false, queues via `queueIncident()` with appropriate `opType` (`'verify'` or `'archive_action'`) and a generated `localId` (`crypto.randomUUID()`). When online, calls the real API via `apiFetch`. On network errors mid-flight, marks connectivity offline and falls back to queuing. 409 responses (including `DUPLICATE_DETECTED`) are surfaced to the caller for UI handling.
+
+| Export | Signature | Description |
+|---|---|---|
+| `submitVerificationOfflineAware(incidentId, action, notes)` | `(number, string, string \| null) => Promise<OfflineQueueResult>` | Accept/reject verification; returns `{ queued, localId }`. Queues as `opType: 'verify'` when offline or on network failure. |
+| `submitArchiveActionOfflineAware(incidentId, action)` | `(number, 'archive' \| 'unarchive') => Promise<OfflineQueueResult>` | Generic archive/unarchive; returns `{ queued, localId }`. Queues as `opType: 'archive_action'`. |
+| `archiveIncidentOfflineAware(incidentId)` | `(number) => Promise<OfflineQueueResult>` | Convenience wrapper calling `submitArchiveActionOfflineAware(id, 'archive')`. |
+| `unarchiveIncidentOfflineAware(incidentId)` | `(number) => Promise<OfflineQueueResult>` | Convenience wrapper calling `submitArchiveActionOfflineAware(id, 'unarchive')`. |
+| `fetchValidatorQueueOfflineAware<T>(params, fetcher)` | `(Record<...>, () => Promise<T>) => Promise<OfflineValidatorQueueResult<T>>` | Queue fetch with 30-min TTL encrypted read cache. Returns `{ response, fromCache, cachedAt? }`. Follows same pattern as `offlineAnalytics.ts`. |
+
+**Validator dashboard wiring (GH #269):** The `/dashboard/validator` page now mounts `useNetworkStatus()` and `useAutoSync()`, calls the wrappers for queue fetch, archive, unarchive, and verification (accept/reject). Delete and bulk approve remain online-only. A stale-cache amber banner appears when data is served from the encrypted IndexedDB cache. Pending ops count and offline indicator badges are shown in the page header. A `wims:sync-complete` message listener from the service worker triggers queue refresh after background sync completes.
 
 ### `useNetworkStatus.ts` — Network State Hook (FR-3A)
 

@@ -17,3 +17,4 @@ export * from './regional';
 export * from './triage';
 export * from './map';
 export * from './operations';
+export * from './validator';
