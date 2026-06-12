@@ -232,6 +232,15 @@ jobs:
               }
             done
 
+            # ─── Reload nginx to refresh container DNS caches ───────────────
+            # After `compose up --build` recreates containers, nginx's upstream
+            # DNS cache (for ".service:port" hostnames used directly in proxy_pass
+            # without an upstream block with "resolve" flag) may point at stale
+            # container IPs.  The frontend_servers upstream block now uses "resolve",
+            # but this reload is a safety net for any remaining static references.
+            echo "Reloading nginx to flush DNS cache..."
+            docker exec wims-nginx-gateway nginx -s reload || echo "Warning: nginx reload failed"
+
             # ─── Post-deploy health check ───────────────────────────────────────
             echo "Waiting for backend to be ready..."
             sleep 15
@@ -257,6 +266,9 @@ jobs:
             echo "Checking public gateway health..."
             curl -fsS https://wimsbfp.tech/health >/dev/null
             curl -fsS https://wimsbfp.tech/auth/realms/bfp/.well-known/openid-configuration >/dev/null
+            # Frontend route check — catches stale nginx DNS cache for frontend
+            # upstream that the Keycloak and API probes cannot detect.
+            curl -fsS https://wimsbfp.tech/login >/dev/null
             # This route traverses nginx -> backend and catches stale Docker DNS
             # upstreams that the nginx-served /health endpoint cannot detect.
             curl -fsS https://wimsbfp.tech/api/public/emergency-services >/dev/null

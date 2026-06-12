@@ -3,6 +3,12 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-12] fix | dynamic frontend DNS for nginx + frontend health check in deploy
+
+- `src/nginx/nginx.conf`: replaced all four static `proxy_pass http://frontend:3000[/]` references with a new `upstream frontend_servers { server frontend:3000 resolve; }` block. Nginx previously resolved `frontend` at startup and cached the IP indefinitely, so after a deploy recreated the frontend container with a new Docker IP, nginx kept proxying to the stale IP → `502 Bad Gateway`. The `resolve` flag on the upstream server directive forces nginx to re-resolve via Docker's embedded DNS (`resolver 127.0.0.11 valid=10s`), matching the existing `backend_servers` pattern.
+- `.github/workflows/deploy.yml`: added `nginx -s reload` after `compose up` as a safety net, and a frontend-specific health check (`curl -fsS https://wimsbfp.tech/login >/dev/null`) to the post-deploy health probe section — the existing Keycloak and API checks cannot detect a stale frontend upstream.
+- `system-wiki/architecture/infrastructure-config.md`: updated Docker DNS upstream refresh section and added deploy detail note about the frontend probe.
+
 ## [2026-06-12] fix | keep openbao-bootstrap alive for docker compose --wait
 
 - `src/openbao/init/bootstrap-openbao.sh`: added keep-alive loop (`while true; do sleep 3600; done`) with SIGTERM/SIGINT trap at end of bootstrap script. The deploy workflow (`compose up -d --build --wait`) requires every service to be in "running" or "healthy" state. Since the bootstrap container has no healthcheck and previously exited after completing its init logic, `--wait` saw it as "not ready" and failed the deploy. The keep-alive keeps the container in "running" state until the stack is torn down.
