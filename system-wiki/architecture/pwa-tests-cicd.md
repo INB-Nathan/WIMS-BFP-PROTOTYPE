@@ -75,13 +75,13 @@ Adds offline-aware write wrappers for the National Validator dashboard: queue fe
 
 | Export | Signature | Description |
 |---|---|---|
-| `submitVerificationOfflineAware(incidentId, action, notes)` | `(number, string, string \| null) => Promise<OfflineQueueResult>` | Accept/reject verification; returns `{ queued, localId }`. Queues as `opType: 'verify'` when offline or on network failure. |
+| `submitVerificationOfflineAware(incidentId, action, notes, originalIncidentId?)` | `(number, VerifyAction, string \| null, number?) => Promise<OfflineQueueResult>` | Accept/reject/accept_replace verification; returns `{ queued, localId }`. Queues as `opType: 'verify'` with `original_incident_id` when offline or on network failure. |
 | `submitArchiveActionOfflineAware(incidentId, action)` | `(number, 'archive' \| 'unarchive') => Promise<OfflineQueueResult>` | Generic archive/unarchive; returns `{ queued, localId }`. Queues as `opType: 'archive_action'`. |
 | `archiveIncidentOfflineAware(incidentId)` | `(number) => Promise<OfflineQueueResult>` | Convenience wrapper calling `submitArchiveActionOfflineAware(id, 'archive')`. |
 | `unarchiveIncidentOfflineAware(incidentId)` | `(number) => Promise<OfflineQueueResult>` | Convenience wrapper calling `submitArchiveActionOfflineAware(id, 'unarchive')`. |
-| `fetchValidatorQueueOfflineAware<T>(params, fetcher)` | `(Record<...>, () => Promise<T>) => Promise<OfflineValidatorQueueResult<T>>` | Queue fetch with 30-min TTL encrypted read cache. Returns `{ response, fromCache, cachedAt? }`. Follows same pattern as `offlineAnalytics.ts`. |
+| `fetchValidatorQueueOfflineAware<T>(params, fetcher, userId?)` | `(Record<...>, () => Promise<T>, string?) => Promise<OfflineValidatorQueueResult<T>>` | Queue fetch with 30-min TTL encrypted read cache keyed as `validator:queue:{userId}:{params}`. Returns `{ response, fromCache, cachedAt? }`. Follows same pattern as `offlineAnalytics.ts`. |
 
-**Validator dashboard wiring (GH #269):** The `/dashboard/validator` page now mounts `useNetworkStatus()` and `useAutoSync()`, calls the wrappers for queue fetch, archive, unarchive, and verification (accept/reject). Delete and bulk approve remain online-only. A stale-cache amber banner appears when data is served from the encrypted IndexedDB cache. Pending ops count and offline indicator badges are shown in the page header. A `wims:sync-complete` message listener from the service worker triggers queue refresh after background sync completes.
+**Validator dashboard wiring (GH #269):** The `/dashboard/validator` page now mounts `useNetworkStatus()` and `useAutoSync()`, calls the wrappers for queue fetch, archive, unarchive, and verification (accept/reject/accept_replace). Delete, bulk approve, and forced duplicate "accept as new" remain online-only. A stale-cache amber banner appears when data is served from the encrypted IndexedDB cache. A validator-only pending ops count, sync-complete notification, and offline indicator badges are shown in the page header. The page listens for both current service-worker `sync-complete` messages and issue-named `wims:sync-complete` messages, then refreshes the queue after background sync completes.
 
 ### `useNetworkStatus.ts` — Network State Hook (FR-3A)
 

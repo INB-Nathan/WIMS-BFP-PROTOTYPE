@@ -3,6 +3,7 @@ import {
   cacheAnalyticsResponse,
   getCachedAnalyticsResponse,
   queueIncident,
+  type VerifyAction,
 } from '../offlineStore';
 import {
   getConnectivitySnapshot,
@@ -46,8 +47,8 @@ function stableStringify(value: unknown): string {
   return `{${entries.join(',')}}`;
 }
 
-function queueCacheKey(base: string, args: unknown[]): string {
-  return `validator:${base}:${encodeURIComponent(stableStringify(args))}`;
+function queueCacheKey(userId: string | null | undefined, params: Record<string, unknown>): string {
+  return `validator:queue:${userId || 'anonymous'}:${encodeURIComponent(stableStringify(params))}`;
 }
 
 function isNavigatorOffline(): boolean {
@@ -67,13 +68,19 @@ function isFresh(cachedAt: number): boolean {
 
 export async function submitVerificationOfflineAware(
   incidentId: number,
-  action: string,
+  action: VerifyAction,
   notes: string | null,
+  originalIncidentId?: number,
 ): Promise<OfflineQueueResult> {
   if (shouldServeOffline()) {
     const localId = crypto.randomUUID();
     await queueIncident(
-      { incident_id: incidentId, action, notes },
+      {
+        incident_id: incidentId,
+        action,
+        notes,
+        ...(originalIncidentId !== undefined ? { original_incident_id: originalIncidentId } : {}),
+      },
       { opType: 'verify', localId },
     );
     return { queued: true, localId };
@@ -86,6 +93,7 @@ export async function submitVerificationOfflineAware(
         action,
         notes: notes ?? null,
         client_id: crypto.randomUUID(),
+        ...(originalIncidentId !== undefined ? { original_incident_id: originalIncidentId } : {}),
       }),
     });
     return { queued: false, localId: '' };
@@ -99,7 +107,12 @@ export async function submitVerificationOfflineAware(
       markConnectivityOffline();
       const localId = crypto.randomUUID();
       await queueIncident(
-        { incident_id: incidentId, action, notes },
+        {
+          incident_id: incidentId,
+          action,
+          notes,
+          ...(originalIncidentId !== undefined ? { original_incident_id: originalIncidentId } : {}),
+        },
         { opType: 'verify', localId },
       );
       return { queued: true, localId };
@@ -117,7 +130,7 @@ export async function submitArchiveActionOfflineAware(
   if (shouldServeOffline()) {
     const localId = crypto.randomUUID();
     await queueIncident(
-      { incident_id: incidentId, action } as unknown as Record<string, unknown>,
+      { incident_id: incidentId, action },
       { opType: 'archive_action', localId },
     );
     return { queued: true, localId };
@@ -143,7 +156,7 @@ export async function submitArchiveActionOfflineAware(
       markConnectivityOffline();
       const localId = crypto.randomUUID();
       await queueIncident(
-        { incident_id: incidentId, action } as unknown as Record<string, unknown>,
+        { incident_id: incidentId, action },
         { opType: 'archive_action', localId },
       );
       return { queued: true, localId };
@@ -176,8 +189,9 @@ export interface OfflineValidatorQueueResult<T> {
 export async function fetchValidatorQueueOfflineAware<T>(
   params: Record<string, unknown>,
   fetcher: () => Promise<T>,
+  userId?: string | null,
 ): Promise<OfflineValidatorQueueResult<T>> {
-  const key = queueCacheKey('queue', [params]);
+  const key = queueCacheKey(userId, params);
 
   if (shouldServeOffline()) {
     const cached = await getCachedAnalyticsResponse<T>(key);

@@ -19,6 +19,8 @@ import {
 } from "@/lib/api";
 import { useNetworkStatus } from "@/lib/useNetworkStatus";
 import { useAutoSync } from "@/lib/useAutoSync";
+import { getPendingIncidents } from "@/lib/offlineStore";
+import { useUserProfile } from "@/lib/auth";
 import { formatClassification } from "@/lib/afor-utils";
 import { PH_REGIONS, getShortRegionName } from "@/lib/ph-regions";
 import { isDateOnly, getDateBounds, categoryCount as sharedCategoryCount } from "@/lib/incident-utils";
@@ -92,11 +94,14 @@ export default function ValidatorDashboard() {
   const router = useRouter();
   const networkStatus = useNetworkStatus();
   const autoSync = useAutoSync();
+  const { user } = useUserProfile();
   const [incidents, setIncidents] = useState<ValidatorIncident[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cacheMeta, setCacheMeta] = useState<{ cachedAt?: number } | null>(null);
+  const [queuedValidatorOpsCount, setQueuedValidatorOpsCount] = useState(0);
+  const [syncNotification, setSyncNotification] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_ALL);
   const [regionFilter, setRegionFilter] = useState<string>("");
@@ -237,6 +242,21 @@ export default function ValidatorDashboard() {
   useEffect(() => () => {
     if (hoverHintTimer.current) clearTimeout(hoverHintTimer.current);
   }, []);
+
+  const refreshQueuedValidatorOpsCount = useCallback(async () => {
+    try {
+      const pending = await getPendingIncidents();
+      setQueuedValidatorOpsCount(
+        pending.filter((op) => op.opType === 'verify' || op.opType === 'archive_action').length,
+      );
+    } catch {
+      setQueuedValidatorOpsCount(0);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshQueuedValidatorOpsCount();
+  }, [refreshQueuedValidatorOpsCount, autoSync.pendingCount]);
 
   const togglePending = (inc: ValidatorIncident, checked: boolean) => {
     setSelectedIds((prev) => {
@@ -436,6 +456,7 @@ export default function ValidatorDashboard() {
       const result = await fetchValidatorQueueOfflineAware<QueueResponse>(
         paramsObj,
         () => apiFetch(`/regional/validator/incidents?${params.toString()}`),
+        user?.id,
       );
       setIncidents(result.response.items);
       setTotal(result.response.total);
@@ -448,13 +469,14 @@ export default function ValidatorDashboard() {
         setCacheMeta(null);
       }
       // Keep the pending-count badge in sync after every queue refresh.
+      void refreshQueuedValidatorOpsCount();
       void fetchValidatorStats(statsDateBoundsRef.current).then(setStats).catch(() => {});
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load queue");
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, regionFilter, dateBounds.date_from, dateBounds.date_to, isArchiveView]);
+  }, [page, statusFilter, regionFilter, dateBounds.date_from, dateBounds.date_to, isArchiveView, user?.id, refreshQueuedValidatorOpsCount]);
 
   useEffect(() => { fetchQueue(); }, [fetchQueue]);
 
@@ -481,20 +503,24 @@ export default function ValidatorDashboard() {
   // finishes). When sync completes, refresh the queue and pending count.
   useEffect(() => {
     const handler = (event: MessageEvent) => {
-      if (event.data?.type === 'sync-complete' && event.data?.tag === 'sync-pending-incidents') {
+      const isSyncComplete = event.data?.type === 'sync-complete' || event.data?.type === 'wims:sync-complete';
+      if (isSyncComplete && event.data?.tag === 'sync-pending-incidents') {
+        setSyncNotification('Offline validator actions synced. Refreshing queue…');
+        void refreshQueuedValidatorOpsCount();
         fetchQueue();
       }
     };
     navigator.serviceWorker?.addEventListener('message', handler);
     return () => navigator.serviceWorker?.removeEventListener('message', handler);
-  }, [fetchQueue]);
+  }, [fetchQueue, refreshQueuedValidatorOpsCount]);
 
   // ---------------------------------------------------------------------------
   // Submit validator decision
   // ---------------------------------------------------------------------------
 
-  const submitAction = async (force = false) => {
+  const submitAction = async (force = false, actionOverride?: ActionType) => {
     if (!actionTarget || !actionType) return;
+    const effectiveAction = actionOverride ?? actionType;
     setActionLoading(true);
     setActionError(null);
 
@@ -505,7 +531,7 @@ export default function ValidatorDashboard() {
       try {
         await apiFetch(url, {
           method: "PATCH",
-          body: JSON.stringify({ action: actionType, notes: actionNotes.trim() || null }),
+          body: JSON.stringify({ action: effectiveAction, notes: actionNotes.trim() || null }),
         });
         await fetchQueue();
         setActionTarget(null);
@@ -535,8 +561,11 @@ export default function ValidatorDashboard() {
     try {
       const result = await submitVerificationOfflineAware(
         actionTarget.incident_id,
-        actionType,
+        effectiveAction,
         actionNotes.trim() || null,
+        effectiveAction === 'accept_replace'
+          ? (actionTarget.duplicate_of ?? actionTarget.parent_incident_id ?? undefined)
+          : undefined,
       );
       if (result.queued) {
         // Queued for offline sync — refresh UI to reflect pending state
@@ -632,6 +661,21 @@ export default function ValidatorDashboard() {
       )}
 
       {/* ── Stale cache banner ── */}
+      {syncNotification && (
+        <div className="sticky top-0 z-40">
+          <div className="flex items-center justify-between rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 shadow-md">
+            <span>{syncNotification}</span>
+            <button
+              onClick={() => setSyncNotification(null)}
+              className="ml-4 rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
+              style={{ backgroundColor: '#16A34A' }}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {cacheMeta && (
         <div className="sticky top-0 z-40">
           <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 shadow-md">
@@ -672,7 +716,7 @@ export default function ValidatorDashboard() {
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} aria-hidden />
             Refresh
           </button>
-          {autoSync.pendingCount > 0 && (
+          {queuedValidatorOpsCount > 0 && (
             <span
               className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold"
               style={{
@@ -680,12 +724,12 @@ export default function ValidatorDashboard() {
                 borderColor: '#F59E0B',
                 color: '#92400E',
               }}
-              title={`${autoSync.pendingCount} operation${autoSync.pendingCount !== 1 ? 's' : ''} queued for sync`}
+              title={`${queuedValidatorOpsCount} action${queuedValidatorOpsCount !== 1 ? 's' : ''} waiting for sync`}
             >
               {autoSync.syncing ? (
                 <RefreshCw className="h-3 w-3 animate-spin" />
               ) : null}
-              {autoSync.pendingCount} queued
+              {queuedValidatorOpsCount} queued
             </span>
           )}
           {!networkStatus.isOnline && (

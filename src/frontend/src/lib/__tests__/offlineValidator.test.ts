@@ -35,6 +35,8 @@ const offlineStoreMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../offlineStore', () => ({
+  cacheAnalyticsResponse: vi.fn(),
+  getCachedAnalyticsResponse: vi.fn(),
   queueIncident: offlineStoreMocks.queueIncident,
 }));
 
@@ -82,6 +84,28 @@ describe('submitVerificationOfflineAware', () => {
     // indicating the verification is queued for sync.
     expect(result).toHaveProperty('queued', true);
     expect(result).toHaveProperty('localId', options.localId);
+  });
+
+  it('includes original_incident_id when queuing accept_replace offline', async () => {
+    const { submitVerificationOfflineAware } = await import('../api/validator');
+
+    await submitVerificationOfflineAware(
+      42,
+      'accept_replace',
+      'Replace duplicate',
+      7,
+    );
+
+    expect(offlineStoreMocks.queueIncident).toHaveBeenCalledTimes(1);
+    const [payload, options] = offlineStoreMocks.queueIncident.mock.calls[0];
+
+    expect(payload).toEqual({
+      incident_id: 42,
+      action: 'accept_replace',
+      notes: 'Replace duplicate',
+      original_incident_id: 7,
+    });
+    expect(options.opType).toBe('verify');
   });
 });
 
