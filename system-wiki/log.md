@@ -12,6 +12,7 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `src/frontend/src/lib/__tests__/offlineValidator.test.ts`: added reproduction test (verify offline queuing) plus archive/unarchive archive_action queuing tests (3 tests total, all passing).
 - `system-wiki/architecture/pwa-tests-cicd.md`: added `offlineValidator.ts` section with export table and dashboard wiring summary.
 - `system-wiki/frontend/frontend-infrastructure.md`: added `offlineValidator.ts` to API slice layout table.
+- `docs/implementations/validator-dashboard-offline-wiring.md`: implementation handoff doc created with base-fail/patch-pass evidence, mechanical gate results, spec compliance table, and residual risks.
 - No FRS gap register update (this implements existing offline-first behavior without changing FRS gap status).
 
 ## [2026-06-12] feat | GH #268 validator offline op types and sync engine
