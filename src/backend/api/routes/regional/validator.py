@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -35,6 +35,7 @@ from services.regional_incidents.helpers import (
 from utils.audit import log_system_audit
 from schemas.regional import (
     VerificationActionRequest,
+    ClientIdRequest,
     CorrectionRequest,
     BulkApproveRequest,
 )
@@ -46,6 +47,7 @@ router = APIRouter()
 from . import (  # noqa: E402
     _fi_has_resubmitted_column,
     _incident_verification_history_has_hash_columns,
+    _ivh_has_client_id_column,
     _regional_lifecycle_dependencies,
 )
 
@@ -286,6 +288,22 @@ def verify_incident(
     409 — incident already has the requested target status (idempotency guard)
     """
     validator_user_id = user["user_id"]
+
+    # Idempotency check: if client_id is provided and already exists in IVH,
+    # short-circuit and return already_applied without re-processing (#267).
+    if body.client_id and _ivh_has_client_id_column(db):
+        existing = db.execute(
+            text("""
+                SELECT 1
+                FROM wims.incident_verification_history
+                WHERE client_id = CAST(:cid AS uuid)
+                LIMIT 1
+            """),
+            {"cid": body.client_id},
+        ).fetchone()
+        if existing:
+            return {"status": "already_applied", "incident_id": incident_id}
+
     result = verify_incident_command(
         db,
         incident_id=incident_id,
@@ -294,6 +312,7 @@ def verify_incident(
         request=request,
         force=force,
         deps=_regional_lifecycle_dependencies(),
+        client_id=body.client_id,
     )
     logger.info(
         "Validator user_id=%s applied action='%s' to incident_id=%s",
@@ -576,18 +595,38 @@ def archive_incident(
     incident_id: int,
     user: Annotated[dict, Depends(get_national_validator)],
     db: Annotated[Session, Depends(get_db_with_rls)],
+    body: ClientIdRequest | None = Body(default=None),
+    client_id: str | None = Query(default=None),
 ):
     """Archive a finalized (VERIFIED, REJECTED, or REPLACED) incident.
 
     Sets is_archived=TRUE, archived_at=NOW(), verification_status unchanged.
     Returns 400 if the incident is not in an archivable finalized status.
+    Accepts optional client_id body field for idempotent retry detection (#267).
     """
     validator_user_id = user["user_id"]
+    resolved_client_id = body.client_id if body and body.client_id else client_id
+
+    # Idempotency check (#267)
+    if resolved_client_id and _ivh_has_client_id_column(db):
+        existing = db.execute(
+            text("""
+                SELECT 1
+                FROM wims.incident_verification_history
+                WHERE client_id = CAST(:cid AS uuid)
+                LIMIT 1
+            """),
+            {"cid": resolved_client_id},
+        ).fetchone()
+        if existing:
+            return {"status": "already_applied", "incident_id": incident_id}
+
     return archive_finalized_incident(
         db,
         incident_id=incident_id,
         validator_user_id=validator_user_id,
         deps=_regional_lifecycle_dependencies(),
+        client_id=resolved_client_id,
     )
 
 
@@ -596,14 +635,36 @@ def unarchive_incident(
     incident_id: int,
     user: Annotated[dict, Depends(get_national_validator)],
     db: Annotated[Session, Depends(get_db_with_rls)],
+    body: ClientIdRequest | None = Body(default=None),
+    client_id: str | None = Query(default=None),
 ):
-    """Restore an archived finalized incident to the active validator queue."""
+    """Restore an archived finalized incident to the active validator queue.
+
+    Accepts optional client_id body field for idempotent retry detection (#267).
+    """
     validator_user_id = user["user_id"]
+    resolved_client_id = body.client_id if body and body.client_id else client_id
+
+    # Idempotency check (#267)
+    if resolved_client_id and _ivh_has_client_id_column(db):
+        existing = db.execute(
+            text("""
+                SELECT 1
+                FROM wims.incident_verification_history
+                WHERE client_id = CAST(:cid AS uuid)
+                LIMIT 1
+            """),
+            {"cid": resolved_client_id},
+        ).fetchone()
+        if existing:
+            return {"status": "already_applied", "incident_id": incident_id}
+
     return unarchive_finalized_incident(
         db,
         incident_id=incident_id,
         actor_user_id=validator_user_id,
         deps=_regional_lifecycle_dependencies(),
+        client_id=resolved_client_id,
     )
 
 

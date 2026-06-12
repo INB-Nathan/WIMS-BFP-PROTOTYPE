@@ -2363,6 +2363,18 @@ Updated `src/backend/tests/test_csrf_middleware.py` to match PR #215's removal o
 - 16 new unit tests added in `tests/test_admin_new_routes.py` (8 audit filter tests, 7 security filter tests, 1 no-filters-baseline).
 
 **Wiki update:** Updated `system-wiki/backend/api-route-map.md` to note filter query params on `/audit-logs` and `/security-logs`.
+
+## [2026-06-12] feat(#267) | Idempotent validator verification via client_id
+
+- Added `client_id UUID` column to `wims.incident_verification_history` with partial unique index (`56_add_client_id_to_verification_history.sql`).
+- Added optional `client_id` field to `VerificationActionRequest` schema.
+- Three validator routes now support idempotent retry detection: `verify_incident`, `archive_incident`, and `unarchive_incident` accept `client_id` in the request body; archive/unarchive retain query-param compatibility.
+- When a duplicate `client_id` is detected, the endpoint returns `200 {"status": "already_applied"}` instead of re-processing.
+- `insert_incident_verification_history()` stores `client_id` when the column exists (column-aware guard pattern).
+- New test file `tests/test_validator_idempotency.py` with 5 focused tests covering verification, archive, unarchive, backward compatibility, and distinct client_id isolation.
+
+**Wiki update:** Updated `system-wiki/backend/api-route-map.md` with client_id params on three validator routes.
+
 ## [2026-06-10] fix | Restore VPS production runtime
 
 - Restored the VPS with the explicit production Compose override so nginx mounts `/etc/letsencrypt` and serves the valid `wimsbfp.tech` certificate.

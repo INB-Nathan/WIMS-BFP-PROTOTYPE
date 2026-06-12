@@ -13,6 +13,7 @@ from services.regional_incidents.helpers import (
     insert_incident_verification_history as _insert_incident_verification_history,
     generate_reference_number as _generate_reference_number,
     ivh_has_hash_columns,
+    _ivh_has_column as _ivh_col_check,
 )
 from services.kms import get_crypto_provider
 
@@ -56,6 +57,11 @@ def _regional_lifecycle_dependencies() -> RegionalIncidentLifecycleDependencies:
 def _incident_verification_history_has_hash_columns(db: Session) -> bool:
     """Return True when IVH table has columns needed for correction hash chaining."""
     return ivh_has_hash_columns(db)
+
+
+def _ivh_has_client_id_column(db: Session) -> bool:
+    """Return True when IVH table has the client_id column (migration 56)."""
+    return _ivh_col_check(db, "client_id")
 
 
 # Import route sub-modules and register their routers

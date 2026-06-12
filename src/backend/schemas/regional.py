@@ -138,6 +138,13 @@ class VerificationActionRequest(BaseModel):
     action: str  # "accept" | "accept_replace" | "pending" | "reject"
     notes: str | None = None
     original_incident_id: int | None = None  # For accept_replace: ID to supersede
+    client_id: str | None = None  # UUID from offline queue — idempotency key (#267)
+
+
+class ClientIdRequest(BaseModel):
+    """Optional idempotency key body for offline retryable validator actions."""
+
+    client_id: str | None = None
 
 
 class CorrectionRequest(BaseModel):
