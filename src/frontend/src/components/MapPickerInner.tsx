@@ -2,11 +2,12 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { searchGeocode } from '@/lib/geocode';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-// Fix default marker icons in react-leaflet (webpack/Next.js)
+// Fix default marker icons for webpack/Next.js (unpkg.com/leaflet is cached by the SW for offline use)
 const DefaultIcon = L.icon({
     iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
     iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -106,6 +107,8 @@ export function MapPickerInner({
 }: MapPickerInnerProps) {
     const readOnly = !onChange;
     const autoSearchedRef = useRef<string | null>(null);
+    const { state: connectivityState } = useNetworkStatus();
+    const isOffline = connectivityState === 'offline';
     const [position, setPosition] = useState<{ lat: number; lng: number } | null>(value ?? null);
     const [mapCenter, setMapCenter] = useState<[number, number]>(
         value ? [value.lat, value.lng] : center
@@ -314,6 +317,18 @@ export function MapPickerInner({
                 <ClickHandler onChange={handleChange} />
                 {displayPosition && <Marker position={[displayPosition.lat, displayPosition.lng]} />}
             </MapContainer>
+            {isOffline && (
+                <div
+                    style={{
+                        position: 'absolute', bottom: 0, left: 0, right: 0,
+                        background: 'rgba(245,158,11,0.92)', color: '#78350f',
+                        fontSize: '11px', fontWeight: 600, textAlign: 'center',
+                        padding: '4px 8px', zIndex: 1000, pointerEvents: 'none',
+                    }}
+                >
+                    Offline — map tiles may not be available. Coordinates can still be entered manually.
+                </div>
+            )}
             </div>
         </div>
     );

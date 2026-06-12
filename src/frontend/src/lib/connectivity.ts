@@ -48,6 +48,7 @@ function setConnectivityState(state: ConnectivityState, lastCheckedAt = snapshot
   emit();
 }
 
+
 export function getConnectivitySnapshot(): ConnectivitySnapshot {
   return snapshot;
 }
@@ -104,7 +105,119 @@ export async function isReachable(): Promise<boolean> {
   return result.isOnline;
 }
 
-export function __resetConnectivityForTests(state: ConnectivityState = 'checking'): void {
+// ── Singleton connectivity monitor (item G13) ────────────────────────────────
+// Exactly ONE recheck loop + ONE set of event listeners runs for the whole app,
+// regardless of how many components call useNetworkStatus(). Previously each hook
+// instance owned its own 5s interval, so the /health endpoint was probed N times
+// in parallel — the source of constant health-probe failures while offline.
+
+const OFFLINE_RECHECK_MIN_MS = 2000;
+const OFFLINE_RECHECK_MAX_MS = 30000;
+const RECONNECT_CONFIRM_MS = 3000;
+
+let monitorStarted = false;
+let loopActive = false;
+let recheckDelay = OFFLINE_RECHECK_MIN_MS;
+let recheckTimer: ReturnType<typeof setTimeout> | null = null;
+let confirmTimer: ReturnType<typeof setTimeout> | null = null;
+// Teardown handles so tests (and, in principle, a full reset) can remove the
+// singleton's listeners and subscription.
+let monitorTeardown: (() => void) | null = null;
+
+function stopLoop() {
+  loopActive = false;
+  recheckDelay = OFFLINE_RECHECK_MIN_MS;
+  if (recheckTimer) {
+    clearTimeout(recheckTimer);
+    recheckTimer = null;
+  }
+}
+
+function tick() {
+  if (!loopActive || recheckTimer) return;
+  recheckTimer = setTimeout(async () => {
+    recheckTimer = null;
+    if (!loopActive) return;
+    await probeConnectivity();
+    if (!loopActive) return;
+    if (snapshot.state === 'offline') {
+      // Exponential backoff so a long offline stretch doesn't hammer /health.
+      recheckDelay = Math.min(recheckDelay * 2, OFFLINE_RECHECK_MAX_MS);
+      tick();
+    } else {
+      stopLoop();
+    }
+  }, recheckDelay);
+}
+
+function startLoop() {
+  if (loopActive) return;
+  loopActive = true;
+  recheckDelay = OFFLINE_RECHECK_MIN_MS;
+  tick();
+}
+
+/**
+ * Start the global connectivity monitor. Idempotent — safe to call from every
+ * useNetworkStatus mount; only the first call wires anything up.
+ */
+export function startConnectivityMonitor() {
+  if (monitorStarted || typeof window === 'undefined') return;
+  monitorStarted = true;
+
+  const verifyOnlineHint = () => { void probeConnectivity(); };
+  const handleOffline = () => { markConnectivityOffline(); };
+  const handleVisibilityOrFocus = () => {
+    if (document.visibilityState === 'visible') verifyOnlineHint();
+  };
+
+  window.addEventListener('online', verifyOnlineHint);
+  window.addEventListener('offline', handleOffline);
+  window.addEventListener('focus', handleVisibilityOrFocus);
+  document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+  // Drive the single recheck loop from state transitions.
+  const unsubscribe = subscribeConnectivity(() => {
+    const s = snapshot.state;
+    if (s === 'offline') {
+      startLoop();
+    } else if (s === 'checking') {
+      // Probe in flight — leave the loop running so backoff isn't reset.
+    } else {
+      stopLoop();
+      if (s === 'reconnecting') {
+        if (confirmTimer) clearTimeout(confirmTimer);
+        confirmTimer = setTimeout(() => { void probeConnectivity(); }, RECONNECT_CONFIRM_MS);
+      }
+    }
+  });
+
+  monitorTeardown = () => {
+    window.removeEventListener('online', verifyOnlineHint);
+    window.removeEventListener('offline', handleOffline);
+    window.removeEventListener('focus', handleVisibilityOrFocus);
+    document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    unsubscribe();
+  };
+
+  void probeConnectivity();
+}
+
+/** Tear down the monitor (listeners, loop, timers). Primarily for tests. */
+export function __stopConnectivityMonitorForTests() {
+  stopLoop();
+  if (confirmTimer) {
+    clearTimeout(confirmTimer);
+    confirmTimer = null;
+  }
+  if (monitorTeardown) {
+    monitorTeardown();
+    monitorTeardown = null;
+  }
+  monitorStarted = false;
+}
+
+export function __resetConnectivityForTests(state: ConnectivityState = 'checking') {
   probeInFlight = null;
   snapshot = toSnapshot(state, null);
   emit();

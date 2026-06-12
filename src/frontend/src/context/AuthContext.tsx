@@ -12,6 +12,8 @@ import {
 import { useRouter } from 'next/navigation';
 import { createUserManager } from '@/lib/oidc';
 import { refreshToken } from '@/lib/auth-refresh';
+import { clearAllCachedIncidents, setActiveOfflineUser } from '@/lib/offlineStore';
+import { getConnectivitySnapshot } from '@/lib/connectivity';
 
 export interface User {
   id: string;
@@ -49,7 +51,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (refreshInFlightRef.current) {
       return refreshInFlightRef.current;
     }
-    const promise = refreshToken();
+    // refreshToken() returns a typed RefreshResult ({ ok, reason }); collapse it to a
+    // boolean for callers. Without the `.ok` map the object is always truthy, so a
+    // failed refresh would be treated as success.
+    const promise = refreshToken().then((r) => r.ok);
     refreshInFlightRef.current = promise;
     const result = await promise;
     refreshInFlightRef.current = null;
@@ -63,6 +68,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // races against concurrent tab refreshes (refreshTokenMaxReuse:0) and often
   // results in 401 → session kill → logged out.  Proactive interval refresh is
   // sufficient; the cookie stays valid across tab switches without re-fetching.
+  //
+  // Offline resilience: when the backend is unreachable (503) or the request
+  // fails entirely (DevTools offline mode blocks localhost), we restore the user
+  // from a localStorage cache written on the last successful login. This allows
+  // encoders to access the app and view cached incidents when offline.
+  const SESSION_CACHE_KEY = 'wims:offline_session_cache';
+
+  const restoreSessionFromCache = useCallback(() => {
+    try {
+      const raw = localStorage.getItem(SESSION_CACHE_KEY);
+      if (raw) {
+        const cached = JSON.parse(raw) as { user: User };
+        if (cached.user) {
+          setUser(cached.user);
+          if (cached.user.id) void setActiveOfflineUser(cached.user.id);
+        }
+      }
+    } catch { /* localStorage unavailable or invalid JSON — skip */ }
+  }, []);
+
   const fetchSession = useCallback(async () => {
     try {
       const requestSession = () => fetch('/api/auth/session');
@@ -79,19 +104,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await res.json();
         if (data.user) {
           setUser(data.user);
+          // Bind offline storage to this account — wipes prior user's offline data
+          // if a different uid is now logged in (item F12).
+          if (data.user.id) void setActiveOfflineUser(data.user.id);
+          try { localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ user: data.user })); } catch { /* private mode */ }
         } else {
           setUser(null);
+          localStorage.removeItem(SESSION_CACHE_KEY);
         }
+      } else if (res.status === 503) {
+        // Backend unreachable — restore from local cache so offline encoders
+        // can still access the app and their cached incident data.
+        restoreSessionFromCache();
       } else {
+        // Genuine auth failure (401 after refresh, 500, etc.) — clear session.
         setUser(null);
+        localStorage.removeItem(SESSION_CACHE_KEY);
       }
     } catch (err) {
-      setUser(null);
+      // Network error: DevTools offline mode blocks even localhost requests.
+      restoreSessionFromCache();
       console.error('[AuthContext] fetchSession: initialization failed:', err);
     } finally {
       setLoading(false);
     }
-  }, [refreshAccessToken]);
+  }, [refreshAccessToken, restoreSessionFromCache]);
 
   // ─── Initial session load ────────────────────────────────────────────────────
   useEffect(() => {
@@ -115,9 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const proactivelyRefreshJwtOnly = async () => {
-      // Silent refresh — only rotates the cookie, does NOT touch user state.
-      // This is safe to call concurrently from multiple tabs because of the
-      // navigator.locks gate inside refreshAccessToken().
+      if (!getConnectivitySnapshot().isOnline) return;
       await refreshAccessToken();
     };
 
@@ -155,9 +190,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    localStorage.removeItem(SESSION_CACHE_KEY);
     setLoggingOut(true);
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
+
+      // Shared-device privacy: purge the local read cache so cached incident PII
+      // does not linger for the next user. Pending offline ops are intentionally
+      // preserved so unsynced work is not dropped — it resumes on re-login.
+      try {
+        await clearAllCachedIncidents();
+      } catch {
+        /* IndexedDB unavailable (e.g. private mode) — non-fatal for logout */
+      }
+
+      // Shared-device privacy: signal the service worker to evict the
+      // authenticated app cache (RSC payloads, navigation pages, static
+      // routes) so the next user cannot inspect cached content from
+      // this session. The long-lived tile cache is preserved.
+      if (typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'clear-auth-cache' });
+      }
 
       const userManager = createUserManager();
       const currentUser = await userManager.getUser();

@@ -15,11 +15,17 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: mockReplace }),
 }));
 
+// Offline-mode panel has its own hook dependencies (router/auth/network) and is
+// tested separately; stub it so these profile-form tests stay isolated.
+vi.mock('@/components/regional/OfflineModeManager', () => ({
+  OfflineModeManager: () => null,
+}));
+
 vi.mock('@/context/AuthContext', () => ({
   useAuth: vi.fn(),
 }));
 
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, type User } from '@/context/AuthContext';
 
 const mockFetchMyProfile = vi.fn();
 const mockUpdateMyProfile = vi.fn();

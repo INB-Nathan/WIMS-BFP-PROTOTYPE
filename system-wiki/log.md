@@ -3,6 +3,11 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-12] docs | PR #271 metadata fix: M4-D → M2-c traceability correction
+
+- `docs/PR-offline-first-encoder.md`: corrected Deferred "Conflict resolution UI" label from `(M4-D)` to `(M2-c)` — M2-c (Data Synchronization) covers conflict detection/resolution per FRS `raw/frs/frs-offlinefirst.md`. Added `## FRS Traceability` section mapping each FRS M2 sub-item to concrete implementation evidence with system-wiki cross-links (`concepts/frs-module-map`, `architecture/pwa-tests-cicd`, `gaps/frs-codebase-gap-register`).
+- No FRS gap register update (M2b/M2c/M2d already CLOSED; this is a metadata/label correction, not a new gap).
+
 ## [2026-06-12] fix(#272) | close frontend offline review test gaps
 
 - **T2:** Added `src/frontend/src/app/dashboard/validator/page.test.tsx` with page-level coverage for validator offline indicator, validator-only queued-op badge, and stale-cache banner.
@@ -2365,6 +2370,19 @@ Applied fixes from three-axis review of `fix/profile-email-and-polish`:
 - `user.py`: added `email_not_blank` validator to `ProfileUpdate.email` field.
 - `remaining-routes.md`: updated ProfileUpdate schema and behavior docs to reflect email support.
 
+## [2026-06-02] feat | pr-review chain — Pi-driven three-axis review for GitHub PRs
+
+**Session context:** Created `.pi/chains/pr-review.chain.json` to run a three-axis review (Standards, Spec, Quality) on any GitHub PR via Pi subagents.
+
+**Changes:**
+- Created `~/.pi/agent/chains/three-axis-review.chain.json` — a 5-step Pi chain that fetches the PR branch, scouts the codebase, runs parallel reviewers (standards-reviewer, spec-reviewer, quality-reviewer), synthesizes the report, and posts it as a PR comment.
+- Created `~/.pi/agent/prompts/three-axis-review.md` — prompt template so `/three-axis-review <PR_NUMBER>` instructs the AI to run the chain via `subagent()`.
+- Usage: `/three-axis-review 211` inside Pi (after `/reload`).
+- Added gotcha #13 to `~/.pi/agent/AGENTS.md`: "Don't switch implementation approach without asking."
+- Removed `.github/workflows/three-axis-review.yml` (wrong approach — was CI-based, not Pi-driven).
+
+**Scope:** orljorstin's PRs get AI-powered three-axis review on invocation. Not a CI gate.
+
 ## [2026-06-04] fix | PR #207 verified profile email review fixes
 
 Implemented verified PR #207 review fixes across profile email handling and documentation:
@@ -2438,3 +2456,206 @@ Updated `src/backend/tests/test_csrf_middleware.py` to match PR #215's removal o
 - Updated the Suricata health check to match the running `Suricata-Main` process.
 - Fixed the production CSP so Next.js inline bootstrap scripts can hydrate the server-rendered loading shell and initialize `/api/auth/session`.
 - Updated `architecture/infrastructure-config.md` and `index.md`; no FRS/codebase gap changed.
+
+## [2026-06-07] feat+fix | Offline-first Regional Encoder workflow — full-fidelity create sync
+
+Documents the offline-first encoder architecture (commits `0c91925`, `4a7f1dc`, `631678b`) and a follow-up correctness fix for offline-created incidents.
+
+**Architecture (PWA + offline encoder):**
+- **PWA:** `public/manifest.webmanifest` + `public/sw.js` (registered via `lib/swRegistration.ts`, called from `LayoutShell.tsx`). SW is cache-first for static assets, network-first-with-shell-fallback for navigations, and skips `/api/` + `/auth/` so the app's offline-aware wrappers own those. Background Sync is delegated to open clients (the page owns auth-token refresh + the create→submit replay); reconnect is detected by `useNetworkStatus` → `useAutoSync`.
+- **Persistence:** `lib/offlineStore.ts` IndexedDB v3 — `offlineOps` (operation queue: create/update/submit/delete with `localId` UUID idempotency key, `linkedLocalId` dependency chain, per-op `syncStatus`), `cachedIncidents` (AES-256-GCM read cache for dashboard/detail offline), legacy `incident-queue` retained. Drafts persist as `syncStatus='draft'` ops (autosave) and surface on the dashboard.
+- **Sync:** `lib/syncEngine.ts` `syncPendingIncidents(encoderId)` refreshes the token, then replays ops oldest-first; marks synced only on server confirmation; aborts the batch on network loss (keeps items queued); 409 → conflict state. `lib/offlineRegional.ts` wraps list/detail reads to fall back to the encrypted cache when offline.
+
+**Critical fix — offline-created incidents no longer lose their detail on sync:**
+- **Bug:** offline `create` ops store the full nested incident shape (`incident_nonsensitive_details` / `incident_sensitive_details`), but `syncEngine` replayed them against the **flat** `POST /api/regional/incidents` (`IncidentCreateRequest`), which only reads scalar columns. Pydantic silently dropped both nested blobs, so a synced offline incident retained only lat/lng/region — losing notification time, classification, casualties, resources, narrative, PII, etc.
+- **Fix:** `processCreate` now replays through the same full-fidelity `POST /api/incidents/upload-bundle` the online form uses (`{ region_id, incidents: [{ ...payload, client_id }] }`) and reads `incident_ids[0]`. Online and offline create paths are now unified.
+- **Idempotency moved to upload-bundle:** `api/routes/incidents.py` `upload_incident_bundle` now detects the `client_id` column once, returns the existing incident on a duplicate `client_id` (retry-after-timeout safe), and persists `client_id` on the `fire_incidents` INSERT. Backed by migration 45 + `main.py` self-heal (`ADD COLUMN IF NOT EXISTS`). The flat `/api/regional/incidents` endpoint is unchanged (still used by the online duplicate-resolution "update request" flow).
+
+**Other fixes:**
+- `public/sw.js`: removed the dead background-sync handler that POSTed to the civilian endpoint (`/api/v1/public/report`) and opened IndexedDB at v1 (now v3 → `VersionError`); bumped cache to v3; added offline navigation fallback to the cached shell.
+- `context/AuthContext.tsx`: logout now purges the local read cache (`clearAllCachedIncidents()`) for shared-device privacy while **preserving** encrypted, encoder-scoped pending ops so unsynced work survives re-login.
+
+**Tests:** `lib/__tests__/syncEngine.test.ts` updated for the bundle endpoint + `incident_ids` response (incl. a new "imports nothing → stays queued" case); `tests/test_upload_bundle_idempotency.py` (new) proves a duplicate `client_id` returns the existing incident with no second INSERT (MagicMock DB, no Docker). Frontend: 162 vitest pass, 0 lint errors, tsc unchanged (13 pre-existing errors). Backend: ruff clean.
+
+**Files:** `src/backend/api/routes/incidents.py`, `src/backend/tests/test_upload_bundle_idempotency.py`, `src/frontend/src/lib/syncEngine.ts`, `src/frontend/src/lib/offlineStore.ts`, `src/frontend/src/lib/__tests__/syncEngine.test.ts`, `src/frontend/public/sw.js`, `src/frontend/src/context/AuthContext.tsx`.
+
+
+## [2026-06-07] rebase+fix | feat/offline-first-encoder rebased onto origin/master (route decomposition #204)
+
+Rebased the 4 offline-first commits onto current `origin/master`. Conflicts resolved:
+- **`api/routes/regional.py` (modify/delete):** master's #204 decomposed the monolith into a `regional/` package. The offline `client_id` create idempotency was **ported into `regional/encoder_crud.py`** `create_incident` (return-existing-on-duplicate + conditional `client_id` INSERT). Old `regional.py` removed; no stale imports remain (`router.include_router(encoder_crud.router)` in `regional/__init__.py`).
+- **`main.py` (content):** kept **both** startup schema patches — master's RLS-helpers `SECURITY DEFINER` patch and the offline `client_id` column + unique-index self-heal (each with its own `db.rollback()` on failure).
+- **`incidents/[id]/page.tsx` (content):** kept master's OCC `loadedUpdatedAtRef` tracking **and** the offline cache-banner state (`setIsFromCache`/`setCachedAt`).
+- **`IncidentForm.tsx` (content):** update-path catch now checks the OCC 409 `onConflict` merge path **first**, then falls back to the offline network-error queue.
+- **`log.md` (content):** kept both 2026-06-07 entries (#168 admin filters + offline-first).
+
+**Post-rebase regression fix (`fix(offline): resolve master rebase regressions`):**
+- **Auth-refresh boolean bug (`context/AuthContext.tsx`, `lib/auth.tsx`):** `refreshToken()` returns a typed `RefreshResult` (`{ ok, reason }`); both `refreshAccessToken` wrappers assigned/returned it where a `boolean` was expected. An object is always truthy, so a **failed** refresh was treated as success (and it broke `tsc`/`next build`). Mapped to `.ok`. This was a latent bug on the branch surfaced by the required build gate, not new from the rebase.
+- **`offline-network-logs.har` removed** — 4.5 MB / ~89k-line network capture accidentally committed in `4a7f1dc`; untracked via normal `git rm` (no history rewrite).
+
+**Validation:** backend `ruff check .` clean; `pytest tests/test_upload_bundle_idempotency.py tests/test_incidents_create_endpoint.py` 2 passed; route import smoke OK. Frontend `npm run lint` 0 errors; `npx vitest run` **169 passed** (24 files); `npx tsc --noEmit` only 4 pre-existing test/mock errors (production files clean after the fix); `npm run build` succeeds. Full `pytest -v` and integration suite require the Docker stack (Redis/Postgres) — not run here.
+
+## [2026-06-07] fix | Offline-first stabilization - verified connectivity and sync recovery
+
+Stabilized the Regional Encoder offline-first path after field QA found three defects: the top online indicator could flip online on tab changes while still offline, uncached offline navigations could fall through to the browser network error page, and sync could enter a repeated login prompt loop.
+
+**Changes:**
+- Added `lib/connectivity.ts` and rewired `useNetworkStatus()` to treat browser `online/offline`, focus, and visibility events as hints only. The shared state is `checking/offline/reconnecting/online`; the app turns online only after a same-origin `/health` probe succeeds. Network fetch failures call `markConnectivityOffline()`.
+- Replaced direct `navigator.onLine` decisions in encoder manual save/submit, AFOR import, incident-detail polling, regional dashboard reloads, offline read wrappers, sync engine, and the legacy `NetworkStatusIndicator`.
+- Fixed `apiFetch()` auth refresh handling: `refreshToken()` is successful only when `result.ok === true`; `{ ok: false, reason }` no longer triggers a false authenticated retry.
+- Updated `syncEngine` to verify reachability before sync, preserve the queue for offline/auth aborts, and mark connectivity offline when a batch loses network mid-sync. `useAutoSync` now suppresses repeated auth-expired toasts and listens for service-worker `run-sync` messages.
+- Bumped `public/sw.js` cache to `v4`; navigation requests now cache successful pages and fall back to cached app shell or friendly offline HTML instead of `Response.error()`. Static Next.js chunks/images/fonts are cached after visit so already-opened pages can render offline. PWA install remains optional; browser-tab offline works after first successful load/cache.
+
+**Tests:** Added `offlineRegional.test.ts` and updated `useNetworkStatus`, `syncEngine`, and API transport coverage. Frontend targeted offline/auth tests: 62 passed. Full frontend Vitest: 172 passed. `npm run lint`: 0 errors, existing warnings only. `npx tsc --noEmit`: still blocked by pre-existing test/mock typing errors outside this change.
+
+**Wiki update:** Updated `system-wiki/architecture/pwa-tests-cicd.md` and `system-wiki/frontend/frontend-infrastructure.md`. No FRS gap status changed.
+
+## [2026-06-07] fix | Celery beat task registration for Docker Compose runtime
+
+Diagnosed `docker compose up -d --build` as build-successful but runtime-noisy: `celery-worker` was rejecting Beat-published tasks as unregistered (`tasks.monitoring.worker_heartbeat`, `tasks.monitoring.snapshot_system_metrics`, `tasks.suricata.ingest_suricata_eve`). The cause was Celery autodiscovery against this repo's flat top-level `tasks` package; Beat had task names in `beat_schedule`, but the worker had not imported the modules.
+
+**Changes:**
+- `src/backend/celery_config.py`: replaced unreliable `autodiscover_tasks(["tasks"])` with explicit Celery `include=[...]` for analytics refresh, civilian reports, drafts, exports, monitoring, narrative, notifications, and Suricata task modules.
+- `src/backend/tests/test_celery_task_registration.py`: added a contract test that imports default Celery modules and asserts every Beat-scheduled task exists in `celery_app.tasks`.
+
+**Validation:** `docker compose up -d --build` exits successfully. `docker compose ps` shows backend, frontend, celery-worker, nginx, postgres, redis, keycloak, mailhog, ollama, and suricata running. `celery inspect registered` lists all Beat tasks, and `celery-worker` logs show `worker_heartbeat` received and succeeded instead of unregistered-task errors. Dockerized pytest `tests/test_celery_task_registration.py` passed. Ruff was not run because neither the host PATH nor the backend image has `ruff` installed.
+
+**Wiki update:** Updated `system-wiki/backend/backend-infrastructure.md`. No FRS gap status changed.
+
+## [2026-06-07] fix | Offline sync auth refresh recovery
+
+Fixed the session-expired loop that blocked offline queue sync after reconnect/login.
+
+**Changes:**
+- `src/frontend/src/lib/syncEngine.ts`: pending ops are loaded before auth work; sync now checks `GET /api/auth/session` first and only calls `refreshToken()` when the access session is gone. A 401 during replay restores the current op to `pending` and aborts with `abortReason: 'auth'` so queued work stays visible and retryable.
+- `src/frontend/src/lib/offlineStore.ts`: added `markOpPending()` to move an op out of transient `syncing` state without incrementing retry count.
+- `src/frontend/src/lib/auth-refresh.ts`: refresh route 5xx/429 responses now classify as `offline`/unavailable instead of expired auth.
+- `src/frontend/src/app/api/auth/refresh/route.ts`: server-side refresh uses `AUTH_SERVER_URL`, `KEYCLOAK_INTERNAL_URL`, or `NEXT_PUBLIC_AUTH_INTERNAL_URL`; browser-relative `/auth` is rejected for server-side fetch. Keycloak 5xx/429 and fetch failures return 503 without clearing cookies; cookies are cleared only when Keycloak rejects the refresh token.
+- `src/docker-compose.yml` and `src/docker-compose.prod.yml`: frontend runtime now sets `AUTH_SERVER_URL=http://keycloak:8080/auth`.
+
+**Tests:** Focused auth/sync Vitest: 19 passed. Full frontend Vitest: 180 passed. `npm run lint`: 0 errors, existing warnings only. `npm run build`: passed. `npx tsc --noEmit`: still blocked by pre-existing test/mock typing errors (`profile.test.tsx`, `tracking/page.test.tsx`, `offlineStore.test.ts`, `firebase-app.ts`).
+
+**Wiki update:** Updated `system-wiki/frontend/frontend-infrastructure.md`, `system-wiki/architecture/infrastructure-config.md`, and `system-wiki/index.md`. No FRS gap status changed.
+
+## [2026-06-09] fix | Offline connectivity recovery no longer sticks offline
+
+Fixed the verified connectivity state machine so the app can recover from offline mode reliably.
+
+**Changes:**
+- `src/frontend/src/lib/connectivity.ts`: removed the hard stop that returned offline immediately when `navigator.onLine === false`; the browser flag is now only a hint and the same-origin `/health` probe remains authoritative.
+- `src/frontend/src/lib/useNetworkStatus.ts`: adds a 5-second retry loop while the state is offline/checking/reconnecting, so recovery does not depend on the browser firing an `online` or focus event.
+- `src/frontend/src/app/health/route.ts`: adds a direct Next.js `/health` endpoint for `npm run dev` or frontend-only runs where nginx is not serving `/health`.
+- `src/frontend/src/components/NetworkStatusIndicator.tsx`: shows a Reconnecting state in the top indicator instead of jumping straight from Offline to Online.
+- `src/frontend/src/lib/__tests__/useNetworkStatus.test.ts`: covers recovery when `navigator.onLine` is false but the app probe succeeds, and periodic retry recovery after a failed probe.
+
+**Validation:** Focused network tests: 9 passed. Sync/network UI focused tests: 18 passed. Full frontend Vitest rerun: 181 passed. `npm run lint`: 0 errors, existing warnings only. `npm run build`: passed. `npx tsc --noEmit`: still blocked by pre-existing test/mock typing errors outside this change.
+
+**Wiki update:** Updated `system-wiki/frontend/frontend-infrastructure.md`, `system-wiki/architecture/infrastructure-config.md`, `system-wiki/index.md`, and this log. No FRS gap status changed.
+
+## [2026-06-09] feat | Offline-first encoder stabilization — Issues 1–4 + 2a–2d
+
+**Branch:** feat/offline-first-encoder
+
+**Changes:**
+- `useAutoSync.ts`: Added persistent "You're offline" toast (sonner, `duration: Infinity`, fixed ID to prevent spam). Reconnect toast copy updated to "Back online. Syncing your changes…". Recovery effect calls `recoverStaleSyncingOps` on mount before refreshing the pending badge.
+- `offlineStore.ts`: Added `getOfflineOp(localId)` — returns a single decrypted op by key. Added `recoverStaleSyncingOps(encoderId, staleThresholdMs)` — resets any ops stuck in `syncing` (tab closed mid-sync) back to `pending`; ops with `lastAttemptAt === null` are always reset. Fixed `updateOfflineOp` to no longer incorrectly overwrite `createdAt` on the record.
+- `IncidentForm.tsx`: Added `offlineLocalId?: string` prop. When set, save calls `updateOfflineOp(offlineLocalId, { ...payload, updated_at })` in-place instead of hitting the API or creating a duplicate op. All three offline-queue paths for `create` ops now embed `created_at` and `updated_at` ISO strings into the payload; the offline `update` path embeds `updated_at`.
+- `dashboard/regional/page.tsx`: Queued-op cards (card view) and rows (table view) are now clickable and navigate to `/dashboard/regional/incidents/local/${op.localId}`.
+- `dashboard/regional/incidents/local/[localId]/page.tsx` (new): Loads op from IndexedDB via `getOfflineOp`, shows IncidentForm pre-populated with the queued payload and `offlineLocalId` prop set. Handles already-synced ops by redirecting to the server record.
+- `backend/api/routes/incidents.py` (`upload_incident_bundle`): Accepts optional `created_at` / `updated_at` ISO strings from each bundle item and includes them in the `fire_incidents` INSERT if valid; future-dated values are clamped to `now()`.
+- `__tests__/useAutoSync.test.ts`: Added `recoverStaleSyncingOps` and `toast.dismiss`/`toast.info` to mocks.
+- `__tests__/offlineStore.ops.test.ts` (new): 9 tests covering `recoverStaleSyncingOps` (stale threshold, null lastAttemptAt, encoder scoping), `updateOfflineOp` (preserves createdAt), and `getOfflineOp` (returns decrypted payload).
+
+**Validation:** 28 test files, 190 tests — all passing. `npm run lint`: 0 errors. `npm run build`: clean. `npx tsc --noEmit`: no new errors (pre-existing test/mock type errors unchanged).
+## [2026-06-11] feat | Temporary Keycloak OTP demo bypass
+
+Added a presentation-only Keycloak browser OTP provider that keeps normal OTP validation but also accepts fixed code `123123` for MFA-prompted accounts.
+
+**Changes:**
+- `src/keycloak/demo-otp-provider`: new Keycloak SPI provider registering `wims-demo-otp-form`; it accepts `123123`, logs a warning/event detail, checks enabled/brute-force state, and delegates all other OTPs to the built-in OTP form logic.
+- `src/keycloak/Dockerfile` and `src/docker-compose.yml`: Keycloak now builds a local image with the provider jar installed before startup.
+- `src/keycloak/bfp-realm.json` and `src/keycloak/import/bfp-realm.json`: browser OTP execution now uses `wims-demo-otp-form`; Direct Grant OTP remains `direct-grant-validate-otp`.
+- `docs/agents/remove-demo-otp-bypass.md`: added agent instructions for removing the shortcut before PR.
+- `system-wiki/security/security-baseline.md`, `system-wiki/architecture/infrastructure-config.md`, and `system-wiki/index.md`: documented the temporary bypass and removal expectation.
+
+**Validation:** Docker provider image build passed (`docker build -t wims-keycloak-demo-otp:test ./keycloak`), including Maven package and `kc.sh build` provider registration. Focused OTP policy pytest passed locally.
+
+**Wiki update:** Updated the relevant security/infrastructure synthesis pages and this log. No FRS gap status changed.
+
+## [2026-06-11] fix | Offline incident create sync and normal detail viewing
+
+Fixed the regional encoder offline-create sync path and removed the visible split between normal incident viewing and "edit local incident" for pending offline creates.
+
+**Changes:**
+- `src/backend/api/routes/incidents.py`: replaced `INSERT ... ON CONFLICT` in `upload_incident_bundle` with a transaction-scoped advisory lock plus `client_id` lookup before normal insert. This fixes the 500 caused by PostgreSQL rejecting `ON CONFLICT` on `wims.fire_incidents` while immutable-record rules exist.
+- `src/backend/api/routes/regional/encoder_crud.py`: applied the same advisory-lock idempotency pattern to direct regional creates that carry `client_id`.
+- `src/frontend/src/app/dashboard/regional/page.tsx`: pending offline create ops now render through the shared rich `IncidentCard` with status `PENDING_SYNC` and route to `/dashboard/regional/incidents/{localId}`.
+- `src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx`: non-numeric local IDs now load the encrypted offline op and render the standard read-only incident detail view; Edit saves back to the queued op with `offlineLocalId`.
+- `src/frontend/src/components/ui/StatusBadge.tsx` and `src/frontend/src/lib/incident-utils.ts`: added `PENDING_SYNC` label/color support.
+- Focused tests updated for the new idempotency and offline detail mocks.
+
+**Validation:** Backend targeted pytest passed: `tests/test_upload_bundle_idempotency.py` and `tests/test_encoder_crud_idempotency.py` (4 passed). Frontend targeted lint passed for touched files. Offline/sync Vitest suite passed: `syncEngine.test.ts`, `offlineRegional.test.ts`, and `offlineStore.ops.test.ts` (24 passed). Python compile passed for the touched backend route files.
+
+**Wiki update:** Updated `system-wiki/frontend/frontend-infrastructure.md`, `system-wiki/subsystems/regional-dashboard.md`, `system-wiki/index.md`, and this log. No FRS gap status changed.
+
+## [2026-06-11] fix | Pending-sync incident full-page view and local actions
+
+Made pending-sync offline incidents fully manageable through the normal regional incident detail route.
+
+**Changes:**
+- `src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx`: non-numeric local IDs continue to load from encrypted `offlineOps` without a server fetch, now show local pending-sync copy/status in the normal full-page report, expose Delete for pending-sync incidents, and keep Edit on the shared `IncidentForm` path.
+- `src/frontend/src/lib/offlineStore.ts`: added `deleteOfflineOpCascade(localId)` to remove a local create op and all queued ops linked to it, preventing stale linked submit/update work from replaying after the user deletes a pending-sync incident.
+- `src/frontend/src/app/dashboard/regional/incidents/local/[localId]/page.tsx`: replaced the old edit-only local page with a redirect shim to `/dashboard/regional/incidents/{localId}`.
+- `src/frontend/src/lib/__tests__/offlineStore.ops.test.ts`: added coverage for cascade deletion.
+- `OFFLINE_HANDOVER.md`: documented the full-page pending-sync view/edit/delete behavior.
+
+**Validation:** Targeted frontend lint passed for the touched route/store/test files. Offline/sync Vitest passed: `offlineStore.ops.test.ts`, `syncEngine.test.ts`, and `offlineRegional.test.ts` (25 passed).
+
+**Wiki update:** Updated `system-wiki/frontend/frontend-infrastructure.md`, `system-wiki/frontend/route-map.md`, `system-wiki/subsystems/regional-dashboard.md`, `system-wiki/index.md`, and this log. No FRS gap status changed.
+
+## [2026-06-12] merge | Resolve offline-first encoder PR conflicts with master
+
+- Merged the offline-first encoder branch with current master runtime updates.
+- Kept master operations/OpenBao/deploy changes while preserving offline `/home` restricted-route guard, pending-sync incident local actions, offline store key-clear helper, and ops-based sync tests.
+- Updated `docs/PR-offline-first-encoder.md`, `system-wiki/index.md`, `system-wiki/architecture/infrastructure-config.md`, `system-wiki/architecture/docs-and-scripts.md`, and `system-wiki/gaps/frs-codebase-gap-register.md` to reflect the merged state.
+
+## [2026-06-12] test | Fix Operations Board Vitest after offline guard merge
+
+- Updated `src/frontend/src/app/home/__tests__/operations-board.test.tsx` to mock `useNetworkStatus()` as online. Without the mock, the merged offline restricted-route guard rendered "Operations Unavailable Offline" in jsdom and hid the Operations Board controls under test.
+- Updated `docs/PR-offline-first-encoder.md` validation results with the full frontend Vitest pass.
+- Validation: `npx vitest run` passed (38 files, 236 tests). `npm run lint` passed with 0 errors and 16 warnings.
+
+## [2026-06-12] rebase | feat/offline-first-encoder onto origin/master (post-PR#272)
+
+- Rebased 19 commits of `feat/offline-first-encoder` onto `origin/master` which now includes PR #272 (offline expansion for analyst, validator, and admin dashboards).
+- **Conflict resolution summary:**
+  - **`offlineStore.ts`:** Kept branch's new `offlineOps` + `cachedIncidents` IndexedDB stores, per-user key isolation, `setActiveOfflineUser()`, `clearAllCachedIncidents()`, and singleton connectivity monitor.
+  - **`syncEngine.ts`:** Kept branch's refactored `syncPendingIncidents(encoderId)` with `processCreate`/`processUpdate`/`processSubmit`/`processDelete` ops dispatch and bundle-based create path.
+  - **`connectivity.ts`:** Kept branch's singleton monitor with exponential backoff recheck loop.
+  - **`home/page.tsx`:** Kept HEAD's Operations Board (master) over branch's incident-based replacement.
+  - **`celery_config.py`:** Kept HEAD's explicit task imports and autodiscovery (master version).
+  - **Wiki files:** Merged both sides — kept HEAD's updated FRS entries and date metadata while preserving branch's M2d entry, log entries, and offline-first architecture docs.
+- **Files with conflicts resolved:** offlineStore.ts, syncEngine.ts, connectivity.ts, useAutoSync.test.ts, celery_config.py, home/page.tsx, tracking/page.test.tsx, and 7 system-wiki pages.
+- **Final state:** 19 branch commits, 88 files changed (+6340/-2642), clean rebase. No FRS gap status changed.
+
+## [2026-06-12] fix | Conflict-resolution validation and backend encoder F821 fix
+
+**Conflict-resolution fix review:**
+- Verified 3 uncommitted files (`offlineStore.ts`, `syncEngine.ts`, `syncEngine.test.ts`) from parent session resolve merge correctly.
+- `offlineStore.ts`: `DB_VERSION` → 4 (both branches used v3); `ANALYTICS_STORE` added in v4 upgrade path; `OfflineOpType` extended to include `'update' | 'submit' | 'delete' | 'verify' | 'archive_action'`; `LegacyOfflineOpType` for legacy queue; `initOfflineStorageLimit`, `cacheAnalyticsResponse`, `getCachedAnalyticsResponse`, `clearAnalyticsCache` restored; `encryptPayload` signature broadened to `unknown`; typed decrypt paths.
+- `syncEngine.ts`: Unifies both branch `offlineOps` and PR #272 legacy `incident-queue` sync; legacy-only sync skips auth preflight; dispatches `verify` → PATCH `/api/regional/incidents/{id}/verification`, `archive_action` → PATCH `/api/regional/validator/incidents/{id}/archive|unarchive` with `client_id`; legacy `create` → POST `/api/v1/public/report`.
+- `syncEngine.test.ts`: Added mocks for `getPendingIncidents` and `markSynced`; tests for verify/archive_action dispatch, legacy backward compat, and network error abort.
+
+**Validation results:**
+- Conflict marker scan: clean (no markers found)
+- Frontend lint: 0 errors, 16 warnings (pre-existing, no new)
+- Frontend full Vitest: 43 files, 294 tests passed
+- Frontend build (with env vars): passed
+- Backend ruff check: all checks passed
+- Backend ruff format: 180 files already formatted
+- Backend targeted pytest (with DATABASE_URL set): 17 passed
+
+**Backend blocker: encoder.py F821 fix:**
+- `src/backend/api/routes/regional/encoder.py`: Replaced undefined `_get_security_provider()` → `get_crypto_provider()` (env-level dispatch) in list endpoint PII decryption block. Broadened except from `SecurityProviderError` → `(SecurityProviderError, Exception)` to match detail endpoint behavior. This was a pre-existing branch bug (not rebase-related): commit `88ce838` removed `_get_security_provider` from the detail endpoint but left the list endpoint stale.
+
+**Wiki updates:** This log entry. No FRS gap status changed.

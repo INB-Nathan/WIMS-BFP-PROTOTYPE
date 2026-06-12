@@ -47,6 +47,7 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 - Summary category cards aggregate legacy/current category aliases, including `VEHICULAR` + `TRANSPORTATION`, so counts match incident rows after backend category normalization.
 - Empty state: centered "No incidents found" guidance with a BFP-red "Search All Time" button that switches the list date filter to All Time.
 - Rows/cards are keyboard-focusable/clickable; a delayed floating "Click to view" bubble appears after hover and disappears on mouse movement or leave instead of using permanent Open text/actions. Archive-view rows/cards now open the same incident detail route instead of 404ing, because archived records are allowed through the role-scoped detail query.
+- Pending offline create ops render as the same rich incident cards with `PENDING_SYNC` status and open the standard `/dashboard/regional/incidents/{localId}` detail route. The detail page reconstructs a normal read-only incident view from the encrypted offline op without fetching the server, only switches into the shared `IncidentForm` when the encoder clicks Edit, and deletes local pending creates with `deleteOfflineOpCascade(localId)` so linked queued work is removed with the create.
 - Rejected workload UX: the alert is dismissible, its "Show rejected" action clears classification/date filters and switches date scope to All Time, and the Rejected status chip carries a red count badge. When switching away from Rejected or Drafts, an inherited All Time date scope is reset to Today so broad date ranges do not leak into normal workload views.
 
 **Wildland Fire Classifications** — conditionally rendered when `stats.wildland_total > 0`:
@@ -98,6 +99,7 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 **Source:** `src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx` (~1265 lines)
 
 - Full incident detail view with formal report-style read-only presentation plus editable `IncidentForm`.
+- For pending-sync offline creates, non-numeric local IDs load directly from encrypted `offlineOps` and render the same full-page report. Encoder actions support View, Edit, and Delete locally; server-only submit/withdraw/review actions remain unavailable until sync creates the server incident. The legacy `/dashboard/regional/incidents/local/[localId]` route redirects to this page.
 - Read-only layout:
   - Compact header with back link, incident/reference title, status badge, created metadata, and encoder actions (Edit, Withdraw, Delete, Submit/Resubmit) using clearer button hierarchy. A desktop-only fixed left-edge back tab uses `calc(var(--sidebar-width) + 1rem)` so it sits immediately to the right of the authenticated sidebar; it is an icon-only vertical pill with smooth width/shadow/tint hover states and is replaced by a normal top button on smaller screens.
   - Top incident summary panel for notification date/time, fire station, classification, category/type, alarm level, location, and complete address. Status is intentionally only shown in the page header.
@@ -169,6 +171,10 @@ The Phase 3 architecture refactor moved selected official incident transition be
 - `regional.py` still owns FastAPI auth dependencies, RLS session dependency injection, request models, response plumbing, and read/query endpoints.
 
 Compatibility decision: encoder submit still writes `PENDING`; validator queue defaults include both `PENDING` and `PENDING_VALIDATION`.
+
+### Offline Create Idempotency
+
+Offline create sync replays through `POST /api/incidents/upload-bundle` with `client_id = offlineOps.localId`. The endpoint no longer uses `INSERT ... ON CONFLICT` because PostgreSQL rejects that clause on `wims.fire_incidents` while immutable-record rules are present. The upload-bundle endpoint and direct regional create endpoint now acquire a transaction-scoped advisory lock keyed by `client_id`, check for an existing row, and perform a normal insert only when no row exists.
 
 ### Audit Logs (`regional.py` lines ~4000–4500)
 

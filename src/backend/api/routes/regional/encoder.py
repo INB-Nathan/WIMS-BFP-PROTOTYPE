@@ -145,11 +145,28 @@ def get_regional_incidents(
         return " • ".join(parts) if parts else None
 
     items = []
+    sp = None  # lazy-load once per request only if needed
     for r in rows:
         owner_name = r[16]
         caller_name = r[18]
         caller_number = r[19]
-        has_sensitive_data = bool(r[21] and r[22])
+        has_sensitive_data = bool(r[21])
+
+        if has_sensitive_data:
+            try:
+                if sp is None:
+                    sp = (
+                        get_crypto_provider()
+                    )  # env dispatch — list endpoint lacks per-row crypto_provider
+                aad = f"incident_id:{r[0]}".encode("utf-8")
+                pii = sp.decrypt_json(r[22], r[21], aad)
+                owner_name = pii.get("owner_name") or owner_name
+                caller_name = pii.get("caller_name") or caller_name
+                caller_number = pii.get("caller_number") or caller_number
+            except (SecurityProviderError, Exception):
+                logger.error(
+                    "CRITICAL: PII blob decryption failed in incident list. incident_id=%s", r[0]
+                )
 
         items.append(
             {

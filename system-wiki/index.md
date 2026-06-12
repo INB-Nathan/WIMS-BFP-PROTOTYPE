@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-12
 Total synthesis pages: 32
-Last changes: National Analyst offline-first read caching with encrypted IndexedDB analytics cache and offline-aware frontend wrappers.
+Last changes: Rebased feat/offline-first-encoder onto origin/master (post-PR #272). 19 commits rebased with conflict resolution across offlineStore, syncEngine, connectivity, Operations Board home page, celery_config, and wiki files. Offline-first encoder PWA/sync architecture with IndexedDB v3 ops queue, encrypted read cache, full-fidelity incident create sync via upload-bundle endpoint, and connectivity state machine. National Analyst offline-first read caching with encrypted IndexedDB analytics cache and offline-aware frontend wrappers. Pending-sync offline regional incidents render as full detail pages from IndexedDB and support local edit/delete before sync. Connectivity recovery treats `navigator.onLine` as a hint, continues `/health` probes while offline, adds Next.js `/health` route for non-nginx dev runs, and shows Reconnecting in header. Offline-created regional incidents sync without `ON CONFLICT` on immutable-rule tables. Session-aware sync loop prevention, auth-refresh offline detection, and Celery Beat explicit task registration.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

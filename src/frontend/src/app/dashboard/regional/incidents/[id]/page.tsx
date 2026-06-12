@@ -6,7 +6,6 @@ import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Pencil, Send, Trash2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import {
-  fetchRegionalIncident,
   submitIncidentForReview,
   unpendIncident,
   deleteIncident,
@@ -15,6 +14,10 @@ import {
   updateRegionalIncident,
   type RegionalIncidentDetailResponse,
 } from '@/lib/api';
+import { fetchRegionalIncidentOfflineAware } from '@/lib/api/offlineRegional';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import { deleteOfflineOpCascade, deleteOfflineOp, getOfflineOp, getLinkedSubmitOpLocalId, queueOfflineOp, type OfflineOpDecrypted } from '@/lib/offlineStore';
+import { toast as sonnerToast } from 'sonner';
 import dynamic from 'next/dynamic';
 import { UpdateRequestDiffPanel } from '@/components/UpdateRequestDiffPanel';
 import { IncidentDiffPanel } from '@/components/IncidentDiffPanel';
@@ -164,6 +167,7 @@ function MetricCard({ label, value }: { label: string; value: unknown }) {
 function StatusBadge({ status }: { status: string }) {
   const statusColors: Record<string, string> = {
     DRAFT: 'border-gray-200 bg-gray-100 text-gray-800',
+    PENDING_SYNC: 'border-amber-200 bg-amber-100 text-amber-900',
     PENDING: 'border-yellow-200 bg-yellow-100 text-yellow-900',
     PENDING_VALIDATION: 'border-blue-200 bg-blue-100 text-blue-900',
     VERIFIED: 'border-green-200 bg-green-100 text-green-900',
@@ -407,13 +411,49 @@ function AlarmTimelineSection({ timeline }: { timeline: AlarmTimeline }) {
 }
 
 // ── Main page ────────────────────────────────────────────────────────────────
+function detailFromOfflineOp(op: OfflineOpDecrypted): RegionalIncidentDetailResponse {
+  const payload = op.payload as {
+    incident_nonsensitive_details?: Record<string, unknown>;
+    incident_sensitive_details?: Record<string, unknown>;
+    latitude?: number | null;
+    longitude?: number | null;
+    created_at?: string;
+    updated_at?: string;
+  };
+  const ns = payload.incident_nonsensitive_details ?? {};
+  return {
+    incident_id: op.localId as unknown as number,
+    verification_status: 'PENDING_SYNC',
+    created_at: payload.created_at ?? new Date(op.createdAt).toISOString(),
+    updated_at: payload.updated_at ?? new Date(op.createdAt).toISOString(),
+    region_id: op.regionId,
+    latitude: payload.latitude ?? null,
+    longitude: payload.longitude ?? null,
+    reference_number: null,
+    incident_type_code: (ns.incident_type_code as string | undefined) ?? null,
+    parent_incident_id: null,
+    is_duplicate: false,
+    duplicate_of: null,
+    is_wildland: false,
+    wildland_fire_type: null,
+    wildland_area_hectares: null,
+    wildland_area_display: null,
+    nonsensitive: ns,
+    sensitive: payload.incident_sensitive_details ?? {},
+    rejection_reason: null,
+    rejection_at: null,
+  };
+}
+
 export default function RegionalIncidentDetailPage() {
   const router = useRouter();
   const params = useParams();
   const rawId = params?.id as string | undefined;
-  const incidentId = rawId != null ? parseInt(rawId, 10) : NaN;
+  const incidentId = rawId && /^\d+$/.test(rawId) ? parseInt(rawId, 10) : NaN;
+  const localIncidentId = rawId && Number.isNaN(incidentId) ? rawId : null;
 
   const { user, loading: authLoading } = useAuth();
+  const { isOnline } = useNetworkStatus();
   const role = (user as { role?: string })?.role ?? null;
   const encoderAssignedRegionId = (user as { assignedRegionId?: number | null })?.assignedRegionId ?? null;
   const canAccessRegional =
@@ -424,12 +464,18 @@ export default function RegionalIncidentDetailPage() {
   const [detail, setDetail] = useState<RegionalIncidentDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isFromCache, setIsFromCache] = useState(false);
+  const [cachedAt, setCachedAt] = useState<number | undefined>();
   const [isEditing, setIsEditing] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [regionMismatchMsg, setRegionMismatchMsg] = useState<string | null>(null);
   const [saveNotification, setSaveNotification] = useState<string | null>(null);
   const [showWithdrawPopup, setShowWithdrawPopup] = useState(false);
+  // localId of a queued submit op linked to an offline-created incident, if any.
+  // When set, the local PENDING_SYNC incident is "queued for submission" and must
+  // be withdrawn before editing (item C8).
+  const [queuedSubmitLocalId, setQueuedSubmitLocalId] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [duplicateFound, setDuplicateFound] = useState<{ matchedIncidentId: number; confidence?: 'LIKELY' | 'POSSIBLE' } | null>(null);
   const [pendingDuplicateFound, setPendingDuplicateFound] = useState<{ matchedIncidentId: number; confidence?: 'LIKELY' | 'POSSIBLE' } | null>(null);
@@ -469,6 +515,36 @@ export default function RegionalIncidentDetailPage() {
   }, [authLoading, canAccessRegional, router]);
 
   const load = useCallback(async () => {
+    if (localIncidentId) {
+      setLoading(true);
+      setError(null);
+      try {
+        const op = await getOfflineOp(localIncidentId);
+        if (!op) {
+          setDetail(null);
+          setError('This pending sync incident was not found on this device.');
+          return;
+        }
+        if (op.syncStatus === 'synced' && op.serverId) {
+          router.replace(`/dashboard/regional/incidents/${op.serverId}`);
+          return;
+        }
+        const localDetail = detailFromOfflineOp(op);
+        setDetail(localDetail);
+        loadedUpdatedAtRef.current = null;
+        setIsFromCache(true);
+        setCachedAt(op.createdAt);
+        setIsEditing(false);
+        // Detect a queued submit so edits require withdrawal first (item C8).
+        setQueuedSubmitLocalId(await getLinkedSubmitOpLocalId(localIncidentId));
+      } catch (e) {
+        setDetail(null);
+        setError(e instanceof Error ? e.message : 'Failed to load pending sync incident.');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     if (Number.isNaN(incidentId)) {
       setError('Invalid incident id.');
       setLoading(false);
@@ -476,10 +552,13 @@ export default function RegionalIncidentDetailPage() {
     }
     setLoading(true);
     setError(null);
+    const encoderId = (user as { id?: string })?.id ?? '';
     try {
-      const data = await fetchRegionalIncident(incidentId);
+      const { response: data, fromCache, cachedAt: cAt } = await fetchRegionalIncidentOfflineAware(incidentId, encoderId);
       setDetail(data);
       loadedUpdatedAtRef.current = data.updated_at ?? null;
+      setIsFromCache(fromCache);
+      setCachedAt(cAt);
       setIsEditing(false);
     } catch (e) {
       setDetail(null);
@@ -487,7 +566,7 @@ export default function RegionalIncidentDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [incidentId]);
+  }, [incidentId, localIncidentId, router, user]);
 
   useEffect(() => {
     if (authLoading || !canAccessRegional) return;
@@ -526,9 +605,11 @@ export default function RegionalIncidentDetailPage() {
   useEffect(() => {
     if (!isEncoder || !detail || detail.verification_status !== 'PENDING') return;
     const trackedUpdatedAt = detail.updated_at;
+    const encoderId = (user as { id?: string })?.id ?? '';
     const interval = setInterval(async () => {
+      if (!isOnline) return;
       try {
-        const fresh = await fetchRegionalIncident(incidentId);
+        const { response: fresh } = await fetchRegionalIncidentOfflineAware(incidentId, encoderId);
         if (fresh.verification_status !== 'PENDING' || fresh.updated_at !== trackedUpdatedAt) {
           setStaleAlert(true);
           clearInterval(interval);
@@ -538,7 +619,7 @@ export default function RegionalIncidentDetailPage() {
       }
     }, 30_000);
     return () => clearInterval(interval);
-  }, [isEncoder, detail, incidentId]);
+  }, [isEncoder, detail, incidentId, user, isOnline]);
 
   // Auto-show the duplicate comparison once when a validator opens a PENDING duplicate-flagged incident.
   // Skip if already resolved (VERIFIED/REJECTED/REPLACED) — there's nothing left to decide.
@@ -586,6 +667,30 @@ export default function RegionalIncidentDetailPage() {
           }
           return;
         }
+      }
+      const isNetworkErr = e instanceof TypeError ||
+        (e instanceof Error && (
+          e.message.includes('Failed to fetch') ||
+          e.message.includes('ERR_') ||
+          e.message.includes('NetworkError')
+        ));
+      if (isNetworkErr) {
+        const encoderId = (user as { id?: string })?.id ?? '';
+        const regionId = (detail?.region_id as number | null) ?? encoderAssignedRegionId ?? 0;
+        await queueOfflineOp({
+          localId: crypto.randomUUID(),
+          operation: 'submit',
+          serverId: incidentId,
+          linkedLocalId: null,
+          serverUpdatedAt: null,
+          regionId,
+          encoderId,
+          payload: {},
+          createdAt: Date.now(),
+        });
+        sonnerToast.info('Submit queued — will apply when you reconnect.');
+        router.push('/dashboard/regional');
+        return;
       }
       setActionError(e instanceof Error ? e.message : 'Failed to submit incident.');
     } finally {
@@ -665,6 +770,17 @@ export default function RegionalIncidentDetailPage() {
       await unpendIncident(incidentId);
       await load();
     } catch (e) {
+      const isNetworkErr = e instanceof TypeError ||
+        (e instanceof Error && (
+          e.message.includes('Failed to fetch') ||
+          e.message.includes('ERR_') ||
+          e.message.includes('NetworkError')
+        ));
+      if (isNetworkErr) {
+        sonnerToast.warning('Withdraw is not available offline. Reconnect to withdraw this submission.');
+        setActionLoading(false);
+        return;
+      }
       setActionError(e instanceof Error ? e.message : 'Failed to withdraw submission.');
     } finally {
       setActionLoading(false);
@@ -673,6 +789,19 @@ export default function RegionalIncidentDetailPage() {
 
   const handleUnpendAndEdit = async () => {
     setShowWithdrawPopup(false);
+    // Offline-originated pending: just drop the queued submit op, then edit (C8).
+    if (localIncidentId && queuedSubmitLocalId) {
+      setActionError(null);
+      try {
+        await deleteOfflineOp(queuedSubmitLocalId);
+        setQueuedSubmitLocalId(null);
+        sonnerToast.info('Submission withdrawn. You can now edit this incident.');
+        setIsEditing(true);
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : 'Failed to withdraw queued submission.');
+      }
+      return;
+    }
     setActionLoading(true);
     setActionError(null);
     try {
@@ -680,6 +809,17 @@ export default function RegionalIncidentDetailPage() {
       await load();
       setIsEditing(true);
     } catch (e) {
+      const isNetworkErr = e instanceof TypeError ||
+        (e instanceof Error && (
+          e.message.includes('Failed to fetch') ||
+          e.message.includes('ERR_') ||
+          e.message.includes('NetworkError')
+        ));
+      if (isNetworkErr) {
+        sonnerToast.warning('Withdraw is not available offline. Reconnect to withdraw this submission.');
+        setActionLoading(false);
+        return;
+      }
       setActionError(e instanceof Error ? e.message : 'Failed to withdraw submission.');
     } finally {
       setActionLoading(false);
@@ -690,17 +830,75 @@ export default function RegionalIncidentDetailPage() {
     setShowDeleteConfirm(false);
     setActionLoading(true);
     setActionError(null);
+    if (localIncidentId) {
+      try {
+        await deleteOfflineOpCascade(localIncidentId);
+        sonnerToast.info('Pending sync incident deleted from this device.');
+        router.push('/dashboard/regional');
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : 'Failed to delete pending sync incident.');
+        setActionLoading(false);
+      }
+      return;
+    }
     try {
       await deleteIncident(incidentId);
       router.push('/dashboard/regional');
     } catch (e) {
+      const isNetworkErr = e instanceof TypeError ||
+        (e instanceof Error && (
+          e.message.includes('Failed to fetch') ||
+          e.message.includes('ERR_') ||
+          e.message.includes('NetworkError')
+        ));
+      if (isNetworkErr) {
+        const encoderId = (user as { id?: string })?.id ?? '';
+        const regionId = (detail?.region_id as number | null) ?? encoderAssignedRegionId ?? 0;
+        await queueOfflineOp({
+          localId: crypto.randomUUID(),
+          operation: 'delete',
+          serverId: incidentId,
+          linkedLocalId: null,
+          serverUpdatedAt: null,
+          regionId,
+          encoderId,
+          payload: {},
+          createdAt: Date.now(),
+        });
+        sonnerToast.info('Delete queued — will apply when you reconnect.');
+        router.push('/dashboard/regional');
+        return;
+      }
       setActionError(e instanceof Error ? e.message : 'Failed to delete incident.');
       setActionLoading(false);
     }
   };
 
+  const handleLocalWithdraw = async () => {
+    if (!queuedSubmitLocalId) return;
+    setActionError(null);
+    try {
+      await deleteOfflineOp(queuedSubmitLocalId);
+      setQueuedSubmitLocalId(null);
+      sonnerToast.info('Queued submission withdrawn. Saved as a draft on this device.');
+      await load();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to withdraw queued submission.');
+    }
+  };
+
   const handleEditClick = () => {
     if (!detail) return;
+    if (localIncidentId) {
+      // Offline-originated pending: withdraw the queued submission before editing (C8).
+      if (queuedSubmitLocalId) {
+        setShowWithdrawPopup(true);
+        return;
+      }
+      setIsEditing(true);
+      setActionError(null);
+      return;
+    }
     const status = detail.verification_status;
     if (status === 'PENDING') {
       setShowWithdrawPopup(true);
@@ -779,8 +977,16 @@ export default function RegionalIncidentDetailPage() {
   const categoryDisplay = ns?.sub_category ?? ns?.type_of_involved_general_category;
   const locationDisplay = [ns?.city_municipality, ns?.province_district, ns?.region].filter(Boolean).join(', ') || null;
   const completeAddress = sens?.street_address ?? ns?.incident_address;
-  const incidentTitle = detail?.verification_status === 'VERIFIED' && detail.reference_number
+  const isPendingSyncIncident = Boolean(localIncidentId && detail?.verification_status === 'PENDING_SYNC');
+  const incidentTitle = isPendingSyncIncident
+    ? 'Pending Sync Incident'
+    : detail?.verification_status === 'VERIFIED' && detail.reference_number
     ? detail.reference_number
+    : detail
+    ? `Incident #${detail.incident_id}`
+    : 'Incident';
+  const incidentDisplayId = isPendingSyncIncident
+    ? `Local ID ${localIncidentId}`
     : detail
     ? `Incident #${detail.incident_id}`
     : 'Incident';
@@ -804,10 +1010,18 @@ export default function RegionalIncidentDetailPage() {
       return [label, entry.m ?? 0, entry.f ?? 0];
     });
   })();
-  const canSubmitOrDelete = isEncoder && detail &&
+  const canSubmitIncident = isEncoder && detail &&
+    !isPendingSyncIncident &&
     (detail.verification_status === 'DRAFT' ||
-     detail.verification_status === 'PENDING' ||
      detail.verification_status === 'REJECTED');
+  const canDeleteIncident = isEncoder && detail &&
+    (
+      isPendingSyncIncident ||
+      (!localIncidentId &&
+        (detail.verification_status === 'DRAFT' ||
+          detail.verification_status === 'PENDING' ||
+          detail.verification_status === 'REJECTED'))
+    );
 
   return (
     <div className="space-y-6">
@@ -1000,8 +1214,13 @@ export default function RegionalIncidentDetailPage() {
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4">
             <h2 className="text-lg font-bold text-gray-900">Withdraw to Edit?</h2>
             <p className="text-sm text-gray-600">
-              This incident is currently <strong>Pending Review</strong>. You can only edit incidents in Draft status.
-              Would you like to withdraw it from review so you can make changes? It will be set back to Draft.
+              {localIncidentId ? (
+                <>This incident is <strong>queued for submission</strong> and will be sent for review when you reconnect.
+                You can only edit it after withdrawing the queued submission. It will stay as a local draft.</>
+              ) : (
+                <>This incident is currently <strong>Pending Review</strong>. You can only edit incidents in Draft status.
+                Would you like to withdraw it from review so you can make changes? It will be set back to Draft.</>
+              )}
             </p>
             <div className="flex justify-end gap-3 pt-2">
               <button
@@ -1028,7 +1247,7 @@ export default function RegionalIncidentDetailPage() {
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4">
             <h2 className="text-lg font-bold text-red-900">Delete Incident?</h2>
             <p className="text-sm text-gray-600">
-              This will permanently remove incident <strong>#{incidentId}</strong> ({detail.verification_status}).
+              This will permanently remove <strong>{incidentDisplayId}</strong> ({detail.verification_status}).
               This action cannot be undone.
             </p>
             <div className="flex justify-end gap-3 pt-2">
@@ -1109,7 +1328,7 @@ export default function RegionalIncidentDetailPage() {
                 </div>
                 <p className="mt-1 text-sm text-gray-600">
                   {detail.verification_status !== 'VERIFIED' || !detail.reference_number
-                    ? `Incident #${detail.incident_id} - `
+                    ? `${incidentDisplayId} - `
                     : ''}
                   {getShortRegionName(detail.region_id)}
                   {detail.created_at ? <> - Created {new Date(detail.created_at).toLocaleString()}</> : null}
@@ -1138,8 +1357,17 @@ export default function RegionalIncidentDetailPage() {
                     >
                       Withdraw
                     </button>
+                  ) : (localIncidentId && queuedSubmitLocalId) ? (
+                    <button
+                      onClick={handleLocalWithdraw}
+                      disabled={actionLoading}
+                      className="inline-flex items-center gap-1.5 rounded border border-yellow-300 bg-yellow-50 px-3 py-2 text-sm font-semibold text-yellow-900 hover:bg-yellow-100 disabled:opacity-50"
+                      title="Withdraw the queued submission and keep this as a local draft"
+                    >
+                      Withdraw
+                    </button>
                   ) : null}
-                  {canSubmitOrDelete ? (
+                  {canDeleteIncident ? (
                     <button
                       onClick={() => setShowDeleteConfirm(true)}
                       disabled={actionLoading}
@@ -1149,7 +1377,7 @@ export default function RegionalIncidentDetailPage() {
                       Delete
                     </button>
                   ) : null}
-                  {detail.verification_status === 'DRAFT' || detail.verification_status === 'REJECTED' ? (
+                  {canSubmitIncident ? (
                     <button
                       onClick={handleSubmitClick}
                       disabled={actionLoading}
@@ -1208,7 +1436,8 @@ export default function RegionalIncidentDetailPage() {
       {detail && isEditing && incidentFormData && (
         <IncidentForm
           initialData={incidentFormData}
-          existingIncidentId={detail.incident_id}
+          existingIncidentId={localIncidentId ? undefined : detail.incident_id}
+          offlineLocalId={localIncidentId ?? undefined}
           initialErrors={missingFieldKeys.length > 0 ? missingFieldKeys : undefined}
           clientUpdatedAt={loadedUpdatedAtRef.current}
           onConflict={(draft, serverVersion) => {
@@ -1261,6 +1490,33 @@ export default function RegionalIncidentDetailPage() {
 
       {!loading && !error && detail && !isEditing && (
         <>
+          {/* Offline cache banner — only shown when confirmed offline */}
+          {isPendingSyncIncident && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 flex items-center gap-3" role="status">
+              <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-amber-500" />
+              <span className="text-sm text-amber-900 font-medium">
+                {queuedSubmitLocalId
+                  ? 'Stored on this device and queued for submission. It will be submitted for review when you reconnect. Withdraw it first to edit.'
+                  : 'Stored on this device and waiting to sync. You can view, edit, or delete it before reconnecting.'}
+              </span>
+            </div>
+          )}
+
+          {isFromCache && !isOnline && !isPendingSyncIncident && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 flex items-center gap-3" role="status">
+              <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-amber-500" />
+              <span className="text-sm text-amber-800 font-medium">
+                Showing cached data
+                {cachedAt !== undefined && (
+                  <span className="font-normal ml-1">
+                    — saved {formatDetailCacheAge(cachedAt)}
+                  </span>
+                )}
+                . Connect to the internet to see live data.
+              </span>
+            </div>
+          )}
+
           {/* Stale data alert — shown when a validator has acted while encoder is viewing */}
           {staleAlert && (
             <div className="rounded-lg border border-blue-300 bg-blue-50 px-4 py-3 flex items-center justify-between gap-3" role="alert">
@@ -1617,4 +1873,14 @@ export default function RegionalIncidentDetailPage() {
       )}
     </div>
   );
+}
+
+function formatDetailCacheAge(cachedAt: number): string {
+  const diffMs = Date.now() - cachedAt;
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }

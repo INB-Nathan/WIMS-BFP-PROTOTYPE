@@ -1,10 +1,10 @@
 ---
 title: Infrastructure Configuration
 created: 2026-05-16
-updated: 2026-06-10
+updated: 2026-06-12
 type: architecture
 tags: [wims-bfp, docker, nginx, suricata, keycloak, infrastructure]
-sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/nginx/, src/suricata/, src/keycloak/import/bfp-realm.json, .github/workflows/ci.yml]
+sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/nginx/, src/suricata/, src/keycloak/import/bfp-realm.json, src/keycloak/Dockerfile, .github/workflows/ci.yml]
 status: draft
 ---
 
@@ -27,7 +27,7 @@ status: draft
 | postgres | wims-postgres | `postgis/postgis:15-3.4-alpine` | 5432 |
 | redis | wims-redis | `redis:7.2-alpine` | 6379 |
 | mailhog | wims-mailhog | `mailhog/mailhog:v1.0.1` | 1025 (SMTP), 8025 (Web UI) |
-| keycloak | wims-keycloak | `quay.io/keycloak/keycloak:24.0.0` | 8080 |
+| keycloak | wims-keycloak | `wims-keycloak-demo-otp:local` built from `./keycloak` | 8080 |
 | keycloak-bootstrap | wims-keycloak-bootstrap | `quay.io/keycloak/keycloak:24.0.0` | (one-shot, no ports) |
 | backend | wims-backend | Dockerfile at `./backend/Dockerfile` (python:3.11-slim) | 8000 (internal) |
 | frontend | wims-frontend | `./frontend/Dockerfile` (Next.js) | 3000 (internal) |
@@ -37,6 +37,8 @@ status: draft
 **Health checks:** postgres (`pg_isready -U postgres -d wims`, interval 5s), redis (`redis-cli ping`, interval 5s), Keycloak (HTTP probe), and Suricata (`pgrep Suricata-Main`). Backend depends on healthy Postgres and Redis plus the completed Keycloak bootstrap.
 
 **Named volumes:** `postgres_data`, `ollama_data`, `incident_attachments_data`, `openbao_data`. `openbao_data` stores OpenBao file storage plus prototype bootstrap credentials (`.bootstrap-creds`) and the regenerated backend/celery app token (`.wims-app-token`), mounted read-only into backend/celery at `/openbao-creds`.
+
+**Temporary Keycloak provider:** The base Keycloak image is currently wrapped by `src/keycloak/Dockerfile` to build and install `src/keycloak/demo-otp-provider`, which registers `wims-demo-otp-form` for presentation-only browser OTP bypass code `123123`. Remove this provider and restore `quay.io/keycloak/keycloak:24.0.0` before PR; see `docs/agents/remove-demo-otp-bypass.md`.
 
 **Required env interpolation:** Base `src/docker-compose.yml` intentionally uses `${VAR:?error}` for local/test secrets such as `POSTGRES_PASSWORD`, `KC_DB_PASSWORD`, `KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD`, `NEXT_PUBLIC_FIREBASE_API_KEY`, and `NEXT_PUBLIC_FIREBASE_VAPID_KEY`. GitHub CI jobs that run compose (`docker-build`, `security-scan`) copy root `.env.example` to `src/.env` before `docker compose config`, build, or stack startup so fail-fast interpolation remains enabled without committing real secrets.
 
@@ -108,7 +110,7 @@ Changing `.env.production` does not update database roles already stored in the 
 
 **Ollama model provisioning:** `ollama-model-pull` is a one-shot service that runs `ollama pull qwen2.5:3b` through the image's existing `ollama` entrypoint. Its Compose command is therefore `pull qwen2.5:3b`, not `ollama pull ...`. Backend startup waits for successful model provisioning.
 
-**Frontend/auth env:** `docker-compose.prod.yml` sets browser-facing frontend build/runtime variables to the public HTTPS origin (`${PUBLIC_BASE_URL}`) or relative paths (`/api`, `/auth`). The development compose file also uses relative `/api` and `/auth` for browser-facing access, so local HTTP desk checks stay same-origin and avoid CORS preflight redirects. The Next.js server-side auth routes use `BACKEND_URL=http://backend:8000` in both development and production, and route handlers append `/api/...` explicitly. Keycloak advertises `KC_HOSTNAME_URL=${PUBLIC_BASE_URL}/auth` in production to keep OIDC discovery issuer/endpoints aligned with the nginx `/auth/` proxy path. For `POST /api/auth/sync`, the route forwards nginx-provided `X-Real-IP`/sanitized `X-Forwarded-For` to backend `POST /api/auth/callback` so backend Redis rate limiting keys by end-user IP rather than by the frontend container.
+**Frontend/auth env:** `docker-compose.prod.yml` sets browser-facing frontend build/runtime variables to the public HTTPS origin (`${PUBLIC_BASE_URL}`) or relative paths (`/api`, `/auth`). The development compose file also uses relative `/api` and `/auth` for browser-facing access, so local HTTP desk checks stay same-origin and avoid CORS preflight redirects. The Next.js server-side auth routes use `BACKEND_URL=http://backend:8000` in both development and production, and route handlers append `/api/...` explicitly. `POST /api/auth/refresh` is also server-side and must use the internal Keycloak origin, so both development and production compose set `AUTH_SERVER_URL=http://keycloak:8080/auth`; do not substitute browser-relative `/auth` for this value. Keycloak advertises `KC_HOSTNAME_URL=${PUBLIC_BASE_URL}/auth` in production to keep OIDC discovery issuer/endpoints aligned with the nginx `/auth/` proxy path. For `POST /api/auth/sync`, the route forwards nginx-provided `X-Real-IP`/sanitized `X-Forwarded-For` to backend `POST /api/auth/callback` so backend Redis rate limiting keys by end-user IP rather than by the frontend container.
 
 **Route Table:**
 
@@ -130,7 +132,7 @@ Changing `.env.production` does not update database roles already stored in the 
 - Gateway security headers: nginx disables version tokens, hides proxied `X-Powered-By`, and adds HSTS, `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: no-referrer`, and a restrictive camera/microphone permissions policy while allowing same-origin geolocation.
 - Production CSP currently permits inline scripts because Next.js emits inline bootstrap scripts required for React hydration. Replace `'unsafe-inline'` with per-request nonces when nonce propagation is implemented.
 - Port 80 redirects to HTTPS
-- `/health` is served directly by nginx from the HTTPS server block for gateway uptime checks
+- `/health` is served directly by nginx from the HTTPS server block for gateway uptime checks. The frontend also exposes a Next.js `/health` route for direct `npm run dev`/frontend-only runs; nginx takes precedence in Docker deployments.
 - **No WebSocket/SSE** specific proxy settings (no `proxy_http_version 1.1`, no Upgrade header)
 - **No caching or rate limiting** at nginx level.
 

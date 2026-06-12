@@ -39,6 +39,7 @@ OIDC-based authentication wrapping Keycloak via `oidc-client-ts`. Provides sessi
 - `refreshAccessToken` — acquires a navigator lock then `POST /api/auth/refresh`. Ensures only one tab refreshes at a time (prevents `refreshTokenMaxReuse:0` race)
 - `fetchSession` — calls `GET /api/auth/session`. On 401, attempts refresh then retries once
 - `GET /api/auth/session` is a Next.js route handler that forwards browser cookies to backend `/api/user/me`; its `BACKEND_URL` value is treated as an origin and route paths append `/api/...` explicitly.
+- `POST /api/auth/refresh` uses a server-only Keycloak origin (`AUTH_SERVER_URL`, `KEYCLOAK_INTERNAL_URL`, or `NEXT_PUBLIC_AUTH_INTERNAL_URL`) for token refresh. Browser-facing `NEXT_PUBLIC_AUTH_API_URL=/auth` remains relative for nginx/proxy access but is not valid for server-side `fetch()` inside the frontend container.
 - Local Docker builds inline `NEXT_PUBLIC_API_URL=/api`; authenticated and public API clients therefore use same-origin requests under `https://localhost` instead of `http://localhost/api`.
 - Keycloak startup imports `src/keycloak/import/bfp-realm.json` for the application realm. Because Keycloak creates the `master` realm before import and skips `master-realm.json`, the one-shot `keycloak-bootstrap` service runs `src/keycloak/bootstrap/bootstrap-master-realm.sh` after Keycloak is healthy to patch the master realm admin console redirects.
 
@@ -341,7 +342,14 @@ Compares a PENDING update request (parent_incident_id) against the original VERI
 | K — Recommendations | Textarea |
 | L — Disposition | Textarea + Prepared by / Noted by |
 
-Key behaviors: `formState` with ~90 fields. Encoder region lock on mount. Duplicate detection modal via `DuplicateIncidentModal`. Reference number preview via `useMemo`. Imports offline queue functions (`queueIncident`, `getPendingIncidents`, `markSynced`).
+Key behaviors: `formState` with ~90 fields. Encoder region lock on mount. Duplicate detection modal via `DuplicateIncidentModal`. Reference number preview via `useMemo`. Autosaves drafts to IndexedDB (`saveDraftOp`, `syncStatus='draft'`) with a `localStorage` fallback for private mode. When `navigator.onLine` is false (or a request fails mid-flight), create/update/submit are queued as `offlineOps` (`queueOfflineOp`) with a "Saved locally — will sync when connection is restored" toast; the offline `create` op stores the **full nested incident** so no detail is lost on sync.
+
+#### Offline-first encoder sync
+
+- **Persistence (`lib/offlineStore.ts`, IndexedDB v3):** `offlineOps` (operation queue — create/update/submit/delete, each with a `localId` UUID idempotency key, `linkedLocalId` dependency chain, and per-op `syncStatus`: draft/pending/syncing/synced/conflict/error) and `cachedIncidents` (AES-256-GCM read cache so the dashboard/detail render offline). `clearAllCachedIncidents()` is called on logout for shared-device privacy; pending ops are preserved.
+- **Reads (`lib/api/offlineRegional.ts`):** `fetchRegionalIncidents*OfflineAware` wrappers cache every successful response and fall back to the encrypted cache when offline (`fromCache: true` → amber "showing cached data" banner).
+- **Sync (`lib/syncEngine.ts`):** `syncPendingIncidents(encoderId)` verifies app reachability, loads the local queue, checks `GET /api/auth/session`, and only calls `refreshToken()` if the access session is gone. It then replays ops **oldest-first** (sequential, so a create resolves its `serverId` before its linked submit). `create` ops replay through the same full-fidelity `POST /api/incidents/upload-bundle` the online form uses (not the flat `/api/regional/incidents`), tagged with `client_id` for retry-safe idempotency. Ops are marked synced only on server confirmation; a network error aborts the batch and leaves items queued; 409 → `conflict` state; a 401 during replay restores the current op to `pending` and returns `abortReason: 'auth'`.
+- **Reconnect (`lib/useAutoSync.ts` + `useNetworkStatus`):** detects reconnection, toasts the user, and syncs after a short debounce. If both session check and refresh fail with auth (`abortReason: 'auth'`), it prompts re-login and **keeps** the queue intact; auth-service/network failures map to `abortReason: 'offline'` instead of repeated session-expired prompts.
 
 ### `MapPickerInner.tsx`
 
@@ -355,7 +363,21 @@ Sync status UI (FR-3E). Displays: Offline (amber), Reconnecting (blue), Syncing 
 
 ### `NetworkStatusIndicator.tsx`
 
-Simple online/offline indicator using `navigator.onLine` + browser events.
+Header network indicator backed by verified app reachability. It shows Checking, Reconnecting, Online, or Offline from `useNetworkStatus()` rather than raw `navigator.onLine`.
+
+### Current Offline Stabilization (2026-06-07)
+
+Regional Encoder offline decisions now use verified app reachability rather than raw browser online state. `lib/connectivity.ts` centralizes `checking/offline/reconnecting/online` status, treats browser `online/offline`, focus, and visibility events as hints, and only marks the app online after a same-origin `/health` probe succeeds. It no longer lets `navigator.onLine === false` block a real probe, and `useNetworkStatus()` rechecks every 5 seconds while offline/checking so the app can recover even if the browser misses the `online` event. Manual incident save/submit, AFOR import, offline reads, sync, `SyncStatusBar`, and `NetworkStatusIndicator` use this shared state; fetch network failures call `markConnectivityOffline()`.
+
+`src/frontend/src/app/health/route.ts` serves the same-origin `/health` probe when the Next.js app is run directly without nginx. In Docker/nginx deployments, nginx still handles `/health` first.
+
+`apiFetch()` now treats `refreshToken()` as successful only when `result.ok === true`, preventing failed refresh results from being retried as authenticated requests. `refreshToken()` classifies 5xx/429 refresh-route responses as offline/auth-service-unavailable rather than expired auth. `useAutoSync()` suppresses repeated auth-expired toasts, retries once after re-login/session restore when pending ops exist, and listens for service-worker `run-sync` messages. `public/sw.js` cache `v4` falls back to cached app shell or friendly offline HTML for navigations instead of returning `Response.error()`.
+
+### Offline Incident Sync/View Stabilization (2026-06-11)
+
+Offline-created incidents now use the same regional dashboard/detail surfaces as server-created incidents. `src/frontend/src/app/dashboard/regional/page.tsx` converts pending `offlineOps` create records into normal rich `IncidentCard` tiles with `verification_status = PENDING_SYNC` and routes them to `/dashboard/regional/incidents/{localId}` instead of the legacy `/local/{localId}` edit-only page. `src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx` accepts non-numeric local IDs, reads the encrypted op with `getOfflineOp(localId)`, reconstructs a `RegionalIncidentDetailResponse`, and renders the standard read-only incident detail view without fetching the server. Editing that view passes `offlineLocalId` to `IncidentForm`, so saves update the queued create op in place. Deleting a pending-sync incident calls `deleteOfflineOpCascade(localId)`, removing the queued create and any linked queued submit/update ops before reconnect. The legacy `/dashboard/regional/incidents/local/[localId]` route remains only as a redirect shim into the normal detail route.
+
+Offline create sync no longer uses `INSERT ... ON CONFLICT` on `wims.fire_incidents`. Because immutable-record rules exist on that table, PostgreSQL rejects `ON CONFLICT`; `src/backend/api/routes/incidents.py` and `src/backend/api/routes/regional/encoder_crud.py` now serialize idempotent `client_id` retries with `pg_advisory_xact_lock(...)`, select any existing row by `client_id`, and then perform a normal insert when absent.
 
 ### `analytics/AnalystIncidentList.tsx`
 

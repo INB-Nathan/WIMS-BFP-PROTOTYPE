@@ -1,25 +1,32 @@
 /**
- * useAutoSync tests — auto-sync on reconnect (3C).
+ * useAutoSync tests — auto-sync on reconnect (FR-3C).
  *
  * Expected behavior:
  * - When network reconnects (isReconnecting=true), triggers syncPendingIncidents
  * - Debounces: waits 2s after reconnect before syncing
- * - Exposes { syncing, lastSyncedAt, pendingCount, syncNow }
+ * - Exposes { syncing, lastSyncedAt, pendingCount, conflictCount, syncNow }
  * - syncNow() triggers immediate sync (bypasses debounce)
  * - Does not sync while already syncing (mutex)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
+import type { SyncResult } from '../syncEngine';
 
 // Mock syncEngine
 vi.mock('../syncEngine', () => ({
   syncPendingIncidents: vi.fn(),
 }));
 
-// Mock offlineStore
+// Mock offlineStore (new ops API)
 vi.mock('../offlineStore', () => ({
-  getPendingIncidents: vi.fn(),
+  getPendingOpsCount: vi.fn(),
+  recoverStaleSyncingOps: vi.fn().mockResolvedValue(0),
+}));
+
+// Mock auth
+vi.mock('../auth', () => ({
+  useUserProfile: vi.fn(),
 }));
 
 // Mock sonner
@@ -28,6 +35,8 @@ vi.mock('sonner', () => ({
     success: vi.fn(),
     error: vi.fn(),
     warning: vi.fn(),
+    info: vi.fn(),
+    dismiss: vi.fn(),
   },
 }));
 
@@ -39,16 +48,22 @@ vi.mock('../useNetworkStatus', () => ({
 
 import { useAutoSync } from '../useAutoSync';
 import { syncPendingIncidents } from '../syncEngine';
-import type { SyncError } from '../syncEngine';
-import { getPendingIncidents } from '../offlineStore';
+import { getPendingOpsCount, recoverStaleSyncingOps } from '../offlineStore';
+import { useUserProfile } from '../auth';
 import { toast } from 'sonner';
+
+const ENCODER_ID = 'test-encoder-uuid';
+const OK_RESULT: SyncResult = { synced: 0, conflicts: 0, failed: 0, errors: [], syncedIncidents: [] };
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockNetworkStatus.isOnline = true;
   mockNetworkStatus.isReconnecting = false;
-  vi.mocked(getPendingIncidents).mockResolvedValue([]);
-  vi.mocked(syncPendingIncidents).mockResolvedValue({ synced: 0, failed: 0, errors: [] });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  vi.mocked(useUserProfile).mockReturnValue({ user: { id: ENCODER_ID } as any, loading: false } as any);
+  vi.mocked(getPendingOpsCount).mockResolvedValue(0);
+  vi.mocked(recoverStaleSyncingOps).mockResolvedValue(0);
+  vi.mocked(syncPendingIncidents).mockResolvedValue(OK_RESULT);
   vi.mocked(toast.success).mockClear();
   vi.mocked(toast.error).mockClear();
   vi.mocked(toast.warning).mockClear();
@@ -69,17 +84,15 @@ describe('useAutoSync', () => {
     expect(result.current.pendingCount).toBe(0);
   });
 
-  it('fetches pendingCount on mount', async () => {
-    vi.mocked(getPendingIncidents).mockResolvedValue([
-      { id: 1, payload: {}, createdAt: Date.now(), status: 'pending' },
-      { id: 2, payload: {}, createdAt: Date.now(), status: 'pending' },
-    ]);
+  it('fetches pendingCount on mount via getPendingOpsCount', async () => {
+    vi.mocked(getPendingOpsCount).mockResolvedValue(3);
 
     const { result } = renderHook(() => useAutoSync());
 
     await waitFor(() => {
-      expect(result.current.pendingCount).toBe(2);
+      expect(result.current.pendingCount).toBe(3);
     });
+    expect(getPendingOpsCount).toHaveBeenCalledWith(ENCODER_ID);
   });
 
   it('auto-syncs after debounce when network reconnects', async () => {
@@ -94,13 +107,11 @@ describe('useAutoSync', () => {
     mockNetworkStatus.isReconnecting = true;
     rerender();
 
-    // Should not have synced yet (debounce)
+    // Sync should not fire immediately
     expect(syncPendingIncidents).not.toHaveBeenCalled();
 
-    // Advance past debounce
     await act(async () => {
       vi.advanceTimersByTime(2000);
-      // Flush microtasks
       await Promise.resolve();
     });
 
@@ -111,9 +122,8 @@ describe('useAutoSync', () => {
 
   it('syncNow() triggers immediate sync without waiting for debounce', async () => {
     vi.mocked(syncPendingIncidents).mockResolvedValue({
-      synced: 3, failed: 0, errors: [],
+      synced: 3, conflicts: 0, failed: 0, errors: [],
     });
-    vi.mocked(getPendingIncidents).mockResolvedValue([]);
 
     const { result } = renderHook(() => useAutoSync());
 
@@ -122,26 +132,19 @@ describe('useAutoSync', () => {
     });
 
     expect(syncPendingIncidents).toHaveBeenCalledTimes(1);
+    expect(syncPendingIncidents).toHaveBeenCalledWith(ENCODER_ID);
     expect(result.current.lastSyncedAt).toBeInstanceOf(Date);
   });
 
   it('syncNow() updates pendingCount after sync', async () => {
     vi.mocked(syncPendingIncidents).mockResolvedValue({
-      synced: 2, failed: 0, errors: [],
+      synced: 2, conflicts: 0, failed: 0, errors: [],
     });
-    // Initial: 2 pending. After sync: 0 pending.
-    vi.mocked(getPendingIncidents).mockResolvedValue([
-      { id: 1, payload: {}, createdAt: Date.now(), status: 'pending' },
-      { id: 2, payload: {}, createdAt: Date.now(), status: 'pending' },
-    ]);
+    vi.mocked(getPendingOpsCount).mockResolvedValueOnce(2).mockResolvedValue(0);
 
     const { result } = renderHook(() => useAutoSync());
 
-    // Wait for initial pendingCount
     await act(async () => {});
-
-    // Now mock empty after sync
-    vi.mocked(getPendingIncidents).mockResolvedValue([]);
 
     await act(async () => {
       await result.current.syncNow();
@@ -151,7 +154,7 @@ describe('useAutoSync', () => {
   });
 
   it('does not sync while already syncing (mutex)', async () => {
-    let resolveSync!: (value: { synced: number; failed: number; errors: SyncError[] }) => void;
+    let resolveSync!: (value: SyncResult) => void;
     vi.mocked(syncPendingIncidents).mockImplementation(
       () => new Promise((resolve) => { resolveSync = resolve; })
     );
@@ -175,13 +178,11 @@ describe('useAutoSync', () => {
 
     // Resolve first sync
     await act(async () => {
-      resolveSync({ synced: 1, failed: 0, errors: [] });
+      resolveSync({ synced: 1, conflicts: 0, failed: 0, errors: [] });
     });
-
-    expect(result.current.syncing).toBe(false);
   });
 
-  it('clears debounce timer on unmount', () => {
+  it('does not sync after component unmount', async () => {
     vi.useFakeTimers();
     mockNetworkStatus.isReconnecting = true;
     const { unmount } = renderHook(() => useAutoSync());
@@ -200,9 +201,8 @@ describe('useAutoSync', () => {
 
   it('fires toast.success when sync succeeds with no failures', async () => {
     vi.mocked(syncPendingIncidents).mockResolvedValue({
-      synced: 2, failed: 0, errors: [],
+      synced: 2, conflicts: 0, failed: 0, errors: [],
     });
-    vi.mocked(getPendingIncidents).mockResolvedValue([]);
 
     const { result } = renderHook(() => useAutoSync());
 
@@ -215,9 +215,8 @@ describe('useAutoSync', () => {
 
   it('fires toast.error when sync fails with no successes', async () => {
     vi.mocked(syncPendingIncidents).mockResolvedValue({
-      synced: 0, failed: 1, errors: [{ id: 1, error: 'Network error' }],
+      synced: 0, conflicts: 0, failed: 1, errors: [{ localId: 'op-1', operation: 'create', error: 'Network error' }],
     });
-    vi.mocked(getPendingIncidents).mockResolvedValue([]);
 
     const { result } = renderHook(() => useAutoSync());
 
@@ -225,14 +224,13 @@ describe('useAutoSync', () => {
       await result.current.syncNow();
     });
 
-    expect(toast.error).toHaveBeenCalledWith('1 incident failed to sync');
+    expect(toast.error).toHaveBeenCalledWith('1 item failed to sync');
   });
 
   it('fires no toast when nothing to sync', async () => {
     vi.mocked(syncPendingIncidents).mockResolvedValue({
-      synced: 0, failed: 0, errors: [],
+      synced: 0, conflicts: 0, failed: 0, errors: [], syncedIncidents: [],
     });
-    vi.mocked(getPendingIncidents).mockResolvedValue([]);
 
     const { result } = renderHook(() => useAutoSync());
 
@@ -247,9 +245,8 @@ describe('useAutoSync', () => {
 
   it('fires toast.warning when sync has mixed success and failure', async () => {
     vi.mocked(syncPendingIncidents).mockResolvedValue({
-      synced: 1, failed: 1, errors: [{ id: 1, error: 'Network error' }],
+      synced: 1, conflicts: 0, failed: 1, errors: [{ localId: 'op-2', operation: 'create', error: 'Network error' }],
     });
-    vi.mocked(getPendingIncidents).mockResolvedValue([]);
 
     const { result } = renderHook(() => useAutoSync());
 

@@ -85,7 +85,7 @@ Single-repo context: use `AGENTS.md`, `CLAUDE.md`, and `system-wiki/` for domain
 - `cd src/frontend && npm run lint`: run ESLint.
 - `cd src/frontend && npx vitest run`: run frontend tests.
 
-Install frontend dependencies with `npm install` in `src/frontend/`. For non-Docker backend work, install `src/backend/requirements.txt` in a Python 3.10+ virtual environment.
+Install frontend dependencies with `npm ci` in `src/frontend/` (prefer when `package-lock.json` exists) or `npm install`. For non-Docker backend work, install `src/backend/requirements.txt` in a Python 3.10+ virtual environment.
 
 ## Coding Style & Naming Conventions
 
@@ -110,6 +110,22 @@ Before pushing or opening a PR, run the full CI pre-flight routine defined in
 backend ruff format, backend pytest, and frontend lint/test/build.
 The single most common blocker is `ruff format` — always run `ruff format .`
 (auto-fix) before committing Python changes.
+
+> Frontend build requires `NEXT_PUBLIC_AUTH_API_URL` and `NEXT_PUBLIC_BASE_URL` env vars.
+> Safe dummy values: `NEXT_PUBLIC_AUTH_API_URL=http://localhost:8080/auth`
+> `NEXT_PUBLIC_BASE_URL=http://localhost:3000`.
+
+## Infrastructure & Services
+
+The Docker stack runs **14 services** (postgres, redis, mailhog, keycloak,
+keycloak-bootstrap, openbao, openbao-bootstrap, ollama, ollama-model-pull,
+backend, celery-worker, frontend, wims-suricata, nginx-gateway).
+
+**Offline/PWA subsystem:** The frontend has a full offline-first stack with
+IndexedDB stores (`offlineOps`, `cachedIncidents`, `analytics-cache`), singleton
+connectivity monitor, dual-path sync engine (PR #271 offlineOps + PR #272 legacy
+incident-queue), per-user key isolation, and offline-aware API wrappers for all
+roles (encoder, validator, analyst, admin). See `system-wiki/architecture/pwa-tests-cicd.md`.
 
 ## Before Final Response Checklist
 

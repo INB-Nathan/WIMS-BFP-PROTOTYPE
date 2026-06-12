@@ -43,6 +43,8 @@ export async function GET(req: NextRequest) {
     });
   } catch (err) {
     console.error('[api/auth/session] backend session fetch failed:', err);
-    return NextResponse.json({ user: null }, { status: 500 });
+    // Return 503 (not 500) to let the client distinguish "backend unreachable"
+    // from a genuine auth failure, so it can restore the offline session cache.
+    return NextResponse.json({ user: null, reason: 'network_error' }, { status: 503 });
   }
 }

@@ -16,6 +16,7 @@ import {
     Save,
     RefreshCw,
 } from 'lucide-react';
+import { OfflineModeManager } from '@/components/regional/OfflineModeManager';
 
 export default function ProfilePage() {
     const { user, loading, logout } = useAuth();
@@ -244,6 +245,9 @@ export default function ProfilePage() {
                     </p>
                 </div>
             </section>
+
+            {/* Offline Mode (encoders only — renders nothing for other roles) */}
+            <OfflineModeManager variant="panel" />
 
             {/* Edit Profile Card */}
             <section className="card overflow-hidden">

@@ -135,7 +135,7 @@ describe('offlineStore', () => {
         expect(rawRecord!.encrypted).toHaveProperty('data');
         expect(Array.isArray(rawRecord!.encrypted.iv)).toBe(true);
         expect(Array.isArray(rawRecord!.encrypted.data)).toBe(true);
-        expect(rawRecord!.payload).toBeUndefined();
+        expect((rawRecord as unknown as Record<string, unknown>).payload).toBeUndefined();
         expect(JSON.stringify(rawRecord).includes('Secret fire data')).toBe(false);
     });
 
@@ -156,7 +156,7 @@ describe('offlineStore', () => {
             | { encrypted: { iv: unknown[]; data: unknown[] }; payload?: unknown }
             | undefined;
         expect(rawRecord).toHaveProperty('encrypted');
-        expect(rawRecord!.payload).toBeUndefined();
+        expect((rawRecord as unknown as Record<string, unknown>).payload).toBeUndefined();
     });
 
     it('getQueuedIncident returns decrypted payload', async () => {

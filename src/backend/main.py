@@ -15,6 +15,7 @@ import re
 import threading
 import time
 from typing import Annotated
+from urllib.parse import urlparse
 
 import httpx
 import redis.asyncio as aioredis
@@ -88,6 +89,16 @@ _STARTUP_ADMIN_URL: str = os.environ.get("DATABASE_ADMIN_URL") or os.environ.get
 _startup_admin_engine = None
 _startup_admin_session_factory = None
 
+# Derive wims_app_user password from env rather than hardcoding it in source.
+# Priority: explicit WIMS_APP_USER_PASSWORD env var > password embedded in DATABASE_URL.
+_APP_USER_PASSWORD: str | None = os.environ.get("WIMS_APP_USER_PASSWORD") or None
+if _APP_USER_PASSWORD is None:
+    try:
+        _parsed_db_url = urlparse(os.environ.get("DATABASE_URL", ""))
+        _APP_USER_PASSWORD = _parsed_db_url.password or None
+    except Exception:
+        pass
+
 
 def _get_admin_session():
     """Return a superuser session for DDL operations in startup patches.
@@ -157,32 +168,47 @@ def apply_schema_patches() -> None:
 
     # Ensure wims_app_user exists — postgres-init only runs on first boot,
     # so existing containers (e.g. VPS) won't have this role until this patch runs.
-    try:
-        db.execute(
-            text("""
-                DO $$
-                BEGIN
-                  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'wims_app') THEN
-                    CREATE ROLE wims_app NOLOGIN;
-                  END IF;
-                  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'wims_app_user') THEN
-                    CREATE ROLE wims_app_user LOGIN PASSWORD 'wimsapp' INHERIT;
-                    GRANT wims_app TO wims_app_user;
-                  END IF;
-                END
-                $$
-            """)
+    if _APP_USER_PASSWORD is None:
+        logger.warning(
+            "Schema patch (wims_app_user) skipped: WIMS_APP_USER_PASSWORD is not set "
+            "and could not be derived from DATABASE_URL. "
+            "Set WIMS_APP_USER_PASSWORD or ensure DATABASE_URL includes credentials."
         )
-        db.execute(text("GRANT USAGE ON SCHEMA wims TO wims_app"))
-        db.execute(
-            text("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA wims TO wims_app")
-        )
-        db.execute(text("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA wims TO wims_app"))
-        db.commit()
-        logger.info("Schema patch applied: wims_app_user role ensured")
-    except Exception as exc:
-        logger.warning("Schema patch (wims_app_user) failed (non-fatal): %s", exc)
-        db.rollback()
+    else:
+        try:
+            # Password comes from env/DATABASE_URL — escape PL/pgSQL string literal (double quotes).
+            _escaped_pw = _APP_USER_PASSWORD.replace("'", "''")
+            db.execute(
+                text(
+                    f"""
+                    DO $$
+                    BEGIN
+                      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'wims_app') THEN
+                        CREATE ROLE wims_app NOLOGIN;
+                      END IF;
+                      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'wims_app_user') THEN
+                        CREATE ROLE wims_app_user LOGIN PASSWORD '{_escaped_pw}' INHERIT;
+                        GRANT wims_app TO wims_app_user;
+                      END IF;
+                    END
+                    $$
+                    """
+                )
+            )
+            db.execute(text("GRANT USAGE ON SCHEMA wims TO wims_app"))
+            db.execute(
+                text(
+                    "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA wims TO wims_app"
+                )
+            )
+            db.execute(
+                text("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA wims TO wims_app")
+            )
+            db.commit()
+            logger.info("Schema patch applied: wims_app_user role ensured")
+        except Exception as exc:
+            logger.warning("Schema patch (wims_app_user) failed (non-fatal): %s", exc)
+            db.rollback()
 
     try:
         db.execute(text("DROP RULE IF EXISTS no_update_verified ON wims.fire_incidents"))
@@ -280,6 +306,22 @@ def apply_schema_patches() -> None:
         logger.info("Schema patch applied: RLS helper functions set to SECURITY DEFINER")
     except Exception as exc:
         logger.warning("Schema patch (RLS helpers SECURITY DEFINER) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    # Migration 45: client_id column for offline-first idempotency
+    try:
+        db.execute(text("ALTER TABLE wims.fire_incidents ADD COLUMN IF NOT EXISTS client_id UUID"))
+        db.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_fire_incidents_client_id"
+                " ON wims.fire_incidents (client_id)"
+                " WHERE client_id IS NOT NULL"
+            )
+        )
+        db.commit()
+        logger.info("Schema patch applied: client_id column + unique index on fire_incidents")
+    except Exception as exc:
+        logger.warning("Schema patch (client_id) failed (non-fatal): %s", exc)
         db.rollback()
 
     finally:

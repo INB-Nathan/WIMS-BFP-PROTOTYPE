@@ -13,6 +13,16 @@ celery_app = Celery(
     backend=os.environ.get(
         "CELERY_RESULT_BACKEND", os.environ.get("REDIS_URL", "redis://redis:6379/0")
     ),
+    include=[
+        "tasks.analytics_refresh",
+        "tasks.civilian_reports",
+        "tasks.drafts",
+        "tasks.exports",
+        "tasks.monitoring",
+        "tasks.narrative",
+        "tasks.notifications",
+        "tasks.suricata",
+    ],
 )
 
 # The tasks package contains modules rather than app-style tasks.py files, so

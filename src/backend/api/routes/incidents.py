@@ -117,6 +117,21 @@ def upload_incident_bundle(
     results: dict[str, list] = {"imported": [], "failed": []}
     i = 0
 
+    # Offline-first idempotency: detect the optional client_id column once. When the
+    # offline sync engine retries a create that already succeeded server-side (network
+    # timeout masked the 201), the duplicate client_id lets us return the existing row
+    # instead of inserting a second incident. See migration 45 + main.py self-heal.
+    client_id_col_exists = (
+        db.execute(
+            text(
+                "SELECT 1 FROM information_schema.columns"
+                " WHERE table_schema='wims' AND table_name='fire_incidents'"
+                " AND column_name='client_id'"
+            )
+        ).fetchone()
+        is not None
+    )
+
     def _safe_int(v: Any, default: int = 0) -> int:
         try:
             return int(v)
@@ -141,6 +156,34 @@ def upload_incident_bundle(
         if not isinstance(sens, dict):
             sens = {}
 
+        item_client_id = str(item.get("client_id") or "").strip() or None
+        if client_id_col_exists and item_client_id:
+            try:
+                uuid.UUID(item_client_id)
+            except (ValueError, AttributeError):
+                raise HTTPException(status_code=422, detail="client_id must be a valid UUID")
+
+            # fire_incidents has immutable-record rules, and PostgreSQL rejects
+            # INSERT ... ON CONFLICT on tables with INSERT/UPDATE rules. This
+            # lock keeps same-client retries idempotent without using ON CONFLICT.
+            db.execute(
+                text(
+                    "SELECT pg_advisory_xact_lock("
+                    "hashtext('fire_incidents_client_id'), hashtext(:cid))"
+                ),
+                {"cid": item_client_id},
+            )
+            existing_row = db.execute(
+                text(
+                    "SELECT incident_id FROM wims.fire_incidents"
+                    " WHERE client_id = CAST(:cid AS uuid) LIMIT 1"
+                ),
+                {"cid": item_client_id},
+            ).fetchone()
+            if existing_row:
+                results["imported"].append(int(existing_row[0]))
+                continue
+
         lon = _safe_float(item.get("longitude"), 0.0)
         lat = _safe_float(item.get("latitude"), 0.0)
 
@@ -159,30 +202,81 @@ def upload_incident_bundle(
             ).fetchone()
             city_id = city_candidate if city_exists else None
 
+        _cid_col = ", client_id" if client_id_col_exists else ""
+        _cid_val = ", CAST(:client_id AS uuid)" if client_id_col_exists else ""
+
+        # Accept optional client-supplied timestamps for offline-first sync.
+        # These are ISO-8601 strings queued on the client when the device was offline.
+        # We validate and clamp to current time to prevent far-future values.
+        def _parse_client_ts(raw: Any) -> str | None:
+            if not raw or not isinstance(raw, str):
+                return None
+            try:
+                from datetime import datetime, timezone
+
+                dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                now_utc = datetime.now(timezone.utc)
+                if dt > now_utc:
+                    return now_utc.isoformat()
+                return dt.isoformat()
+            except (ValueError, OverflowError):
+                return None
+
+        client_created_at = _parse_client_ts(item.get("created_at"))
+        client_updated_at = _parse_client_ts(item.get("updated_at"))
+        _ts_cols = ""
+        _ts_vals = ""
+        if client_created_at:
+            _ts_cols += ", created_at"
+            _ts_vals += ", CAST(:client_created_at AS timestamptz)"
+        if client_updated_at:
+            _ts_cols += ", updated_at"
+            _ts_vals += ", CAST(:client_updated_at AS timestamptz)"
+
+        inc_params = {
+            "batch_id": batch_id,
+            "uid": user_id,
+            "region_id": region_id,
+            "lon": lon,
+            "lat": lat,
+            "incident_type_code": incident_type_code_val,
+        }
+        if client_id_col_exists:
+            inc_params["client_id"] = item_client_id
+        if client_created_at:
+            inc_params["client_created_at"] = client_created_at
+        if client_updated_at:
+            inc_params["client_updated_at"] = client_updated_at
+
         inc_row = db.execute(
             text(
-                """
+                f"""
                 INSERT INTO wims.fire_incidents
                     (import_batch_id, encoder_id, region_id, location, verification_status,
-                     incident_type_code, reference_number)
+                     incident_type_code, reference_number{_cid_col}{_ts_cols})
                 VALUES
                     (:batch_id, CAST(:uid AS uuid), :region_id,
                      ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
-                     'DRAFT', :incident_type_code, NULL)
+                     'DRAFT', :incident_type_code, NULL{_cid_val}{_ts_vals})
                 RETURNING incident_id
                 """
             ),
-            {
-                "batch_id": batch_id,
-                "uid": user_id,
-                "region_id": region_id,
-                "lon": lon,
-                "lat": lat,
-                "incident_type_code": incident_type_code_val,
-            },
+            inc_params,
         ).fetchone()
 
         if not inc_row:
+            # Empty RETURNING means the ON CONFLICT path fired — retrieve the existing row.
+            if client_id_col_exists and item_client_id:
+                existing_row = db.execute(
+                    text(
+                        "SELECT incident_id FROM wims.fire_incidents"
+                        " WHERE client_id = CAST(:cid AS uuid) LIMIT 1"
+                    ),
+                    {"cid": item_client_id},
+                ).fetchone()
+                if existing_row:
+                    results["imported"].append(int(existing_row[0]))
+                    continue
             results["failed"].append({"index": i, "reason": "Failed to insert incident row"})
             continue
 

@@ -3,6 +3,8 @@
  *
  * Displays: pending count, sync spinner, last synced time,
  * offline/reconnecting indicator, manual sync button.
+ * When session has expired with pending ops, shows a persistent
+ * "Log In to sync" call-to-action instead of silently failing.
  */
 
 'use client';
@@ -11,8 +13,23 @@ import { useAutoSync } from '@/lib/useAutoSync';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 
 export function SyncStatusBar() {
-  const { syncing, lastSyncedAt, pendingCount, syncNow } = useAutoSync();
-  const { isOnline, isReconnecting } = useNetworkStatus();
+  const { syncing, lastSyncedAt, pendingCount, conflictCount, authFailed, syncNow } = useAutoSync();
+  const { isOnline, isChecking, isReconnecting } = useNetworkStatus();
+
+  if (isChecking) {
+    return (
+      <div
+        className="flex items-center gap-2 rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+        role="status"
+      >
+        <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-slate-500" />
+        <span>Checking connection...</span>
+        {pendingCount > 0 && (
+          <span className="ml-auto font-medium">{pendingCount} queued</span>
+        )}
+      </div>
+    );
+  }
 
   // Offline state
   if (!isOnline) {
@@ -46,6 +63,27 @@ export function SyncStatusBar() {
     );
   }
 
+  // Session expired with queued incidents — most prominent state
+  if (authFailed && pendingCount > 0) {
+    return (
+      <div
+        className="flex items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800"
+        role="alert"
+      >
+        <span className="inline-block h-2 w-2 rounded-full bg-red-500" />
+        <span>
+          Session expired — {pendingCount} incident{pendingCount !== 1 ? 's' : ''} waiting to sync
+        </span>
+        <a
+          href="/login"
+          className="ml-auto rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700"
+        >
+          Log In to Sync
+        </a>
+      </div>
+    );
+  }
+
   // Actively syncing
   if (syncing) {
     return (
@@ -62,8 +100,25 @@ export function SyncStatusBar() {
     );
   }
 
-  // All synced
+  // All synced — but show conflict callout if any ops need resolution
   if (pendingCount === 0) {
+    if (conflictCount > 0) {
+      return (
+        <div
+          className="flex items-center gap-2 rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-sm text-orange-800"
+          role="alert"
+        >
+          <span className="inline-block h-2 w-2 rounded-full bg-orange-500" />
+          <span>{conflictCount} item{conflictCount !== 1 ? 's' : ''} need your attention</span>
+          <a
+            href="/dashboard/regional?tab=conflicts"
+            className="ml-auto rounded-md bg-orange-600 px-3 py-1 text-xs font-medium text-white hover:bg-orange-700"
+          >
+            Review
+          </a>
+        </div>
+      );
+    }
     return (
       <div
         className="flex items-center gap-2 rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800"

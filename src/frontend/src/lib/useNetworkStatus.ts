@@ -1,59 +1,56 @@
 /**
- * useNetworkStatus — network state detection hook (FR-3A).
+ * useNetworkStatus — verified network state detection hook (FR-3A).
  *
- * Wraps navigator.onLine + window online/offline events.
- * Exposes isReconnecting flag for auto-sync triggering.
+ * Browser online/offline events are hints only. The app remains offline until a
+ * same-origin /health probe succeeds, which prevents tab changes from falsely
+ * flipping the indicator back to online.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
+import {
+  getConnectivitySnapshot,
+  startConnectivityMonitor,
+  subscribeConnectivity,
+  type ConnectivityState,
+  type ConnectivitySnapshot,
+} from './connectivity';
 
 export interface NetworkStatus {
+  state: ConnectivityState;
   isOnline: boolean;
+  isChecking: boolean;
   isReconnecting: boolean;
+  lastCheckedAt: number | null;
+}
+
+// Stable snapshot used during SSR and hydration.
+// Always reports 'checking' so server-rendered HTML matches the client's
+// first-pass render regardless of navigator.onLine. Without this, React 19
+// throws a hydration mismatch because navigator is undefined on the server
+// (giving isOnline=true) while an offline client gives isOnline=false.
+function getServerConnectivitySnapshot(): ConnectivitySnapshot {
+  return {
+    state: 'checking',
+    isOnline: false,
+    isChecking: true,
+    isReconnecting: false,
+    lastCheckedAt: null,
+  };
 }
 
 export function useNetworkStatus(): NetworkStatus {
-  const [isOnline, setIsOnline] = useState(
-    typeof navigator !== 'undefined' ? navigator.onLine : true
+  const status = useSyncExternalStore(
+    subscribeConnectivity,
+    getConnectivitySnapshot,
+    getServerConnectivitySnapshot,
   );
-  const [isReconnecting, setIsReconnecting] = useState(false);
-  const wasOffline = useRef(!isOnline);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleOnline = useCallback(() => {
-    setIsOnline(true);
-    if (wasOffline.current) {
-      setIsReconnecting(true);
-      // Reset reconnecting state after 3s
-      reconnectTimer.current = setTimeout(() => {
-        setIsReconnecting(false);
-      }, 3000);
-      wasOffline.current = false;
-    }
-  }, []);
-
-  const handleOffline = useCallback(() => {
-    setIsOnline(false);
-    wasOffline.current = true;
-    // Clear any pending reconnect timer
-    if (reconnectTimer.current) {
-      clearTimeout(reconnectTimer.current);
-    }
-    setIsReconnecting(false);
-  }, []);
-
+  // Ensure the single global monitor is running. Idempotent — only the first
+  // mount wires up listeners and the recheck loop (see connectivity.ts), so
+  // having many components call this does not create duplicate /health probes.
   useEffect(() => {
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    startConnectivityMonitor();
+  }, []);
 
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      if (reconnectTimer.current) {
-        clearTimeout(reconnectTimer.current);
-      }
-    };
-  }, [handleOnline, handleOffline]);
-
-  return { isOnline, isReconnecting };
+  return status;
 }

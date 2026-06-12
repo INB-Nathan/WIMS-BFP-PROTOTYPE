@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { useRouter } from 'next/navigation';
 import { refreshToken } from './auth-refresh';
+import { getConnectivitySnapshot } from './connectivity';
 
 export interface User {
     id: string;
@@ -44,7 +45,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (refreshInFlightRef.current) {
             return refreshInFlightRef.current;
         }
-        const promise = refreshToken();
+        // refreshToken() returns a typed RefreshResult ({ ok, reason }); collapse it to a
+        // boolean for callers. Without the `.ok` map the object is always truthy, so a
+        // failed refresh would be treated as success.
+        const promise = refreshToken().then((r) => r.ok);
         refreshInFlightRef.current = promise;
         const result = await promise;
         refreshInFlightRef.current = null;
@@ -52,6 +56,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, []);
 
     // ─── Session re-hydration ─────────────────────────────────────────────────
+    // Offline resilience: same 503/catch pattern as context/AuthContext.tsx.
+    // On backend-unreachable or DevTools offline, restore from localStorage so
+    // the IncidentForm knows the encoder's role and region without a live session.
+    const PROFILE_CACHE_KEY = 'wims:offline_profile_cache';
+
+    type ProfileCache = { user: User; role: UserProfile['role']; assignedRegionId: number | null };
+
+    const restoreProfileFromCache = useCallback(() => {
+        try {
+            const raw = localStorage.getItem(PROFILE_CACHE_KEY);
+            if (raw) {
+                const cached = JSON.parse(raw) as ProfileCache;
+                if (cached.user) {
+                    setUser(cached.user);
+                    setRole(cached.role);
+                    setAssignedRegionId(cached.assignedRegionId);
+                }
+            }
+        } catch { /* localStorage unavailable or stale JSON */ }
+    }, []);
+
     const fetchProfile = useCallback(async () => {
         try {
             const requestSession = () => fetch('/api/auth/session');
@@ -70,18 +95,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     setUser(data.user);
                     setRole(data.role);
                     setAssignedRegionId(data.assignedRegionId);
+                    try {
+                        localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify({
+                            user: data.user,
+                            role: data.role,
+                            assignedRegionId: data.assignedRegionId,
+                        }));
+                    } catch { /* private mode */ }
                 } else {
                     setUser(null);
                     setRole(null);
                     setAssignedRegionId(null);
+                    localStorage.removeItem(PROFILE_CACHE_KEY);
                 }
+            } else if (res.status === 503) {
+                restoreProfileFromCache();
+            } else {
+                setUser(null);
+                setRole(null);
+                setAssignedRegionId(null);
+                localStorage.removeItem(PROFILE_CACHE_KEY);
             }
         } catch (err) {
+            restoreProfileFromCache();
             console.error('[AuthContext] fetchProfile: initialization failed:', err);
         } finally {
             setLoading(false);
         }
-    }, [refreshAccessToken]);
+    }, [refreshAccessToken, restoreProfileFromCache]);
 
     // ─── Initial session load ───────────────────────────────────────────────────
     useEffect(() => {
@@ -98,6 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const proactivelyRefreshJwtOnly = async () => {
+            if (!getConnectivitySnapshot().isOnline) return;
             await refreshAccessToken();
         };
 
@@ -125,6 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, [user, refreshAccessToken]);
 
     const signOut = async () => {
+        localStorage.removeItem(PROFILE_CACHE_KEY);
         await fetch('/api/auth/logout', { method: 'POST' });
         setUser(null);
         setRole(null);

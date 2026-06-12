@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchReportStatus } from '@/lib/api';
+import { fetchReportStatus, type CivilianReportTrackingResponse } from '@/lib/api';
 
 vi.mock('@/lib/api', () => ({
   fetchReportStatus: vi.fn(),
@@ -31,7 +31,7 @@ describe('ReportTrackerPage', () => {
       report_id: 42,
       status: 'ACTIONED',
       created_at: '2026-05-19T08:00:00Z',
-    } as never);
+    } as unknown as CivilianReportTrackingResponse);
     window.history.pushState({}, '', '/tracking?id=42');
 
     const { default: ReportTrackerPage } = await import('./page');

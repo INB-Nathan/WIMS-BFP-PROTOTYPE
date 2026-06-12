@@ -4,7 +4,7 @@ created: 2026-05-16
 updated: 2026-06-12
 type: architecture
 tags: [wims-bfp, pwa, offline-first, testing, ci-cd, service-worker, sync-engine, validator-offline]
-sources: [src/frontend/src/lib/, src/frontend/src/lib/api/offlineAnalytics.ts, src/frontend/src/lib/api/offlineValidator.ts, src/frontend/public/sw.js, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py, src/backend/tests/test_schema_patch_startup_guard.py]
+sources: [src/frontend/src/lib/, src/frontend/src/lib/api/offlineAnalytics.ts, src/frontend/src/lib/api/offlineValidator.ts, src/frontend/public/sw.js, src/frontend/src/app/home/__tests__/operations-board.test.tsx, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py, src/backend/tests/test_schema_patch_startup_guard.py]
 status: draft
 ---
 
@@ -44,28 +44,13 @@ Adds 9 offline-aware read wrappers for the National Analyst surface: heatmap, tr
 
 **File:** `src/frontend/src/lib/syncEngine.ts`
 
-Reads pending items from IndexedDB, dispatches each to the correct API endpoint based on `opType`, marks synced.
+Reads pending encoder operations from IndexedDB and replays them against the authenticated regional incident APIs in creation order. Offline create ops use the full-fidelity `/api/incidents/upload-bundle` path with `client_id` idempotency so nested AFOR details are preserved and retry-safe.
 
 | Export | Signature | Description |
 |---|---|---|
-| `syncPendingIncidents()` | `() => Promise<SyncResult>` | Iterates pending items, dispatches by opType, returns `{ synced, failed, errors }` |
+| `syncPendingIncidents(encoderId)` | `(string) => Promise<SyncResult>` | Verifies app reachability, refreshes auth, replays queued create/update/submit/delete ops oldest-first, returns `{ synced, conflicts, failed, errors, abortReason? }` |
 
-**Op-type dispatch (GH #268):**
-
-| opType | Endpoint | Method | Auth |
-|---|---|---|---|
-| `create` / default | `/api/v1/public/report` | POST | Public (no credentials) |
-| `verify` | `/api/regional/incidents/{id}/verification` | PATCH | Cookie (`apiFetch`) |
-| `archive_action` | `/api/regional/validator/incidents/{id}/archive` or `/unarchive` | PATCH | Cookie (`apiFetch`) |
-
-- **verify** sends `{ action, notes, client_id, original_incident_id? }` where `client_id` is the op's persisted `localId` UUID for server-side idempotency (#267).
-- **archive_action** sends `{ client_id }` to the archive/unarchive endpoint based on payload `action` field.
-- Legacy items without `opType` continue to POST to the public report endpoint (backward-compatible).
-- `credentials: 'include'` is set via `apiFetch` for auth-gated ops (validator endpoints).
-- 409 `DUPLICATE_DETECTED` on verify/archive_action keeps the op pending (conflict, don't overwrite).
-- **Network error (no HTTP status) aborts remaining batch** to preserve ordering; HTTP errors (4xx/5xx) continue to the next item.
-
-**Conflict resolution (create ops):** Last-write-wins (LWW) on HTTP 409. If `server_updated_at` is older than local `createdAt`, retries with `X-Conflict-Resolution: overwrite` header.
+**Failure behavior:** offline/unreachable aborts with `abortReason: 'offline'` and keeps the queue intact; expired auth aborts with `abortReason: 'auth'`; network loss during a batch marks the current op `network` and stops; 409 moves the op to conflict state.
 
 ### `api/offlineValidator.ts` — Validator Offline-First Action Wrappers (GH #269)
 
@@ -93,11 +78,13 @@ Adds offline-aware write wrappers for the National Validator dashboard: queue fe
 
 ### `useAutoSync.ts` — Auto-Sync on Reconnect (FR-3C)
 
+**Current stabilization (2026-06-07):** `lib/connectivity.ts` is now the shared source of truth. Browser `online/offline`, focus, and visibility events are hints only; the state remains `checking/offline/reconnecting/online` until a same-origin `/health` probe confirms reachability. `useNetworkStatus()` now exposes `{ state, isOnline, isChecking, isReconnecting, lastCheckedAt }`, and fetch/network failures can force offline through `markConnectivityOffline()`.
+
 **File:** `src/frontend/src/lib/useAutoSync.ts`
 
 | Export | Signature | Description |
 |---|---|---|
-| `useAutoSync()` | `() => AutoSyncState` | Returns `{ syncing, lastSyncedAt, pendingCount, syncNow }`. Uses a mutex (`useRef`) to prevent concurrent syncs. Triggers sync after 2s debounce on reconnecting. |
+| `useAutoSync()` | `() => AutoSyncState` | Returns `{ syncing, lastSyncedAt, pendingCount, conflictCount, authFailed, syncNow }`. Uses a mutex to prevent concurrent syncs, runs once on reconnect/re-login when pending ops exist, suppresses repeated auth-expired toasts, and listens for SW `run-sync` messages. |
 
 ### `swRegistration.ts` — Service Worker Registration (FR-3D)
 
@@ -117,8 +104,8 @@ Vanilla (no-workbox) service worker:
 
 - **Install:** Cache-first for `['/', '/dashboard', '/login', '/manifest.webmanifest']`
 - **Activate:** Cache whitelist cleanup, `self.clients.claim()`
-- **Fetch:** Cache-first for non-API/non-auth routes; pass-through for `/api/` and `/auth/`
-- **Background Sync:** Listens for `sync-pending-incidents` tag, reads `wims-bfp-db`/`incident-queue` directly in SW context, POSTs each, deletes on success, notifies clients via `postMessage({ type: 'sync-complete' })`
+- **Fetch:** API/auth routes remain network-only; document navigations are network-first and fall back to a cached app shell or friendly offline HTML instead of a browser network error; visited Next.js static chunks are cached for later offline rendering.
+- **Background Sync:** Listens for `sync-pending-incidents` and posts `run-sync` to open clients. The page owns auth refresh and ordered create-to-submit replay; the SW does not POST queued incidents directly.
 
 ### Web App Manifest
 
@@ -197,11 +184,14 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 **6. Startup DDL and pytest lock-hang regression (PR #207)**
 `src/backend/main.py` intentionally does not patch `wims.users.email` at FastAPI startup. Migration `src/postgres-init/44_add_email_to_users.sql` owns that column plus the local unique email index for fresh CI databases. Runtime DDL on `wims.users` can block indefinitely when tests hold ordinary SQLAlchemy sessions open: `src/backend/tests/test_immutable_records.py` reads `wims.users` in region fixtures, then creates `TestClient(app)`, which triggers startup before fixture teardown. A startup `ALTER TABLE wims.users ...` queued for `AccessExclusiveLock` behind the open `AccessShareLock`, making CI appear to stop after the preceding fire-location test. Future startup schema patches should avoid user-table DDL or use bounded lock handling.
 
-**5. Backend startup schema patch guard** — `src/backend/main.py` runs compatibility schema repairs for old containers at FastAPI startup, but guards the routine with a process-local lock/attempt flag so repeated `TestClient(app)` lifespans in pytest do not rerun DDL/RLS patch blocks. `src/backend/tests/test_schema_patch_startup_guard.py` verifies that repeated calls reopen no second admin DB session and rerun no patch helpers.
+**7. Operations Board offline-guard test mock (2026-06-12)**
+`src/frontend/src/app/home/page.tsx` uses `useNetworkStatus()` to render an offline restricted-route guard for `/home`. `src/frontend/src/app/home/__tests__/operations-board.test.tsx` must mock `useNetworkStatus()` as online for Operations Board tests; otherwise jsdom renders "Operations Unavailable Offline" and hides the board controls. After the merge fix, `npx.cmd vitest run` passed 38 frontend test files / 236 tests.
 
-**6. Auth/RLS test override pattern** — tests that override role-specific dependencies such as `get_regional_encoder` or `get_system_admin` must also override `get_current_wims_user` or `get_db_with_rls` when the route uses an RLS-scoped DB dependency. Reference-table RLS tests use a `wims_app_user` connection instead of the CI postgres superuser so PostgreSQL row-level policies are actually enforced.
+**8. Backend startup schema patch guard** — `src/backend/main.py` runs compatibility schema repairs for old containers at FastAPI startup, but guards the routine with a process-local lock/attempt flag so repeated `TestClient(app)` lifespans in pytest do not rerun DDL/RLS patch blocks. `src/backend/tests/test_schema_patch_startup_guard.py` verifies that repeated calls reopen no second admin DB session and rerun no patch helpers.
 
-**7. RLS init contract tests** — `src/backend/tests/test_rls_init_contract.py` statically guards the database bootstrap path: `wims.current_user_role()` must be defined only by `src/postgres-init/09_rls_helpers.sql`, backend startup repair must not recreate helper functions with ad hoc SQL quoting, and `14a_assign_ncr_to_test_users.sql` must assign NCR to canonical `encoder_ncr` rather than legacy `encoder_test`.
+**9. Auth/RLS test override pattern** — tests that override role-specific dependencies such as `get_regional_encoder` or `get_system_admin` must also override `get_current_wims_user` or `get_db_with_rls` when the route uses an RLS-scoped DB dependency. Reference-table RLS tests use a `wims_app_user` connection instead of the CI postgres superuser so PostgreSQL row-level policies are actually enforced.
+
+**10. RLS init contract tests** — `src/backend/tests/test_rls_init_contract.py` statically guards the database bootstrap path: `wims.current_user_role()` must be defined only by `src/postgres-init/09_rls_helpers.sql`, backend startup repair must not recreate helper functions with ad hoc SQL quoting, and `14a_assign_ncr_to_test_users.sql` must assign NCR to canonical `encoder_ncr` rather than legacy `encoder_test`.
 
 ---
 

@@ -5,9 +5,14 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import {
   RefreshCw, Flame, Building2, TreePine, Car, ChevronLeft, ChevronRight, Trees,
-  Home, Users, Layers, Truck, FileText, Upload, CalendarDays, Archive,
+  Home, Users, Layers, Truck, FileText, Upload, CalendarDays, Archive, ChevronDown, ChevronUp,
 } from 'lucide-react';
-import { apiFetch, fetchRegionalIncidents, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
+import { apiFetch, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
+import { fetchRegionalIncidentsOfflineAware } from '@/lib/api/offlineRegional';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import { getConnectivitySnapshot } from '@/lib/connectivity';
+import { getPendingOps, getCachedIncidents, type OfflineOpDecrypted } from '@/lib/offlineStore';
+import { type SyncedIncidentSummary } from '@/lib/useAutoSync';
 import Link from 'next/link';
 import {
   REGIONAL_INCIDENT_GENERAL_CATEGORIES,
@@ -22,6 +27,7 @@ import { formatIncidentDate, isDateOnly, getDateBounds as getDateBoundsUtil, cat
 import { NotificationToasts } from '@/components/regional/NotificationToasts';
 import { IncidentCard } from '@/components/regional/IncidentCard';
 import { WildlandFireBreakdown } from '@/components/regional/WildlandFireBreakdown';
+import { OfflineModeManager } from '@/components/regional/OfflineModeManager';
 
 interface RegionalStatsPayload {
   total_incidents?: number;
@@ -72,6 +78,27 @@ interface HoverHint {
   y: number;
 }
 
+const FILTER_STORAGE_KEY = 'wims:regional_filters';
+
+interface PersistedFilters {
+  dateFilter: DateFilterValue;
+  statusFilter: string;
+  categoryFilter: string;
+  pageIndex: number;
+  pageSize: number;
+  specificDate: string;
+}
+
+function loadPersistedFilters(): Partial<PersistedFilters> {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(FILTER_STORAGE_KEY) : null;
+    return raw ? (JSON.parse(raw) as Partial<PersistedFilters>) : {};
+  } catch { return {}; }
+}
+
+function savePersistedFilters(f: PersistedFilters): void {
+  try { localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(f)); } catch {}
+}
 
 export default function RegionalDashboardPage() {
   const router = useRouter();
@@ -95,13 +122,59 @@ export default function RegionalDashboardPage() {
   const [incidentsLoading, setIncidentsLoading] = useState(false);
   const [incidentsError, setIncidentsError] = useState<string | null>(null);
 
-  const [pageIndex, setPageIndex] = useState(0);
-  const [pageSize, setPageSize] = useState(10);
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [dateFilter, setDateFilter] = useState<DateFilterValue>('today');
-  const [specificDate, setSpecificDate] = useState('');
-  const [specificDateDraft, setSpecificDateDraft] = useState('');
+  const { isOnline } = useNetworkStatus();
+  const [isFromCache, setIsFromCache] = useState(false);
+  const [cachedAt, setCachedAt] = useState<number | undefined>();
+  const [queuedOps, setQueuedOps] = useState<OfflineOpDecrypted[]>([]);
+  const [cachedDetailIds, setCachedDetailIds] = useState<Set<number>>(new Set());
+  const [syncNotification, setSyncNotification] = useState<SyncedIncidentSummary[] | null>(null);
+
+  // Stats visibility — persisted so the user's preference survives page reload.
+  // Auto-collapsed when offline (stats can't refresh and would be misleading).
+  const [showStats, setShowStats] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('wims:regional_show_stats');
+      return stored !== null ? stored === 'true' : true;
+    } catch { return true; }
+  });
+  useEffect(() => {
+    if (!isOnline) setShowStats(false);
+  }, [isOnline]);
+
+  // Pre-cache the RSC payload and JS chunks for offline-capable routes.
+  // Fires on mount unconditionally — router.prefetch silently fails when offline,
+  // so no guard needed. Firing early (not waiting for isOnline state) avoids the
+  // race condition where the user goes offline before the health probe resolves.
+  useEffect(() => {
+    router.prefetch('/afor/create');
+    router.prefetch('/afor/import');
+    // Restricted pages: prefetch so their RSC is cached and they remain navigable
+    // offline (showing their own "unavailable offline" guard, not the browser's
+    // offline error page).
+    router.prefetch('/dashboard/regional/audit');
+    router.prefetch('/home');
+    // Warm the incident-detail route. The page is 'use client' (no server data
+    // fetch), so prefetching any concrete id caches the SAME shell/RSC that the
+    // SW keys canonically — making every incident, including offline-created
+    // local IDs, viewable offline even when the encoder has no server incidents.
+    router.prefetch('/dashboard/regional/incidents/1');
+  }, [router]); // router is stable — this runs once on mount
+  const toggleStats = () => {
+    setShowStats((prev) => {
+      const next = !prev;
+      try { localStorage.setItem('wims:regional_show_stats', String(next)); } catch {}
+      return next;
+    });
+  };
+
+  const [savedFilters] = useState(() => loadPersistedFilters());
+  const [pageIndex, setPageIndex] = useState(savedFilters.pageIndex ?? 0);
+  const [pageSize, setPageSize] = useState(savedFilters.pageSize ?? 10);
+  const [categoryFilter, setCategoryFilter] = useState(savedFilters.categoryFilter ?? '');
+  const [statusFilter, setStatusFilter] = useState(savedFilters.statusFilter ?? '');
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>((savedFilters.dateFilter as DateFilterValue) ?? 'today');
+  const [specificDate, setSpecificDate] = useState(savedFilters.specificDate ?? '');
+  const [specificDateDraft, setSpecificDateDraft] = useState(savedFilters.specificDate ?? '');
   const [statsDateFilter, setStatsDateFilter] = useState<StatsDateFilterValue>('week');
   const [rejectionNoticeDismissed, setRejectionNoticeDismissed] = useState(false);
   const [pendingActionedBanner, setPendingActionedBanner] = useState(false);
@@ -114,6 +187,10 @@ export default function RegionalDashboardPage() {
   const dateBounds = useMemo(() => getRegionalDateBounds(dateFilter, specificDate), [dateFilter, specificDate]);
   const statsDateBounds = useMemo(() => getRegionalDateBounds(statsDateFilter, ''), [statsDateFilter]);
   const specificDateDraftIsValid = isDateOnly(specificDateDraft);
+
+  useEffect(() => {
+    savePersistedFilters({ dateFilter, statusFilter, categoryFilter, pageIndex, pageSize, specificDate });
+  }, [dateFilter, statusFilter, categoryFilter, pageIndex, pageSize, specificDate]);
 
   const updateFiltersWithoutScrollShift = useCallback((update: () => void) => {
     const x = window.scrollX;
@@ -179,17 +256,50 @@ export default function RegionalDashboardPage() {
     try {
       const size = clampRegionalPageSize(pageSize);
       const offset = offsetFromPage(pageIndex, size);
-      const data = await fetchRegionalIncidents({
-        limit: size,
-        offset,
-        category: isArchiveView ? undefined : (categoryFilter || undefined),
-        status: isArchiveView ? undefined : (statusFilter || undefined),
-        date_from: isArchiveView ? undefined : dateBounds.date_from,
-        date_to: isArchiveView ? undefined : dateBounds.date_to,
-        archived: isArchiveView || undefined,
-      });
-      setIncidents(data.items ?? []);
+      const encoderId = (user as { id?: string })?.id ?? '';
+      const { response: data, fromCache, cachedAt: cAt } = await fetchRegionalIncidentsOfflineAware(
+        {
+          limit: size,
+          offset,
+          category: isArchiveView ? undefined : (categoryFilter || undefined),
+          status: isArchiveView ? undefined : (statusFilter || undefined),
+          date_from: isArchiveView ? undefined : dateBounds.date_from,
+          date_to: isArchiveView ? undefined : dateBounds.date_to,
+          archived: isArchiveView || undefined,
+        },
+        encoderId,
+      );
+      const freshItems = data.items ?? [];
+      setIncidents(freshItems);
       setIncidentsTotal(typeof data.total === 'number' ? data.total : 0);
+      setIsFromCache(fromCache);
+      setCachedAt(cAt);
+
+      if (fromCache && encoderId) {
+        const allCached = await getCachedIncidents(encoderId);
+        setCachedDetailIds(new Set(
+          allCached
+            .filter((c) => (c.data as Record<string, unknown>).nonsensitive !== undefined)
+            .map((c) => c.serverId),
+        ));
+      } else {
+        setCachedDetailIds(new Set());
+      }
+
+      // Surface pending create ops. Cross-reference against the current incident list
+      // to avoid showing duplicate cards when an op's server incident is already cached
+      // (e.g. sync succeeded but the op status wasn't flushed before going offline).
+      if (encoderId) {
+        const serverIds = new Set(freshItems.map((i) => i.incident_id));
+        const ops = await getPendingOps(encoderId);
+        setQueuedOps(ops.filter((op) => {
+          if (op.operation !== 'create' || op.syncStatus === 'synced') return false;
+          if (op.serverId !== null && serverIds.has(op.serverId)) return false;
+          return true;
+        }));
+      } else {
+        setQueuedOps([]);
+      }
     } catch (e) {
       setIncidents([]);
       setIncidentsTotal(0);
@@ -197,7 +307,7 @@ export default function RegionalDashboardPage() {
     } finally {
       setIncidentsLoading(false);
     }
-  }, [pageIndex, pageSize, categoryFilter, statusFilter, dateBounds.date_from, dateBounds.date_to, isArchiveView]);
+  }, [pageIndex, pageSize, categoryFilter, statusFilter, dateBounds.date_from, dateBounds.date_to, isArchiveView, user]);
 
   useEffect(() => {
     if (canAccessRegional) {
@@ -209,13 +319,28 @@ export default function RegionalDashboardPage() {
     if (canAccessRegional) {
       loadIncidents();
     }
-  }, [canAccessRegional, loadIncidents]);
+  }, [canAccessRegional, loadIncidents, isOnline]);
+
+  // Listen for sync-complete events dispatched by useAutoSync after a successful reconnect sync.
+  // Shows a modal listing which incidents were synced so the encoder can acknowledge.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { incidents } = (e as CustomEvent<{ incidents: SyncedIncidentSummary[] }>).detail;
+      if (incidents.length > 0) {
+        setSyncNotification(incidents);
+        loadIncidents();
+      }
+    };
+    window.addEventListener('wims:sync-complete', handler);
+    return () => window.removeEventListener('wims:sync-complete', handler);
+  }, [loadIncidents]);
 
   // Background poll: detect when a PENDING submission is actioned by a validator.
   // Compares the PENDING total every 20 s; if it drops, something was resolved.
   useEffect(() => {
     if (!canAccessRegional) return;
     const checkPending = async () => {
+      if (!getConnectivitySnapshot().isOnline) return;
       try {
         const data = await apiFetch<{ total: number }>(`/regional/incidents?status=PENDING&limit=1&offset=0`);
         if (
@@ -319,6 +444,65 @@ export default function RegionalDashboardPage() {
     }, 60);
   };
 
+  // Extract display fields from a queued-op payload.
+  // Handles both the flat Incident structure from IncidentForm and the nested
+  // AFOR row structure ({incident_nonsensitive_details, incident_sensitive_details}).
+  const getQueuedOpDisplay = (op: OfflineOpDecrypted) => {
+    const p = op.payload as Record<string, unknown>;
+    const ns = (p.incident_nonsensitive_details ?? {}) as Record<string, unknown>;
+    const sens = (p.incident_sensitive_details ?? {}) as Record<string, unknown>;
+    const category = String(ns.general_category ?? p.general_category ?? '—');
+    const station = String(ns.fire_station_name ?? p.fire_station_name ?? '—');
+    const location = [
+      sens.street_address ?? p.street_address,
+      ns.city_municipality ?? p.city_municipality,
+      ns.province_district ?? p.province_district,
+    ].filter(Boolean).join(', ') || '—';
+    const savedAt = new Date(op.createdAt).toLocaleString('en-PH', {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+    return { category, station, location, savedAt };
+  };
+
+  const getQueuedIncidentItem = (op: OfflineOpDecrypted): RegionalIncidentListItem => {
+    const p = op.payload as Record<string, unknown>;
+    const ns = (p.incident_nonsensitive_details ?? {}) as Record<string, unknown>;
+    const sens = (p.incident_sensitive_details ?? {}) as Record<string, unknown>;
+    const createdAt = typeof p.created_at === 'string' ? p.created_at : new Date(op.createdAt).toISOString();
+    const updatedAt = typeof p.updated_at === 'string' ? p.updated_at : createdAt;
+    const city = (ns.city_municipality as string | undefined) ?? null;
+    const province = (ns.province_district as string | undefined) ?? null;
+    const street = ((sens.street_address ?? ns.incident_address) as string | undefined) ?? null;
+    return {
+      incident_id: -Math.abs(op.createdAt),
+      verification_status: 'PENDING_SYNC',
+      created_at: createdAt,
+      updated_at: updatedAt,
+      notification_dt: (ns.notification_dt as string | undefined) ?? createdAt,
+      general_category: (ns.general_category ?? ns.classification_of_involved ?? null) as string | null,
+      sub_category: (ns.sub_category ?? ns.incident_type ?? ns.type_of_involved_general_category ?? null) as string | null,
+      alarm_level: (ns.alarm_level as string | undefined) ?? null,
+      fire_station_name: (ns.fire_station_name as string | undefined) ?? null,
+      structures_affected: Number(ns.structures_affected ?? 0),
+      households_affected: Number(ns.households_affected ?? 0),
+      families_affected: Number(ns.families_affected ?? 0),
+      individuals_affected: Number(ns.individuals_affected ?? 0),
+      vehicles_affected: Number(ns.vehicles_affected ?? 0),
+      responder_type: (ns.responder_type as string | undefined) ?? null,
+      fire_origin: (ns.fire_origin as string | undefined) ?? null,
+      extent_of_damage: (ns.extent_of_damage as string | undefined) ?? null,
+      owner_name: (sens.owner_name as string | undefined) ?? null,
+      establishment_name: (sens.establishment_name as string | undefined) ?? null,
+      caller_name: (sens.caller_name as string | undefined) ?? null,
+      caller_number: (sens.caller_number as string | undefined) ?? null,
+      street_address: street,
+      is_wildland: false,
+      city_municipality: city,
+      province_district: province,
+      location_display: [province, city].filter(Boolean).join(' - ') || street,
+    };
+  };
+
   const incidentCards = [
     {
       key: 'total-period',
@@ -408,6 +592,63 @@ export default function RegionalDashboardPage() {
   return (
     <div className="space-y-6 pb-8" style={{ backgroundColor: 'var(--content-bg)' }}>
 
+      {/* ── Sync notification modal ── */}
+      {syncNotification && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md rounded-2xl bg-white shadow-2xl">
+            <div className="border-b border-gray-100 px-6 py-4">
+              <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+                Incidents Synced
+              </h2>
+              <p className="mt-0.5 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                The following {syncNotification.length === 1 ? 'incident was' : 'incidents were'} successfully synced while you were offline.
+              </p>
+            </div>
+            <ul className="max-h-60 divide-y divide-gray-100 overflow-y-auto px-6 py-2">
+              {syncNotification.map((inc) => (
+                <li key={`${inc.serverId}-${inc.operation}`} className="flex items-center justify-between gap-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                      {formatClassification(inc.category) || 'Incident'}
+                      <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--text-muted)' }}>
+                        #{inc.serverId}
+                      </span>
+                    </p>
+                    {inc.location && (
+                      <p className="mt-0.5 truncate text-xs" style={{ color: 'var(--text-secondary)' }}>{inc.location}</p>
+                    )}
+                    <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+                      {inc.operation === 'create' ? 'Created' : inc.operation === 'submit' ? 'Submitted' : inc.operation === 'update' ? 'Edited' : 'Deleted'}
+                    </p>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      inc.operation === 'delete'
+                        ? 'bg-gray-100 text-gray-600'
+                        : inc.operation === 'submit'
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-green-100 text-green-700'
+                    }`}
+                  >
+                    {inc.result}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="border-t border-gray-100 px-6 py-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSyncNotification(null)}
+                className="rounded-lg px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-900"
+                style={{ backgroundColor: '#991B1B' }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Archive error banner ── */}
       {archiveError && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -415,6 +656,9 @@ export default function RegionalDashboardPage() {
           <button type="button" onClick={() => setArchiveError(null)} className="ml-3 underline text-red-600 hover:text-red-800">Dismiss</button>
         </div>
       )}
+
+      {/* Enable-offline-mode first-run prompt (E10). Full controls live in Profile. */}
+      <OfflineModeManager variant="banner" />
 
       <NotificationToasts
         pendingActionedBanner={pendingActionedBanner}
@@ -466,6 +710,17 @@ export default function RegionalDashboardPage() {
           </Link>
           <button
             type="button"
+            onClick={toggleStats}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
+            title={showStats ? 'Hide statistics' : 'Show statistics'}
+          >
+            {showStats
+              ? <ChevronUp className="h-3.5 w-3.5" aria-hidden />
+              : <ChevronDown className="h-3.5 w-3.5" aria-hidden />}
+            Stats
+          </button>
+          <button
+            type="button"
             onClick={() => refreshAll()}
             disabled={statsRefreshing || incidentsLoading}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
@@ -476,87 +731,114 @@ export default function RegionalDashboardPage() {
         </div>
       </div>
 
-      {/* ── Stats period filter ── */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
-          Stats:
-        </span>
-        {STATS_DATE_FILTERS.map((f) => {
-          const active = statsDateFilter === f.value;
-          return (
-            <button
-              key={f.value}
-              type="button"
-              onClick={() => setStatsDateFilter(f.value)}
-              className="rounded-full border px-3 py-1 text-xs font-semibold transition-colors"
-              style={active
-                ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#991B1B' }
-                : { backgroundColor: '#fff', borderColor: '#e5e7eb', color: 'var(--text-secondary)' }
-              }
-            >
-              {f.label}
-            </button>
-          );
-        })}
-      </div>
+      {/* ── Stats section (collapsible, auto-hidden when offline) ── */}
+      {showStats && (
+        <>
+          {/* Period filter */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+              Stats:
+            </span>
+            {STATS_DATE_FILTERS.map((f) => {
+              const active = statsDateFilter === f.value;
+              return (
+                <button
+                  key={f.value}
+                  type="button"
+                  onClick={() => setStatsDateFilter(f.value)}
+                  className="rounded-full border px-3 py-1 text-xs font-semibold transition-colors"
+                  style={active
+                    ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#991B1B' }
+                    : { backgroundColor: '#fff', borderColor: '#e5e7eb', color: 'var(--text-secondary)' }
+                  }
+                >
+                  {f.label}
+                </button>
+              );
+            })}
+          </div>
 
-      {/* ── Incident type stats ── */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        {incidentCards.map((card) => {
-          const IconComp = card.icon;
-          return (
-            <div
-              key={card.key}
-              className="bg-white rounded-2xl p-4 flex flex-col gap-3 transition-shadow hover:shadow-md"
-              style={{ boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
-            >
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ backgroundColor: card.iconBg }}
-              >
-                <IconComp className="w-5 h-5" style={{ color: card.iconColor }} />
-              </div>
-              <div>
-                <div className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-muted)' }}>
-                  {card.title}
+          {/* Incident type stats */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            {incidentCards.map((card) => {
+              const IconComp = card.icon;
+              return (
+                <div
+                  key={card.key}
+                  className="bg-white rounded-2xl p-4 flex flex-col gap-3 transition-shadow hover:shadow-md"
+                  style={{ boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
+                >
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{ backgroundColor: card.iconBg }}
+                  >
+                    <IconComp className="w-5 h-5" style={{ color: card.iconColor }} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-muted)' }}>
+                      {card.title}
+                    </div>
+                    <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+                      {card.value}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-                  {card.value}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
 
-      {/* ── Affected count stats ── */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        {affectedCards.map((card) => {
-          const IconComp = card.icon;
-          return (
-            <div
-              key={card.key}
-              className="bg-white rounded-2xl p-4 flex flex-col gap-3 transition-shadow hover:shadow-md"
-              style={{ boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
-            >
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ backgroundColor: card.iconBg }}
-              >
-                <IconComp className="w-5 h-5" style={{ color: card.iconColor }} />
-              </div>
-              <div>
-                <div className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-muted)' }}>
-                  {card.title}
+          {/* Affected count stats */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            {affectedCards.map((card) => {
+              const IconComp = card.icon;
+              return (
+                <div
+                  key={card.key}
+                  className="bg-white rounded-2xl p-4 flex flex-col gap-3 transition-shadow hover:shadow-md"
+                  style={{ boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
+                >
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{ backgroundColor: card.iconBg }}
+                  >
+                    <IconComp className="w-5 h-5" style={{ color: card.iconColor }} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-muted)' }}>
+                      {card.title}
+                    </div>
+                    <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+                      {card.value}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-                  {card.value}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* ── Stale cache banner — only shown when confirmed offline ── */}
+      {isFromCache && !isOnline && (
+        <div
+          className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+          role="status"
+        >
+          <span className="mt-0.5 inline-block h-2 w-2 flex-shrink-0 rounded-full bg-amber-500" />
+          <div>
+            <span className="font-semibold">Showing cached data</span>
+            {cachedAt !== undefined && (
+              <span className="ml-1 font-normal">
+                — last updated {formatCacheAge(cachedAt)}
+              </span>
+            )}
+            <span className="ml-1 font-normal text-amber-700">
+              Reconnect to see the latest incidents.
+            </span>
+          </div>
+        </div>
+      )}
+
 
       {/* ── Incidents section ── */}
       <section
@@ -730,7 +1012,7 @@ export default function RegionalDashboardPage() {
             <div className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
               Loading incidents...
             </div>
-          ) : !incidentsLoading && incidents.length === 0 ? (
+          ) : !incidentsLoading && incidents.length === 0 && queuedOps.length === 0 ? (
             <div className="flex min-h-[260px] flex-col items-center justify-center px-5 py-14 text-center">
               <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
                 {incidentsError ? 'Could not load incidents.' : 'No incidents found'}
@@ -753,6 +1035,57 @@ export default function RegionalDashboardPage() {
             </div>
           ) : (
             <div className={`grid min-h-[420px] gap-4 p-5 transition-opacity lg:grid-cols-2 ${incidentsLoading ? 'opacity-60' : ''}`}>
+              {queuedOps.map((op) => {
+                const queuedIncident = getQueuedIncidentItem(op);
+                const { category, station, location, savedAt } = getQueuedOpDisplay(op);
+                return (
+                  <div key={`queued-${op.localId}`} className="contents">
+                  <IncidentCard
+                    key={`queued-card-${op.localId}`}
+                    inc={queuedIncident}
+                    isArchiveView={false}
+                    onCardClick={() => router.push(`/dashboard/regional/incidents/${op.localId}`)}
+                    onHoverStart={scheduleHoverHint}
+                    onHoverMove={hideHoverHintOnMove}
+                    onHoverEnd={clearHoverHint}
+                    onArchive={doEncoderArchive}
+                    onUnarchive={doEncoderUnarchive}
+                    isDetailCached
+                    isOnline={isOnline}
+                  />
+                  {false && (
+                  <div
+                    key={`queued-${op.localId}`}
+                    role="button"
+                    tabIndex={0}
+                    className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 flex flex-col gap-2 cursor-pointer hover:border-amber-400 hover:bg-amber-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                    title="Edit this locally saved incident"
+                    onClick={() => router.push(`/dashboard/regional/incidents/${op.localId}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        router.push(`/dashboard/regional/incidents/${op.localId}`);
+                      }
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                        Pending Sync
+                      </span>
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{savedAt}</span>
+                    </div>
+                    <div className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
+                      {formatClassification(category)}
+                    </div>
+                    <div className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
+                      {station !== '—' ? `${station} · ` : ''}{location}
+                    </div>
+                  </div>
+                  )}
+                  </div>
+                );
+              })}
               {incidents.map((inc) => (
                 <IncidentCard
                   key={inc.incident_id}
@@ -764,6 +1097,8 @@ export default function RegionalDashboardPage() {
                   onHoverEnd={clearHoverHint}
                   onArchive={doEncoderArchive}
                   onUnarchive={doEncoderUnarchive}
+                  isDetailCached={isFromCache ? cachedDetailIds.has(inc.incident_id) : undefined}
+                  isOnline={isOnline}
                 />
               ))}
             </div>
@@ -789,7 +1124,7 @@ export default function RegionalDashboardPage() {
                     Loading incidents…
                   </td>
                 </tr>
-              ) : incidents.length === 0 ? (
+              ) : incidents.length === 0 && queuedOps.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-12">
                     <div className="flex min-h-[180px] flex-col items-center justify-center text-center">
@@ -815,30 +1150,82 @@ export default function RegionalDashboardPage() {
                   </td>
                 </tr>
               ) : (
-                incidents.map((inc, idx) => (
+                <>
+                {queuedOps.map((op) => {
+                  const { category, station, location, savedAt } = getQueuedOpDisplay(op);
+                  return (
+                <tr
+                      key={`queued-${op.localId}`}
+                      className="border-b bg-amber-50/50 cursor-pointer hover:bg-amber-100/70 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400"
+                      title="View pending sync incident"
+                      tabIndex={0}
+                      role="link"
+                      aria-label={`View pending sync incident (${category})`}
+                      onClick={() => router.push(`/dashboard/regional/incidents/${op.localId}`)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          router.push(`/dashboard/regional/incidents/${op.localId}`);
+                        }
+                      }}
+                    >
+                      <td className="px-5 py-4 whitespace-nowrap text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+                        {savedAt}
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                          {formatClassification(category)}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                        {station}
+                      </td>
+                      <td className="px-5 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                        {location}
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap text-sm" style={{ color: 'var(--text-muted)' }}>
+                        {savedAt}
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                          Pending Sync
+                        </span>
+                      </td>
+                      <td className="px-5 py-4" />
+                    </tr>
+                  );
+                })}
+                {incidents.map((inc, idx) => {
+                  const rowOfflineUncached = !isOnline && isFromCache && !cachedDetailIds.has(inc.incident_id);
+                  return (
                   <tr
                     key={inc.incident_id}
-                    onClick={() => router.push(`/dashboard/regional/incidents/${inc.incident_id}`)}
+                    onClick={() => { if (rowOfflineUncached) return; router.push(`/dashboard/regional/incidents/${inc.incident_id}`); }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
+                        if (rowOfflineUncached) return;
                         router.push(`/dashboard/regional/incidents/${inc.incident_id}`);
                       }
                     }}
-                    tabIndex={0}
-                    role="link"
+                    tabIndex={rowOfflineUncached ? -1 : 0}
+                    role={rowOfflineUncached ? 'row' : 'link'}
+                    aria-disabled={rowOfflineUncached || undefined}
                     aria-label={`View incident ${inc.incident_id}`}
-                    className="cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#C62828] focus-visible:ring-inset"
+                    className={rowOfflineUncached ? 'cursor-not-allowed opacity-60 transition-colors outline-none' : 'cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#C62828] focus-visible:ring-inset'}
                     style={{
                       backgroundColor: idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA',
                       borderBottom: '1px solid var(--border-color)',
                     }}
                     onMouseEnter={(e) => {
+                      if (rowOfflineUncached) return;
                       (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-light)';
                       scheduleHoverHint(inc.incident_id, e);
                     }}
-                    onMouseMove={hideHoverHintOnMove}
+                    onMouseMove={() => { if (!rowOfflineUncached) hideHoverHintOnMove(); }}
                     onMouseLeave={(e) => {
+                      if (rowOfflineUncached) return;
                       (e.currentTarget as HTMLElement).style.backgroundColor = idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA';
                       clearHoverHint();
                     }}
@@ -870,7 +1257,14 @@ export default function RegionalDashboardPage() {
                       {formatIncidentDate(inc.updated_at)}
                     </td>
                     <td className="px-5 py-4">
-                      <StatusBadge status={inc.verification_status} />
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={inc.verification_status} />
+                        {rowOfflineUncached && (
+                          <span className="rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-500 whitespace-nowrap">
+                            Go online to view
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-5 py-4 whitespace-nowrap">
                       {inc.verification_status === 'VERIFIED' && (
@@ -890,7 +1284,9 @@ export default function RegionalDashboardPage() {
                       )}
                     </td>
                   </tr>
-                ))
+                  );
+                })
+                }</>
               )}
             </tbody>
           </table>
@@ -960,5 +1356,16 @@ export default function RegionalDashboardPage() {
       )}
     </div>
   );
+}
+
+function formatCacheAge(cachedAt: number): string {
+  const diffMs = Date.now() - cachedAt;
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} minute${mins !== 1 ? 's' : ''} ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs !== 1 ? 's' : ''} ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days} day${days !== 1 ? 's' : ''} ago`;
 }
 

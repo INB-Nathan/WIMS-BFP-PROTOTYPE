@@ -294,6 +294,7 @@ services:
       - NEXT_PUBLIC_OIDC_AUTHORITY=/auth/realms/bfp
       - NEXT_PUBLIC_OIDC_CLIENT_ID=wims-web
       - NEXT_PUBLIC_APP_URL=http://localhost
+      - AUTH_SERVER_URL=http://keycloak:8080/auth
       - BACKEND_URL=http://backend:8000
       - NEXT_PUBLIC_FIREBASE_API_KEY=${NEXT_PUBLIC_FIREBASE_API_KEY:-}
       - NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:-wims-bfp.firebaseapp.com}

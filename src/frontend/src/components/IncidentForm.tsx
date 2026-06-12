@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { toast as sonnerToast } from 'sonner';
 import { edgeFunctions, Incident } from '@/lib/edgeFunctions';
 import {
   updateRegionalIncident, forceReplaceIncident, createRegionalIncident,
@@ -9,7 +10,9 @@ import {
   type RefDuplicateIncident,
   ApiRequestError,
 } from '@/lib/api';
-import { queueIncident, getPendingIncidents, markSynced } from '@/lib/offlineStore';
+import {
+  queueOfflineOp, saveDraftOp, getDraftOps, deleteOfflineOp, updateOfflineOp,
+} from '@/lib/offlineStore';
 import { useUserProfile } from '@/lib/auth';
 import { PH_REGIONS, getProvincesForRegion, getCitiesForProvince, getAforRegionIdentifier, getShortRegionName } from '@/lib/ph-regions';
 import { Loader2, Save, Shuffle, Send } from 'lucide-react';
@@ -29,6 +32,7 @@ import {
   ProblemsChecklistSection,
 } from './IncidentFormSections';
 import { SectionDotNav, type SectionDotNavLink } from '@/components/SectionDotNav';
+import { isReachable, markConnectivityOffline } from '@/lib/connectivity';
 
 const MapPicker = dynamic(
   () => import('./MapPicker').then((m) => m.MapPicker),
@@ -66,11 +70,28 @@ const STAGE_OF_FIRE_OPTIONS = [
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+function isNetworkError(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  if (err instanceof Error) {
+    const msg = err.message;
+    return (
+      msg.includes('ERR_INTERNET_DISCONNECTED') ||
+      msg.includes('ERR_NETWORK_CHANGED') ||
+      msg.includes('ERR_CONNECTION_RESET') ||
+      msg.includes('NetworkError') ||
+      msg.includes('Failed to fetch') ||
+      msg.includes('net::ERR')
+    );
+  }
+  return false;
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function IncidentForm({
   initialData,
   existingIncidentId,
+  offlineLocalId,
   onSaved,
   initialErrors,
   clientUpdatedAt,
@@ -78,6 +99,7 @@ export function IncidentForm({
 }: {
   initialData?: Incident;
   existingIncidentId?: number;
+  offlineLocalId?: string;
   onSaved?: () => void;
   initialErrors?: string[];
   clientUpdatedAt?: string | null;
@@ -87,7 +109,6 @@ export function IncidentForm({
   const { user, assignedRegionId, role, loading: profileLoading } = useUserProfile();
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
   const [loading, setLoading] = useState(false);
-  const [pendingCount, setPendingCount] = useState(0);
   const [selectedRegionId, setSelectedRegionId] = useState<number | null>(
     initialData?.region_id && initialData.region_id > 0 ? initialData.region_id : null
   );
@@ -100,6 +121,7 @@ export function IncidentForm({
   const submitAfterSaveRef = useRef(false);
   const barangayManuallySetRef = useRef(false);
   const userEditedDraftRef = useRef(false);
+  const draftLocalId = useRef<string | null>(null);
   const [draftRestoreData, setDraftRestoreData] = useState<{
     formState: Record<string, unknown>;
     latitude: number | null;
@@ -119,6 +141,11 @@ export function IncidentForm({
   );
 
   const clearStoredDraft = useCallback(() => {
+    // Clear IndexedDB draft op
+    if (draftLocalId.current) {
+      deleteOfflineOp(draftLocalId.current).catch(() => {});
+    }
+    // Clear legacy localStorage drafts
     if (draftStorageKey) localStorage.removeItem(draftStorageKey);
     localStorage.removeItem('wims:incident_draft');
   }, [draftStorageKey]);
@@ -358,15 +385,6 @@ export function IncidentForm({
     const norm = normalizeRegionLabel(raw);
     const match = PH_REGIONS.find((r) => normalizeRegionLabel(r.regionName) === norm);
     return match?.regionId ?? null;
-  };
-
-  const base64ToBlob = (base64: string): Blob => {
-    const byteString = atob(base64.split(',')[1]);
-    const mimeString = base64.split(',')[0].split(':')[1].split(';')[0];
-    const ab = new ArrayBuffer(byteString.length);
-    const ia = new Uint8Array(ab);
-    for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
-    return new Blob([ab], { type: mimeString });
   };
 
   // ── Effects ────────────────────────────────────────────────────────────────
@@ -754,77 +772,82 @@ export function IncidentForm({
     setOtherPersonnel(updated);
   };
 
-  // ── Offline sync ───────────────────────────────────────────────────────────
-
-  const checkPending = useCallback(async () => {
-    const pending = await getPendingIncidents();
-    setPendingCount(pending.length);
-  }, []);
-
-  const syncPending = useCallback(async () => {
-    if (!navigator.onLine) return;
-    const pending = await getPendingIncidents();
-    if (pending.length === 0) return;
-    for (const item of pending) {
-      try {
-        const payload = item.payload as { region_id: number; incidents: Incident[] };
-        const res = await edgeFunctions.uploadBundle(payload);
-        const incidentId = res.incident_ids[0];
-        const firstIncident = payload.incidents[0];
-        const sketchList = firstIncident?.incident_sensitive_details?.sketch_images_base64 || [];
-        if (Array.isArray(sketchList) && sketchList.length > 0) {
-          for (const b64 of sketchList) {
-            await edgeFunctions.uploadAttachment(incidentId, base64ToBlob(b64));
-          }
-        } else if (firstIncident?.incident_sensitive_details?.sketch_base64) {
-          await edgeFunctions.uploadAttachment(incidentId, base64ToBlob(firstIncident.incident_sensitive_details.sketch_base64));
-        }
-        await markSynced(item.id!);
-      } catch (e) {
-        console.error('Failed to sync item', item.id, e);
-      }
-    }
-    await checkPending();
-  }, [checkPending]);
-
-  useEffect(() => {
-    checkPending();
-    const handleOnline = () => syncPending();
-    window.addEventListener('online', handleOnline);
-    return () => window.removeEventListener('online', handleOnline);
-  }, [syncPending, checkPending]);
-
   // ── Draft autosave (create mode only) ─────────────────────────────────────
 
-  // On mount: offer to restore a previously saved draft.
+  // On mount: look for an existing draft in IndexedDB; offer to restore.
+  // Falls back to localStorage for browsers where IndexedDB is unavailable.
   // Skip in edit mode (existingIncidentId set) and import-correction mode (initialData set).
   useEffect(() => {
-    if (existingIncidentId || initialData || !draftStorageKey) return;
-    const raw = localStorage.getItem(draftStorageKey);
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed?.formState && typeof parsed.timestamp === 'number') {
-        setDraftRestoreData(parsed);
+    if (existingIncidentId || initialData || !user?.id) return;
+    const encoderId = user.id;
+
+    (async () => {
+      try {
+        const drafts = await getDraftOps(encoderId);
+        if (drafts.length > 0) {
+          const latest = drafts[0];
+          draftLocalId.current = latest.localId;
+          const p = latest.payload as { formState?: unknown; latitude?: unknown; longitude?: unknown; timestamp?: unknown };
+          if (p?.formState && typeof p.timestamp === 'number') {
+            setDraftRestoreData({
+              formState: p.formState as Record<string, unknown>,
+              latitude: (p.latitude as number | null) ?? null,
+              longitude: (p.longitude as number | null) ?? null,
+              timestamp: p.timestamp as number,
+            });
+          }
+        } else {
+          draftLocalId.current = crypto.randomUUID();
+          // Migrate a legacy localStorage draft if present
+          if (draftStorageKey) {
+            const raw = localStorage.getItem(draftStorageKey) ?? localStorage.getItem('wims:incident_draft');
+            if (raw) {
+              try {
+                const parsed = JSON.parse(raw);
+                if (parsed?.formState && typeof parsed.timestamp === 'number') {
+                  setDraftRestoreData(parsed);
+                }
+              } catch { /* ignore corrupt draft */ }
+            }
+          }
+        }
+      } catch {
+        // IndexedDB unavailable (e.g. private browsing) — fall back to localStorage
+        draftLocalId.current = crypto.randomUUID();
+        if (draftStorageKey) {
+          const raw = localStorage.getItem(draftStorageKey);
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw);
+              if (parsed?.formState && typeof parsed.timestamp === 'number') {
+                setDraftRestoreData(parsed);
+              }
+            } catch { /* ignore corrupt draft */ }
+          }
+        }
       }
-    } catch { /* ignore corrupt draft */ }
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftStorageKey]);
+  }, [user?.id, existingIncidentId]);
 
   // Debounced autosave on every formState / coordinate change.
+  // Saves to IndexedDB (draft op); falls back to localStorage if IndexedDB unavailable.
   // Skip in edit mode and import-correction mode so we don't overwrite a real create-mode draft.
   useEffect(() => {
-    if (existingIncidentId || initialData || !draftStorageKey || !userEditedDraftRef.current) return;
+    if (existingIncidentId || initialData || !user?.id || !userEditedDraftRef.current) return;
     const timer = setTimeout(() => {
-      localStorage.setItem(draftStorageKey, JSON.stringify({
-        formState,
-        latitude,
-        longitude,
-        timestamp: Date.now(),
-      }));
+      const draftPayload = { formState, latitude, longitude, timestamp: Date.now() };
+      if (draftLocalId.current && user?.id) {
+        saveDraftOp(draftLocalId.current, user.id, assignedRegionId ?? 0, draftPayload).catch(() => {
+          // Fallback: write to localStorage if IndexedDB fails
+          if (draftStorageKey) localStorage.setItem(draftStorageKey, JSON.stringify(draftPayload));
+        });
+      } else if (draftStorageKey) {
+        localStorage.setItem(draftStorageKey, JSON.stringify(draftPayload));
+      }
     }, 500);
     return () => clearTimeout(timer);
-  }, [formState, latitude, longitude, existingIncidentId, initialData, draftStorageKey]);
+  }, [formState, latitude, longitude, existingIncidentId, initialData, user?.id, assignedRegionId, draftStorageKey]);
 
   // ── Submit ─────────────────────────────────────────────────────────────────
 
@@ -909,6 +932,18 @@ export function IncidentForm({
       }, 100);
       return;
     }
+
+    // Classification must have a matching type selected; auto-filled or blank types are rejected.
+    if (formState.classification_of_involved && (!formState.type_of_involved_general_category || !incidentTypeCode)) {
+      setFieldErrors(new Set(['type_of_involved_general_category']));
+      showToast('Please select a valid type for the classification of involved before saving.');
+      setTimeout(() => {
+        const el = document.querySelector('[data-field-error="true"]');
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+      return;
+    }
+
     setLoading(true);
     const fs = formState as Record<string, unknown>;
     const alarmEntry = (key: string) => {
@@ -1065,6 +1100,23 @@ export function IncidentForm({
       },
     } as unknown as Incident;
 
+    // ── Offline-local edit: update the queued op in place, no API call ──────
+    if (offlineLocalId) {
+      try {
+        await updateOfflineOp(offlineLocalId, {
+          ...(incident as unknown as Record<string, unknown>),
+          updated_at: new Date().toISOString(),
+        });
+        showToast('Saved locally.');
+        onSaved?.();
+      } catch (e) {
+        showToast(`Failed to save: ${(e as Error).message}`);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (existingIncidentId) {
       // ── Edit mode: flat PUT payload ──────────────────────────────────────
       const updatePayload: Record<string, unknown> = {
@@ -1140,6 +1192,8 @@ export function IncidentForm({
           onSaved?.();
         }
       } catch (err: unknown) {
+        // OCC conflict (server changed while editing) takes precedence — surface the
+        // merge UI rather than queueing a blind offline overwrite.
         if (err instanceof ApiRequestError && err.status === 409 && onConflict) {
           const d = err.detail as { message?: string; server_version?: Record<string, unknown> } | null;
           if (d?.server_version) {
@@ -1148,7 +1202,39 @@ export function IncidentForm({
             return;
           }
         }
-        showToast(`Save failed: ${(err as Error).message}`);
+        if (isNetworkError(err)) {
+          await queueOfflineOp({
+            localId: crypto.randomUUID(),
+            operation: 'update',
+            serverId: existingIncidentId,
+            linkedLocalId: null,
+            serverUpdatedAt: null,
+            regionId: effectiveRegionId,
+            encoderId: user?.id ?? '',
+            payload: {
+              ...(updatePayload as unknown as Record<string, unknown>),
+              updated_at: new Date().toISOString(),
+            },
+            createdAt: Date.now(),
+          });
+          if (submitAfterSaveRef.current) {
+            await queueOfflineOp({
+              localId: crypto.randomUUID(),
+              operation: 'submit',
+              serverId: existingIncidentId,
+              linkedLocalId: null,
+              serverUpdatedAt: null,
+              regionId: effectiveRegionId,
+              encoderId: user?.id ?? '',
+              payload: {},
+              createdAt: Date.now() + 1,
+            });
+          }
+          sonnerToast.info('Connection lost — saved locally. Will sync when you reconnect.');
+          onSaved?.();
+        } else {
+          showToast(`Save failed: ${(err as Error).message}`);
+        }
       } finally {
         setLoading(false);
       }
@@ -1159,7 +1245,7 @@ export function IncidentForm({
     const payload = { region_id: effectiveRegionId, incidents: [incident] };
 
     try {
-      if (navigator.onLine) {
+      if (await isReachable()) {
         const res = await edgeFunctions.uploadBundle(payload);
         const incidentId = res.incident_ids[0];
         if (!incidentId) throw new Error('Upload succeeded but no incident ID was returned.');
@@ -1187,9 +1273,45 @@ export function IncidentForm({
         clearStoredDraft();
         router.push(`/dashboard/regional/incidents/${incidentId}`);
       } else {
-        await queueIncident(payload);
-        await checkPending();
-        alert('Offline: Incident queued for sync when connection is restored.');
+        // Offline — promote the draft to a queued create op so the sync engine picks it up.
+        const opLocalId = draftLocalId.current ?? crypto.randomUUID();
+        const _nowIso = new Date().toISOString();
+        await queueOfflineOp({
+          localId: opLocalId,
+          operation: 'create',
+          serverId: null,
+          linkedLocalId: null,
+          serverUpdatedAt: null,
+          regionId: effectiveRegionId,
+          encoderId: user?.id ?? '',
+          payload: {
+            ...(incident as unknown as Record<string, unknown>),
+            created_at: _nowIso,
+            updated_at: _nowIso,
+          },
+          createdAt: Date.now(),
+        });
+        // If encoder clicked "Submit for Review", queue a linked submit op so the
+        // sync engine submits immediately after the create succeeds on reconnect.
+        if (submitAfterSaveRef.current) {
+          await queueOfflineOp({
+            localId: crypto.randomUUID(),
+            operation: 'submit',
+            serverId: null,
+            linkedLocalId: opLocalId,
+            serverUpdatedAt: null,
+            regionId: effectiveRegionId,
+            encoderId: user?.id ?? '',
+            payload: {},
+            createdAt: Date.now() + 1,
+          });
+        }
+        // Assign a fresh localId so subsequent autosaves don't overwrite this queued op.
+        draftLocalId.current = crypto.randomUUID();
+        clearStoredDraft();
+        sonnerToast.info('Saved locally — will sync when you reconnect.');
+        router.push('/dashboard/regional');
+        return;
       }
     } catch (err: unknown) {
       console.error('Submission failed', err);
@@ -1202,6 +1324,44 @@ export function IncidentForm({
         setRegionMismatchMsg(
           `Your assigned region '${assignedRegionName}' does not match the incident's region.\nError code: REGION_MISMATCH`
         );
+      } else if (isNetworkError(err)) {
+        markConnectivityOffline();
+        // Request failed mid-flight — queue so the encoder doesn't lose their work.
+        const opLocalId = draftLocalId.current ?? crypto.randomUUID();
+        const _nowIso2 = new Date().toISOString();
+        await queueOfflineOp({
+          localId: opLocalId,
+          operation: 'create',
+          serverId: null,
+          linkedLocalId: null,
+          serverUpdatedAt: null,
+          regionId: effectiveRegionId,
+          encoderId: user?.id ?? '',
+          payload: {
+            ...(incident as unknown as Record<string, unknown>),
+            created_at: _nowIso2,
+            updated_at: _nowIso2,
+          },
+          createdAt: Date.now(),
+        });
+        if (submitAfterSaveRef.current) {
+          await queueOfflineOp({
+            localId: crypto.randomUUID(),
+            operation: 'submit',
+            serverId: null,
+            linkedLocalId: opLocalId,
+            serverUpdatedAt: null,
+            regionId: effectiveRegionId,
+            encoderId: user?.id ?? '',
+            payload: {},
+            createdAt: Date.now() + 1,
+          });
+        }
+        draftLocalId.current = crypto.randomUUID();
+        clearStoredDraft();
+        sonnerToast.info('Connection lost — saved locally. Will sync when you reconnect.');
+        router.push('/dashboard/regional');
+        return;
       } else {
         showToast(`Submission failed: ${(err as Error).message}`);
       }
@@ -1379,15 +1539,6 @@ export function IncidentForm({
             >
               <Shuffle className="w-3.5 h-3.5" />
               Auto-fill (Test)
-            </button>
-          )}
-          {pendingCount > 0 && (
-            <button
-              type="button"
-              onClick={() => syncPending()}
-              className="text-xs bg-white/20 text-white px-2 py-1 rounded font-bold hover:bg-white/30"
-            >
-              {pendingCount} Pending Sync
             </button>
           )}
         </div>
