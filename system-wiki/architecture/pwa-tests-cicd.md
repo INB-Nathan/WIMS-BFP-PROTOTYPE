@@ -20,7 +20,7 @@ Wraps IndexedDB (via Jake Archibald's `idb` library) in database `wims-bfp-db`. 
 
 | Export | Signature | Description |
 |---|---|---|
-| `queueIncident(payload)` | `(Record<string,unknown>) => Promise<void>` | Inserts pending incident with `createdAt=Date.now()`, `status='pending'` |
+| `queueIncident(payload, options?)` | `(Record<string,unknown>, { opType?, localId? }?) => Promise<void>` | Inserts pending incident with `createdAt=Date.now()`, `status='pending'`; persists validator op metadata for sync dispatch/idempotency. |
 | `getPendingIncidents()` | `() => Promise<PendingIncident[]>` | Returns all records where `status === 'pending'` |
 | `markSynced(id)` | `(number) => Promise<void>` | Marks item synced then deletes it |
 | `clearSynced()` | `() => Promise<void>` | Deletes all synced items |
@@ -58,7 +58,7 @@ Reads pending items from IndexedDB, dispatches each to the correct API endpoint 
 | `verify` | `/api/regional/incidents/{id}/verification` | PATCH | Cookie (`apiFetch`) |
 | `archive_action` | `/api/regional/validator/incidents/{id}/archive` or `/unarchive` | PATCH | Cookie (`apiFetch`) |
 
-- **verify** sends `{ action, notes, client_id }` where `client_id` is the op's `localId` UUID for server-side idempotency (#267).
+- **verify** sends `{ action, notes, client_id, original_incident_id? }` where `client_id` is the op's persisted `localId` UUID for server-side idempotency (#267).
 - **archive_action** sends `{ client_id }` to the archive/unarchive endpoint based on payload `action` field.
 - Legacy items without `opType` continue to POST to the public report endpoint (backward-compatible).
 - `credentials: 'include'` is set via `apiFetch` for auth-gated ops (validator endpoints).

@@ -12,7 +12,13 @@
  *  - archive_action       → PATCH /api/regional/validator/incidents/{id}/archive|unarchive
  */
 
-import { getPendingIncidents, markSynced } from './offlineStore';
+import {
+  getPendingIncidents,
+  markSynced,
+  type ArchiveActionPayload,
+  type OfflineOpType,
+  type VerifyPayload,
+} from './offlineStore';
 import { apiFetch, ApiRequestError } from './api';
 
 const SYNC_ENDPOINT = '/api/v1/public/report';
@@ -31,7 +37,7 @@ export interface SyncResult {
 
 interface PendingItem {
   id: number;
-  opType?: string;
+  opType?: OfflineOpType;
   localId?: string;
   payload: Record<string, unknown>;
   createdAt: number;
@@ -134,7 +140,7 @@ async function handleConflict(
  * 409 DUPLICATE_DETECTED keeps the op pending (conflict, don't overwrite).
  */
 async function processVerify(item: PendingItem): Promise<{ ok: boolean; status?: number; error?: string }> {
-  const payload = item.payload as { incident_id: number; action: string; notes?: string | null };
+  const payload = item.payload as unknown as VerifyPayload;
   try {
     await apiFetch(`/api/regional/incidents/${payload.incident_id}/verification`, {
       method: 'PATCH',
@@ -142,6 +148,9 @@ async function processVerify(item: PendingItem): Promise<{ ok: boolean; status?:
         action: payload.action,
         notes: payload.notes ?? null,
         client_id: item.localId ?? null,
+        ...(payload.original_incident_id !== undefined
+          ? { original_incident_id: payload.original_incident_id }
+          : {}),
       }),
     });
     return { ok: true };
@@ -164,7 +173,7 @@ async function processVerify(item: PendingItem): Promise<{ ok: boolean; status?:
  * Body includes client_id from localId for server-side idempotency (#267).
  */
 async function processArchiveAction(item: PendingItem): Promise<{ ok: boolean; status?: number; error?: string }> {
-  const payload = item.payload as { incident_id: number; action: 'archive' | 'unarchive' };
+  const payload = item.payload as unknown as ArchiveActionPayload;
   const endpoint = payload.action === 'archive'
     ? `/api/regional/validator/incidents/${payload.incident_id}/archive`
     : `/api/regional/validator/incidents/${payload.incident_id}/unarchive`;

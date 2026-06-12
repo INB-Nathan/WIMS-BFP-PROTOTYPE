@@ -9,25 +9,26 @@ Issue [#268](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/268) adds offli
 **Commit Hash:** `e2c8203bb99e120c2c3bf10de242764f027a8c05`
 **Commit Message:** `feat(#268): validator offline op types and sync engine dispatch`
 
-## Changed Files (5)
+## Changed Files (6)
 
 ### New types & extended interfaces
 
 | File | Change |
 |---|---|
-| `src/frontend/src/lib/offlineStore.ts` | Added `OfflineOpType` (`'create' \| 'verify' \| 'archive_action'`), `VerifyPayload`, `ArchiveActionPayload` types; extended `PendingIncident` with optional `opType?: OfflineOpType` and `localId?: string` |
+| `src/frontend/src/lib/offlineStore.ts` | Added `OfflineOpType` (`'create' \| 'verify' \| 'archive_action'`), `VerifyPayload`, `ArchiveActionPayload`, and `QueueIncidentOptions` types; `queueIncident(payload, options?)` persists optional `opType` and `localId`; pending reads return that metadata for sync dispatch/idempotency. |
 
 ### Sync engine dispatch
 
 | File | Change |
 |---|---|
-| `src/frontend/src/lib/syncEngine.ts` | Added op-type dispatch: `processVerify()` (PATCH to `/api/regional/incidents/{id}/verification` with `{action, notes, client_id}` via `apiFetch`), `processArchiveAction()` (PATCH to `/api/regional/validator/incidents/{id}/archive` or `/unarchive` with `{client_id}` via `apiFetch`), 409 `DUPLICATE_DETECTED` keeps op pending, network error aborts remaining batch. Legacy items without `opType` continue to POST to `/api/v1/public/report` (backward compatible). |
+| `src/frontend/src/lib/syncEngine.ts` | Added op-type dispatch: `processVerify()` (PATCH to `/api/regional/incidents/{id}/verification` with `{action, notes, client_id, original_incident_id?}` via `apiFetch`), `processArchiveAction()` (PATCH to `/api/regional/validator/incidents/{id}/archive` or `/unarchive` with `{client_id}` via `apiFetch`), 409 `DUPLICATE_DETECTED` keeps op pending, network error aborts remaining batch. Legacy items without `opType` continue to POST to `/api/v1/public/report` (backward compatible). |
 
 ### Tests
 
 | File | Change |
 |---|---|
 | `src/frontend/src/lib/__tests__/syncEngine.test.ts` | 7 new tests (17 total, all pass): verify dispatch, archive dispatch, unarchive dispatch, 409 conflict, backward compat, network error batch abort, HTTP error continuation |
+| `src/frontend/src/lib/__tests__/offlineStore.test.ts` | Added queue metadata persistence coverage proving `opType` and `localId` survive encrypted queue storage/readback |
 
 ### Wiki
 
@@ -43,8 +44,9 @@ All defined in `src/frontend/src/lib/offlineStore.ts`:
 | Type | Definition |
 |---|---|
 | `OfflineOpType` | `'create' \| 'verify' \| 'archive_action'` |
-| `VerifyPayload` | `{ action: string; notes?: string; client_id?: string }` |
-| `ArchiveActionPayload` | `{ action: 'archive' \| 'unarchive'; client_id?: string }` |
+| `VerifyPayload` | `{ incident_id: number; action: 'accept' \| 'accept_replace' \| 'reject'; notes: string \| null; original_incident_id?: number }` |
+| `ArchiveActionPayload` | `{ incident_id: number; action: 'archive' \| 'unarchive' }` |
+| `QueueIncidentOptions` | `{ opType?: OfflineOpType; localId?: string }` |
 | `PendingIncident` (extended) | Added `opType?: OfflineOpType; localId?: string` to existing interface |
 
 ## Implemented Dispatch Logic
@@ -53,7 +55,7 @@ All in `src/frontend/src/lib/syncEngine.ts`:
 
 | Op Type | Endpoint | Method | Auth | Body |
 |---|---|---|---|---|
-| `'verify'` | `/api/regional/incidents/{id}/verification` | `PATCH` | `apiFetch` (cookie + 401 refresh) | `{ action, notes, client_id }` |
+| `'verify'` | `/api/regional/incidents/{id}/verification` | `PATCH` | `apiFetch` (cookie + 401 refresh) | `{ action, notes, client_id, original_incident_id? }` |
 | `'archive_action'` (archive) | `/api/regional/validator/incidents/{id}/archive` | `PATCH` | `apiFetch` | `{ client_id }` |
 | `'archive_action'` (unarchive) | `/api/regional/validator/incidents/{id}/unarchive` | `PATCH` | `apiFetch` | `{ client_id }` |
 | `undefined` / legacy | `/api/v1/public/report` | `POST` | `credentials: 'include'` | Full incident data |
@@ -122,7 +124,7 @@ cd src/frontend && npx vitest run
 ```
 
 ```
-Tests  220 passed (220)
+Tests  221 passed (221)
 Files  35 passed (35)
 ```
 
@@ -135,19 +137,19 @@ All 220 tests across 35 files pass — no regressions anywhere in the frontend s
 | **ESLint** | `cd src/frontend && npm run lint` | ✅ 0 errors, 14 warnings (all pre-existing, none from changed files) |
 | **ESLint --fix** | `cd src/frontend && npx eslint --fix .` | ✅ No changes to changed files |
 | **Build** | `cd src/frontend && npm run build` | ✅ Success (only pre-existing Next.js workspace root warning) |
-| **Vitest (targeted)** | `npx vitest run src/lib/__tests__/syncEngine.test.ts` | ✅ 17/17 passed (596ms) |
-| **Vitest (full)** | `npx vitest run` | ✅ 220/220 passed (35 files) |
+| **Vitest (targeted)** | `npx vitest run src/lib/__tests__/offlineStore.test.ts src/lib/__tests__/syncEngine.test.ts` | ✅ 26/26 passed |
+| **Vitest (full)** | `npx vitest run` | ✅ 221/221 passed (35 files) |
 | **Dead code / hygiene** | `console.log`, `debugger`, `print()`, merge conflicts, trailing whitespace, commented-out code, `TODO`/`FIXME`/`HACK` | ✅ All clean — 0 matches |
 
 ## Spec Compliance (vs. #268 Acceptance Criteria)
 
 | # | Criterion | Status | Evidence |
 |---|---|---|---|
-| 1 | `OfflineOpType` includes `'verify'` and `'archive_action'` | ✅ | `offlineStore.ts:13` |
-| 2 | `processVerify()` replays against `PATCH /regional/incidents/{id}/verification` w/ `client_id` | ✅ | `syncEngine.ts:136-148` |
-| 3 | `processArchiveAction()` replays against `PATCH .../archive` or `.../unarchive` | ✅ | `syncEngine.ts:165-185` |
-| 4 | 409 `DUPLICATE_DETECTED` handled for verify ops (keeps pending) | ✅ | `syncEngine.ts:150-153` |
-| 5 | Network error mid-batch aborts and preserves remaining ops | ✅ | `syncEngine.ts:240-243` |
+| 1 | `OfflineOpType` includes `'verify'` and `'archive_action'` | ✅ | `offlineStore.ts` |
+| 2 | `processVerify()` replays against `PATCH /regional/incidents/{id}/verification` w/ `client_id` | ✅ | `syncEngine.ts` |
+| 3 | `processArchiveAction()` replays against `PATCH .../archive` or `.../unarchive` | ✅ | `syncEngine.ts` |
+| 4 | 409 `DUPLICATE_DETECTED` handled for verify ops (keeps pending) | ✅ | `syncEngine.ts` |
+| 5 | Network error mid-batch aborts and preserves remaining ops | ✅ | `syncEngine.ts` |
 | 6 | Auth check before processing | ✅ | Uses `apiFetch` (cookie auth + 401 auto-refresh) |
 | 7 | CI gates pass | ✅ | All four gates verified above |
 
@@ -161,7 +163,7 @@ The issue body says "checkSession() + refreshToken() fallback — same as existi
 
 1. **`apiFetch` 401 auto-refresh in SW context** — The sync engine now imports `apiFetch` which uses `fetch` + `refreshToken`. In the service worker context (`sw.js`), the current implementation uses raw `fetch` and accesses IndexedDB directly. If `syncPendingIncidents` is ever called from SW context, the `apiFetch` import chain (which depends on browser APIs like `document.cookie` and `window.location`) would fail. Currently, `syncPendingIncidents` is only called from the main thread (`useAutoSync.ts`), so this is not a live issue.
 
-2. **`client_id` generation at queue time** — The `client_id` (UUID) is expected to be set on the op's `localId` at queue time by the caller (e.g., validator page). This implementation reads `item.localId` and passes it as `client_id`. If `localId` is missing, `null` is sent (server handles gracefully via `client_id: str | None = None`).
+2. **`client_id` generation at queue time** — The `client_id` (UUID) is expected to be set on the op's `localId` at queue time by the caller (e.g., validator page). `queueIncident(payload, { opType, localId })` now persists that metadata. If `localId` is missing, `null` is sent (server handles gracefully via `client_id: str | None = None`).
 
 3. **`markSynced` deletion preserved** — The existing behavior where `markSynced` deletes the record from IndexedDB is preserved. Successful ops are removed from the queue after sync.
 
@@ -189,5 +191,5 @@ No `system-wiki/gaps/frs-codebase-gap-register.md` update was needed (M2b alread
 Implement GH #269 (validator page wiring — queue GET caching, action buttons dispatching typed offline ops with UUIDs). The sync engine and types are ready; the validator page needs to:
 1. Import `OfflineOpType`, `VerifyPayload`, `ArchiveActionPayload` types
 2. Generate UUIDs via `crypto.randomUUID()` for each queued action
-3. Call `queueIncident()` with `opType` and `localId` set
+3. Call `queueIncident(payload, { opType, localId })`
 4. Wire the action buttons (verify / archive / unarchive) to dispatch through the offline queue instead of direct API calls

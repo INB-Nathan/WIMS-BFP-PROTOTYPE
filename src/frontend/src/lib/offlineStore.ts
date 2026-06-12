@@ -11,11 +11,13 @@ const ANALYTICS_STORE = 'analytics-cache';
 let _offlineStorageLimitMb = 50;
 
 export type OfflineOpType = 'create' | 'verify' | 'archive_action';
+export type VerifyAction = 'accept' | 'accept_replace' | 'reject';
 
 export interface VerifyPayload {
     incident_id: number;
-    action: string;
-    notes?: string | null;
+    action: VerifyAction;
+    notes: string | null;
+    original_incident_id?: number;
 }
 
 export interface ArchiveActionPayload {
@@ -23,7 +25,12 @@ export interface ArchiveActionPayload {
     action: 'archive' | 'unarchive';
 }
 
-interface PendingIncident {
+export interface QueueIncidentOptions {
+    opType?: OfflineOpType;
+    localId?: string;
+}
+
+export interface PendingIncident {
     id: number;
     opType?: OfflineOpType;
     localId?: string;
@@ -51,6 +58,8 @@ export interface CachedAnalyticsResponse<T = unknown> {
 
 interface QueuedRecord {
     id?: number;
+    opType?: OfflineOpType;
+    localId?: string;
     encrypted: EncryptedPayload;
     createdAt: number;
     status: 'pending' | 'synced';
@@ -113,7 +122,10 @@ export function initOfflineStorageLimit(limitMb: number): void {
     _offlineStorageLimitMb = limitMb;
 }
 
-export async function queueIncident(payload: Record<string, unknown>): Promise<void> {
+export async function queueIncident(
+    payload: Record<string, unknown>,
+    options: QueueIncidentOptions = {}
+): Promise<void> {
     const db = await getDB();
 
     // Advisory size guard: estimate total queue bytes and warn/throw if over cap.
@@ -133,6 +145,8 @@ export async function queueIncident(payload: Record<string, unknown>): Promise<v
 
     const encrypted = await encryptPayload(payload);
     await db.add(STORE_NAME, {
+        opType: options.opType,
+        localId: options.localId,
         encrypted,
         createdAt: Date.now(),
         status: 'pending',
@@ -148,6 +162,8 @@ export async function getPendingIncidents(): Promise<PendingIncident[]> {
         const payload = await decryptPayload<Record<string, unknown>>(item.encrypted);
         result.push({
             id: item.id!,
+            opType: item.opType,
+            localId: item.localId,
             payload,
             createdAt: item.createdAt,
             status: item.status,
@@ -163,6 +179,8 @@ export async function getQueuedIncident(id: number): Promise<PendingIncident | u
     const payload = await decryptPayload<Record<string, unknown>>(item.encrypted);
     return {
         id: item.id!,
+        opType: item.opType,
+        localId: item.localId,
         payload,
         createdAt: item.createdAt,
         status: item.status,
