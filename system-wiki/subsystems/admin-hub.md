@@ -1,7 +1,7 @@
 ---
 title: System Admin Hub
 created: 2026-05-16
-updated: 2026-05-26
+updated: 2026-06-12
 type: operation
 tags: [wims-bfp, admin, system-admin, dashboard, identity, security]
 sources: [src/frontend/src/app/admin/system/page.tsx, src/backend/api/routes/admin.py, src/frontend/src/lib/api/legacy.ts]
@@ -98,6 +98,21 @@ All in `src/backend/api/routes/admin.py` (~935 lines). Every endpoint is gated b
 - **Backup dir** — lazy-created at `/app/storage/backups` (configurable via `BACKUP_DIR` env var)
 
 ## Gap / Status Notes
+
+## Gap / Status Notes
+
+## Offline Read Caching (GH #270)
+
+The admin hub monitoring reads (system health, system metrics, worker status, active sessions, audit logs) are wrapped in offline-aware functions in `src/frontend/src/lib/api/offlineAdmin.ts`. Each wrapper:
+- Checks connectivity via `getConnectivitySnapshot()` before dispatching
+- Caches successful online responses in the encrypted IndexedDB analytics-cache store under `admin:`-prefixed keys
+- Uses 60s TTL for health/metrics/workers/audit; 30s TTL for active sessions
+- Falls back to fresh cache on network error (sets offline state + serves cached `{ response, fromCache: true, cachedAt }`)
+- Throws a descriptive error when offline with no cache (no silent fallback)
+
+The page shows an amber "You are offline. Cached admin data is displayed." banner when `useNetworkStatus().isOnline` is false, and displays `(cached)` indicators plus "Last checked" timestamps on panels served from cache.
+
+User CRUD, security HITL ops, and scheduled reports remain online-only.
 
 - The page shows all panels in a **single vertical scroll layout** — no tabbed Activity & Governance section (logged in [[gaps/ui-ux-gap-register]] as issue #A-02 and #A-04)
 - Security threat logs still have **no frontend pagination/search/filter**. Backend API is paginated, but the admin UI currently consumes only the initial page.

@@ -3,6 +3,16 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-12] feat | GH #270 admin offline-first read caching
+
+- `src/frontend/src/lib/api/offlineAdmin.ts`: created with 5 offline-aware admin wrappers (`fetchSystemHealthOfflineAware`, `fetchSystemMetricsOfflineAware`, `fetchWorkerStatusOfflineAware`, `fetchActiveSessionsOfflineAware`, `fetchAuditLogsOfflineAware`) following the `offlineAware()` pattern from `offlineAnalytics.ts`. Each checks connectivity snapshot, caches successful responses in encrypted IndexedDB under `admin:`-prefixed keys, uses 60s TTL (30s for active sessions), falls back to cache on network error, and throws when offline with no cache.
+- `src/frontend/src/lib/api/admin.ts`: re-exports the 5 `*OfflineAware` functions and `OfflineAnalyticsResult` type from `./offlineAdmin`.
+- `src/frontend/src/app/admin/system/page.tsx`: swapped 5 legacy `fetch*` imports for `*OfflineAware` variants; added `useNetworkStatus` hook; updated `loadHealth`, `loadMonitoring`, `loadSessions`, and `loadAuditLogs` to destructure `{ response, fromCache, cachedAt }`; added amber offline banner when `!networkStatus.isOnline`; added `(cached)` badge and "Last checked" timestamp on panels served from cache. User CRUD, security HITL, and scheduled reports remain online-only.
+- `src/frontend/src/lib/api/__tests__/offlineAdmin.test.ts`: 11 tests covering all 5 wrappers (offline-no-cache throw, online cache-write, network-error cache-fallback, 30s TTL staleness, audit-log cache key with params).
+- `src/frontend/src/app/admin/system/admin-system-monitoring.test.tsx`: updated mocks for `*OfflineAware` shape; added offline banner render test. Also updated `admin-system-hitl.test.tsx`, `admin-system-analyze-ai.test.tsx`, and `admin-system-search.test.tsx` with corresponding mock updates.
+- `system-wiki/subsystems/admin-hub.md`: added Offline Read Caching section.
+- No FRS gap register update (this implements offline caching for existing admin monitoring reads; no FRS gap status changes).
+
 ## [2026-06-12] feat | GH #269 validator dashboard offline wiring
 
 - `src/frontend/src/lib/api/offlineValidator.ts`: created with offline-aware validator wrappers: `submitVerificationOfflineAware`, `submitArchiveActionOfflineAware`, `archiveIncidentOfflineAware`, `unarchiveIncidentOfflineAware`, and `fetchValidatorQueueOfflineAware`. Each checks connectivity snapshot, queues via `queueIncident(payload, { opType, localId })` when offline or on network failure, and surfaces 409 `DUPLICATE_DETECTED` to the page. Verification supports `accept_replace` by carrying `original_incident_id`; queue fetch uses the encrypted `analytics-cache` store with 30-min TTL and user-scoped validator queue keys.

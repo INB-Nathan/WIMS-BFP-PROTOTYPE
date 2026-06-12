@@ -10,18 +10,19 @@ import {
     fetchAdminSecurityLogs,
     updateAdminSecurityLog,
     createIncidentFromAlert,
-    fetchAuditLogs,
+    fetchAuditLogsOfflineAware,
     analyzeSecurityLog,
     fetchRegions,
     fetchUserSessions,
     terminateUserSessions,
     KeycloakSession,
-    fetchActiveSessions,
+    fetchActiveSessionsOfflineAware,
     revokeUserSessions,
-    fetchSystemHealth,
-    fetchSystemMetrics,
-    fetchWorkerStatus,
+    fetchSystemHealthOfflineAware,
+    fetchSystemMetricsOfflineAware,
+    fetchWorkerStatusOfflineAware,
 } from '@/lib/api';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { Region } from '@/types/api';
 import {
     BarChart3,
@@ -110,6 +111,7 @@ export default function AdminSystemPage() {
     const router = useRouter();
     const { user, loading } = useAuth();
     const role = (user as { role?: string })?.role ?? null;
+    const networkStatus = useNetworkStatus();
 
     const [users, setUsers] = useState<AdminUser[]>([]);
     const [securityLogs, setSecurityLogs] = useState<SecurityLog[]>([]);
@@ -117,9 +119,15 @@ export default function AdminSystemPage() {
     const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
     const [health, setHealth] = useState<{ status: string; components: Record<string, { status: string; latency_ms: number }> } | null>(null);
     const [healthLastChecked, setHealthLastChecked] = useState<Date | null>(null);
+    const [healthFromCache, setHealthFromCache] = useState(false);
     const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
     const [workers, setWorkers] = useState<WorkerStatus[]>([]);
     const [monitoringLastChecked, setMonitoringLastChecked] = useState<Date | null>(null);
+    const [monitoringFromCache, setMonitoringFromCache] = useState(false);
+    const [sessionsLastChecked, setSessionsLastChecked] = useState<Date | null>(null);
+    const [sessionsFromCache, setSessionsFromCache] = useState(false);
+    const [auditLastChecked, setAuditLastChecked] = useState<Date | null>(null);
+    const [auditFromCache, setAuditFromCache] = useState(false);
     const [securitySearchQ, setSecuritySearchQ] = useState('');
     const [auditSearchQ, setAuditSearchQ] = useState('');
     const [loadingUsers, setLoadingUsers] = useState(false);
@@ -163,31 +171,41 @@ export default function AdminSystemPage() {
 
     const loadHealth = useCallback(async () => {
         try {
-            const data = await fetchSystemHealth();
-            setHealth(data);
-            setHealthLastChecked(new Date());
+            const { response, fromCache, cachedAt } = await fetchSystemHealthOfflineAware();
+            setHealth(response);
+            setHealthFromCache(fromCache);
+            setHealthLastChecked(cachedAt ? new Date(cachedAt) : new Date());
         } catch {
             setHealth({ status: 'ERROR', components: {} });
         }
-    }, [setHealth, setHealthLastChecked]);
+    }, []);
 
     const loadMonitoring = useCallback(async () => {
         const [metricsRes, workersRes] = await Promise.allSettled([
-            fetchSystemMetrics(),
-            fetchWorkerStatus(),
+            fetchSystemMetricsOfflineAware(),
+            fetchWorkerStatusOfflineAware(),
         ]);
 
+        let fromCache = false;
+        let cachedAt: number | undefined;
+
         if (metricsRes.status === 'fulfilled') {
-            setSystemMetrics(metricsRes.value as SystemMetrics);
+            setSystemMetrics(metricsRes.value.response as SystemMetrics);
+            fromCache = fromCache || metricsRes.value.fromCache;
+            cachedAt = metricsRes.value.cachedAt ?? cachedAt;
         }
 
         if (workersRes.status === 'fulfilled') {
-            setWorkers(workersRes.value as WorkerStatus[]);
+            setWorkers(workersRes.value.response as WorkerStatus[]);
+            fromCache = fromCache || workersRes.value.fromCache;
+            cachedAt = workersRes.value.cachedAt ?? cachedAt;
         }
 
+        setMonitoringFromCache(fromCache);
+        setMonitoringLastChecked(cachedAt ? new Date(cachedAt) : new Date());
+
         await loadHealth();
-        setMonitoringLastChecked(new Date());
-    }, [loadHealth, setSystemMetrics, setWorkers, setMonitoringLastChecked]);
+    }, [loadHealth]);
 
     useEffect(() => {
         if (role === 'SYSTEM_ADMIN') {
@@ -213,8 +231,10 @@ export default function AdminSystemPage() {
     const loadSessions = async () => {
         setLoadingSessions(true);
         try {
-            const data = await fetchActiveSessions();
-            setActiveSessions(data as ActiveSession[]);
+            const { response, fromCache, cachedAt } = await fetchActiveSessionsOfflineAware();
+            setActiveSessions(response as ActiveSession[]);
+            setSessionsFromCache(fromCache);
+            setSessionsLastChecked(cachedAt ? new Date(cachedAt) : new Date());
         } catch {
             setActiveSessions([]);
         } finally {
@@ -290,9 +310,9 @@ export default function AdminSystemPage() {
         setLoadingAudit(true);
         try {
             const trimmed = q.trim();
-            const data = await fetchAuditLogs({ limit: 50, offset: 0, ...(trimmed ? { q: trimmed } : {}) });
+            const { response, fromCache, cachedAt } = await fetchAuditLogsOfflineAware({ limit: 50, offset: 0, ...(trimmed ? { q: trimmed } : {}) });
             setAuditLogs({
-                items: data.items.map((item): AuditItem => ({
+                items: response.items.map((item): AuditItem => ({
                     audit_id: item.audit_id,
                     user_id: item.user_id,
                     action_type: item.action_type,
@@ -302,8 +322,10 @@ export default function AdminSystemPage() {
                     user_agent: item.user_agent,
                     timestamp: item.timestamp,
                 })),
-                total: data.total,
+                total: response.total,
             });
+            setAuditFromCache(fromCache);
+            setAuditLastChecked(cachedAt ? new Date(cachedAt) : new Date());
         } catch {
             setAuditLogs({ items: [], total: 0 });
         } finally {
@@ -453,6 +475,12 @@ export default function AdminSystemPage() {
                 <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Identity governance, threat telemetry, and system audit.</p>
             </div>
 
+            {!networkStatus.isOnline && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+                    You are offline. Cached admin data is displayed.
+                </div>
+            )}
+
             <section id="analytics" className="card overflow-hidden">
                 <div className="card-header flex items-center gap-2" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
                     <BarChart3 className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
@@ -478,6 +506,7 @@ export default function AdminSystemPage() {
                     <div className="flex items-center gap-2">
                         <Activity className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
                         <span>System Monitoring</span>
+                        {monitoringFromCache && <span className="text-xs italic text-amber-600">(cached)</span>}
                         {monitoringLastChecked && (
                             <span className="text-xs text-gray-400">
                                 Last checked {monitoringLastChecked.toLocaleTimeString()} (auto-refreshes every 60s)
@@ -561,6 +590,7 @@ export default function AdminSystemPage() {
                         <div className="flex items-center gap-2">
                             <Activity className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
                             <span>System Health</span>
+                            {healthFromCache && <span className="text-xs italic text-amber-600">(cached)</span>}
                             <span className={`ml-2 px-2 py-0.5 rounded text-xs font-bold text-white ${health.status === 'HEALTHY' ? 'bg-green-600' : 'bg-red-600'}`}>
                                 {health.status}
                             </span>
@@ -663,6 +693,12 @@ export default function AdminSystemPage() {
                     <div className="flex items-center gap-2">
                         <BarChart3 className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
                         <span>Active Sessions</span>
+                        {sessionsFromCache && <span className="text-xs italic text-amber-600">(cached)</span>}
+                        {sessionsLastChecked && (
+                            <span className="text-xs text-gray-400">
+                                Last checked {sessionsLastChecked.toLocaleTimeString()}
+                            </span>
+                        )}
                     </div>
                     <button onClick={loadSessions} disabled={loadingSessions} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
                         <RefreshCw className={`w-4 h-4 ${loadingSessions ? 'animate-spin' : ''}`} /> Refresh
@@ -796,6 +832,12 @@ export default function AdminSystemPage() {
                     <div className="flex items-center gap-2">
                         <FileText className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
                         <span>System Audit</span>
+                        {auditFromCache && <span className="text-xs italic text-amber-600">(cached)</span>}
+                        {auditLastChecked && (
+                            <span className="text-xs text-gray-400">
+                                Last checked {auditLastChecked.toLocaleTimeString()}
+                            </span>
+                        )}
                     </div>
                     <button onClick={() => loadAuditLogs(auditSearchQ)} disabled={loadingAudit} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
                         <RefreshCw className={`w-4 h-4 ${loadingAudit ? 'animate-spin' : ''}`} /> Refresh

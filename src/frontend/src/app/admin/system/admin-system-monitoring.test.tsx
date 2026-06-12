@@ -65,21 +65,32 @@ const mockFetchAdminSecurityLogs = vi.fn();
 const mockFetchRegions = vi.fn();
 const mockFetchActiveSessions = vi.fn();
 
+const networkStatusState = { isOnline: true, isReconnecting: false };
+
+vi.mock('@/lib/useNetworkStatus', () => ({
+    useNetworkStatus: () => networkStatusState,
+}));
+
 vi.mock('@/lib/api', () => ({
     fetchSystemHealth: () => mockFetchSystemHealth(),
+    fetchSystemHealthOfflineAware: async () => ({ response: await mockFetchSystemHealth(), fromCache: false }),
     fetchSystemMetrics: () => mockFetchSystemMetrics(),
+    fetchSystemMetricsOfflineAware: async () => ({ response: await mockFetchSystemMetrics(), fromCache: false }),
     fetchWorkerStatus: () => mockFetchWorkerStatus(),
+    fetchWorkerStatusOfflineAware: async () => ({ response: await mockFetchWorkerStatus(), fromCache: false }),
     fetchAdminUsers: () => mockFetchAdminUsers(),
     updateAdminUser: vi.fn(),
     fetchAdminSecurityLogs: () => mockFetchAdminSecurityLogs(),
     updateAdminSecurityLog: vi.fn(),
     fetchAuditLogs: () => mockFetchAuditLogs(),
+    fetchAuditLogsOfflineAware: async () => ({ response: await mockFetchAuditLogs(), fromCache: false }),
     analyzeSecurityLog: vi.fn(),
     fetchRegions: () => mockFetchRegions(),
     fetchUserSessions: vi.fn().mockResolvedValue({ sessions: [] }),
     terminateUserSessions: vi.fn(),
     KeycloakSession: {},
     fetchActiveSessions: () => mockFetchActiveSessions(),
+    fetchActiveSessionsOfflineAware: async () => ({ response: await mockFetchActiveSessions(), fromCache: false }),
     revokeUserSessions: vi.fn(),
 }));
 
@@ -212,5 +223,24 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
 
         expect(screen.getByText('Celery Workers')).toBeInTheDocument();
         expect(screen.getByText('No active workers.')).toBeInTheDocument();
+    });
+
+    it('shows offline banner when useNetworkStatus reports offline', async () => {
+        networkStatusState.isOnline = false;
+
+        mockFetchSystemHealth.mockResolvedValue(mockHealth);
+        mockFetchSystemMetrics.mockResolvedValue(mockSystemMetrics);
+        mockFetchWorkerStatus.mockResolvedValue(mockWorkers);
+
+        vi.useRealTimers();
+        render(<AdminSystemPage />);
+
+        await waitFor(() => {
+            expect(screen.getByText(/You are offline/i)).toBeInTheDocument();
+        });
+        expect(screen.getByText(/Cached admin data is displayed/i)).toBeInTheDocument();
+
+        // Restore
+        networkStatusState.isOnline = true;
     });
 });

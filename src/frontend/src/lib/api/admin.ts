@@ -21,3 +21,13 @@ export {
 } from './legacy';
 
 export type { KeycloakSession } from './legacy';
+
+export {
+  fetchSystemHealthOfflineAware,
+  fetchSystemMetricsOfflineAware,
+  fetchWorkerStatusOfflineAware,
+  fetchActiveSessionsOfflineAware,
+  fetchAuditLogsOfflineAware,
+} from './offlineAdmin';
+
+export type { OfflineAnalyticsResult } from './offlineAdmin';

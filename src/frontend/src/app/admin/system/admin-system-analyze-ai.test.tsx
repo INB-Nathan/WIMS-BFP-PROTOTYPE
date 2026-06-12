@@ -48,12 +48,17 @@ const mockAnalyzeSecurityLog = vi.fn();
 const mockFetchAdminUsers = vi.fn();
 const mockFetchAuditLogs = vi.fn();
 
+vi.mock('@/lib/useNetworkStatus', () => ({
+    useNetworkStatus: () => ({ isOnline: true, isReconnecting: false }),
+}));
+
 vi.mock('@/lib/api', () => ({
     fetchAdminUsers: () => mockFetchAdminUsers(),
     updateAdminUser: vi.fn(),
     fetchAdminSecurityLogs: () => mockFetchAdminSecurityLogs(),
     updateAdminSecurityLog: vi.fn(),
     fetchAuditLogs: () => mockFetchAuditLogs(),
+    fetchAuditLogsOfflineAware: async () => ({ response: await mockFetchAuditLogs(), fromCache: false }),
     analyzeSecurityLog: (logId: number) => mockAnalyzeSecurityLog(logId),
     fetchSystemHealth: vi.fn().mockResolvedValue({
         status: 'HEALTHY',
@@ -63,12 +68,32 @@ vi.mock('@/lib/api', () => ({
             keycloak: { status: 'HEALTHY', latency_ms: 1 },
         },
     }),
+    fetchSystemHealthOfflineAware: vi.fn().mockResolvedValue({
+        response: {
+            status: 'HEALTHY',
+            components: {
+                database: { status: 'HEALTHY', latency_ms: 1 },
+                redis: { status: 'HEALTHY', latency_ms: 1 },
+                keycloak: { status: 'HEALTHY', latency_ms: 1 },
+            },
+        },
+        fromCache: false,
+    }),
     fetchSystemMetrics: vi.fn().mockResolvedValue({
         cpu_percent: 10,
         memory: { total_mb: 8000, used_mb: 2000, percent: 25 },
         disk: { total_gb: 100, used_gb: 40, percent: 40 },
     }),
+    fetchSystemMetricsOfflineAware: vi.fn().mockResolvedValue({
+        response: {
+            cpu_percent: 10,
+            memory: { total_mb: 8000, used_mb: 2000, percent: 25 },
+            disk: { total_gb: 100, used_gb: 40, percent: 40 },
+        },
+        fromCache: false,
+    }),
     fetchWorkerStatus: vi.fn().mockResolvedValue([]),
+    fetchWorkerStatusOfflineAware: vi.fn().mockResolvedValue({ response: [], fromCache: false }),
 }));
 
 describe('Admin System — Analyze with AI in Threat Telemetry', () => {
