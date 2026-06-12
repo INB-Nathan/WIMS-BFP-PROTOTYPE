@@ -4,7 +4,7 @@ created: 2026-05-16
 updated: 2026-06-12
 type: architecture
 tags: [wims-bfp, pwa, offline-first, testing, ci-cd, service-worker, sync-engine, validator-offline]
-sources: [src/frontend/src/lib/, src/frontend/src/lib/api/offlineAnalytics.ts, src/frontend/src/lib/api/offlineValidator.ts, src/frontend/public/sw.js, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py, src/backend/tests/test_schema_patch_startup_guard.py]
+sources: [src/frontend/src/lib/, src/frontend/src/lib/api/offlineAnalytics.ts, src/frontend/src/lib/api/offlineValidator.ts, src/frontend/public/sw.js, src/frontend/src/app/home/__tests__/operations-board.test.tsx, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py, src/backend/tests/test_schema_patch_startup_guard.py]
 status: draft
 ---
 
@@ -184,11 +184,14 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 **6. Startup DDL and pytest lock-hang regression (PR #207)**
 `src/backend/main.py` intentionally does not patch `wims.users.email` at FastAPI startup. Migration `src/postgres-init/44_add_email_to_users.sql` owns that column plus the local unique email index for fresh CI databases. Runtime DDL on `wims.users` can block indefinitely when tests hold ordinary SQLAlchemy sessions open: `src/backend/tests/test_immutable_records.py` reads `wims.users` in region fixtures, then creates `TestClient(app)`, which triggers startup before fixture teardown. A startup `ALTER TABLE wims.users ...` queued for `AccessExclusiveLock` behind the open `AccessShareLock`, making CI appear to stop after the preceding fire-location test. Future startup schema patches should avoid user-table DDL or use bounded lock handling.
 
-**5. Backend startup schema patch guard** — `src/backend/main.py` runs compatibility schema repairs for old containers at FastAPI startup, but guards the routine with a process-local lock/attempt flag so repeated `TestClient(app)` lifespans in pytest do not rerun DDL/RLS patch blocks. `src/backend/tests/test_schema_patch_startup_guard.py` verifies that repeated calls reopen no second admin DB session and rerun no patch helpers.
+**7. Operations Board offline-guard test mock (2026-06-12)**
+`src/frontend/src/app/home/page.tsx` uses `useNetworkStatus()` to render an offline restricted-route guard for `/home`. `src/frontend/src/app/home/__tests__/operations-board.test.tsx` must mock `useNetworkStatus()` as online for Operations Board tests; otherwise jsdom renders "Operations Unavailable Offline" and hides the board controls. After the merge fix, `npx.cmd vitest run` passed 38 frontend test files / 236 tests.
 
-**6. Auth/RLS test override pattern** — tests that override role-specific dependencies such as `get_regional_encoder` or `get_system_admin` must also override `get_current_wims_user` or `get_db_with_rls` when the route uses an RLS-scoped DB dependency. Reference-table RLS tests use a `wims_app_user` connection instead of the CI postgres superuser so PostgreSQL row-level policies are actually enforced.
+**8. Backend startup schema patch guard** — `src/backend/main.py` runs compatibility schema repairs for old containers at FastAPI startup, but guards the routine with a process-local lock/attempt flag so repeated `TestClient(app)` lifespans in pytest do not rerun DDL/RLS patch blocks. `src/backend/tests/test_schema_patch_startup_guard.py` verifies that repeated calls reopen no second admin DB session and rerun no patch helpers.
 
-**7. RLS init contract tests** — `src/backend/tests/test_rls_init_contract.py` statically guards the database bootstrap path: `wims.current_user_role()` must be defined only by `src/postgres-init/09_rls_helpers.sql`, backend startup repair must not recreate helper functions with ad hoc SQL quoting, and `14a_assign_ncr_to_test_users.sql` must assign NCR to canonical `encoder_ncr` rather than legacy `encoder_test`.
+**9. Auth/RLS test override pattern** — tests that override role-specific dependencies such as `get_regional_encoder` or `get_system_admin` must also override `get_current_wims_user` or `get_db_with_rls` when the route uses an RLS-scoped DB dependency. Reference-table RLS tests use a `wims_app_user` connection instead of the CI postgres superuser so PostgreSQL row-level policies are actually enforced.
+
+**10. RLS init contract tests** — `src/backend/tests/test_rls_init_contract.py` statically guards the database bootstrap path: `wims.current_user_role()` must be defined only by `src/postgres-init/09_rls_helpers.sql`, backend startup repair must not recreate helper functions with ad hoc SQL quoting, and `14a_assign_ncr_to_test_users.sql` must assign NCR to canonical `encoder_ncr` rather than legacy `encoder_test`.
 
 ---
 

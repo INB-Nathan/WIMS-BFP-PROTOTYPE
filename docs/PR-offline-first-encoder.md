@@ -170,9 +170,8 @@ upload_incident_bundle  →  SET LOCAL wims.current_user_id  (RLS GUC)
 ## Validation
 
 ```
-Frontend: npx vitest run  → 193 passed (28 test files)
-          npm run lint     → 0 errors
-          npx tsc --noEmit → clean
+Frontend: npx vitest run  → 236 passed (38 test files)
+          npm run lint     → 0 errors, 16 warnings
 Backend:  ruff check .     → All checks passed!
 ```
 

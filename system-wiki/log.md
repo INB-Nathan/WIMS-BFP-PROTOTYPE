@@ -2594,3 +2594,15 @@ Made pending-sync offline incidents fully manageable through the normal regional
 **Validation:** Targeted frontend lint passed for the touched route/store/test files. Offline/sync Vitest passed: `offlineStore.ops.test.ts`, `syncEngine.test.ts`, and `offlineRegional.test.ts` (25 passed).
 
 **Wiki update:** Updated `system-wiki/frontend/frontend-infrastructure.md`, `system-wiki/frontend/route-map.md`, `system-wiki/subsystems/regional-dashboard.md`, `system-wiki/index.md`, and this log. No FRS gap status changed.
+
+## [2026-06-12] merge | Resolve offline-first encoder PR conflicts with master
+
+- Merged the offline-first encoder branch with current master runtime updates.
+- Kept master operations/OpenBao/deploy changes while preserving offline `/home` restricted-route guard, pending-sync incident local actions, offline store key-clear helper, and ops-based sync tests.
+- Updated `docs/PR-offline-first-encoder.md`, `system-wiki/index.md`, `system-wiki/architecture/infrastructure-config.md`, `system-wiki/architecture/docs-and-scripts.md`, and `system-wiki/gaps/frs-codebase-gap-register.md` to reflect the merged state.
+
+## [2026-06-12] test | Fix Operations Board Vitest after offline guard merge
+
+- Updated `src/frontend/src/app/home/__tests__/operations-board.test.tsx` to mock `useNetworkStatus()` as online. Without the mock, the merged offline restricted-route guard rendered "Operations Unavailable Offline" in jsdom and hid the Operations Board controls under test.
+- Updated `docs/PR-offline-first-encoder.md` validation results with the full frontend Vitest pass.
+- Validation: `npx vitest run` passed (38 files, 236 tests). `npm run lint` passed with 0 errors and 16 warnings.

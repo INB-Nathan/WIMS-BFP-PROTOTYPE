@@ -34,6 +34,15 @@ vi.mock('@/lib/auth', () => ({
   }),
 }));
 
+vi.mock('@/lib/useNetworkStatus', () => ({
+  useNetworkStatus: () => ({
+    isOnline: true,
+    isChecking: false,
+    isReconnecting: false,
+    status: 'online',
+  }),
+}));
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
