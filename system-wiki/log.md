@@ -3,6 +3,11 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-12] fix | keep openbao-bootstrap alive for docker compose --wait
+
+- `src/openbao/init/bootstrap-openbao.sh`: added keep-alive loop (`while true; do sleep 3600; done`) with SIGTERM/SIGINT trap at end of bootstrap script. The deploy workflow (`compose up -d --build --wait`) requires every service to be in "running" or "healthy" state. Since the bootstrap container has no healthcheck and previously exited after completing its init logic, `--wait` saw it as "not ready" and failed the deploy. The keep-alive keeps the container in "running" state until the stack is torn down.
+- `system-wiki/architecture/infrastructure-config.md`: documented the --wait compatibility detail in the GitOps deploy workflow section.
+
 ## [2026-06-11] fix | OpenBao token-file mounting for backend/celery
 
 - `src/openbao/init/bootstrap-openbao.sh`: after writing the `wims-app` policy, bootstrap now verifies any existing app token or creates a replacement policy-scoped orphan service token and persists the token value to `/vault/file/.wims-app-token` without logging it. This regenerates app auth after an OpenBao volume reset while avoiding token churn on normal restarts.

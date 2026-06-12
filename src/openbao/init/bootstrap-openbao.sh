@@ -254,3 +254,14 @@ echo "Secrets (root token / unseal key / app token) are NOT printed to logs."
 echo "On first init, prototype credentials are persisted in ${CREDS_FILE}."
 echo "The backend app token is persisted in ${APP_TOKEN_FILE}."
 echo "For production, replace this with an external secrets manager/AppRole/auto-unseal flow."
+
+# ── Keep alive for Docker Compose --wait ─────────────────────────────────────
+# The deploy workflow uses `docker compose up --wait`, which expects every
+# service to be in "running" or "healthy" state.  Since this container has no
+# healthcheck and exits after bootstrap completes, --wait would see it as
+# "not ready" and fail.  We stay alive so Compose sees a running container.
+# When the stack is torn down, docker sends SIGTERM/SIGINT which kills the
+# sleep and the container exits cleanly.
+echo "Bootstrap complete — keeping container alive for docker compose --wait"
+trap 'echo "Shutting down"; exit 0' TERM INT
+while true; do sleep 3600; done
