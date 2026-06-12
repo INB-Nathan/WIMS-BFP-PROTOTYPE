@@ -2619,3 +2619,25 @@ Made pending-sync offline incidents fully manageable through the normal regional
   - **Wiki files:** Merged both sides — kept HEAD's updated FRS entries and date metadata while preserving branch's M2d entry, log entries, and offline-first architecture docs.
 - **Files with conflicts resolved:** offlineStore.ts, syncEngine.ts, connectivity.ts, useAutoSync.test.ts, celery_config.py, home/page.tsx, tracking/page.test.tsx, and 7 system-wiki pages.
 - **Final state:** 19 branch commits, 88 files changed (+6340/-2642), clean rebase. No FRS gap status changed.
+
+## [2026-06-12] fix | Conflict-resolution validation and backend encoder F821 fix
+
+**Conflict-resolution fix review:**
+- Verified 3 uncommitted files (`offlineStore.ts`, `syncEngine.ts`, `syncEngine.test.ts`) from parent session resolve merge correctly.
+- `offlineStore.ts`: `DB_VERSION` → 4 (both branches used v3); `ANALYTICS_STORE` added in v4 upgrade path; `OfflineOpType` extended to include `'update' | 'submit' | 'delete' | 'verify' | 'archive_action'`; `LegacyOfflineOpType` for legacy queue; `initOfflineStorageLimit`, `cacheAnalyticsResponse`, `getCachedAnalyticsResponse`, `clearAnalyticsCache` restored; `encryptPayload` signature broadened to `unknown`; typed decrypt paths.
+- `syncEngine.ts`: Unifies both branch `offlineOps` and PR #272 legacy `incident-queue` sync; legacy-only sync skips auth preflight; dispatches `verify` → PATCH `/api/regional/incidents/{id}/verification`, `archive_action` → PATCH `/api/regional/validator/incidents/{id}/archive|unarchive` with `client_id`; legacy `create` → POST `/api/v1/public/report`.
+- `syncEngine.test.ts`: Added mocks for `getPendingIncidents` and `markSynced`; tests for verify/archive_action dispatch, legacy backward compat, and network error abort.
+
+**Validation results:**
+- Conflict marker scan: clean (no markers found)
+- Frontend lint: 0 errors, 16 warnings (pre-existing, no new)
+- Frontend full Vitest: 43 files, 294 tests passed
+- Frontend build (with env vars): passed
+- Backend ruff check: all checks passed
+- Backend ruff format: 180 files already formatted
+- Backend targeted pytest (with DATABASE_URL set): 17 passed
+
+**Backend blocker: encoder.py F821 fix:**
+- `src/backend/api/routes/regional/encoder.py`: Replaced undefined `_get_security_provider()` → `get_crypto_provider()` (env-level dispatch) in list endpoint PII decryption block. Broadened except from `SecurityProviderError` → `(SecurityProviderError, Exception)` to match detail endpoint behavior. This was a pre-existing branch bug (not rebase-related): commit `88ce838` removed `_get_security_provider` from the detail endpoint but left the list endpoint stale.
+
+**Wiki updates:** This log entry. No FRS gap status changed.

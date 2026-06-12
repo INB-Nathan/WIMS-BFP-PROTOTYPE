@@ -1,11 +1,12 @@
 import { openDB, IDBPDatabase } from 'idb';
 
 const DB_NAME = 'wims-bfp-db';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const STORE_NAME = 'incident-queue';      // legacy — Phase 1A compat
 const KEY_STORE = 'crypto-keys';
 const OPS_STORE = 'offlineOps';           // Phase 1B+
 const CACHE_STORE = 'cachedIncidents';    // Phase 1D+
+const ANALYTICS_STORE = 'analytics-cache'; // PR #272 offline read cache
 
 // ─── Legacy types (incident-queue) ────────────────────────────────────────
 
@@ -13,7 +14,8 @@ const CACHE_STORE = 'cachedIncidents';    // Phase 1D+
 // This is client-side enforcement only — no server eviction occurs.
 let _offlineStorageLimitMb = 50;
 
-export type OfflineOpType = 'create' | 'verify' | 'archive_action';
+export type OfflineOpType = 'create' | 'update' | 'submit' | 'delete' | 'verify' | 'archive_action';
+export type LegacyOfflineOpType = 'create' | 'verify' | 'archive_action';
 export type VerifyAction = 'accept' | 'accept_replace' | 'reject';
 
 export interface VerifyPayload {
@@ -29,13 +31,13 @@ export interface ArchiveActionPayload {
 }
 
 export interface QueueIncidentOptions {
-    opType?: OfflineOpType;
+    opType?: LegacyOfflineOpType;
     localId?: string;
 }
 
 export interface PendingIncident {
     id: number;
-    opType?: OfflineOpType;
+    opType?: LegacyOfflineOpType;
     localId?: string;
     payload: Record<string, unknown>;
     createdAt: number;
@@ -61,7 +63,7 @@ export interface CachedAnalyticsResponse<T = unknown> {
 
 interface QueuedRecord {
     id?: number;
-    opType?: OfflineOpType;
+    opType?: LegacyOfflineOpType;
     localId?: string;
     encrypted: EncryptedPayload;
     createdAt: number;
@@ -69,8 +71,6 @@ interface QueuedRecord {
 }
 
 // ─── Offline operations types (offlineOps) ────────────────────────────────
-
-export type OfflineOpType = 'create' | 'update' | 'submit' | 'delete';
 export type OfflineSyncStatus = 'draft' | 'pending' | 'syncing' | 'synced' | 'conflict' | 'error';
 export type OfflineErrorCode = '409_duplicate' | '409_conflict' | '403' | '4xx' | 'network' | null;
 
@@ -136,6 +136,14 @@ async function getDB(): Promise<IDBPDatabase> {
                     const cacheStore = db.createObjectStore(CACHE_STORE, { keyPath: 'serverId' });
                     cacheStore.createIndex('by_encoder', 'encoderId');
                     cacheStore.createIndex('by_cachedAt', 'cachedAt');
+                }
+            }
+            // v4: PR #272 analytics/admin/validator encrypted read cache. Separate
+            // version because both branches used v3 for different stores.
+            if (oldVersion < 4) {
+                if (!db.objectStoreNames.contains(ANALYTICS_STORE)) {
+                    const analyticsStore = db.createObjectStore(ANALYTICS_STORE, { keyPath: 'key' });
+                    analyticsStore.createIndex('by_cachedAt', 'cachedAt');
                 }
             }
         },
@@ -272,69 +280,7 @@ export async function clearAllOfflineData(): Promise<void> {
     try { localStorage.removeItem(ACTIVE_UID_LS_KEY); } catch { /* private mode */ }
 }
 
-async function encryptPayload(payload: Record<string, unknown>): Promise<EncryptedPayload> {
-/**
- * Destroy ALL offline state on this device — every queued op, cached incident,
- * and stored crypto key. Used when a different account logs in so the prior
- * user's encrypted data cannot be carried over or decrypted.
- */
-async function wipeAllOfflineData(): Promise<void> {
-    const db = await getDB();
-    await db.clear(OPS_STORE);
-    await db.clear(CACHE_STORE);
-    await db.clear(KEY_STORE);
-    saltCache = null;
-}
-
-/**
- * Bind the offline store to the currently logged-in encoder. Call once whenever
- * the authenticated user is (re)established.
- *
- * - Same uid as last time → no-op beyond ensuring the key exists (unsynced work
- *   survives a re-login).
- * - Different uid than last time → full wipe of the previous user's ops, cache,
- *   and keys BEFORE the new user's key is created (item F12, requirement b:
- *   covers the "forgot to log out" case — clearing happens on the new login,
- *   not only on the prior user's logout).
- */
-export async function setActiveOfflineUser(userId: string): Promise<void> {
-    if (!userId) return;
-    let prev: string | null = null;
-    try { prev = localStorage.getItem(ACTIVE_UID_LS_KEY); } catch { /* private mode */ }
-
-    activeUserId = userId;
-    try { localStorage.setItem(ACTIVE_UID_LS_KEY, userId); } catch { /* private mode */ }
-
-    if (prev && prev !== userId) {
-        await wipeAllOfflineData();
-    } else if (!prev) {
-        // First run under per-user keying: adopt any legacy single key so this
-        // user's existing offline work isn't orphaned by the upgrade.
-        const db = await getDB();
-        const name = await keyStorageName(db);
-        const derived = await db.get(KEY_STORE, name);
-        const legacy = await db.get(KEY_STORE, LEGACY_KEY_NAME);
-        if (!derived && legacy) {
-            await db.put(KEY_STORE, legacy, name);
-            await db.delete(KEY_STORE, LEGACY_KEY_NAME);
-        }
-    }
-
-    await getOrCreateKey();
-}
-
-/**
- * Manual "clear offline data" for the current device (item F11). Wipes all
- * queued ops, cached incidents, and keys. The caller should re-bind the active
- * user afterwards (setActiveOfflineUser) before queueing new work.
- */
-export async function clearAllOfflineData(): Promise<void> {
-    await wipeAllOfflineData();
-    activeUserId = null;
-    try { localStorage.removeItem(ACTIVE_UID_LS_KEY); } catch { /* private mode */ }
-}
-
-async function encryptPayload(payload: Record<string, unknown>): Promise<EncryptedPayload> {
+async function encryptPayload(payload: unknown): Promise<EncryptedPayload> {
     const key = await getOrCreateKey();
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encoded = new TextEncoder().encode(JSON.stringify(payload));
@@ -367,7 +313,15 @@ export async function clearCryptoKey(): Promise<void> {
 
 // ─── Legacy API (incident-queue) — Phase 1A compat ────────────────────────
 
-export async function queueIncident(payload: Record<string, unknown>) {
+/** Override the advisory offline storage cap at app init time. */
+export function initOfflineStorageLimit(limitMb: number): void {
+    _offlineStorageLimitMb = limitMb;
+}
+
+export async function queueIncident(
+    payload: Record<string, unknown>,
+    options: QueueIncidentOptions = {}
+): Promise<void> {
     const db = await getDB();
 
     // Advisory size guard: estimate total queue bytes and warn/throw if over cap.
@@ -484,6 +438,40 @@ export async function clearSynced() {
     await tx.done;
 }
 
+export async function cacheAnalyticsResponse<T = unknown>(
+    key: string,
+    data: T,
+    cachedAt = Date.now()
+): Promise<void> {
+    const db = await getDB();
+    const encrypted = await encryptPayload(data);
+    const record: CachedAnalyticsRecord = {
+        key,
+        encrypted,
+        cachedAt,
+    };
+    await db.put(ANALYTICS_STORE, record);
+}
+
+export async function getCachedAnalyticsResponse<T = unknown>(
+    key: string
+): Promise<CachedAnalyticsResponse<T> | undefined> {
+    const db = await getDB();
+    const item: CachedAnalyticsRecord | undefined = await db.get(ANALYTICS_STORE, key);
+    if (!item) return undefined;
+    const data = await decryptPayload<T>(item.encrypted);
+    return {
+        key: item.key,
+        data,
+        cachedAt: item.cachedAt,
+    };
+}
+
+export async function clearAnalyticsCache(): Promise<void> {
+    const db = await getDB();
+    await db.clear(ANALYTICS_STORE);
+}
+
 // ─── Offline Operations API (offlineOps) — Phase 1B+ ─────────────────────
 
 /**
@@ -543,7 +531,7 @@ export async function getPendingOps(encoderId: string): Promise<OfflineOpDecrypt
 
     const result: OfflineOpDecrypted[] = [];
     for (const op of actionable) {
-        const payload = await decryptPayload(op.payload);
+        const payload = await decryptPayload<Record<string, unknown>>(op.payload);
         result.push({ ...op, payload });
     }
     return result;
@@ -558,7 +546,7 @@ export async function getConflictOps(encoderId: string): Promise<OfflineOpDecryp
     const conflicts = all.filter((op) => op.syncStatus === 'conflict');
     const result: OfflineOpDecrypted[] = [];
     for (const op of conflicts) {
-        const payload = await decryptPayload(op.payload);
+        const payload = await decryptPayload<Record<string, unknown>>(op.payload);
         result.push({ ...op, payload });
     }
     return result;
@@ -760,7 +748,7 @@ export async function getOfflineOpByServerId(
     const all: OfflineOp[] = await db.getAllFromIndex(OPS_STORE, 'by_encoder', encoderId);
     const match = all.find((op) => op.operation === 'create' && op.serverId === serverId);
     if (!match) return null;
-    const payload = await decryptPayload(match.payload);
+    const payload = await decryptPayload<Record<string, unknown>>(match.payload);
     return { ...match, payload };
 }
 
@@ -772,7 +760,7 @@ export async function getOfflineOp(localId: string): Promise<OfflineOpDecrypted 
     const db = await getDB();
     const op: OfflineOp | undefined = await db.get(OPS_STORE, localId);
     if (!op) return undefined;
-    const payload = await decryptPayload(op.payload);
+    const payload = await decryptPayload<Record<string, unknown>>(op.payload);
     return { ...op, payload };
 }
 
@@ -819,7 +807,7 @@ export async function getDraftOps(encoderId: string): Promise<OfflineOpDecrypted
         .sort((a, b) => b.createdAt - a.createdAt);
     const result: OfflineOpDecrypted[] = [];
     for (const op of drafts) {
-        const payload = await decryptPayload(op.payload);
+        const payload = await decryptPayload<Record<string, unknown>>(op.payload);
         result.push({ ...op, payload });
     }
     return result;
@@ -866,7 +854,7 @@ export async function getCachedIncidents(encoderId: string): Promise<CachedIncid
     all.sort((a, b) => b.cachedAt - a.cachedAt);
     const result: CachedIncidentDecrypted[] = [];
     for (const item of all) {
-        const data = await decryptPayload(item.data);
+        const data = await decryptPayload<Record<string, unknown>>(item.data);
         result.push({ ...item, data });
     }
     return result;
@@ -879,7 +867,7 @@ export async function getCachedIncident(serverId: number): Promise<CachedInciden
     const db = await getDB();
     const item: CachedIncident | undefined = await db.get(CACHE_STORE, serverId);
     if (!item) return undefined;
-    const data = await decryptPayload(item.data);
+    const data = await decryptPayload<Record<string, unknown>>(item.data);
     return { ...item, data };
 }
 

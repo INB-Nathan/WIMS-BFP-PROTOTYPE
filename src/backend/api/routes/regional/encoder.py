@@ -155,13 +155,15 @@ def get_regional_incidents(
         if has_sensitive_data:
             try:
                 if sp is None:
-                    sp = _get_security_provider()
+                    sp = (
+                        get_crypto_provider()
+                    )  # env dispatch — list endpoint lacks per-row crypto_provider
                 aad = f"incident_id:{r[0]}".encode("utf-8")
                 pii = sp.decrypt_json(r[22], r[21], aad)
                 owner_name = pii.get("owner_name") or owner_name
                 caller_name = pii.get("caller_name") or caller_name
                 caller_number = pii.get("caller_number") or caller_number
-            except SecurityProviderError:
+            except (SecurityProviderError, Exception):
                 logger.error(
                     "CRITICAL: PII blob decryption failed in incident list. incident_id=%s", r[0]
                 )

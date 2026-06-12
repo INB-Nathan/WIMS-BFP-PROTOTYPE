@@ -30,7 +30,7 @@ make ci-local
 make format
 ```
 
-> **Clean-slate init:** First boot runs all 34 SQL bootstrap files in `postgres-init/` and imports the Keycloak realm. Subsequent boots skip both. Use `down -v` when you want a fully fresh database (schema + seed data + Keycloak users).
+> **Clean-slate init:** First boot runs all 74 SQL bootstrap files in `postgres-init/` and imports the Keycloak realm. Subsequent boots skip both. Use `down -v` when you want a fully fresh database (schema + seed data + Keycloak users).
 
 ## Architecture
 
@@ -38,17 +38,24 @@ WIMS-BFP is a Dockerized full-stack incident management system for the Philippin
 
 ```
 src/
-├── backend/          # FastAPI + Celery (Python 3.10+)
-│   ├── api/routes/   # incidents, analytics, triage, regional, admin, civilian
-│   ├── models/       # SQLAlchemy ORM models
-│   ├── schemas/      # Pydantic request/response schemas
-│   ├── services/     # AI/XAI, analytics, duplicate detection
-│   ├── tasks/        # Celery tasks (Suricata, exports, drafts)
-│   └── utils/        # crypto (AES-256-GCM), session revocation, audit
-├── frontend/         # Next.js 16 (App Router), React 19, TypeScript, TailwindCSS 4
-├── postgres-init/    # 34 SQL bootstrap files (RLS policies, views, seeds) — see system-wiki/database/sql-init-files.md
-├── keycloak/         # Realm import JSON (bfp-realm.json)
-└── docker-compose.yml
+├── backend/                # FastAPI + Celery (Python 3.10+)
+│   ├── api/routes/         # incidents, analytics, triage, regional, admin, civilian
+│   ├── models/             # SQLAlchemy ORM models
+│   ├── schemas/            # Pydantic request/response schemas
+│   ├── services/           # AI/XAI, analytics, duplicate detection
+│   ├── tasks/              # Celery tasks (Suricata, exports, drafts)
+│   └── utils/              # crypto (AES-256-GCM), session revocation, audit
+├── frontend/               # Next.js 16 (App Router), React 19, TypeScript, TailwindCSS 4
+├── postgres-init/          # 74 SQL bootstrap files — see system-wiki/database/sql-init-files.md
+├── keycloak/               # Realm import JSON (bfp-realm.json)
+├── openbao/                # OpenBao init/bootstrap for KMS
+├── suricata/               # Suricata IDS rules/log mounts
+├── nginx/                  # Nginx edge gateway config
+├── docker-compose.yml      # 14 services: postgres, redis, mailhog, keycloak,
+│                           # keycloak-bootstrap, openbao, openbao-bootstrap,
+│                           # ollama, ollama-model-pull, backend, celery-worker,
+│                           # frontend, wims-suricata, nginx-gateway
+└── docker-compose.override.yml / docker-compose.ci.yml / docker-compose.prod.yml
 ```
 
 ## Key Patterns
@@ -69,7 +76,13 @@ PII fields (`caller_name`, `caller_number`, `owner_name`, `occupant_name`) in `w
 
 ### Incident Pipeline
 
-1. Public submissions via `POST /api/civilian/reports` → `wims.citizen_reports` (pending)
+Two parallel intake paths feed official AFOR incidents:
+
+**Public DMZ (zero-trust, unauthenticated):**  
+`POST /api/v1/public/report` → `wims.fire_incidents` (direct). Used for zero-trust submissions from anonymous reporters.
+
+**Civilian staging:**  
+1. `POST /api/civilian/reports` → `wims.citizen_reports` (pending, structured staging)
 2. `GET /api/triage/pending` → validator reviews → `POST /api/triage/{id}/promote`
 3. Promotion creates official record in `wims.fire_incidents`
 4. Regional encoders import AFOR workbooks via `POST /api/regional/afor/import` → `POST /api/regional/afor/commit` (structural or wildland)
@@ -85,6 +98,17 @@ Two issuer URLs exist: backend fetches JWKS from `keycloak:8080` (Docker interna
 
 Suricata IDS → EVE JSON → Celery worker → FastAPI extracts metadata → prompt template → Ollama (Qwen2.5-3B) → narrative → `security_threat_logs`. The SLM is a translator (JSON → plain English), not a threat detector. Suricata rules carry the security knowledge.
 
+### Offline/PWA
+
+The frontend supports offline-first operation for encoders, validators, analysts, and admin. Key modules:
+- `src/frontend/src/lib/offlineStore.ts` — IndexedDB layer with stores for `offlineOps`, `cachedIncidents`, `analytics-cache`, per-user key isolation, and legacy `incident-queue` compat (DB_VERSION 4).
+- `src/frontend/src/lib/syncEngine.ts` — Dispatches pending ops on connectivity restore; dual-path for both `offlineOps` (PR #271) and legacy `incident-queue` (PR #272).
+- `src/frontend/src/lib/connectivity.ts` — Singleton monitor with exponential backoff recheck loop.
+- `src/frontend/src/lib/api/offline*.ts` — Offline-aware read wrappers for analytics, regional, validator, and admin.
+- Public manifest at `src/frontend/public/manifest.webmanifest`.
+
+See `system-wiki/architecture/pwa-tests-cicd.md` and `docs/PR-offline-first-encoder.md`.
+
 ## Agent Routing
 
 Before non-trivial changes, read the relevant subsystem page:
@@ -92,6 +116,7 @@ Before non-trivial changes, read the relevant subsystem page:
 - Incident workflow → `system-wiki/operations/agent-routing-guide.md`
 - Analytics → `system-wiki/subsystems/regional-dashboard.md`
 - Database schema → `system-wiki/database/schema-overview.md`
+- Offline/PWA → `system-wiki/architecture/pwa-tests-cicd.md`
 
 The `system-wiki/` directory is the authoritative agent-routing knowledgebase. Raw FRS files live in `system-wiki/raw/frs/`.
 
@@ -118,10 +143,14 @@ Backend pytest discovery: `testpaths = tests` in `pytest.ini`. Integration tests
 | Variable | Service | Purpose |
 |---|---|---|
 | `DATABASE_URL` | backend, celery | PostgreSQL connection |
+| `DATABASE_ADMIN_URL` | backend | Postgres superuser for DDL patches |
 | `KEYCLOAK_REALM_URL` | backend | Keycloak JWKS endpoint (Docker internal) |
 | `KEYCLOAK_ISSUER` | backend | JWT `iss` validation (browser-visible) |
 | `WIMS_MASTER_KEY` | backend | AES-256-GCM encryption key for PII |
 | `REDIS_URL` | backend, celery | Rate limiting + Celery broker + session blacklist |
 | `OLLAMA_URL` | backend | Local LLM for XAI narratives |
 | `NEXT_PUBLIC_API_URL` | frontend | Backend API base URL |
-| `NEXT_PUBLIC_OIDC_AUTHORITY` | frontend | Keycloak realm URL for OIDC |
+| `NEXT_PUBLIC_AUTH_API_URL` | frontend | Keycloak auth URL (required; build fails if unset) |
+| `NEXT_PUBLIC_BASE_URL` | frontend | Public base URL (required; build fails if unset) |
+
+> Frontend build requires `NEXT_PUBLIC_AUTH_API_URL` and `NEXT_PUBLIC_BASE_URL`. Safe dummy values: `NEXT_PUBLIC_AUTH_API_URL=http://localhost:8080/auth` `NEXT_PUBLIC_BASE_URL=http://localhost:3000`.

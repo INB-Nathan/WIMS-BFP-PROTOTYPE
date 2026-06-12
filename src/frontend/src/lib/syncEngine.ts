@@ -18,9 +18,9 @@
  */
 
 import {
-  getPendingOps, markOpSyncing, markOpPending, markOpSynced, markOpConflict, markOpError,
+  getPendingOps, getPendingIncidents, markSynced, markOpSyncing, markOpPending, markOpSynced, markOpConflict, markOpError,
   purgeSyncedOps, evictStaleCachedIncidents, cacheIncident, getCachedIncident,
-  type OfflineOpDecrypted, type OfflineOpType,
+  type ArchiveActionPayload, type OfflineOpDecrypted, type OfflineOpType, type PendingIncident, type VerifyPayload,
 } from './offlineStore';
 import { refreshToken } from './auth-refresh';
 import { isReachable, markConnectivityOffline } from './connectivity';
@@ -57,6 +57,8 @@ const OP_RESULT_LABEL: Record<OfflineOpType, string> = {
   update: 'Changes saved',
   submit: 'Submitted for review',
   delete: 'Deleted',
+  verify: 'Verification synced',
+  archive_action: 'Archive action synced',
 };
 
 // Higher number = higher-order action. Used to decide which operation label wins
@@ -65,6 +67,8 @@ const OP_PRECEDENCE: Record<OfflineOpType, number> = {
   create: 0,
   update: 1,
   submit: 2,
+  verify: 2,
+  archive_action: 2,
   delete: 3,
 };
 
@@ -247,6 +251,97 @@ async function processDelete(
   return { ok: false, status: res.status, error: (deleteBody.detail as string) ?? `HTTP ${res.status}` };
 }
 
+async function processVerify(
+  op: OfflineOpDecrypted
+): Promise<{ ok: boolean; conflictCode?: string; status?: number; error?: string }> {
+  const payload = op.payload as unknown as VerifyPayload;
+  const res = await apiFetch(`/api/regional/incidents/${payload.incident_id}/verification`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      action: payload.action,
+      notes: payload.notes ?? null,
+      client_id: op.localId,
+      ...(payload.original_incident_id !== undefined ? { original_incident_id: payload.original_incident_id } : {}),
+    }),
+  });
+  if (res.ok) return { ok: true };
+  if (res.status === 0) return { ok: false, status: 0, error: 'error' in res ? res.error : 'Network error' };
+  const body = 'body' in res ? res.body : {};
+  const detail = body.detail as string | Record<string, unknown> | undefined;
+  const code = typeof detail === 'object' ? detail.code : body.code;
+  if (res.status === 409) {
+    return { ok: false, conflictCode: code === 'DUPLICATE_DETECTED' ? '409_duplicate' : '409_conflict', status: 409 };
+  }
+  return { ok: false, status: res.status, error: typeof detail === 'string' ? detail : `HTTP ${res.status}` };
+}
+
+async function processArchiveAction(
+  op: OfflineOpDecrypted
+): Promise<{ ok: boolean; conflictCode?: string; status?: number; error?: string }> {
+  const payload = op.payload as unknown as ArchiveActionPayload;
+  const endpoint = payload.action === 'archive'
+    ? `/api/regional/validator/incidents/${payload.incident_id}/archive`
+    : `/api/regional/validator/incidents/${payload.incident_id}/unarchive`;
+  const res = await apiFetch(endpoint, {
+    method: 'PATCH',
+    body: JSON.stringify({ client_id: op.localId }),
+  });
+  if (res.ok) return { ok: true };
+  if (res.status === 0) return { ok: false, status: 0, error: 'error' in res ? res.error : 'Network error' };
+  const body = 'body' in res ? res.body : {};
+  const detail = body.detail as string | Record<string, unknown> | undefined;
+  const code = typeof detail === 'object' ? detail.code : body.code;
+  if (res.status === 409) {
+    return { ok: false, conflictCode: code === 'DUPLICATE_DETECTED' ? '409_duplicate' : '409_conflict', status: 409 };
+  }
+  return { ok: false, status: res.status, error: typeof detail === 'string' ? detail : `HTTP ${res.status}` };
+}
+
+async function processLegacyCreate(item: PendingIncident): Promise<{ ok: boolean; status?: number; error?: string }> {
+  const res = await apiFetch('/api/v1/public/report', {
+    method: 'POST',
+    body: JSON.stringify(item.payload),
+  });
+  if (res.ok) return { ok: true };
+  if (res.status === 0) return { ok: false, status: 0, error: 'error' in res ? res.error : 'Network error' };
+  const body = 'body' in res ? res.body : {};
+  return { ok: false, status: res.status, error: (body.detail as string) ?? `HTTP ${res.status}` };
+}
+
+async function processLegacyVerify(item: PendingIncident): Promise<{ ok: boolean; status?: number; error?: string }> {
+  const payload = item.payload as unknown as VerifyPayload;
+  const res = await apiFetch(`/api/regional/incidents/${payload.incident_id}/verification`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      action: payload.action,
+      notes: payload.notes ?? null,
+      client_id: item.localId ?? null,
+      ...(payload.original_incident_id !== undefined ? { original_incident_id: payload.original_incident_id } : {}),
+    }),
+  });
+  if (res.ok) return { ok: true };
+  if (res.status === 0) return { ok: false, status: 0, error: 'error' in res ? res.error : 'Network error' };
+  if (res.status === 409) return { ok: false, status: 409, error: 'Conflict: DUPLICATE_DETECTED' };
+  const body = 'body' in res ? res.body : {};
+  return { ok: false, status: res.status, error: (body.detail as string) ?? `HTTP ${res.status}` };
+}
+
+async function processLegacyArchiveAction(item: PendingIncident): Promise<{ ok: boolean; status?: number; error?: string }> {
+  const payload = item.payload as unknown as ArchiveActionPayload;
+  const endpoint = payload.action === 'archive'
+    ? `/api/regional/validator/incidents/${payload.incident_id}/archive`
+    : `/api/regional/validator/incidents/${payload.incident_id}/unarchive`;
+  const res = await apiFetch(endpoint, {
+    method: 'PATCH',
+    body: JSON.stringify({ client_id: item.localId ?? null }),
+  });
+  if (res.ok) return { ok: true };
+  if (res.status === 0) return { ok: false, status: 0, error: 'error' in res ? res.error : 'Network error' };
+  if (res.status === 409) return { ok: false, status: 409, error: 'Conflict: DUPLICATE_DETECTED' };
+  const body = 'body' in res ? res.body : {};
+  return { ok: false, status: res.status, error: (body.detail as string) ?? `HTTP ${res.status}` };
+}
+
 // ── Main sync function ────────────────────────────────────────────────────────
 
 /**
@@ -255,19 +350,22 @@ async function processDelete(
  * @param encoderId - The Keycloak sub/id of the currently logged-in encoder.
  *                    Operations from other encoders are skipped (shared device safety).
  */
-export async function syncPendingIncidents(encoderId: string): Promise<SyncResult> {
+export async function syncPendingIncidents(encoderId?: string): Promise<SyncResult> {
   if (!(await isReachable())) {
     return { synced: 0, conflicts: 0, failed: 0, errors: [], syncedIncidents: [], abortReason: 'offline' };
   }
 
-  const ops = await getPendingOps(encoderId);
-  if (ops.length === 0) {
+  const ops = encoderId ? await getPendingOps(encoderId) : [];
+  const legacyItems = await getPendingIncidents();
+  if (ops.length === 0 && legacyItems.length === 0) {
     return { synced: 0, conflicts: 0, failed: 0, errors: [], syncedIncidents: [] };
   }
 
-  const authResult = await ensureAuthenticatedForSync();
-  if (!authResult.ok) {
-    return { synced: 0, conflicts: 0, failed: 0, errors: [], syncedIncidents: [], abortReason: authResult.reason };
+  if (ops.length > 0 || encoderId) {
+    const authResult = await ensureAuthenticatedForSync();
+    if (!authResult.ok) {
+      return { synced: 0, conflicts: 0, failed: 0, errors: [], syncedIncidents: [], abortReason: authResult.reason };
+    }
   }
 
   let synced = 0;
@@ -332,11 +430,13 @@ export async function syncPendingIncidents(encoderId: string): Promise<SyncResul
     let result: { ok: boolean; serverId?: number; conflictCode?: string; serverVersion?: Record<string, unknown>; status?: number; error?: string };
 
     switch (op.operation) {
-      case 'create':  result = await processCreate(op, syncedServerIds); break;
-      case 'update':  result = await processUpdate(op, syncedServerIds); break;
-      case 'submit':  result = await processSubmit(op, syncedServerIds); break;
-      case 'delete':  result = await processDelete(op, syncedServerIds); break;
-      default:        result = { ok: false, error: `unknown operation: ${op.operation}` };
+      case 'create':         result = await processCreate(op, syncedServerIds); break;
+      case 'update':         result = await processUpdate(op, syncedServerIds); break;
+      case 'submit':         result = await processSubmit(op, syncedServerIds); break;
+      case 'delete':         result = await processDelete(op, syncedServerIds); break;
+      case 'verify':         result = await processVerify(op); break;
+      case 'archive_action': result = await processArchiveAction(op); break;
+      default:               result = { ok: false, error: `unknown operation: ${op.operation}` };
     }
 
     if (result.ok) {
@@ -348,7 +448,7 @@ export async function syncPendingIncidents(encoderId: string): Promise<SyncResul
           : resolveServerId(op, syncedServerIds);
       if (op.operation === 'create' && result.serverId) {
         // Cache the created incident so dashboard shows it offline immediately
-        await cacheIncident(result.serverId, op.payload, encoderId);
+        await cacheIncident(result.serverId, op.payload, encoderId!);
       }
       if (summaryServerId !== null) {
         await recordSynced(summaryServerId, op);
@@ -381,10 +481,42 @@ export async function syncPendingIncidents(encoderId: string): Promise<SyncResul
     }
   }
 
+  for (const item of legacyItems) {
+    let result: { ok: boolean; status?: number; error?: string };
+    switch (item.opType) {
+      case 'verify':
+        result = await processLegacyVerify(item);
+        break;
+      case 'archive_action':
+        result = await processLegacyArchiveAction(item);
+        break;
+      default:
+        result = await processLegacyCreate(item);
+        break;
+    }
+
+    if (result.ok) {
+      await markSynced(item.id);
+      synced++;
+    } else {
+      failed++;
+      errors.push({
+        localId: item.localId ?? String(item.id),
+        operation: item.opType ?? 'create',
+        status: result.status,
+        error: result.error,
+      });
+      if (!result.status) {
+        markConnectivityOffline();
+        break;
+      }
+    }
+  }
+
   // Housekeeping on successful batch
   if (synced > 0) {
     await purgeSyncedOps();
-    await evictStaleCachedIncidents(encoderId);
+    if (encoderId) await evictStaleCachedIncidents(encoderId);
   }
 
   return { synced, conflicts, failed, errors, syncedIncidents: [...syncedSummaries.values()] };

@@ -17,6 +17,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ── Mock offlineStore (new ops API) ──────────────────────────────────────────
 vi.mock('../offlineStore', () => ({
   getPendingOps: vi.fn(),
+  getPendingIncidents: vi.fn(),
+  markSynced: vi.fn(),
   markOpSyncing: vi.fn(),
   markOpPending: vi.fn(),
   markOpSynced: vi.fn(),
@@ -46,7 +48,7 @@ vi.stubGlobal('fetch', fetchSpy);
 import { syncPendingIncidents } from '../syncEngine';
 import type { OfflineOpType, OfflineOpDecrypted } from '../offlineStore';
 import {
-  getPendingOps, markOpSyncing, markOpPending, markOpSynced, markOpConflict, markOpError,
+  getPendingOps, getPendingIncidents, markSynced, markOpSyncing, markOpPending, markOpSynced, markOpConflict, markOpError,
   purgeSyncedOps, evictStaleCachedIncidents, cacheIncident,
 } from '../offlineStore';
 import { refreshToken } from '../auth-refresh';
@@ -104,6 +106,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(isReachable).mockResolvedValue(true);
   vi.mocked(refreshToken).mockResolvedValue({ ok: true });
+  vi.mocked(getPendingIncidents).mockResolvedValue([]);
+  vi.mocked(markSynced).mockResolvedValue(undefined);
   vi.mocked(markOpSyncing).mockResolvedValue(undefined);
   vi.mocked(markOpPending).mockResolvedValue(undefined);
   vi.mocked(markOpSynced).mockResolvedValue(undefined);
