@@ -480,6 +480,25 @@ export async function deleteOfflineOp(localId: string): Promise<void> {
     await db.delete(OPS_STORE, localId);
 }
 
+export async function deleteOfflineOpCascade(localId: string): Promise<void> {
+    const db = await getDB();
+    const all: OfflineOp[] = await db.getAll(OPS_STORE);
+    const idsToDelete = new Set<string>([localId]);
+
+    let foundLinkedOp = true;
+    while (foundLinkedOp) {
+        foundLinkedOp = false;
+        for (const op of all) {
+            if (op.linkedLocalId && idsToDelete.has(op.linkedLocalId) && !idsToDelete.has(op.localId)) {
+                idsToDelete.add(op.localId);
+                foundLinkedOp = true;
+            }
+        }
+    }
+
+    await Promise.all([...idsToDelete].map((id) => db.delete(OPS_STORE, id)));
+}
+
 /**
  * After a successful sync batch, delete all ops marked 'synced'
  * older than retentionMs (default: 7 days) to cap storage growth.

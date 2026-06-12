@@ -16,7 +16,7 @@ import {
 } from '@/lib/api';
 import { fetchRegionalIncidentOfflineAware } from '@/lib/api/offlineRegional';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
-import { getOfflineOp, queueOfflineOp, type OfflineOpDecrypted } from '@/lib/offlineStore';
+import { deleteOfflineOpCascade, getOfflineOp, queueOfflineOp, type OfflineOpDecrypted } from '@/lib/offlineStore';
 import { toast as sonnerToast } from 'sonner';
 import dynamic from 'next/dynamic';
 import { UpdateRequestDiffPanel } from '@/components/UpdateRequestDiffPanel';
@@ -811,6 +811,17 @@ export default function RegionalIncidentDetailPage() {
     setShowDeleteConfirm(false);
     setActionLoading(true);
     setActionError(null);
+    if (localIncidentId) {
+      try {
+        await deleteOfflineOpCascade(localIncidentId);
+        sonnerToast.info('Pending sync incident deleted from this device.');
+        router.push('/dashboard/regional');
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : 'Failed to delete pending sync incident.');
+        setActionLoading(false);
+      }
+      return;
+    }
     try {
       await deleteIncident(incidentId);
       router.push('/dashboard/regional');
@@ -929,8 +940,16 @@ export default function RegionalIncidentDetailPage() {
   const categoryDisplay = ns?.sub_category ?? ns?.type_of_involved_general_category;
   const locationDisplay = [ns?.city_municipality, ns?.province_district, ns?.region].filter(Boolean).join(', ') || null;
   const completeAddress = sens?.street_address ?? ns?.incident_address;
-  const incidentTitle = detail?.verification_status === 'VERIFIED' && detail.reference_number
+  const isPendingSyncIncident = Boolean(localIncidentId && detail?.verification_status === 'PENDING_SYNC');
+  const incidentTitle = isPendingSyncIncident
+    ? 'Pending Sync Incident'
+    : detail?.verification_status === 'VERIFIED' && detail.reference_number
     ? detail.reference_number
+    : detail
+    ? `Incident #${detail.incident_id}`
+    : 'Incident';
+  const incidentDisplayId = isPendingSyncIncident
+    ? `Local ID ${localIncidentId}`
     : detail
     ? `Incident #${detail.incident_id}`
     : 'Incident';
@@ -954,11 +973,18 @@ export default function RegionalIncidentDetailPage() {
       return [label, entry.m ?? 0, entry.f ?? 0];
     });
   })();
-  const canSubmitOrDelete = isEncoder && detail &&
-    !localIncidentId &&
+  const canSubmitIncident = isEncoder && detail &&
+    !isPendingSyncIncident &&
     (detail.verification_status === 'DRAFT' ||
-     detail.verification_status === 'PENDING' ||
      detail.verification_status === 'REJECTED');
+  const canDeleteIncident = isEncoder && detail &&
+    (
+      isPendingSyncIncident ||
+      (!localIncidentId &&
+        (detail.verification_status === 'DRAFT' ||
+          detail.verification_status === 'PENDING' ||
+          detail.verification_status === 'REJECTED'))
+    );
 
   return (
     <div className="space-y-6">
@@ -1179,7 +1205,7 @@ export default function RegionalIncidentDetailPage() {
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4">
             <h2 className="text-lg font-bold text-red-900">Delete Incident?</h2>
             <p className="text-sm text-gray-600">
-              This will permanently remove incident <strong>#{incidentId}</strong> ({detail.verification_status}).
+              This will permanently remove <strong>{incidentDisplayId}</strong> ({detail.verification_status}).
               This action cannot be undone.
             </p>
             <div className="flex justify-end gap-3 pt-2">
@@ -1260,7 +1286,7 @@ export default function RegionalIncidentDetailPage() {
                 </div>
                 <p className="mt-1 text-sm text-gray-600">
                   {detail.verification_status !== 'VERIFIED' || !detail.reference_number
-                    ? `Incident #${detail.incident_id} - `
+                    ? `${incidentDisplayId} - `
                     : ''}
                   {getShortRegionName(detail.region_id)}
                   {detail.created_at ? <> - Created {new Date(detail.created_at).toLocaleString()}</> : null}
@@ -1290,7 +1316,7 @@ export default function RegionalIncidentDetailPage() {
                       Withdraw
                     </button>
                   ) : null}
-                  {canSubmitOrDelete ? (
+                  {canDeleteIncident ? (
                     <button
                       onClick={() => setShowDeleteConfirm(true)}
                       disabled={actionLoading}
@@ -1300,7 +1326,7 @@ export default function RegionalIncidentDetailPage() {
                       Delete
                     </button>
                   ) : null}
-                  {detail.verification_status === 'DRAFT' || detail.verification_status === 'REJECTED' ? (
+                  {canSubmitIncident ? (
                     <button
                       onClick={handleSubmitClick}
                       disabled={actionLoading}
@@ -1414,7 +1440,16 @@ export default function RegionalIncidentDetailPage() {
       {!loading && !error && detail && !isEditing && (
         <>
           {/* Offline cache banner — only shown when confirmed offline */}
-          {isFromCache && !isOnline && (
+          {isPendingSyncIncident && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 flex items-center gap-3" role="status">
+              <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-amber-500" />
+              <span className="text-sm text-amber-900 font-medium">
+                Stored on this device and waiting to sync. You can view, edit, or delete it before reconnecting.
+              </span>
+            </div>
+          )}
+
+          {isFromCache && !isOnline && !isPendingSyncIncident && (
             <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 flex items-center gap-3" role="status">
               <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-amber-500" />
               <span className="text-sm text-amber-800 font-medium">

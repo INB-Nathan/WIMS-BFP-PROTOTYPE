@@ -2579,3 +2579,18 @@ Fixed the regional encoder offline-create sync path and removed the visible spli
 **Validation:** Backend targeted pytest passed: `tests/test_upload_bundle_idempotency.py` and `tests/test_encoder_crud_idempotency.py` (4 passed). Frontend targeted lint passed for touched files. Offline/sync Vitest suite passed: `syncEngine.test.ts`, `offlineRegional.test.ts`, and `offlineStore.ops.test.ts` (24 passed). Python compile passed for the touched backend route files.
 
 **Wiki update:** Updated `system-wiki/frontend/frontend-infrastructure.md`, `system-wiki/subsystems/regional-dashboard.md`, `system-wiki/index.md`, and this log. No FRS gap status changed.
+
+## [2026-06-11] fix | Pending-sync incident full-page view and local actions
+
+Made pending-sync offline incidents fully manageable through the normal regional incident detail route.
+
+**Changes:**
+- `src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx`: non-numeric local IDs continue to load from encrypted `offlineOps` without a server fetch, now show local pending-sync copy/status in the normal full-page report, expose Delete for pending-sync incidents, and keep Edit on the shared `IncidentForm` path.
+- `src/frontend/src/lib/offlineStore.ts`: added `deleteOfflineOpCascade(localId)` to remove a local create op and all queued ops linked to it, preventing stale linked submit/update work from replaying after the user deletes a pending-sync incident.
+- `src/frontend/src/app/dashboard/regional/incidents/local/[localId]/page.tsx`: replaced the old edit-only local page with a redirect shim to `/dashboard/regional/incidents/{localId}`.
+- `src/frontend/src/lib/__tests__/offlineStore.ops.test.ts`: added coverage for cascade deletion.
+- `OFFLINE_HANDOVER.md`: documented the full-page pending-sync view/edit/delete behavior.
+
+**Validation:** Targeted frontend lint passed for the touched route/store/test files. Offline/sync Vitest passed: `offlineStore.ops.test.ts`, `syncEngine.test.ts`, and `offlineRegional.test.ts` (25 passed).
+
+**Wiki update:** Updated `system-wiki/frontend/frontend-infrastructure.md`, `system-wiki/frontend/route-map.md`, `system-wiki/subsystems/regional-dashboard.md`, `system-wiki/index.md`, and this log. No FRS gap status changed.

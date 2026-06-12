@@ -3,6 +3,7 @@
  * - recoverStaleSyncingOps: resets stale 'syncing' ops back to 'pending' on mount
  * - updateOfflineOp: updates payload only (preserves createdAt)
  * - getOfflineOp: returns decrypted op by localId
+ * - deleteOfflineOpCascade: removes a create op plus linked follow-up ops
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -62,8 +63,10 @@ function makeOpsDbMock() {
         done: Promise.resolve(),
       };
     }),
-    // Legacy store
-    getAll: vi.fn(async () => []),
+    getAll: vi.fn(async (storeName?: string) => {
+      if (storeName === 'offlineOps') return [...opsStore.values()];
+      return [];
+    }),
   };
 }
 
@@ -72,7 +75,13 @@ vi.mock('idb', () => ({
 }));
 
 // Import AFTER mock is defined so the module sees the mock
-const { recoverStaleSyncingOps, updateOfflineOp, queueOfflineOp, getOfflineOp } = await import('../offlineStore');
+const {
+  deleteOfflineOpCascade,
+  recoverStaleSyncingOps,
+  updateOfflineOp,
+  queueOfflineOp,
+  getOfflineOp,
+} = await import('../offlineStore');
 
 const ENCODER_ID = 'enc-001';
 
@@ -223,5 +232,34 @@ describe('getOfflineOp', () => {
     expect(op!.localId).toBe(localId);
     expect(op!.payload.general_category).toBe('STRUCTURAL');
     expect(op!.payload.fire_station_name).toBe('Station 1');
+  });
+});
+
+describe('deleteOfflineOpCascade', () => {
+  it('deletes a create op and linked submit or update ops', async () => {
+    const createOp = makeOp({ localId: 'create-local', operation: 'create' });
+    const linkedSubmit = makeOp({
+      localId: 'submit-local',
+      operation: 'submit',
+      linkedLocalId: createOp.localId,
+    });
+    const linkedUpdate = makeOp({
+      localId: 'update-local',
+      operation: 'update',
+      linkedLocalId: linkedSubmit.localId,
+    });
+    const unrelated = makeOp({ localId: 'unrelated-local', operation: 'create' });
+
+    opsStore.set(createOp.localId, createOp);
+    opsStore.set(linkedSubmit.localId, linkedSubmit);
+    opsStore.set(linkedUpdate.localId, linkedUpdate);
+    opsStore.set(unrelated.localId, unrelated);
+
+    await deleteOfflineOpCascade(createOp.localId);
+
+    expect(opsStore.has(createOp.localId)).toBe(false);
+    expect(opsStore.has(linkedSubmit.localId)).toBe(false);
+    expect(opsStore.has(linkedUpdate.localId)).toBe(false);
+    expect(opsStore.has(unrelated.localId)).toBe(true);
   });
 });
