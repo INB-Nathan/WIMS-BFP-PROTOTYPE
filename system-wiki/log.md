@@ -2606,3 +2606,16 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - Updated `src/frontend/src/app/home/__tests__/operations-board.test.tsx` to mock `useNetworkStatus()` as online. Without the mock, the merged offline restricted-route guard rendered "Operations Unavailable Offline" in jsdom and hid the Operations Board controls under test.
 - Updated `docs/PR-offline-first-encoder.md` validation results with the full frontend Vitest pass.
 - Validation: `npx vitest run` passed (38 files, 236 tests). `npm run lint` passed with 0 errors and 16 warnings.
+
+## [2026-06-12] rebase | feat/offline-first-encoder onto origin/master (post-PR#272)
+
+- Rebased 19 commits of `feat/offline-first-encoder` onto `origin/master` which now includes PR #272 (offline expansion for analyst, validator, and admin dashboards).
+- **Conflict resolution summary:**
+  - **`offlineStore.ts`:** Kept branch's new `offlineOps` + `cachedIncidents` IndexedDB stores, per-user key isolation, `setActiveOfflineUser()`, `clearAllCachedIncidents()`, and singleton connectivity monitor.
+  - **`syncEngine.ts`:** Kept branch's refactored `syncPendingIncidents(encoderId)` with `processCreate`/`processUpdate`/`processSubmit`/`processDelete` ops dispatch and bundle-based create path.
+  - **`connectivity.ts`:** Kept branch's singleton monitor with exponential backoff recheck loop.
+  - **`home/page.tsx`:** Kept HEAD's Operations Board (master) over branch's incident-based replacement.
+  - **`celery_config.py`:** Kept HEAD's explicit task imports and autodiscovery (master version).
+  - **Wiki files:** Merged both sides — kept HEAD's updated FRS entries and date metadata while preserving branch's M2d entry, log entries, and offline-first architecture docs.
+- **Files with conflicts resolved:** offlineStore.ts, syncEngine.ts, connectivity.ts, useAutoSync.test.ts, celery_config.py, home/page.tsx, tracking/page.test.tsx, and 7 system-wiki pages.
+- **Final state:** 19 branch commits, 88 files changed (+6340/-2642), clean rebase. No FRS gap status changed.
