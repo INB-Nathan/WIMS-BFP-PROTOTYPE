@@ -1,7 +1,7 @@
 ---
 title: Agent Routing Guide
 created: 2026-05-14
-updated: 2026-05-14
+updated: 2026-06-12
 type: operations
 tags: [wims-bfp, agent-routing, implementation-map]
 sources: [SCHEMA.md, index.md]
@@ -33,3 +33,4 @@ Every WIMS-BFP agent touching this repo should read:
 - Do not mix opportunistic refactors with bug fixes.
 - Do not route an agent the full repo if a subsystem context pack is enough.
 - Do not treat this wiki as more authoritative than raw FRS or live code.
+- Do not bypass an issue/PRD/spec/acceptance contract unless the agent states the deviation, gives a concrete reason, and the change materially improves correctness, safety, maintainability, or user value; otherwise follow the spec exactly or ask first.

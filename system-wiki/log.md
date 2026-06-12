@@ -3,6 +3,12 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-12] docs | Agent gotcha for spec deviations
+
+- `AGENTS.md`: added Gotcha #16 requiring agents/subagents to follow issue/PRD/spec/acceptance contracts exactly unless they explicitly state a deviation, justify it, and show how it improves correctness, safety, maintainability, or user value.
+- `system-wiki/operations/agent-routing-guide.md`: added the same delegation rule so implementation chains do not silently bypass explicit specs.
+- No FRS gap register update; this changes agent workflow guidance, not product behavior or FRS alignment.
+
 ## [2026-06-12] feat | GH #266 analyst offline-first read caching
 
 - `src/frontend/src/lib/api/offlineAnalytics.ts`: added 9 offline-aware National Analyst read wrappers returning `{ response, fromCache, cachedAt? }` with 30-minute TTL, connectivity failover, cache-miss friendly errors, and network-error offline marking.
