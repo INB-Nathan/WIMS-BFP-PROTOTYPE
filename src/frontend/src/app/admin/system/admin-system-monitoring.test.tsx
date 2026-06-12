@@ -238,7 +238,7 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
         await waitFor(() => {
             expect(screen.getByText(/You are offline/i)).toBeInTheDocument();
         });
-        expect(screen.getByText(/Cached admin data is displayed/i)).toBeInTheDocument();
+        expect(screen.getByText(/showing cached data/i)).toBeInTheDocument();
 
         // Restore
         networkStatusState.isOnline = true;

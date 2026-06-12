@@ -97,10 +97,6 @@ All in `src/backend/api/routes/admin.py` (~935 lines). Every endpoint is gated b
 - **Backup format** — `pg_dump` encrypted with AES-256-CBC; `_apply_backup_retention()` deletes oldest when count exceeds 100
 - **Backup dir** — lazy-created at `/app/storage/backups` (configurable via `BACKUP_DIR` env var)
 
-## Gap / Status Notes
-
-## Gap / Status Notes
-
 ## Offline Read Caching (GH #270)
 
 The admin hub monitoring reads (system health, system metrics, worker status, active sessions, audit logs) are wrapped in offline-aware functions in `src/frontend/src/lib/api/offlineAdmin.ts`. Each wrapper:
@@ -110,9 +106,11 @@ The admin hub monitoring reads (system health, system metrics, worker status, ac
 - Falls back to fresh cache on network error (sets offline state + serves cached `{ response, fromCache: true, cachedAt }`)
 - Throws a descriptive error when offline with no cache (no silent fallback)
 
-The page shows an amber "You are offline. Cached admin data is displayed." banner when `useNetworkStatus().isOnline` is false, and displays `(cached)` indicators plus "Last checked" timestamps on panels served from cache.
+The page shows an amber "You are offline — showing cached data" banner when `useNetworkStatus().isOnline` is false, and displays `(cached)` indicators plus relative "Last checked: X sec ago" timestamps only on panels served from cache.
 
 User CRUD, security HITL ops, and scheduled reports remain online-only.
+
+## Gap / Status Notes
 
 - The page shows all panels in a **single vertical scroll layout** — no tabbed Activity & Governance section (logged in [[gaps/ui-ux-gap-register]] as issue #A-02 and #A-04)
 - Security threat logs still have **no frontend pagination/search/filter**. Backend API is paginated, but the admin UI currently consumes only the initial page.

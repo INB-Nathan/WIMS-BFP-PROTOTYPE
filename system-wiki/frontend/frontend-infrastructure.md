@@ -75,7 +75,8 @@ The API client is split into domain slices with a compatibility barrel. `src/fro
 | `api/triage.ts` | Validator triage queue and cluster workflow exports |
 | `api/analytics.ts` | Analyst analytics, exports, incident-list exports, and offline-aware read wrapper exports |
 | `api/regional.ts` | Regional encoder incidents, drafts, AFOR import/commit, duplicate checks |
-| `api/admin.ts` | Admin/user/session/security/audit exports |
+| `api/admin.ts` | Admin/user/session/security/audit exports, including admin monitoring offline-aware wrappers |
+| `api/offlineAdmin.ts` | Offline-aware admin monitoring read wrappers for health, metrics, worker status, active sessions, and audit logs |
 | `api/reference.ts` | Reference data and nearby-station exports |
 | `api/validator.ts` | Validator-oriented compatibility exports + offline-aware action wrappers |
 | `api/offlineValidator.ts` | Offline-aware validator queue fetch, verification, and archive/unarchive wrappers returning `{ queued, localId }` or `{ response, fromCache, cachedAt? }` |

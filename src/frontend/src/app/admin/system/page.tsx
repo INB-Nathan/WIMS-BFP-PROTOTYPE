@@ -107,6 +107,16 @@ interface WorkerStatus {
     status: string;
 }
 
+function formatLastCheckedAgo(checkedAt: Date | null): string | null {
+    if (!checkedAt) return null;
+    const seconds = Math.max(0, Math.floor((Date.now() - checkedAt.getTime()) / 1000));
+    if (seconds < 60) return `${seconds} sec ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} min ago`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours} hr ago`;
+}
+
 export default function AdminSystemPage() {
     const router = useRouter();
     const { user, loading } = useAuth();
@@ -477,7 +487,7 @@ export default function AdminSystemPage() {
 
             {!networkStatus.isOnline && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-                    You are offline. Cached admin data is displayed.
+                    You are offline — showing cached data
                 </div>
             )}
 
@@ -507,11 +517,12 @@ export default function AdminSystemPage() {
                         <Activity className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
                         <span>System Monitoring</span>
                         {monitoringFromCache && <span className="text-xs italic text-amber-600">(cached)</span>}
-                        {monitoringLastChecked && (
+                        {monitoringFromCache && monitoringLastChecked && (
                             <span className="text-xs text-gray-400">
-                                Last checked {monitoringLastChecked.toLocaleTimeString()} (auto-refreshes every 60s)
+                                Last checked: {formatLastCheckedAgo(monitoringLastChecked)}
                             </span>
                         )}
+                        <span className="text-xs text-gray-400">(auto-refreshes every 60s)</span>
                     </div>
                     <button onClick={loadMonitoring} className="flex items-center gap-1 text-sm font-medium hover:opacity-80 transition-opacity" style={{ color: 'var(--bfp-maroon)' }}>
                         <RefreshCw className="w-4 h-4" /> Refresh
@@ -594,9 +605,9 @@ export default function AdminSystemPage() {
                             <span className={`ml-2 px-2 py-0.5 rounded text-xs font-bold text-white ${health.status === 'HEALTHY' ? 'bg-green-600' : 'bg-red-600'}`}>
                                 {health.status}
                             </span>
-                            {healthLastChecked && (
+                            {healthFromCache && healthLastChecked && (
                                 <span className="text-xs text-gray-400">
-                                    Last checked {healthLastChecked.toLocaleTimeString()}
+                                    Last checked: {formatLastCheckedAgo(healthLastChecked)}
                                 </span>
                             )}
                             <span className="text-xs text-gray-400 ml-2">(auto-refreshes every 60s)</span>
@@ -694,9 +705,9 @@ export default function AdminSystemPage() {
                         <BarChart3 className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
                         <span>Active Sessions</span>
                         {sessionsFromCache && <span className="text-xs italic text-amber-600">(cached)</span>}
-                        {sessionsLastChecked && (
+                        {sessionsFromCache && sessionsLastChecked && (
                             <span className="text-xs text-gray-400">
-                                Last checked {sessionsLastChecked.toLocaleTimeString()}
+                                Last checked: {formatLastCheckedAgo(sessionsLastChecked)}
                             </span>
                         )}
                     </div>
@@ -833,9 +844,9 @@ export default function AdminSystemPage() {
                         <FileText className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
                         <span>System Audit</span>
                         {auditFromCache && <span className="text-xs italic text-amber-600">(cached)</span>}
-                        {auditLastChecked && (
+                        {auditFromCache && auditLastChecked && (
                             <span className="text-xs text-gray-400">
-                                Last checked {auditLastChecked.toLocaleTimeString()}
+                                Last checked: {formatLastCheckedAgo(auditLastChecked)}
                             </span>
                         )}
                     </div>

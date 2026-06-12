@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-12
 **Issue:** https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/issues/270
-**Branch:** `offline-expansion` — commit `87a4223`
+**Branch:** `offline-expansion` — implementation commits `87a4223`, `f1c1239`; parent polish captured in follow-up `fix(#270)` commit
 **Impl brief:** `/tmp/pi-subagents-uid-1000/chain-runs/a2f22758/impl_brief.md`
 **Test contract:** `/tmp/pi-subagents-uid-1000/chain-runs/a2f22758/test_contract.md`
 **Worker result:** `/tmp/pi-subagents-uid-1000/chain-runs/a2f22758/impl_result.md`
@@ -16,30 +16,32 @@ Added offline-first read caching for the 5 monitoring-read call sites in the Sys
 
 ---
 
-## Changed Files (10 total)
+## Changed Files (12 total)
 
 | File | Change Type | Detail |
 |---|---|---|
 | `src/frontend/src/lib/api/offlineAdmin.ts` | **Created** | 5 offline-aware wrappers + shared `offlineAware()` helper |
-| `src/frontend/src/lib/api/admin.ts` | Modified | Re-exports 5 `*OfflineAware` fns + `OfflineAnalyticsResult` type |
-| `src/frontend/src/app/admin/system/page.tsx` | Modified | Import swaps for `*OfflineAware` fns; `useNetworkStatus` import; offline amber banner; `(cached)` and "Last checked" indicators on sessions/audit panels |
+| `src/frontend/src/lib/api/admin.ts` | Modified | Re-exports 5 `*OfflineAware` fns + `OfflineAdminResult` type |
+| `src/frontend/src/app/admin/system/page.tsx` | Modified | Import swaps for `*OfflineAware` fns; `useNetworkStatus` import; exact offline amber banner; `(cached)` and relative "Last checked: X sec ago" indicators on cached panels |
 | `src/frontend/src/lib/api/__tests__/offlineAdmin.test.ts` | **Created** | 11 unit tests covering all 5 wrappers |
 | `src/frontend/src/app/admin/system/admin-system-monitoring.test.tsx` | Modified | Mocks updated to `{ response, fromCache: false }` shape; offline banner render test added |
 | `src/frontend/src/app/admin/system/admin-system-hitl.test.tsx` | Modified | Mocks updated for `*OfflineAware` return shape |
 | `src/frontend/src/app/admin/system/admin-system-analyze-ai.test.tsx` | Modified | Mocks updated for `*OfflineAware` return shape |
 | `src/frontend/src/app/admin/system/admin-system-search.test.tsx` | Modified | Mocks updated for `*OfflineAware` return shape |
 | `system-wiki/subsystems/admin-hub.md` | Modified | Added "Offline Read Caching" section |
+| `system-wiki/frontend/frontend-infrastructure.md` | Modified | Added `api/offlineAdmin.ts` to API slice table |
 | `system-wiki/log.md` | Modified | Appended GH #270 entry |
+| `docs/implementations/admin-offline-first-read-caching.md` | Created | Canonical handoff; duplicate worker draft removed during parent polish |
 
 ### Wrapper Contracts
 
 | Wrapper | Cache key | TTL | Return |
 |---|---|---|---|
-| `fetchSystemHealthOfflineAware()` | `admin:system-health:{}` | 60s | `OfflineAnalyticsResult<SystemHealthResponse>` |
-| `fetchSystemMetricsOfflineAware()` | `admin:system-metrics:{}` | 60s | `OfflineAnalyticsResult<SystemMetricsResponse>` |
-| `fetchWorkerStatusOfflineAware()` | `admin:worker-status:{}` | 60s | `OfflineAnalyticsResult<WorkerStatusResponse[]>` |
-| `fetchActiveSessionsOfflineAware()` | `admin:active-sessions:{}` | 30s | `OfflineAnalyticsResult<any[]>` |
-| `fetchAuditLogsOfflineAware(params?)` | `admin:audit-logs:{args}` | 60s | `OfflineAnalyticsResult<PaginatedResponse<AuditLogEntry>>` |
+| `fetchSystemHealthOfflineAware()` | `admin:system-health:{}` | 60s | `OfflineAdminResult<SystemHealthResponse>` |
+| `fetchSystemMetricsOfflineAware()` | `admin:system-metrics:{}` | 60s | `OfflineAdminResult<SystemMetricsResponse>` |
+| `fetchWorkerStatusOfflineAware()` | `admin:worker-status:{}` | 60s | `OfflineAdminResult<WorkerStatusResponse[]>` |
+| `fetchActiveSessionsOfflineAware()` | `admin:active-sessions:{}` | 30s | `OfflineAdminResult<any[]>` |
+| `fetchAuditLogsOfflineAware(params?)` | `admin:audit-logs:{args}` | 60s | `OfflineAdminResult<PaginatedResponse<AuditLogEntry>>` |
 
 Key prefix format: `admin:{cacheKey}:{encodeURIComponent(stableStringify(args))}` (mirrors `offlineAnalytics.ts` with `analytics:` → `admin:`).
 
@@ -156,10 +158,10 @@ $ cd src/frontend && npx vitest run
 |---|---|---|
 | 5 offline-aware wrappers with `admin:` prefix | ✅ Done | `offlineAdmin.ts` — `fetchSystemHealthOfflineAware`, `fetchSystemMetricsOfflineAware`, `fetchWorkerStatusOfflineAware`, `fetchActiveSessionsOfflineAware`, `fetchAuditLogsOfflineAware` |
 | 60s TTL (30s for sessions) | ✅ Done | Sessions TTL = 30s; all others = 60s |
-| Re-export from `admin.ts` | ✅ Done | `admin.ts` re-exports all 5 + `OfflineAnalyticsResult` |
+| Re-export from `admin.ts` | ✅ Done | `admin.ts` re-exports all 5 + `OfflineAdminResult` |
 | `offlineAware()` helper copied from `offlineAnalytics.ts:109-126` | ✅ Done | `offlineAdmin.ts` has identical `offlineAware()` with `admin:` prefix |
 | Amber offline banner (analyst/page.tsx:526-529 pattern) | ✅ Done | `<div>` with amber styling at top of `/admin/system` page |
-| Cache indicators: `(cached)` + "Last checked" | ✅ Done | Appended to health, monitoring, sessions, and audit panels |
+| Cache indicators: `(cached)` + relative "Last checked: X sec ago" | ✅ Done | Appended to health, monitoring, sessions, and audit panels only when served from cache |
 | Admin CRUD + security ops untouched | ✅ Done | `fetchAdminUsers`, `createAdminUser`, `updateAdminUser`, `fetchAdminSecurityLogs`, `analyzeSecurityLog`, `updateAdminSecurityLog` — all untouched |
 | No backend / sync-engine changes | ✅ Done | All changes are frontend-only |
 

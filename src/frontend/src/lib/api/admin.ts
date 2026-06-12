@@ -30,4 +30,4 @@ export {
   fetchAuditLogsOfflineAware,
 } from './offlineAdmin';
 
-export type { OfflineAnalyticsResult } from './offlineAdmin';
+export type { OfflineAdminResult } from './offlineAdmin';
