@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-06-11
+Last updated: 2026-06-12
 Total synthesis pages: 32
-Last changes: OpenBao token-file mounting for backend/celery to avoid stale `.env.production` tokens after OpenBao volume resets.
+Last changes: National Analyst offline-first read caching with encrypted IndexedDB analytics cache and offline-aware frontend wrappers.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

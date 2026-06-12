@@ -17,6 +17,14 @@ vi.mock('@/context/AuthContext', () => ({
   useAuth: vi.fn(),
 }));
 
+vi.mock('@/lib/useNetworkStatus', () => ({
+  useNetworkStatus: () => ({ isOnline: true, isReconnecting: false }),
+}));
+
+vi.mock('@/lib/useAutoSync', () => ({
+  useAutoSync: () => ({ syncing: false, lastSyncedAt: null, pendingCount: 0, syncNow: vi.fn() }),
+}));
+
 import { useAuth } from '@/context/AuthContext';
 
 const mockFetchHeatmapData = vi.fn();
@@ -32,17 +40,17 @@ const mockFetchAnalyticsFilterOptions = vi.fn();
 const mockFetchAnalystIncidentList = vi.fn();
 
 vi.mock('@/lib/api', () => ({
-  fetchHeatmapData: (f: object) => mockFetchHeatmapData(f),
-  fetchTrendData: (f: object) => mockFetchTrendData(f),
-  fetchComparativeData: (f: object) => mockFetchComparativeData(f),
+  fetchHeatmapDataOfflineAware: async (f: object) => ({ response: await mockFetchHeatmapData(f), fromCache: false }),
+  fetchTrendDataOfflineAware: async (f: object) => ({ response: await mockFetchTrendData(f), fromCache: false }),
+  fetchComparativeDataOfflineAware: async (f: object) => ({ response: await mockFetchComparativeData(f), fromCache: false }),
   fetchRegions: () => mockFetchRegions(),
-  fetchTypeDistribution: (f: object) => mockFetchTypeDistribution(f),
+  fetchTypeDistributionOfflineAware: async (f: object) => ({ response: await mockFetchTypeDistribution(f), fromCache: false }),
   fetchTopBarangays: (f: object) => mockFetchTopBarangays(f),
-  fetchResponseTimeByRegion: (f: object) => mockFetchResponseTimeByRegion(f),
+  fetchResponseTimeByRegionOfflineAware: async (f: object) => ({ response: await mockFetchResponseTimeByRegion(f), fromCache: false }),
   fetchCompareRegions: (f: object) => mockFetchCompareRegions(f),
-  fetchTopN: (f: object) => mockFetchTopN(f),
-  fetchAnalyticsFilterOptions: (field: string, filters: object) =>
-    mockFetchAnalyticsFilterOptions(field, filters),
+  fetchTopNOfflineAware: async (f: object) => ({ response: await mockFetchTopN(f), fromCache: false }),
+  fetchAnalyticsFilterOptionsOfflineAware: async (field: string, filters: object) =>
+    ({ response: await mockFetchAnalyticsFilterOptions(field, filters), fromCache: false }),
   fetchAnalystIncidentList: (params: object) => mockFetchAnalystIncidentList(params),
 }));
 

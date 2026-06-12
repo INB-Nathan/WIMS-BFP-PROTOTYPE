@@ -1,4 +1,19 @@
 export {
+  fetchAnalyticsFilterOptionsOfflineAware,
+  fetchAnalystIncidentDetailOfflineAware,
+  fetchAnalystIncidentSensitiveOfflineAware,
+  fetchComparativeDataOfflineAware,
+  fetchFilterOptionsOfflineAware,
+  fetchHeatmapDataOfflineAware,
+  fetchResponseTimeByRegionOfflineAware,
+  fetchTopNOfflineAware,
+  fetchTrendDataOfflineAware,
+  fetchTypeDistributionOfflineAware,
+} from './offlineAnalytics';
+
+export type { OfflineAnalyticsResult } from './offlineAnalytics';
+
+export {
   downloadAnalyticsExport,
   fetchAnalyticsFilterOptions,
   fetchAnalystIncidentDetail,

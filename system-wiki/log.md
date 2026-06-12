@@ -3,6 +3,13 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-12] feat | GH #266 analyst offline-first read caching
+
+- `src/frontend/src/lib/api/offlineAnalytics.ts`: added 9 offline-aware National Analyst read wrappers returning `{ response, fromCache, cachedAt? }` with 30-minute TTL, connectivity failover, cache-miss friendly errors, and network-error offline marking.
+- `src/frontend/src/lib/offlineStore.ts` and `src/frontend/src/lib/connectivity.ts`: bumped IndexedDB to v3 with encrypted `analytics-cache` KV entries and added shared connectivity snapshot/probe helpers.
+- Analyst dashboard, workflow, and incident detail pages now call the wrappers, mount network/autosync hooks, show cached-data banners, and block/offline-toast export actions where applicable.
+- `system-wiki/architecture/pwa-tests-cicd.md` and `system-wiki/frontend/frontend-infrastructure.md`: documented the encrypted analyst cache and wrapper exports. No FRS gap register update (issue implements existing offline-first behavior without changing gap status).
+
 ## [2026-06-12] fix | dynamic frontend DNS for nginx + frontend health check in deploy
 
 - `src/nginx/nginx.conf`: replaced all four static `proxy_pass http://frontend:3000[/]` references with a new `upstream frontend_servers { server frontend:3000 resolve; }` block. Nginx previously resolved `frontend` at startup and cached the IP indefinitely, so after a deploy recreated the frontend container with a new Docker IP, nginx kept proxying to the stale IP → `502 Bad Gateway`. The `resolve` flag on the upstream server directive forces nginx to re-resolve via Docker's embedded DNS (`resolver 127.0.0.11 valid=10s`), matching the existing `backend_servers` pattern.

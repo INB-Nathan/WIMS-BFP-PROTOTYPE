@@ -1,10 +1,10 @@
 ---
 title: PWA/Offline-First, Tests & CI/CD
 created: 2026-05-16
-updated: 2026-06-05
+updated: 2026-06-12
 type: architecture
 tags: [wims-bfp, pwa, offline-first, testing, ci-cd, service-worker]
-sources: [src/frontend/src/lib/, src/frontend/public/sw.js, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py, src/backend/tests/test_schema_patch_startup_guard.py]
+sources: [src/frontend/src/lib/, src/frontend/src/lib/api/offlineAnalytics.ts, src/frontend/public/sw.js, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py, src/backend/tests/test_schema_patch_startup_guard.py]
 status: draft
 ---
 
@@ -12,11 +12,11 @@ status: draft
 
 ## Offline-First Infrastructure (FRS M2)
 
-### `offlineStore.ts` — IndexedDB Queue
+### `offlineStore.ts` — IndexedDB Queue + Encrypted Analytics Read Cache
 
 **File:** `src/frontend/src/lib/offlineStore.ts`
 
-Wraps IndexedDB (via Jake Archibald's `idb` library) with a single object store `incident-queue` in database `wims-bfp-db`.
+Wraps IndexedDB (via Jake Archibald's `idb` library) in database `wims-bfp-db`. The database is now version 3: legacy offline incident queue records remain in `incident-queue`, reusable AES-GCM key material remains in `crypto-keys`, and analyst offline read caching uses the encrypted `analytics-cache` object store keyed by `analytics:{cacheKey}`. Analytics cached values are stored only as `{ key, encrypted, cachedAt }`; no heatmap/detail/sensitive payload is written to IndexedDB in raw form.
 
 | Export | Signature | Description |
 |---|---|---|
@@ -24,6 +24,21 @@ Wraps IndexedDB (via Jake Archibald's `idb` library) with a single object store 
 | `getPendingIncidents()` | `() => Promise<PendingIncident[]>` | Returns all records where `status === 'pending'` |
 | `markSynced(id)` | `(number) => Promise<void>` | Marks item synced then deletes it |
 | `clearSynced()` | `() => Promise<void>` | Deletes all synced items |
+| `cacheAnalyticsResponse(key, data, cachedAt?)` | `(string, unknown, number?) => Promise<void>` | Encrypts and stores an analyst read response in `analytics-cache` |
+| `getCachedAnalyticsResponse(key)` | `(string) => Promise<CachedAnalyticsResponse \| undefined>` | Decrypts a cached analyst response and returns `{ key, data, cachedAt }` |
+| `clearAnalyticsCache()` | `() => Promise<void>` | Clears the encrypted analyst read cache |
+
+### `connectivity.ts` — Reachability Snapshot
+
+**File:** `src/frontend/src/lib/connectivity.ts`
+
+Adds a small shared connectivity module for offline-aware API wrappers. It tracks `online`, `offline`, `checking`, and `reconnecting` states from `navigator.onLine` plus a `/health` probe, exposes `getConnectivitySnapshot()`, `isReachable()`, and `markConnectivityOffline()`, and lets wrappers fail over to IndexedDB when fetch/network errors imply an effective offline state.
+
+### `api/offlineAnalytics.ts` — Analyst Offline-First Read Wrappers
+
+**File:** `src/frontend/src/lib/api/offlineAnalytics.ts`
+
+Adds 9 offline-aware read wrappers for the National Analyst surface: heatmap, trends, comparative, type distribution, response time, top-N, filter options, analyst incident detail, and analyst sensitive detail. Each wrapper returns `{ response, fromCache, cachedAt? }`, uses a 30-minute TTL, reads a valid encrypted cache without calling the network when connectivity is offline, caches successful online responses, marks connectivity offline on network-style errors (`TypeError`, `ERR_*`, `Failed to fetch`, `NetworkError`, `net::ERR`), and throws a friendly offline-unavailable error on cache miss/stale entries. Export queueing is not cached.
 
 ### `syncEngine.ts` — Core Sync Logic (FR-3B, FR-3F)
 

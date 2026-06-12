@@ -1,9 +1,10 @@
 import { openDB, IDBPDatabase } from 'idb';
 
 const DB_NAME = 'wims-bfp-db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_NAME = 'incident-queue';
 const KEY_STORE = 'crypto-keys';
+const ANALYTICS_STORE = 'analytics-cache';
 
 // Advisory offline storage cap (MB). Default 50; overridden via initOfflineStorageLimit().
 // This is client-side enforcement only — no server eviction occurs.
@@ -19,6 +20,18 @@ interface PendingIncident {
 interface EncryptedPayload {
     iv: number[];
     data: number[];
+}
+
+interface CachedAnalyticsRecord {
+    key: string;
+    encrypted: EncryptedPayload;
+    cachedAt: number;
+}
+
+export interface CachedAnalyticsResponse<T = unknown> {
+    key: string;
+    data: T;
+    cachedAt: number;
 }
 
 interface QueuedRecord {
@@ -39,6 +52,12 @@ async function getDB(): Promise<IDBPDatabase> {
                     db.createObjectStore(KEY_STORE);
                 }
             }
+            if (oldVersion < 3) {
+                if (!db.objectStoreNames.contains(ANALYTICS_STORE)) {
+                    const analyticsStore = db.createObjectStore(ANALYTICS_STORE, { keyPath: 'key' });
+                    analyticsStore.createIndex('by_cachedAt', 'cachedAt');
+                }
+            }
         },
     });
 }
@@ -56,7 +75,7 @@ async function getOrCreateKey(): Promise<CryptoKey> {
     return key;
 }
 
-async function encryptPayload(payload: Record<string, unknown>): Promise<EncryptedPayload> {
+async function encryptPayload(payload: unknown): Promise<EncryptedPayload> {
     const key = await getOrCreateKey();
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encoded = new TextEncoder().encode(JSON.stringify(payload));
@@ -64,14 +83,14 @@ async function encryptPayload(payload: Record<string, unknown>): Promise<Encrypt
     return { iv: Array.from(iv), data: Array.from(new Uint8Array(ciphertext)) };
 }
 
-async function decryptPayload(enc: EncryptedPayload): Promise<Record<string, unknown>> {
+async function decryptPayload<T = unknown>(enc: EncryptedPayload): Promise<T> {
     const key = await getOrCreateKey();
     const plaintext = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv: new Uint8Array(enc.iv) },
         key,
         new Uint8Array(enc.data)
     );
-    return JSON.parse(new TextDecoder().decode(plaintext));
+    return JSON.parse(new TextDecoder().decode(plaintext)) as T;
 }
 
 /** Override the advisory offline storage cap at app init time. */
@@ -111,7 +130,7 @@ export async function getPendingIncidents(): Promise<PendingIncident[]> {
     const pending = all.filter((item: QueuedRecord) => item.status === 'pending');
     const result: PendingIncident[] = [];
     for (const item of pending) {
-        const payload = await decryptPayload(item.encrypted);
+        const payload = await decryptPayload<Record<string, unknown>>(item.encrypted);
         result.push({
             id: item.id!,
             payload,
@@ -126,7 +145,7 @@ export async function getQueuedIncident(id: number): Promise<PendingIncident | u
     const db = await getDB();
     const item: QueuedRecord | undefined = await db.get(STORE_NAME, id);
     if (!item) return undefined;
-    const payload = await decryptPayload(item.encrypted);
+    const payload = await decryptPayload<Record<string, unknown>>(item.encrypted);
     return {
         id: item.id!,
         payload,
@@ -188,4 +207,38 @@ export async function clearSynced() {
         cursor = await cursor.continue();
     }
     await tx.done;
+}
+
+export async function cacheAnalyticsResponse<T = unknown>(
+    key: string,
+    data: T,
+    cachedAt = Date.now()
+): Promise<void> {
+    const db = await getDB();
+    const encrypted = await encryptPayload(data);
+    const record: CachedAnalyticsRecord = {
+        key,
+        encrypted,
+        cachedAt,
+    };
+    await db.put(ANALYTICS_STORE, record);
+}
+
+export async function getCachedAnalyticsResponse<T = unknown>(
+    key: string
+): Promise<CachedAnalyticsResponse<T> | undefined> {
+    const db = await getDB();
+    const item: CachedAnalyticsRecord | undefined = await db.get(ANALYTICS_STORE, key);
+    if (!item) return undefined;
+    const data = await decryptPayload<T>(item.encrypted);
+    return {
+        key: item.key,
+        data,
+        cachedAt: item.cachedAt,
+    };
+}
+
+export async function clearAnalyticsCache(): Promise<void> {
+    const db = await getDB();
+    await db.clear(ANALYTICS_STORE);
 }

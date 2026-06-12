@@ -7,15 +7,15 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import type { Region } from '@/types/api';
 import {
-  fetchHeatmapData,
-  fetchTrendData,
-  fetchComparativeData,
+  fetchHeatmapDataOfflineAware,
+  fetchTrendDataOfflineAware,
+  fetchComparativeDataOfflineAware,
   fetchRegions,
-  fetchTypeDistribution,
-  fetchResponseTimeByRegion,
+  fetchTypeDistributionOfflineAware,
+  fetchResponseTimeByRegionOfflineAware,
   fetchCompareRegions,
-  fetchTopN,
-  fetchAnalyticsFilterOptions,
+  fetchTopNOfflineAware,
+  fetchAnalyticsFilterOptionsOfflineAware,
   type HeatmapGeoJSON,
   type TrendsResponse,
   type ComparativeResponse,
@@ -49,6 +49,8 @@ import {
   type AnalystWorkflowSlug,
 } from '@/lib/analyst-workflow-transfer';
 import { getShortRegionName, PH_REGIONS } from '@/lib/ph-regions';
+import { useAutoSync } from '@/lib/useAutoSync';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
 
 const HeatmapViewer = dynamic(
   () => import('@/components/analytics/HeatmapViewer').then((m) => m.HeatmapViewer),
@@ -191,6 +193,22 @@ function StatTile({
   );
 }
 
+type DashboardCacheMeta = Partial<Record<
+  'heatmap' | 'trends' | 'comparative' | 'typeDistribution' | 'responseTime' | 'topN',
+  number
+>>;
+
+function formatCachedAt(cachedAt?: number): string | null {
+  if (!cachedAt) return null;
+  return `Last updated ${new Date(cachedAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}`;
+}
+
+function CacheMetaText({ cachedAt }: { cachedAt?: number }) {
+  const label = formatCachedAt(cachedAt);
+  if (!label) return null;
+  return <p className="mt-2 text-xs font-medium text-amber-700">Showing cached data — {label}</p>;
+}
+
 /** Default comparative windows: last 30 days split into Range A then Range B (ranges may overlap — server does not enforce ordering). */
 function initialComparativeRanges(): {
   rangeAStart: string;
@@ -214,6 +232,8 @@ function initialComparativeRanges(): {
 export default function AnalystDashboardPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
+  const networkStatus = useNetworkStatus();
+  useAutoSync();
   const role = (user as { role?: string })?.role ?? null;
 
   useEffect(() => {
@@ -228,6 +248,7 @@ export default function AnalystDashboardPage() {
   const [loadingData, setLoadingData] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [accessDenied, setAccessDenied] = useState(false);
+  const [cacheMeta, setCacheMeta] = useState<DashboardCacheMeta>({});
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -319,17 +340,17 @@ export default function AnalystDashboardPage() {
         : [];
       setAppliedIncidentFilters(filters as AnalystIncidentListParams);
       const [heatmapRes, trendsRes, comparativeRes, typeDistRes, respTimeRes, cmpRegionsRes, topNRes] = await Promise.all([
-        fetchHeatmapData(filters),
-        fetchTrendData({ ...filters, interval: iv }),
-        fetchComparativeData({
+        fetchHeatmapDataOfflineAware(filters),
+        fetchTrendDataOfflineAware({ ...filters, interval: iv }),
+        fetchComparativeDataOfflineAware({
           range_a_start: raS,
           range_a_end: raE,
           range_b_start: rbS,
           range_b_end: rbE,
           ...filters,
         }),
-        fetchTypeDistribution(filters),
-        fetchResponseTimeByRegion(filters),
+        fetchTypeDistributionOfflineAware(filters),
+        fetchResponseTimeByRegionOfflineAware(filters),
         comparisonRegionIds.length >= 2
           ? fetchCompareRegions({
               ...filters,
@@ -337,15 +358,23 @@ export default function AnalystDashboardPage() {
               region_ids: comparisonRegionIds.join(','),
             }).catch(() => [])
           : Promise.resolve([]),
-        fetchTopN({ metric: topNMetric, dimension: topNDimension, ...filters }),
+        fetchTopNOfflineAware({ metric: topNMetric, dimension: topNDimension, ...filters }),
       ]);
-      setHeatmap(heatmapRes);
-      setTrends(trendsRes);
-      setComparative(comparativeRes);
-      setTypeDistribution(typeDistRes);
-      setResponseTime(respTimeRes);
+      setHeatmap(heatmapRes.response);
+      setTrends(trendsRes.response);
+      setComparative(comparativeRes.response);
+      setTypeDistribution(typeDistRes.response);
+      setResponseTime(respTimeRes.response);
       setCompareRegions(cmpRegionsRes.length >= 2 ? cmpRegionsRes : null);
-      setTopNData(topNRes);
+      setTopNData(topNRes.response);
+      setCacheMeta({
+        heatmap: heatmapRes.fromCache ? heatmapRes.cachedAt : undefined,
+        trends: trendsRes.fromCache ? trendsRes.cachedAt : undefined,
+        comparative: comparativeRes.fromCache ? comparativeRes.cachedAt : undefined,
+        typeDistribution: typeDistRes.fromCache ? typeDistRes.cachedAt : undefined,
+        responseTime: respTimeRes.fromCache ? respTimeRes.cachedAt : undefined,
+        topN: topNRes.fromCache ? topNRes.cachedAt : undefined,
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (/403|NATIONAL_ANALYST|SYSTEM_ADMIN|required|forbidden/i.test(msg)) {
@@ -383,11 +412,11 @@ export default function AnalystDashboardPage() {
   // Cascade: load province options when region changes
   useEffect(() => {
     if (!ANALYST_ROLES.includes(role ?? '')) return;
-    fetchAnalyticsFilterOptions('province', {
+    fetchAnalyticsFilterOptionsOfflineAware('province', {
       region_id: regionId ? parseInt(regionId, 10) : undefined,
       start_date: startDate || undefined,
       end_date: endDate || undefined,
-    }).then(setProvinceOptions).catch(() => setProvinceOptions([]));
+    }).then((result) => setProvinceOptions(result.response)).catch(() => setProvinceOptions([]));
   }, [loading, regionId, startDate, endDate, role]);
 
   // Cascade: load municipality options when province changes
@@ -397,12 +426,12 @@ export default function AnalystDashboardPage() {
       setMunicipalityOptions([]);
       return;
     }
-    fetchAnalyticsFilterOptions('municipality', {
+    fetchAnalyticsFilterOptionsOfflineAware('municipality', {
       region_id: regionId ? parseInt(regionId, 10) : undefined,
       province,
       start_date: startDate || undefined,
       end_date: endDate || undefined,
-    }).then(setMunicipalityOptions).catch(() => setMunicipalityOptions([]));
+    }).then((result) => setMunicipalityOptions(result.response)).catch(() => setMunicipalityOptions([]));
   }, [loading, regionId, province, startDate, endDate, role]);
 
   // Clear municipality when province is cleared
@@ -435,6 +464,7 @@ export default function AnalystDashboardPage() {
   const visibleIncidentCount = typeDistribution?.reduce((sum, item) => sum + item.count, 0)
     ?? heatmap?.features.length
     ?? 0;
+  const exportUnavailableOffline = !networkStatus.isOnline;
   const averageResponseTime = responseTime && responseTime.length > 0
     ? responseTime.reduce((sum, item) => sum + Number(item.avg_response_time || 0), 0) / responseTime.length
     : null;
@@ -493,6 +523,11 @@ export default function AnalystDashboardPage() {
 
   return (
     <div className="space-y-6">
+      {exportUnavailableOffline && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+          You are offline. Cached analyst reads are available; analytics exports are unavailable until reconnect.
+        </div>
+      )}
       <div className="rounded-md border border-gray-200 bg-white px-5 py-4 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -880,6 +915,7 @@ export default function AnalystDashboardPage() {
                     description={`${interval.charAt(0).toUpperCase()}${interval.slice(1)} verified incident volume`}
                   />
                   <div className="p-5">
+                    <CacheMetaText cachedAt={cacheMeta.trends} />
                     {trends && <TrendCharts data={trends} />}
                   </div>
                 </div>
@@ -892,6 +928,7 @@ export default function AnalystDashboardPage() {
                       description="Variance between the selected review periods"
                     />
                     <div className="p-5">
+                      <CacheMetaText cachedAt={cacheMeta.comparative} />
                       <div className="grid grid-cols-2 gap-4 text-sm">
                         <div className="p-3 rounded border" style={{ borderColor: 'var(--border-color)' }}>
                           <div className="text-xs font-semibold uppercase text-gray-500 mb-1">Range A</div>
@@ -932,8 +969,10 @@ export default function AnalystDashboardPage() {
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <button
                       onClick={() => setExportModal({ format: 'csv', open: true })}
+                      disabled={exportUnavailableOffline}
+                      title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
                       aria-label="Export CSV"
-                      className="inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white"
+                      className="inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                       style={{ backgroundColor: '#991B1B' }}
                     >
                       <Download className="h-4 w-4" />
@@ -941,8 +980,10 @@ export default function AnalystDashboardPage() {
                     </button>
                     <button
                       onClick={() => setExportModal({ format: 'pdf', open: true })}
+                      disabled={exportUnavailableOffline}
+                      title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
                       aria-label="Export PDF"
-                      className="inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white"
+                      className="inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                       style={{ backgroundColor: '#991B1B' }}
                     >
                       <Download className="h-4 w-4" />
@@ -950,8 +991,10 @@ export default function AnalystDashboardPage() {
                     </button>
                     <button
                       onClick={() => setExportModal({ format: 'excel', open: true })}
+                      disabled={exportUnavailableOffline}
+                      title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
                       aria-label="Export Excel"
-                      className="inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white"
+                      className="inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                       style={{ backgroundColor: '#991B1B' }}
                     >
                       <Download className="h-4 w-4" />
@@ -971,6 +1014,7 @@ export default function AnalystDashboardPage() {
                     description="Distribution by general category"
                   />
                   <div className="p-5">
+                    <CacheMetaText cachedAt={cacheMeta.typeDistribution} />
                     <TypeDistributionChart data={typeDistribution ?? []} />
                   </div>
                 </div>
@@ -983,6 +1027,7 @@ export default function AnalystDashboardPage() {
                     description="Average, minimum, and maximum by region"
                   />
                   <div className="p-5">
+                    <CacheMetaText cachedAt={cacheMeta.responseTime} />
                     <ResponseTimeChart data={responseTime ?? []} />
                   </div>
                 </div>
@@ -1029,6 +1074,7 @@ export default function AnalystDashboardPage() {
                   description="Switch metric and dimension to inspect hotspots without leaving the dashboard"
                 />
                 <div className="space-y-4 p-5">
+                  <CacheMetaText cachedAt={cacheMeta.topN} />
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
                       <label className="block text-sm font-semibold mb-1" style={{ color: 'var(--text-muted)' }}>
@@ -1101,6 +1147,9 @@ export default function AnalystDashboardPage() {
                 description="Geographic clustering of verified incidents"
               />
               <div className="p-0">
+                <div className="px-4 py-2">
+                  <CacheMetaText cachedAt={cacheMeta.heatmap} />
+                </div>
                 <HeatmapViewer geojson={heatmap} className="h-[520px] lg:h-[calc(100vh-7rem)] lg:min-h-[600px] lg:max-h-[920px]" />
               </div>
             </div>
