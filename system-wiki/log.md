@@ -2884,3 +2884,14 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - Fix: replaced `getByLabelText` with `findByLabelText` (built on `waitFor`, retries until the element appears). This allows React to complete the `loadData` finally block and re-render the export section before the assertion runs.
 - No component behavior changed. Test coverage preserved (disabled state assertion unchanged).
 - No FRS gap register change (test-only fix).
+
+## [2026-06-13] feat(tests) + docs | GH #289 #294 #295 — attachment upload error-path tests, serve-route doc comments
+
+- **GH #289** (test): Added 3 error-path tests to `TestUploadAttachment` in `test_attachment_encryption.py`:
+  - `test_encrypt_bytes_fails_returns_500` (T6): mocks `provider.encrypt_bytes()` to raise; asserts 500 + "Failed to encrypt attachment".
+  - `test_insert_returns_none_returns_500` (T11): sets `insert_returns_none=True` on `_upload_db()` so INSERT RETURNING `fetchone()` returns `None`; asserts 500.
+  - `test_db_rollback_and_file_cleanup_on_commit_failure` (T5): makes `db.commit()` raise `Exception`; asserts 500, `db.rollback()` called, and no files remain in storage dir.
+  - Extended `_upload_db()` helper with `insert_returns_none` parameter.
+- **GH #294** (docs): Added inline column-to-variable mapping comment before the 7-tuple positional unpack in `serve_attachment()` documenting SELECT order and cautioning about future column changes.
+- **GH #295** (docs): Added inline comment in the `is_encrypted=false` legacy branch documenting that pre-migration files are read entirely into memory with no size cap (new uploads bounded by 25 MB `WIMS_MAX_ATTACHMENT_BYTES`).
+- No FRS gap register change (pure test/docs additions; no behavioral change to existing functionality).

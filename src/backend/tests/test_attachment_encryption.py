@@ -101,8 +101,19 @@ def tmp_storage(tmp_path, monkeypatch):
 # ── upload DB mock helpers ─────────────────────────────────────────────────────
 
 
-def _upload_db(attachment_id=42, incident_exists=True):
-    """Mock DB for the upload route (2 execute calls: SELECT incident, INSERT)."""
+def _upload_db(attachment_id=42, incident_exists=True, insert_returns_none=False):
+    """Mock DB for the upload route (2 execute calls: SELECT incident, INSERT).
+
+    Parameters
+    ----------
+    attachment_id : int
+        Value returned by ``fetchone()`` from the INSERT RETURNING clause.
+    incident_exists : bool
+        Whether the incident SELECT returns a row.
+    insert_returns_none : bool
+        If True, the INSERT ``fetchone()`` returns ``None`` - used to exercise
+        the ``att_row is None`` error path (T11 / GH #289).
+    """
     mock_db = MagicMock()
     call_count = 0
 
@@ -114,7 +125,7 @@ def _upload_db(attachment_id=42, incident_exists=True):
         if "fire_incidents" in sql:
             result.fetchone.return_value = (1,) if incident_exists else None
         elif "incident_attachments" in sql:
-            result.fetchone.return_value = (attachment_id,)
+            result.fetchone.return_value = None if insert_returns_none else (attachment_id,)
         else:
             result.fetchone.return_value = None
         return result
@@ -349,6 +360,64 @@ class TestUploadAttachment:
         written = list(tmp_storage.iterdir())
         assert len(written) == 1
         assert written[0].read_bytes() != b"x" * 100
+
+    # ------------------------------------------------------------------
+    # Error-path tests (GH #289)
+    # ------------------------------------------------------------------
+
+    def test_encrypt_bytes_fails_returns_500(self, client, tmp_storage, monkeypatch):
+        """T6: When provider.encrypt_bytes() raises, route must return 500."""
+        mock_provider = MagicMock()
+        mock_provider.encrypt_bytes.side_effect = Exception("encrypt failed")
+        mock_provider.current_version = 1
+        mock_provider.crypto_provider = "env_aesgcm"
+        mock_provider.kms_key_name = None
+        monkeypatch.setattr("api.routes.incidents.get_crypto_provider", lambda: mock_provider)
+
+        app.dependency_overrides[get_current_wims_user] = _encoder_user
+        app.dependency_overrides[get_db_with_rls] = lambda: _upload_db()
+
+        from io import BytesIO
+
+        resp = client.post(
+            "/api/incidents/1/attachments",
+            files={"file": ("photo.jpg", BytesIO(b"evidence"), "image/jpeg")},
+        )
+        assert resp.status_code == 500
+        assert "Failed to encrypt attachment" in resp.json()["detail"]
+
+    def test_insert_returns_none_returns_500(self, client, tmp_storage):
+        """T11: When INSERT RETURNING fetchone() is None, route must return 500."""
+        app.dependency_overrides[get_current_wims_user] = _encoder_user
+        app.dependency_overrides[get_db_with_rls] = lambda: _upload_db(insert_returns_none=True)
+
+        from io import BytesIO
+
+        resp = client.post(
+            "/api/incidents/1/attachments",
+            files={"file": ("photo.jpg", BytesIO(b"data"), "image/jpeg")},
+        )
+        assert resp.status_code == 500
+
+    def test_db_rollback_and_file_cleanup_on_commit_failure(self, client, tmp_storage):
+        """T5: On db.commit() failure, rollback must be called and file cleaned up."""
+        mock_db = _upload_db()
+        mock_db.commit.side_effect = Exception("commit failed")
+
+        app.dependency_overrides[get_current_wims_user] = _encoder_user
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        from io import BytesIO
+
+        resp = client.post(
+            "/api/incidents/1/attachments",
+            files={"file": ("photo.jpg", BytesIO(b"evidence"), "image/jpeg")},
+        )
+        assert resp.status_code == 500
+        assert "Internal server error" in resp.json()["detail"]
+        mock_db.rollback.assert_called_once()
+        # File written to disk before commit attempt must be cleaned up
+        assert len(list(tmp_storage.iterdir())) == 0
 
 
 # ════════════════════════════════════════════════════════════════════════════════
