@@ -3,6 +3,15 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-13] fix | PR #265 review — header injection sanitization, crypto_provider metadata, KMS byte tests, wiki typo
+
+- Q1 CRITICAL: `api/routes/incidents.py` serve_attachment — sanitize filename with `re.sub(r'[\x00-\x1f\x7f"]', '_', safe_name)` before Content-Disposition header interpolation. Prevents header injection via crafted filenames containing CRLF, double-quotes, or control characters.
+- Q2: Migration `58_attachment_encryption.sql` — added `crypto_provider TEXT NOT NULL DEFAULT 'env_aesgcm'` and `kms_key_name VARCHAR` columns to `wims.incident_attachments`, mirroring `incident_sensitive_details` pattern. Upload route stores `provider.crypto_provider` and `provider.kms_key_name`. Serve route reads `crypto_provider` from row and dispatches `get_crypto_provider({"crypto_provider": ...})` so changing `WIMS_CRYPTO_PROVIDER` env var does not break existing encrypted attachments.
+- T1: `tests/test_kms_crypto_provider.py` — added `TestKmsSecurityProviderBytes` (7 tests) covering `encrypt_bytes`/`decrypt_bytes` contract: sentinel nonce return, utf-8 ct_bytes, version tracking, roundtrip, error propagation, and decode failure.
+- S1: `system-wiki/log.md` line 119 — corrected `WIMS_ATTACHMENT_MAX_BYTES` → `WIMS_MAX_ATTACHMENT_BYTES` (matching the actual env var read at `incidents.py:38`).
+- Tests: 3 new attachment tests (header injection, crypto_provider stored, stored provider dispatch) + 7 new KMS bytes tests. 24 + 29 = 53 passing. Ruff check/format green.
+- No FRS gap register update (review fixes to existing M6a implementation; gap #151 remains CLOSED).
+
 ## [2026-06-13] fix | PR #261 review fixes — async Redis metrics + Prometheus/Redis regression test
 
 - `src/backend/services/ai_service.py`: `_record_inference_metric` converted from sync to async (`async def`); uses `redis.asyncio` via per-call `_get_metrics_redis()` plus `await pipe.execute()` instead of blocking `redis.from_url()` + synchronous `pipeline().execute()`. The async client is closed after each metric write to avoid event-loop-affinity failures in pytest/CI. All three Ollama call sites (`analyze_threat_log`, `generate_incident_narrative`, `analyze_audit_logs`) now `await` the metric writer. Prometheus observe failures logged at debug (was silent `pass`); Redis operational errors narrowed to `redis.exceptions.RedisError` with debug logging (was broad silent `except Exception: pass`). Removed duplicate `logger` assignment.
@@ -111,6 +120,16 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `src/backend/tasks/anomaly_detection.py`: Celery beat task `detect_behavioral_anomalies` (60s). Four detectors on `wims.system_audit_trails` via SQL windows: BULK_DELETE (>10 delete-class actions per user in 5-min window, HIGH), OFF_HOURS (high-sensitivity actions outside 06:00–21:59 Asia/Manila, MEDIUM), PRIVILEGE_ESCALATION (ROLE_CHANGE_TO_*SYSTEM_ADMIN* events, HIGH), RAPID_IP_SWITCH (≥2 distinct IPs per user in 10-min window, MEDIUM). `_write_anomaly()` helper: INSERT anomaly_detections ON CONFLICT (anomaly_type, dedup_key) DO NOTHING RETURNING anomaly_id; only on new row also INSERTs into `wims.security_threat_logs` (suricata_sid=NULL). Session: `get_session(SYSTEM_TASK_USER_ID)`.
 - Deferred: Suspicious Query Patterns, geo Impossible Travel (RAPID_IP_SWITCH ships as proxy). Gap register updated.
 
+## [2026-06-12] feat | M6a attachment encryption at rest + authenticated serve route (#151)
+
+- Migration `58_attachment_encryption.sql`: `ALTER TABLE wims.incident_attachments ADD COLUMN IF NOT EXISTS is_encrypted BOOLEAN NOT NULL DEFAULT false, encryption_iv VARCHAR, key_version INTEGER NOT NULL DEFAULT 1`. `DEFAULT false` intentional (not AC's `DEFAULT true`) — existing plaintext files must not be served through the decrypt path.
+- `utils/crypto.py`: added `SecurityProvider.encrypt_bytes(data, aad) -> (nonce_b64, ct_bytes)` and `decrypt_bytes(nonce_b64, ct_bytes, aad, key_version) -> bytes`. Additive — `encrypt_json`/`decrypt_json` (PII blob) unchanged.
+- `services/kms/openbao_client.py`: mirrored `encrypt_bytes`/`decrypt_bytes` on `KmsSecurityProvider`. OpenBao variant encodes Transit ciphertext string as UTF-8 bytes on disk; nonce_b64 is `NONCE_SENTINEL` (ignored on decrypt, same as `decrypt_json`).
+- `api/routes/incidents.py`: upload route (`POST /api/incidents/{id}/attachments`) — enforces `MAX_ATTACHMENT_BYTES` (default 25 MB, `WIMS_MAX_ATTACHMENT_BYTES` env), accumulates full plaintext in memory, SHA-256 on plaintext, encrypts via `get_crypto_provider().encrypt_bytes()`, writes raw ciphertext bytes to disk, inserts `is_encrypted=true`, `encryption_iv`, `key_version`, `crypto_provider`, `kms_key_name`. AAD = `f"attachment:{uuid_filename}".encode()` — reconstructable from `Path(storage_path).name`. New serve route (`GET /api/incidents/{id}/attachments/{aid}`) — role-guarded (staff only, not CIVILIAN_REPORTER), RLS-protected SELECT, dispatches `get_crypto_provider(row)` using stored `crypto_provider`, decrypts transparently when `is_encrypted=true`, serves raw bytes for legacy `is_encrypted=false`; decrypt failure → 500 with safe message (no data leak).
+- `key_version` not in original AC — added for KMS key rotation compatibility (prevents silent decrypt failure when WIMS_MASTER_KEY is rotated).
+- No backfill: forward-only. Existing plaintext attachments served raw via `is_encrypted=false` fallback.
+- In-memory constraint: AESGCM requires full plaintext/ciphertext at once. 25 MB default cap is appropriate for photos and AFOR scans. Chunked streaming AEAD is deferred future work for large video evidence files.
+- 22 unit + route tests pass (`tests/test_attachment_encryption.py`). No frontend changes — serve route is new backend-only surface.
 ## [2026-06-11] fix | OpenBao token-file mounting for backend/celery
 
 - `src/openbao/init/bootstrap-openbao.sh`: after writing the `wims-app` policy, bootstrap now verifies any existing app token or creates a replacement policy-scoped orphan service token and persists the token value to `/vault/file/.wims-app-token` without logging it. This regenerates app auth after an OpenBao volume reset while avoiding token churn on normal restarts.

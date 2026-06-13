@@ -134,6 +134,66 @@ class SecurityProvider:
     # Public API
     # -------------------------------------------------------------------------
 
+    def encrypt_bytes(self, data: bytes, aad: bytes) -> Tuple[str, bytes]:
+        """Encrypt raw bytes using AES-256-GCM with the current key version.
+
+        Returns (nonce_b64, ciphertext_bytes).  Store nonce_b64 in the DB
+        (encryption_iv column) and ciphertext_bytes raw on disk.  AAD must be
+        reproduced identically at decrypt time.
+
+        Raises:
+            SecurityProviderError: on encryption failure.
+        """
+        nonce = os.urandom(self.NONCE_BYTES)
+        try:
+            ciphertext = self._aesgcm.encrypt(nonce, data, aad)
+        except Exception as e:
+            raise SecurityProviderError(f"AES-256-GCM encryption failed: {e}") from e
+        nonce_b64 = base64.b64encode(nonce).decode("ascii")
+        return nonce_b64, ciphertext
+
+    def decrypt_bytes(
+        self,
+        nonce_b64: str,
+        ct_bytes: bytes,
+        aad: bytes,
+        key_version: int = 1,
+    ) -> bytes:
+        """Decrypt raw bytes encrypted with encrypt_bytes.
+
+        Args:
+            nonce_b64:    Base64-encoded 12-byte nonce (encryption_iv column).
+            ct_bytes:     Raw ciphertext bytes read from disk.
+            aad:          Must match the AAD used at encryption time.
+            key_version:  Key version that encrypted this file (default 1).
+
+        Returns:
+            Original plaintext bytes.
+
+        Raises:
+            SecurityProviderError: on missing key version, bad nonce, or
+                                   authentication failure (wrong key / tampered).
+        """
+        if key_version not in self._keyring:
+            raise SecurityProviderError(
+                f"key_version={key_version} is not loaded in keyring "
+                f"(available: {sorted(self._keyring)})"
+            )
+        aesgcm = self._keyring[key_version]
+        try:
+            nonce = base64.b64decode(nonce_b64)
+        except Exception as e:
+            raise SecurityProviderError(f"Failed to base64-decode nonce: {e}") from e
+        if len(nonce) != self.NONCE_BYTES:
+            raise SecurityProviderError(f"nonce must be {self.NONCE_BYTES} bytes, got {len(nonce)}")
+        try:
+            return aesgcm.decrypt(nonce, ct_bytes, aad)
+        except Exception as e:
+            raise SecurityProviderError(
+                f"AES-256-GCM authentication failed with key_version={key_version} — "
+                f"wrong key version, tampered ciphertext, or mismatched AAD. Detail: {e}"
+            ) from e
+
     def encrypt_json(
         self,
         pii_dict: dict,
