@@ -2817,3 +2817,9 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - Fix: replaced `getByLabelText` with `findByLabelText` (built on `waitFor`, retries until the element appears). This allows React to complete the `loadData` finally block and re-render the export section before the assertion runs.
 - No component behavior changed. Test coverage preserved (disabled state assertion unchanged).
 - No FRS gap register change (test-only fix).
+
+## [2026-06-13] test(#306 #309 #312 #313) | harden privacy endpoint coverage
+
+- Expanded `src/backend/tests/test_privacy.py` coverage for consent client IP capture, consent audit payload fields, anonymization idempotency SQL guard, 404/export edge cases, consent withdraw audit, and export decryption failure handling.
+- Test-only hardening for privacy module behavior; no production route behavior changed.
+- No FRS gap register change.

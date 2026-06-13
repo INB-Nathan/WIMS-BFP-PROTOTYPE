@@ -233,6 +233,20 @@ class TestExportUserSubject:
         call_args = mock_audit.call_args[0]
         assert call_args[2] == "PII_EXPORT"
 
+    def test_export_user_not_found(self, client: TestClient):
+        """GET /export for non-existent user returns 404."""
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_admin
+        mock_db = _make_db()
+        mock_db.execute.return_value = MagicMock(fetchone=lambda: None)
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        resp = client.get("/api/admin/privacy/export?subject_type=USER&subject_id=nonexistent")
+        assert resp.status_code == 404
+
 
 # ---------------------------------------------------------------------------
 # Export — report subject
@@ -415,6 +429,74 @@ class TestExportReportSubject:
         )
         assert call_args[3] == 2, f"key_version not forwarded to decrypt_json; got {call_args[3]}"
 
+    def test_export_report_not_found(self, client: TestClient):
+        """GET /export for non-existent report returns 404."""
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_admin
+        mock_db = _make_db()
+        mock_db.execute.return_value = MagicMock(fetchone=lambda: None)
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        resp = client.get("/api/admin/privacy/export?subject_type=REPORT&subject_id=99999")
+        assert resp.status_code == 404
+
+    def test_export_report_null_incident(self, client: TestClient):
+        """Report with NULL verified_incident_id returns without sensitive_details section."""
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_admin
+        mock_db = _make_db()
+        mock_db.execute.side_effect = [
+            MagicMock(fetchone=lambda: _report_row(verified_incident_id=None)),
+            MagicMock(fetchall=lambda: _consent_rows()),
+            MagicMock(),  # audit INSERT
+        ]
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        resp = client.get(f"/api/admin/privacy/export?subject_type=REPORT&subject_id={_REPORT_ID}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["citizen_report"] is not None
+        assert body["incident_sensitive_details"] is None
+
+    def test_export_decryption_failure(self, client: TestClient):
+        """When decrypt_json raises, export still returns 200 but PII fields are absent."""
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_admin
+        mock_db = _make_db()
+        mock_db.execute.side_effect = [
+            MagicMock(fetchone=lambda: _report_row(verified_incident_id=_INCIDENT_ID)),
+            MagicMock(fetchone=lambda: _sensitive_row()),
+            MagicMock(fetchall=lambda: _consent_rows()),
+            MagicMock(),  # audit INSERT
+        ]
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        mock_provider = MagicMock()
+        mock_provider.decrypt_json.side_effect = RuntimeError("decryption failed")
+
+        with patch("api.routes.admin.privacy.get_crypto_provider", return_value=mock_provider):
+            resp = client.get(
+                f"/api/admin/privacy/export?subject_type=REPORT&subject_id={_REPORT_ID}"
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        sd = body["incident_sensitive_details"]
+        assert sd is not None
+        # PII fields were not injected due to decryption failure
+        assert sd.get("caller_name") is None
+        assert sd.get("caller_number") is None
+        assert "pii_blob_enc" not in sd
+
 
 # ---------------------------------------------------------------------------
 # Anonymize — user subject
@@ -488,7 +570,13 @@ class TestAnonymizeUser:
         assert call_args[2] == "PII_ANONYMIZE"
 
     def test_anonymize_idempotent(self, client: TestClient):
-        """Second anonymize call on already-nulled row still succeeds (rowcount=1 from UPDATE WHERE)."""
+        """Second anonymize call on already-nulled row still succeeds (rowcount=1 from UPDATE WHERE).
+
+        Verifies the SQL idempotency mechanism: the second UPDATE must include
+        a WHERE user_id clause (not WHERE contact_number IS NOT NULL). The
+        idempotency guarantee relies on PostgreSQL counting all matched rows
+        regardless of whether the column value changed.
+        """
         app.dependency_overrides[auth.get_current_wims_user] = _mock_admin
         mock_db = _make_db()
         update_result = MagicMock()
@@ -507,6 +595,36 @@ class TestAnonymizeUser:
                 json={"subject_type": "USER", "subject_id": _USER_ID, "confirm": True},
             )
             assert resp.status_code == 200
+
+        # ═══ Issue #312: Verify SQL idempotency mechanism ═══
+        # Second anonymize UPDATE must include WHERE user_id to ensure the
+        # correct row is targeted. A missing or changed WHERE clause would
+        # silently break the idempotency guarantee.
+        update_calls = [c for c in mock_db.execute.call_args_list if "UPDATE" in str(c[0][0])]
+        assert len(update_calls) >= 2, f"Expected >= 2 UPDATE calls, got {len(update_calls)}"
+        second_update_sql = str(update_calls[1][0][0])
+        assert "user_id" in second_update_sql, (
+            f"Second anonymize UPDATE missing user_id in WHERE clause: {second_update_sql}"
+        )
+
+    def test_anonymize_user_not_found(self, client: TestClient):
+        """Anonymize non-existent user returns 404."""
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_admin
+        mock_db = _make_db()
+        update_result = MagicMock()
+        update_result.rowcount = 0
+        mock_db.execute.return_value = update_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        resp = client.post(
+            "/api/admin/privacy/anonymize",
+            json={"subject_type": "USER", "subject_id": "nonexistent", "confirm": True},
+        )
+        assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -582,6 +700,57 @@ class TestAnonymizeReport:
             f"narrative_report = NULL missing from anonymize UPDATE: {sd_update_sql}"
         )
 
+    def test_anonymize_report_not_found(self, client: TestClient):
+        """Anonymize non-existent report returns 404."""
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_admin
+        mock_db = _make_db()
+        mock_db.execute.return_value = MagicMock(fetchone=lambda: None)
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        resp = client.post(
+            "/api/admin/privacy/anonymize",
+            json={"subject_type": "REPORT", "subject_id": "99999", "confirm": True},
+        )
+        assert resp.status_code == 404
+
+    def test_anonymize_report_null_incident(self, client: TestClient):
+        """Report with NULL verified_incident_id: only citizen_reports nulled."""
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_admin
+        mock_db = _make_db()
+
+        select_result = MagicMock(
+            fetchone=lambda: _report_row(status="ACTIONED", verified_incident_id=None)
+        )
+        update_cr = MagicMock()
+
+        mock_db.execute.side_effect = [select_result, update_cr]
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        with patch("api.routes.admin.privacy.log_system_audit"):
+            resp = client.post(
+                "/api/admin/privacy/anonymize",
+                json={
+                    "subject_type": "REPORT",
+                    "subject_id": str(_REPORT_ID),
+                    "confirm": True,
+                },
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["anonymized"] is True
+        tables = body["tables_affected"]
+        assert "wims.citizen_reports" in tables
+        assert "wims.incident_sensitive_details" not in tables
+        assert "wims.involved_parties" not in tables
+
 
 # ---------------------------------------------------------------------------
 # Consent endpoint (public — correction A)
@@ -626,7 +795,7 @@ class TestConsentEndpoint:
         assert body["consent_id"] == 1
 
     def test_consent_records_withdraw(self, client: TestClient):
-        """POST with WITHDRAWN → 201 + action=WITHDRAWN."""
+        """POST with WITHDRAWN → 201 + CONSENT_WITHDRAW audit."""
         mock_db = _make_db()
         consent_row = MagicMock()
         consent_row.__getitem__ = lambda s, k: {
@@ -637,9 +806,9 @@ class TestConsentEndpoint:
             4: "WITHDRAWN",
             5: _NOW,
         }[k]
+        # log_system_audit patched → audit INSERT skipped; only 1 direct db.execute() call
         mock_db.execute.side_effect = [
             MagicMock(fetchone=lambda: consent_row),
-            MagicMock(),
         ]
 
         def mock_get_db():
@@ -647,17 +816,24 @@ class TestConsentEndpoint:
 
         app.dependency_overrides[get_db] = mock_get_db
 
-        resp = client.post(
-            "/api/auth/consent",
-            json={
-                "subject_type": "USER",
-                "subject_id": "some-user-id",
-                "consent_type": "DATA_PROCESSING",
-                "action": "WITHDRAWN",
-            },
-        )
+        with patch("api.routes.consent.log_system_audit") as mock_audit:
+            resp = client.post(
+                "/api/auth/consent",
+                json={
+                    "subject_type": "USER",
+                    "subject_id": "some-user-id",
+                    "consent_type": "DATA_PROCESSING",
+                    "action": "WITHDRAWN",
+                },
+            )
         assert resp.status_code == 201
         assert resp.json()["action"] == "WITHDRAWN"
+        mock_audit.assert_called_once()
+        call_args = mock_audit.call_args[0]
+        assert call_args[2] == "CONSENT_WITHDRAW"
+        assert call_args[1] is None
+        assert call_args[3] == "wims.consent_log"
+        assert call_args[4] == 2
 
     def test_consent_public_no_auth_required(self, client: TestClient):
         """POST /api/auth/consent requires NO auth header — public endpoint (correction A).
@@ -736,3 +912,122 @@ class TestConsentEndpoint:
         call_args = mock_audit.call_args[0]
         assert call_args[2] == "CONSENT_GRANT"
         assert call_args[1] is None  # anonymous caller — user_id=None
+        assert call_args[3] == "wims.consent_log"  # table_affected
+        assert call_args[4] == 5  # record_id (consent_id from mock row)
+
+    # ── Issue #306: X-Forwarded-For / client IP capture tests ─────────────
+
+    def test_consent_x_forwarded_for_overrides_client_ip(self, client: TestClient):
+        """X-Forwarded-For header IP is recorded, not the direct client IP."""
+        mock_db = _make_db()
+        consent_row = MagicMock()
+        consent_row.__getitem__ = lambda s, k: {
+            0: 10,
+            1: "USER",
+            2: "uid-xff",
+            3: "DATA_PROCESSING",
+            4: "GRANTED",
+            5: _NOW,
+        }[k]
+        mock_db.execute.side_effect = [
+            MagicMock(fetchone=lambda: consent_row),
+            MagicMock(),  # audit INSERT
+        ]
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db] = mock_get_db
+
+        resp = client.post(
+            "/api/auth/consent",
+            json={
+                "subject_type": "USER",
+                "subject_id": "uid-xff",
+                "consent_type": "DATA_PROCESSING",
+                "action": "GRANTED",
+            },
+            headers={"X-Forwarded-For": "203.0.113.42"},
+        )
+        assert resp.status_code == 201
+
+        insert_params = mock_db.execute.call_args_list[0][0][1]
+        assert insert_params["ip"] == "203.0.113.42", (
+            f"Expected X-Forwarded-For IP, got {insert_params['ip']}"
+        )
+
+    def test_consent_no_x_forwarded_for_falls_back_to_client_host(self, client: TestClient):
+        """No X-Forwarded-For → falls back to request.client.host (testclient)."""
+        mock_db = _make_db()
+        consent_row = MagicMock()
+        consent_row.__getitem__ = lambda s, k: {
+            0: 11,
+            1: "USER",
+            2: "uid-noxff",
+            3: "DATA_PROCESSING",
+            4: "GRANTED",
+            5: _NOW,
+        }[k]
+        mock_db.execute.side_effect = [
+            MagicMock(fetchone=lambda: consent_row),
+            MagicMock(),  # audit INSERT
+        ]
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db] = mock_get_db
+
+        resp = client.post(
+            "/api/auth/consent",
+            json={
+                "subject_type": "USER",
+                "subject_id": "uid-noxff",
+                "consent_type": "DATA_PROCESSING",
+                "action": "GRANTED",
+            },
+        )
+        assert resp.status_code == 201
+
+        insert_params = mock_db.execute.call_args_list[0][0][1]
+        assert insert_params["ip"] == "testclient", (
+            f"Expected fallback to testclient, got {insert_params['ip']}"
+        )
+
+    def test_consent_malformed_x_forwarded_for_handled(self, client: TestClient):
+        """Multiple comma-separated IPs → first taken; empty/absent → fallback."""
+        mock_db = _make_db()
+        consent_row = MagicMock()
+        consent_row.__getitem__ = lambda s, k: {
+            0: 12,
+            1: "USER",
+            2: "uid-multi",
+            3: "DATA_PROCESSING",
+            4: "GRANTED",
+            5: _NOW,
+        }[k]
+        mock_db.execute.side_effect = [
+            MagicMock(fetchone=lambda: consent_row),
+            MagicMock(),  # audit INSERT
+        ]
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db] = mock_get_db
+
+        resp = client.post(
+            "/api/auth/consent",
+            json={
+                "subject_type": "USER",
+                "subject_id": "uid-multi",
+                "consent_type": "DATA_PROCESSING",
+                "action": "GRANTED",
+            },
+            headers={"X-Forwarded-For": "198.51.100.1, 203.0.113.99"},
+        )
+        assert resp.status_code == 201
+        insert_params = mock_db.execute.call_args_list[0][0][1]
+        assert insert_params["ip"] == "198.51.100.1", (
+            f"Expected first comma-separated IP, got {insert_params['ip']}"
+        )
