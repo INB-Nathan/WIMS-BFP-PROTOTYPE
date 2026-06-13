@@ -2927,3 +2927,10 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - #279: Added two Vitest tests to `admin-system-monitoring.test.tsx`: (1) `ai_inference: null` asserts "No calls recorded" and no NaN; (2) `network: null` asserts "N/A" and no NaN. All 14 tests pass.
 - No FRS gap register change (type narrowing + test coverage — no FRS requirement change).
 - Lint clean (0 errors, 1 pre-existing useEffect dep warning).
+
+## [2026-06-13] perf(#276) | cache IVH column-existence checks in helpers.py
+
+- Added module-level `_ivh_column_cache: dict[str, bool]` to lazily cache
+  `_ivh_has_column()` results, avoiding repeated `information_schema` queries.
+- Applied ruff format. All 2 lifecycle transition tests pass.
+- No FRS gap register change (internal perf — no behavior/schema change).

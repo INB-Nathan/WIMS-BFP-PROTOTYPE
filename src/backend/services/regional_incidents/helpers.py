@@ -212,8 +212,20 @@ def generate_reference_number(
 # ── IVH (incident verification history) helpers ───────────────────────────────
 
 
+_ivh_column_cache: dict[str, bool] = {}
+# Populated lazily by _ivh_has_column.  Never invalidated — schema
+# changes require a process restart (migration deploy).
+
+
 def _ivh_has_column(db: Session, column_name: str) -> bool:
-    return bool(
+    """Check if a column exists in wims.incident_verification_history.
+
+    Results are cached after the first query per column — the table schema
+    only changes during deployment migrations, never at runtime.
+    """
+    if column_name in _ivh_column_cache:
+        return _ivh_column_cache[column_name]
+    exists = bool(
         db.execute(
             text("""
                 SELECT EXISTS (
@@ -227,6 +239,8 @@ def _ivh_has_column(db: Session, column_name: str) -> bool:
             {"column_name": column_name},
         ).scalar()
     )
+    _ivh_column_cache[column_name] = exists
+    return exists
 
 
 def _ivh_uses_target_columns(db: Session) -> bool:
