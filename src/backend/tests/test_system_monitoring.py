@@ -188,6 +188,7 @@ async def test_record_inference_metric_observes_prometheus_and_writes_redis():
     mock_pipe.execute = mock.AsyncMock()
     mock_redis = mock.MagicMock()  # pipeline() is sync in redis.asyncio
     mock_redis.pipeline.return_value = mock_pipe
+    mock_redis.aclose = mock.AsyncMock()
 
     with (
         mock.patch("services.ai_service.AI_INFERENCE_DURATION") as mock_hist,
@@ -205,6 +206,7 @@ async def test_record_inference_metric_observes_prometheus_and_writes_redis():
     mock_pipe.incr.assert_called_once_with("wims:ai:inference:count")
     mock_pipe.incrbyfloat.assert_called_once_with("wims:ai:inference:sum_ms", 2500.0)
     mock_pipe.execute.assert_called_once()
+    mock_redis.aclose.assert_awaited_once()
 
 
 def test_system_metrics_network_none_fallback():

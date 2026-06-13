@@ -21,16 +21,15 @@ from utils.metrics import AI_INFERENCE_DURATION
 logger = logging.getLogger("wims.ai_service")
 OLLAMA_MODEL = "qwen2.5:3b"
 
-# Module-level async Redis client reused across metric writes (Q1/Q4 fix).
-# Lazy-init avoids import-time connection; connections are established on first use.
-_metrics_redis: aioredis.Redis | None = None
-
 
 def _get_metrics_redis() -> aioredis.Redis:
-    global _metrics_redis
-    if _metrics_redis is None:
-        _metrics_redis = aioredis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"))
-    return _metrics_redis
+    """Create an async Redis client for one metric write.
+
+    Do not cache this client globally: redis.asyncio clients can retain event-loop
+    affinity, which breaks pytest-asyncio's per-test event loops and can raise
+    `RuntimeError: Event loop is closed` in later tests.
+    """
+    return aioredis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"))
 
 
 async def _record_inference_metric(function_name: str, elapsed_s: float) -> None:
@@ -40,13 +39,16 @@ async def _record_inference_metric(function_name: str, elapsed_s: float) -> None
     except Exception:
         logger.debug("Prometheus observe failed for %s", function_name, exc_info=True)
 
+    redis_client = _get_metrics_redis()
     try:
-        pipe = _get_metrics_redis().pipeline()
+        pipe = redis_client.pipeline()
         pipe.incr("wims:ai:inference:count")
         pipe.incrbyfloat("wims:ai:inference:sum_ms", elapsed_s * 1000.0)
         await pipe.execute()
     except redis.exceptions.RedisError:
         logger.debug("Redis metric write failed for %s", function_name, exc_info=True)
+    finally:
+        await redis_client.aclose()
 
 
 def _ollama_url() -> str:
