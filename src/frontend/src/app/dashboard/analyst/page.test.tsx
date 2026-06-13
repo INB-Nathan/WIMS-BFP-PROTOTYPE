@@ -289,9 +289,11 @@ describe('Analyst dashboard page', () => {
         expect(mockFetchHeatmapData).toHaveBeenCalled();
       });
 
-      // At least one panel should display the cached-data label
-      const cachedLabels = screen.getAllByText(/showing cached data/i);
-      expect(cachedLabels.length).toBeGreaterThanOrEqual(1);
+      // At least one panel should display the cached-data label after all async
+      // dashboard fetches settle and cache metadata is applied.
+      await waitFor(() => {
+        expect(screen.getAllByText(/showing cached data/i).length).toBeGreaterThanOrEqual(1);
+      });
     });
 
     it('disables export buttons when offline', async () => {
