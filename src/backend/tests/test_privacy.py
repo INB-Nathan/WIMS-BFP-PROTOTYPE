@@ -214,10 +214,11 @@ class TestExportUserSubject:
         """Export must call log_system_audit with PII_EXPORT action."""
         app.dependency_overrides[auth.get_current_wims_user] = _mock_admin
         mock_db = _make_db()
+        # log_system_audit patched → audit INSERT skipped; only 2 direct db.execute() calls:
+        #   1) users SELECT  2) consent_log SELECT
         mock_db.execute.side_effect = [
             MagicMock(fetchone=lambda: _user_row()),
             MagicMock(fetchall=lambda: _consent_rows()),
-            MagicMock(),
         ]
 
         def mock_get_db():
@@ -427,6 +428,7 @@ class TestAnonymizeUser:
         mock_db = _make_db()
         update_result = MagicMock()
         update_result.rowcount = 1
+        # 2 direct db.execute() calls: 1) UPDATE wims.users  2) audit INSERT (log_system_audit)
         mock_db.execute.side_effect = [update_result, MagicMock()]
 
         def mock_get_db():
@@ -466,7 +468,9 @@ class TestAnonymizeUser:
         mock_db = _make_db()
         update_result = MagicMock()
         update_result.rowcount = 1
-        mock_db.execute.side_effect = [update_result, MagicMock()]
+        # log_system_audit patched → audit INSERT skipped; only 1 direct db.execute() call:
+        #   UPDATE wims.users
+        mock_db.execute.side_effect = [update_result]
 
         def mock_get_db():
             yield mock_db
@@ -489,6 +493,7 @@ class TestAnonymizeUser:
         mock_db = _make_db()
         update_result = MagicMock()
         update_result.rowcount = 1
+        # 4 direct db.execute() calls: (UPDATE users + audit INSERT) × 2 iterations
         mock_db.execute.side_effect = [update_result, MagicMock(), update_result, MagicMock()]
 
         def mock_get_db():
@@ -706,9 +711,10 @@ class TestConsentEndpoint:
             4: "GRANTED",
             5: _NOW,
         }[k]
+        # log_system_audit patched → audit INSERT skipped; only 1 direct db.execute() call:
+        #   INSERT INTO wims.consent_log
         mock_db.execute.side_effect = [
             MagicMock(fetchone=lambda: consent_row),
-            MagicMock(),
         ]
 
         def mock_get_db():

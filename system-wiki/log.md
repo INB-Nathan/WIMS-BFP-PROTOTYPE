@@ -2772,3 +2772,13 @@ Made pending-sync offline incidents fully manageable through the normal regional
 **Change:** Renamed the consent public-endpoint test from `test_consent_public_insert_succeeds_under_rls` to `test_consent_public_no_auth_required`. Added docstring clarifying this is a no-auth public endpoint test, not a DB-level RLS verification. Test logic is otherwise identical.
 
 **Purpose:** Eliminate misleading name — the test does not verify RLS policies; it tests that the consent endpoint works without an Authorization header.
+
+## [2026-06-13] chore(#310) | audit and fix unconsumed MagicMock side_effect entries in privacy tests
+
+- Fixed 3 unconsumed `mock_db.execute.side_effect` entries in tests that patch `log_system_audit`. The extra `MagicMock()` entries masked the true call counts and would silently absorb any future extra `db.execute()` calls without failing.
+  - `test_export_audited`: removed unconsumed 3rd `MagicMock()` (audit INSERT). log_system_audit patched → only 2 direct calls (users SELECT + consent SELECT).
+  - `test_anonymize_audited`: removed unconsumed 2nd `MagicMock()` (audit INSERT). log_system_audit patched → only 1 direct call (UPDATE users).
+  - `test_consent_audit_action_grant`: removed unconsumed 2nd `MagicMock()` (audit INSERT). log_system_audit patched → only 1 direct call (consent INSERT).
+- Added concise comments documenting expected direct `db.execute()` call counts for all tests with side_effect lists (both patched and unpatched).
+- Verified all remaining tests have correct side_effect lengths matching call count (export user: 3 calls, export report: 4 calls, anonymize user unpatched: 2 calls, anonymize idempotent: 4 calls, consent unpatched: 2 calls, anonymize report patched: 4 calls — all correct).
+- No application behavior changed. No FRS gap register change.
