@@ -154,6 +154,8 @@ export interface SystemMetricsResponse {
   cpu_percent: number;
   memory: { total_mb: number; used_mb: number; percent: number };
   disk: { total_gb: number; used_gb: number; percent: number };
+  ai_inference: { avg_latency_ms: number | null; count: number } | null;
+  network: { bytes_sent: number; bytes_recv: number } | null;
 }
 
 export interface WorkerStatusResponse {

@@ -5,19 +5,50 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 
 import httpx
+import redis.asyncio as aioredis
+import redis.exceptions
 from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from services.event_bus import publish_security_event
 from utils.config import get_config
+from utils.metrics import AI_INFERENCE_DURATION
 
 logger = logging.getLogger("wims.ai_service")
 OLLAMA_MODEL = "qwen2.5:3b"
 
-logger = logging.getLogger("wims.ai_service")
+
+def _get_metrics_redis() -> aioredis.Redis:
+    """Create an async Redis client for one metric write.
+
+    Do not cache this client globally: redis.asyncio clients can retain event-loop
+    affinity, which breaks pytest-asyncio's per-test event loops and can raise
+    `RuntimeError: Event loop is closed` in later tests.
+    """
+    return aioredis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"))
+
+
+async def _record_inference_metric(function_name: str, elapsed_s: float) -> None:
+    """Record AI inference timing to Prometheus (web process) and Redis (cross-process). Fire-and-forget."""
+    try:
+        AI_INFERENCE_DURATION.labels(function=function_name).observe(elapsed_s)
+    except Exception:
+        logger.debug("Prometheus observe failed for %s", function_name, exc_info=True)
+
+    redis_client = _get_metrics_redis()
+    try:
+        pipe = redis_client.pipeline()
+        pipe.incr("wims:ai:inference:count")
+        pipe.incrbyfloat("wims:ai:inference:sum_ms", elapsed_s * 1000.0)
+        await pipe.execute()
+    except redis.exceptions.RedisError:
+        logger.debug("Redis metric write failed for %s", function_name, exc_info=True)
+    finally:
+        await redis_client.aclose()
 
 
 def _ollama_url() -> str:
@@ -69,6 +100,7 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
         ai_timeout = float(get_config(db, "ai_timeout_seconds", "60"))
     except (TypeError, ValueError):
         ai_timeout = 60.0
+    _t0 = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=ai_timeout) as client:
             resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
@@ -84,6 +116,7 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
             status_code=502,
             detail=f"Ollama request failed: {resp.status_code}",
         )
+    await _record_inference_metric("analyze_threat_log", time.perf_counter() - _t0)
 
     data = resp.json()
     response_text = data.get("response", "{}")
@@ -209,6 +242,7 @@ async def generate_incident_narrative(
 
     try:
         ai_timeout = float(get_config(db, "ai_timeout_seconds", "60"))
+        _t0 = time.perf_counter()
         async with httpx.AsyncClient(timeout=ai_timeout) as client:
             response = await client.post(
                 ollama_url,
@@ -220,6 +254,7 @@ async def generate_incident_narrative(
                 },
             )
             response.raise_for_status()
+            await _record_inference_metric("generate_incident_narrative", time.perf_counter() - _t0)
             raw = response.json().get("response", "{}")
             parsed = json.loads(raw)
             narrative = parsed.get("narrative", "")
@@ -323,6 +358,7 @@ async def analyze_audit_logs(audit_ids: list[int], db: Session) -> dict:
         ai_timeout = float(get_config(db, "ai_timeout_seconds", "60"))
     except (TypeError, ValueError):
         ai_timeout = 60.0
+    _t0 = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=ai_timeout) as client:
             resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
@@ -338,6 +374,7 @@ async def analyze_audit_logs(audit_ids: list[int], db: Session) -> dict:
             status_code=502,
             detail=f"Ollama request failed: {resp.status_code}",
         )
+    await _record_inference_metric("analyze_audit_logs", time.perf_counter() - _t0)
 
     data = resp.json()
     response_text = data.get("response", "{}")

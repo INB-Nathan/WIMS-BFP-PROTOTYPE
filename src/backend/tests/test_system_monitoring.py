@@ -124,3 +124,102 @@ def test_system_metrics_returns_cpu_memory_disk():
     assert 0 <= data["memory"]["percent"] <= 100
     assert isinstance(data["disk"]["percent"], (int, float))
     assert 0 <= data["disk"]["percent"] <= 100
+
+
+def test_system_metrics_returns_ai_inference_and_network():
+    """GET /api/admin/monitoring/system includes ai_inference and network fields with valid shapes."""
+    app.dependency_overrides[get_current_wims_user] = _admin_override
+    client = TestClient(app)
+    resp = client.get("/api/admin/monitoring/system")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert "ai_inference" in data
+    ai = data["ai_inference"]
+    assert "avg_latency_ms" in ai
+    assert "count" in ai
+    assert isinstance(ai["count"], int) and ai["count"] >= 0
+    assert ai["avg_latency_ms"] is None or isinstance(ai["avg_latency_ms"], (int, float))
+
+    assert "network" in data
+    net = data["network"]
+    assert "bytes_sent" in net
+    assert "bytes_recv" in net
+    assert isinstance(net["bytes_sent"], int)
+    assert isinstance(net["bytes_recv"], int)
+
+
+def test_system_metrics_ai_inference_populated_from_redis():
+    """avg_latency_ms is non-null and count matches when Redis has prior observation data."""
+    import unittest.mock as mock
+
+    app.dependency_overrides[get_current_wims_user] = _admin_override
+    client = TestClient(app)
+
+    mock_r = mock.MagicMock()
+    mock_r.get.side_effect = lambda k: b"3" if k == "wims:ai:inference:count" else b"9600.0"
+
+    with mock.patch("redis.from_url", return_value=mock_r):
+        resp = client.get("/api/admin/monitoring/system")
+
+    assert resp.status_code == 200
+    ai = resp.json()["ai_inference"]
+    assert ai["count"] == 3
+    assert ai["avg_latency_ms"] == 3200.0  # 9600.0 ms / 3
+
+
+def test_metrics_endpoint_contains_ai_inference_histogram():
+    """GET /metrics includes ai_inference_duration_seconds histogram."""
+    client = TestClient(app)
+    resp = client.get("/metrics")
+    assert resp.status_code == 200
+    assert "ai_inference_duration_seconds" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_record_inference_metric_observes_prometheus_and_writes_redis():
+    """_record_inference_metric calls Prometheus observe() and Redis pipeline execute()."""
+    from unittest import mock
+
+    from services.ai_service import _record_inference_metric
+
+    mock_labels = mock.MagicMock()
+    mock_pipe = mock.MagicMock()  # incr/incrbyfloat are sync; only execute is async
+    mock_pipe.execute = mock.AsyncMock()
+    mock_redis = mock.MagicMock()  # pipeline() is sync in redis.asyncio
+    mock_redis.pipeline.return_value = mock_pipe
+    mock_redis.aclose = mock.AsyncMock()
+
+    with (
+        mock.patch("services.ai_service.AI_INFERENCE_DURATION") as mock_hist,
+        mock.patch("services.ai_service._get_metrics_redis", return_value=mock_redis),
+    ):
+        mock_hist.labels.return_value = mock_labels
+        await _record_inference_metric("test_fn", 2.5)
+
+    # Prometheus: labels called with function name; observe called with elapsed_s
+    mock_hist.labels.assert_called_once_with(function="test_fn")
+    mock_labels.observe.assert_called_once_with(2.5)
+
+    # Redis: pipeline created, incr + incrbyfloat + execute called
+    mock_redis.pipeline.assert_called_once()
+    mock_pipe.incr.assert_called_once_with("wims:ai:inference:count")
+    mock_pipe.incrbyfloat.assert_called_once_with("wims:ai:inference:sum_ms", 2500.0)
+    mock_pipe.execute.assert_called_once()
+    mock_redis.aclose.assert_awaited_once()
+
+
+def test_system_metrics_network_none_fallback():
+    """network bytes_sent/bytes_recv fall back to 0 when psutil.net_io_counters returns None."""
+    from unittest import mock
+
+    app.dependency_overrides[get_current_wims_user] = _admin_override
+    client = TestClient(app)
+
+    with mock.patch("psutil.net_io_counters", return_value=None):
+        resp = client.get("/api/admin/monitoring/system")
+
+    assert resp.status_code == 200
+    net = resp.json()["network"]
+    assert net["bytes_sent"] == 0
+    assert net["bytes_recv"] == 0

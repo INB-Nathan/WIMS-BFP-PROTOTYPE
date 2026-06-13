@@ -98,6 +98,8 @@ interface SystemMetrics {
     cpu_percent: number;
     memory: { total_mb: number; used_mb: number; percent: number };
     disk: { total_gb: number; used_gb: number; percent: number };
+    ai_inference: { avg_latency_ms: number | null; count: number } | null;
+    network: { bytes_sent: number; bytes_recv: number } | null;
 }
 
 interface WorkerStatus {
@@ -546,7 +548,7 @@ export default function AdminSystemPage() {
                 </div>
                 <div className="card-body space-y-4">
                     {systemMetrics ? (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                             <div className="p-4 rounded-lg" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
                                 <div className="text-sm text-gray-500">CPU</div>
                                 <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{systemMetrics.cpu_percent}%</div>
@@ -573,6 +575,36 @@ export default function AdminSystemPage() {
                                 <div className="w-full bg-gray-200 rounded h-2 mt-2">
                                     <div className="bg-amber-500 h-2 rounded" style={{ width: `${systemMetrics.disk.percent}%` }} />
                                 </div>
+                            </div>
+                            <div className="p-4 rounded-lg" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
+                                <div className="text-sm text-gray-500">AI Inference</div>
+                                {systemMetrics.ai_inference && systemMetrics.ai_inference.count > 0 ? (
+                                    <>
+                                        <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+                                            {systemMetrics.ai_inference.avg_latency_ms}ms
+                                        </div>
+                                        <div className="text-xs text-gray-400">
+                                            avg · {systemMetrics.ai_inference.count} call{systemMetrics.ai_inference.count !== 1 ? 's' : ''}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="text-sm text-gray-400 mt-1">No calls recorded</div>
+                                )}
+                            </div>
+                            <div className="p-4 rounded-lg" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
+                                <div className="text-sm text-gray-500">Network</div>
+                                {systemMetrics.network ? (
+                                    <>
+                                        <div className="text-sm font-medium mt-1" style={{ color: 'var(--text-primary)' }}>
+                                            ↑ {(systemMetrics.network.bytes_sent / 1048576).toFixed(1)} MB sent
+                                        </div>
+                                        <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                                            ↓ {(systemMetrics.network.bytes_recv / 1048576).toFixed(1)} MB recv
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="text-sm text-gray-400 mt-1">N/A</div>
+                                )}
                             </div>
                         </div>
                     ) : (

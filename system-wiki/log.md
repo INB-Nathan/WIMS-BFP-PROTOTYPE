@@ -3,6 +3,12 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-13] fix | PR #261 review fixes — async Redis metrics + Prometheus/Redis regression test
+
+- `src/backend/services/ai_service.py`: `_record_inference_metric` converted from sync to async (`async def`); uses `redis.asyncio` via per-call `_get_metrics_redis()` plus `await pipe.execute()` instead of blocking `redis.from_url()` + synchronous `pipeline().execute()`. The async client is closed after each metric write to avoid event-loop-affinity failures in pytest/CI. All three Ollama call sites (`analyze_threat_log`, `generate_incident_narrative`, `analyze_audit_logs`) now `await` the metric writer. Prometheus observe failures logged at debug (was silent `pass`); Redis operational errors narrowed to `redis.exceptions.RedisError` with debug logging (was broad silent `except Exception: pass`). Removed duplicate `logger` assignment.
+- `src/backend/tests/test_system_monitoring.py`: added `@pytest.mark.asyncio` test `test_record_inference_metric_observes_prometheus_and_writes_redis` — directly verifies Prometheus `observe()` label/observe calls and Redis `pipeline()`/`incr`/`incrbyfloat`/`execute()` calls. Added `test_system_metrics_network_none_fallback` — verifies `net_io_counters()` None fallback returns `bytes_sent=0, bytes_recv=0`.
+- No FRS gap register change (no FRS alignment change).
+
 ## [2026-06-12] docs | PR #271 metadata fix: M4-D → M2-c traceability correction
 
 - `docs/PR-offline-first-encoder.md`: corrected Deferred "Conflict resolution UI" label from `(M4-D)` to `(M2-c)` — M2-c (Data Synchronization) covers conflict detection/resolution per FRS `raw/frs/frs-offlinefirst.md`. Added `## FRS Traceability` section mapping each FRS M2 sub-item to concrete implementation evidence with system-wiki cross-links (`concepts/frs-module-map`, `architecture/pwa-tests-cicd`, `gaps/frs-codebase-gap-register`).
@@ -79,6 +85,18 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 - `src/openbao/init/bootstrap-openbao.sh`: added keep-alive loop (`while true; do sleep 3600; done`) with SIGTERM/SIGINT trap at end of bootstrap script. The deploy workflow (`compose up -d --build --wait`) requires every service to be in "running" or "healthy" state. Since the bootstrap container has no healthcheck and previously exited after completing its init logic, `--wait` saw it as "not ready" and failed the deploy. The keep-alive keeps the container in "running" state until the stack is torn down.
 - `system-wiki/architecture/infrastructure-config.md`: documented the --wait compatibility detail in the GitOps deploy workflow section.
+
+## [2026-06-12] feat | GH #167 — M9a AI inference latency + network bandwidth (feat/m9-system-metrics)
+
+- `src/backend/utils/metrics.py`: added `AI_INFERENCE_DURATION` Prometheus histogram (`ai_inference_duration_seconds`, label `function`, buckets 1–120s). Auto-exposed via `/metrics` — satisfies AC #2 for web-process calls.
+- `src/backend/services/ai_service.py`: added `_record_inference_metric(function_name, elapsed_s)` helper — observes to Prometheus histogram AND writes cross-process Redis counters (`wims:ai:inference:count`, `wims:ai:inference:sum_ms`) via pipeline. All three Ollama POST sites instrumented: `analyze_threat_log`, `generate_incident_narrative`, `analyze_audit_logs`. Redis approach required because `prometheus_client` is NOT in multiprocess mode and both `analyze_threat_log` and `generate_incident_narrative` run in Celery workers as well as web workers.
+- `src/backend/api/routes/admin/monitoring.py`: `GET /admin/monitoring/system` extended — reads Redis counters for `ai_inference: {avg_latency_ms, count}` (null avg + 0 count when Redis unreachable), adds `network: {bytes_sent, bytes_recv}` from `psutil.net_io_counters()`. `net_io_counters()` None-guarded. Existing cpu/memory/disk fields unchanged.
+- `src/frontend/src/lib/api/legacy.ts`: `SystemMetricsResponse` extended with `ai_inference` and `network` optional fields.
+- `src/frontend/src/app/admin/system/page.tsx`: `SystemMetrics` interface extended; grid changed from `md:grid-cols-3` to `sm:grid-cols-2 lg:grid-cols-5`; AI Inference card (avg ms + call count, or "No calls recorded") and Network card (↑/↓ MB) added after disk card. Existing CPU/Memory/Disk cards unchanged.
+- `src/backend/tests/test_system_monitoring.py`: 3 new tests — `ai_inference`/`network` shape, Redis-mock populated avg/count, `/metrics` histogram presence.
+- `src/frontend/src/app/admin/system/admin-system-monitoring.test.tsx`: 2 new tests — AI Inference + Network card render with data, "No calls recorded" for count=0.
+- Gap register updated: #167 CLOSED, M9a extended note added.
+- PWA sync counters deferred per issue ("optional for prototype").
 
 ## [2026-06-11] fix | OpenBao token-file mounting for backend/celery
 
