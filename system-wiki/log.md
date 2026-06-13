@@ -3,6 +3,12 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-13] rebase | PR #262 rebased onto origin/master (ba6b0b2)
+
+- Conflict in `system-wiki/log.md`: resolved by keeping all master entries (PR #263 dashboard, PR #265 attachment encryption review, PR #264 anomaly detection review, M9a AI inference, M8 anomaly detection, M6a attachment encryption, M8 security monitoring dashboard) and PR #262 M6 privacy rights entry in chronological order.
+- Migration `56_consent_log.sql` → `59_consent_log.sql`: master already had 56 (verification history), 57 (anomaly detections), 58 (attachment encryption). All references updated in log.md, gap register, and SQL file.
+- No code conflicts (route registrations, schemas, tests auto-merged cleanly).
+
 ## [2026-06-13] fix | PR #263 review — dashboard link, error state, pagination metadata
 
 - S1: `api/routes/admin/security.py` security-alert email context now links `dashboard_link` to `/admin/monitoring` instead of stale `/admin/security-dashboard`; backend regression test covers HIGH threat confirmation email context.
