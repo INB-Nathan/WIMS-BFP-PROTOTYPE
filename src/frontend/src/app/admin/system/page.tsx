@@ -24,7 +24,7 @@ import {
 } from '@/lib/api';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { getConnectivitySnapshot, subscribeConnectivity, probeConnectivity } from '@/lib/connectivity';
-import { Region } from '@/types/api';
+import { ActiveSession, Region } from '@/types/api';
 import {
     BarChart3,
     Users,
@@ -82,16 +82,6 @@ interface AuditItem {
     ip_address: string | null;
     user_agent: string | null;
     timestamp: string | null;
-}
-
-interface ActiveSession {
-    session_id: string;
-    user_id: string;
-    username: string;
-    role: string;
-    ip_address: string;
-    start: number;
-    last_access: number;
 }
 
 interface SystemMetrics {
