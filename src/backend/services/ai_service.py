@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -20,6 +21,15 @@ from utils.metrics import AI_INFERENCE_DURATION
 
 logger = logging.getLogger("wims.ai_service")
 OLLAMA_MODEL = "qwen2.5:3b"
+
+# ---------------------------------------------------------------------------
+# Ollama HTTP timeout (seconds). Override via OLLAMA_TIMEOUT env var.
+# Default 120s — Qwen2.5-3B on CPU-only takes 30-120s per inference.
+# ---------------------------------------------------------------------------
+_OLLAMA_DEFAULT_TIMEOUT = 120.0
+# Retry: 3 attempts, exponential backoff 2s/4s/8s, only on ConnectError + 5xx.
+_OLLAMA_MAX_RETRIES = 3
+_OLLAMA_RETRY_BASE_DELAY = 2.0
 
 
 def _get_metrics_redis() -> aioredis.Redis:
@@ -53,6 +63,81 @@ async def _record_inference_metric(function_name: str, elapsed_s: float) -> None
 
 def _ollama_url() -> str:
     return os.environ.get("OLLAMA_URL", "http://wims-ollama:11434").rstrip("/")
+
+
+def _ollama_timeout(db=None) -> float:
+    """Return the Ollama HTTP timeout from env or system_config, with fallback."""
+    env_val = os.environ.get("OLLAMA_TIMEOUT")
+    if env_val is not None:
+        try:
+            return float(env_val)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid OLLAMA_TIMEOUT=%r, using default %.0fs", env_val, _OLLAMA_DEFAULT_TIMEOUT
+            )
+    if db is not None:
+        try:
+            return float(get_config(db, "ai_timeout_seconds", str(int(_OLLAMA_DEFAULT_TIMEOUT))))
+        except (TypeError, ValueError):
+            pass
+    return _OLLAMA_DEFAULT_TIMEOUT
+
+
+async def _ollama_post_with_retry(payload: dict, call_label: str = "") -> httpx.Response:
+    """POST to Ollama with retry on ConnectError and 5xx (exponential backoff).
+
+    Does NOT retry on TimeoutException — inference is CPU-bound and retrying
+    would double the load on an already-busy Ollama instance.
+    """
+    timeout = _ollama_timeout()
+    last_exc: Exception | None = None
+
+    for attempt in range(_OLLAMA_MAX_RETRIES):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
+            if resp.status_code == 200:
+                return resp
+            if resp.status_code >= 500 and attempt < _OLLAMA_MAX_RETRIES - 1:
+                delay = _OLLAMA_RETRY_BASE_DELAY * (2**attempt)
+                logger.warning(
+                    "Ollama %s 5xx (attempt %d/%d, status=%d), retrying in %.1fs...",
+                    call_label,
+                    attempt + 1,
+                    _OLLAMA_MAX_RETRIES,
+                    resp.status_code,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+            # Non-retryable status (4xx, or final 5xx)
+            raise HTTPException(
+                status_code=502,
+                detail=f"Ollama request failed: {resp.status_code}",
+            )
+        except httpx.ConnectError as exc:
+            last_exc = exc
+            if attempt < _OLLAMA_MAX_RETRIES - 1:
+                delay = _OLLAMA_RETRY_BASE_DELAY * (2**attempt)
+                logger.warning(
+                    "Ollama %s connect failed (attempt %d/%d), retrying in %.1fs...",
+                    call_label,
+                    attempt + 1,
+                    _OLLAMA_MAX_RETRIES,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+            else:
+                logger.warning(
+                    "Ollama %s connect failed after %d retries", call_label, _OLLAMA_MAX_RETRIES
+                )
+                raise HTTPException(status_code=502, detail="Ollama service unavailable") from exc
+        except httpx.TimeoutException as exc:
+            logger.warning("Ollama %s timed out after %.0fs", call_label, timeout)
+            raise HTTPException(status_code=502, detail="Ollama request timed out") from exc
+
+    # Should not reach here, but safety net
+    raise HTTPException(status_code=502, detail="Ollama request failed after retries") from last_exc
 
 
 async def analyze_threat_log(log_id: int, db: Session) -> dict:
@@ -96,26 +181,8 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
         "format": "json",
     }
 
-    try:
-        ai_timeout = float(get_config(db, "ai_timeout_seconds", "60"))
-    except (TypeError, ValueError):
-        ai_timeout = 60.0
     _t0 = time.perf_counter()
-    try:
-        async with httpx.AsyncClient(timeout=ai_timeout) as client:
-            resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
-    except httpx.TimeoutException:
-        logger.warning("Ollama analyze_threat_log timed out log_id=%s", log_id)
-        raise HTTPException(status_code=502, detail="Ollama request timed out")
-    except httpx.ConnectError:
-        logger.warning("Ollama analyze_threat_log connect failed log_id=%s", log_id)
-        raise HTTPException(status_code=502, detail="Ollama service unavailable")
-
-    if resp.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Ollama request failed: {resp.status_code}",
-        )
+    resp = await _ollama_post_with_retry(payload, call_label="analyze_threat_log")
     await _record_inference_metric("analyze_threat_log", time.perf_counter() - _t0)
 
     data = resp.json()
@@ -238,33 +305,30 @@ async def generate_incident_narrative(
         f"and 'confidence' (float 0.0-1.0)."
     )
 
-    ollama_url = _ollama_url() + "/api/generate"
-
+    _t0 = time.perf_counter()
     try:
-        ai_timeout = float(get_config(db, "ai_timeout_seconds", "60"))
-        _t0 = time.perf_counter()
-        async with httpx.AsyncClient(timeout=ai_timeout) as client:
-            response = await client.post(
-                ollama_url,
-                json={
-                    "model": OLLAMA_MODEL,
-                    "prompt": prompt,
-                    "stream": False,
-                    "format": "json",
-                },
-            )
-            response.raise_for_status()
-            await _record_inference_metric("generate_incident_narrative", time.perf_counter() - _t0)
-            raw = response.json().get("response", "{}")
-            parsed = json.loads(raw)
-            narrative = parsed.get("narrative", "")
-            confidence = float(parsed.get("confidence", 0.5))
-            confidence = max(0.0, min(1.0, confidence))
+        response = await _ollama_post_with_retry(
+            {
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "format": "json",
+            },
+            call_label="generate_incident_narrative",
+        )
+        await _record_inference_metric("generate_incident_narrative", time.perf_counter() - _t0)
+        raw = response.json().get("response", "{}")
+        parsed = json.loads(raw)
+        narrative = parsed.get("narrative", "")
+        confidence = float(parsed.get("confidence", 0.5))
+        confidence = max(0.0, min(1.0, confidence))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=502,
             detail=f"Ollama narrative generation failed: {str(e)[:200]}",
-        )
+        ) from e
 
     db.execute(
         text("""
@@ -354,26 +418,8 @@ async def analyze_audit_logs(audit_ids: list[int], db: Session) -> dict:
         "format": "json",
     }
 
-    try:
-        ai_timeout = float(get_config(db, "ai_timeout_seconds", "60"))
-    except (TypeError, ValueError):
-        ai_timeout = 60.0
     _t0 = time.perf_counter()
-    try:
-        async with httpx.AsyncClient(timeout=ai_timeout) as client:
-            resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
-    except httpx.TimeoutException:
-        logger.warning("Ollama analyze_audit_logs timed out audit_ids=%s", audit_ids)
-        raise HTTPException(status_code=502, detail="Ollama request timed out")
-    except httpx.ConnectError:
-        logger.warning("Ollama analyze_audit_logs connect failed audit_ids=%s", audit_ids)
-        raise HTTPException(status_code=502, detail="Ollama service unavailable")
-
-    if resp.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Ollama request failed: {resp.status_code}",
-        )
+    resp = await _ollama_post_with_retry(payload, call_label="analyze_audit_logs")
     await _record_inference_metric("analyze_audit_logs", time.perf_counter() - _t0)
 
     data = resp.json()

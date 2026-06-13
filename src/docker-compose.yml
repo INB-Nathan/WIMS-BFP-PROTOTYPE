@@ -155,16 +155,16 @@ services:
     networks:
       - wims_internal
     healthcheck:
-      test: ["CMD", "ollama", "list"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags >/dev/null || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 30
       start_period: 30s
     deploy:
       resources:
         limits:
-          cpus: '2'
-          memory: 4gb
+          cpus: '4'
+          memory: 8gb
     restart: always
 
   ollama-model-pull:
@@ -268,6 +268,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      ollama:
+        condition: service_healthy
+      ollama-model-pull:
+        condition: service_completed_successfully
 
   frontend:
     build:
