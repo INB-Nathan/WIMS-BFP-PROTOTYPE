@@ -2905,3 +2905,17 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - **GH #294** (docs): Added inline column-to-variable mapping comment before the 7-tuple positional unpack in `serve_attachment()` documenting SELECT order and cautioning about future column changes.
 - **GH #295** (docs): Added inline comment in the `is_encrypted=false` legacy branch documenting that pre-migration files are read entirely into memory with no size cap (new uploads bounded by 25 MB `WIMS_MAX_ATTACHMENT_BYTES`).
 - No FRS gap register change (pure test/docs additions; no behavioral change to existing functionality).
+
+## [2026-06-13] test(#298) | add combined severity + source_ip filter test for security logs
+
+**File:** `src/backend/tests/test_security_monitoring.py`
+**Issue:** #298
+
+**Change:** Added `TestCombinedSeveritySourceIpFilter` class with three tests:
+- `test_severity_and_source_ip_combined_filter` — verifies response shape when both multi-severity and source_ip filter params are provided
+- `test_combined_filter_sql_contains_both_conditions` — confirms SQL includes both `severity_level IN (...)` and `source_ip = :source_ip` in data and count queries
+- `test_combined_filter_binds_correct_params` — verifies bound params include all severity values and the source_ip value
+
+**Purpose:** Belt-and-suspenders coverage for PR #263 finding T6 (can defer). Individual filters tested separately; this closes the combined filter gap.
+
+**No FRS gap status changed.**
