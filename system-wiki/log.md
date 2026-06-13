@@ -2782,3 +2782,10 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - Added concise comments documenting expected direct `db.execute()` call counts for all tests with side_effect lists (both patched and unpatched).
 - Verified all remaining tests have correct side_effect lengths matching call count (export user: 3 calls, export report: 4 calls, anonymize user unpatched: 2 calls, anonymize idempotent: 4 calls, consent unpatched: 2 calls, anonymize report patched: 4 calls — all correct).
 - No application behavior changed. No FRS gap register change.
+
+## [2026-06-13] fix | triage page test flake — Inspect button race condition
+
+- Root cause: two tests (`shows Inspect on singleton`, `opens cluster inspection modal`) used `waitFor` for always-present `data-testid` wrappers that render during loading state. Synchronous `getAllByRole` then ran before async data resolved the Inspect buttons into the DOM.
+- Fix: replaced `screen.getAllByRole('button', { name: 'Inspect' })` with `await screen.findAllByRole('button', { name: 'Inspect' })` so the query waits for data-driven content to appear. Same pattern already used by the other 6 Inspect tests in the same file.
+- Files changed: `src/frontend/src/app/incidents/triage/page.test.tsx` (4 insertions, 7 deletions).
+- Validation: `npx vitest run` passes (10/10), `git diff --check` clean.
