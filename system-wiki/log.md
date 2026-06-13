@@ -2773,6 +2773,12 @@ Made pending-sync offline incidents fully manageable through the normal regional
 
 **Purpose:** Eliminate misleading name — the test does not verify RLS policies; it tests that the consent endpoint works without an Authorization header.
 
+## [2026-06-14] feat(#280) | add SUSPICIOUS_QUERY_PATTERN detector (audit-trail proxy for high-frequency PII_EXPORT)
+
+- Added `_detect_suspicious_query_pattern` to `tasks/anomaly_detection.py`: sliding-window correlated subquery, >10 PII_EXPORT actions per user per 5-min window, severity HIGH. Audit-trail proxy — pg_stat_statements not enabled (GH #280 rationale). Appended to `_DETECTORS` list.
+- 10 new unit tests in `test_anomaly_detection.py` (positive, negative, dedup stability, cross-boundary). Updated 2 existing task tests to account for 5th detector query.
+- Gap register updated: M8 entry now reflects 5/5 detectors shipped; geo Impossible Travel (#281) remains the sole deferred item.
+
 ## [2026-06-13] chore(#310) | audit and fix unconsumed MagicMock side_effect entries in privacy tests
 
 - Fixed 3 unconsumed `mock_db.execute.side_effect` entries in tests that patch `log_system_audit`. The extra `MagicMock()` entries masked the true call counts and would silently absorb any future extra `db.execute()` calls without failing.

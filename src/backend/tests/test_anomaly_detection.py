@@ -24,10 +24,13 @@ import pytest
 
 
 from tasks.anomaly_detection import (
+    _PII_EXPORT_ACTION,
+    _SUSPICIOUS_QUERY_THRESHOLD,
     _detect_bulk_delete,
     _detect_off_hours,
     _detect_privilege_escalation,
     _detect_rapid_ip_switch,
+    _detect_suspicious_query_pattern,
     _write_anomaly,
     detect_behavioral_anomalies,
 )
@@ -529,6 +532,7 @@ class TestDetectBehavioralAnomaliesTask:
             fetch_result_empty,  # _detect_off_hours
             fetch_result_empty,  # _detect_privilege_escalation
             fetch_result_empty,  # _detect_rapid_ip_switch
+            fetch_result_empty,  # _detect_suspicious_query_pattern
             insert_result,  # _write_anomaly: anomaly_detections INSERT
             threat_result,  # _write_anomaly: security_threat_logs INSERT
         ]
@@ -571,7 +575,8 @@ class TestDetectBehavioralAnomaliesTask:
             fetch_result_empty,  # 4: _detect_off_hours query
             fetch_result_empty,  # 5: _detect_privilege_escalation query
             fetch_result_empty,  # 6: _detect_rapid_ip_switch query
-            MagicMock(),  # 7: safety margin
+            fetch_result_empty,  # 7: _detect_suspicious_query_pattern query
+            MagicMock(),  # 8: safety margin
         ]
 
         with patch("tasks.anomaly_detection.get_session", return_value=mock_db):
@@ -580,3 +585,116 @@ class TestDetectBehavioralAnomaliesTask:
         assert result["new"] == 1
         assert result["dedup"] == 1
         mock_db.commit.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# SUSPICIOUS_QUERY_PATTERN
+# ---------------------------------------------------------------------------
+
+
+class TestSuspiciousQueryPatternDetector:
+    def test_no_flag_when_no_rows(self):
+        """No high-frequency PII_EXPORT rows → no anomaly."""
+        db = _make_db(fetch_rows=[])
+        result = _detect_suspicious_query_pattern(db)
+        assert result == []
+
+    def test_flag_when_count_exceeds_threshold(self):
+        """11 PII_EXPORT events in 5-min window → HIGH SUSPICIOUS_QUERY_PATTERN."""
+        db = _make_db(fetch_rows=[(_USER_A, _WINDOW_5MIN, 11, "1.2.3.4")])
+        result = _detect_suspicious_query_pattern(db)
+        assert len(result) == 1
+        a = result[0]
+        assert a["anomaly_type"] == "SUSPICIOUS_QUERY_PATTERN"
+        assert a["severity"] == "HIGH"
+        assert a["subject_user_id"] == str(_USER_A)
+        assert a["details"]["count"] == 11
+        assert a["details"]["action_type"] == _PII_EXPORT_ACTION
+        assert a["details"]["window_minutes"] == 5
+        assert a["details"]["threshold"] == _SUSPICIOUS_QUERY_THRESHOLD
+        assert a["source_ip"] == "1.2.3.4"
+        assert "SUSPICIOUS_QUERY_PATTERN:" in a["dedup_key"]
+        assert str(_USER_A) in a["dedup_key"]
+
+    def test_no_flag_at_threshold(self):
+        """Exactly 10 exports (at threshold, not exceeding) → SQL HAVING cnt > 10 filters out."""
+        db = _make_db(fetch_rows=[])  # SQL excludes count == threshold
+        result = _detect_suspicious_query_pattern(db)
+        assert result == []
+
+    def test_multiple_users_flagged(self):
+        """Two users each exceeding threshold → two anomalies."""
+        db = _make_db(
+            fetch_rows=[
+                (_USER_A, _WINDOW_5MIN, 12, "1.2.3.4"),
+                (_USER_B, _WINDOW_5MIN, 15, "5.6.7.8"),
+            ]
+        )
+        result = _detect_suspicious_query_pattern(db)
+        assert len(result) == 2
+        types = {r["anomaly_type"] for r in result}
+        assert types == {"SUSPICIOUS_QUERY_PATTERN"}
+
+    def test_source_ip_none_when_missing(self):
+        """source_ip is None when the DB returns NULL (no IP on audit row)."""
+        db = _make_db(fetch_rows=[(_USER_A, _WINDOW_5MIN, 11, None)])
+        result = _detect_suspicious_query_pattern(db)
+        assert result[0]["source_ip"] is None
+
+    def test_dedup_key_encodes_user_and_window(self):
+        """dedup_key is SUSPICIOUS_QUERY_PATTERN:{user_id}:{window_key}."""
+        window_floor = datetime(2026, 6, 12, 14, 0, 0, tzinfo=timezone.utc)
+        db = _make_db(fetch_rows=[(_USER_A, window_floor, 11, None)])
+        result = _detect_suspicious_query_pattern(db)
+        assert result[0]["dedup_key"] == f"SUSPICIOUS_QUERY_PATTERN:{_USER_A}:202606121400"
+
+    def test_cross_boundary_burst_detected(self):
+        """6 exports at 14:04 + 6 at 14:05 = 12 in sliding window → flagged.
+
+        Fixed floor-bucket at 14:05 would start a new 5-min bucket and count only 6,
+        missing the burst. The sliding window counts 12 for the 14:05 event.
+        """
+        window_2 = datetime(2026, 6, 12, 14, 5, 0, tzinfo=timezone.utc)
+        db = _make_db(fetch_rows=[(_USER_A, window_2, 12, "1.2.3.4")])
+        result = _detect_suspicious_query_pattern(db)
+        assert len(result) == 1
+        assert result[0]["details"]["count"] == 12
+        assert "202606121405" in result[0]["dedup_key"]
+
+
+class TestSuspiciousQueryPatternWindowFloor:
+    """Prove dedup stability: two task runs within the same 5-min window produce
+    the same dedup key, so ON CONFLICT correctly fires on the second run."""
+
+    def test_key_is_window_floor_not_run_minute(self):
+        """window_start from SQL is the floor (e.g. 14:00), not the actual event minute."""
+        window_floor = datetime(2026, 6, 12, 14, 0, 0, tzinfo=timezone.utc)
+        db = _make_db(fetch_rows=[(_USER_A, window_floor, 11, "1.2.3.4")])
+        result = _detect_suspicious_query_pattern(db)
+        assert len(result) == 1
+        assert result[0]["dedup_key"].endswith("202606121400")
+
+    def test_two_runs_same_window_produce_identical_key(self):
+        """Run at HH:02 and run at HH:04 on events at HH:01 → same dedup key."""
+        window_floor = datetime(2026, 6, 12, 14, 0, 0, tzinfo=timezone.utc)
+        db_run1 = _make_db(fetch_rows=[(_USER_A, window_floor, 11, "1.2.3.4")])
+        db_run2 = _make_db(fetch_rows=[(_USER_A, window_floor, 11, "1.2.3.4")])
+        r1 = _detect_suspicious_query_pattern(db_run1)
+        r2 = _detect_suspicious_query_pattern(db_run2)
+        assert r1[0]["dedup_key"] == r2[0]["dedup_key"]
+
+    def test_two_runs_yield_exactly_one_write(self):
+        """First run inserts; second run deduplicates — one anomaly row, one threat-log row total."""
+        window_floor = datetime(2026, 6, 12, 14, 0, 0, tzinfo=timezone.utc)
+        db_run1 = _make_db(fetch_rows=[(_USER_A, window_floor, 11, "1.2.3.4")])
+        db_run2 = _make_db(fetch_rows=[(_USER_A, window_floor, 11, "1.2.3.4")])
+        r1 = _detect_suspicious_query_pattern(db_run1)
+        r2 = _detect_suspicious_query_pattern(db_run2)
+
+        write_db_run1 = _make_write_db_for_run(anomaly_id=9)
+        write_db_run2 = _make_write_db_for_run(anomaly_id=None)
+
+        assert _write_anomaly(write_db_run1, **r1[0]) is True
+        assert _write_anomaly(write_db_run2, **r2[0]) is False
+        assert write_db_run1.execute.call_count == 2  # anomaly_detections + threat_log
+        assert write_db_run2.execute.call_count == 1  # anomaly_detections only (dedup)
