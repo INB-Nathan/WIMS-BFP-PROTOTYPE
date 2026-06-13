@@ -2934,3 +2934,14 @@ Made pending-sync offline incidents fully manageable through the normal regional
   `_ivh_has_column()` results, avoiding repeated `information_schema` queries.
 - Applied ruff format. All 2 lifecycle transition tests pass.
 - No FRS gap register change (internal perf — no behavior/schema change).
+
+## [2026-06-13] style(#234) | align validator audit page with global design system
+
+**File:** `src/frontend/src/app/dashboard/validator/audit/page.tsx`
+**Issue:** #234
+**Branch:** agent/cluster-audit-ui-style
+
+**Change:** Replaced raw margin/padding layout with the standard `.card` / `.card-header` / `.card-body` pattern. Updated table to use `min-w-full divide-y divide-gray-200` with consistent header cells (`px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider`) matching admin system pages. Applied design token colors (`var(--text-primary)`, `var(--text-secondary)`, `var(--text-muted)`, `var(--sidebar-bg)`, `var(--bfp-maroon)`, `var(--border-color)`) throughout. Standardised filter inputs with `border border-gray-200` and sidebar-bg focus rings. Changed primary buttons to BFP maroon (`var(--bfp-maroon)`). Added `FileText` icon in card header.
+
+**No behavior change — pure style alignment.**
+- No FRS gap status changed.
