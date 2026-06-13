@@ -540,8 +540,8 @@ class TestGetSecurityLogsFiltered:
         call_args = mock_db.execute.call_args_list[0]
         sql = str(call_args[0][0])
         params = call_args[0][1]
-        assert "severity_level = :severity" in sql
-        assert params["severity"] == "HIGH"
+        assert "severity_level = :sev0" in sql
+        assert params["sev0"] == "HIGH"
 
     def test_filter_by_date_from(self, client: TestClient):
         """GET /admin/security-logs?date_from=2026-01-01T00:00:00 adds CAST timestamp filter."""
@@ -585,10 +585,10 @@ class TestGetSecurityLogsFiltered:
         sql = str(call_args[0][0])
         params = call_args[0][1]
         assert "source_ip = :source_ip" in sql
-        assert "severity_level = :severity" in sql
+        assert "severity_level = :sev0" in sql
         assert "timestamp >= CAST(:date_from AS timestamptz)" in sql
         assert params["source_ip"] == "10.0.0.1"
-        assert params["severity"] == "HIGH"
+        assert params["sev0"] == "HIGH"
 
     def test_security_filtered_count_uses_same_where_clause(self, client: TestClient):
         """The COUNT(*) query uses the same WHERE clause."""
@@ -602,7 +602,7 @@ class TestGetSecurityLogsFiltered:
         count_call = mock_db.execute.call_args_list[1]
         count_sql = str(count_call[0][0])
         assert "COUNT(*)" in count_sql
-        assert "severity_level = :severity" in count_sql
+        assert "severity_level = :sev0" in count_sql
 
 
 # =============================================================================

@@ -84,7 +84,7 @@ describe('Admin System search wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFetchAdminUsers.mockResolvedValue([]);
-    mockFetchAdminSecurityLogs.mockResolvedValue([]);
+    mockFetchAdminSecurityLogs.mockResolvedValue({ items: [], total: 0 });
     mockFetchAuditLogs.mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
   });
 

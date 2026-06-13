@@ -324,7 +324,7 @@ export default function AdminSystemPage() {
         try {
             const trimmed = q.trim();
             const data = await fetchAdminSecurityLogs(trimmed ? { q: trimmed } : undefined);
-            setSecurityLogs(data as SecurityLog[]);
+            setSecurityLogs(data.items as SecurityLog[]);
         } catch {
             setSecurityLogs([]);
         } finally {

@@ -120,7 +120,7 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
         vi.useFakeTimers();
         mockFetchAdminUsers.mockResolvedValue([]);
         mockFetchAuditLogs.mockResolvedValue({ items: [], total: 0 });
-        mockFetchAdminSecurityLogs.mockResolvedValue([]);
+        mockFetchAdminSecurityLogs.mockResolvedValue({ items: [], total: 0 });
         mockFetchRegions.mockResolvedValue([]);
         mockFetchActiveSessions.mockResolvedValue([]);
     });

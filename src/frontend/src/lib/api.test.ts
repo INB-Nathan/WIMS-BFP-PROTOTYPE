@@ -104,7 +104,7 @@ describe('fetchAdminSecurityLogs response parsing', () => {
     vi.unstubAllGlobals();
   });
 
-  it('parses paginated admin envelope {items: [...] }', async () => {
+  it('parses paginated admin envelope {items: [...], total} ', async () => {
     const fetchSpy = vi.fn().mockResolvedValue({
       ok: true,
       json: () =>
@@ -117,9 +117,10 @@ describe('fetchAdminSecurityLogs response parsing', () => {
     });
     vi.stubGlobal('fetch', fetchSpy);
 
-    const rows = await fetchAdminSecurityLogs();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ log_id: 101, severity_level: 'HIGH' });
+    const result = await fetchAdminSecurityLogs();
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({ log_id: 101, severity_level: 'HIGH' });
+    expect(result.total).toBe(1);
   });
 
   it('keeps backward compatibility for {data: [...]} responses', async () => {
@@ -129,9 +130,9 @@ describe('fetchAdminSecurityLogs response parsing', () => {
     });
     vi.stubGlobal('fetch', fetchSpy);
 
-    const rows = await fetchAdminSecurityLogs();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ log_id: 7 });
+    const result = await fetchAdminSecurityLogs();
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({ log_id: 7 });
   });
 });
 

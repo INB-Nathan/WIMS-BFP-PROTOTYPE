@@ -200,6 +200,7 @@ function getNavSections(role: string | null): NavSection[] {
             label: 'Administration',
             items: [
                 { label: 'Governance', href: '/admin/system#governance', icon: Users },
+                { label: 'Security Monitoring', href: '/admin/monitoring', icon: ShieldAlert },
                 { label: 'Telemetry', href: '/admin/system#telemetry', icon: ShieldAlert },
                 { label: 'Breach Notifications', href: '/admin/breach', icon: ShieldX },
                 { label: 'System Audit', href: '/admin/system#audit', icon: Settings },
