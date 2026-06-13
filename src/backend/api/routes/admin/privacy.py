@@ -100,6 +100,7 @@ def _decrypt_sensitive_details(sd_row) -> dict:
                 "CRITICAL: PII blob decryption failed during privacy export — incident_id=%s",
                 incident_id,
             )
+            sd["decryption_failed"] = True
     # Never expose raw blob columns
     for col in ("pii_blob_enc", "encryption_iv", "crypto_provider", "kms_key_name"):
         sd.pop(col, None)
@@ -259,14 +260,23 @@ def anonymize_subject(
     tables_affected: list[str] = []
 
     if body.subject_type == SubjectType.USER:
+        exists = db.execute(
+            text("SELECT 1 FROM wims.users WHERE user_id = :uid"),
+            {"uid": body.subject_id},
+        ).fetchone()
+        if exists is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
         result = db.execute(
-            text("UPDATE wims.users SET contact_number = NULL WHERE user_id = :uid"),
+            text(
+                "UPDATE wims.users SET contact_number = NULL "
+                "WHERE user_id = :uid AND contact_number IS NOT NULL"
+            ),
             {"uid": body.subject_id},
         )
-        if result.rowcount == 0:
-            raise HTTPException(status_code=404, detail="User not found")
-        tables_affected.append("wims.users")
-        log_system_audit(db, admin_id, "PII_ANONYMIZE", "wims.users", None, request)
+        if result.rowcount > 0:
+            tables_affected.append("wims.users")
+            log_system_audit(db, admin_id, "PII_ANONYMIZE", "wims.users", None, request)
 
     else:  # REPORT
         try:
@@ -296,50 +306,70 @@ def anonymize_subject(
                 ),
             )
 
-        db.execute(
+        cr_result = db.execute(
             text(
                 "UPDATE wims.citizen_reports SET "
                 "witness_name = NULL, witness_phone = NULL, "
                 "ip_hash = NULL, device_id = NULL, "
                 "phone_latitude = NULL, phone_longitude = NULL "
-                "WHERE report_id = :rid"
+                "WHERE report_id = :rid "
+                "AND (witness_name, witness_phone, ip_hash, device_id, "
+                "phone_latitude, phone_longitude) "
+                "IS DISTINCT FROM (NULL, NULL, NULL, NULL, NULL, NULL)"
             ),
             {"rid": report_id},
         )
-        tables_affected.append("wims.citizen_reports")
-        log_system_audit(db, admin_id, "PII_ANONYMIZE", "wims.citizen_reports", report_id, request)
+        if cr_result.rowcount > 0:
+            tables_affected.append("wims.citizen_reports")
+            log_system_audit(
+                db, admin_id, "PII_ANONYMIZE", "wims.citizen_reports", report_id, request
+            )
 
         incident_id = report_row[2]
         if incident_id:
-            db.execute(
+            sd_result = db.execute(
                 text(
                     "UPDATE wims.incident_sensitive_details SET "
                     "caller_name = NULL, caller_number = NULL, "
                     "owner_name = NULL, occupant_name = NULL, narrative_report = NULL, "
                     "pii_blob_enc = NULL, encryption_iv = NULL, "
                     "kms_key_name = NULL, crypto_provider = NULL, key_version = NULL "
-                    "WHERE incident_id = :iid"
+                    "WHERE incident_id = :iid "
+                    "AND (caller_name, caller_number, owner_name, occupant_name, "
+                    "narrative_report, pii_blob_enc, encryption_iv, kms_key_name, "
+                    "crypto_provider, key_version) "
+                    "IS DISTINCT FROM (NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)"
                 ),
                 {"iid": incident_id},
             )
-            tables_affected.append("wims.incident_sensitive_details")
-            log_system_audit(
-                db,
-                admin_id,
-                "PII_ANONYMIZE",
-                "wims.incident_sensitive_details",
-                incident_id,
-                request,
-            )
+            if sd_result.rowcount > 0:
+                tables_affected.append("wims.incident_sensitive_details")
+                log_system_audit(
+                    db,
+                    admin_id,
+                    "PII_ANONYMIZE",
+                    "wims.incident_sensitive_details",
+                    incident_id,
+                    request,
+                )
 
-            db.execute(
-                text("UPDATE wims.involved_parties SET full_name = NULL WHERE incident_id = :iid"),
+            ip_result = db.execute(
+                text(
+                    "UPDATE wims.involved_parties SET full_name = NULL "
+                    "WHERE incident_id = :iid AND full_name IS NOT NULL"
+                ),
                 {"iid": incident_id},
             )
-            tables_affected.append("wims.involved_parties")
-            log_system_audit(
-                db, admin_id, "PII_ANONYMIZE", "wims.involved_parties", incident_id, request
-            )
+            if ip_result.rowcount > 0:
+                tables_affected.append("wims.involved_parties")
+                log_system_audit(
+                    db,
+                    admin_id,
+                    "PII_ANONYMIZE",
+                    "wims.involved_parties",
+                    incident_id,
+                    request,
+                )
 
     db.commit()
     return AnonymizeResponse(

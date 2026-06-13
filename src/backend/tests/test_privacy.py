@@ -464,8 +464,12 @@ class TestExportReportSubject:
         assert body["citizen_report"] is not None
         assert body["incident_sensitive_details"] is None
 
-    def test_export_decryption_failure(self, client: TestClient):
-        """When decrypt_json raises, export still returns 200 but PII fields are absent."""
+    def test_export_decrypt_failure_adds_sentinel(self, client: TestClient):
+        """When decrypt_json raises, response includes decryption_failed: true sentinel (#304).
+
+        The sentinel allows API consumers to distinguish "no PII exists" from
+        "decryption silently failed". PII fields are absent; blob columns are stripped.
+        """
         app.dependency_overrides[auth.get_current_wims_user] = _mock_admin
         mock_db = _make_db()
         mock_db.execute.side_effect = [
@@ -481,7 +485,7 @@ class TestExportReportSubject:
         app.dependency_overrides[get_db_with_rls] = mock_get_db
 
         mock_provider = MagicMock()
-        mock_provider.decrypt_json.side_effect = RuntimeError("decryption failed")
+        mock_provider.decrypt_json.side_effect = RuntimeError("simulated decrypt failure")
 
         with patch("api.routes.admin.privacy.get_crypto_provider", return_value=mock_provider):
             resp = client.get(
@@ -492,10 +496,14 @@ class TestExportReportSubject:
         body = resp.json()
         sd = body["incident_sensitive_details"]
         assert sd is not None
-        # PII fields were not injected due to decryption failure
+        assert sd.get("decryption_failed") is True, (
+            f"Expected decryption_failed sentinel in response, got: {sd}"
+        )
+        # PII fields must be absent (decrypt never populated them)
         assert sd.get("caller_name") is None
-        assert sd.get("caller_number") is None
+        # Blob columns still stripped (defense-in-depth)
         assert "pii_blob_enc" not in sd
+        assert "encryption_iv" not in sd
 
 
 # ---------------------------------------------------------------------------
@@ -510,8 +518,12 @@ class TestAnonymizeUser:
         mock_db = _make_db()
         update_result = MagicMock()
         update_result.rowcount = 1
-        # 2 direct db.execute() calls: 1) UPDATE wims.users  2) audit INSERT (log_system_audit)
-        mock_db.execute.side_effect = [update_result, MagicMock()]
+        # 3 direct db.execute() calls: 1) SELECT existence  2) UPDATE wims.users  3) audit INSERT
+        mock_db.execute.side_effect = [
+            MagicMock(fetchone=lambda: MagicMock()),  # user exists
+            update_result,
+            MagicMock(),  # audit INSERT
+        ]
 
         def mock_get_db():
             yield mock_db
@@ -550,9 +562,12 @@ class TestAnonymizeUser:
         mock_db = _make_db()
         update_result = MagicMock()
         update_result.rowcount = 1
-        # log_system_audit patched → audit INSERT skipped; only 1 direct db.execute() call:
-        #   UPDATE wims.users
-        mock_db.execute.side_effect = [update_result]
+        # log_system_audit patched → audit INSERT skipped; 2 db.execute() calls:
+        #   SELECT existence + UPDATE wims.users
+        mock_db.execute.side_effect = [
+            MagicMock(fetchone=lambda: MagicMock()),  # user exists
+            update_result,
+        ]
 
         def mock_get_db():
             yield mock_db
@@ -570,31 +585,47 @@ class TestAnonymizeUser:
         assert call_args[2] == "PII_ANONYMIZE"
 
     def test_anonymize_idempotent(self, client: TestClient):
-        """Second anonymize call on already-nulled row still succeeds (rowcount=1 from UPDATE WHERE).
+        """Second anonymize call is a no-op — only first call writes audit entry (#316).
 
-        Verifies the SQL idempotency mechanism: the second UPDATE must include
-        a WHERE user_id clause (not WHERE contact_number IS NOT NULL). The
-        idempotency guarantee relies on PostgreSQL counting all matched rows
-        regardless of whether the column value changed.
+        Verifies the SQL idempotency mechanism (#312): the second UPDATE must include
+        a WHERE user_id clause. The idempotency guarantee relies on conditional UPDATE
+        WHERE clauses that skip rows already anonymized.
         """
         app.dependency_overrides[auth.get_current_wims_user] = _mock_admin
         mock_db = _make_db()
-        update_result = MagicMock()
-        update_result.rowcount = 1
-        # 4 direct db.execute() calls: (UPDATE users + audit INSERT) × 2 iterations
-        mock_db.execute.side_effect = [update_result, MagicMock(), update_result, MagicMock()]
+
+        select_exists = MagicMock(fetchone=lambda: MagicMock())  # user exists both times
+        update_hit = MagicMock(rowcount=1)  # first call: row modified
+        update_miss = MagicMock(rowcount=0)  # second call: no-op (contact already NULL)
+
+        # log_system_audit patched → audit INSERT skipped.
+        # Each call: SELECT existence → UPDATE.
+        # Call 1: SELECT + UPDATE (rowcount=1 → audit happens via patched fn)
+        # Call 2: SELECT + UPDATE (rowcount=0 → no audit)
+        mock_db.execute.side_effect = [
+            select_exists,
+            update_hit,
+            select_exists,
+            update_miss,
+        ]
 
         def mock_get_db():
             yield mock_db
 
         app.dependency_overrides[get_db_with_rls] = mock_get_db
 
-        for _ in range(2):
-            resp = client.post(
-                "/api/admin/privacy/anonymize",
-                json={"subject_type": "USER", "subject_id": _USER_ID, "confirm": True},
-            )
-            assert resp.status_code == 200
+        with patch("api.routes.admin.privacy.log_system_audit") as mock_audit:
+            for _ in range(2):
+                resp = client.post(
+                    "/api/admin/privacy/anonymize",
+                    json={"subject_type": "USER", "subject_id": _USER_ID, "confirm": True},
+                )
+                assert resp.status_code == 200
+
+        # Only one audit entry across two calls
+        assert mock_audit.call_count == 1, f"Expected 1 audit call, got {mock_audit.call_count}"
+        call_args = mock_audit.call_args[0]
+        assert call_args[2] == "PII_ANONYMIZE"
 
         # ═══ Issue #312: Verify SQL idempotency mechanism ═══
         # Second anonymize UPDATE must include WHERE user_id to ensure the
@@ -608,12 +639,11 @@ class TestAnonymizeUser:
         )
 
     def test_anonymize_user_not_found(self, client: TestClient):
-        """Anonymize non-existent user returns 404."""
+        """Anonymize non-existent user returns 404 (SELECT existence check)."""
         app.dependency_overrides[auth.get_current_wims_user] = _mock_admin
         mock_db = _make_db()
-        update_result = MagicMock()
-        update_result.rowcount = 0
-        mock_db.execute.return_value = update_result
+        # SELECT existence returns None → 404 before UPDATE is attempted
+        mock_db.execute.return_value = MagicMock(fetchone=lambda: None)
 
         def mock_get_db():
             yield mock_db
@@ -663,11 +693,12 @@ class TestAnonymizeReport:
         select_result = MagicMock(
             fetchone=lambda: _report_row(status="ACTIONED", verified_incident_id=_INCIDENT_ID)
         )
-        update_cr = MagicMock()
-        update_sd = MagicMock()
-        update_ip = MagicMock()
+        update_cr = MagicMock(rowcount=1)
+        update_sd = MagicMock(rowcount=1)
+        update_ip = MagicMock(rowcount=1)
 
-        # log_system_audit is patched below → only 4 db.execute calls happen
+        # log_system_audit is patched below → 4 db.execute calls happen
+        # but audit gate requires rowcount > 0
         mock_db.execute.side_effect = [
             select_result,
             update_cr,
@@ -725,7 +756,7 @@ class TestAnonymizeReport:
         select_result = MagicMock(
             fetchone=lambda: _report_row(status="ACTIONED", verified_incident_id=None)
         )
-        update_cr = MagicMock()
+        update_cr = MagicMock(rowcount=1)
 
         mock_db.execute.side_effect = [select_result, update_cr]
 

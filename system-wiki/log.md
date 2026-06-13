@@ -11,6 +11,14 @@ Format: `## [YYYY-MM-DD] action | subject`
 - #278 scope note: `offlineStore.ops.test.ts` retains its separate Map-backed mock (unchanged). Only `offlineStore.test.ts` was migrated, as scoped in the issue. Sibling offline tests (51 across 6 files) pass.
 - No FRS gap register change (test infrastructure — no FRS alignment change).
 
+## [2026-06-13] fix(#304 #316) | privacy export decryption sentinel + audit idempotency gate
+
+- #304 (security): `_decrypt_sensitive_details` now sets `sd["decryption_failed"] = True` in the bare `except Exception` block, giving API consumers a sentinel to distinguish "no PII exists" from "decryption silently failed". The sentinel nests inside `incident_sensitive_details`; PII fields remain absent and blob columns stay stripped. New test `test_export_decrypt_failure_adds_sentinel` covers the failure path.
+- #316: Anonymize audit entries (`PII_ANONYMIZE`) now gated on `rowcount > 0` for all four tables. UPDATE WHERE clauses augmented with `IS DISTINCT FROM` / `IS NOT NULL` conditions so idempotent calls return `rowcount=0` and skip audit. User existence now checked with a separate SELECT before the conditional UPDATE.
+- Test `test_anonymize_idempotent` strengthened: second call returns `rowcount=0`, only one audit entry across two calls. All existing tests updated for the SELECT-existence + conditional-UPDATE flow.
+- No FRS gap register change (review fixes to existing M6 implementation; gap #165 remains CLOSED).
+- Ruff check + format green. All 19 privacy tests pass.
+
 ## [2026-06-13] fix | PR #262 FrontierCode review — Q1 narrative_report anonymize leak + Q2 key_version silent decrypt failure
 
 - Q1 MUST-FIX: Added `narrative_report = NULL` to the `incident_sensitive_details` anonymize UPDATE SET clause in `api/routes/admin/privacy.py`. Previously, `narrative_report` was SELECTed for export (plaintext PII column) but never nulled during anonymization, leaking PII after the right-to-erasure path.
