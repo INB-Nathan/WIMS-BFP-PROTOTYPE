@@ -2858,3 +2858,17 @@ Made pending-sync offline incidents fully manageable through the normal regional
 **Validation:** `npx vitest run` — 20/20 passed. `npx eslint` — 0 errors, 0 warnings.
 
 **No FRS gap register change.**
+
+## [2026-06-13] fix | triage page test flake — Inspect button race condition
+
+- Root cause: two tests (`shows Inspect on singleton`, `opens cluster inspection modal`) used `waitFor` for always-present `data-testid` wrappers that render during loading state. Synchronous `getAllByRole` then ran before async data resolved the Inspect buttons into the DOM.
+- Fix: replaced `screen.getAllByRole('button', { name: 'Inspect' })` with `await screen.findAllByRole('button', { name: 'Inspect' })` so the query waits for data-driven content to appear. Same pattern already used by the other 6 Inspect tests in the same file.
+- Files changed: `src/frontend/src/app/incidents/triage/page.test.tsx` (4 insertions, 7 deletions).
+- Validation: `npx vitest run` passes (10/10), `git diff --check` clean.
+
+## [2026-06-13] fix | analyst dashboard export-button test flake (PR #321/#322 CI)
+
+- The test `offline / cached-data UI > disables export buttons when offline` used synchronous `getByLabelText('Export CSV')` immediately after `mockFetchHeatmapData` was called. However, the export buttons are gated behind `!loadingData && heatmap !== null` in the component render tree. At the moment the mock is called, `loadingData` is still `true` (set at the top of `loadData`, cleared in its `finally` block), so the export section hasn't rendered yet.
+- Fix: replaced `getByLabelText` with `findByLabelText` (built on `waitFor`, retries until the element appears). This allows React to complete the `loadData` finally block and re-render the export section before the assertion runs.
+- No component behavior changed. Test coverage preserved (disabled state assertion unchanged).
+- No FRS gap register change (test-only fix).
