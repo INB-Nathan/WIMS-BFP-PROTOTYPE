@@ -4,86 +4,63 @@
  * These tests confirm the foundation that syncEngine will consume.
  * Payload encryption is transparent: queueIncident encrypts on write,
  * getPendingIncidents/getQueuedIncident decrypt on read.
+ *
+ * Uses fake-indexeddb instead of a Map-backed mock so real transaction
+ * semantics (readonly vs readwrite, version upgrades, object store creation)
+ * are exercised in CI as they would be in the browser.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { webcrypto } from 'node:crypto';
+import 'fake-indexeddb/auto';
+import { IDBFactory } from 'fake-indexeddb';
+import { openDB } from 'idb';
 
 if (!globalThis.crypto) {
     (globalThis as Record<string, unknown>).crypto = webcrypto;
 }
 
-type StoredRecord = {
-    id: number;
-    opType?: 'create' | 'verify' | 'archive_action';
+// ─── Constants matching offlineStore.ts ──────────────────────────────────────
+const DB_NAME = 'wims-bfp-db';
+const DB_VERSION = 4;
+const STORE_NAME = 'incident-queue';
+
+// ─── Local type for raw IndexedDB records (not exported from offlineStore.ts) ─
+interface RawRecord {
+    id?: number;
+    opType?: string;
     localId?: string;
     encrypted: { iv: number[]; data: number[] };
     createdAt: number;
-    status: 'pending' | 'synced';
-};
-
-const store = new Map<number, StoredRecord>();
-const keyStore = new Map<string, CryptoKey>();
-let nextId = 1;
-let getAllReturn: StoredRecord[] = [];
-
-function makeDbMock() {
-    return {
-        add: vi.fn((_s: string, item: Record<string, unknown>) => {
-            const id = nextId++;
-            const record = { ...item, id } as StoredRecord;
-            store.set(id, record);
-            getAllReturn.push(record);
-            return Promise.resolve(id);
-        }),
-        getAll: vi.fn(() => Promise.resolve(Array.from(store.values()))),
-        get: vi.fn((_s: string, key: string | number) => {
-            if (_s === 'crypto-keys') {
-                return Promise.resolve(keyStore.get(String(key)));
-            }
-            return Promise.resolve(store.get(key as number));
-        }),
-        put: vi.fn((_s: string, key: unknown, keyName: string) => {
-            if (_s === 'crypto-keys') {
-                keyStore.set(keyName, key as CryptoKey);
-            }
-            return Promise.resolve();
-        }),
-        transaction: vi.fn(() => ({
-            objectStore: vi.fn(() => ({
-                get: vi.fn((id: number) => Promise.resolve(store.get(id))),
-                put: vi.fn((item: { id: number }) => {
-                    store.set(item.id, item as StoredRecord);
-                    return Promise.resolve();
-                }),
-                delete: vi.fn((id: number) => { store.delete(id); return Promise.resolve(); }),
-                openCursor: vi.fn(() => {
-                    const entries = Array.from(store.entries());
-                    let idx = 0;
-                    return Promise.resolve({
-                        get value() { return entries[idx]?.[1]; },
-                        delete() { if (entries[idx]) store.delete(entries[idx][0]); return Promise.resolve(); },
-                        continue() { idx++; return idx < entries.length ? Promise.resolve(this) : Promise.resolve(null); },
-                    });
-                }),
-            })),
-            done: Promise.resolve(),
-        })),
-    };
+    status: string;
 }
 
-vi.mock('idb', () => ({
-    openDB: vi.fn(() => Promise.resolve(makeDbMock())),
-}));
+// ─── Helper: read a raw record directly from fake IndexedDB ──────────────────
+async function getRawRecord(id: number): Promise<RawRecord | undefined> {
+    const db = await openDB(DB_NAME, DB_VERSION);
+    try {
+        return (await db.get(STORE_NAME, id)) as RawRecord | undefined;
+    } finally {
+        db.close();
+    }
+}
 
-const { queueIncident, getPendingIncidents, getQueuedIncident, updateQueuedIncident, markSynced, deleteQueuedIncident, initOfflineStorageLimit } = await import('../offlineStore');
-
+// ─── Fresh fake IndexedDB factory per test ────────────────────────────────────
 beforeEach(() => {
-    store.clear();
-    keyStore.clear();
-    getAllReturn = [];
-    nextId = 1;
+    globalThis.indexedDB = new (IDBFactory as unknown as new () => IDBFactory)();
 });
+
+// Import AFTER beforeEach registration — the offlineStore module calls openDB
+// lazily (not at import time), so the fresh factory is active when each test runs.
+const {
+    queueIncident,
+    getPendingIncidents,
+    getQueuedIncident,
+    updateQueuedIncident,
+    markSynced,
+    deleteQueuedIncident,
+    initOfflineStorageLimit,
+} = await import('../offlineStore');
 
 describe('offlineStore', () => {
     it('queueIncident stores item with status pending', async () => {
@@ -126,9 +103,7 @@ describe('offlineStore', () => {
 
     it('payload is encrypted at rest', async () => {
         await queueIncident({ description: 'Secret fire data', lat: 14.5, lon: 120.9 });
-        const rawRecord = store.get(1) as
-            | { encrypted: { iv: unknown[]; data: unknown[] }; payload?: unknown }
-            | undefined;
+        const rawRecord = await getRawRecord(1);
         expect(rawRecord).toBeDefined();
         expect(rawRecord).toHaveProperty('encrypted');
         expect(rawRecord!.encrypted).toHaveProperty('iv');
@@ -152,9 +127,7 @@ describe('offlineStore', () => {
         await updateQueuedIncident(1, { description: 'Updated description', lat: 16.0 });
         const pending = await getPendingIncidents();
         expect(pending[0].payload.description).toBe('Updated description');
-        const rawRecord = store.get(1) as
-            | { encrypted: { iv: unknown[]; data: unknown[] }; payload?: unknown }
-            | undefined;
+        const rawRecord = await getRawRecord(1);
         expect(rawRecord).toHaveProperty('encrypted');
         expect((rawRecord as unknown as Record<string, unknown>).payload).toBeUndefined();
     });

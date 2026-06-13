@@ -386,6 +386,10 @@ export async function getQueuedIncident(id: number): Promise<PendingIncident | u
 }
 
 export async function updateQueuedIncident(id: number, payload: Record<string, unknown>) {
+    // Encrypt BEFORE opening the transaction. IndexedDB readwrite transactions
+    // auto-commit when control returns to the event loop, so awaiting
+    // encryptPayload between store.get and store.put would kill the tx.
+    const encrypted = await encryptPayload(payload);
     const db = await getDB();
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
@@ -398,7 +402,7 @@ export async function updateQueuedIncident(id: number, payload: Record<string, u
         await tx.done;
         throw new Error('Cannot edit an already-synced incident');
     }
-    item.encrypted = await encryptPayload(payload);
+    item.encrypted = encrypted;
     await store.put(item);
     await tx.done;
 }

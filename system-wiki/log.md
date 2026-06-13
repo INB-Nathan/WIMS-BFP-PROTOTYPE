@@ -7,8 +7,9 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 - #274 (perf): Removed redundant `put()` before `delete()` in `markSynced()`. The `put()` with `status: 'synced'` was a dead write since the record was immediately deleted. Simplified to a single `store.delete(id)` call. Idempotent — IndexedDB `delete()` is silent on missing keys.
 - #275 (chore): Gated `console.warn` for the offline storage cap behind `process.env.NODE_ENV !== 'production'`. The cap enforcement (`throw new Error(...)`) is unconditional and unchanged. Added regression test `throws when encrypted total exceeds advisory storage cap`.
-- #278 (deferred): Fake IndexedDB migration for tests requires installing `fake-indexeddb`, rewriting both `offlineStore.test.ts` and `offlineStore.ops.test.ts` Map-backed mocks, and potentially adjusting sibling test imports. Reported as next-cluster candidate.
-- No FRS gap register change (code hygiene only).
+- #278 (test): Replaced Map-backed idb mock with `fake-indexeddb` in `offlineStore.test.ts`. The mock masked a real IndexedDB race condition in `updateQueuedIncident` — awaiting `encryptPayload` between `store.get` and `store.put` caused the readwrite transaction to auto-commit. Fixed by hoisting encryption before `getDB()` / `transaction()`. 10/10 tests pass under real transaction semantics.
+- #278 scope note: `offlineStore.ops.test.ts` retains its separate Map-backed mock (unchanged). Only `offlineStore.test.ts` was migrated, as scoped in the issue. Sibling offline tests (51 across 6 files) pass.
+- No FRS gap register change (test infrastructure — no FRS alignment change).
 
 ## [2026-06-13] fix | PR #262 FrontierCode review — Q1 narrative_report anonymize leak + Q2 key_version silent decrypt failure
 
