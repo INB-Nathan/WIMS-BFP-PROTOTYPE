@@ -175,7 +175,7 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `src/backend/api/routes/admin/privacy.py`: `GET /api/admin/privacy/export` (user → profile + consent_history; report → citizen_reports + decrypted incident_sensitive_details + consent_history; no-store headers; PII_EXPORT audit); `POST /api/admin/privacy/anonymize` (user → NULL contact_number; report → terminal-status guard (409 for non-terminal), NULL witness/PII/blob fields + involved_parties.full_name; PII_ANONYMIZE audit per table; warning:"irreversible" in response).
 - `src/backend/api/routes/consent.py`: `POST /api/auth/consent` (public, no auth; inserts to consent_log; CONSENT_GRANT/CONSENT_WITHDRAW audit with user_id=None).
 - `src/backend/api/routes/admin/__init__.py` + `src/backend/main.py`: router registrations.
-- `src/backend/tests/test_privacy.py`: 16 unit tests covering all ACs + corrections A-G.
+- `src/backend/tests/test_privacy.py`: 18 unit tests covering all ACs + corrections A-G.
 - Gap register: M6 #73 CLOSED; full DPA compliance (PIA/retention/DPO) noted as out-of-scope separate initiative.
 ## [2026-06-11] fix | OpenBao token-file mounting for backend/celery
 
@@ -2756,3 +2756,10 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - `src/backend/api/routes/regional/encoder.py`: Replaced undefined `_get_security_provider()` → `get_crypto_provider()` (env-level dispatch) in list endpoint PII decryption block. Broadened except from `SecurityProviderError` → `(SecurityProviderError, Exception)` to match detail endpoint behavior. This was a pre-existing branch bug (not rebase-related): commit `88ce838` removed `_get_security_provider` from the detail endpoint but left the list endpoint stale.
 
 **Wiki updates:** This log entry. No FRS gap status changed.
+
+## [2026-06-13] docs | update wiki privacy test count to 18 after Q2 fix commit
+
+- `system-wiki/log.md`: Updated the privacy module entry to 18 unit tests.
+- `system-wiki/gaps/frs-codebase-gap-register.md`: Updated the M6 (RA 10173 Privacy Rights) gap closure entry to 18 backend unit tests.
+- **Source:** Commit `25a151f` added 1 new Q2 test, bringing total from 17 → 18. The wiki had a stale pre-PR #262 count.
+- **No FRS gap status changed.**
