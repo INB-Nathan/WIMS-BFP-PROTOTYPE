@@ -56,6 +56,25 @@ def _civilian_user():
     }
 
 
+def _admin_user():
+    return {
+        "user_id": "d0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+        "keycloak_id": "kid-admin",
+        "username": "admin",
+        "role": "SYSTEM_ADMIN",
+    }
+
+
+def _validator_user():
+    return {
+        "user_id": "e0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+        "keycloak_id": "kid-validator",
+        "username": "validator",
+        "role": "NATIONAL_VALIDATOR",
+        "assigned_region_id": 13,
+    }
+
+
 def _sp(monkeypatch) -> SecurityProvider:
     """Fresh SecurityProvider with a random test key."""
     monkeypatch.setenv("WIMS_MASTER_KEY", _fresh_key_b64())
@@ -166,7 +185,7 @@ class TestEncryptDecryptBytes:
         nonce_b64, ct = sp1.encrypt_bytes(data, aad)
         monkeypatch.setenv("WIMS_MASTER_KEY", _fresh_key_b64())
         sp2 = SecurityProvider()
-        with pytest.raises(SecurityProviderError):
+        with pytest.raises(SecurityProviderError, match="authentication failed"):
             sp2.decrypt_bytes(nonce_b64, ct, aad)
 
     def test_invalid_key_version_raises(self, monkeypatch):
@@ -292,6 +311,45 @@ class TestUploadAttachment:
         )
         assert resp.status_code == 413
 
+    def test_zero_byte_upload_accepted(self, client, tmp_storage):
+        """0-byte empty file must be accepted (201) — AES-GCM handles empty plaintext."""
+        mock_db = _upload_db()
+        app.dependency_overrides[get_current_wims_user] = _encoder_user
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        from io import BytesIO
+
+        resp = client.post(
+            "/api/incidents/1/attachments",
+            files={"file": ("empty.bin", BytesIO(b""), "application/octet-stream")},
+        )
+        assert resp.status_code == 201
+        # Verify file was written to disk (encrypted, not plaintext)
+        written = list(tmp_storage.iterdir())
+        assert len(written) == 1
+        # 0-byte plaintext encrypts to a non-empty ciphertext (auth tag)
+        assert len(written[0].read_bytes()) > 0
+
+    def test_exactly_at_max_bytes_accepted(self, client, tmp_storage, monkeypatch):
+        """Upload exactly at MAX_ATTACHMENT_BYTES must be accepted (201)."""
+        import api.routes.incidents as incidents_mod
+
+        monkeypatch.setattr(incidents_mod, "MAX_ATTACHMENT_BYTES", 100)
+        app.dependency_overrides[get_current_wims_user] = _encoder_user
+        app.dependency_overrides[get_db_with_rls] = lambda: _upload_db()
+
+        from io import BytesIO
+
+        resp = client.post(
+            "/api/incidents/1/attachments",
+            files={"file": ("exact.bin", BytesIO(b"x" * 100), "application/octet-stream")},
+        )
+        assert resp.status_code == 201
+        # Verify file was written to disk and is encrypted (differs from plaintext)
+        written = list(tmp_storage.iterdir())
+        assert len(written) == 1
+        assert written[0].read_bytes() != b"x" * 100
+
 
 # ════════════════════════════════════════════════════════════════════════════════
 # Serve route
@@ -398,9 +456,10 @@ class TestServeAttachment:
 
         resp = client.get("/api/incidents/1/attachments/42")
         assert resp.status_code == 500
+        assert "decryption failed" in resp.json()["detail"].lower()
 
     def test_attachment_not_found_returns_404(self, client, tmp_storage):
-        """Missing DB row must return 404."""
+        """Missing DB row must return 404 with handler-level detail (not router 404)."""
         mock_db = MagicMock()
         mock_db.execute.return_value.fetchone.return_value = None
         app.dependency_overrides[get_current_wims_user] = _encoder_user
@@ -408,15 +467,17 @@ class TestServeAttachment:
 
         resp = client.get("/api/incidents/1/attachments/999")
         assert resp.status_code == 404
+        assert resp.json()["detail"] == "Attachment not found"
 
     def test_missing_file_on_disk_returns_404(self, client, tmp_storage):
-        """Row exists but file is gone from disk → 404."""
+        """Row exists but file is gone from disk → 404 with handler-level detail."""
         mock_db = _serve_db("/nonexistent/path/file.jpg", is_encrypted=False, iv=None)
         app.dependency_overrides[get_current_wims_user] = _encoder_user
         app.dependency_overrides[get_db_with_rls] = lambda: mock_db
 
         resp = client.get("/api/incidents/1/attachments/42")
         assert resp.status_code == 404
+        assert resp.json()["detail"] == "Attachment file not found on disk"
 
     def test_civilian_cannot_download(self, client, tmp_storage):
         """CIVILIAN_REPORTER must be rejected with 403."""
@@ -493,3 +554,69 @@ class TestServeAttachment:
         resp = client.get("/api/incidents/1/attachments/42")
         assert resp.status_code == 200
         assert resp.content == plaintext
+
+    def test_admin_can_download(self, client, tmp_storage):
+        """SYSTEM_ADMIN must be able to download attachments."""
+        plaintext = b"admin view data"
+        uname = "admin_view.jpg"
+        spath = str(tmp_storage / uname)
+        nonce_b64, ct = _encrypt_for_test(plaintext, uname)
+        Path(spath).write_bytes(ct)
+
+        mock_db = _serve_db(spath, is_encrypted=True, iv=nonce_b64)
+        app.dependency_overrides[get_current_wims_user] = _admin_user
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        resp = client.get("/api/incidents/1/attachments/42")
+        assert resp.status_code == 200
+        assert resp.content == plaintext
+
+    def test_validator_can_download(self, client, tmp_storage):
+        """NATIONAL_VALIDATOR must be able to download attachments."""
+        plaintext = b"validator view data"
+        uname = "validator_view.jpg"
+        spath = str(tmp_storage / uname)
+        nonce_b64, ct = _encrypt_for_test(plaintext, uname)
+        Path(spath).write_bytes(ct)
+
+        mock_db = _serve_db(spath, is_encrypted=True, iv=nonce_b64)
+        app.dependency_overrides[get_current_wims_user] = _validator_user
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        resp = client.get("/api/incidents/1/attachments/42")
+        assert resp.status_code == 200
+        assert resp.content == plaintext
+
+    def test_serve_includes_content_disposition_header(self, client, tmp_storage):
+        """Serve must return Content-Disposition header with the stored filename."""
+        plaintext = b"file for header test"
+        uname = "header_test.jpg"
+        spath = str(tmp_storage / uname)
+        nonce_b64, ct = _encrypt_for_test(plaintext, uname)
+        Path(spath).write_bytes(ct)
+
+        mock_db = _serve_db(spath, is_encrypted=True, iv=nonce_b64, file_name="original_photo.jpg")
+        app.dependency_overrides[get_current_wims_user] = _encoder_user
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        resp = client.get("/api/incidents/1/attachments/42")
+        assert resp.status_code == 200
+        cd = resp.headers.get("content-disposition", "")
+        assert "original_photo.jpg" in cd
+        assert cd.startswith("attachment; filename=")
+
+    def test_serve_media_type_matches_stored_mime(self, client, tmp_storage):
+        """Serve must return the stored mime_type as the response media_type."""
+        plaintext = b"mime type test"
+        uname = "mime_test.png"
+        spath = str(tmp_storage / uname)
+        nonce_b64, ct = _encrypt_for_test(plaintext, uname)
+        Path(spath).write_bytes(ct)
+
+        mock_db = _serve_db(spath, is_encrypted=True, iv=nonce_b64, mime="image/png")
+        app.dependency_overrides[get_current_wims_user] = _encoder_user
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        resp = client.get("/api/incidents/1/attachments/42")
+        assert resp.status_code == 200
+        assert resp.headers.get("content-type", "").startswith("image/png")
