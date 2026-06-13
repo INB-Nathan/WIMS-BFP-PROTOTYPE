@@ -8,6 +8,8 @@ import os
 import time
 
 import httpx
+import redis.asyncio as aioredis
+import redis.exceptions
 from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -19,25 +21,32 @@ from utils.metrics import AI_INFERENCE_DURATION
 logger = logging.getLogger("wims.ai_service")
 OLLAMA_MODEL = "qwen2.5:3b"
 
-logger = logging.getLogger("wims.ai_service")
+# Module-level async Redis client reused across metric writes (Q1/Q4 fix).
+# Lazy-init avoids import-time connection; connections are established on first use.
+_metrics_redis: aioredis.Redis | None = None
 
 
-def _record_inference_metric(function_name: str, elapsed_s: float) -> None:
+def _get_metrics_redis() -> aioredis.Redis:
+    global _metrics_redis
+    if _metrics_redis is None:
+        _metrics_redis = aioredis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"))
+    return _metrics_redis
+
+
+async def _record_inference_metric(function_name: str, elapsed_s: float) -> None:
     """Record AI inference timing to Prometheus (web process) and Redis (cross-process). Fire-and-forget."""
     try:
         AI_INFERENCE_DURATION.labels(function=function_name).observe(elapsed_s)
     except Exception:
-        pass
-    try:
-        import redis as _redis
+        logger.debug("Prometheus observe failed for %s", function_name, exc_info=True)
 
-        r = _redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"))
-        pipe = r.pipeline()
+    try:
+        pipe = _get_metrics_redis().pipeline()
         pipe.incr("wims:ai:inference:count")
         pipe.incrbyfloat("wims:ai:inference:sum_ms", elapsed_s * 1000.0)
-        pipe.execute()
-    except Exception:
-        pass
+        await pipe.execute()
+    except redis.exceptions.RedisError:
+        logger.debug("Redis metric write failed for %s", function_name, exc_info=True)
 
 
 def _ollama_url() -> str:
@@ -105,7 +114,7 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
             status_code=502,
             detail=f"Ollama request failed: {resp.status_code}",
         )
-    _record_inference_metric("analyze_threat_log", time.perf_counter() - _t0)
+    await _record_inference_metric("analyze_threat_log", time.perf_counter() - _t0)
 
     data = resp.json()
     response_text = data.get("response", "{}")
@@ -243,7 +252,7 @@ async def generate_incident_narrative(
                 },
             )
             response.raise_for_status()
-            _record_inference_metric("generate_incident_narrative", time.perf_counter() - _t0)
+            await _record_inference_metric("generate_incident_narrative", time.perf_counter() - _t0)
             raw = response.json().get("response", "{}")
             parsed = json.loads(raw)
             narrative = parsed.get("narrative", "")
@@ -363,7 +372,7 @@ async def analyze_audit_logs(audit_ids: list[int], db: Session) -> dict:
             status_code=502,
             detail=f"Ollama request failed: {resp.status_code}",
         )
-    _record_inference_metric("analyze_audit_logs", time.perf_counter() - _t0)
+    await _record_inference_metric("analyze_audit_logs", time.perf_counter() - _t0)
 
     data = resp.json()
     response_text = data.get("response", "{}")

@@ -3,6 +3,12 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-13] fix | PR #261 review fixes — async Redis metrics + Prometheus/Redis regression test
+
+- `src/backend/services/ai_service.py`: `_record_inference_metric` converted from sync to async (`async def`); uses `redis.asyncio` via module-level lazy-init `_get_metrics_redis()` instead of per-call blocking `redis.from_url()` + `pipeline().execute()`. All three Ollama call sites (`analyze_threat_log`, `generate_incident_narrative`, `analyze_audit_logs`) now `await` the metric writer. Prometheus observe failures logged at debug (was silent `pass`); Redis operational errors narrowed to `redis.exceptions.RedisError` with debug logging (was broad silent `except Exception: pass`). Removed duplicate `logger` assignment.
+- `src/backend/tests/test_system_monitoring.py`: added `@pytest.mark.asyncio` test `test_record_inference_metric_observes_prometheus_and_writes_redis` — directly verifies Prometheus `observe()` label/observe calls and Redis `pipeline()`/`incr`/`incrbyfloat`/`execute()` calls. Added `test_system_metrics_network_none_fallback` — verifies `net_io_counters()` None fallback returns `bytes_sent=0, bytes_recv=0`.
+- No FRS gap register change (no FRS alignment change).
+
 ## [2026-06-12] docs | PR #271 metadata fix: M4-D → M2-c traceability correction
 
 - `docs/PR-offline-first-encoder.md`: corrected Deferred "Conflict resolution UI" label from `(M4-D)` to `(M2-c)` — M2-c (Data Synchronization) covers conflict detection/resolution per FRS `raw/frs/frs-offlinefirst.md`. Added `## FRS Traceability` section mapping each FRS M2 sub-item to concrete implementation evidence with system-wiki cross-links (`concepts/frs-module-map`, `architecture/pwa-tests-cicd`, `gaps/frs-codebase-gap-register`).

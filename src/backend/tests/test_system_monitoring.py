@@ -174,3 +174,50 @@ def test_metrics_endpoint_contains_ai_inference_histogram():
     resp = client.get("/metrics")
     assert resp.status_code == 200
     assert "ai_inference_duration_seconds" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_record_inference_metric_observes_prometheus_and_writes_redis():
+    """_record_inference_metric calls Prometheus observe() and Redis pipeline execute()."""
+    from unittest import mock
+
+    from services.ai_service import _record_inference_metric
+
+    mock_labels = mock.MagicMock()
+    mock_pipe = mock.MagicMock()  # incr/incrbyfloat are sync; only execute is async
+    mock_pipe.execute = mock.AsyncMock()
+    mock_redis = mock.MagicMock()  # pipeline() is sync in redis.asyncio
+    mock_redis.pipeline.return_value = mock_pipe
+
+    with (
+        mock.patch("services.ai_service.AI_INFERENCE_DURATION") as mock_hist,
+        mock.patch("services.ai_service._get_metrics_redis", return_value=mock_redis),
+    ):
+        mock_hist.labels.return_value = mock_labels
+        await _record_inference_metric("test_fn", 2.5)
+
+    # Prometheus: labels called with function name; observe called with elapsed_s
+    mock_hist.labels.assert_called_once_with(function="test_fn")
+    mock_labels.observe.assert_called_once_with(2.5)
+
+    # Redis: pipeline created, incr + incrbyfloat + execute called
+    mock_redis.pipeline.assert_called_once()
+    mock_pipe.incr.assert_called_once_with("wims:ai:inference:count")
+    mock_pipe.incrbyfloat.assert_called_once_with("wims:ai:inference:sum_ms", 2500.0)
+    mock_pipe.execute.assert_called_once()
+
+
+def test_system_metrics_network_none_fallback():
+    """network bytes_sent/bytes_recv fall back to 0 when psutil.net_io_counters returns None."""
+    from unittest import mock
+
+    app.dependency_overrides[get_current_wims_user] = _admin_override
+    client = TestClient(app)
+
+    with mock.patch("psutil.net_io_counters", return_value=None):
+        resp = client.get("/api/admin/monitoring/system")
+
+    assert resp.status_code == 200
+    net = resp.json()["network"]
+    assert net["bytes_sent"] == 0
+    assert net["bytes_recv"] == 0
