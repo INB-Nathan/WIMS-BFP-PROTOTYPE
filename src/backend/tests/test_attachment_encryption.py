@@ -317,6 +317,7 @@ def _serve_db(
     key_version=1,
     mime="image/jpeg",
     file_name="photo.jpg",
+    crypto_provider="env_aesgcm",
 ):
     mock_db = MagicMock()
     mock_result = MagicMock()
@@ -327,6 +328,7 @@ def _serve_db(
         key_version,
         mime,
         file_name,
+        crypto_provider,
     )
     mock_db.execute.return_value = mock_result
     return mock_db
@@ -434,6 +436,58 @@ class TestServeAttachment:
 
         mock_db = _serve_db(spath, is_encrypted=True, iv=nonce_b64)
         app.dependency_overrides[get_current_wims_user] = _analyst_user
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        resp = client.get("/api/incidents/1/attachments/42")
+        assert resp.status_code == 200
+        assert resp.content == plaintext
+
+    def test_content_disposition_header_injection_blocked(self, client, tmp_storage):
+        """Filename with CRLF, quotes, and control chars must not inject headers."""
+        plaintext = b"safe content"
+        spath = str(tmp_storage / "safe.bin")
+        Path(spath).write_bytes(plaintext)
+
+        # Crafted filename designed to inject a fake header via CRLF + quote escape
+        malicious_name = 'test";\r\nX-Injected: evil\r\n.jpg'
+        mock_db = _serve_db(
+            spath,
+            is_encrypted=False,
+            iv=None,
+            mime="application/octet-stream",
+            file_name=malicious_name,
+        )
+        app.dependency_overrides[get_current_wims_user] = _encoder_user
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        resp = client.get("/api/incidents/1/attachments/42")
+        assert resp.status_code == 200
+        cd = resp.headers.get("content-disposition", "")
+        # CRLF must be stripped (prevents header injection)
+        assert "\r\n" not in cd
+        # The header must still be well-formed
+        assert cd.startswith("attachment; filename=")
+        # Extract the inner filename value (between wrapping quotes)
+        import re as _re
+
+        m = _re.match(r'attachment; filename="(.+)"', cd)
+        assert m is not None, f"unexpected CD header shape: {cd!r}"
+        inner = m.group(1)
+        # The malicious double-quote and CRLF must be sanitized out
+        assert '"' not in inner, f"unescaped quote in filename value: {inner!r}"
+        assert "\r" not in inner
+        assert "\n" not in inner
+
+    def test_serve_uses_stored_crypto_provider_env_aesgcm(self, client, tmp_storage):
+        """When row has crypto_provider='env_aesgcm', serve must decrypt with SecurityProvider."""
+        plaintext = b"provider dispatch test"
+        uname = "dispatch_test.jpg"
+        spath = str(tmp_storage / uname)
+        nonce_b64, ct = _encrypt_for_test(plaintext, uname)
+        Path(spath).write_bytes(ct)
+
+        mock_db = _serve_db(spath, is_encrypted=True, iv=nonce_b64, crypto_provider="env_aesgcm")
+        app.dependency_overrides[get_current_wims_user] = _encoder_user
         app.dependency_overrides[get_db_with_rls] = lambda: mock_db
 
         resp = client.get("/api/incidents/1/attachments/42")

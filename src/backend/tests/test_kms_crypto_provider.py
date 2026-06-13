@@ -292,6 +292,129 @@ class TestKmsSecurityProvider:
 
 
 # ════════════════════════════════════════════════════════════════════════════════
+# KmsSecurityProvider encrypt_bytes / decrypt_bytes
+# ════════════════════════════════════════════════════════════════════════════════
+
+
+class TestKmsSecurityProviderBytes:
+    """KmsSecurityProvider encrypt_bytes/decrypt_bytes must delegate to
+    OpenBaoClient.encrypt/decrypt with correct argument shapes and return
+    the expected tuple (nonce_sentinel, ct_bytes)."""
+
+    def test_encrypt_bytes_returns_sentinel_and_utf8_bytes(self, monkeypatch):
+        """encrypt_bytes returns (NONCE_SENTINEL, ciphertext_as_utf8_bytes)."""
+        monkeypatch.setenv("OPENBAO_ADDR", "http://openbao:8200")
+        monkeypatch.setenv("OPENBAO_TOKEN", "s.test-token")
+
+        mock_client = MagicMock(spec=OpenBaoClient)
+        mock_client.encrypt.return_value = KmsCiphertext(
+            ciphertext="vault:v1:xyz789",
+            key_version=5,
+        )
+        ksp = KmsSecurityProvider(client=mock_client)
+
+        data = b"raw attachment bytes"
+        aad = b"attachment:test.jpg"
+        nonce, ct_bytes = ksp.encrypt_bytes(data, aad)
+
+        assert nonce == ksp.NONCE_SENTINEL
+        assert ct_bytes == b"vault:v1:xyz789"
+        mock_client.encrypt.assert_called_once_with(ksp.kms_key_name, data, aad)
+
+    def test_encrypt_bytes_updates_current_version(self, monkeypatch):
+        """current_version must reflect the key_version from the KMS response."""
+        monkeypatch.setenv("OPENBAO_ADDR", "http://openbao:8200")
+        monkeypatch.setenv("OPENBAO_TOKEN", "s.test-token")
+
+        mock_client = MagicMock(spec=OpenBaoClient)
+        mock_client.encrypt.return_value = KmsCiphertext(
+            ciphertext="vault:v1:abc",
+            key_version=7,
+        )
+        ksp = KmsSecurityProvider(client=mock_client)
+        assert ksp.current_version == 1
+
+        ksp.encrypt_bytes(b"data", b"aad")
+        assert ksp.current_version == 7
+
+    def test_decrypt_bytes_roundtrip(self, monkeypatch):
+        """decrypt_bytes decodes UTF-8 ct_bytes and calls client.decrypt."""
+        monkeypatch.setenv("OPENBAO_ADDR", "http://openbao:8200")
+        monkeypatch.setenv("OPENBAO_TOKEN", "s.test-token")
+
+        original = b"plaintext attachment data"
+        ciphertext_str = "vault:v1:encrypted_blob"
+
+        mock_client = MagicMock(spec=OpenBaoClient)
+        mock_client.encrypt.return_value = KmsCiphertext(ciphertext=ciphertext_str, key_version=1)
+        mock_client.decrypt.return_value = original
+        ksp = KmsSecurityProvider(client=mock_client)
+
+        aad = b"attachment:test.jpg"
+        nonce, ct_bytes = ksp.encrypt_bytes(original, aad)
+
+        # decrypt_bytes ignores nonce and key_version
+        result = ksp.decrypt_bytes(nonce, ct_bytes, aad)
+        assert result == original
+        mock_client.decrypt.assert_called_once_with(ksp.kms_key_name, ciphertext_str, aad)
+
+    def test_decrypt_bytes_ignores_nonce_and_key_version(self, monkeypatch):
+        """decrypt_bytes ignores the nonce and key_version args (OpenBao ciphertext is self-contained)."""
+        monkeypatch.setenv("OPENBAO_ADDR", "http://openbao:8200")
+        monkeypatch.setenv("OPENBAO_TOKEN", "s.test-token")
+
+        mock_client = MagicMock(spec=OpenBaoClient)
+        mock_client.decrypt.return_value = b"recovered data"
+        ksp = KmsSecurityProvider(client=mock_client)
+
+        result = ksp.decrypt_bytes(
+            nonce_b64="SHOULD_BE_IGNORED",
+            ct_bytes=b"vault:v1:ct",
+            aad=b"attachment:x.jpg",
+            key_version=99,
+        )
+        assert result == b"recovered data"
+        # decrypt still called with the right args
+        mock_client.decrypt.assert_called_once_with(
+            ksp.kms_key_name, "vault:v1:ct", b"attachment:x.jpg"
+        )
+
+    def test_decrypt_bytes_utf8_decode_failure(self, monkeypatch):
+        """Non-UTF-8 ct_bytes must raise OpenBaoClientError (not crash)."""
+        monkeypatch.setenv("OPENBAO_ADDR", "http://openbao:8200")
+        monkeypatch.setenv("OPENBAO_TOKEN", "s.test-token")
+
+        ksp = KmsSecurityProvider(client=MagicMock(spec=OpenBaoClient))
+
+        with pytest.raises(OpenBaoClientError, match="decode"):
+            ksp.decrypt_bytes(None, b"\xff\xfe\x00", b"aad")
+
+    def test_encrypt_bytes_error_becomes_openbao_client_error(self, monkeypatch):
+        """Client encrypt failure is wrapped as OpenBaoClientError."""
+        monkeypatch.setenv("OPENBAO_ADDR", "http://openbao:8200")
+        monkeypatch.setenv("OPENBAO_TOKEN", "s.test-token")
+
+        mock_client = MagicMock(spec=OpenBaoClient)
+        mock_client.encrypt.side_effect = OpenBaoClientError("encrypt_bytes failed")
+        ksp = KmsSecurityProvider(client=mock_client)
+
+        with pytest.raises(OpenBaoClientError, match="encrypt_bytes failed"):
+            ksp.encrypt_bytes(b"data", b"aad")
+
+    def test_decrypt_bytes_error_becomes_openbao_client_error(self, monkeypatch):
+        """Client decrypt failure is wrapped as OpenBaoClientError."""
+        monkeypatch.setenv("OPENBAO_ADDR", "http://openbao:8200")
+        monkeypatch.setenv("OPENBAO_TOKEN", "s.test-token")
+
+        mock_client = MagicMock(spec=OpenBaoClient)
+        mock_client.decrypt.side_effect = OpenBaoClientError("decrypt_bytes failed")
+        ksp = KmsSecurityProvider(client=mock_client)
+
+        with pytest.raises(OpenBaoClientError, match="decrypt_bytes failed"):
+            ksp.decrypt_bytes(None, b"vault:v1:ct", b"aad")
+
+
+# ════════════════════════════════════════════════════════════════════════════════
 # SecurityProvider backward compatibility
 # ════════════════════════════════════════════════════════════════════════════════
 

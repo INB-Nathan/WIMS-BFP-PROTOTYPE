@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -548,6 +549,8 @@ async def upload_attachment(
     aad = f"attachment:{unique_filename}".encode()
 
     provider = get_crypto_provider()
+    crypto_provider_val = provider.crypto_provider
+    kms_key_name_val = provider.kms_key_name
     try:
         nonce_b64, ct_bytes = provider.encrypt_bytes(plaintext, aad)
     except Exception:
@@ -567,11 +570,13 @@ async def upload_attachment(
                 INSERT INTO wims.incident_attachments (
                     incident_id, file_name, storage_path, mime_type,
                     file_hash_sha256, uploaded_by,
-                    is_encrypted, encryption_iv, key_version
+                    is_encrypted, encryption_iv, key_version,
+                    crypto_provider, kms_key_name
                 ) VALUES (
                     :iid, :fname, :path, :mime,
                     :hash, :uid,
-                    true, :iv, :kv
+                    true, :iv, :kv,
+                    :crypto_provider, :kms_key_name
                 )
                 RETURNING attachment_id
             """),
@@ -584,6 +589,8 @@ async def upload_attachment(
                 "uid": user["user_id"],
                 "iv": nonce_b64,
                 "kv": provider.current_version,
+                "crypto_provider": crypto_provider_val,
+                "kms_key_name": kms_key_name_val,
             },
         ).fetchone()
         if att_row is None:
@@ -626,7 +633,7 @@ async def serve_attachment(
     row = db.execute(
         text("""
             SELECT storage_path, encryption_iv, is_encrypted, key_version,
-                   mime_type, file_name
+                   mime_type, file_name, crypto_provider
             FROM wims.incident_attachments
             WHERE attachment_id = :aid AND incident_id = :iid
         """),
@@ -636,7 +643,15 @@ async def serve_attachment(
     if row is None:
         raise HTTPException(status_code=404, detail="Attachment not found")
 
-    storage_path, encryption_iv, is_encrypted, key_version, mime_type, file_name = row
+    (
+        storage_path,
+        encryption_iv,
+        is_encrypted,
+        key_version,
+        mime_type,
+        file_name,
+        stored_crypto_provider,
+    ) = row
 
     if not os.path.exists(storage_path):
         logger.error(
@@ -652,7 +667,7 @@ async def serve_attachment(
     if is_encrypted:
         unique_filename = os.path.basename(storage_path)
         aad = f"attachment:{unique_filename}".encode()
-        provider = get_crypto_provider()
+        provider = get_crypto_provider({"crypto_provider": stored_crypto_provider})
         try:
             plaintext = provider.decrypt_bytes(encryption_iv, file_bytes, aad, key_version or 1)
         except Exception:
@@ -665,6 +680,9 @@ async def serve_attachment(
         plaintext = file_bytes
 
     safe_name = os.path.basename(file_name or f"attachment_{attachment_id}")
+    # Sanitize: strip control chars, double quotes, and DEL to prevent
+    # header injection via crafted filenames (Q1 review finding).
+    safe_name = re.sub(r'[\x00-\x1f\x7f"]', "_", safe_name)
     return Response(
         content=plaintext,
         media_type=mime_type or "application/octet-stream",
