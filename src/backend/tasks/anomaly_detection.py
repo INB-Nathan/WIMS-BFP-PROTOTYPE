@@ -13,6 +13,13 @@ Deferred (not implemented — M8 remains PARTIAL):
   - Impossible Travel (geo) — needs IP geolocation database, not in-stack;
     RAPID_IP_SWITCH ships as the achievable proxy (GH #281)
 
+Row-count bounds: RAPID_IP_SWITCH and BULK_DELETE use ORDER BY timestamp DESC
+LIMIT to cap scanned rows at _MAX_AUDIT_ROWS (10 000) per detector invocation.
+The bound is generous (~16.7 events/s sustained for 10 min) and preserves
+most-recent-first ordering so real anomalies are not hidden.  OFF_HOURS and
+PRIVILEGE_ESCALATION operate on a 60 s window with specific action-type
+filters, naturally bounding result sets without an explicit LIMIT.
+
 Each detected anomaly is written to wims.anomaly_detections with
 ON CONFLICT (anomaly_type, dedup_key) DO NOTHING.  Only when a NEW row is
 actually inserted is a corresponding row written to wims.security_threat_logs
@@ -44,6 +51,14 @@ _PII_EXPORT_ACTION = "PII_EXPORT"
 _SUSPICIOUS_QUERY_THRESHOLD = 10
 
 # ---------------------------------------------------------------------------
+# Row-count bound for detector queries that scan recent audit windows.
+# 10 000 rows ≈ 16.7 events/s sustained for 10 min — well above peak load
+# for a single WIMS instance.  ORDER BY timestamp DESC ensures the most
+# recent events are processed first when the bound is reached.
+# ---------------------------------------------------------------------------
+_MAX_AUDIT_ROWS = 10_000
+
+# ---------------------------------------------------------------------------
 # Detector helpers
 # ---------------------------------------------------------------------------
 
@@ -55,6 +70,11 @@ def _detect_bulk_delete(db: Session) -> list[dict[str, Any]]:
     Uses a correlated subquery so that every delete event counts its own
     trailing-5-min window — an attacker cannot evade by splitting events
     across a fixed floor-bucket boundary.
+
+    Row-count bound: the outer SELECT is limited to _MAX_AUDIT_ROWS rows
+    (ORDER BY timestamp DESC).  BULK_DELETE is further scoped to
+    OPERATION_DELETE% actions, so this bound is effectively unreachable
+    under normal delete rates.
     """
     rows = db.execute(
         text("""
@@ -80,10 +100,13 @@ def _detect_bulk_delete(db: Session) -> list[dict[str, Any]]:
                 WHERE t1.action_type LIKE 'OPERATION_DELETE%'
                   AND t1.timestamp >= now() - interval '10 minutes'
                   AND t1.user_id IS NOT NULL
+                ORDER BY t1.timestamp DESC
+                LIMIT :max_rows
             ) sub
             WHERE cnt > 10
             GROUP BY user_id, window_start
-        """)
+        """),
+        {"max_rows": _MAX_AUDIT_ROWS},
     ).fetchall()
 
     results = []
@@ -105,7 +128,14 @@ def _detect_bulk_delete(db: Session) -> list[dict[str, Any]]:
 
 def _detect_off_hours(db: Session) -> list[dict[str, Any]]:
     """Return anomaly dicts for high-sensitivity actions performed outside
-    06:00–21:59 Asia/Manila time in the last 60 seconds."""
+    06:00–21:59 Asia/Manila time in the last 60 seconds.
+
+    No explicit row-count bound is needed here: the 60-second window combined
+    with specific action-type filters (PII_EXPORT, BACKUP_TRIGGERED,
+    BREACH_STATUS_UPDATE, CREATE_INCIDENT_FROM_ALERT, ROLE_CHANGE_TO_%)
+    naturally limits the result set to a handful of rows under any reasonable
+    audit volume.
+    """
     rows = db.execute(
         text("""
             SELECT audit_id, user_id, action_type, ip_address, timestamp
@@ -151,6 +181,10 @@ def _detect_privilege_escalation(db: Session) -> list[dict[str, Any]]:
 
     Catches all privilege-change actions (not just SYSTEM_ADMIN) to satisfy
     the broader RBAC-violation language in GH #160 / FRS M8.
+
+    No explicit row-count bound is needed here: the 60-second window combined
+    with the ROLE_CHANGE_TO_% action-type filter naturally limits the result
+    set.  Role-change events are inherently rare.
     """
     rows = db.execute(
         text("""
@@ -189,6 +223,14 @@ def _detect_rapid_ip_switch(db: Session) -> list[dict[str, Any]]:
     Uses a correlated subquery so that every event counts its own
     trailing-10-min distinct IPs — cross-boundary evasion is prevented.
     The ip_list is collected from all events in the triggered floor window.
+
+    Row-count bound: the sliding CTE is limited to _MAX_AUDIT_ROWS rows
+    (ORDER BY timestamp DESC).  This is the primary guard against OOM under
+    audit flood — the sliding CTE previously scanned ALL events in the
+    10-minute window with no cap.  Action-type filtering was considered but
+    rejected: RAPID_IP_SWITCH detects IP changes across ALL action types;
+    filtering to auth-only actions would miss IP switches from data-access
+    or admin actions, creating false negatives.
     """
     rows = db.execute(
         text("""
@@ -208,6 +250,8 @@ def _detect_rapid_ip_switch(db: Session) -> list[dict[str, Any]]:
                 WHERE t1.timestamp >= now() - interval '10 minutes'
                   AND t1.user_id IS NOT NULL
                   AND t1.ip_address IS NOT NULL
+                ORDER BY t1.timestamp DESC
+                LIMIT :max_rows
             ),
             triggered_windows AS (
                 SELECT
@@ -230,7 +274,8 @@ def _detect_rapid_ip_switch(db: Session) -> list[dict[str, Any]]:
                 AND s.timestamp >= tw.window_start
                 AND s.timestamp < tw.window_start + interval '10 minutes'
             GROUP BY tw.user_id, tw.window_start, tw.distinct_ips
-        """)
+        """),
+        {"max_rows": _MAX_AUDIT_ROWS},
     ).fetchall()
 
     results = []

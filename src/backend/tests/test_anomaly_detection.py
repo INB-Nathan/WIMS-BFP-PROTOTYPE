@@ -751,3 +751,89 @@ class TestSuspiciousQueryPatternWindowFloor:
         assert _write_anomaly(write_db_run2, **r2[0]) is False
         assert write_db_run1.execute.call_count == 2  # anomaly_detections + threat_log
         assert write_db_run2.execute.call_count == 1  # anomaly_detections only (dedup)
+
+
+# ---------------------------------------------------------------------------
+# Query bounds — verify LIMIT presence in detector SQL (#282)
+# ---------------------------------------------------------------------------
+
+
+class TestQueryBounds:
+    """Verify that detectors whose queries span a 10-minute audit window
+    include ORDER BY timestamp DESC LIMIT :max_rows, and that short-window
+    detectors intentionally omit LIMIT."""
+
+    def test_bulk_delete_sql_has_limit(self):
+        """BULK_DELETE outer subquery must contain LIMIT :max_rows."""
+        db = _make_db(fetch_rows=[])
+        _detect_bulk_delete(db)
+
+        sql = str(db.execute.call_args[0][0])
+        assert "LIMIT :max_rows" in sql
+        assert "ORDER BY t1.timestamp DESC" in sql
+
+    def test_bulk_delete_passes_max_rows_param(self):
+        """BULK_DELETE execute call must pass max_rows param."""
+        db = _make_db(fetch_rows=[])
+        _detect_bulk_delete(db)
+
+        params = db.execute.call_args[0][1] if len(db.execute.call_args[0]) > 1 else {}
+        assert "max_rows" in params
+        assert params["max_rows"] == 10_000
+
+    def test_off_hours_sql_has_no_limit(self):
+        """OFF_HOURS intentionally omits LIMIT — 60 s window + action-type
+        filters naturally bound the result set."""
+        db = _make_db(fetch_rows=[])
+        _detect_off_hours(db)
+
+        sql = str(db.execute.call_args[0][0])
+        assert "LIMIT" not in sql
+
+    def test_privilege_escalation_sql_has_no_limit(self):
+        """PRIVILEGE_ESCALATION intentionally omits LIMIT — 60 s window +
+        ROLE_CHANGE_TO_% filter naturally bounds the result set."""
+        db = _make_db(fetch_rows=[])
+        _detect_privilege_escalation(db)
+
+        sql = str(db.execute.call_args[0][0])
+        assert "LIMIT" not in sql
+
+    def test_rapid_ip_switch_sql_has_limit(self):
+        """RAPID_IP_SWITCH sliding CTE must contain LIMIT :max_rows."""
+        db = _make_db(fetch_rows=[])
+        _detect_rapid_ip_switch(db)
+
+        sql = str(db.execute.call_args[0][0])
+        assert "LIMIT :max_rows" in sql
+        assert "ORDER BY t1.timestamp DESC" in sql
+
+    def test_rapid_ip_switch_passes_max_rows_param(self):
+        """RAPID_IP_SWITCH execute call must pass max_rows param."""
+        db = _make_db(fetch_rows=[])
+        _detect_rapid_ip_switch(db)
+
+        params = db.execute.call_args[0][1] if len(db.execute.call_args[0]) > 1 else {}
+        assert "max_rows" in params
+        assert params["max_rows"] == 10_000
+
+    def test_rapid_ip_switch_limit_preserves_anomaly_detection(self):
+        """Even with LIMIT active, RAPID_IP_SWITCH still detects a
+        2-IP anomaly when the mock returns a qualifying row."""
+        window_floor = datetime(2026, 6, 12, 14, 0, 0, tzinfo=timezone.utc)
+        db = _make_db(fetch_rows=[(_USER_A, window_floor, 2, ["1.1.1.1", "2.2.2.2"])])
+        result = _detect_rapid_ip_switch(db)
+
+        assert len(result) == 1
+        assert result[0]["anomaly_type"] == "RAPID_IP_SWITCH"
+        assert result[0]["details"]["distinct_ip_count"] == 2
+
+    def test_bulk_delete_limit_preserves_anomaly_detection(self):
+        """Even with LIMIT active, BULK_DELETE still detects an 11-event
+        anomaly when the mock returns a qualifying row."""
+        db = _make_db(fetch_rows=[(_USER_A, _WINDOW_START, 11, "1.2.3.4")])
+        result = _detect_bulk_delete(db)
+
+        assert len(result) == 1
+        assert result[0]["anomaly_type"] == "BULK_DELETE"
+        assert result[0]["details"]["count"] == 11

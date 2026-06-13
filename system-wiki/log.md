@@ -2957,3 +2957,22 @@ Made pending-sync offline incidents fully manageable through the normal regional
 
 **No behavior change — pure style alignment.**
 - No FRS gap status changed.
+
+## [2026-06-13] fix | #282 — Add bounded query strategy for anomaly detectors
+
+- **Files:** `src/backend/tasks/anomaly_detection.py`, `src/backend/tests/test_anomaly_detection.py`
+- **Issue:** #282
+
+**Change:** Added ORDER BY timestamp DESC LIMIT :max_rows to RAPID_IP_SWITCH sliding CTE and BULK_DELETE outer subquery, capped at `_MAX_AUDIT_ROWS = 10_000`.  OFF_HOURS and PRIVILEGE_ESCALATION are intentionally left without LIMIT — their 60 s windows + specific action-type filters naturally bound result sets.
+
+**Why:** Detector SQL queries were bounded by time windows but not row count.  Under audit flood/replay, RAPID_IP_SWITCH scanned ALL events in the last 10 minutes with no cap, risking Celery worker OOM.  The 10 000-row bound (~16.7 events/s sustained) is generous enough to not hide real anomalies while preventing unbounded memory growth.
+
+**Action-type filter decision:** Considered filtering RAPID_IP_SWITCH to auth-only actions but rejected — IP switches from data-access or admin actions would create false negatives.
+
+**Tests:** 8 new `TestQueryBounds` tests verify:
+- BULK_DELETE and RAPID_IP_SWITCH SQL contain `LIMIT :max_rows` and `ORDER BY timestamp DESC`
+- `max_rows` param (10_000) is passed in execute calls
+- OFF_HOURS and PRIVILEGE_ESCALATION SQL intentionally omit LIMIT
+- Anomaly detection still works correctly with LIMIT active
+
+**No FRS gap status change** (M8 #160 remains PARTIAL; this is a perf/resilience hardening of the existing 4 shipped detectors).
