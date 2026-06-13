@@ -29,6 +29,7 @@ celery_app = Celery(
 # list them explicitly to ensure workers register every scheduled task.
 celery_app.conf.imports = (
     "tasks.analytics_refresh",
+    "tasks.anomaly_detection",
     "tasks.civilian_reports",
     "tasks.drafts",
     "tasks.exports",
@@ -99,6 +100,11 @@ celery_app.conf.update(
         "ensure-pii-key-rotation-daily": {
             "task": "tasks.kms_rotation.ensure_pii_key_rotation",
             "schedule": crontab(hour=3, minute=30),
+        },
+        # M8: Behavioral anomaly detection — every 60s
+        "detect-behavioral-anomalies": {
+            "task": "tasks.anomaly_detection.detect_behavioral_anomalies",
+            "schedule": 60.0,
         },
     },
 )

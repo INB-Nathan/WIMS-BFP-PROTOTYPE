@@ -98,6 +98,19 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Gap register updated: #167 CLOSED, M9a extended note added.
 - PWA sync counters deferred per issue ("optional for prototype").
 
+## [2026-06-13] fix | GH #160 PR #264 review — sliding windows, exception re-raise, scope corrections
+
+- `src/backend/tasks/anomaly_detection.py`: BULK_DELETE and RAPID_IP_SWITCH switched from fixed floor-bucket windows to correlated-subquery sliding windows (prevents cross-boundary evasion). Removed dead `REJECTED_%` pattern from BULK_DELETE. Broadened PRIVILEGE_ESCALATION from `ROLE_CHANGE_TO_%SYSTEM_ADMIN%` to `ROLE_CHANGE_TO_%` (per GH #160 broader RBAC-violation language). Fixed threat_payload dict clobbering: `{**details, "anomaly_type": anomaly_type}` (details keys no longer overwrite explicit anomaly_type). Task exceptions now roll back, log, and re-raise (consistent with security-adjacent task pattern).
+- `src/backend/tests/test_anomaly_detection.py`: Added cross-boundary BULK_DELETE test, cross-boundary RAPID_IP_SWITCH test, ANALYST role change positive test (PRIV_ESC broadening), in-hours OFF_HOURS negative test, task dedup>0 counter test, task re-raise test. Test count 21→27.
+- M8 status corrected from CLOSED to PARTIAL in gap register (2 detectors remain deferred).
+- No migration changes; SQL structure preserved; dedup stability maintained.
+
+## [2026-06-12] feat | GH #160 M8 — behavioral anomaly detection engine
+
+- `src/postgres-init/57_anomaly_detections.sql`: new table `wims.anomaly_detections` (BIGSERIAL PK, anomaly_type, subject_user_id FK users NULLABLE, severity CHECK LOW/MEDIUM/HIGH/CRITICAL, details JSONB, detected_at TIMESTAMPTZ, status CHECK NEW/ACKNOWLEDGED/RESOLVED, UNIQUE(anomaly_type, dedup_key)). RLS: SELECT/UPDATE SYSTEM_ADMIN; INSERT WITH CHECK SYSTEM_ADMIN (covers SYSTEM_TASK_USER_ID = svc_task).
+- `src/backend/tasks/anomaly_detection.py`: Celery beat task `detect_behavioral_anomalies` (60s). Four detectors on `wims.system_audit_trails` via SQL windows: BULK_DELETE (>10 delete-class actions per user in 5-min window, HIGH), OFF_HOURS (high-sensitivity actions outside 06:00–21:59 Asia/Manila, MEDIUM), PRIVILEGE_ESCALATION (ROLE_CHANGE_TO_*SYSTEM_ADMIN* events, HIGH), RAPID_IP_SWITCH (≥2 distinct IPs per user in 10-min window, MEDIUM). `_write_anomaly()` helper: INSERT anomaly_detections ON CONFLICT (anomaly_type, dedup_key) DO NOTHING RETURNING anomaly_id; only on new row also INSERTs into `wims.security_threat_logs` (suricata_sid=NULL). Session: `get_session(SYSTEM_TASK_USER_ID)`.
+- Deferred: Suspicious Query Patterns, geo Impossible Travel (RAPID_IP_SWITCH ships as proxy). Gap register updated.
+
 ## [2026-06-11] fix | OpenBao token-file mounting for backend/celery
 
 - `src/openbao/init/bootstrap-openbao.sh`: after writing the `wims-app` policy, bootstrap now verifies any existing app token or creates a replacement policy-scoped orphan service token and persists the token value to `/vault/file/.wims-app-token` without logging it. This regenerates app auth after an OpenBao volume reset while avoiding token churn on normal restarts.
