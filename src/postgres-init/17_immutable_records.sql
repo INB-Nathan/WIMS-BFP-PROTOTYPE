@@ -57,7 +57,18 @@ CREATE RULE no_delete_ivh AS
     DO INSTEAD NOTHING;
 
 -- ---------------------------------------------------------------------------
--- 5. Analytics schema expansion — required for sync_incident_to_analytics (#84)
+-- 5. Block DELETE on system_audit_trails (immutable audit log)
+--    All audit records must be permanently retained for forensic completeness.
+--    Addresses GH #240 — audit trail immutability.
+-- ---------------------------------------------------------------------------
+
+DROP RULE IF EXISTS no_delete_audit ON wims.system_audit_trails;
+CREATE RULE no_delete_audit AS
+    ON DELETE TO wims.system_audit_trails
+    DO INSTEAD NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- 6. Analytics schema expansion — required for sync_incident_to_analytics (#84)
 --    Migration 11 created analytics_incident_facts with a subset of columns.
 --    These extended columns are referenced by sync_incident_to_analytics() in
 --    services/analytics_read_model.py and must exist for verify_incident() to

@@ -2835,6 +2835,30 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - 30 tests pass (was 20), all ruff checks pass.
 - No application behavior changed. No FRS gap register change.
 
+## [2026-06-13] feat(cluster) | audit-db-forensics: immutability RULE + forensic columns (GH #240 #242)
+
+**Cluster:** audit-db-forensics
+**Issues:** #240 (append-only RULE), #242 (old_values/new_values JSONB)
+
+### #240 — Append-only RULE on system_audit_trails
+- `src/postgres-init/17_immutable_records.sql`: Added section 5 — `DROP RULE IF EXISTS no_delete_audit` / `CREATE RULE no_delete_audit ... ON DELETE ... DO INSTEAD NOTHING`. Renumbered existing section 5 (analytics) to 6.
+- DELETE from `wims.system_audit_trails` now silently no-ops at DB level. All other immutability rules (fire_incidents VERIFIED, incident_verification_history) already existed.
+
+### #242 — Forensic completeness columns
+- New migration `src/postgres-init/60_audit_forensics_columns.sql`: Adds `old_values JSONB` and `new_values JSONB` to `wims.system_audit_trails` (idempotent, `ADD COLUMN IF NOT EXISTS`).
+- `src/backend/utils/audit.py`: `log_system_audit()` now accepts optional `old_values`/`new_values` params (default None). Serialized to JSON via `json.dumps()`; NULL when not provided. Backward-compatible — all existing call sites continue to work without changes.
+- `src/backend/api/routes/admin/audit.py`: `GET /admin/audit-logs` SELECT and response now include `old_values` and `new_values`. Response uses `len(r) > 8` guard for compatibility with mocks in tests.
+- `src/backend/api/routes/admin/users.py`: User update (role/active/region changes) now passes old_state/new_state dicts to `log_system_audit()`.
+- `src/backend/api/routes/admin/config.py`: Config PATCH now SELECTs the old config_value before UPDATE, passes old/new dicts to audit.
+- `src/backend/tests/test_system_config.py`: Updated `_mock_config_db()` helper to support `fetchone_row` parameter (sentinel-based default); updated `test_returns_404_if_row_missing` to use it.
+
+### Wiki updates:
+- `system-wiki/database/schema-overview.md`: Added `60_audit_forensics_columns.sql` reference.
+- `system-wiki/security/security-baseline.md`: Added bullet list of audit immutability and forensic column changes.
+- This log entry.
+
+**No FRS gap status changed.** Both issues close pre-existing known gaps that are now resolved.
+
 ## [2026-06-13] chore(#310) | audit and fix unconsumed MagicMock side_effect entries in privacy tests
 
 - Fixed 3 unconsumed `mock_db.execute.side_effect` entries in tests that patch `log_system_audit`. The extra `MagicMock()` entries masked the true call counts and would silently absorb any future extra `db.execute()` calls without failing.

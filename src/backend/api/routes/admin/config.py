@@ -95,7 +95,15 @@ def update_config(
                 detail=f"Config key {key!r} must be >= {min_val}, got {val}",
             )
 
-    result = db.execute(
+    old_row = db.execute(
+        text("SELECT config_value FROM wims.system_config WHERE config_key = :key"),
+        {"key": key},
+    ).fetchone()
+    if old_row is None:
+        raise HTTPException(status_code=404, detail=f"Config key not found: {key!r}")
+    old_value = old_row[0]
+
+    db.execute(
         text("""
             UPDATE wims.system_config
             SET config_value = :value,
@@ -105,8 +113,6 @@ def update_config(
         """),
         {"value": body.value, "uid": str(admin["user_id"]), "key": key},
     )
-    if result.rowcount == 0:
-        raise HTTPException(status_code=404, detail=f"Config key not found: {key!r}")
 
     log_system_audit(
         db=db,
@@ -115,6 +121,8 @@ def update_config(
         table_affected="system_config",
         record_id=None,
         request=request,
+        old_values={"config_value": str(old_value)},
+        new_values={"config_value": str(body.value)},
     )
     db.commit()
 

@@ -291,6 +291,16 @@ def update_user(
     if body.is_active is not None:
         actions.append("DEACTIVATE" if not body.is_active else "ACTIVATE")
 
+    old_state = {"role": current_role}
+    new_state: dict = {}
+    if body.role is not None:
+        new_state["role"] = body.role
+    if body.is_active is not None:
+        old_state["is_active"] = True  # user was active (deactivated users can't be targeted)
+        new_state["is_active"] = body.is_active
+    if body.assigned_region_id is not None:
+        new_state["assigned_region_id"] = body.assigned_region_id
+
     for action_name in actions:
         log_system_audit(
             db=db,
@@ -299,6 +309,8 @@ def update_user(
             table_affected="users",
             record_id=None,
             request=request,
+            old_values=old_state if old_state else None,
+            new_values=new_state if new_state else None,
         )
 
     db.commit()

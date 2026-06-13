@@ -34,7 +34,7 @@ PostgreSQL/PostGIS schema is bootstrapped by ordered SQL files in `src/postgres-
 | `wims.wildland_afor_assistance_rows` | `07_wildland_afor.sql` |
 | `wims.regional_public_keys` | `08_security_audit.sql` |
 | `wims.security_threat_logs` | `08_security_audit.sql` |
-| `wims.system_audit_trails` | `08_security_audit.sql` |
+| `wims.system_audit_trails` | `08_security_audit.sql`; `old_values`/`new_values` JSONB columns added in `60_audit_forensics_columns.sql` |
 | `wims.analytics_incident_facts` | `11_analytics_facts.sql` |
 | `wims.analytics_incident_facts.municipality_name` / `province_name` | `28_analytics_geography_denorm.sql` |
 | `wims.analytics_export_log` | `13_export_reports.sql` |

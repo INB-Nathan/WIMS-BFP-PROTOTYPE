@@ -73,7 +73,8 @@ def get_audit_logs(
     rows = db.execute(
         text(f"""
             SELECT audit_id, user_id, action_type, table_affected, record_id,
-                   ip_address, user_agent, timestamp
+                   ip_address, user_agent, timestamp,
+                   old_values, new_values
             FROM wims.system_audit_trails
             {where_sql}
             ORDER BY {order_by}
@@ -101,6 +102,8 @@ def get_audit_logs(
                 "ip_address": r[5],
                 "user_agent": r[6],
                 "timestamp": r[7].isoformat() if r[7] else None,
+                "old_values": r[8] if len(r) > 8 else None,
+                "new_values": r[9] if len(r) > 9 else None,
             }
             for r in rows
         ],

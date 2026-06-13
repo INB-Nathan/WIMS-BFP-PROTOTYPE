@@ -53,11 +53,21 @@ _SEED_ROWS = [
     ("session_timeout_minutes", "30", "Idle timeout UI hint", None, None),
 ]
 
+_SENTINEL = object()
 
-def _mock_config_db(rows=None, update_rowcount=1):
+
+def _mock_config_db(rows=None, update_rowcount=1, fetchone_row=_SENTINEL):
+    """Return a mock DB session for system_config endpoints.
+
+    fetchone_row: value returned by mock_result.fetchone().  When the
+    default sentinel is used, a non-None MagicMock is returned (simulates
+    a found row).  Pass ``None`` to simulate a missing row.
+    """
     mock_result = MagicMock()
     mock_result.fetchall.return_value = rows if rows is not None else _SEED_ROWS
     mock_result.rowcount = update_rowcount
+    if fetchone_row is not _SENTINEL:
+        mock_result.fetchone.return_value = fetchone_row
     mock_db = MagicMock()
     mock_db.execute.return_value = mock_result
 
@@ -159,7 +169,7 @@ class TestPatchConfig:
     def test_returns_404_if_row_missing(self, client: TestClient):
         """PATCH a valid key whose row was deleted returns 404."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
-        mock_db, mock_get_db = _mock_config_db(update_rowcount=0)
+        mock_db, mock_get_db = _mock_config_db(fetchone_row=None)
         app.dependency_overrides[get_db_with_rls] = mock_get_db
 
         response = client.patch("/api/admin/config/ai_timeout_seconds", json={"value": "30"})
