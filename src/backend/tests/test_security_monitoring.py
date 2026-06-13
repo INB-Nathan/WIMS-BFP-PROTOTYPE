@@ -289,3 +289,97 @@ class TestSecurityLogsSummary:
     def test_summary_requires_admin(self, client: TestClient):
         resp = client.get("/api/admin/security-logs/summary")
         assert resp.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# Security alert email — PR #263 S1 fix: verify dashboard_link is /admin/monitoring
+# ---------------------------------------------------------------------------
+
+
+class TestSecurityAlertEmail:
+    def test_confirm_high_threat_emails_dashboard_link_to_monitoring(self, client: TestClient):
+        """S1: When a HIGH threat is confirmed, the security_alert email context
+        must use /admin/monitoring as the dashboard_link — not a dead route."""
+        from unittest.mock import patch, MagicMock
+        import datetime
+
+        app.dependency_overrides[auth.get_current_wims_user] = lambda: _ADMIN
+
+        ts = datetime.datetime(2026, 6, 12, 10, 0, 0, tzinfo=datetime.timezone.utc)
+        # 3-column metadata row matching: severity_level, xai_narrative, timestamp
+        _META_ROW = ("HIGH", "Suspicious port scan detected from external IP", ts)
+
+        mock_db = MagicMock()
+
+        # Track call order to match the exact sequence in update_security_log
+        call_seq = [0]
+
+        def _mock_execute(*args, **kwargs):
+            sql_text = str(args[0]) if args else ""
+            idx = call_seq[0]
+            call_seq[0] += 1
+
+            # Call 0: metadata fetch
+            # SELECT severity_level, xai_narrative, timestamp FROM wims.security_threat_logs WHERE log_id = :log_id
+            if idx == 0:
+                mock_result = MagicMock()
+                mock_result.fetchone.return_value = _META_ROW
+                return mock_result
+
+            # Call 1: UPDATE wims.security_threat_logs
+            if idx == 1:
+                mock_result = MagicMock()
+                mock_result.rowcount = 1
+                return mock_result
+
+            # Call 2: INSERT INTO wims.breach_notifications
+            if idx == 2:
+                mock_result = MagicMock()
+                mock_result.fetchone.return_value = [99]
+                return mock_result
+
+            # Call 3: log_system_audit INSERT (BREACH_DETECTED)
+            # Call 4: COMMIT (no-op on mock)
+            # Call 5: admin emails query: SELECT email FROM wims.users WHERE ...
+            if "FROM wims.users" in sql_text:
+                mock_result = MagicMock()
+                mock_result.fetchall.return_value = [("admin@test.local",)]
+                return mock_result
+
+            mock_result = MagicMock()
+            return mock_result
+
+        mock_db.execute.side_effect = _mock_execute
+
+        def _get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = _get_db
+
+        with (
+            patch("tasks.notifications.send_email_task.delay") as mock_send_email_delay,
+            patch("api.routes.admin.security.log_system_audit"),
+            patch("api.routes.admin.security.publish_security_event_sync"),
+            patch("api.routes.admin.security._create_security_incident"),
+        ):
+            resp = client.patch(
+                "/api/admin/security-logs/1",
+                json={"action": "CONFIRM_THREAT"},
+            )
+
+            assert resp.status_code == 200
+
+            # Verify send_email_task.delay was called with security_alert template
+            delay_calls = mock_send_email_delay.call_args_list
+            security_alert_calls = [
+                c for c in delay_calls if c.kwargs.get("template_name") == "security_alert"
+            ]
+            assert len(security_alert_calls) == 1, (
+                f"Expected 1 security_alert email call, got {len(security_alert_calls)}"
+            )
+
+            context = security_alert_calls[0].kwargs["context"]
+            assert "dashboard_link" in context, "security_alert context must include dashboard_link"
+            assert context["dashboard_link"].endswith("/admin/monitoring"), (
+                f"dashboard_link must point to /admin/monitoring, got {context['dashboard_link']}"
+            )

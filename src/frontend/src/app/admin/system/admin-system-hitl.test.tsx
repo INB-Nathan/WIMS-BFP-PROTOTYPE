@@ -122,7 +122,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
     });
 
     it('shows three decision buttons for unactioned logs', async () => {
-        mockFetchAdminSecurityLogs.mockResolvedValue([mockLogUnactioned]);
+        mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogUnactioned], total: 1 });
         render(<AdminSystemPage />);
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
         const viewButtons = screen.getAllByRole('button', { name: /View/i });
@@ -136,7 +136,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
     });
 
     it('clicking "Confirm Threat" calls updateAdminSecurityLog with action CONFIRM_THREAT', async () => {
-        mockFetchAdminSecurityLogs.mockResolvedValue([mockLogUnactioned]);
+        mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogUnactioned], total: 1 });
         render(<AdminSystemPage />);
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
         const viewButtons = screen.getAllByRole('button', { name: /View/i });
@@ -149,7 +149,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
     });
 
     it('clicking "False Positive" calls updateAdminSecurityLog with action FALSE_POSITIVE', async () => {
-        mockFetchAdminSecurityLogs.mockResolvedValue([mockLogUnactioned]);
+        mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogUnactioned], total: 1 });
         render(<AdminSystemPage />);
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
         const viewButtons = screen.getAllByRole('button', { name: /View/i });
@@ -162,7 +162,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
     });
 
     it('clicking "Request More Info" reveals a note input and confirm button', async () => {
-        mockFetchAdminSecurityLogs.mockResolvedValue([mockLogUnactioned]);
+        mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogUnactioned], total: 1 });
         render(<AdminSystemPage />);
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
         const viewButtons = screen.getAllByRole('button', { name: /View/i });
@@ -176,7 +176,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
     });
 
     it('confirming Request More Info with a note calls updateAdminSecurityLog with note', async () => {
-        mockFetchAdminSecurityLogs.mockResolvedValue([mockLogUnactioned]);
+        mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogUnactioned], total: 1 });
         render(<AdminSystemPage />);
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
         const viewButtons = screen.getAllByRole('button', { name: /View/i });
@@ -193,7 +193,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
     });
 
     it('shows read-only display for already-actioned logs (no buttons)', async () => {
-        mockFetchAdminSecurityLogs.mockResolvedValue([mockLogActioned]);
+        mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogActioned], total: 1 });
         render(<AdminSystemPage />);
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
         const viewButtons = screen.getAllByRole('button', { name: /View/i });
@@ -208,7 +208,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
 
     it('clicking "Create Incident from Alert" calls createIncidentFromAlert with log_id', async () => {
         mockCreateIncidentFromAlert.mockResolvedValue({ status: 'ok', incident_id: 42 });
-        mockFetchAdminSecurityLogs.mockResolvedValue([mockLogUnactioned]);
+        mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogUnactioned], total: 1 });
         render(<AdminSystemPage />);
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
         const viewButtons = screen.getAllByRole('button', { name: /View/i });

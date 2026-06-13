@@ -332,7 +332,7 @@ def update_security_log(
                     "severity": log_metadata[0],
                     "summary": log_metadata[1] or "No details available",
                     "detected_at": (log_metadata[2].isoformat() if log_metadata[2] else "Unknown"),
-                    "dashboard_link": f"{frontend_url}/admin/security-dashboard",
+                    "dashboard_link": f"{frontend_url}/admin/monitoring",
                 },
             )
             if new_breach_id is not None:

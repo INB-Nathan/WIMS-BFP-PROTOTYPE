@@ -20,13 +20,6 @@ const SEVERITY_COLORS: Record<SeverityLevel, string> = {
   CRITICAL: 'bg-red-500',
 };
 
-const SEVERITY_TEXT_COLORS: Record<SeverityLevel, string> = {
-  LOW: 'text-blue-600',
-  MEDIUM: 'text-yellow-600',
-  HIGH: 'text-orange-600',
-  CRITICAL: 'text-red-600',
-};
-
 const SEVERITY_BG_COLORS: Record<SeverityLevel, string> = {
   LOW: 'bg-blue-100 text-blue-800',
   MEDIUM: 'bg-yellow-100 text-yellow-800',
@@ -67,12 +60,15 @@ export default function SecurityMonitoringPage() {
   const [activeSeverities, setActiveSeverities] = useState<Set<SeverityLevel>>(new Set());
   const [page, setPage] = useState(0);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [error, setError] = useState<string | null>(null);
+  const [totalThreats, setTotalThreats] = useState<number>(0);
 
   const PAGE_SIZE = 20;
 
   const loadMonitoring = useCallback(async () => {
     if (!isAdmin) return;
 
+    setError(null);
     try {
       const [summaryData, auditData] = await Promise.all([
         fetchSecurityLogsSummary(),
@@ -84,6 +80,8 @@ export default function SecurityMonitoringPage() {
       setLastRefresh(new Date());
     } catch (err) {
       console.error('loadMonitoring error', err);
+      setSummary(null);
+      setError(err instanceof Error ? err.message : 'Failed to load monitoring data');
     }
   }, [isAdmin]);
 
@@ -92,14 +90,16 @@ export default function SecurityMonitoringPage() {
     setLoading(true);
     try {
       const severityParam = activeSeverities.size > 0 ? Array.from(activeSeverities).join(',') : undefined;
-      const logs = await fetchAdminSecurityLogs({
+      const result = await fetchAdminSecurityLogs({
         severity: severityParam,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       });
-      setThreatLogs(logs);
+      setThreatLogs(result.items as ThreatLogItem[]);
+      setTotalThreats(result.total);
     } catch (err) {
       console.error('loadThreats error', err);
+      setError(err instanceof Error ? err.message : 'Failed to load threat data');
     } finally {
       setLoading(false);
     }
@@ -187,6 +187,28 @@ export default function SecurityMonitoringPage() {
           </div>
         </div>
       </div>
+
+      {/* Error Banner */}
+      {error && (
+        <div
+          className="card"
+          style={{ borderLeft: '4px solid #dc2626', backgroundColor: '#fef2f2' }}
+        >
+          <div className="card-body">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0" />
+              <div>
+                <div className="text-sm font-semibold text-red-700">
+                  Unable to load monitoring data
+                </div>
+                <div className="text-xs text-red-600 mt-1">
+                  {error}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -402,7 +424,7 @@ export default function SecurityMonitoringPage() {
               </button>
               <button
                 onClick={() => setPage((p) => p + 1)}
-                disabled={threatLogs.length < PAGE_SIZE}
+                disabled={(page + 1) * PAGE_SIZE >= totalThreats}
                 className="px-3 py-1.5 rounded-md text-sm font-medium transition-colors disabled:opacity-50"
                 style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
               >

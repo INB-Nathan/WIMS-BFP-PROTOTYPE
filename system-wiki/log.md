@@ -3,6 +3,13 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-13] fix | PR #263 review — dashboard link, error state, pagination metadata
+
+- S1: `api/routes/admin/security.py` security-alert email context now links `dashboard_link` to `/admin/monitoring` instead of stale `/admin/security-dashboard`; backend regression test covers HIGH threat confirmation email context.
+- S2/S3: admin security monitoring page now shows a visible error banner on monitoring/threat API failure instead of silently presenting an empty healthy state.
+- Q1: `fetchAdminSecurityLogs()` now returns `{ items, total }` and keeps `{data: [...]}` compatibility; admin monitoring uses `total` to disable Next on exact-PAGE_SIZE last pages.
+- T3/T4: frontend tests added for non-admin gate and non-empty threat-feed rendering; touched admin-system tests updated for the API return shape. No FRS gap status change (M8 #164 remains CLOSED).
+
 ## [2026-06-13] rebase | PR #263 rebased onto origin/master (26cf014)
 
 - Conflict in `system-wiki/log.md`: resolved by keeping all master entries (PR #265 review, PR #261 review, M9a AI inference, PR #264 review, M8 anomaly detection, M6a attachment encryption) and PR #263 M8 dashboard + severity filter entries in chronological order. Conflict in `system-wiki/gaps/frs-codebase-gap-register.md`: kept both M8 entries (behavioral anomaly detection #160 PARTIAL + security monitoring dashboard #164 CLOSED) as separate sub-items. No code conflicts.

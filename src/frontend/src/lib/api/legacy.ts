@@ -260,24 +260,22 @@ export async function changeMyPassword(payload: {
   });
 }
 
-/** Fetch security logs (admin) - ordered by timestamp desc, or by ts_rank when q is set, supports severity filter */
+/** Fetch security logs (admin) - ordered by timestamp desc, or by ts_rank when q is set, supports severity filter.
+ * Returns the full paginated response including `total` so callers can correctly disable Next when on the last page. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function fetchAdminSecurityLogs(params?: { q?: string; severity?: string; limit?: number; offset?: number }): Promise<any[]> {
-  try {
-    const search = new URLSearchParams();
-    if (params?.q) search.set('q', params.q);
-    if (params?.severity) search.set('severity', params.severity);
-    if (params?.limit != null) search.set('limit', String(params.limit));
-    if (params?.offset != null) search.set('offset', String(params.offset));
-    const qs = search.toString();
-    const data = await apiFetch<
-      Record<string, unknown>[] | { items?: Record<string, unknown>[]; data?: Record<string, unknown>[] }
-    >(`/admin/security-logs${qs ? `?${qs}` : ''}`);
-    if (Array.isArray(data)) return data;
-    return data?.items ?? data?.data ?? [];
-  } catch {
-    return [];
-  }
+export async function fetchAdminSecurityLogs(params?: { q?: string; severity?: string; limit?: number; offset?: number }): Promise<{ items: any[]; total: number }> {
+  const search = new URLSearchParams();
+  if (params?.q) search.set('q', params.q);
+  if (params?.severity) search.set('severity', params.severity);
+  if (params?.limit != null) search.set('limit', String(params.limit));
+  if (params?.offset != null) search.set('offset', String(params.offset));
+  const qs = search.toString();
+  const data = await apiFetch<
+    Record<string, unknown>[] | { items?: Record<string, unknown>[]; data?: Record<string, unknown>[]; total?: number }
+  >(`/admin/security-logs${qs ? `?${qs}` : ''}`);
+  if (Array.isArray(data)) return { items: data, total: data.length };
+  const items = data?.items ?? data?.data ?? [];
+  return { items, total: (data?.total as number | undefined) ?? items.length };
 }
 
 export interface SecurityLogsSummary {

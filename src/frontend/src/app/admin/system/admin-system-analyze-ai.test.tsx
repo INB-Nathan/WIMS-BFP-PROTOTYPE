@@ -104,7 +104,7 @@ describe('Admin System — Analyze with AI in Threat Telemetry', () => {
     });
 
     it('shows "Analyze with AI" button for logs with xai_narrative === null', async () => {
-        mockFetchAdminSecurityLogs.mockResolvedValue([mockLogWithoutNarrative, mockLogWithNarrative]);
+        mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogWithoutNarrative, mockLogWithNarrative], total: 2 });
 
         render(<AdminSystemPage />);
 
@@ -118,7 +118,7 @@ describe('Admin System — Analyze with AI in Threat Telemetry', () => {
     });
 
     it('clicking Analyze with AI shows loading state, calls API, and displays narrative and confidence in modal', async () => {
-        mockFetchAdminSecurityLogs.mockResolvedValue([mockLogWithoutNarrative]);
+        mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogWithoutNarrative], total: 1 });
         mockAnalyzeSecurityLog.mockImplementation(
             () =>
                 new Promise((resolve) =>
