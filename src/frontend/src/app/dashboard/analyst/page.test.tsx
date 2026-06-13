@@ -303,9 +303,15 @@ describe('Analyst dashboard page', () => {
         expect(mockFetchHeatmapData).toHaveBeenCalled();
       });
 
-      expect(screen.getByLabelText('Export CSV')).toBeDisabled();
-      expect(screen.getByLabelText('Export PDF')).toBeDisabled();
-      expect(screen.getByLabelText('Export Excel')).toBeDisabled();
+      // Export buttons are gated behind !loadingData && heatmap !== null.
+      // Use findBy* (async retry) rather than getBy* (synchronous) so React
+      // can finish the loadData finally block and re-render the export section.
+      const csvBtn = await screen.findByLabelText('Export CSV');
+      const pdfBtn = await screen.findByLabelText('Export PDF');
+      const excelBtn = await screen.findByLabelText('Export Excel');
+      expect(csvBtn).toBeDisabled();
+      expect(pdfBtn).toBeDisabled();
+      expect(excelBtn).toBeDisabled();
     });
   });
 });
