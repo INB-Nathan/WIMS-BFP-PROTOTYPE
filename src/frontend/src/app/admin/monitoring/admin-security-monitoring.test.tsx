@@ -261,6 +261,303 @@ describe('M8: Security Monitoring page', () => {
     });
   });
 
+  // ── T8: Severity chip visual active/inactive state (#297) ──────────────
+
+  it('severity chip changes visual style to indicate active state when clicked', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(mockFetchAdminSecurityLogs).toHaveBeenCalled();
+    });
+
+    const highChip = screen.getByRole('button', { name: /HIGH/i });
+
+    // Initially inactive — gray styling
+    expect(highChip.className).toContain('bg-gray-100');
+    expect(highChip.className).toContain('text-gray-600');
+
+    // Click to activate — should get orange styling
+    await user.click(highChip);
+    expect(highChip.className).toContain('bg-orange-100');
+    expect(highChip.className).toContain('text-orange-800');
+    expect(highChip.className).not.toContain('bg-gray-100');
+
+    // Click again to deactivate — back to gray
+    await user.click(highChip);
+    expect(highChip.className).toContain('bg-gray-100');
+    expect(highChip.className).toContain('text-gray-600');
+    expect(highChip.className).not.toContain('bg-orange-100');
+  });
+
+  it('only the clicked severity chip shows active styling', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(mockFetchAdminSecurityLogs).toHaveBeenCalled();
+    });
+
+    const highChip = screen.getByRole('button', { name: /HIGH/i });
+    const lowChip = screen.getByRole('button', { name: /^LOW$/i });
+    const criticalChip = screen.getByRole('button', { name: /CRITICAL/i });
+
+    // Activate HIGH only
+    await user.click(highChip);
+
+    // HIGH should be active
+    expect(highChip.className).toContain('bg-orange-100');
+    // Other chips should remain inactive
+    expect(lowChip.className).toContain('bg-gray-100');
+    expect(criticalChip.className).toContain('bg-gray-100');
+  });
+
+  // ── T7: Non-empty XAI narratives and audit highlights (#299) ─────────────
+
+  it('renders XAI narrative items with truncated text, severity badges, and Read more span', async () => {
+    const longNarrative = 'A'.repeat(250);
+    mockFetchSecurityLogsSummary.mockResolvedValue({
+      ...DEFAULT_SUMMARY,
+      recent_narratives: [
+        {
+          log_id: 1,
+          severity_level: 'HIGH',
+          xai_narrative: longNarrative,
+          timestamp: '2026-06-12T10:00:00Z',
+        },
+        {
+          log_id: 2,
+          severity_level: 'LOW',
+          xai_narrative: 'Short narrative text',
+          timestamp: '2026-06-12T09:00:00Z',
+        },
+      ],
+    });
+
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Recent XAI Narratives/i)).toBeInTheDocument();
+    });
+
+    // Truncated narrative should show first 200 chars + ellipsis
+    expect(screen.getByText(new RegExp(longNarrative.slice(0, 200)))).toBeInTheDocument();
+
+    // Read more span should appear for truncated narratives
+    expect(screen.getByText('Read more')).toBeInTheDocument();
+
+    // Short narrative renders in full (no truncation needed)
+    expect(screen.getByText('Short narrative text')).toBeInTheDocument();
+
+    // Severity badges should appear in narrative cards
+    const highBadges = screen.getAllByText('HIGH');
+    expect(highBadges.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('clicking Read more expands full narrative and shows Show less', async () => {
+    const user = userEvent.setup({ delay: null });
+    const fullText = 'B'.repeat(250);
+    mockFetchSecurityLogsSummary.mockResolvedValue({
+      ...DEFAULT_SUMMARY,
+      recent_narratives: [
+        {
+          log_id: 1,
+          severity_level: 'MEDIUM',
+          xai_narrative: fullText,
+          timestamp: '2026-06-12T10:00:00Z',
+        },
+      ],
+    });
+
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Read more')).toBeInTheDocument();
+    });
+
+    // Full text should NOT be visible when collapsed
+    expect(screen.queryByText(fullText)).not.toBeInTheDocument();
+
+    // Click "Read more"
+    await user.click(screen.getByText('Read more'));
+
+    // Full text should now be visible
+    expect(screen.getByText(fullText)).toBeInTheDocument();
+
+    // "Show less" should appear
+    expect(screen.getByText('Show less')).toBeInTheDocument();
+    expect(screen.getByText('Show less')).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('renders audit highlight items with correct event type labels when present', async () => {
+    mockFetchAuditLogs.mockResolvedValue({
+      items: [
+        {
+          audit_id: 1,
+          user_id: 'admin-1',
+          action_type: 'HITL_REVIEW',
+          table_affected: 'incidents',
+          record_id: 100,
+          ip_address: '10.0.0.1',
+          user_agent: null,
+          timestamp: '2026-06-12T10:00:00Z',
+        },
+        {
+          audit_id: 2,
+          user_id: 'admin-2',
+          action_type: 'BREACH_DETECTED',
+          table_affected: 'security_logs',
+          record_id: null,
+          ip_address: '10.0.0.2',
+          user_agent: null,
+          timestamp: '2026-06-12T09:30:00Z',
+        },
+        {
+          audit_id: 3,
+          user_id: 'admin-3',
+          action_type: 'PII_EXPORT',
+          table_affected: 'incident_sensitive_details',
+          record_id: 200,
+          ip_address: null,
+          user_agent: null,
+          timestamp: '2026-06-12T09:00:00Z',
+        },
+        {
+          audit_id: 4,
+          user_id: 'admin-4',
+          action_type: 'UNRELATED_ACTION',
+          table_affected: 'analytics_cache',
+          record_id: null,
+          ip_address: null,
+          user_agent: null,
+          timestamp: '2026-06-12T08:00:00Z',
+        },
+      ],
+      total: 4,
+    });
+
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Audit Highlights')).toBeInTheDocument();
+    });
+
+    // Notable events should render with their action_type labels
+    expect(screen.getByText('HITL_REVIEW')).toBeInTheDocument();
+    expect(screen.getByText('BREACH_DETECTED')).toBeInTheDocument();
+    expect(screen.getByText('PII_EXPORT')).toBeInTheDocument();
+
+    // UNRELATED_ACTION should NOT appear (not a notable type)
+    expect(screen.queryByText('UNRELATED_ACTION')).not.toBeInTheDocument();
+
+    // Table affected labels should show
+    expect(screen.getByText(/on incidents/)).toBeInTheDocument();
+    expect(screen.getByText(/on security_logs/)).toBeInTheDocument();
+  });
+
+  // ── T5: Auto-refresh interval (#303) ─────────────────────────────────────
+
+  it('auto-refresh sets a 30-second interval on mount', () => {
+    const setIntervalSpy = vi.spyOn(global, 'setInterval');
+    render(<SecurityMonitoringPage />);
+    vi.advanceTimersByTime(50); // flush React effects
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 30_000);
+    setIntervalSpy.mockRestore();
+  });
+
+  it('auto-refresh calls loadMonitoring and loadThreats after 30s interval', async () => {
+    render(<SecurityMonitoringPage />);
+
+    // Flush initial effects and load calls
+    await vi.advanceTimersByTimeAsync(100);
+
+    // Clear initial load calls so we only measure interval-triggered calls
+    mockFetchSecurityLogsSummary.mockClear();
+    mockFetchAdminSecurityLogs.mockClear();
+    mockFetchAuditLogs.mockClear();
+
+    // Advance 30 seconds
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    // Interval callback should have triggered loadMonitoring (summary + audit)
+    // and loadThreats (admin security logs)
+    expect(mockFetchSecurityLogsSummary).toHaveBeenCalledTimes(1);
+    expect(mockFetchAdminSecurityLogs).toHaveBeenCalledTimes(1);
+    expect(mockFetchAuditLogs).toHaveBeenCalledTimes(1);
+  });
+
+  it('auto-refresh clears interval on unmount', () => {
+    const clearIntervalSpy = vi.spyOn(global, 'clearInterval');
+    const { unmount } = render(<SecurityMonitoringPage />);
+    vi.advanceTimersByTime(50); // flush effects
+    unmount();
+    expect(clearIntervalSpy).toHaveBeenCalled();
+    clearIntervalSpy.mockRestore();
+  });
+
+  // ── Q4: Auto-refresh tab-visibility gating (#300) ────────────────────────
+
+  it('clears auto-refresh interval when tab becomes hidden', () => {
+    const setIntervalSpy = vi.spyOn(global, 'setInterval');
+    const clearIntervalSpy = vi.spyOn(global, 'clearInterval');
+
+    render(<SecurityMonitoringPage />);
+    vi.advanceTimersByTime(50); // flush effects — interval should be started
+
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 30_000);
+    const intervalCallCountBeforeHide = setIntervalSpy.mock.calls.length;
+
+    // Simulate tab becoming hidden
+    Object.defineProperty(document, 'visibilityState', {
+      value: 'hidden',
+      configurable: true,
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    // clearInterval should have been called for the running interval
+    expect(clearIntervalSpy).toHaveBeenCalled();
+
+    // No new interval should be created while hidden
+    expect(setIntervalSpy).toHaveBeenCalledTimes(intervalCallCountBeforeHide);
+
+    setIntervalSpy.mockRestore();
+    clearIntervalSpy.mockRestore();
+  });
+
+  it('restarts auto-refresh interval when tab becomes visible again', () => {
+    const setIntervalSpy = vi.spyOn(global, 'setInterval');
+
+    render(<SecurityMonitoringPage />);
+    vi.advanceTimersByTime(50); // flush effects
+
+    // Hide tab
+    Object.defineProperty(document, 'visibilityState', {
+      value: 'hidden',
+      configurable: true,
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    const setIntervalCallsBeforeShow = setIntervalSpy.mock.calls.length;
+
+    // Show tab again
+    Object.defineProperty(document, 'visibilityState', {
+      value: 'visible',
+      configurable: true,
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    // A new interval should be created
+    expect(setIntervalSpy.mock.calls.length).toBeGreaterThan(setIntervalCallsBeforeShow);
+    expect(setIntervalSpy).toHaveBeenLastCalledWith(expect.any(Function), 30_000);
+
+    setIntervalSpy.mockRestore();
+  });
+
   // ── Q1: Pagination with total-based disabling ──────────────────────────
 
   it('disables Next button when total shows all items loaded', async () => {

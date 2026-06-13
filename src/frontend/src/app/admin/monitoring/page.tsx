@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { AuditLogEntry } from '@/types/api';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -62,6 +62,7 @@ export default function SecurityMonitoringPage() {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [error, setError] = useState<string | null>(null);
   const [totalThreats, setTotalThreats] = useState<number>(0);
+  const [expandedNarratives, setExpandedNarratives] = useState<Set<number>>(new Set());
 
   const PAGE_SIZE = 20;
 
@@ -110,12 +111,42 @@ export default function SecurityMonitoringPage() {
     loadThreats();
   }, [loadMonitoring, loadThreats]);
 
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
-    const interval = setInterval(() => {
-      loadMonitoring();
-      loadThreats();
-    }, 30_000);
-    return () => clearInterval(interval);
+    const startInterval = () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      intervalRef.current = setInterval(() => {
+        loadMonitoring();
+        loadThreats();
+      }, 30_000);
+    };
+
+    const stopInterval = () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        startInterval();
+      } else {
+        stopInterval();
+      }
+    };
+
+    if (document.visibilityState === 'visible') {
+      startInterval();
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      stopInterval();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [loadMonitoring, loadThreats]);
 
   const toggleSeverity = (sev: SeverityLevel) => {
@@ -134,6 +165,18 @@ export default function SecurityMonitoringPage() {
   const clearFilters = () => {
     setActiveSeverities(new Set());
     setPage(0);
+  };
+
+  const toggleNarrative = (logId: number) => {
+    setExpandedNarratives((prev) => {
+      const next = new Set(prev);
+      if (next.has(logId)) {
+        next.delete(logId);
+      } else {
+        next.add(logId);
+      }
+      return next;
+    });
   };
 
   if (!isAdmin) {
@@ -471,10 +514,35 @@ export default function SecurityMonitoringPage() {
                   <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
                     {narrative.xai_narrative ? (
                       narrative.xai_narrative.length > 200 ? (
-                        <>
-                          {narrative.xai_narrative.slice(0, 200)}…{' '}
-                          <span className="text-xs text-blue-600 cursor-pointer">Read more</span>
-                        </>
+                        expandedNarratives.has(narrative.log_id) ? (
+                          <>
+                            {narrative.xai_narrative}{' '}
+                            <span
+                              className="text-xs text-blue-600 cursor-pointer"
+                              onClick={() => toggleNarrative(narrative.log_id)}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => e.key === 'Enter' && toggleNarrative(narrative.log_id)}
+                              aria-expanded="true"
+                            >
+                              Show less
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            {narrative.xai_narrative.slice(0, 200)}…{' '}
+                            <span
+                              className="text-xs text-blue-600 cursor-pointer"
+                              onClick={() => toggleNarrative(narrative.log_id)}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => e.key === 'Enter' && toggleNarrative(narrative.log_id)}
+                              aria-expanded="false"
+                            >
+                              Read more
+                            </span>
+                          </>
+                        )
                       ) : (
                         narrative.xai_narrative
                       )
