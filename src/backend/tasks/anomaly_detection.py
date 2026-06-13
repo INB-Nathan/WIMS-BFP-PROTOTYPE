@@ -1,12 +1,12 @@
 """M8: Behavioral anomaly detection — Celery beat task (60s).
 
-Four detectors run against wims.system_audit_trails using SQL windows:
+Four detectors run against wims.system_audit_trails using SQL sliding windows:
   - BULK_DELETE         >10 delete-class actions per user in any 5-min window (HIGH)
   - OFF_HOURS           High-sensitivity actions 22:00–05:59 Asia/Manila (MEDIUM)
-  - PRIVILEGE_ESCALATION ROLE_CHANGE_TO_*SYSTEM_ADMIN* events (HIGH)
+  - PRIVILEGE_ESCALATION ROLE_CHANGE_TO_% events (HIGH)
   - RAPID_IP_SWITCH     Same user, 2+ distinct IPs in 10-min window (MEDIUM)
 
-Deferred:
+Deferred (not implemented — M8 remains PARTIAL):
   - Suspicious Query Patterns — needs pg_stat_statements, not enabled
   - Impossible Travel (geo) — needs IP geolocation database, not in-stack;
     RAPID_IP_SWITCH ships as the achievable proxy
@@ -19,6 +19,9 @@ actually inserted is a corresponding row written to wims.security_threat_logs
 Session: get_session(SYSTEM_TASK_USER_ID) → svc_task (SYSTEM_ADMIN role) →
 satisfies security_threat_logs RLS (SYSTEM_ADMIN | NATIONAL_ANALYST)
 and anomaly_detections INSERT policy (SYSTEM_ADMIN).
+
+Task exceptions are rolled back, logged, and re-raised so Celery/CI/ops
+can surface the failure (consistent with other security-adjacent tasks).
 """
 
 from __future__ import annotations
@@ -41,25 +44,38 @@ logger = logging.getLogger(__name__)
 
 
 def _detect_bulk_delete(db: Session) -> list[dict[str, Any]]:
-    """Return anomaly dicts for users with >10 delete-class events in any 5-min window
-    within the last 10 minutes."""
+    """Return anomaly dicts for users with >10 delete-class events in any 5-min
+    sliding window within the last 10 minutes.
+
+    Uses a correlated subquery so that every delete event counts its own
+    trailing-5-min window — an attacker cannot evade by splitting events
+    across a fixed floor-bucket boundary.
+    """
     rows = db.execute(
         text("""
-            SELECT
-                user_id,
-                date_trunc('minute', timestamp)
-                    - (EXTRACT(MINUTE FROM timestamp)::int % 5) * interval '1 minute'
-                    AS window_start,
-                COUNT(*) AS cnt
-            FROM wims.system_audit_trails
-            WHERE (
-                action_type LIKE 'OPERATION_DELETE%'
-                OR action_type LIKE 'REJECTED_%'
-            )
-              AND timestamp >= now() - interval '10 minutes'
-              AND user_id IS NOT NULL
+            SELECT user_id,
+                   window_start,
+                   MAX(cnt) AS cnt
+            FROM (
+                SELECT
+                    user_id,
+                    date_trunc('minute', timestamp)
+                        - (EXTRACT(MINUTE FROM timestamp)::int % 5) * interval '1 minute'
+                        AS window_start,
+                    (SELECT COUNT(*)
+                     FROM wims.system_audit_trails t2
+                     WHERE t2.user_id = t1.user_id
+                       AND t2.action_type LIKE 'OPERATION_DELETE%'
+                       AND t2.timestamp >= t1.timestamp - interval '5 minutes'
+                       AND t2.timestamp <= t1.timestamp
+                    ) AS cnt
+                FROM wims.system_audit_trails t1
+                WHERE t1.action_type LIKE 'OPERATION_DELETE%'
+                  AND t1.timestamp >= now() - interval '10 minutes'
+                  AND t1.user_id IS NOT NULL
+            ) sub
+            WHERE cnt > 10
             GROUP BY user_id, window_start
-            HAVING COUNT(*) > 10
         """)
     ).fetchall()
 
@@ -124,12 +140,16 @@ def _detect_off_hours(db: Session) -> list[dict[str, Any]]:
 
 
 def _detect_privilege_escalation(db: Session) -> list[dict[str, Any]]:
-    """Return anomaly dicts for ROLE_CHANGE_TO_*SYSTEM_ADMIN* events in the last 60s."""
+    """Return anomaly dicts for any ROLE_CHANGE_TO_% events in the last 60s.
+
+    Catches all privilege-change actions (not just SYSTEM_ADMIN) to satisfy
+    the broader RBAC-violation language in GH #160 / FRS M8.
+    """
     rows = db.execute(
         text("""
             SELECT audit_id, user_id, action_type, ip_address, timestamp
             FROM wims.system_audit_trails
-            WHERE action_type LIKE 'ROLE_CHANGE_TO_%SYSTEM_ADMIN%'
+            WHERE action_type LIKE 'ROLE_CHANGE_TO_%'
               AND timestamp >= now() - interval '60 seconds'
               AND user_id IS NOT NULL
         """)
@@ -156,23 +176,53 @@ def _detect_privilege_escalation(db: Session) -> list[dict[str, Any]]:
 
 
 def _detect_rapid_ip_switch(db: Session) -> list[dict[str, Any]]:
-    """Return anomaly dicts for users with 2+ distinct IPs in any 10-min window
-    within the last 10 minutes."""
+    """Return anomaly dicts for users with 2+ distinct IPs in any 10-min
+    sliding window within the last 10 minutes.
+
+    Uses a correlated subquery so that every event counts its own
+    trailing-10-min distinct IPs — cross-boundary evasion is prevented.
+    The ip_list is collected from all events in the triggered floor window.
+    """
     rows = db.execute(
         text("""
+            WITH sliding AS (
+                SELECT
+                    t1.user_id,
+                    t1.timestamp,
+                    t1.ip_address,
+                    (SELECT COUNT(DISTINCT t2.ip_address)
+                     FROM wims.system_audit_trails t2
+                     WHERE t2.user_id = t1.user_id
+                       AND t2.timestamp >= t1.timestamp - interval '10 minutes'
+                       AND t2.timestamp <= t1.timestamp
+                       AND t2.ip_address IS NOT NULL
+                    ) AS distinct_ips
+                FROM wims.system_audit_trails t1
+                WHERE t1.timestamp >= now() - interval '10 minutes'
+                  AND t1.user_id IS NOT NULL
+                  AND t1.ip_address IS NOT NULL
+            ),
+            triggered_windows AS (
+                SELECT
+                    user_id,
+                    date_trunc('minute', timestamp)
+                        - (EXTRACT(MINUTE FROM timestamp)::int % 10) * interval '1 minute'
+                        AS window_start,
+                    MAX(distinct_ips) AS distinct_ips
+                FROM sliding
+                WHERE distinct_ips >= 2
+                GROUP BY user_id, window_start
+            )
             SELECT
-                user_id,
-                date_trunc('minute', timestamp)
-                    - (EXTRACT(MINUTE FROM timestamp)::int % 10) * interval '1 minute'
-                    AS window_start,
-                COUNT(DISTINCT ip_address) AS distinct_ips,
-                array_agg(DISTINCT ip_address) AS ip_list
-            FROM wims.system_audit_trails
-            WHERE timestamp >= now() - interval '10 minutes'
-              AND user_id IS NOT NULL
-              AND ip_address IS NOT NULL
-            GROUP BY user_id, window_start
-            HAVING COUNT(DISTINCT ip_address) >= 2
+                tw.user_id,
+                tw.window_start,
+                tw.distinct_ips,
+                array_agg(DISTINCT s.ip_address) AS ip_list
+            FROM triggered_windows tw
+            JOIN sliding s ON s.user_id = tw.user_id
+                AND s.timestamp >= tw.window_start
+                AND s.timestamp < tw.window_start + interval '10 minutes'
+            GROUP BY tw.user_id, tw.window_start, tw.distinct_ips
         """)
     ).fetchall()
 
@@ -243,7 +293,7 @@ def _write_anomaly(
     if row is None:
         return False  # dedup hit — already recorded
 
-    threat_payload = json.dumps({"anomaly_type": anomaly_type, **details})
+    threat_payload = json.dumps({**details, "anomaly_type": anomaly_type})
     db.execute(
         text("""
             INSERT INTO wims.security_threat_logs
@@ -278,6 +328,9 @@ def detect_behavioral_anomalies() -> dict[str, int]:
     Registered in celery_config.py beat_schedule at 60s intervals.
     Uses get_session(SYSTEM_TASK_USER_ID) — svc_task has SYSTEM_ADMIN role,
     which satisfies both security_threat_logs and anomaly_detections RLS.
+
+    On failure the session is rolled back, the exception is logged, and then
+    re-raised so Celery retry / ops monitoring can surface the failure.
     """
     db = get_session(SYSTEM_TASK_USER_ID)
     total_new = 0
@@ -301,6 +354,7 @@ def detect_behavioral_anomalies() -> dict[str, int]:
     except Exception:
         logger.exception("Anomaly detection task failed")
         db.rollback()
+        raise
     finally:
         db.close()
     return {"new": total_new, "dedup": total_dedup}

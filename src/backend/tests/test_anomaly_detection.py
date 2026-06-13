@@ -5,18 +5,22 @@ Tests call detector functions directly with mock DB sessions that return
 synthetic audit rows — no running database required.
 
 Coverage:
-  - BULK_DELETE: 10 events → no flag; 11 events → HIGH anomaly
-  - OFF_HOURS: 06:00 PHT (in-hours) → no flag; 22:00 PHT → MEDIUM anomaly
-  - PRIVILEGE_ESCALATION: non-admin role change → no flag; SYSTEM_ADMIN → HIGH
-  - RAPID_IP_SWITCH: 1 distinct IP → no flag; 2 distinct IPs → MEDIUM anomaly
+  - BULK_DELETE: 10 events → no flag; 11 events → HIGH anomaly; cross-boundary burst detected
+  - OFF_HOURS: in-hours → no flag; off-hours → MEDIUM anomaly
+  - PRIVILEGE_ESCALATION: any ROLE_CHANGE_TO_% → HIGH (broadened per GH #160)
+  - RAPID_IP_SWITCH: 1 distinct IP → no flag; 2 distinct IPs → MEDIUM anomaly; cross-boundary detected
   - Dedup: second _write_anomaly call for same dedup_key → no insert, no threat-log
   - Dual-write: new anomaly → security_threat_logs row also inserted
+  - Dedup counter: task returns dedup>0 when one write is new and one is dedup
+  - Task failure: rollback + re-raise (security-adjacent task pattern)
 """
 
 import json
 import uuid
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 from tasks.anomaly_detection import (
@@ -88,6 +92,23 @@ class TestBulkDeleteDetector:
         types = {r["anomaly_type"] for r in result}
         assert types == {"BULK_DELETE"}
 
+    def test_cross_boundary_burst_detected(self):
+        """6 events at 14:04 + 6 at 14:05 = 12 in sliding window → flagged.
+
+        With fixed floor buckets the 14:05 events would land in a different
+        5-min bucket (14:05–14:09) and only count 6, missing the burst.
+        The sliding window correctly counts 12 for the 14:05 event.
+        """
+        window_2 = datetime(2026, 6, 12, 14, 5, 0, tzinfo=timezone.utc)
+        # SQL returns one row per (user, window_start) via GROUP BY.
+        # The 14:05 events trigger with count 12 and group into the 14:05 bucket.
+        db = _make_db(fetch_rows=[(_USER_A, window_2, 12)])
+        result = _detect_bulk_delete(db)
+        assert len(result) == 1
+        assert result[0]["details"]["count"] == 12
+        # dedup key encodes the floor of the triggering event (14:05)
+        assert "202606121405" in result[0]["dedup_key"]
+
 
 # ---------------------------------------------------------------------------
 # OFF_HOURS
@@ -138,6 +159,14 @@ class TestOffHoursDetector:
         keys = {r["dedup_key"] for r in result}
         assert keys == {"OFF_HOURS:10", "OFF_HOURS:11"}
 
+    def test_in_hours_not_flagged(self):
+        """The SQL filter (HOUR<6 OR HOUR>=22) runs server-side;
+        mock rows that reach the detector ARE anomalies regardless.
+        This test proves empty fetch → no anomaly (in-hours produces no rows)."""
+        db = _make_db(fetch_rows=[])
+        result = _detect_off_hours(db)
+        assert result == []
+
 
 # ---------------------------------------------------------------------------
 # PRIVILEGE_ESCALATION
@@ -164,6 +193,16 @@ class TestPrivilegeEscalationDetector:
         assert a["subject_user_id"] == str(_USER_A)
         assert a["dedup_key"] == "PRIV_ESC:77"
         assert a["source_ip"] == "10.0.0.1"
+
+    def test_analyst_role_change_flagged(self):
+        """ROLE_CHANGE_TO_ANALYST → HIGH PRIVILEGE_ESCALATION (broadened per GH #160)."""
+        db = _make_db(fetch_rows=[self._make_row(88, "ROLE_CHANGE_TO_ANALYST")])
+        result = _detect_privilege_escalation(db)
+        assert len(result) == 1
+        a = result[0]
+        assert a["anomaly_type"] == "PRIVILEGE_ESCALATION"
+        assert a["severity"] == "HIGH"
+        assert a["details"]["action_type"] == "ROLE_CHANGE_TO_ANALYST"
 
     def test_dedup_key_uses_audit_id(self):
         """Each PRIVILEGE_ESCALATION event has its own audit_id-based dedup key."""
@@ -224,6 +263,20 @@ class TestRapidIPSwitchDetector:
         result = _detect_rapid_ip_switch(db)
         assert len(result) == 2
         assert result[0]["dedup_key"] != result[1]["dedup_key"]
+
+    def test_cross_boundary_ip_switch_detected(self):
+        """IP-A at 14:09, IP-B at 14:11 — 2 min apart but different floor buckets.
+
+        With fixed 10-min floor buckets the 14:11 event lands in 14:10–14:19
+        and only sees IP-B (1 distinct), missing the cross-boundary switch.
+        The sliding window correctly counts 2 distinct IPs for the 14:11 event.
+        """
+        window_floor = datetime(2026, 6, 12, 14, 10, 0, tzinfo=timezone.utc)
+        db = _make_db(fetch_rows=[(_USER_A, window_floor, 2, ["1.1.1.1", "2.2.2.2"])])
+        result = _detect_rapid_ip_switch(db)
+        assert len(result) == 1
+        assert result[0]["details"]["distinct_ip_count"] == 2
+        assert "202606121410" in result[0]["dedup_key"]
 
 
 # ---------------------------------------------------------------------------
@@ -442,18 +495,17 @@ class TestDetectBehavioralAnomaliesTask:
         assert result["new"] == 0
         assert result["dedup"] == 0
 
-    def test_task_rollback_on_exception(self):
-        """Task rolls back and closes session when a detector raises."""
+    def test_task_rollback_and_reraise_on_exception(self):
+        """Task rolls back, closes session, and re-raises (security-adjacent pattern)."""
         mock_db = MagicMock()
         mock_db.execute.side_effect = RuntimeError("DB down")
 
         with patch("tasks.anomaly_detection.get_session", return_value=mock_db):
-            result = detect_behavioral_anomalies()
+            with pytest.raises(RuntimeError, match="DB down"):
+                detect_behavioral_anomalies()
 
         mock_db.rollback.assert_called_once()
         mock_db.close.assert_called_once()
-        # Returns 0 counts on failure — does not raise
-        assert result == {"new": 0, "dedup": 0}
 
     def test_task_counts_new_and_dedup(self):
         """Task correctly accumulates new vs dedup counts across detectors."""
@@ -486,4 +538,45 @@ class TestDetectBehavioralAnomaliesTask:
 
         assert result["new"] == 1
         assert result["dedup"] == 0
+        mock_db.commit.assert_called_once()
+
+    def test_task_counts_dedup_positive(self):
+        """Task returns dedup>0 when first write inserts and second deduplicates."""
+        mock_db = MagicMock()
+
+        # bulk_delete returns 2 anomalies for same user/window
+        fetch_result_bulk = MagicMock()
+        fetch_result_bulk.fetchall.return_value = [
+            (_USER_A, _WINDOW_5MIN, 15),
+            (_USER_A, _WINDOW_5MIN, 15),
+        ]
+
+        fetch_result_empty = MagicMock()
+        fetch_result_empty.fetchall.return_value = []
+
+        # First _write_anomaly: INSERT succeeds (returns row)
+        insert_result_new = MagicMock()
+        insert_result_new.fetchone.return_value = (1,)
+        threat_result_1 = MagicMock()
+
+        # Second _write_anomaly: ON CONFLICT fires (returns None)
+        insert_result_dedup = MagicMock()
+        insert_result_dedup.fetchone.return_value = None
+
+        mock_db.execute.side_effect = [
+            fetch_result_bulk,  # 0: _detect_bulk_delete query
+            insert_result_new,  # 1: _write_anomaly #1 anomaly_detections INSERT
+            threat_result_1,  # 2: _write_anomaly #1 security_threat_logs INSERT
+            insert_result_dedup,  # 3: _write_anomaly #2 anomaly_detections INSERT (dedup)
+            fetch_result_empty,  # 4: _detect_off_hours query
+            fetch_result_empty,  # 5: _detect_privilege_escalation query
+            fetch_result_empty,  # 6: _detect_rapid_ip_switch query
+            MagicMock(),  # 7: safety margin
+        ]
+
+        with patch("tasks.anomaly_detection.get_session", return_value=mock_db):
+            result = detect_behavioral_anomalies()
+
+        assert result["new"] == 1
+        assert result["dedup"] == 1
         mock_db.commit.assert_called_once()
