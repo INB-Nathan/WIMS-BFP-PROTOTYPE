@@ -3,6 +3,15 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-13] fix | PR #262 FrontierCode review — Q1 narrative_report anonymize leak + Q2 key_version silent decrypt failure
+
+- Q1 MUST-FIX: Added `narrative_report = NULL` to the `incident_sensitive_details` anonymize UPDATE SET clause in `api/routes/admin/privacy.py`. Previously, `narrative_report` was SELECTed for export (plaintext PII column) but never nulled during anonymization, leaking PII after the right-to-erasure path.
+- Q2 MUST-FIX: `_decrypt_sensitive_details` now passes `sd.get("key_version", 1)` as the 4th positional arg to `decrypt_json()`. Previously, `key_version` was SELECTed from the row but never forwarded, causing silent decryption failure (swallowed by bare `except Exception`) for rows encrypted with a rotated key (key_version != 1) on the `env_aesgcm` path.
+- Test Q1: `test_anonymize_report_nulls_pii_preserves_fks` strengthened to inspect `db.execute.call_args_list` and assert `"narrative_report = NULL" IN sd_update_sql`. Removed 3 unconsumed audit mock entries (log_system_audit is patched in this test).
+- Test Q2: Added `test_export_decrypt_passes_key_version` — verifies `decrypt_json` receives `key_version=2` (4th positional arg) when the sensitive row has `key_version: 2`.
+- No FRS gap register change (privacy rights gap #165 remains CLOSED; review fixes to existing M6/M10 implementation).
+- Ruff check + format green. All 18 privacy tests pass.
+
 ## [2026-06-13] rebase | PR #262 rebased onto origin/master (ba6b0b2)
 
 - Conflict in `system-wiki/log.md`: resolved by keeping all master entries (PR #263 dashboard, PR #265 attachment encryption review, PR #264 anomaly detection review, M9a AI inference, M8 anomaly detection, M6a attachment encryption, M8 security monitoring dashboard) and PR #262 M6 privacy rights entry in chronological order.

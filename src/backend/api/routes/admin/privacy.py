@@ -86,7 +86,9 @@ def _decrypt_sensitive_details(sd_row) -> dict:
             aad = f"incident_id:{incident_id}".encode("utf-8")
             provider = get_crypto_provider(sd)
             enc_iv = sd.get("encryption_iv")
-            pii = provider.decrypt_json(enc_iv if enc_iv else None, sd["pii_blob_enc"], aad)
+            pii = provider.decrypt_json(
+                enc_iv if enc_iv else None, sd["pii_blob_enc"], aad, sd.get("key_version", 1)
+            )
             sd["caller_name"] = pii.get("caller_name")
             sd["caller_number"] = pii.get("caller_number")
             sd["owner_name"] = pii.get("owner_name")
@@ -313,7 +315,7 @@ def anonymize_subject(
                 text(
                     "UPDATE wims.incident_sensitive_details SET "
                     "caller_name = NULL, caller_number = NULL, "
-                    "owner_name = NULL, occupant_name = NULL, "
+                    "owner_name = NULL, occupant_name = NULL, narrative_report = NULL, "
                     "pii_blob_enc = NULL, encryption_iv = NULL, "
                     "kms_key_name = NULL, crypto_provider = NULL, key_version = NULL "
                     "WHERE incident_id = :iid"

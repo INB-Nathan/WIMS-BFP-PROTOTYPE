@@ -348,6 +348,72 @@ class TestExportReportSubject:
         assert "encryption_iv" not in sd
         assert "crypto_provider" not in sd
 
+    def test_export_decrypt_passes_key_version(self, client: TestClient):
+        """decrypt_json receives stored key_version when non-default (Q2 fix).
+
+        Rows encrypted with a rotated key (key_version != 1) on the env_aesgcm
+        path must pass that version to decrypt_json so the correct keyring entry
+        is used.  Without this, rotated-key rows silently fail to decrypt.
+        """
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_admin
+        mock_db = _make_db()
+
+        sd_row_v2 = MagicMock()
+        sd_row_v2._mapping = {
+            "incident_id": _INCIDENT_ID,
+            "caller_name": None,
+            "caller_number": None,
+            "owner_name": None,
+            "occupant_name": None,
+            "narrative_report": None,
+            "street_address": "123 Rizal St",
+            "landmark": "Near BFP Station",
+            "prepared_by_officer": "Officer A",
+            "noted_by_officer": "Officer B",
+            "remarks": None,
+            "pii_blob_enc": "dGVzdGJsb2I=",
+            "encryption_iv": "aXZkYXRh",
+            "crypto_provider": "env_aesgcm",
+            "kms_key_name": None,
+            "key_version": 2,  # <-- rotated key, non-default
+        }
+
+        mock_db.execute.side_effect = [
+            MagicMock(fetchone=lambda: _report_row(verified_incident_id=_INCIDENT_ID)),
+            MagicMock(fetchone=lambda: sd_row_v2),
+            MagicMock(fetchall=lambda: _consent_rows()),
+            MagicMock(),  # audit INSERT
+        ]
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        mock_provider = MagicMock()
+        mock_provider.decrypt_json.return_value = {
+            "caller_name": "Maria Santos",
+            "caller_number": "09179999999",
+            "owner_name": "Juan Reyes",
+            "occupant_name": "Ana Reyes",
+            "narrative_report": "Fire in kitchen",
+            "casualty_details": [],
+        }
+
+        with patch("api.routes.admin.privacy.get_crypto_provider", return_value=mock_provider):
+            resp = client.get(
+                f"/api/admin/privacy/export?subject_type=REPORT&subject_id={_REPORT_ID}"
+            )
+
+        assert resp.status_code == 200
+        # Q2: decrypt_json must have been called with key_version=2 (4th positional arg)
+        mock_provider.decrypt_json.assert_called_once()
+        call_args = mock_provider.decrypt_json.call_args[0]
+        assert len(call_args) >= 4, (
+            f"decrypt_json called with {len(call_args)} positional args, expected >= 4"
+        )
+        assert call_args[3] == 2, f"key_version not forwarded to decrypt_json; got {call_args[3]}"
+
 
 # ---------------------------------------------------------------------------
 # Anonymize — user subject
@@ -463,7 +529,11 @@ class TestAnonymizeReport:
         assert "PENDING" in resp.json()["detail"]
 
     def test_anonymize_report_nulls_pii_preserves_fks(self, client: TestClient):
-        """Anonymize report → witness fields nulled; FK-carrying columns kept."""
+        """Anonymize report → witness fields nulled; narrative_report nulled; FK-carrying columns kept.
+
+        Verifies SQL dispatch: the incident_sensitive_details UPDATE includes
+        narrative_report = NULL (Q1 fix — narrative_report was previously leaked).
+        """
         app.dependency_overrides[auth.get_current_wims_user] = _mock_admin
         mock_db = _make_db()
 
@@ -473,18 +543,13 @@ class TestAnonymizeReport:
         update_cr = MagicMock()
         update_sd = MagicMock()
         update_ip = MagicMock()
-        audit1 = MagicMock()
-        audit2 = MagicMock()
-        audit3 = MagicMock()
 
+        # log_system_audit is patched below → only 4 db.execute calls happen
         mock_db.execute.side_effect = [
             select_result,
             update_cr,
-            audit1,
             update_sd,
-            audit2,
             update_ip,
-            audit3,
         ]
 
         def mock_get_db():
@@ -505,6 +570,12 @@ class TestAnonymizeReport:
         assert "wims.incident_sensitive_details" in tables
         assert "wims.involved_parties" in tables
         assert body["warning"] == "irreversible"
+
+        # Q1: Verify SQL dispatch — narrative_report must be in the anonymize UPDATE
+        sd_update_sql = str(mock_db.execute.call_args_list[2][0][0])
+        assert "narrative_report = NULL" in sd_update_sql, (
+            f"narrative_report = NULL missing from anonymize UPDATE: {sd_update_sql}"
+        )
 
 
 # ---------------------------------------------------------------------------
