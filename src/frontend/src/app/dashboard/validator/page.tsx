@@ -499,19 +499,16 @@ export default function ValidatorDashboard() {
     return () => clearInterval(intervalId);
   }, []);
 
-  // Listen for wims:sync-complete messages from the service worker (SW sync
-  // finishes). When sync completes, refresh the queue and pending count.
+  // Listen for wims:sync-complete events dispatched by useAutoSync after a
+  // successful reconnect sync. Refreshes the queue and pending-ops badge.
   useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      const isSyncComplete = event.data?.type === 'sync-complete' || event.data?.type === 'wims:sync-complete';
-      if (isSyncComplete && event.data?.tag === 'sync-pending-incidents') {
-        setSyncNotification('Offline validator actions synced. Refreshing queue…');
-        void refreshQueuedValidatorOpsCount();
-        fetchQueue();
-      }
+    const handler = () => {
+      setSyncNotification('Offline validator actions synced. Refreshing queue…');
+      void refreshQueuedValidatorOpsCount();
+      fetchQueue();
     };
-    navigator.serviceWorker?.addEventListener('message', handler);
-    return () => navigator.serviceWorker?.removeEventListener('message', handler);
+    window.addEventListener('wims:sync-complete', handler);
+    return () => window.removeEventListener('wims:sync-complete', handler);
   }, [fetchQueue, refreshQueuedValidatorOpsCount]);
 
   // ---------------------------------------------------------------------------

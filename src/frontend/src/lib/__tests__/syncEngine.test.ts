@@ -533,3 +533,201 @@ describe('network error abort', () => {
     expect(markSynced).not.toHaveBeenCalledWith(1);
   });
 });
+
+// ── OfflineOps path — verify ops (processVerify via getPendingOps) ──────────
+
+describe('offlineOps dispatch — verify ops', () => {
+  it('dispatches verify op to PATCH /regional/incidents/{id}/verification with client_id from localId', async () => {
+    const localId = 'verify-offlineops-uuid-abc';
+    const incidentId = 42;
+
+    vi.mocked(getPendingOps).mockResolvedValue([
+      makeOp({
+        localId,
+        operation: 'verify',
+        payload: {
+          incident_id: incidentId,
+          action: 'accept',
+          notes: 'Looks good',
+        },
+      }),
+    ]);
+
+    mockSessionOkWithApiResponses({
+      ok: true, status: 200,
+      json: () => Promise.resolve({ previous_status: 'PENDING_VALIDATION', new_status: 'VERIFIED' }),
+    });
+
+    const result = await syncPendingIncidents(ENCODER_ID);
+
+    // Auth check fires first, then the verification request (2 total)
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const [url, options] = fetchSpy.mock.calls[1];
+    expect(url).toMatch(/\/regional\/incidents\/42\/verification/);
+    expect(options.method).toBe('PATCH');
+    expect(options.credentials).toBe('include');
+
+    const body = JSON.parse(options.body as string);
+    expect(body.client_id).toBe(localId);
+    expect(body.action).toBe('accept');
+    expect(body.notes).toBe('Looks good');
+
+    expect(markOpSynced).toHaveBeenCalledWith(localId, undefined);
+    expect(result.synced).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('includes original_incident_id when accept_replace verify op syncs', async () => {
+    const localId = 'verify-replace-uuid';
+
+    vi.mocked(getPendingOps).mockResolvedValue([
+      makeOp({
+        localId,
+        operation: 'verify',
+        payload: {
+          incident_id: 42,
+          action: 'accept_replace',
+          notes: 'Replacing duplicate',
+          original_incident_id: 7,
+        },
+      }),
+    ]);
+
+    mockSessionOkWithApiResponses({
+      ok: true, status: 200,
+      json: () => Promise.resolve({ previous_status: 'PENDING_VALIDATION', new_status: 'VERIFIED' }),
+    });
+
+    await syncPendingIncidents(ENCODER_ID);
+
+    const [, options] = fetchSpy.mock.calls[1];
+    const body = JSON.parse(options.body as string);
+    expect(body.original_incident_id).toBe(7);
+  });
+
+  it('409 DUPLICATE_DETECTED on verify marks conflict, does not markSynced', async () => {
+    const localId = 'verify-dup-uuid';
+
+    vi.mocked(getPendingOps).mockResolvedValue([
+      makeOp({
+        localId,
+        operation: 'verify',
+        payload: { incident_id: 99, action: 'accept', notes: null },
+      }),
+    ]);
+
+    mockSessionOkWithApiResponses({
+      ok: false, status: 409,
+      json: () => Promise.resolve({ detail: { code: 'DUPLICATE_DETECTED' } }),
+    });
+
+    const result = await syncPendingIncidents(ENCODER_ID);
+
+    expect(markOpConflict).toHaveBeenCalledWith(localId, '409_duplicate', undefined);
+    expect(markOpSynced).not.toHaveBeenCalled();
+    expect(result.synced).toBe(0);
+    expect(result.conflicts).toBe(1);
+    expect(result.errors[0].error).toBe('409_duplicate');
+  });
+
+  it('network error on verify marks error and aborts batch', async () => {
+    vi.mocked(getPendingOps).mockResolvedValue([
+      makeOp({ localId: 'v-net-1', operation: 'verify', payload: { incident_id: 1, action: 'accept' } }),
+      makeOp({ localId: 'v-net-2', operation: 'verify', payload: { incident_id: 2, action: 'reject' } }),
+    ]);
+
+    fetchSpy.mockImplementation((url: string) => {
+      if (url === '/api/auth/session') return Promise.resolve(sessionOkResponse);
+      return Promise.reject(new TypeError('Failed to fetch'));
+    });
+
+    const result = await syncPendingIncidents(ENCODER_ID);
+
+    // Only first op attempted, second skipped (batch aborted)
+    expect(fetchSpy).toHaveBeenCalledTimes(2); // session + 1 op
+    expect(markOpError).toHaveBeenCalledWith('v-net-1', 'network', expect.any(String));
+    expect(markConnectivityOffline).toHaveBeenCalled();
+    expect(result.failed).toBe(1);
+  });
+});
+
+// ── OfflineOps path — archive_action ops (processArchiveAction via getPendingOps) ──
+
+describe('offlineOps dispatch — archive_action ops', () => {
+  it('dispatches archive action to PATCH .../archive with client_id from localId', async () => {
+    const localId = 'archive-offlineops-uuid';
+
+    vi.mocked(getPendingOps).mockResolvedValue([
+      makeOp({
+        localId,
+        operation: 'archive_action',
+        payload: { incident_id: 55, action: 'archive' },
+      }),
+    ]);
+
+    mockSessionOkWithApiResponses({
+      ok: true, status: 200,
+      json: () => Promise.resolve({ status: 'already_applied', incident_id: 55 }),
+    });
+
+    const result = await syncPendingIncidents(ENCODER_ID);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const [url, options] = fetchSpy.mock.calls[1];
+    expect(url).toMatch(/\/regional\/validator\/incidents\/55\/archive/);
+    expect(options.method).toBe('PATCH');
+    expect(options.credentials).toBe('include');
+
+    const body = JSON.parse(options.body as string);
+    expect(body.client_id).toBe(localId);
+
+    expect(markOpSynced).toHaveBeenCalledWith(localId, undefined);
+    expect(result.synced).toBe(1);
+    expect(result.failed).toBe(0);
+  });
+
+  it('dispatches unarchive action to PATCH .../unarchive endpoint', async () => {
+    const localId = 'unarchive-offlineops-uuid';
+
+    vi.mocked(getPendingOps).mockResolvedValue([
+      makeOp({
+        localId,
+        operation: 'archive_action',
+        payload: { incident_id: 77, action: 'unarchive' },
+      }),
+    ]);
+
+    mockSessionOkWithApiResponses({
+      ok: true, status: 200,
+      json: () => Promise.resolve({ status: 'already_applied', incident_id: 77 }),
+    });
+
+    await syncPendingIncidents(ENCODER_ID);
+
+    const [url] = fetchSpy.mock.calls[1];
+    expect(url).toMatch(/\/regional\/validator\/incidents\/77\/unarchive/);
+  });
+
+  it('409 on archive_action marks conflict', async () => {
+    const localId = 'archive-dup-uuid';
+
+    vi.mocked(getPendingOps).mockResolvedValue([
+      makeOp({
+        localId,
+        operation: 'archive_action',
+        payload: { incident_id: 99, action: 'archive' },
+      }),
+    ]);
+
+    mockSessionOkWithApiResponses({
+      ok: false, status: 409,
+      json: () => Promise.resolve({ detail: { code: 'DUPLICATE_DETECTED' } }),
+    });
+
+    const result = await syncPendingIncidents(ENCODER_ID);
+
+    expect(markOpConflict).toHaveBeenCalledWith(localId, '409_duplicate', undefined);
+    expect(result.conflicts).toBe(1);
+  });
+});
