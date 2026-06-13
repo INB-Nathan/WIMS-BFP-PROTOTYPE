@@ -3,6 +3,21 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-13] fix | PR #262 FrontierCode review — Q1 narrative_report anonymize leak + Q2 key_version silent decrypt failure
+
+- Q1 MUST-FIX: Added `narrative_report = NULL` to the `incident_sensitive_details` anonymize UPDATE SET clause in `api/routes/admin/privacy.py`. Previously, `narrative_report` was SELECTed for export (plaintext PII column) but never nulled during anonymization, leaking PII after the right-to-erasure path.
+- Q2 MUST-FIX: `_decrypt_sensitive_details` now passes `sd.get("key_version", 1)` as the 4th positional arg to `decrypt_json()`. Previously, `key_version` was SELECTed from the row but never forwarded, causing silent decryption failure (swallowed by bare `except Exception`) for rows encrypted with a rotated key (key_version != 1) on the `env_aesgcm` path.
+- Test Q1: `test_anonymize_report_nulls_pii_preserves_fks` strengthened to inspect `db.execute.call_args_list` and assert `"narrative_report = NULL" IN sd_update_sql`. Removed 3 unconsumed audit mock entries (log_system_audit is patched in this test).
+- Test Q2: Added `test_export_decrypt_passes_key_version` — verifies `decrypt_json` receives `key_version=2` (4th positional arg) when the sensitive row has `key_version: 2`.
+- No FRS gap register change (privacy rights gap #165 remains CLOSED; review fixes to existing M6/M10 implementation).
+- Ruff check + format green. All 18 privacy tests pass.
+
+## [2026-06-13] rebase | PR #262 rebased onto origin/master (ba6b0b2)
+
+- Conflict in `system-wiki/log.md`: resolved by keeping all master entries (PR #263 dashboard, PR #265 attachment encryption review, PR #264 anomaly detection review, M9a AI inference, M8 anomaly detection, M6a attachment encryption, M8 security monitoring dashboard) and PR #262 M6 privacy rights entry in chronological order.
+- Migration `56_consent_log.sql` → `59_consent_log.sql`: master already had 56 (verification history), 57 (anomaly detections), 58 (attachment encryption). All references updated in log.md, gap register, and SQL file.
+- No code conflicts (route registrations, schemas, tests auto-merged cleanly).
+
 ## [2026-06-13] fix | PR #263 review — dashboard link, error state, pagination metadata
 
 - S1: `api/routes/admin/security.py` security-alert email context now links `dashboard_link` to `/admin/monitoring` instead of stale `/admin/security-dashboard`; backend regression test covers HIGH threat confirmation email context.
@@ -152,6 +167,16 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `src/frontend/src/app/admin/monitoring/admin-security-monitoring.test.tsx`: 4 Vitest tests — summary cards render, chip toggle calls API with correct severity, empty state, distribution bar labels.
 - Deferred: SSE real-time push (polling sufficient for v1), global sidebar unreviewed badge.
 - Gap register updated: M8 monitoring dashboard CLOSED.
+
+## [2026-06-12] feat | GH #73 — M6 RA 10173 PII export, anonymization, consent logging (feat/m6-privacy-rights)
+
+- `src/postgres-init/59_consent_log.sql`: new `wims.consent_log` table. RLS: INSERT WITH CHECK (TRUE) for public consent recording; SELECT/UPDATE/DELETE SYSTEM_ADMIN only.
+- `src/backend/schemas/privacy.py`: `ConsentRequest`, `ConsentRecord`, `ExportResponse`, `AnonymizeRequest` (confirm validator), `AnonymizeResponse`.
+- `src/backend/api/routes/admin/privacy.py`: `GET /api/admin/privacy/export` (user → profile + consent_history; report → citizen_reports + decrypted incident_sensitive_details + consent_history; no-store headers; PII_EXPORT audit); `POST /api/admin/privacy/anonymize` (user → NULL contact_number; report → terminal-status guard (409 for non-terminal), NULL witness/PII/blob fields + involved_parties.full_name; PII_ANONYMIZE audit per table; warning:"irreversible" in response).
+- `src/backend/api/routes/consent.py`: `POST /api/auth/consent` (public, no auth; inserts to consent_log; CONSENT_GRANT/CONSENT_WITHDRAW audit with user_id=None).
+- `src/backend/api/routes/admin/__init__.py` + `src/backend/main.py`: router registrations.
+- `src/backend/tests/test_privacy.py`: 16 unit tests covering all ACs + corrections A-G.
+- Gap register: M6 #73 CLOSED; full DPA compliance (PIA/retention/DPO) noted as out-of-scope separate initiative.
 ## [2026-06-11] fix | OpenBao token-file mounting for backend/celery
 
 - `src/openbao/init/bootstrap-openbao.sh`: after writing the `wims-app` policy, bootstrap now verifies any existing app token or creates a replacement policy-scoped orphan service token and persists the token value to `/vault/file/.wims-app-token` without logging it. This regenerates app auth after an OpenBao volume reset while avoiding token churn on normal restarts.
