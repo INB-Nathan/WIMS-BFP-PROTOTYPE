@@ -2763,3 +2763,12 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - `system-wiki/gaps/frs-codebase-gap-register.md`: Updated the M6 (RA 10173 Privacy Rights) gap closure entry to 18 backend unit tests.
 - **Source:** Commit `25a151f` added 1 new Q2 test, bringing total from 17 → 18. The wiki had a stale pre-PR #262 count.
 - **No FRS gap status changed.**
+
+## [2026-06-13] test clarity | renamed test_consent_public_insert_succeeds_under_rls → test_consent_public_no_auth_required
+
+**File:** `src/backend/tests/test_privacy.py`
+**Issue:** #311
+
+**Change:** Renamed the consent public-endpoint test from `test_consent_public_insert_succeeds_under_rls` to `test_consent_public_no_auth_required`. Added docstring clarifying this is a no-auth public endpoint test, not a DB-level RLS verification. Test logic is otherwise identical.
+
+**Purpose:** Eliminate misleading name — the test does not verify RLS policies; it tests that the consent endpoint works without an Authorization header.

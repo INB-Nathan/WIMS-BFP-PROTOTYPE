@@ -654,8 +654,13 @@ class TestConsentEndpoint:
         assert resp.status_code == 201
         assert resp.json()["action"] == "WITHDRAWN"
 
-    def test_consent_public_insert_succeeds_under_rls(self, client: TestClient):
-        """POST /api/auth/consent requires NO auth header — public endpoint (correction A)."""
+    def test_consent_public_no_auth_required(self, client: TestClient):
+        """POST /api/auth/consent requires NO auth header — public endpoint (correction A).
+
+        This is a no-auth public endpoint test, NOT a DB-level RLS verification.
+        Actual RLS policy verification (FOR INSERT WITH CHECK (TRUE)) requires
+        a real database connection and integration tests.
+        """
         mock_db = _make_db()
         consent_row = MagicMock()
         consent_row.__getitem__ = lambda s, k: {
