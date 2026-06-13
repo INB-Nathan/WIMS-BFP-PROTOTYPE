@@ -1,10 +1,10 @@
 ---
 title: PWA/Offline-First, Tests & CI/CD
 created: 2026-05-16
-updated: 2026-06-12
+updated: 2026-06-14
 type: architecture
 tags: [wims-bfp, pwa, offline-first, testing, ci-cd, service-worker, sync-engine, validator-offline]
-sources: [src/frontend/src/lib/, src/frontend/src/lib/api/offlineAnalytics.ts, src/frontend/src/lib/api/offlineValidator.ts, src/frontend/public/sw.js, src/frontend/src/app/home/__tests__/operations-board.test.tsx, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py, src/backend/tests/test_schema_patch_startup_guard.py]
+sources: [src/frontend/src/lib/, src/frontend/src/lib/api/offlineAnalytics.ts, src/frontend/src/lib/api/offlineValidator.ts, src/frontend/src/lib/api/offlineBase.ts, src/frontend/public/sw.js, src/frontend/src/app/home/__tests__/operations-board.test.tsx, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py, src/backend/tests/test_schema_patch_startup_guard.py]
 status: draft
 ---
 

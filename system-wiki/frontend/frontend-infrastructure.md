@@ -1,7 +1,7 @@
 ---
 title: Frontend Infrastructure
 created: 2026-05-16
-updated: 2026-06-12
+updated: 2026-06-14
 type: frontend
 tags: [wims-bfp, frontend, components, api-client, auth, utilities]
 sources: [src/frontend/src/app/globals.css, src/frontend/src/context/AuthContext.tsx, src/frontend/src/lib/api.ts, src/frontend/src/lib/afor-utils.ts, src/frontend/src/lib/ph-regions.ts, src/frontend/src/lib/regional-incidents.ts, src/frontend/src/lib/analyst-workflow-transfer.ts, src/frontend/src/lib/edgeFunctions.ts, src/frontend/src/types/api.ts]
@@ -80,6 +80,7 @@ The API client is split into domain slices with a compatibility barrel. `src/fro
 | `api/offlineAdmin.ts` | Offline-aware admin monitoring read wrappers for health, metrics, worker status, active sessions, and audit logs |
 | `api/reference.ts` | Reference data and nearby-station exports |
 | `api/validator.ts` | Validator-oriented compatibility exports + offline-aware action wrappers |
+| `api/offlineBase.ts` | Shared offline API helpers extracted from `offlineAdmin.ts`, `offlineAnalytics.ts`, and `offlineValidator.ts` — provides `OfflineResult<T>`, `offlineAware()`, `isNetworkError`, `stableStringify`, `shouldServeOffline`, cache helpers |
 | `api/offlineValidator.ts` | Offline-aware validator queue fetch, verification, and archive/unarchive wrappers returning `{ queued, localId }` or `{ response, fromCache, cachedAt? }` |
 | `api/legacy.ts` | Temporary implementation holder during migration; new code should prefer domain slices |
 

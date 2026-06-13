@@ -3041,3 +3041,13 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - This log entry.
 
 **No FRS gap status changed.** No production-unsafe bypasses introduced.
+
+## [2026-06-14] refactor(#273) | extract shared offline API helpers into offlineBase.ts
+
+- Created `src/frontend/src/lib/api/offlineBase.ts` with shared `OfflineResult<T>`, `offlineAware()`, `buildCacheKey()`, `isNetworkError`, `stableStringify`, `shouldServeOffline`, `isFresh`, `getFreshCache`, `readFreshCacheOrThrow`, `writeCache` — extracted from duplicated copies in all 3 domain modules.
+- Updated `src/frontend/src/lib/api/offlineAdmin.ts`: removed 155 lines of duplicated helpers (isNetworkError, stableStringify, adminKey, isNavigatorOffline, shouldServeOffline, isFresh, getFreshCache, readFreshCacheOrThrow, writeCache, offlineAware). Domain-specific constants (ADMIN_CACHE_TTL_MS, SESSIONS_CACHE_TTL_MS, OFFLINE_ADMIN_ERROR) remain. `OfflineAdminResult<T>` is now a type alias for `OfflineResult<T>`.
+- Updated `src/frontend/src/lib/api/offlineAnalytics.ts`: removed 155 lines of duplicated helpers. `ANALYTICS_CACHE_TTL_MS` and `OFFLINE_ANALYTICS_ERROR` remain. `OfflineAnalyticsResult<T>` is now a type alias for `OfflineResult<T>`.
+- Updated `src/frontend/src/lib/api/offlineValidator.ts`: removed 50 lines of duplicated helpers (isNetworkError, stableStringify, isNavigatorOffline, shouldServeOffline, isFresh). Removed unused `getConnectivitySnapshot` import. `OfflineValidatorQueueResult<T>` is now a type alias for `OfflineResult<T>`. Mutation-specific logic and `queueCacheKey` remain.
+- Net: −281 lines across 3 modified files, +139 lines in new offlineBase.ts.
+- Behaviour preserved: all 17 existing offline tests pass unchanged. ESLint clean.
+- Wiki updates: frontend-infrastructure.md table updated with offlineBase.ts entry, pwa-tests-cicd.md sources updated.
