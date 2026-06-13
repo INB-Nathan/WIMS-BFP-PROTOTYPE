@@ -76,7 +76,7 @@ vi.mock('idb', () => ({
     openDB: vi.fn(() => Promise.resolve(makeDbMock())),
 }));
 
-const { queueIncident, getPendingIncidents, getQueuedIncident, updateQueuedIncident, markSynced, deleteQueuedIncident } = await import('../offlineStore');
+const { queueIncident, getPendingIncidents, getQueuedIncident, updateQueuedIncident, markSynced, deleteQueuedIncident, initOfflineStorageLimit } = await import('../offlineStore');
 
 beforeEach(() => {
     store.clear();
@@ -172,5 +172,18 @@ describe('offlineStore', () => {
         await deleteQueuedIncident(1);
         const pending = await getPendingIncidents();
         expect(pending).toHaveLength(0);
+    });
+
+    // ── PR #272 review S3: cap enforcement works regardless of console.warn gate (#275) ──
+    it('throws when encrypted total exceeds advisory storage cap', async () => {
+        // Fill the store with one item at the default cap.
+        await queueIncident({ description: 'fill' });
+        // Lower cap to a tiny value so the existing encrypted bytes exceed it.
+        initOfflineStorageLimit(0.00001);
+        await expect(queueIncident({ description: 'burst' })).rejects.toThrow(
+            'Offline storage cap reached'
+        );
+        // Reset cap so subsequent tests are not affected.
+        initOfflineStorageLimit(50);
     });
 });

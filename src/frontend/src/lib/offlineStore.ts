@@ -329,10 +329,12 @@ export async function queueIncident(
     const totalBytes = all.reduce((sum, item) => sum + (item.encrypted?.data?.length ?? 0), 0);
     const limitBytes = _offlineStorageLimitMb * 1024 * 1024;
     if (totalBytes >= limitBytes) {
-        const usedMb = (totalBytes / 1024 / 1024).toFixed(1);
-        console.warn(
-            `[offlineStore] Queue ~${usedMb}MB exceeds advisory cap of ${_offlineStorageLimitMb}MB. Skipping.`
-        );
+        if (process.env.NODE_ENV !== 'production') {
+            const usedMb = (totalBytes / 1024 / 1024).toFixed(1);
+            console.warn(
+                `[offlineStore] Queue ~${usedMb}MB exceeds advisory cap of ${_offlineStorageLimitMb}MB. Skipping.`
+            );
+        }
         throw new Error(
             `Offline storage cap reached (${_offlineStorageLimitMb}MB). ` +
             `Connect to the network to sync, or contact your administrator.`
@@ -401,18 +403,11 @@ export async function updateQueuedIncident(id: number, payload: Record<string, u
     await tx.done;
 }
 
-// NOTE: operates on the raw stored record (has `encrypted`, not `payload`);
-    // only touches `status`, never reads payload, so no decryption needed.
 export async function markSynced(id: number) {
     const db = await getDB();
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
-    const item = await store.get(id);
-    if (item) {
-        item.status = 'synced';
-        await store.put(item);
-        await store.delete(id);
-    }
+    await store.delete(id);
     await tx.done;
 }
 
