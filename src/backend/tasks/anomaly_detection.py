@@ -60,10 +60,12 @@ def _detect_bulk_delete(db: Session) -> list[dict[str, Any]]:
         text("""
             SELECT user_id,
                    window_start,
-                   MAX(cnt) AS cnt
+                   MAX(cnt) AS cnt,
+                   (ARRAY_AGG(DISTINCT ip_address))[1] AS source_ip
             FROM (
                 SELECT
                     user_id,
+                    ip_address,
                     date_trunc('minute', timestamp)
                         - (EXTRACT(MINUTE FROM timestamp)::int % 5) * interval '1 minute'
                         AS window_start,
@@ -86,7 +88,7 @@ def _detect_bulk_delete(db: Session) -> list[dict[str, Any]]:
 
     results = []
     for row in rows:
-        user_id, window_start, cnt = row
+        user_id, window_start, cnt, source_ip = row
         window_key = window_start.strftime("%Y%m%d%H%M") if window_start else "unknown"
         results.append(
             {
@@ -95,7 +97,7 @@ def _detect_bulk_delete(db: Session) -> list[dict[str, Any]]:
                 "severity": "HIGH",
                 "details": {"count": int(cnt), "window_start": str(window_start)},
                 "dedup_key": f"BULK_DELETE:{user_id}:{window_key}",
-                "source_ip": None,
+                "source_ip": source_ip,
             }
         )
     return results
@@ -415,7 +417,7 @@ def detect_behavioral_anomalies() -> dict[str, int]:
                 else:
                     total_dedup += 1
         db.commit()
-        if total_new > 0:
+        if total_new > 0 or total_dedup > 0:
             logger.info(
                 "Anomaly detection: %d new anomalies inserted, %d deduplicated",
                 total_new,

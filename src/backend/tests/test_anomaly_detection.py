@@ -42,8 +42,7 @@ from tasks.anomaly_detection import (
 _USER_A = uuid.UUID("aaaaaaaa-0000-4000-8000-000000000001")
 _USER_B = uuid.UUID("bbbbbbbb-0000-4000-8000-000000000002")
 _NOW = datetime(2026, 6, 12, 14, 30, 0, tzinfo=timezone.utc)
-_WINDOW_5MIN = datetime(2026, 6, 12, 14, 30, 0, tzinfo=timezone.utc)
-_WINDOW_10MIN = datetime(2026, 6, 12, 14, 30, 0, tzinfo=timezone.utc)
+_WINDOW_START = datetime(2026, 6, 12, 14, 30, 0, tzinfo=timezone.utc)
 
 
 def _make_db(fetch_rows=None, fetchone_return=None):
@@ -71,7 +70,7 @@ class TestBulkDeleteDetector:
 
     def test_flag_when_count_exceeds_ten(self):
         """11 events in a 5-min window → HIGH BULK_DELETE anomaly."""
-        db = _make_db(fetch_rows=[(_USER_A, _WINDOW_5MIN, 11)])
+        db = _make_db(fetch_rows=[(_USER_A, _WINDOW_START, 11, "1.2.3.4")])
         result = _detect_bulk_delete(db)
         assert len(result) == 1
         a = result[0]
@@ -81,13 +80,14 @@ class TestBulkDeleteDetector:
         assert a["details"]["count"] == 11
         assert "BULK_DELETE:" in a["dedup_key"]
         assert str(_USER_A) in a["dedup_key"]
+        assert a["source_ip"] == "1.2.3.4"
 
     def test_multiple_users_flagged(self):
         """Two users each with >10 deletes → two anomalies."""
         db = _make_db(
             fetch_rows=[
-                (_USER_A, _WINDOW_5MIN, 15),
-                (_USER_B, _WINDOW_5MIN, 12),
+                (_USER_A, _WINDOW_START, 15, "1.2.3.4"),
+                (_USER_B, _WINDOW_START, 12, "5.6.7.8"),
             ]
         )
         result = _detect_bulk_delete(db)
@@ -105,7 +105,7 @@ class TestBulkDeleteDetector:
         window_2 = datetime(2026, 6, 12, 14, 5, 0, tzinfo=timezone.utc)
         # SQL returns one row per (user, window_start) via GROUP BY.
         # The 14:05 events trigger with count 12 and group into the 14:05 bucket.
-        db = _make_db(fetch_rows=[(_USER_A, window_2, 12)])
+        db = _make_db(fetch_rows=[(_USER_A, window_2, 12, "1.2.3.4")])
         result = _detect_bulk_delete(db)
         assert len(result) == 1
         assert result[0]["details"]["count"] == 12
@@ -235,7 +235,7 @@ class TestRapidIPSwitchDetector:
 
     def test_two_distinct_ips_flagged(self):
         """2 distinct IPs in one 10-min window → MEDIUM RAPID_IP_SWITCH."""
-        db = _make_db(fetch_rows=[(_USER_A, _WINDOW_10MIN, 2, ["1.1.1.1", "2.2.2.2"])])
+        db = _make_db(fetch_rows=[(_USER_A, _WINDOW_START, 2, ["1.1.1.1", "2.2.2.2"])])
         result = _detect_rapid_ip_switch(db)
         assert len(result) == 1
         a = result[0]
@@ -367,6 +367,21 @@ class TestWriteAnomaly:
         assert loaded["distinct_ip_count"] == 2
         assert "1.1.1.1" in loaded["ips"]
 
+    def test_source_ip_none_passed_cleanly_to_threat_log(self):
+        """_write_anomaly(..., source_ip=None) passes None cleanly to threat logs."""
+        db = self._make_write_db(anomaly_id=3)
+        _write_anomaly(
+            db,
+            anomaly_type="BULK_DELETE",
+            subject_user_id=str(_USER_A),
+            severity="HIGH",
+            details={"count": 12},
+            dedup_key="BULK_DELETE:test:202606121430",
+            source_ip=None,
+        )
+        second_params = db.execute.call_args_list[1][0][1]
+        assert second_params["source_ip"] is None
+
 
 # ---------------------------------------------------------------------------
 # Window-floor dedup stability
@@ -397,7 +412,7 @@ class TestWindowFloorDedup:
         # Events fired at 14:01; SQL returns window_start = 14:00 (floor)
         window_floor = datetime(2026, 6, 12, 14, 0, 0, tzinfo=timezone.utc)
 
-        db = _make_db(fetch_rows=[(_USER_A, window_floor, 11)])
+        db = _make_db(fetch_rows=[(_USER_A, window_floor, 11, "1.2.3.4")])
         result = _detect_bulk_delete(db)
 
         assert len(result) == 1
@@ -409,11 +424,11 @@ class TestWindowFloorDedup:
         window_floor = datetime(2026, 6, 12, 14, 0, 0, tzinfo=timezone.utc)
 
         # Run 1 (conceptually at 14:02): SQL has already computed window_start = 14:00
-        db_run1 = _make_db(fetch_rows=[(_USER_A, window_floor, 11)])
+        db_run1 = _make_db(fetch_rows=[(_USER_A, window_floor, 11, "1.2.3.4")])
         r1 = _detect_bulk_delete(db_run1)
 
         # Run 2 (conceptually at 14:04): same events, same window_start
-        db_run2 = _make_db(fetch_rows=[(_USER_A, window_floor, 11)])
+        db_run2 = _make_db(fetch_rows=[(_USER_A, window_floor, 11, "1.2.3.4")])
         r2 = _detect_bulk_delete(db_run2)
 
         assert r1[0]["dedup_key"] == r2[0]["dedup_key"]
@@ -426,10 +441,10 @@ class TestWindowFloorDedup:
         """
         window_floor = datetime(2026, 6, 12, 14, 0, 0, tzinfo=timezone.utc)
 
-        db_run1 = _make_db(fetch_rows=[(_USER_A, window_floor, 11)])
+        db_run1 = _make_db(fetch_rows=[(_USER_A, window_floor, 11, "1.2.3.4")])
         r1 = _detect_bulk_delete(db_run1)
 
-        db_run2 = _make_db(fetch_rows=[(_USER_A, window_floor, 11)])
+        db_run2 = _make_db(fetch_rows=[(_USER_A, window_floor, 11, "1.2.3.4")])
         r2 = _detect_bulk_delete(db_run2)
 
         # First run: new insert → anomaly_detections + security_threat_logs
@@ -516,7 +531,7 @@ class TestDetectBehavioralAnomaliesTask:
 
         # bulk_delete returns 1 anomaly, off_hours/priv_esc/rapid_ip return nothing
         fetch_result_bulk = MagicMock()
-        fetch_result_bulk.fetchall.return_value = [(_USER_A, _WINDOW_5MIN, 15)]
+        fetch_result_bulk.fetchall.return_value = [(_USER_A, _WINDOW_START, 15, "1.2.3.4")]
 
         fetch_result_empty = MagicMock()
         fetch_result_empty.fetchall.return_value = []
@@ -551,8 +566,8 @@ class TestDetectBehavioralAnomaliesTask:
         # bulk_delete returns 2 anomalies for same user/window
         fetch_result_bulk = MagicMock()
         fetch_result_bulk.fetchall.return_value = [
-            (_USER_A, _WINDOW_5MIN, 15),
-            (_USER_A, _WINDOW_5MIN, 15),
+            (_USER_A, _WINDOW_START, 15, "1.2.3.4"),
+            (_USER_A, _WINDOW_START, 15, "1.2.3.4"),
         ]
 
         fetch_result_empty = MagicMock()
@@ -586,6 +601,44 @@ class TestDetectBehavioralAnomaliesTask:
         assert result["dedup"] == 1
         mock_db.commit.assert_called_once()
 
+    def test_task_logs_when_dedup_only(self):
+        """Task logs info message even when all anomalies are deduplicated (new=0)."""
+        mock_db = MagicMock()
+
+        # bulk_delete returns 1 anomaly; other detectors return nothing
+        fetch_result_bulk = MagicMock()
+        fetch_result_bulk.fetchall.return_value = [(_USER_A, _WINDOW_START, 15, "1.2.3.4")]
+
+        fetch_result_empty = MagicMock()
+        fetch_result_empty.fetchall.return_value = []
+
+        # _write_anomaly: dedup hit (returns None)
+        insert_result_dedup = MagicMock()
+        insert_result_dedup.fetchone.return_value = None
+
+        mock_db.execute.side_effect = [
+            fetch_result_bulk,  # _detect_bulk_delete
+            insert_result_dedup,  # _write_anomaly (dedup)
+            fetch_result_empty,  # _detect_off_hours
+            fetch_result_empty,  # _detect_privilege_escalation
+            fetch_result_empty,  # _detect_rapid_ip_switch
+            fetch_result_empty,  # _detect_suspicious_query_pattern
+        ]
+
+        with (
+            patch("tasks.anomaly_detection.get_session", return_value=mock_db),
+            patch("tasks.anomaly_detection.logger") as mock_logger,
+        ):
+            result = detect_behavioral_anomalies()
+
+        assert result["new"] == 0
+        assert result["dedup"] == 1
+        mock_logger.info.assert_called_once_with(
+            "Anomaly detection: %d new anomalies inserted, %d deduplicated",
+            0,
+            1,
+        )
+
 
 # ---------------------------------------------------------------------------
 # SUSPICIOUS_QUERY_PATTERN
@@ -601,7 +654,7 @@ class TestSuspiciousQueryPatternDetector:
 
     def test_flag_when_count_exceeds_threshold(self):
         """11 PII_EXPORT events in 5-min window → HIGH SUSPICIOUS_QUERY_PATTERN."""
-        db = _make_db(fetch_rows=[(_USER_A, _WINDOW_5MIN, 11, "1.2.3.4")])
+        db = _make_db(fetch_rows=[(_USER_A, _WINDOW_START, 11, "1.2.3.4")])
         result = _detect_suspicious_query_pattern(db)
         assert len(result) == 1
         a = result[0]
@@ -626,8 +679,8 @@ class TestSuspiciousQueryPatternDetector:
         """Two users each exceeding threshold → two anomalies."""
         db = _make_db(
             fetch_rows=[
-                (_USER_A, _WINDOW_5MIN, 12, "1.2.3.4"),
-                (_USER_B, _WINDOW_5MIN, 15, "5.6.7.8"),
+                (_USER_A, _WINDOW_START, 12, "1.2.3.4"),
+                (_USER_B, _WINDOW_START, 15, "5.6.7.8"),
             ]
         )
         result = _detect_suspicious_query_pattern(db)
@@ -637,7 +690,7 @@ class TestSuspiciousQueryPatternDetector:
 
     def test_source_ip_none_when_missing(self):
         """source_ip is None when the DB returns NULL (no IP on audit row)."""
-        db = _make_db(fetch_rows=[(_USER_A, _WINDOW_5MIN, 11, None)])
+        db = _make_db(fetch_rows=[(_USER_A, _WINDOW_START, 11, None)])
         result = _detect_suspicious_query_pattern(db)
         assert result[0]["source_ip"] is None
 

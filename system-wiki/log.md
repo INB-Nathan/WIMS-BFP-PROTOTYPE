@@ -19,6 +19,16 @@ Format: `## [YYYY-MM-DD] action | subject`
 - No FRS gap register change (review fixes to existing M6 implementation; gap #165 remains CLOSED).
 - Ruff check + format green. All 19 privacy tests pass.
 
+## [2026-06-13] fix | anomaly detection cluster cleanups #284 #285 #286 #287
+
+**Issues:** #284 (Capture source IP for BULK_DELETE anomalies), #285 (Add dedup-hit observability), #286 (source_ip=None regression test), #287 (Clean up duplicate window fixture constants).
+
+**Changes:**
+- `src/backend/tasks/anomaly_detection.py`: BULK_DELETE SQL now extracts representative source IP via `ARRAY_AGG(DISTINCT ip_address))[1]` and passes it to `_write_anomaly()` instead of hardcoded `None`. Logging condition widened from `total_new > 0` to `total_new > 0 or total_dedup > 0` so operators can distinguish "no events" from "all candidates deduped".
+- `src/backend/tests/test_anomaly_detection.py`: Replaced duplicate `_WINDOW_5MIN`/`_WINDOW_10MIN` constants with single `_WINDOW_START`. Updated all mock `fetch_rows` to 4-tuples with `source_ip`. Added `test_source_ip_none_passed_cleanly_to_threat_log` and `test_task_logs_when_dedup_only`. 33/33 tests pass.
+
+**No FRS gap status changed.** Anomaly detection M8 remains PARTIAL (4/5 detectors shipped).
+
 ## [2026-06-13] fix | PR #262 FrontierCode review — Q1 narrative_report anonymize leak + Q2 key_version silent decrypt failure
 
 - Q1 MUST-FIX: Added `narrative_report = NULL` to the `incident_sensitive_details` anonymize UPDATE SET clause in `api/routes/admin/privacy.py`. Previously, `narrative_report` was SELECTed for export (plaintext PII column) but never nulled during anonymization, leaking PII after the right-to-erasure path.
