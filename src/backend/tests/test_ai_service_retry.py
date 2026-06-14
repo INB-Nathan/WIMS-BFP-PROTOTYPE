@@ -224,7 +224,7 @@ class TestNarrativeTaskReturnShape:
 class TestDockerComposeConfig:
     """Validate docker-compose.yml against GH #245 acceptance criteria."""
 
-    def test_ollama_has_healthcheck_api_tags(self):
+    def test_ollama_has_healthcheck_ollama_list(self):
         import yaml
         from pathlib import Path
 

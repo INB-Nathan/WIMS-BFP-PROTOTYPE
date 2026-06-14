@@ -62,7 +62,7 @@ async def _record_inference_metric(function_name: str, elapsed_s: float) -> None
 
 
 def _ollama_url() -> str:
-    return os.environ.get("OLLAMA_URL", "http://wims-ollama:11434").rstrip("/")
+    return os.environ.get("OLLAMA_URL", "http://ollama:11434").rstrip("/")
 
 
 def _ollama_timeout(db=None) -> float:
@@ -83,13 +83,13 @@ def _ollama_timeout(db=None) -> float:
     return _OLLAMA_DEFAULT_TIMEOUT
 
 
-async def _ollama_post_with_retry(payload: dict, call_label: str = "") -> httpx.Response:
+async def _ollama_post_with_retry(payload: dict, call_label: str = "", db=None) -> httpx.Response:
     """POST to Ollama with retry on ConnectError and 5xx (exponential backoff).
 
     Does NOT retry on TimeoutException — inference is CPU-bound and retrying
     would double the load on an already-busy Ollama instance.
     """
-    timeout = _ollama_timeout()
+    timeout = _ollama_timeout(db)
     last_exc: Exception | None = None
 
     for attempt in range(_OLLAMA_MAX_RETRIES):
@@ -135,6 +135,9 @@ async def _ollama_post_with_retry(payload: dict, call_label: str = "") -> httpx.
         except httpx.TimeoutException as exc:
             logger.warning("Ollama %s timed out after %.0fs", call_label, timeout)
             raise HTTPException(status_code=502, detail="Ollama request timed out") from exc
+        except httpx.HTTPError as exc:
+            logger.warning("Ollama %s transport error: %s", call_label, exc)
+            raise HTTPException(status_code=502, detail="Ollama transport error") from exc
 
     # Should not reach here, but safety net
     raise HTTPException(status_code=502, detail="Ollama request failed after retries") from last_exc
@@ -182,7 +185,7 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
     }
 
     _t0 = time.perf_counter()
-    resp = await _ollama_post_with_retry(payload, call_label="analyze_threat_log")
+    resp = await _ollama_post_with_retry(payload, call_label="analyze_threat_log", db=db)
     await _record_inference_metric("analyze_threat_log", time.perf_counter() - _t0)
 
     data = resp.json()
@@ -315,6 +318,7 @@ async def generate_incident_narrative(
                 "format": "json",
             },
             call_label="generate_incident_narrative",
+            db=db,
         )
         await _record_inference_metric("generate_incident_narrative", time.perf_counter() - _t0)
         raw = response.json().get("response", "{}")
@@ -419,7 +423,7 @@ async def analyze_audit_logs(audit_ids: list[int], db: Session) -> dict:
     }
 
     _t0 = time.perf_counter()
-    resp = await _ollama_post_with_retry(payload, call_label="analyze_audit_logs")
+    resp = await _ollama_post_with_retry(payload, call_label="analyze_audit_logs", db=db)
     await _record_inference_metric("analyze_audit_logs", time.perf_counter() - _t0)
 
     data = resp.json()

@@ -33,7 +33,7 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 - **GH #245 Ollama stability:**
   - `services/ai_service.py`: Added `_ollama_post_with_retry()` — 3 retries with exponential backoff (2s/4s/8s) on `ConnectError` and 5xx; timeout NOT retried (CPU-bound). Added `OLLAMA_TIMEOUT` env var (default 120s, was hardcoded 60s). `_ollama_timeout()` priority: env var > `system_config.ai_timeout_seconds` > 120s default.
-  - `docker-compose.yml`: Ollama healthcheck changed from `ollama list` to `curl -sf http://localhost:11434/api/tags` (direct API probe). Retries increased 10→30. Resources increased 2 CPU/4GB → 4 CPU/8GB. Celery-worker now waits for `ollama: service_healthy` + `ollama-model-pull: service_completed_successfully`.
+  - `docker-compose.yml`: Ollama healthcheck uses `ollama list` CLI command. Retries increased 10→30. Resources increased 2 CPU/4GB → 4 CPU/8GB. Celery-worker now waits for `ollama: service_healthy` + `ollama-model-pull: service_completed_successfully`.
   - `.env.production.example`: Documented `OLLAMA_URL` and `OLLAMA_TIMEOUT`.
   - All three call sites (`analyze_threat_log`, `generate_incident_narrative`, `analyze_audit_logs`) now use `_ollama_post_with_retry()`.
 - **GH #246 Celery asyncio.run() fix:**
