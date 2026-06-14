@@ -113,6 +113,28 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `system-wiki/gaps/frs-codebase-gap-register.md`: updated M8 entry to note ACK/RESOLVE workflow closed via #283 (M8 remains PARTIAL due to 2 deferred detectors)
 - 44 total backend pytest pass (31 anomaly detection + 13 anomaly API), 14 frontend Vitest pass, ruff check + format green
 
+## [2026-06-14] feat | #235 user-customizable widget-based dashboards
+
+- Added GET /api/dashboard/widgets endpoint (`api/routes/dashboard.py`) with 14 widget definitions across 4 roles (NATIONAL_VALIDATOR, REGIONAL_ENCODER, NATIONAL_ANALYST, SYSTEM_ADMIN). Each widget runs a lightweight COUNT or GROUP BY query. Unavailable widgets are silently filtered by role.
+- Backend tests: 12 pytest cases covering auth, empty request, all 3 roles, categorical widgets, mixed valid/invalid IDs, DB error handling.
+- Frontend widget API client (`lib/api/widgets.ts`) with TypeScript type guards (isCountData, isCategoryData, isErrorData).
+- Frontend components: `WidgetGrid` (batch-fetching CSS grid), `WidgetCard` (loading/error/count/category states), `AddWidgetDropdown` (role-scoped add menu), barrel export in `components/dashboard/index.ts`.
+- Widget definitions (`widget-definitions.ts`) with lucide icons, role sets, labels, isCategorical flag, per-role defaults (DEFAULT_WIDGETS).
+- `useDashboardWidgets` hook: localStorage-backed per-role widget config with add/remove/reset operations, availableAdditions computed from role-scoped widgets not yet added.
+- Integrated into analyst page (ANALYST_ROLES guard), regional page (role-adaptive), and validator page (WidgetToolbar + grid).
+- Frontend tests: 13 vitest cases covering rendering, loading/error states, count display, categorical display, add/remove/reset, localStorage persistence, duplicate prevention.
+- No FRS gap changes.
+
+## [2026-06-14] refactor | #181 extract dashboard mega-components
+
+- Extracted shared UI components into `src/frontend/src/components/ui/`: `StatCard`, `StatsDateFilterChips`, `EmptyState`, `StickyBanner` — all exported from barrel `ui/index.ts`.
+- Extracted page-header components: `RegionalPageHeader` (quick actions, stats toggle, refresh) and `ValidatorPageHeader` (refresh, queued-ops badge, offline indicator, bulk approve).
+- Extracted shared hooks: `useHoverHint` (hover-tooltip), `useScrollSafeUpdate` (scroll-preserving filter updates).
+- Extracted `SyncNotificationModal` for regional post-sync summary.
+- Added `formatCacheAge()` utility to `incident-utils.ts`.
+- Validator page: 1379 → 986 lines. Regional page: 1181 → 1085 lines. Behavior-preserving.
+- No FRS gap changes.
+
 ## [2026-06-13] fix | PR #262 FrontierCode review — Q1 narrative_report anonymize leak + Q2 key_version silent decrypt failure
 
 - Q1 MUST-FIX: Added `narrative_report = NULL` to the `incident_sensitive_details` anonymize UPDATE SET clause in `api/routes/admin/privacy.py`. Previously, `narrative_report` was SELECTed for export (plaintext PII column) but never nulled during anonymization, leaking PII after the right-to-erasure path.

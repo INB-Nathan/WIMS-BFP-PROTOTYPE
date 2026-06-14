@@ -49,6 +49,7 @@ from api.routes import (
     analytics,
     ref,
     sessions,
+    dashboard,
 )
 from api.routes.public_dmz import router as public_dmz_router
 from api.routes.user import router as user_profile_router
@@ -488,6 +489,7 @@ app.include_router(validator_map_router)  # GET /api/validator/operational-map (
 app.include_router(
     geocode_router
 )  # GET /api/geocode/reverse, /api/geocode/search (Nominatim proxy)
+app.include_router(dashboard.router)  # GET /api/dashboard/widgets
 app.include_router(operations_router)  # GET/POST/PATCH/DELETE /api/operations
 app.include_router(consent_router)  # POST /api/auth/consent (public, no-auth)
 

@@ -88,6 +88,17 @@ export function categoryCount(
   return total.toLocaleString();
 }
 
+export function formatCacheAge(cachedAt: number): string {
+  const diffMs = Date.now() - cachedAt;
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} minute${mins !== 1 ? 's' : ''} ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs !== 1 ? 's' : ''} ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days} day${days !== 1 ? 's' : ''} ago`;
+}
+
 export function statusBorderColor(status: string | null | undefined): string {
   const normalized = (status ?? '').toUpperCase();
   if (normalized === 'VERIFIED') return '#22C55E';
