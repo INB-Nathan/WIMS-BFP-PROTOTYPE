@@ -387,6 +387,7 @@ export interface TriageReportEntry {
   is_aging: boolean;
   is_timeout_risk: boolean;
   previous_report_id: number | null;
+  followups?: CivilianFollowupItem[];
   station: { name: string | null; distance_m: number | null; phone_available: boolean };
 }
 

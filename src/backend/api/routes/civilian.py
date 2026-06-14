@@ -492,18 +492,18 @@ def submit_civilian_followup(
             SELECT COUNT(*)
             FROM wims.citizen_report_followups
             WHERE report_id = :rid
+              AND ip_hash = :ip_hash
               AND created_at >= now() - interval '1 hour'
         """),
-        {"rid": report_id},
+        {"rid": report_id, "ip_hash": ip_hash},
     ).scalar()
     # Also check total follow-up rate across all reports from this IP
     ip_recent = db.execute(
         text("""
             SELECT COUNT(*)
-            FROM wims.citizen_report_followups f
-            JOIN wims.citizen_reports r ON r.report_id = f.report_id
-            WHERE r.ip_hash = :ip_hash
-              AND f.created_at >= now() - interval '1 hour'
+            FROM wims.citizen_report_followups
+            WHERE ip_hash = :ip_hash
+              AND created_at >= now() - interval '1 hour'
         """),
         {"ip_hash": ip_hash},
     ).scalar()
@@ -520,13 +520,14 @@ def submit_civilian_followup(
 
     result = db.execute(
         text("""
-            INSERT INTO wims.citizen_report_followups (report_id, followup_text)
-            VALUES (:report_id, :followup_text)
+            INSERT INTO wims.citizen_report_followups (report_id, followup_text, ip_hash)
+            VALUES (:report_id, :followup_text, :ip_hash)
             RETURNING followup_id, report_id, followup_text, created_at
         """),
         {
             "report_id": report_id,
             "followup_text": body.followup_text,
+            "ip_hash": ip_hash,
         },
     ).fetchone()
     db.commit()

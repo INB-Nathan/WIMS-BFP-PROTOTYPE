@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS wims.citizen_report_followups (
                       ON DELETE CASCADE,
     followup_text TEXT NOT NULL
                       CHECK (char_length(followup_text) BETWEEN 1 AND 2000),
+    ip_hash       TEXT NOT NULL,
     created_at    TIMESTAMPTZ DEFAULT now()
 );
 
@@ -25,10 +26,16 @@ CREATE INDEX IF NOT EXISTS idx_citizen_report_followups_report
 CREATE INDEX IF NOT EXISTS idx_citizen_report_followups_created
     ON wims.citizen_report_followups (created_at ASC);
 
+CREATE INDEX IF NOT EXISTS idx_citizen_report_followups_ip_created
+    ON wims.citizen_report_followups (ip_hash, created_at ASC);
+
 COMMENT ON TABLE wims.citizen_report_followups IS
     'Civilian text follow-ups linked to citizen_reports. One row per follow-up submission.';
 
 COMMENT ON COLUMN wims.citizen_report_followups.followup_text IS
     'Free-text follow-up from the civilian, max 2000 chars.';
+
+COMMENT ON COLUMN wims.citizen_report_followups.ip_hash IS
+    'SHA-256 hash of the follow-up submitter IP (x-forwarded-for). Used for per-IP rate limiting.';
 
 COMMIT;

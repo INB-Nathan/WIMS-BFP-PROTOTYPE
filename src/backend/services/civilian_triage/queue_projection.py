@@ -8,6 +8,7 @@ The projection never exposes device ids, IP hashes, FCM tokens, or other privacy
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 
 from fastapi import Query
@@ -23,6 +24,8 @@ from services.civilian_triage.models import (
     TrustBreakdown,
 )
 from services.civilian_triage.policies import aging_flags, severity
+
+logger = logging.getLogger("wims.civilian_triage.queue_projection")
 
 
 def _build_trust_breakdown(
@@ -368,7 +371,11 @@ def get_queue(
                     for f in (followups_raw or [])
                 ]
             except Exception:
-                pass
+                logger.warning(
+                    "Failed to parse followups_json for report %s",
+                    row[0],
+                    exc_info=True,
+                )
 
         # Trust breakdown from signal boolean columns (indices 15-20)
         has_category = row[15]

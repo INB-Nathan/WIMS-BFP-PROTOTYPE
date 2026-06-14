@@ -564,3 +564,95 @@ class TestCivilianFollowupEndpoint:
             headers={"x-forwarded-for": "198.51.100.1"},
         )
         assert resp.status_code == 422, resp.text
+
+    def test_followup_per_report_rate_limit_returns_429(self):
+        """When >5 follow-ups from same IP on same report in 1hr, return 429."""
+        from database import get_db
+
+        _EXISTING_REPORT = _FakeRow(report_id=42, status="PENDING")
+
+        class _MockDB:
+            def __init__(self):
+                self.commits = 0
+
+            def execute(self, statement, params=None):
+                sql = str(statement)
+                sql_flat = sql.replace("\n", " ")
+                if "SELECT report_id, status FROM wims.citizen_reports" in sql_flat:
+                    return _FakeResult(row=_EXISTING_REPORT)
+                # Per-report COUNT — simulate 5 recent follow-ups from this IP
+                if (
+                    "wims.citizen_report_followups" in sql_flat
+                    and "COUNT" in sql_flat
+                    and "report_id" in sql_flat
+                ):
+                    return _FakeResult(row=_FakeRow(count=5))
+                # Cross-report COUNT — 0 from this IP across all reports
+                if "wims.citizen_report_followups" in sql_flat and "COUNT" in sql_flat:
+                    return _FakeResult(row=_FakeRow(count=0))
+                return _FakeResult(row=None)
+
+            def commit(self):
+                self.commits += 1
+
+        def override_get_db():
+            yield _MockDB()
+
+        app.dependency_overrides[get_db] = override_get_db
+        try:
+            resp = client.post(
+                "/api/civilian/reports/42/followup",
+                json={"followup_text": "Rate limit test."},
+                headers={"x-forwarded-for": "198.51.100.1"},
+            )
+            assert resp.status_code == 429, resp.text
+            data = resp.json()
+            assert "Too many follow-ups on this report" in data["detail"]
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_followup_cross_report_rate_limit_returns_429(self):
+        """When >10 follow-ups from same IP across all reports in 1hr, return 429."""
+        from database import get_db
+
+        _EXISTING_REPORT = _FakeRow(report_id=42, status="PENDING")
+
+        class _MockDB:
+            def __init__(self):
+                self.commits = 0
+
+            def execute(self, statement, params=None):
+                sql = str(statement)
+                sql_flat = sql.replace("\n", " ")
+                if "SELECT report_id, status FROM wims.citizen_reports" in sql_flat:
+                    return _FakeResult(row=_EXISTING_REPORT)
+                # Per-report COUNT — 0 on this specific report
+                if (
+                    "wims.citizen_report_followups" in sql_flat
+                    and "COUNT" in sql_flat
+                    and "report_id" in sql_flat
+                ):
+                    return _FakeResult(row=_FakeRow(count=0))
+                # Cross-report COUNT — 10 from this IP across all reports
+                if "wims.citizen_report_followups" in sql_flat and "COUNT" in sql_flat:
+                    return _FakeResult(row=_FakeRow(count=10))
+                return _FakeResult(row=None)
+
+            def commit(self):
+                self.commits += 1
+
+        def override_get_db():
+            yield _MockDB()
+
+        app.dependency_overrides[get_db] = override_get_db
+        try:
+            resp = client.post(
+                "/api/civilian/reports/42/followup",
+                json={"followup_text": "IP rate limit test."},
+                headers={"x-forwarded-for": "198.51.100.1"},
+            )
+            assert resp.status_code == 429, resp.text
+            data = resp.json()
+            assert "Too many follow-ups from this network" in data["detail"]
+        finally:
+            app.dependency_overrides.clear()
