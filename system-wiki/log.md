@@ -72,6 +72,18 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Updated `requirements.txt` with `croniter>=2.0.0`.
 - Updated `system-wiki/backend/utilities-and-tasks.md` with scheduled_reports task documentation.
 
+## [2026-06-14] feat(#62) | civilian follow-up submissions
+
+- Added DB migration `59_citizen_report_followups.sql`: `wims.citizen_report_followups` table with `followup_id`, `report_id` FK, `followup_text` (max 2000), `created_at`.
+- Added `POST /api/civilian/reports/{report_id}/followup` public endpoint — validates report is non-terminal, rate-limits per IP, writes audit trail.
+- Updated `GET /api/civilian/reports/{report_id}/timeline` to include `followups` field.
+- Added schemas: `CivilianFollowupCreate`, `CivilianFollowupItem`, `CivilianFollowupResponse`.
+- Triage queue projection: `TriageReportEntry.followups` (list of `FollowupSummary`) for validators.
+- Tracking page (`/tracking`): follow-up form + follow-up display for non-terminal reports.
+- Frontend API: `submitFollowup`, `CivilianFollowupItem`, `CivilianFollowupResponse`, `CivilianReportTimelineResult` types.
+- Tests: 6 backend unit tests in `test_public_submission.py`; updated tracking page and triage page frontend test mocks.
+- Wiki updated: `schema-overview.md`, `api-route-map.md`, `log.md`.
+
 ## [2026-06-13] fix | PR #262 FrontierCode review — Q1 narrative_report anonymize leak + Q2 key_version silent decrypt failure
 
 - Q1 MUST-FIX: Added `narrative_report = NULL` to the `incident_sensitive_details` anonymize UPDATE SET clause in `api/routes/admin/privacy.py`. Previously, `narrative_report` was SELECTed for export (plaintext PII column) but never nulled during anonymization, leaking PII after the right-to-erasure path.

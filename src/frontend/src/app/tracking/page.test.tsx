@@ -5,7 +5,8 @@ import { fetchReportStatus, type CivilianReportTrackingResponse } from '@/lib/ap
 vi.mock('@/lib/api', () => ({
   fetchReportStatus: vi.fn(),
   registerNotification: vi.fn(),
-  fetchReportTimeline: vi.fn().mockResolvedValue([]),
+  fetchReportTimeline: vi.fn().mockResolvedValue({ timeline: [], followups: [] }),
+  submitFollowup: vi.fn(),
 }));
 
 vi.mock('@/lib/firebase', () => ({

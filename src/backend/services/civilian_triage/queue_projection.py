@@ -7,6 +7,8 @@ The projection never exposes device ids, IP hashes, FCM tokens, or other privacy
 
 from __future__ import annotations
 
+import json
+import logging
 from datetime import datetime, timezone
 
 from fastapi import Query
@@ -14,6 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from services.civilian_triage.models import (
+    FollowupSummary,
     StationContext,
     TriageClusterEntry,
     TriageQueueResponse,
@@ -21,6 +24,8 @@ from services.civilian_triage.models import (
     TrustBreakdown,
 )
 from services.civilian_triage.policies import aging_flags, severity
+
+logger = logging.getLogger("wims.civilian_triage.queue_projection")
 
 
 def _build_trust_breakdown(
@@ -229,6 +234,22 @@ def get_queue(
                       AND cr2.report_id != cr.report_id
                 ) cr2 ON TRUE
                 GROUP BY cr.report_id
+            ),
+            followup_aggs AS (
+                -- Aggregate follow-up text and count per report
+                SELECT
+                    f.report_id,
+                    COUNT(*) AS followup_count,
+                    json_agg(
+                        json_build_object(
+                            'followup_id', f.followup_id,
+                            'followup_text', f.followup_text,
+                            'created_at', f.created_at
+                        )
+                        ORDER BY f.created_at ASC
+                    ) FILTER (WHERE f.followup_id IS NOT NULL) AS followups_json
+                FROM wims.citizen_report_followups f
+                GROUP BY f.report_id
             )
             SELECT
                 cr.report_id,
@@ -276,13 +297,18 @@ def get_queue(
                 si.phone,
 
                 -- Duplicate count
-                COALESCE(dc.dup_count_30m, 0) AS dup_count_30m
+                COALESCE(dc.dup_count_30m, 0) AS dup_count_30m,
+
+                -- Follow-up data
+                COALESCE(fa.followup_count, 0) AS followup_count,
+                fa.followups_json
 
             FROM wims.citizen_reports cr
             LEFT JOIN latest_clusters lc ON lc.report_id = cr.report_id
             LEFT JOIN related_counts rc ON rc.report_id = cr.report_id
             LEFT JOIN station_info si ON si.report_id = cr.report_id
             LEFT JOIN dup_counts dc ON dc.report_id = cr.report_id
+            LEFT JOIN followup_aggs fa ON fa.report_id = cr.report_id
             WHERE {where_clause}
             ORDER BY
                 cr.safety_status = 'I_NEED_HELP' DESC,
@@ -317,13 +343,39 @@ def get_queue(
         #  7: status             19: has_witness_name     31: distance_m
         #  8: status_explanation 20: has_witness_phone     32: phone
         #  9: trust_score        21: nearest_500m          33: dup_count_30m
-        # 10: gps_distance_m     22: nearest_2km
-        # 11: link_count         23: nearest_5km
+        # 10: gps_distance_m     22: nearest_2km           34: followup_count
+        # 11: link_count         23: nearest_5km           35: followups_json
         cluster_id = row[24]
         cluster_status = row[25]
         assigned_to_uuid = row[26]
         review_started_at = row[27]
         anchor_report_id = row[28]
+
+        # Parse follow-up JSON
+        followups = []
+        followups_json = row[35]
+        if followups_json is not None:
+            try:
+                if isinstance(followups_json, str):
+                    followups_raw = json.loads(followups_json)
+                else:
+                    followups_raw = followups_json
+                followups = [
+                    FollowupSummary(
+                        followup_id=f["followup_id"],
+                        followup_text=f["followup_text"],
+                        created_at=f["created_at"].replace(tzinfo=timezone.utc)
+                        if isinstance(f["created_at"], datetime) and f["created_at"].tzinfo is None
+                        else f["created_at"],
+                    )
+                    for f in (followups_raw or [])
+                ]
+            except Exception:
+                logger.warning(
+                    "Failed to parse followups_json for report %s",
+                    row[0],
+                    exc_info=True,
+                )
 
         # Trust breakdown from signal boolean columns (indices 15-20)
         has_category = row[15]
@@ -396,6 +448,7 @@ def get_queue(
             is_danger=is_danger,
             previous_report_id=row[14],
             station=station,
+            followups=followups,
         )
         entries.append(entry)
 

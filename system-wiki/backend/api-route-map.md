@@ -22,6 +22,7 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `civilian.py` | `GET` | `/reports/{report_id}/timeline` | `get_civilian_report_timeline` |
 | `civilian.py` | `POST` | `/reports/{report_id}/notify` | `register_notification` |
 | `civilian.py` | `GET` | `/report-clusters` | `get_report_clusters` | Public-safe root-map areas from durable civilian report clusters; no raw cluster/report IDs. |
+| `civilian.py` | `POST` | `/reports/{report_id}/followup` | `submit_civilian_followup` | Public text follow-up linked to existing report (Issue #62). Terminal reports blocked. |
 | `sessions.py` | `GET` | `/sessions/{user_id}` | `list_user_sessions` |
 | `sessions.py` | `DELETE` | `/sessions/{user_id}/{session_id}` | `terminate_user_session` |
 | `user.py` | `GET` | `/me/profile` | `get_my_profile` |

@@ -7,12 +7,16 @@ export {
   registerNotification,
   submitCivilianReport,
   submitCivilianReportV2,
+  submitFollowup,
 } from './legacy';
 
 export type {
   CivilianCategory,
   CivilianDuplicateSuggestion,
+  CivilianFollowupItem,
+  CivilianFollowupResponse,
   CivilianReportTimelineItem,
+  CivilianReportTimelineResult,
   CivilianReportTrackingResponse,
   CivilianReportV2Payload,
   CivilianReportV2Response,

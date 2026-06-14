@@ -1,5 +1,7 @@
 """Civilian report API schemas — Zero-Trust Public Portal."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Literal
 
@@ -92,6 +94,7 @@ class CivilianReportTimelineItem(BaseModel):
 class CivilianReportTimelineResponse(BaseModel):
     report_id: int
     timeline: list[CivilianReportTimelineItem]
+    followups: list[CivilianFollowupItem] = []
 
 
 class DuplicateSuggestionItem(BaseModel):
@@ -157,6 +160,29 @@ class ReportClusterArea(BaseModel):
     radius_m: int
     count_bucket: str
     age_bucket: str
+
+
+class CivilianFollowupCreate(BaseModel):
+    """Request body for POST /api/civilian/reports/{report_id}/followup — no auth."""
+
+    followup_text: str = Field(..., min_length=1, max_length=2000)
+
+
+class CivilianFollowupItem(BaseModel):
+    """A single follow-up entry returned in timeline / triage context."""
+
+    followup_id: int
+    followup_text: str
+    created_at: datetime
+
+
+class CivilianFollowupResponse(BaseModel):
+    """Response body for successful follow-up submission."""
+
+    followup_id: int
+    report_id: int
+    followup_text: str
+    created_at: datetime
 
 
 class ReportClusterResponse(BaseModel):
