@@ -68,6 +68,16 @@ vi.mock('react-leaflet', () => ({
   CircleMarker: () => null,
 }));
 
+vi.mock('@/hooks/useDashboardWidgets', () => ({
+  useDashboardWidgets: () => ({
+    widgets: [],
+    addWidget: vi.fn(),
+    removeWidget: vi.fn(),
+    resetToDefaults: vi.fn(),
+    availableAdditions: [],
+  }),
+}));
+
 describe('Analyst dashboard page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
