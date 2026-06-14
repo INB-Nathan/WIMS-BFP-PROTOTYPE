@@ -31,6 +31,7 @@ from services.regional_incidents import (
 )
 from services.regional_incidents.helpers import (
     build_audit_log_query as _build_audit_log_query,
+    verify_incident_hash_chain as _verify_incident_hash_chain,
 )
 from utils.audit import log_system_audit
 from schemas.regional import (
@@ -883,8 +884,12 @@ def get_incident_revision_history(
         {"iid": incident_id},
     ).fetchall()
 
+    # Verify hash-chain integrity on read (#241)
+    integrity_result = _verify_incident_hash_chain(db, incident_id, log_violations=True)
+
     return {
         "incident_id": incident_id,
+        "integrity_status": integrity_result["integrity_status"],
         "history": [
             {
                 "history_id": r[0],

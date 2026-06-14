@@ -6,6 +6,7 @@ from api/routes/regional.py to keep route files focused on HTTP concerns.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from datetime import datetime
@@ -458,6 +459,195 @@ def _insert_ivh_impl(
         ),
         _ivh_params,
     )
+
+
+# ── Hash-chain verification ───────────────────────────────────────────────────
+
+
+def _isoformat_match_aware(dt: datetime) -> str:
+    """ISO-format a datetime exactly as the correction write-path does.
+
+    The write-path stores ``action_timestamp.isoformat()`` inside the hash
+    payload.  Python's ``isoformat()`` omits microseconds when they are zero,
+    so we must replicate that behaviour for deterministic recomputation.
+    """
+    s = dt.isoformat()
+    # Normalize timezone suffix: psycopg2 may return fixed-offset tzinfo
+    # that uses "+00:00" style; standardise to "+00:00" for UTC.
+    if s.endswith("+00:00"):
+        return s
+    if s.endswith("Z"):
+        return s[:-1] + "+00:00"
+    return s
+
+
+def _parse_pg_array(value: str | None) -> list[str]:
+    """Parse a PostgreSQL ARRAY literal like {a,b,c} back into a Python list."""
+    if not value:
+        return []
+    s = value.strip()
+    if s.startswith("{") and s.endswith("}"):
+        inner = s[1:-1]
+        if not inner:
+            return []
+        return [elem.strip() for elem in inner.split(",")]
+    # Fallback: try JSON
+    try:
+        parsed = json.loads(s)
+        if isinstance(parsed, list):
+            return parsed
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return []
+
+
+def verify_incident_hash_chain(
+    db: Session,
+    incident_id: int,
+    *,
+    log_violations: bool = True,
+) -> dict[str, Any]:
+    """Read-path verification of the IVH hash chain for an incident.
+
+    Returns a dict with:
+
+    * ``integrity_status`` — ``"valid"``, ``"tampered"``, or ``"unverified"``
+    * ``rows_verified``  — number of IVH rows that carry a hash-chain payload
+    * ``violations``     — list of human-readable violation descriptions (empty if valid)
+
+    When ``log_violations=True``, any detected tampering is written to
+    ``wims.system_audit_trails`` with ``action_type='INTEGRITY_VIOLATION'``.
+    """
+    # Fetch all IVH rows that have a hash-chain payload, ordered by time.
+    rows = db.execute(
+        text("""
+            SELECT
+                history_id,
+                ivh_row_hash,
+                prev_ivh_hash,
+                new_data_hash,
+                corrected_fields,
+                action_timestamp
+            FROM wims.incident_verification_history
+            WHERE target_type = 'OFFICIAL'
+              AND target_id = :iid
+              AND ivh_row_hash IS NOT NULL
+            ORDER BY action_timestamp ASC, history_id ASC
+        """),
+        {"iid": incident_id},
+    ).fetchall()
+
+    if not rows:
+        return {
+            "integrity_status": "unverified",
+            "rows_verified": 0,
+            "violations": [],
+        }
+
+    # Fetch fire_incidents.data_hash for the anchor check
+    fi_data_hash = db.execute(
+        text("SELECT data_hash FROM wims.fire_incidents WHERE incident_id = :iid"),
+        {"iid": incident_id},
+    ).scalar()
+
+    violations: list[str] = []
+    prev_expected_hash: str | None = None
+
+    for idx, row in enumerate(rows):
+        (
+            history_id,
+            stored_ivh_row_hash,
+            stored_prev_ivh_hash,
+            stored_new_data_hash,
+            stored_corrected_fields,
+            stored_action_timestamp,
+        ) = row
+
+        if stored_action_timestamp is None:
+            violations.append(
+                f"IVH row history_id={history_id}: action_timestamp is NULL — cannot verify"
+            )
+            continue
+
+        # Recompute ivh_row_hash with the exact same serialisation as the
+        # correction write-path in validator.py:correct_verified_incident().
+        # Parse corrected_fields from its stored PostgreSQL ARRAY literal form.
+        parsed_fields = _parse_pg_array(stored_corrected_fields)
+        chain_payload = {
+            "prev_ivh_hash": stored_prev_ivh_hash or "",
+            "new_data_hash": stored_new_data_hash or "",
+            "corrected_fields": parsed_fields,
+            "action_timestamp": _isoformat_match_aware(stored_action_timestamp),
+        }
+        recomputed_row_hash = hashlib.sha256(
+            json.dumps(chain_payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+
+        # 1. Verify row hash matches recomputed payload hash
+        if recomputed_row_hash != (stored_ivh_row_hash or ""):
+            violations.append(
+                f"IVH row history_id={history_id}: ivh_row_hash mismatch — "
+                f"stored={stored_ivh_row_hash} recomputed={recomputed_row_hash}"
+            )
+
+        # 2. Verify prev_ivh_hash chains to the previous row
+        if prev_expected_hash is not None:
+            if (stored_prev_ivh_hash or "") != prev_expected_hash:
+                violations.append(
+                    f"IVH row history_id={history_id}: prev_ivh_hash chain broken — "
+                    f"expected={prev_expected_hash} got={stored_prev_ivh_hash}"
+                )
+
+        prev_expected_hash = stored_ivh_row_hash or ""
+
+    # 3. Verify anchor: latest row's new_data_hash should match fire_incidents.data_hash
+    if rows:
+        last_new_data_hash = rows[-1][3]  # new_data_hash column
+        if fi_data_hash and last_new_data_hash:
+            if last_new_data_hash != fi_data_hash:
+                violations.append(
+                    f"Anchor mismatch: last IVH new_data_hash={last_new_data_hash} "
+                    f"!= fire_incidents.data_hash={fi_data_hash}"
+                )
+        elif fi_data_hash and not last_new_data_hash:
+            violations.append(
+                "Anchor mismatch: fire_incidents has data_hash but last IVH row has no new_data_hash"
+            )
+
+    integrity_status = "tampered" if violations else "valid"
+
+    if violations and log_violations:
+        try:
+            db.execute(
+                text("""
+                    INSERT INTO wims.system_audit_trails (
+                        user_id, action_type, table_affected, record_id,
+                        ip_address, user_agent, timestamp
+                    ) VALUES (
+                        NULL, 'INTEGRITY_VIOLATION',
+                        'incident_verification_history', :rec,
+                        NULL, 'hash-chain-verifier',
+                        now()
+                    )
+                """),
+                {"rec": incident_id},
+            )
+            logger.warning(
+                "INTEGRITY_VIOLATION: hash-chain tamper detected for incident_id=%s: %s",
+                incident_id,
+                "; ".join(violations),
+            )
+        except Exception:
+            logger.exception(
+                "Failed to write INTEGRITY_VIOLATION audit row for incident_id=%s",
+                incident_id,
+            )
+
+    return {
+        "integrity_status": integrity_status,
+        "rows_verified": len(rows),
+        "violations": violations,
+    }
 
 
 # ── Field update helper ───────────────────────────────────────────────────────
