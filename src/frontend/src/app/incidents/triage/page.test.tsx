@@ -227,11 +227,8 @@ describe('TriagePage', () => {
   it('shows Inspect on singleton and opens singleton-mode modal', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    await waitFor(() => {
-      expect(screen.getByTestId('singletons-table')).toBeInTheDocument();
-    });
-    // Singleton row should have Inspect button (PENDING status = non-terminal)
-    const inspectBtns = screen.getAllByRole('button', { name: 'Inspect' });
+    // Wait for inspects to appear (data loaded) before querying
+    const inspectBtns = await screen.findAllByRole('button', { name: 'Inspect' });
     // First Inspect is cluster, second is singleton
     const singletonInspect = inspectBtns[inspectBtns.length - 1];
     await userEvent.click(singletonInspect);
@@ -244,8 +241,8 @@ describe('TriagePage', () => {
   it('opens cluster inspection modal when Inspect is clicked', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    await waitFor(() => screen.getByTestId('clusters-table'));
-    const inspectBtn = screen.getAllByRole('button', { name: 'Inspect' })[0];
+    const inspectBtns = await screen.findAllByRole('button', { name: 'Inspect' });
+    const inspectBtn = inspectBtns[0];
     await userEvent.click(inspectBtn);
     await waitFor(() => {
       expect(screen.getByText('Cluster 1')).toBeInTheDocument();
