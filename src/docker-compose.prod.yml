@@ -31,6 +31,14 @@ services:
       - AUTH_SERVER_URL=http://keycloak:8080/auth
       - BACKEND_URL=http://backend:8000
 
+  # VPS has 2 CPUs / 8 GB RAM — override dev defaults that assume 4 CPUs / 16 GB.
+  ollama:
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4gb
+
   # Production TLS certs — not available in local dev (override swaps nginx.conf).
   # nginx.conf mount is in the base compose file; this file only adds production certs.
   nginx-gateway:
