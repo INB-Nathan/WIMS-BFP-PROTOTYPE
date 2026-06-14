@@ -685,11 +685,42 @@ export async function fetchReportStatus(
   return publicApiFetch(`/civilian/reports/${reportId}`);
 }
 
+export interface CivilianFollowupItem {
+  followup_id: number;
+  followup_text: string;
+  created_at: string;
+}
+
+export interface CivilianFollowupResponse {
+  followup_id: number;
+  report_id: number;
+  followup_text: string;
+  created_at: string;
+}
+
+export interface CivilianReportTimelineResult {
+  timeline: CivilianReportTimelineItem[];
+  followups: CivilianFollowupItem[];
+}
+
 export async function fetchReportTimeline(
   reportId: string | number,
-): Promise<CivilianReportTimelineItem[]> {
-  const json = await publicApiFetch<{ timeline?: CivilianReportTimelineItem[] }>(`/civilian/reports/${reportId}/timeline`);
-  return json.timeline ?? [];
+): Promise<CivilianReportTimelineResult> {
+  const json = await publicApiFetch<{ timeline?: CivilianReportTimelineItem[]; followups?: CivilianFollowupItem[] }>(`/civilian/reports/${reportId}/timeline`);
+  return {
+    timeline: json.timeline ?? [],
+    followups: json.followups ?? [],
+  };
+}
+
+export async function submitFollowup(
+  reportId: string | number,
+  followupText: string,
+): Promise<CivilianFollowupResponse> {
+  return publicApiFetch(`/civilian/reports/${reportId}/followup`, {
+    method: 'POST',
+    body: JSON.stringify({ followup_text: followupText }),
+  });
 }
 
 export interface FireStation {

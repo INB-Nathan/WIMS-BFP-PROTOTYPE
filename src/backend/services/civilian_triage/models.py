@@ -105,6 +105,12 @@ class StationContext(BaseModel):
     phone_available: bool
 
 
+class FollowupSummary(BaseModel):
+    followup_id: int
+    followup_text: str
+    created_at: datetime
+
+
 class TriageReportEntry(BaseModel):
     report_id: int
     latitude: float
@@ -126,6 +132,7 @@ class TriageReportEntry(BaseModel):
     is_danger: bool  # > 120 min — validator has taken no action
     previous_report_id: int | None
     station: StationContext
+    followups: list[FollowupSummary] = []
 
 
 class TriageClusterEntry(BaseModel):

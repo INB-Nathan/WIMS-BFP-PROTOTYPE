@@ -1,11 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { fetchReportStatus, fetchReportTimeline, registerNotification, fetchMyReports, type CivilianReportTimelineItem, type CivilianReportTrackingResponse, type MyReportItem } from '@/lib/api';
+import { fetchReportStatus, fetchReportTimeline, registerNotification, fetchMyReports, submitFollowup, type CivilianFollowupItem, type CivilianReportTimelineItem, type CivilianReportTrackingResponse, type MyReportItem } from '@/lib/api';
 import { getMessagingToken } from '@/lib/firebase';
 import Image from 'next/image';
 import Link from 'next/link';
-import { AlertTriangle, CheckCircle, Clock, PhoneCall, RefreshCw, Link2, ChevronRight } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Clock, MessageSquare, PhoneCall, RefreshCw, Link2, ChevronRight, Send } from 'lucide-react';
 import { EmergencyReferenceCard } from '@/components/EmergencyReferenceCard';
 
 // ─── Status helpers ─────────────────────────────────────────────────────────
@@ -170,11 +170,16 @@ export default function ReportTrackerPage() {
   });
   const [data, setData] = useState<CivilianReportTrackingResponse | null>(null);
   const [timeline, setTimeline] = useState<CivilianReportTimelineItem[]>([]);
+  const [followups, setFollowups] = useState<CivilianFollowupItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [notifyStatus, setNotifyStatus] = useState<NotifyStatus>('idle');
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [myReports, setMyReports] = useState<MyReportItem[]>([]);
+  const [followupText, setFollowupText] = useState('');
+  const [followupSubmitting, setFollowupSubmitting] = useState(false);
+  const [followupSuccess, setFollowupSuccess] = useState(false);
+  const [followupError, setFollowupError] = useState<string | null>(null);
 
   // Resolve device ID on mount — used to verify ownership
   useEffect(() => {
@@ -185,6 +190,8 @@ export default function ReportTrackerPage() {
   const searchReport = useCallback(async (id: string) => {
     setFetchError(null);
     setNotifyStatus('idle');
+    setFollowupSuccess(false);
+    setFollowupError(null);
     if (!id.trim()) {
       setFetchError('Please enter a Report ID.');
       return;
@@ -192,14 +199,17 @@ export default function ReportTrackerPage() {
     setLoading(true);
     setData(null);
     setTimeline([]);
+    setFollowups([]);
     try {
       const result = await fetchReportStatus(id.trim());
       setData(result);
       try {
         const timelineResult = await fetchReportTimeline(id.trim());
-        setTimeline(timelineResult);
+        setTimeline(timelineResult.timeline);
+        setFollowups(timelineResult.followups);
       } catch {
         setTimeline([]);
+        setFollowups([]);
       }
       if (localStorage.getItem(notifyKey(result.report_id)) === 'true') {
         setNotifyStatus('enabled');
@@ -265,6 +275,32 @@ export default function ReportTrackerPage() {
       .catch(() => setMyReports([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceId]);
+
+  const handleSubmitFollowup = async () => {
+    if (!data || !followupText.trim()) return;
+    setFollowupSubmitting(true);
+    setFollowupError(null);
+    setFollowupSuccess(false);
+    try {
+      await submitFollowup(data.report_id, followupText.trim());
+      setFollowupText('');
+      setFollowupSuccess(true);
+      // Refresh timeline to show the new follow-up
+      try {
+        const timelineResult = await fetchReportTimeline(data.report_id);
+        setTimeline(timelineResult.timeline);
+        setFollowups(timelineResult.followups);
+      } catch {
+        // Timeline refresh is best-effort
+      }
+    } catch (err: unknown) {
+      setFollowupError(
+        err instanceof Error ? err.message : 'Failed to submit follow-up.',
+      );
+    } finally {
+      setFollowupSubmitting(false);
+    }
+  };
 
   const isOwner = data ? myReports.some((r) => r.report_id === data.report_id) : false;
   const canUpdate = isOwner && (status === 'PENDING' || status === 'UNDER_REVIEW');
@@ -502,6 +538,84 @@ export default function ReportTrackerPage() {
                         );
                       })}
                     </div>
+                    {/* Follow-up entries */}
+                    {followups.length > 0 && (
+                      <div className="mt-3 pt-2 border-t" style={{ borderColor: 'var(--border-color)' }}>
+                        <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+                          Follow-ups
+                        </p>
+                        <div className="space-y-2">
+                          {followups.map((f) => (
+                            <div key={f.followup_id} className="border rounded-lg p-3" style={{ borderColor: 'var(--bfp-red, #dc2626)', backgroundColor: '#fef2f2' }}>
+                              <div className="flex items-center gap-2 mb-1">
+                                <MessageSquare className="w-3.5 h-3.5" style={{ color: 'var(--bfp-red, #dc2626)' }} />
+                                <span className="text-xs font-medium" style={{ color: 'var(--bfp-red, #dc2626)' }}>
+                                  Your update
+                                </span>
+                                <span className="text-xs ml-auto" style={{ color: 'var(--text-secondary)' }}>
+                                  {new Date(f.created_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                                </span>
+                              </div>
+                              <p className="text-sm" style={{ color: 'var(--text-primary)' }}>{f.followup_text}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Follow-up submission form — PENDING / UNDER_REVIEW / LINKED only */}
+                {(status === 'PENDING' || status === 'UNDER_REVIEW' || status === 'LINKED') && (
+                  <div className="border rounded-lg p-3 mb-2" style={{ borderColor: 'var(--border-color)' }}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <MessageSquare className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                      <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                        Add Follow-up Information
+                      </p>
+                    </div>
+                    <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
+                      Provide additional details about this report. Do not include personal information beyond what you&apos;ve already shared.
+                    </p>
+                    <textarea
+                      value={followupText}
+                      onChange={(e) => setFollowupText(e.target.value)}
+                      className="form-input w-full mb-2"
+                      style={{ fontSize: '0.875rem', minHeight: '80px', resize: 'vertical' }}
+                      placeholder="Describe new developments, corrections, or additional details…"
+                      maxLength={2000}
+                      rows={3}
+                    />
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        {followupText.length}/2000
+                      </span>
+                      <button
+                        onClick={handleSubmitFollowup}
+                        disabled={followupSubmitting || !followupText.trim()}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-xs font-semibold disabled:opacity-50 transition-all"
+                        style={{ background: 'var(--bfp-gradient)' }}
+                      >
+                        {followupSubmitting ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Send className="w-3.5 h-3.5" />
+                        )}
+                        Submit Update
+                      </button>
+                    </div>
+                    {followupSuccess && (
+                      <div className="flex items-center gap-2 mt-2 p-2 rounded-lg bg-green-50 text-green-700 text-xs">
+                        <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                        Follow-up submitted successfully.
+                      </div>
+                    )}
+                    {followupError && (
+                      <div className="flex items-center gap-2 mt-2 p-2 rounded-lg bg-red-50 text-red-700 text-xs">
+                        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                        {followupError}
+                      </div>
+                    )}
                   </div>
                 )}
 

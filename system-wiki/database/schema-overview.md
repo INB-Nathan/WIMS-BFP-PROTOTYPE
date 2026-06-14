@@ -1,7 +1,7 @@
 ---
 title: Database Schema Overview
 created: 2026-05-14
-updated: 2026-06-04
+updated: 2026-06-14
 type: database
 tags: [wims-bfp, database, schema, rls, audit-log, implementation-map]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/postgres-init]
@@ -22,6 +22,7 @@ PostgreSQL/PostGIS schema is bootstrapped by ordered SQL files in `src/postgres-
 | `wims.data_import_batches` | `04_import_incidents.sql` |
 | `wims.fire_incidents` | `04_import_incidents.sql` |
 | `wims.citizen_reports` | `05_citizen_reports.sql` |
+| `wims.citizen_report_followups` | `59_citizen_report_followups.sql` |
 | `wims.incident_attachments` | `06_incident_details.sql` |
 | `wims.incident_nonsensitive_details` | `06_incident_details.sql` |
 | `wims.incident_sensitive_details` | `06_incident_details.sql` |

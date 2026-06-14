@@ -55,6 +55,7 @@ vi.mock('@/lib/api', () => {
             is_timeout_risk: true,
             previous_report_id: null,
             station: { name: 'BFP Manila', distance_m: 800, phone_available: true },
+            followups: [],
           },
           {
             report_id: 11,
@@ -82,6 +83,7 @@ vi.mock('@/lib/api', () => {
             is_timeout_risk: true,
             previous_report_id: null,
             station: { name: 'BFP Manila', distance_m: 820, phone_available: true },
+            followups: [],
           },
         ],
       },
@@ -128,6 +130,7 @@ vi.mock('@/lib/api', () => {
             is_timeout_risk: false,
             previous_report_id: null,
             station: { name: 'BFP Quezon City', distance_m: 1200, phone_available: true },
+            followups: [],
           },
         ],
       },

@@ -16,6 +16,9 @@ from sqlalchemy.orm import Session
 from database import get_db
 
 from schemas.civilian import (
+    CivilianFollowupCreate,
+    CivilianFollowupItem,
+    CivilianFollowupResponse,
     CivilianReportAppend,
     CivilianReportCreate,
     CivilianReportResponse,
@@ -458,6 +461,102 @@ def append_civilian_report(
     return _fetch_report_response(db, result[0])
 
 
+@router.post(
+    "/reports/{report_id}/followup",
+    response_model=CivilianFollowupResponse,
+    status_code=201,
+)
+def submit_civilian_followup(
+    report_id: int,
+    body: CivilianFollowupCreate,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+) -> CivilianFollowupResponse:
+    """Public endpoint: submit text follow-up to an existing report. No auth."""
+    parent = db.execute(
+        text("SELECT report_id, status FROM wims.citizen_reports WHERE report_id = :rid"),
+        {"rid": report_id},
+    ).fetchone()
+    if not parent:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if parent.status == "ACTIONED" or str(parent.status).startswith("REJECTED_"):
+        raise HTTPException(
+            status_code=409,
+            detail="Terminal reports cannot receive follow-ups. Submit a new report or call 911.",
+        )
+
+    # Rate limit: max 5 follow-ups per IP per hour on the same report
+    ip_hash = _ip_hash(request)
+    recent_count = db.execute(
+        text("""
+            SELECT COUNT(*)
+            FROM wims.citizen_report_followups
+            WHERE report_id = :rid
+              AND created_at >= now() - interval '1 hour'
+        """),
+        {"rid": report_id},
+    ).scalar()
+    # Also check total follow-up rate across all reports from this IP
+    ip_recent = db.execute(
+        text("""
+            SELECT COUNT(*)
+            FROM wims.citizen_report_followups f
+            JOIN wims.citizen_reports r ON r.report_id = f.report_id
+            WHERE r.ip_hash = :ip_hash
+              AND f.created_at >= now() - interval '1 hour'
+        """),
+        {"ip_hash": ip_hash},
+    ).scalar()
+    if recent_count is not None and int(recent_count) >= 5:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many follow-ups on this report. Try again later.",
+        )
+    if ip_recent is not None and int(ip_recent) >= 10:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many follow-ups from this network. Try again later.",
+        )
+
+    result = db.execute(
+        text("""
+            INSERT INTO wims.citizen_report_followups (report_id, followup_text)
+            VALUES (:report_id, :followup_text)
+            RETURNING followup_id, report_id, followup_text, created_at
+        """),
+        {
+            "report_id": report_id,
+            "followup_text": body.followup_text,
+        },
+    ).fetchone()
+    db.commit()
+    if not result:
+        raise HTTPException(status_code=500, detail="Failed to save follow-up")
+
+    # Log audit trail entry (no user — civilian submission)
+    try:
+        from utils.audit import log_system_audit
+
+        log_system_audit(
+            db=db,
+            user_id=None,
+            action_type="CIVILIAN_FOLLOWUP",
+            table_affected="citizen_report_followups",
+            record_id=result[0],
+            request=request,
+        )
+        db.commit()
+    except Exception:
+        logger.warning("Failed to log audit for follow-up %s", result[0], exc_info=True)
+
+    return CivilianFollowupResponse(
+        followup_id=result[0],
+        report_id=result[1],
+        followup_text=result[2],
+        created_at=result[3],
+    )
+
+
 @router.get("/reports", response_model=MyReportResponse)
 def get_my_reports(
     device_id: str,
@@ -512,7 +611,7 @@ def get_civilian_report_timeline(
     report_id: int,
     db: Annotated[Session, Depends(get_db)],
 ) -> CivilianReportTimelineResponse:
-    """Fetch parent report plus append children as a public tracking timeline."""
+    """Fetch parent report plus append children and follow-ups as a public tracking timeline."""
     exists = db.execute(
         text("SELECT 1 FROM wims.citizen_reports WHERE report_id = :rid"),
         {"rid": report_id},
@@ -527,6 +626,16 @@ def get_civilian_report_timeline(
             FROM wims.citizen_reports
             WHERE report_id = :rid OR linked_to_report_id = :rid
             ORDER BY created_at ASC, report_id ASC
+        """),
+        {"rid": report_id},
+    ).fetchall()
+
+    followup_rows = db.execute(
+        text("""
+            SELECT followup_id, followup_text, created_at
+            FROM wims.citizen_report_followups
+            WHERE report_id = :rid
+            ORDER BY created_at ASC
         """),
         {"rid": report_id},
     ).fetchall()
@@ -546,6 +655,14 @@ def get_civilian_report_timeline(
                 description=row.description,
             )
             for row in rows
+        ],
+        followups=[
+            CivilianFollowupItem(
+                followup_id=row.followup_id,
+                followup_text=row.followup_text,
+                created_at=row.created_at,
+            )
+            for row in followup_rows
         ],
     )
 
