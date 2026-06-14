@@ -2801,6 +2801,18 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - 10 new unit tests in `test_anomaly_detection.py` (positive, negative, dedup stability, cross-boundary). Updated 2 existing task tests to account for 5th detector query.
 - Gap register updated: M8 entry now reflects 5/5 detectors shipped; geo Impossible Travel (#281) remains the sole deferred item.
 
+## [2026-06-13] test(#291 #292 #293 #296) | strengthen attachment encryption test coverage
+
+**File:** `src/backend/tests/test_attachment_encryption.py`
+
+**Changes:**
+- #291 (T3/T4): Added `match="authentication failed"` to `test_wrong_key_fails` to distinguish auth failure from generic provider error. Added `detail` assertion to `test_wrong_nonce_returns_500` (parity with `test_tampered_ciphertext_returns_500`).
+- #292 (T9): Added `test_zero_byte_upload_accepted` (0-byte file → 201, encrypted on disk) and `test_exactly_at_max_bytes_accepted` (exactly-at-limit → 201, encrypted).
+- #293 (T7/T8): Added `_admin_user` and `_validator_user` helpers. Added `test_admin_can_download` and `test_validator_can_download` for full 5-role coverage. Added `test_serve_includes_content_disposition_header` and `test_serve_media_type_matches_stored_mime` for response header assertions.
+- #296 (T2): Hardened `test_attachment_not_found_returns_404` and `test_missing_file_on_disk_returns_404` with handler-level detail assertions (`"Attachment not found"` / `"Attachment file not found on disk"`) to distinguish from FastAPI router-level 404.
+- 30 tests pass (was 20), all ruff checks pass.
+- No application behavior changed. No FRS gap register change.
+
 ## [2026-06-13] chore(#310) | audit and fix unconsumed MagicMock side_effect entries in privacy tests
 
 - Fixed 3 unconsumed `mock_db.execute.side_effect` entries in tests that patch `log_system_audit`. The extra `MagicMock()` entries masked the true call counts and would silently absorb any future extra `db.execute()` calls without failing.
@@ -2872,3 +2884,14 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - Fix: replaced `getByLabelText` with `findByLabelText` (built on `waitFor`, retries until the element appears). This allows React to complete the `loadData` finally block and re-render the export section before the assertion runs.
 - No component behavior changed. Test coverage preserved (disabled state assertion unchanged).
 - No FRS gap register change (test-only fix).
+
+## [2026-06-13] feat(tests) + docs | GH #289 #294 #295 — attachment upload error-path tests, serve-route doc comments
+
+- **GH #289** (test): Added 3 error-path tests to `TestUploadAttachment` in `test_attachment_encryption.py`:
+  - `test_encrypt_bytes_fails_returns_500` (T6): mocks `provider.encrypt_bytes()` to raise; asserts 500 + "Failed to encrypt attachment".
+  - `test_insert_returns_none_returns_500` (T11): sets `insert_returns_none=True` on `_upload_db()` so INSERT RETURNING `fetchone()` returns `None`; asserts 500.
+  - `test_db_rollback_and_file_cleanup_on_commit_failure` (T5): makes `db.commit()` raise `Exception`; asserts 500, `db.rollback()` called, and no files remain in storage dir.
+  - Extended `_upload_db()` helper with `insert_returns_none` parameter.
+- **GH #294** (docs): Added inline column-to-variable mapping comment before the 7-tuple positional unpack in `serve_attachment()` documenting SELECT order and cautioning about future column changes.
+- **GH #295** (docs): Added inline comment in the `is_encrypted=false` legacy branch documenting that pre-migration files are read entirely into memory with no size cap (new uploads bounded by 25 MB `WIMS_MAX_ATTACHMENT_BYTES`).
+- No FRS gap register change (pure test/docs additions; no behavioral change to existing functionality).

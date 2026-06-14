@@ -643,6 +643,12 @@ async def serve_attachment(
     if row is None:
         raise HTTPException(status_code=404, detail="Attachment not found")
 
+    # ── Column-to-variable mapping (7 columns, positional) ─────────────
+    # SELECT order: storage_path, encryption_iv, is_encrypted, key_version,
+    #               mime_type, file_name, crypto_provider
+    # CAUTION: any column addition, reordering, or deletion in the SELECT
+    # list must be reflected here.  Consider using row._mapping for named
+    # attribute access as a future improvement (GH #294).
     (
         storage_path,
         encryption_iv,
@@ -677,6 +683,11 @@ async def serve_attachment(
             )
             raise HTTPException(status_code=500, detail="Attachment decryption failed")
     else:
+        # Legacy unencrypted file: read entirely into memory with no size cap.
+        # Only pre-migration attachments (is_encrypted=false, uploaded before
+        # encryption was enabled) hit this path.  New uploads are bounded by
+        # WIMS_MAX_ATTACHMENT_BYTES (25 MB default via env).
+        # Streaming AEAD for large legacy files is deferred future work.
         plaintext = file_bytes
 
     safe_name = os.path.basename(file_name or f"attachment_{attachment_id}")
