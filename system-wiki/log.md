@@ -3094,3 +3094,36 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - Net: −281 lines across 3 modified files, +139 lines in new offlineBase.ts.
 - Behaviour preserved: all 17 existing offline tests pass unchanged. ESLint clean.
 - Wiki updates: frontend-infrastructure.md table updated with offlineBase.ts entry, pwa-tests-cicd.md sources updated.
+
+## [2026-06-14] feat(#241) | read-path hash-chain verification for incident integrity
+
+**Files changed:**
+- `src/backend/services/regional_incidents/helpers.py` — added `verify_incident_hash_chain()` and `_parse_pg_array()` helper
+- `src/backend/api/routes/regional/encoder.py` — `GET /api/regional/incidents/{id}` now returns `integrity_status`
+- `src/backend/api/routes/regional/validator.py` — `GET /api/regional/validator/incidents/{id}/history` now returns `integrity_status`
+- `src/backend/api/routes/incidents.py` — `GET /api/incidents/analyst/{id}` now returns `integrity_status`
+- `src/backend/tests/test_hash_chain_verification.py` — 5 tests covering valid chain, tampered row hash, chain break, no-hash-rows, and API response field
+
+**Issue:** #241
+
+**Behavior change:** Read-path endpoints now recompute the IVH hash chain on every read and return an `integrity_status` field (`"valid"`, `"tampered"`, or `"unverified"`). Tampered hash chains also log `INTEGRITY_VIOLATION` rows to `system_audit_trails`. This closes the gap where hash-chain columns were write-only with no read-time verification.
+
+**Design:** The verification function recomputes `ivh_row_hash` using the same deterministic serialization as the write path (JSON with `sort_keys=True, separators=(",", ":")`, Python `isoformat()` for timestamps, PostgreSQL ARRAY literal → list conversion for `corrected_fields`). It then verifies chain linking (`prev_ivh_hash` → previous row's `ivh_row_hash`) and anchor integrity (latest `new_data_hash` vs `fire_incidents.data_hash`).
+
+**Residual risks:**
+- Only applies to hash-chain rows created by the correction endpoint (`PATCH /incidents/{id}/correct`). Regular verification transitions do not write hash-chain data, so those rows show `integrity_status: "unverified"`.
+- Suricata alert integration (proposed in issue) deferred to avoid overlap with teammate PR #335.
+
+**No FRS gap status changed.**
+
+## [2026-06-14] fix(#339) | audit persistence for hash-chain violation logging
+
+**Files changed:**
+- `src/backend/services/regional_incidents/helpers.py` — `verify_incident_hash_chain()` now uses a self-committing `_AdminSessionLocal` session for audit writes instead of inlining an INSERT on the route's read-only session. `_isoformat_match_aware()` adds naive-datetime fallback (+00:00). Anchor check now emits a violation when `fire_incidents.data_hash` is NULL with hash-chain rows present.
+- `src/backend/tests/test_hash_chain_verification.py` — added `test_241_tamper_logs_violation_to_audit_trail` proving audit rows persist when `log_violations=True`.
+
+**Issue:** PR #339 security review
+
+**Behavior change:** `INTEGRITY_VIOLATION` audit rows are now committed in an isolated, self-committing session so they survive read-only route handler sessions that never commit. Previously, audit rows were silently rolled back on session close.
+
+**No FRS gap status changed.**

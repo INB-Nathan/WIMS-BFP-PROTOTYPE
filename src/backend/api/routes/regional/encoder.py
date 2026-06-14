@@ -16,6 +16,7 @@ from services.regional_incidents.helpers import (
     _CATEGORY_DB_VARIANTS,
     _ivh_has_column as _incident_verification_history_has_column,
     _ivh_uses_target_columns as _incident_verification_history_uses_target_columns,
+    verify_incident_hash_chain as _verify_incident_hash_chain,
 )
 from utils.crypto import SecurityProviderError
 
@@ -454,6 +455,9 @@ def get_regional_incident_detail(
     )
     wildland_area_display = wildland_row[2] if wildland_row else None
 
+    # Verify hash-chain integrity on read (#241)
+    integrity_result = _verify_incident_hash_chain(db, incident_id, log_violations=True)
+
     return {
         "incident_id": row[0],
         "verification_status": row[1],
@@ -472,6 +476,7 @@ def get_regional_incident_detail(
         "wildland_fire_type": wildland_fire_type,
         "wildland_area_hectares": wildland_area_hectares,
         "wildland_area_display": wildland_area_display,
+        "integrity_status": integrity_result["integrity_status"],
         "nonsensitive": nonsensitive,
         "sensitive": sd_dict,
         "rejection_reason": rejection_reason,

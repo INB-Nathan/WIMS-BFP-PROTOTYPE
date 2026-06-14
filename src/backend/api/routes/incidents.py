@@ -24,6 +24,7 @@ from services.kms import get_crypto_provider
 from services.regional_incidents.helpers import (
     normalize_general_category as _normalize_general_category,
     insert_incident_verification_history as _insert_incident_verification_history,
+    verify_incident_hash_chain as _verify_incident_hash_chain,
 )
 from tasks.exports import export_analyst_incidents_task
 from utils.crypto import SecurityProviderError
@@ -1192,6 +1193,9 @@ def get_analyst_incident_detail(
         ).fetchone()
         encoder_username = encoder_row[0] if encoder_row else None
 
+    # Verify hash-chain integrity on read (#241)
+    integrity_result = _verify_incident_hash_chain(db, incident_id, log_violations=True)
+
     # Assemble response
     result: dict[str, Any] = {
         "incident_id": row[0],
@@ -1201,6 +1205,7 @@ def get_analyst_incident_detail(
         "verification_status": row[3],
         "created_at": row[5].isoformat() if row[5] else None,
         "data_hash": row[6],
+        "integrity_status": integrity_result["integrity_status"],
         "notification_dt": row[7].isoformat() if row[7] else None,
         "region": row[8],
         "province_name": row[9],

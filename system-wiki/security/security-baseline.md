@@ -209,3 +209,13 @@ FRS Module 11b requires Cross-Site Request Forgery testing. The following layers
 - [[backend/api-route-map]]
 - [[gaps/frs-codebase-gap-register]]
 - `docs/pentest/CSRF-CHECKLIST.md`
+
+## Hash-Chain Integrity (Incident Verification History)
+
+**Status:** Implemented (#241)
+
+- **Write path:** `PATCH /api/regional/incidents/{id}/correct` (validator.py) computes and stores `ivh_row_hash`, `prev_ivh_hash`, `new_data_hash`, `old_data_hash`, `corrected_fields` in `wims.incident_verification_history`.
+- **Read-path verification:** `verify_incident_hash_chain()` in `services/regional_incidents/helpers.py` recomputes row hashes, verifies chain linking, and checks anchor (`new_data_hash` vs `fire_incidents.data_hash`). Returns `integrity_status`: `"valid"`, `"tampered"`, or `"unverified"` (for legacy rows without hash-chain data).
+- **Integration:** Called from `GET /api/regional/incidents/{id}`, `GET /api/regional/validator/incidents/{id}/history`, and `GET /api/incidents/analyst/{id}`. The `integrity_status` field is included in API responses.
+- **Audit:** Tampered chains log `INTEGRITY_VIOLATION` rows to `wims.system_audit_trails`.
+- **Limitation:** Only correction operations write hash-chain data. Regular verify/approve transitions do not (those rows show `"unverified"`).
