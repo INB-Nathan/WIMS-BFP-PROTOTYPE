@@ -5,63 +5,26 @@ import {
   queueIncident,
   type VerifyAction,
 } from '../offlineStore';
+import { markConnectivityOffline } from '../connectivity';
 import {
-  getConnectivitySnapshot,
-  markConnectivityOffline,
-} from '../connectivity';
-
+  OfflineResult,
+  isNetworkError,
+  isFresh,
+  shouldServeOffline,
+  stableStringify,
+} from './offlineBase';
 
 export interface OfflineQueueResult {
   queued: boolean;
   localId: string;
 }
 
+export type OfflineValidatorQueueResult<T> = OfflineResult<T>;
+
 const VALIDATOR_CACHE_TTL_MS = 30 * 60 * 1000;
-
-function isNetworkError(err: unknown): boolean {
-  if (err instanceof TypeError) return true;
-  if (err instanceof Error) {
-    const msg = err.message;
-    return (
-      /ERR_/i.test(msg) ||
-      msg.includes('Failed to fetch') ||
-      msg.includes('NetworkError') ||
-      msg.includes('net::ERR')
-    );
-  }
-  return false;
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
-  }
-  const record = value as Record<string, unknown>;
-  const entries = Object.keys(record)
-    .filter((key) => record[key] !== undefined && record[key] !== '')
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`);
-  return `{${entries.join(',')}}`;
-}
 
 function queueCacheKey(userId: string | null | undefined, params: Record<string, unknown>): string {
   return `validator:queue:${userId || 'anonymous'}:${encodeURIComponent(stableStringify(params))}`;
-}
-
-function isNavigatorOffline(): boolean {
-  return typeof navigator !== 'undefined' && navigator.onLine === false;
-}
-
-function shouldServeOffline(): boolean {
-  const snapshot = getConnectivitySnapshot();
-  return snapshot.state === 'offline' || isNavigatorOffline();
-}
-
-function isFresh(cachedAt: number): boolean {
-  return Date.now() - cachedAt <= VALIDATOR_CACHE_TTL_MS;
 }
 
 // ── Verification (Accept / Reject) offline-aware ─────────────────
@@ -180,12 +143,6 @@ export async function unarchiveIncidentOfflineAware(
 
 // ── Queue fetch offline-aware ────────────────────────────────────
 
-export interface OfflineValidatorQueueResult<T> {
-  response: T;
-  fromCache: boolean;
-  cachedAt?: number;
-}
-
 export async function fetchValidatorQueueOfflineAware<T>(
   params: Record<string, unknown>,
   fetcher: () => Promise<T>,
@@ -195,7 +152,7 @@ export async function fetchValidatorQueueOfflineAware<T>(
 
   if (shouldServeOffline()) {
     const cached = await getCachedAnalyticsResponse<T>(key);
-    if (!cached || !isFresh(cached.cachedAt)) {
+    if (!cached || !isFresh(cached.cachedAt, VALIDATOR_CACHE_TTL_MS)) {
       throw new Error(
         'Validator queue is unavailable offline. Reconnect to refresh this view.',
       );
@@ -220,7 +177,7 @@ export async function fetchValidatorQueueOfflineAware<T>(
     if (isNetworkError(err)) {
       markConnectivityOffline();
       const cached = await getCachedAnalyticsResponse<T>(key);
-      if (!cached || !isFresh(cached.cachedAt)) {
+      if (!cached || !isFresh(cached.cachedAt, VALIDATOR_CACHE_TTL_MS)) {
         throw err;
       }
       return {
