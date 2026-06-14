@@ -274,22 +274,41 @@ def update_user(
         raise HTTPException(status_code=400, detail="No fields to update")
 
     kc_row = db.execute(
-        text("SELECT keycloak_id, role FROM wims.users WHERE user_id = CAST(:uid AS uuid)"),
+        text(
+            "SELECT keycloak_id, role, assigned_region_id, is_active FROM wims.users WHERE user_id = CAST(:uid AS uuid)"
+        ),
         {"uid": user_id},
     ).fetchone()
     if kc_row is None:
         raise HTTPException(status_code=404, detail="User not found")
     keycloak_id = str(kc_row[0]) if kc_row[0] else None
     current_role = kc_row[1]
+    current_region = kc_row[2]
+    current_active = kc_row[3]
 
     sql = f"UPDATE wims.users SET {', '.join(updates)}, updated_at = now() WHERE user_id = CAST(:uid AS uuid)"
     result = db.execute(text(sql), params)
 
     actions = []
-    if body.role:
+    if body.role is not None:
         actions.append(f"ROLE_CHANGE_TO_{body.role}")
     if body.is_active is not None:
         actions.append("DEACTIVATE" if not body.is_active else "ACTIVATE")
+
+    old_state: dict = {"role": current_role}
+    new_state: dict = {}
+    if body.role is not None:
+        new_state["role"] = body.role
+    if body.is_active is not None:
+        old_state["is_active"] = current_active
+        new_state["is_active"] = body.is_active
+    if body.assigned_region_id is not None:
+        old_state["assigned_region_id"] = current_region
+        new_state["assigned_region_id"] = body.assigned_region_id
+        # Emit a dedicated action for region-only changes so the audit
+        # log is always written whenever assigned_region_id is changed.
+        if body.role is None and body.is_active is None:
+            actions.append("REGION_ASSIGNMENT_CHANGE")
 
     for action_name in actions:
         log_system_audit(
@@ -299,6 +318,8 @@ def update_user(
             table_affected="users",
             record_id=None,
             request=request,
+            old_values=old_state if old_state else None,
+            new_values=new_state if new_state else None,
         )
 
     db.commit()

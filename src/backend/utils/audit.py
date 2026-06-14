@@ -1,5 +1,8 @@
+import json
 import logging
 import uuid
+from typing import Any
+
 from fastapi import Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -14,9 +17,15 @@ def log_system_audit(
     table_affected: str,
     record_id: int | None,
     request: Request | None = None,
+    old_values: dict[str, Any] | None = None,
+    new_values: dict[str, Any] | None = None,
 ):
     """
     Log a system-level audit event.
+
+    old_values / new_values are JSONB snapshots for UPDATE actions
+    (forensic completeness per ASVS V7.3.1).  Pass None for
+    INSERT or DELETE actions; the columns default to SQL NULL.
     """
     ip_address = None
     user_agent = None
@@ -32,10 +41,12 @@ def log_system_audit(
             text("""
                 INSERT INTO wims.system_audit_trails (
                     user_id, action_type, table_affected, record_id,
-                    ip_address, user_agent, timestamp
+                    ip_address, user_agent, timestamp,
+                    old_values, new_values
                 ) VALUES (
                     :uid, :action, :table, :rec,
-                    :ip, :ua, now()
+                    :ip, :ua, now(),
+                    :oldv, :newv
                 )
             """),
             {
@@ -45,10 +56,12 @@ def log_system_audit(
                 "rec": record_id,
                 "ip": ip_address,
                 "ua": user_agent,
+                "oldv": json.dumps(old_values, default=str) if old_values else None,
+                "newv": json.dumps(new_values, default=str) if new_values else None,
             },
         )
         # Note: Caller is responsible for committing the transaction
     except Exception as e:
-        logger.error(f"Failed to log system audit: {e}")
+        logger.exception(f"Failed to log system audit: {e}")
         # We don't want audit failures to block the main action,
         # but we do want to know about it.
