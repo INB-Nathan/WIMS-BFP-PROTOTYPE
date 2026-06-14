@@ -62,7 +62,17 @@ class TestUpdateScheduledReport:
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
 
         mock_result = MagicMock()
-        mock_result.fetchone.return_value = (5, "Weekly PDF", False)
+        mock_result.fetchone.return_value = (
+            5,
+            "Weekly PDF",
+            "0 7 * * 1",
+            "pdf",
+            {},
+            ["admin@test.com"],
+            False,
+            None,
+            None,
+        )
         mock_db = MagicMock()
         mock_db.execute.return_value = mock_result
 
@@ -85,7 +95,17 @@ class TestUpdateScheduledReport:
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
 
         mock_result = MagicMock()
-        mock_result.fetchone.return_value = (3, "Monthly CSV", True)
+        mock_result.fetchone.return_value = (
+            3,
+            "Monthly CSV",
+            "0 6 1 * *",
+            "csv",
+            {},
+            ["analyst@test.com"],
+            True,
+            None,
+            None,
+        )
         mock_db = MagicMock()
         mock_db.execute.return_value = mock_result
 

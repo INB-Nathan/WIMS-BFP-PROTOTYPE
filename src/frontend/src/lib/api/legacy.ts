@@ -1582,3 +1582,68 @@ export async function updateAdminConfig(
     { method: 'PATCH', body: JSON.stringify({ value }) }
   );
 }
+
+// ─── Scheduled Reports (Issue #88) ──────────────────────────────────────────
+
+export interface ScheduledReport {
+  id: number;
+  name: string;
+  cron_expr: string;
+  format: 'pdf' | 'excel' | 'csv';
+  filters: Record<string, unknown>;
+  recipients: string[];
+  enabled: boolean;
+  created_at: string | null;
+  last_run_at: string | null;
+}
+
+/** List all scheduled reports (SYSTEM_ADMIN only). */
+export async function fetchScheduledReports(): Promise<ScheduledReport[]> {
+  const data = await apiFetch<ScheduledReport[] | { data?: ScheduledReport[] }>(
+    '/admin/scheduled-reports'
+  );
+  return Array.isArray(data) ? data : (data as { data?: ScheduledReport[] }).data ?? [];
+}
+
+/** Create a new scheduled report (SYSTEM_ADMIN only). */
+export async function createScheduledReport(body: {
+  name: string;
+  cron_expr: string;
+  format: 'pdf' | 'excel' | 'csv';
+  filters?: Record<string, unknown>;
+  recipients?: string[];
+  enabled?: boolean;
+}): Promise<ScheduledReport> {
+  return apiFetch<ScheduledReport>('/admin/scheduled-reports', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/** Update a scheduled report — enable/disable or modify fields (SYSTEM_ADMIN only). */
+export async function updateScheduledReport(
+  reportId: number,
+  body: {
+    name?: string;
+    cron_expr?: string;
+    format?: 'pdf' | 'excel' | 'csv';
+    filters?: Record<string, unknown>;
+    recipients?: string[];
+    enabled?: boolean;
+  }
+): Promise<ScheduledReport> {
+  return apiFetch<ScheduledReport>(`/admin/scheduled-reports/${reportId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+/** Delete a scheduled report (SYSTEM_ADMIN only). */
+export async function deleteScheduledReport(
+  reportId: number
+): Promise<{ status: string; id: number; deleted: boolean }> {
+  return apiFetch<{ status: string; id: number; deleted: boolean }>(
+    `/admin/scheduled-reports/${reportId}`,
+    { method: 'DELETE' }
+  );
+}
