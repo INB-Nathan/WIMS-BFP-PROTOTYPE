@@ -3115,3 +3115,15 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - Suricata alert integration (proposed in issue) deferred to avoid overlap with teammate PR #335.
 
 **No FRS gap status changed.**
+
+## [2026-06-14] fix(#339) | audit persistence for hash-chain violation logging
+
+**Files changed:**
+- `src/backend/services/regional_incidents/helpers.py` — `verify_incident_hash_chain()` now uses a self-committing `_AdminSessionLocal` session for audit writes instead of inlining an INSERT on the route's read-only session. `_isoformat_match_aware()` adds naive-datetime fallback (+00:00). Anchor check now emits a violation when `fire_incidents.data_hash` is NULL with hash-chain rows present.
+- `src/backend/tests/test_hash_chain_verification.py` — added `test_241_tamper_logs_violation_to_audit_trail` proving audit rows persist when `log_violations=True`.
+
+**Issue:** PR #339 security review
+
+**Behavior change:** `INTEGRITY_VIOLATION` audit rows are now committed in an isolated, self-committing session so they survive read-only route handler sessions that never commit. Previously, audit rows were silently rolled back on session close.
+
+**No FRS gap status changed.**

@@ -316,3 +316,70 @@ def test_241_integrity_status_in_api_response(corrected_incident):
         assert data["integrity_status"] == "valid", (
             f"Expected 'valid' after clean correction, got '{data['integrity_status']}'"
         )
+
+
+def test_241_tamper_logs_violation_to_audit_trail(corrected_incident, db):
+    """When tampering is detected with log_violations=True, an INTEGRITY_VIOLATION
+    audit row must be persisted in wims.system_audit_trails.
+
+    This test proves the self-committing audit session works — the audit row
+    survives even when the caller's session is never committed.
+    """
+    # Find a hash-chain IVH row and tamper with its ivh_row_hash
+    row = db.execute(
+        text(
+            "SELECT history_id, ivh_row_hash "
+            "FROM wims.incident_verification_history "
+            "WHERE target_type = 'OFFICIAL' AND target_id = :iid "
+            "  AND ivh_row_hash IS NOT NULL "
+            "ORDER BY action_timestamp DESC LIMIT 1"
+        ),
+        {"iid": corrected_incident},
+    ).fetchone()
+    assert row is not None, "No hash-chain IVH row found to tamper"
+
+    history_id, original_hash = row
+    tampered_hash = ("f" if original_hash[0] != "f" else "0") + original_hash[1:]
+
+    db.execute(
+        text(
+            "UPDATE wims.incident_verification_history "
+            "SET ivh_row_hash = :th WHERE history_id = :hid"
+        ),
+        {"th": tampered_hash, "hid": history_id},
+    )
+    db.commit()
+
+    # Call verification with log_violations=True — this must persist an audit row
+    from services.regional_incidents.helpers import verify_incident_hash_chain
+    from database import _AdminSessionLocal
+
+    session = _AdminSessionLocal()
+    try:
+        result = verify_incident_hash_chain(session, corrected_incident, log_violations=True)
+        assert result["integrity_status"] == "tampered", (
+            f"Expected 'tampered', got '{result['integrity_status']}'"
+        )
+
+        # The audit row should already be committed by the self-committing
+        # session inside verify_incident_hash_chain. Query from a fresh
+        # perspective to prove it.
+        audit_rows = db.execute(
+            text(
+                "SELECT action_type, table_affected, record_id "
+                "FROM wims.system_audit_trails "
+                "WHERE record_id = CAST(:rid AS integer) "
+                "  AND action_type = 'INTEGRITY_VIOLATION' "
+                "ORDER BY timestamp DESC"
+            ),
+            {"rid": str(corrected_incident)},
+        ).fetchall()
+
+        assert len(audit_rows) >= 1, (
+            "Expected at least 1 INTEGRITY_VIOLATION audit row, got 0. "
+            "The self-committing audit session may not have committed."
+        )
+        assert audit_rows[0][0] == "INTEGRITY_VIOLATION"
+        assert audit_rows[0][1] == "incident_verification_history"
+    finally:
+        session.close()

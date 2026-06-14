@@ -478,6 +478,12 @@ def _isoformat_match_aware(dt: datetime) -> str:
         return s
     if s.endswith("Z"):
         return s[:-1] + "+00:00"
+    # Defensive: if naive datetime (no tz suffix), append UTC offset.
+    # Psycopg2 can return naive datetimes under certain connection/column configs,
+    # which would otherwise cause a hash mismatch vs. the write-path that always
+    # produces "+00:00".
+    if "+" not in s[-6:] and not s.endswith("Z"):
+        return s + "+00:00"
     return s
 
 
@@ -613,30 +619,42 @@ def verify_incident_hash_chain(
             violations.append(
                 "Anchor mismatch: fire_incidents has data_hash but last IVH row has no new_data_hash"
             )
+        elif not fi_data_hash:
+            violations.append(
+                "Anchor verification skipped: fire_incidents.data_hash is NULL for incident with hash-chain rows"
+            )
 
     integrity_status = "tampered" if violations else "valid"
 
     if violations and log_violations:
+        logger.warning(
+            "INTEGRITY_VIOLATION: hash-chain tamper detected for incident_id=%s: %s",
+            incident_id,
+            "; ".join(violations),
+        )
+        # Persist audit row in a self-committing session so the record survives
+        # even when the calling route handler never commits (read-only endpoints).
+        # This short-lived session is isolated from any pending route mutations.
         try:
-            db.execute(
-                text("""
-                    INSERT INTO wims.system_audit_trails (
-                        user_id, action_type, table_affected, record_id,
-                        ip_address, user_agent, timestamp
-                    ) VALUES (
-                        NULL, 'INTEGRITY_VIOLATION',
-                        'incident_verification_history', :rec,
-                        NULL, 'hash-chain-verifier',
-                        now()
-                    )
-                """),
-                {"rec": incident_id},
-            )
-            logger.warning(
-                "INTEGRITY_VIOLATION: hash-chain tamper detected for incident_id=%s: %s",
-                incident_id,
-                "; ".join(violations),
-            )
+            from database import _AdminSessionLocal
+            from utils.audit import log_system_audit
+
+            audit_db = _AdminSessionLocal()
+            try:
+                log_system_audit(
+                    db=audit_db,
+                    user_id=None,
+                    action_type="INTEGRITY_VIOLATION",
+                    table_affected="incident_verification_history",
+                    record_id=incident_id,
+                    request=None,
+                )
+                audit_db.commit()
+            except Exception:
+                audit_db.rollback()
+                raise
+            finally:
+                audit_db.close()
         except Exception:
             logger.exception(
                 "Failed to write INTEGRITY_VIOLATION audit row for incident_id=%s",
