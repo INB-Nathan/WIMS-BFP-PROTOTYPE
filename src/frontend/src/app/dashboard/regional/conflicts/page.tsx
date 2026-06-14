@@ -10,9 +10,9 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+
 import Link from 'next/link';
-import { AlertTriangle, ArrowLeft, CheckCircle, Trash2, Upload } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle, Upload } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import {
   getConflictOps,
@@ -39,14 +39,13 @@ function displayValue(value: unknown): string {
 }
 
 export default function RegionalConflictResolutionPage() {
-  const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const [items, setItems] = useState<ConflictItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const encoderId = (user as { id?: string })?.id ?? null;
+  const encoderId = user?.id ?? null;
 
   // ─── Load conflicts on mount ──────────────────────────────────────────────
 
@@ -86,6 +85,14 @@ export default function RegionalConflictResolutionPage() {
   };
 
   const applyResolutions = async () => {
+    // Guard: if any resolution discards local work, require confirmation
+    const hasDestructive = items.some(
+      (item) => item.resolution === 'discard' || item.resolution === 'use-server',
+    );
+    if (hasDestructive && !window.confirm('Some selected resolutions will permanently discard your local changes. This cannot be undone. Continue?')) {
+      return;
+    }
+
     setSubmitting(true);
     let changed = false;
 
@@ -336,9 +343,9 @@ export default function RegionalConflictResolutionPage() {
                   onChange={() => setResolution(idx, 'use-server')}
                   disabled={item.resolving || submitting}
                 />
-                <span className="font-semibold">Use Server Version</span>
+                <span className="font-semibold">Discard Local (Server Wins)</span>
                 <span className="block text-[10px] text-gray-600 mt-0.5">
-                  Discard your local changes
+                  Server data will appear after the next sync or refresh
                 </span>
               </label>
 
