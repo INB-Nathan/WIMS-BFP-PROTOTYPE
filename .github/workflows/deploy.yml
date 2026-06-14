@@ -200,8 +200,21 @@ jobs:
               docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production "$@"
             }
 
+            cleanup_stale_compose_renames() {
+              # Docker Compose renames old fixed-container-name services to
+              # <hash>_wims-<service> during recreate. If a prior deploy is
+              # interrupted, a stale renamed container can block future recreates
+              # with "container name ... is already in use".
+              stale_ids=$(docker ps -aq --filter 'label=com.docker.compose.project=wims_internal' --format '{{.ID}} {{.Names}}' | awk '$2 ~ /^[0-9a-f]+_wims-/ {print $1}')
+              if [ -n "$stale_ids" ]; then
+                echo "Removing stale Compose-renamed WIMS containers..."
+                echo "$stale_ids" | xargs -r docker rm -f
+              fi
+            }
+
             echo "Validating production compose configuration..."
             compose config --quiet
+            cleanup_stale_compose_renames
 
             # Pre-deploy DB connectivity check
             echo "Checking database connectivity..."
@@ -210,6 +223,7 @@ jobs:
             # Build and restart. --wait makes one-shot dependency failures such
             # as model provisioning fail the deployment instead of being ignored.
             echo "Building and restarting production stack..."
+            cleanup_stale_compose_renames
             compose up -d --build --wait --wait-timeout 600
 
             # ─── Wait for postgres to be ready ────────────────────────────────

@@ -67,6 +67,10 @@ def mock_user_and_override(client):
                 {"uid": user_id},
             )
             conn.execute(
+                text("DELETE FROM wims.system_audit_trails WHERE user_id = :uid"),
+                {"uid": user_id},
+            )
+            conn.execute(
                 text("DELETE FROM wims.users WHERE user_id = :uid"),
                 {"uid": user_id},
             )

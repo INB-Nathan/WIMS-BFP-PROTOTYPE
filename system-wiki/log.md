@@ -3188,3 +3188,11 @@ Made pending-sync offline incidents fully manageable through the normal regional
 **Behavior change:** `INTEGRITY_VIOLATION` audit rows are now committed in an isolated, self-committing session so they survive read-only route handler sessions that never commit. Previously, audit rows were silently rolled back on session close.
 
 **No FRS gap status changed.**
+## [2026-06-14] fix | Audit client IP, Suricata ingestion commit, incident create audit, deploy cleanup
+
+- `utils.audit.log_system_audit()` now prefers `X-Forwarded-For` / `X-Real-IP` before `request.client.host`, preventing nginx Docker-network IPs from being stored as audit client addresses in production. Nginx now overwrites `X-Forwarded-For` with `$remote_addr` instead of appending client-supplied spoofable values. Added focused audit utility and nginx header tests.
+- `POST /api/incidents` now writes a `CREATE_INCIDENT` row to `wims.system_audit_trails` in the same transaction as the incident insert.
+- `tasks.suricata.ingest_suricata_eve()` now commits the caller-owned DB session after `ingest_eve_file(..., db_session=db)` and rolls back on failure; previously closing the session rolled back parsed Suricata alert inserts.
+- Deploy workflow now removes stale Compose-renamed `*_wims-*` containers with the `com.docker.compose.project=wims_internal` label before the production recreate to avoid interrupted-deploy name conflicts such as `<hash>_wims-backend already in use`.
+- Validation: `python -m pytest -q tests/test_audit_utils.py tests/test_nginx_forwarded_headers.py tests/test_incidents_create_endpoint.py tests/test_suricata_auto_incident.py` => 17 passed; focused `ruff check`/`ruff format --check`; `git diff --check`.
+

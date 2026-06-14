@@ -33,6 +33,59 @@ def _clear_positions():
     yield
 
 
+class TestSuricataTaskTransaction:
+    def test_ingest_task_commits_caller_owned_session(self):
+        import tasks.suricata as task
+
+        events: list[str] = []
+        mock_db = MagicMock()
+        mock_db.commit.side_effect = lambda: events.append("commit")
+        mock_db.close.side_effect = lambda: events.append("close")
+
+        def ingest_success(*_args, **_kwargs):
+            events.append("ingest")
+            return 3
+
+        with (
+            patch.object(task, "get_session", return_value=mock_db),
+            patch.object(task, "set_rls_context"),
+            patch.object(task, "ingest_eve_file", side_effect=ingest_success) as mock_ingest,
+        ):
+            result = task.ingest_suricata_eve()
+
+        assert result == 3
+        mock_ingest.assert_called_once_with(task.EVE_LOG_PATH, db_session=mock_db)
+        assert events == ["ingest", "commit", "close"]
+        mock_db.commit.assert_called_once()
+        mock_db.rollback.assert_not_called()
+        mock_db.close.assert_called_once()
+
+    def test_ingest_task_rolls_back_caller_owned_session_on_failure(self):
+        import tasks.suricata as task
+
+        events: list[str] = []
+        mock_db = MagicMock()
+        mock_db.rollback.side_effect = lambda: events.append("rollback")
+        mock_db.close.side_effect = lambda: events.append("close")
+
+        def ingest_failure(*_args, **_kwargs):
+            events.append("ingest")
+            raise RuntimeError("boom")
+
+        with (
+            patch.object(task, "get_session", return_value=mock_db),
+            patch.object(task, "set_rls_context"),
+            patch.object(task, "ingest_eve_file", side_effect=ingest_failure),
+            pytest.raises(RuntimeError),
+        ):
+            task.ingest_suricata_eve()
+
+        assert events == ["ingest", "rollback", "close"]
+        mock_db.commit.assert_not_called()
+        mock_db.rollback.assert_called_once()
+        mock_db.close.assert_called_once()
+
+
 class TestSecurityIncidentExists:
     def test_returns_true_when_incident_exists(self, mock_db):
         mock_db.execute.return_value.fetchone.return_value = (1,)
