@@ -48,6 +48,17 @@ Format: `## [YYYY-MM-DD] action | subject`
 - No FRS gap register change (validator offline wiring gap already closed by #271/#272).
 - CI pre-flight: vitest 318/318 pass, eslint 0 errors, ruff check + format green.
 
+## [2026-06-14] feat | PR #244: SKIP_MFA role for validator MFA exemption
+
+- Added `SKIP_MFA` realm role to `bfp-realm.json` (both `import/` and root).
+- Added `otp-skip-mfa` authenticator config (`condUserRole=SKIP_MFA`, `negate=false`).
+- Restructured `forms` authentication flow: inserted `conditional-user-role` (ALTERNATIVE, priority 20) with `otp-skip-mfa` config before `Browser - Conditional OTP` (changed to ALTERNATIVE, priority 30).
+- Assigned `SKIP_MFA` to all 5 NATIONAL_VALIDATOR seeded users: `validator_test`, `n-val`, `g-val`, `e-val`, `r-val`.
+- Users with `SKIP_MFA` role bypass the OTP sub-flow during browser login; MFA remains enforced for all other accounts.
+- Direct Grant flow unchanged.
+- Updated `system-wiki/security/security-baseline.md` with SKIP_MFA mechanism documentation.
+- No FRS gap register change (this is an auth-config enhancement within existing MFA scope).
+
 ## [2026-06-13] fix | PR #262 FrontierCode review — Q1 narrative_report anonymize leak + Q2 key_version silent decrypt failure
 
 - Q1 MUST-FIX: Added `narrative_report = NULL` to the `incident_sensitive_details` anonymize UPDATE SET clause in `api/routes/admin/privacy.py`. Previously, `narrative_report` was SELECTed for export (plaintext PII column) but never nulled during anonymization, leaking PII after the right-to-erasure path.

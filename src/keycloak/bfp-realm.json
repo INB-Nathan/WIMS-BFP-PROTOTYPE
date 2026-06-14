@@ -120,6 +120,13 @@
         "composite": false,
         "clientRole": false,
         "containerId": "0d7644e4-1107-4da2-83f4-ca7ac87ce39b"
+      },
+      {
+        "name": "SKIP_MFA",
+        "description": "Exempts user from TOTP/OTP multi-factor authentication requirements",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "0d7644e4-1107-4da2-83f4-ca7ac87ce39b"
       }
     ],
     "client": {
@@ -2140,9 +2147,18 @@
           "userSetupAllowed": false
         },
         {
-          "authenticatorFlow": true,
-          "requirement": "REQUIRED",
+          "authenticatorConfig": "otp-skip-mfa",
+          "authenticator": "conditional-user-role",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
           "priority": 20,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "ALTERNATIVE",
+          "priority": 30,
           "autheticatorFlow": true,
           "flowAlias": "Browser - Conditional OTP",
           "userSetupAllowed": false
@@ -2307,6 +2323,13 @@
       "alias": "otp-trusted-device",
       "config": {
         "otpRememberDeviceFor": "7d"
+      }
+    },
+    {
+      "alias": "otp-skip-mfa",
+      "config": {
+        "condUserRole": "SKIP_MFA",
+        "negate": "false"
       }
     }
   ],
@@ -2794,7 +2817,8 @@
       "email": "validator@bfp.gov.ph",
       "enabled": true,
       "realmRoles": [
-        "NATIONAL_VALIDATOR"
+        "NATIONAL_VALIDATOR",
+        "SKIP_MFA"
       ],
       "credentials": [
         {
@@ -2874,7 +2898,8 @@
       "email": "n-val@bfp.gov.ph",
       "enabled": true,
       "realmRoles": [
-        "NATIONAL_VALIDATOR"
+        "NATIONAL_VALIDATOR",
+        "SKIP_MFA"
       ],
       "credentials": [
         {
@@ -2954,7 +2979,8 @@
       "email": "g-val@bfp.gov.ph",
       "enabled": true,
       "realmRoles": [
-        "NATIONAL_VALIDATOR"
+        "NATIONAL_VALIDATOR",
+        "SKIP_MFA"
       ],
       "credentials": [
         {
@@ -3034,7 +3060,8 @@
       "email": "e-val@bfp.gov.ph",
       "enabled": true,
       "realmRoles": [
-        "NATIONAL_VALIDATOR"
+        "NATIONAL_VALIDATOR",
+        "SKIP_MFA"
       ],
       "credentials": [
         {
@@ -3114,7 +3141,8 @@
       "email": "r-val@bfp.gov.ph",
       "enabled": true,
       "realmRoles": [
-        "NATIONAL_VALIDATOR"
+        "NATIONAL_VALIDATOR",
+        "SKIP_MFA"
       ],
       "credentials": [
         {
