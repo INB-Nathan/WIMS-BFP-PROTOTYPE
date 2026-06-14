@@ -189,6 +189,133 @@ class TestSeverityFilter:
 
 
 # ---------------------------------------------------------------------------
+# Combined severity + source_ip filter
+# ---------------------------------------------------------------------------
+
+
+class TestCombinedSeveritySourceIpFilter:
+    """Combined filter test for severity + source_ip on GET /api/admin/security-logs."""
+
+    # Rows with varying severity/IP combos for combined filter coverage.
+    # Row 6: HIGH severity, source_ip=10.0.0.1 -> matches both filters
+    _HIGH_MATCH = (
+        6,
+        None,
+        "10.0.0.1",
+        "10.0.0.2",
+        1006,
+        "HIGH",
+        "{}",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    # Row 7: CRITICAL severity, source_ip=10.0.0.1 -> matches both filters
+    _CRITICAL_MATCH = (
+        7,
+        None,
+        "10.0.0.1",
+        "10.0.0.4",
+        1007,
+        "CRITICAL",
+        "{}",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    # Row 8: HIGH severity but source_ip=10.0.0.99 -> excluded by source_ip filter
+    _HIGH_WRONG_IP = (
+        8,
+        None,
+        "10.0.0.99",
+        "10.0.0.2",
+        1008,
+        "HIGH",
+        "{}",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    # Row 9: LOW severity but source_ip=10.0.0.1 -> excluded by severity filter
+    _LOW_MATCH_IP = (
+        9,
+        None,
+        "10.0.0.1",
+        "10.0.0.2",
+        1009,
+        "LOW",
+        "{}",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+
+    def test_severity_and_source_ip_combined_filter(self, client: TestClient):
+        """Combined ?severity=HIGH,CRITICAL&source_ip=10.0.0.1 returns only
+        rows matching both criteria; excludes mismatched rows."""
+        app.dependency_overrides[auth.get_current_wims_user] = lambda: _ADMIN
+        # Mock returns only the two rows that satisfy both filters
+        mock_db, _get_db = _make_list_db([self._HIGH_MATCH, self._CRITICAL_MATCH], total=2)
+        app.dependency_overrides[get_db_with_rls] = _get_db
+
+        resp = client.get("/api/admin/security-logs?severity=HIGH,CRITICAL&source_ip=10.0.0.1")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 2
+        # Every returned item must satisfy both criteria
+        for item in data["items"]:
+            assert item["severity_level"] in {"HIGH", "CRITICAL"}
+            assert item["source_ip"] == "10.0.0.1"
+
+    def test_combined_filter_sql_contains_both_conditions(self, client: TestClient):
+        """Verify the generated SQL includes both severity IN and source_ip equality."""
+        app.dependency_overrides[auth.get_current_wims_user] = lambda: _ADMIN
+        mock_db, _get_db = _make_list_db([self._HIGH_MATCH, self._CRITICAL_MATCH], total=2)
+        app.dependency_overrides[get_db_with_rls] = _get_db
+
+        client.get("/api/admin/security-logs?severity=HIGH,CRITICAL&source_ip=10.0.0.1")
+
+        sqls = [str(c[0][0]) for c in mock_db.execute.call_args_list]
+        # Check data query (first call) for both conditions
+        data_sql = sqls[0]
+        assert "source_ip = :source_ip" in data_sql
+        assert "severity_level IN" in data_sql
+        # Verify count query (second call) also includes both conditions
+        count_sql = sqls[1]
+        assert "source_ip = :source_ip" in count_sql
+        assert "severity_level IN" in count_sql
+
+    def test_combined_filter_binds_correct_params(self, client: TestClient):
+        """Verify bound parameters include both severity values and source_ip."""
+        app.dependency_overrides[auth.get_current_wims_user] = lambda: _ADMIN
+        mock_db, _get_db = _make_list_db([self._HIGH_MATCH, self._CRITICAL_MATCH], total=2)
+        app.dependency_overrides[get_db_with_rls] = _get_db
+
+        client.get("/api/admin/security-logs?severity=HIGH,CRITICAL&source_ip=10.0.0.1")
+
+        bound_params_list = [c[0][1] for c in mock_db.execute.call_args_list if len(c[0]) > 1]
+        all_values = set()
+        for params in bound_params_list:
+            all_values.update(params.values())
+        assert "HIGH" in all_values
+        assert "CRITICAL" in all_values
+        assert "10.0.0.1" in all_values
+
+
+# ---------------------------------------------------------------------------
 # Summary endpoint
 # ---------------------------------------------------------------------------
 
