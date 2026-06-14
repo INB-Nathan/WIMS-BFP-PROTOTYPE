@@ -3,6 +3,14 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-13] fix | cluster/offline-store-cleanups — #274 markSynced perf + #275 console.warn gate
+
+- #274 (perf): Removed redundant `put()` before `delete()` in `markSynced()`. The `put()` with `status: 'synced'` was a dead write since the record was immediately deleted. Simplified to a single `store.delete(id)` call. Idempotent — IndexedDB `delete()` is silent on missing keys.
+- #275 (chore): Gated `console.warn` for the offline storage cap behind `process.env.NODE_ENV !== 'production'`. The cap enforcement (`throw new Error(...)`) is unconditional and unchanged. Added regression test `throws when encrypted total exceeds advisory storage cap`.
+- #278 (test): Replaced Map-backed idb mock with `fake-indexeddb` in `offlineStore.test.ts`. The mock masked a real IndexedDB race condition in `updateQueuedIncident` — awaiting `encryptPayload` between `store.get` and `store.put` caused the readwrite transaction to auto-commit. Fixed by hoisting encryption before `getDB()` / `transaction()`. 10/10 tests pass under real transaction semantics.
+- #278 scope note: `offlineStore.ops.test.ts` retains its separate Map-backed mock (unchanged). Only `offlineStore.test.ts` was migrated, as scoped in the issue. Sibling offline tests (51 across 6 files) pass.
+- No FRS gap register change (test infrastructure — no FRS alignment change).
+
 ## [2026-06-13] fix | PR #262 FrontierCode review — Q1 narrative_report anonymize leak + Q2 key_version silent decrypt failure
 
 - Q1 MUST-FIX: Added `narrative_report = NULL` to the `incident_sensitive_details` anonymize UPDATE SET clause in `api/routes/admin/privacy.py`. Previously, `narrative_report` was SELECTed for export (plaintext PII column) but never nulled during anonymization, leaking PII after the right-to-erasure path.
