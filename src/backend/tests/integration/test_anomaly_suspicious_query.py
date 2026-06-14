@@ -10,6 +10,10 @@ Run from within the backend container:
 
 from __future__ import annotations
 
+# The sys.path bootstrap below intentionally precedes backend-local imports so
+# this integration test can still be run directly from a container shell.
+# ruff: noqa: E402
+
 import sys
 import uuid
 from pathlib import Path
@@ -31,7 +35,7 @@ from tasks.anomaly_detection import (
 
 # Seeded by 03_users.sql — always present after bootstrap.
 _SVC_SURICATA_ID = "00000000-0000-0000-0000-000000000001"  # NATIONAL_ANALYST
-_ADMIN_TEST_ID = "55555555-5555-4555-8555-555555555555"   # SYSTEM_ADMIN
+_ADMIN_TEST_ID = "55555555-5555-4555-8555-555555555555"  # SYSTEM_ADMIN
 _ADMIN_TEST_UUID = uuid.UUID(_ADMIN_TEST_ID)
 
 
