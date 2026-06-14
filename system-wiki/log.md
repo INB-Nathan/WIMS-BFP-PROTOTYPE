@@ -2831,3 +2831,44 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - Expanded `src/backend/tests/test_privacy.py` coverage for consent client IP capture, consent audit payload fields, anonymization idempotency SQL guard, 404/export edge cases, consent withdraw audit, and export decryption failure handling.
 - Test-only hardening for privacy module behavior; no production route behavior changed.
 - No FRS gap register change.
+
+## [2026-06-13] feat(#297 #299 #300 #301 #303) | security monitoring dashboard UX and test coverage
+
+**Files:**
+- `src/frontend/src/app/admin/monitoring/page.tsx`
+- `src/frontend/src/app/admin/monitoring/admin-security-monitoring.test.tsx`
+
+**Issues:** #297 #299 #300 #301 #303 (clustered PR #263 review follow-ups)
+
+**Changes:**
+
+### page.tsx
+- #301 (P1): Added expand/collapse `onClick` handler for XAI narrative "Read more" span. Expanded state tracked via `expandedNarratives` Set. Includes `role="button"`, `tabIndex`, `onKeyDown`, and `aria-expanded` attributes for accessibility.
+- #300 (Q4): Replaced unconditional 30s `setInterval` with visibility-gated auto-refresh. Interval starts only when tab is visible, pauses when hidden, resumes on re-visibility. Uses `useRef` for interval handle and `visibilitychange` event listener with proper cleanup.
+
+### admin-security-monitoring.test.tsx (20 tests, all passing)
+- #297 (T8): Added 2 tests for severity chip visual active/inactive state (class-based assertions for `bg-gray-100` vs `bg-orange-100`).
+- #299 (T7): Added 3 tests for non-empty XAI narratives (truncation, Read more/Show less expand, severity badges) and audit highlights (notable event type filtering, table_affected labels).
+- #303 (T5): Added 3 tests for auto-refresh interval (30s interval set on mount, callback fires, cleanup on unmount).
+- #300 (Q4): Added 2 tests for tab-visibility gating (interval stops on hidden, restarts on visible).
+- Fixed syntax error in Q1 pagination test (misplaced closing quote).
+- Fixed ambiguous `getByText` selector for "Audit Highlights" (subtitle partial match).
+- Removed unused `truncatedText` variable to satisfy ESLint.
+
+**Validation:** `npx vitest run` — 20/20 passed. `npx eslint` — 0 errors, 0 warnings.
+
+**No FRS gap register change.**
+
+## [2026-06-13] fix | triage page test flake — Inspect button race condition
+
+- Root cause: two tests (`shows Inspect on singleton`, `opens cluster inspection modal`) used `waitFor` for always-present `data-testid` wrappers that render during loading state. Synchronous `getAllByRole` then ran before async data resolved the Inspect buttons into the DOM.
+- Fix: replaced `screen.getAllByRole('button', { name: 'Inspect' })` with `await screen.findAllByRole('button', { name: 'Inspect' })` so the query waits for data-driven content to appear. Same pattern already used by the other 6 Inspect tests in the same file.
+- Files changed: `src/frontend/src/app/incidents/triage/page.test.tsx` (4 insertions, 7 deletions).
+- Validation: `npx vitest run` passes (10/10), `git diff --check` clean.
+
+## [2026-06-13] fix | analyst dashboard export-button test flake (PR #321/#322 CI)
+
+- The test `offline / cached-data UI > disables export buttons when offline` used synchronous `getByLabelText('Export CSV')` immediately after `mockFetchHeatmapData` was called. However, the export buttons are gated behind `!loadingData && heatmap !== null` in the component render tree. At the moment the mock is called, `loadingData` is still `true` (set at the top of `loadData`, cleared in its `finally` block), so the export section hasn't rendered yet.
+- Fix: replaced `getByLabelText` with `findByLabelText` (built on `waitFor`, retries until the element appears). This allows React to complete the `loadData` finally block and re-render the export section before the assertion runs.
+- No component behavior changed. Test coverage preserved (disabled state assertion unchanged).
+- No FRS gap register change (test-only fix).
