@@ -26,6 +26,7 @@ import {
     TrendingUp,
     Map,
     SlidersHorizontal,
+    Activity,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -204,6 +205,7 @@ function getNavSections(role: string | null): NavSection[] {
                 { label: 'Telemetry', href: '/admin/system#telemetry', icon: ShieldAlert },
                 { label: 'Breach Notifications', href: '/admin/breach', icon: ShieldX },
                 { label: 'System Audit', href: '/admin/system#audit', icon: Settings },
+                { label: 'Anomaly Detection', href: '/admin/anomalies', icon: Activity },
                 { label: 'Configuration', href: '/admin/system/config', icon: SlidersHorizontal },
             ],
         });
