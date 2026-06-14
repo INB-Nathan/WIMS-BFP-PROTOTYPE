@@ -1,15 +1,17 @@
 """M8: Behavioral anomaly detection — Celery beat task (60s).
 
-Four detectors run against wims.system_audit_trails using SQL sliding windows:
-  - BULK_DELETE         >10 delete-class actions per user in any 5-min window (HIGH)
-  - OFF_HOURS           High-sensitivity actions 22:00–05:59 Asia/Manila (MEDIUM)
-  - PRIVILEGE_ESCALATION ROLE_CHANGE_TO_% events (HIGH)
-  - RAPID_IP_SWITCH     Same user, 2+ distinct IPs in 10-min window (MEDIUM)
+Five detectors run against wims.system_audit_trails using SQL sliding windows:
+  - BULK_DELETE              >10 delete-class actions per user in any 5-min window (HIGH)
+  - OFF_HOURS                High-sensitivity actions 22:00–05:59 Asia/Manila (MEDIUM)
+  - PRIVILEGE_ESCALATION     ROLE_CHANGE_TO_% events (HIGH)
+  - RAPID_IP_SWITCH          Same user, 2+ distinct IPs in 10-min window (MEDIUM)
+  - SUSPICIOUS_QUERY_PATTERN >10 PII_EXPORT actions per user in any 5-min window (HIGH)
+                             Audit-trail proxy: pg_stat_statements is not enabled
+                             in this stack (GH #280).
 
 Deferred (not implemented — M8 remains PARTIAL):
-  - Suspicious Query Patterns — needs pg_stat_statements, not enabled
   - Impossible Travel (geo) — needs IP geolocation database, not in-stack;
-    RAPID_IP_SWITCH ships as the achievable proxy
+    RAPID_IP_SWITCH ships as the achievable proxy (GH #281)
 
 Each detected anomaly is written to wims.anomaly_detections with
 ON CONFLICT (anomaly_type, dedup_key) DO NOTHING.  Only when a NEW row is
@@ -37,6 +39,9 @@ from celery_config import celery_app
 from database import SYSTEM_TASK_USER_ID, get_session
 
 logger = logging.getLogger(__name__)
+
+_PII_EXPORT_ACTION = "PII_EXPORT"
+_SUSPICIOUS_QUERY_THRESHOLD = 10
 
 # ---------------------------------------------------------------------------
 # Detector helpers
@@ -247,6 +252,70 @@ def _detect_rapid_ip_switch(db: Session) -> list[dict[str, Any]]:
     return results
 
 
+def _detect_suspicious_query_pattern(db: Session) -> list[dict[str, Any]]:
+    """Return anomaly dicts for users with >_SUSPICIOUS_QUERY_THRESHOLD PII_EXPORT
+    actions in any 5-min sliding window within the last 10 minutes.
+
+    Uses a correlated subquery (same pattern as _detect_bulk_delete) so that every
+    PII_EXPORT event counts its own trailing-5-min window — cross-boundary burst
+    evasion is prevented.
+
+    Detection source: wims.system_audit_trails (audit-trail proxy).
+    pg_stat_statements is not enabled in this stack; see GH #280 for rationale.
+    """
+    rows = db.execute(
+        text("""
+            SELECT user_id,
+                   window_start,
+                   MAX(cnt) AS cnt,
+                   (ARRAY_AGG(DISTINCT ip_address))[1] AS source_ip
+            FROM (
+                SELECT
+                    user_id,
+                    ip_address,
+                    date_trunc('minute', timestamp)
+                        - (EXTRACT(MINUTE FROM timestamp)::int % 5) * interval '1 minute'
+                        AS window_start,
+                    (SELECT COUNT(*)
+                     FROM wims.system_audit_trails t2
+                     WHERE t2.user_id = t1.user_id
+                       AND t2.action_type = :action
+                       AND t2.timestamp >= t1.timestamp - interval '5 minutes'
+                       AND t2.timestamp <= t1.timestamp
+                    ) AS cnt
+                FROM wims.system_audit_trails t1
+                WHERE t1.action_type = :action
+                  AND t1.timestamp >= now() - interval '10 minutes'
+                  AND t1.user_id IS NOT NULL
+            ) sub
+            WHERE cnt > :threshold
+            GROUP BY user_id, window_start
+        """),
+        {"action": _PII_EXPORT_ACTION, "threshold": _SUSPICIOUS_QUERY_THRESHOLD},
+    ).fetchall()
+
+    results = []
+    for row in rows:
+        user_id, window_start, cnt, source_ip = row
+        window_key = window_start.strftime("%Y%m%d%H%M") if window_start else "unknown"
+        results.append(
+            {
+                "anomaly_type": "SUSPICIOUS_QUERY_PATTERN",
+                "subject_user_id": str(user_id),
+                "severity": "HIGH",
+                "details": {
+                    "action_type": _PII_EXPORT_ACTION,
+                    "count": int(cnt),
+                    "window_minutes": 5,
+                    "threshold": _SUSPICIOUS_QUERY_THRESHOLD,
+                },
+                "dedup_key": f"SUSPICIOUS_QUERY_PATTERN:{user_id}:{window_key}",
+                "source_ip": source_ip,
+            }
+        )
+    return results
+
+
 # ---------------------------------------------------------------------------
 # Dual-write helper
 # ---------------------------------------------------------------------------
@@ -318,6 +387,7 @@ _DETECTORS = [
     _detect_off_hours,
     _detect_privilege_escalation,
     _detect_rapid_ip_switch,
+    _detect_suspicious_query_pattern,
 ]
 
 
