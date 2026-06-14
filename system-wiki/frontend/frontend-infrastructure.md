@@ -287,15 +287,10 @@ components/
   Header.tsx
   WildlandAforManualForm.tsx
   analytics/
-    AnalystIncidentList.tsx
-    ExportPreviewModal.tsx
-    TypeDistributionChart.tsx
-    TopBarangaysChart.tsx
-    TrendCharts.tsx
-    TrendCharts.test.tsx
-    ResponseTimeChart.tsx
-    HeatmapViewer.tsx
-    HeatmapViewer.test.tsx
+    ...
+app/dashboard/regional/
+  conflicts/
+    page.tsx            ← Sync conflict resolution (issue #64)
 ```
 
 ### `Sidebar.tsx`
@@ -351,6 +346,7 @@ Key behaviors: `formState` with ~90 fields. Encoder region lock on mount. Duplic
 - **Reads (`lib/api/offlineRegional.ts`):** `fetchRegionalIncidents*OfflineAware` wrappers cache every successful response and fall back to the encrypted cache when offline (`fromCache: true` → amber "showing cached data" banner).
 - **Sync (`lib/syncEngine.ts`):** `syncPendingIncidents(encoderId)` verifies app reachability, loads the local queue, checks `GET /api/auth/session`, and only calls `refreshToken()` if the access session is gone. It then replays ops **oldest-first** (sequential, so a create resolves its `serverId` before its linked submit). `create` ops replay through the same full-fidelity `POST /api/incidents/upload-bundle` the online form uses (not the flat `/api/regional/incidents`), tagged with `client_id` for retry-safe idempotency. Ops are marked synced only on server confirmation; a network error aborts the batch and leaves items queued; 409 → `conflict` state; a 401 during replay restores the current op to `pending` and returns `abortReason: 'auth'`.
 - **Reconnect (`lib/useAutoSync.ts` + `useNetworkStatus`):** detects reconnection, toasts the user, and syncs after a short debounce. If both session check and refresh fail with auth (`abortReason: 'auth'`), it prompts re-login and **keeps** the queue intact; auth-service/network failures map to `abortReason: 'offline'` instead of repeated session-expired prompts.
+- **Conflict Resolution (`lib/offlineStore.ts` + `app/dashboard/regional/conflicts/page.tsx`):** When the server returns HTTP 409 during sync, the offending operation is marked `conflict` with `errorCode` (`409_duplicate` or `409_conflict`) and the server's current version is stored in `serverVersion`. The `SyncStatusBar` shows an orange banner with conflict count and a "Review" link to `/dashboard/regional/conflicts`. The conflicts page lists all conflicted ops with their local payload, server version (if available), and three resolution options: **Keep Local** (re-queue for retry via `resolveConflictOp`), **Use Server Version** (delete the local op), or **Discard** (delete without accepting server version). This replaces silent last-write-wins with explicit user choice (issue #64).
 
 ### `MapPickerInner.tsx`
 
@@ -360,7 +356,7 @@ Interactive map picker using `react-leaflet` + OpenStreetMap Nominatim geocoding
 
 ### `SyncStatusBar.tsx`
 
-Sync status UI (FR-3E). Displays: Offline (amber), Reconnecting (blue), Syncing (blue spin), All synced (green), Pending (gray with "Sync Now" button). Uses `useAutoSync()` and `useNetworkStatus()` hooks.
+Sync status UI (FR-3E). Displays: Offline (amber), Reconnecting (blue), Syncing (blue spin), All synced (green), Pending (gray with "Sync Now" button), Session Expired (red with "Log In to Sync"), Conflict (orange with count and "Review" link to `/dashboard/regional/conflicts`). Uses `useAutoSync()` and `useNetworkStatus()` hooks.
 
 ### `NetworkStatusIndicator.tsx`
 

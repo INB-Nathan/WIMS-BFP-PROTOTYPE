@@ -85,6 +85,7 @@ vi.mock('idb', () => ({
 const {
   deleteOfflineOpCascade,
   recoverStaleSyncingOps,
+  resolveConflictOp,
   updateOfflineOp,
   queueOfflineOp,
   getOfflineOp,
@@ -271,6 +272,61 @@ describe('deleteOfflineOpCascade', () => {
     expect(opsStore.has(linkedSubmit.localId)).toBe(false);
     expect(opsStore.has(linkedUpdate.localId)).toBe(false);
     expect(opsStore.has(unrelated.localId)).toBe(true);
+  });
+});
+
+describe('resolveConflictOp', () => {
+  beforeEach(async () => {
+    await setActiveOfflineUser(ENCODER_ID);
+  });
+
+  it('re-encrypts payload and resets op to pending', async () => {
+    // Create an op via the normal path so the payload is properly encrypted
+    await queueOfflineOp({
+      localId: 'conflict-op-1',
+      operation: 'create',
+      serverId: null,
+      linkedLocalId: null,
+      serverUpdatedAt: null,
+      regionId: 1,
+      encoderId: ENCODER_ID,
+      payload: { general_category: 'STRUCTURAL' },
+      createdAt: Date.now(),
+    });
+
+    // Simulate conflict state: manually set syncStatus + metadata
+    const raw = opsStore.get('conflict-op-1')!;
+    const beforeEnc = raw.payload as { iv: number[]; data: number[] };
+    opsStore.set('conflict-op-1', {
+      ...raw,
+      syncStatus: 'conflict',
+      errorCode: '409_conflict',
+      errorMessage: 'Version mismatch',
+      serverVersion: { version: 3 },
+      retryCount: 2,
+    });
+
+    const merged = { general_category: 'VEHICULAR', notes: 'merged' };
+    await resolveConflictOp('conflict-op-1', merged);
+
+    const resolved = opsStore.get('conflict-op-1')!;
+    expect(resolved.syncStatus).toBe('pending');
+    expect(resolved.errorCode).toBeNull();
+    expect(resolved.errorMessage).toBeNull();
+    expect(resolved.serverVersion).toBeNull();
+    expect(resolved.retryCount).toBe(0);
+
+    // Payload must be re-encrypted (new ciphertext)
+    const afterEnc = resolved.payload as { iv: number[]; data: number[] };
+    expect(Buffer.from(afterEnc.iv)).not.toEqual(Buffer.from(beforeEnc.iv));
+    expect(Buffer.from(afterEnc.data)).not.toEqual(Buffer.from(beforeEnc.data));
+  });
+
+  it('is a no-op when the op does not exist', async () => {
+    // Should not throw
+    await expect(
+      resolveConflictOp('nonexistent', { field: 'value' }),
+    ).resolves.toBeUndefined();
   });
 });
 
