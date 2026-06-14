@@ -243,20 +243,40 @@ Returns `{first_name, last_name, full_name, contact_number}` via `adm.get_user()
 
 **File:** `src/backend/services/ai_service.py`
 
-IDS-to-SLM AI analysis via Ollama.
+IDS-to-SLM AI analysis via Ollama (qwen2.5:3b).
+
+### Retry & Timeout (GH #245)
+
+All three Ollama call sites use `_ollama_post_with_retry()`:
+- **3 retries** with exponential backoff (2s / 4s / 8s) on `ConnectError` and 5xx.
+- **No retry** on `TimeoutException` — inference is CPU-bound; retrying doubles load.
+- **Timeout** from `OLLAMA_TIMEOUT` env var (default 120s), falling back to `system_config.ai_timeout_seconds`.
 
 ### `analyze_threat_log(log_id, db) -> dict`
 
 1. Fetches security log row from `wims.security_threat_logs`
-2. Builds prompt: `"Analyze this Suricata IDS alert: severity={severity_level}, SID={suricata_sid}, payload={raw_payload}. Output strictly JSON with keys 'narrative' (string) and 'confidence' (float 0.0-1.0)."`
-3. POSTs to `{OLLAMA_URL}/api/generate` with `model="qwen2.5:3b"`, `stream=False`, `format="json"`
-4. Parses response JSON for `narrative` and `confidence`
+2. Builds prompt with 5-key structured JSON output (anomaly_description, log_evidence, risk_assessment, recommended_action, confidence)
+3. POSTs to `{OLLAMA_URL}/api/generate` with `model="qwen2.5:3b"`, `stream=False`, `format="json"` via `_ollama_post_with_retry()`
+4. Parses response JSON for 5 keys and `confidence`
 5. Updates `wims.security_threat_logs` SET `xai_narrative`, `xai_confidence`
 6. Returns full log row with updated XAI fields
 
-**Errors:** 404 (log not found), 502 (Ollama unavailable or invalid JSON response)
+### `generate_incident_narrative(incident_id, db) -> dict`
 
-**Ollama URL:** `OLLAMA_URL` env var (default `http://wims-ollama:11434`)
+Generates 2-3 sentence plain-English narrative for VERIFIED fire incidents. Stores in `fire_incidents.ai_narrative` / `ai_narrative_confidence`.
+
+### `analyze_audit_logs(audit_ids, db) -> dict`
+
+Sends batched audit trail entries to Ollama for behavioral pattern analysis. Returns structured XAI result.
+
+**Environment config:**
+
+| Variable | Default | Description |
+|---|---|---|
+| `OLLAMA_URL` | `http://wims-ollama:11434` | Ollama API base URL |
+| `OLLAMA_TIMEOUT` | `120` | Inference HTTP timeout (seconds) |
+
+**Errors:** 404 (not found), 409 (non-VERIFIED for narratives), 400 (invalid/missing IDs), 502 (Ollama unavailable/timed out/invalid JSON)
 
 ---
 

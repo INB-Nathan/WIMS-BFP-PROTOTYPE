@@ -227,7 +227,7 @@ class TestAiTimeoutConsumer:
 
     @pytest.mark.asyncio
     async def test_analyze_uses_config_timeout(self):
-        """analyze_threat_log uses the timeout value from wims.system_config."""
+        """analyze_threat_log uses ai_timeout_seconds from wims.system_config."""
         from services.ai_service import analyze_threat_log
 
         mock_db = MagicMock()
@@ -252,7 +252,7 @@ class TestAiTimeoutConsumer:
             sql = str(query)
             if "system_config" in sql:
                 r = MagicMock()
-                r.__getitem__ = lambda self, i: "120"
+                r.__getitem__ = lambda self, i: "90"
                 result.fetchone.return_value = r
             elif "security_threat_logs" in sql and "SELECT" in sql:
                 result.fetchone.return_value = log_row
@@ -288,6 +288,6 @@ class TestAiTimeoutConsumer:
             with patch("services.ai_service.publish_security_event", new_callable=AsyncMock):
                 await analyze_threat_log(1, mock_db)
 
-        assert captured_timeout == 120.0, (
-            f"Expected timeout=120.0 from config, got {captured_timeout}"
+        assert captured_timeout == 90.0, (
+            f"Expected timeout=90.0 from config, got {captured_timeout}"
         )

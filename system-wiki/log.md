@@ -29,6 +29,18 @@ Format: `## [YYYY-MM-DD] action | subject`
 
 **No FRS gap status changed.** Anomaly detection M8 remains PARTIAL (4/5 detectors shipped).
 
+## [2026-06-13] fix | GH #245 #246 — Ollama stability + Celery asyncio.run() fix
+
+- **GH #245 Ollama stability:**
+  - `services/ai_service.py`: Added `_ollama_post_with_retry()` — 3 retries with exponential backoff (2s/4s/8s) on `ConnectError` and 5xx; timeout NOT retried (CPU-bound). Added `OLLAMA_TIMEOUT` env var (default 120s, was hardcoded 60s). `_ollama_timeout()` priority: env var > `system_config.ai_timeout_seconds` > 120s default.
+  - `docker-compose.yml`: Ollama healthcheck uses `ollama list` CLI command. Retries increased 10→30. Resources increased 2 CPU/4GB → 4 CPU/8GB. Celery-worker now waits for `ollama: service_healthy` + `ollama-model-pull: service_completed_successfully`.
+  - `.env.production.example`: Documented `OLLAMA_URL` and `OLLAMA_TIMEOUT`.
+  - All three call sites (`analyze_threat_log`, `generate_incident_narrative`, `analyze_audit_logs`) now use `_ollama_post_with_retry()`.
+- **GH #246 Celery asyncio.run() fix:**
+  - `tasks/narrative.py`: Replaced `asyncio.gather()` + shared `db` session with sequential processing. Each incident gets a fresh `get_session()` call, `asyncio.run(generate_incident_narrative(iid, per_call_db))`, and `per_call_db.close()`. Return shape now includes `succeeded`/`failed` counts. This eliminates the event-loop conflict (no concurrent `asyncio.gather()` on a shared loop) and SQLAlchemy session-sharing race.
+- **Tests:** `tests/test_ai_service_retry.py` — 14 new unit tests covering timeout configuration, retry on ConnectError/5xx, no-retry on TimeoutException/4xx, compose config assertions (healthcheck, celery deps, resource limits), and narrative task return shape. All 14 pass.
+- No FRS gap register change (no FRS alignment change — these are operational stability fixes).
+
 ## [2026-06-13] fix | PR #262 FrontierCode review — Q1 narrative_report anonymize leak + Q2 key_version silent decrypt failure
 
 - Q1 MUST-FIX: Added `narrative_report = NULL` to the `incident_sensitive_details` anonymize UPDATE SET clause in `api/routes/admin/privacy.py`. Previously, `narrative_report` was SELECTed for export (plaintext PII column) but never nulled during anonymization, leaking PII after the right-to-erasure path.
