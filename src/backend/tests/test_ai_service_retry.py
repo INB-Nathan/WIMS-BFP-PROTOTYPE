@@ -236,8 +236,11 @@ class TestDockerComposeConfig:
         assert "healthcheck" in ollama, "Ollama must have a healthcheck"
         hc = ollama["healthcheck"]
         test_cmd = hc["test"]
-        assert any("api/tags" in part for part in test_cmd if isinstance(part, str)), (
-            f"Healthcheck should call /api/tags, got {test_cmd}"
+        assert any("ollama" in part for part in test_cmd if isinstance(part, str)), (
+            f"Healthcheck should call ollama CLI, got {test_cmd}"
+        )
+        assert any("list" in part for part in test_cmd if isinstance(part, str)), (
+            f"Healthcheck should call ollama list, got {test_cmd}"
         )
         assert hc["retries"] >= 30, f"Expected retries >= 30, got {hc['retries']}"
 
