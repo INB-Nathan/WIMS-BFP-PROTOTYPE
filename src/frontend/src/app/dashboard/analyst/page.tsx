@@ -51,6 +51,8 @@ import {
 import { getShortRegionName, PH_REGIONS } from '@/lib/ph-regions';
 import { useAutoSync } from '@/lib/useAutoSync';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import { WidgetGrid, AddWidgetDropdown } from '@/components/dashboard';
+import { useDashboardWidgets } from '@/hooks/useDashboardWidgets';
 
 const HeatmapViewer = dynamic(
   () => import('@/components/analytics/HeatmapViewer').then((m) => m.HeatmapViewer),
@@ -241,6 +243,8 @@ export default function AnalystDashboardPage() {
       router.replace('/dashboard');
     }
   }, [loading, role, router]);
+
+  const widgetConfig = useDashboardWidgets(role);
 
   const [heatmap, setHeatmap] = useState<HeatmapGeoJSON | null>(null);
   const [trends, setTrends] = useState<TrendsResponse | null>(null);
@@ -579,6 +583,35 @@ export default function AnalystDashboardPage() {
           />
         </div>
       </div>
+
+      {/* ── Customizable widget grid ── */}
+      {ANALYST_ROLES.includes(role ?? '') && (
+        <>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+              Dashboard Widgets
+            </span>
+            <div className="flex items-center gap-2">
+              {widgetConfig.widgets.length > 0 && (
+                <button
+                  type="button"
+                  onClick={widgetConfig.resetToDefaults}
+                  className="text-xs font-medium px-2 py-1 rounded-md border hover:bg-gray-50 transition-colors"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+                >
+                  Reset
+                </button>
+              )}
+              <AddWidgetDropdown availableAdditions={widgetConfig.availableAdditions} onAddWidget={widgetConfig.addWidget} />
+            </div>
+          </div>
+          <WidgetGrid
+            widgetIds={widgetConfig.widgets}
+            role={role}
+            onRemoveWidget={widgetConfig.removeWidget}
+          />
+        </>
+      )}
 
       <div className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
         <PanelHeader

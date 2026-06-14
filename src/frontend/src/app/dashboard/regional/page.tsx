@@ -24,6 +24,8 @@ import { formatClassification } from '@/lib/afor-utils';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { StatCard, StatsDateFilterChips } from '@/components/ui';
 import type { StatsDateFilterValue } from '@/components/ui';
+import { WidgetGrid, AddWidgetDropdown } from '@/components/dashboard';
+import { useDashboardWidgets } from '@/hooks/useDashboardWidgets';
 import { formatIncidentDate, isDateOnly, getDateBounds as getDateBoundsUtil, categoryCount, formatCacheAge } from '@/lib/incident-utils';
 import { useScrollSafeUpdate } from '@/lib/useScrollSafeUpdate';
 import { useHoverHint } from '@/lib/useHoverHint';
@@ -185,6 +187,11 @@ export default function RegionalDashboardPage() {
 
   const updateFiltersWithoutScrollShift = useScrollSafeUpdate();
   const { hoverHint, clearHoverHint, scheduleHoverHint, hideHoverHintOnMove } = useHoverHint();
+
+  // ── Widget customization ────────────────────────────────────────────────
+  const widgetConfig = useDashboardWidgets(
+    role === 'NATIONAL_VALIDATOR' ? 'NATIONAL_VALIDATOR' : 'REGIONAL_ENCODER',
+  );
 
   const applySpecificDateFilter = useCallback(() => {
     if (!specificDateDraftIsValid) return;
@@ -578,6 +585,31 @@ export default function RegionalDashboardPage() {
         statsRefreshing={statsRefreshing}
         incidentsLoading={incidentsLoading}
         onRefreshAll={refreshAll}
+      />
+
+      {/* ── Customizable widget grid ── */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+          Dashboard Widgets
+        </span>
+        <div className="flex items-center gap-2">
+          {widgetConfig.widgets.length > 0 && (
+            <button
+              type="button"
+              onClick={widgetConfig.resetToDefaults}
+              className="text-xs font-medium px-2 py-1 rounded-md border hover:bg-gray-50 transition-colors"
+              style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+            >
+              Reset
+            </button>
+          )}
+          <AddWidgetDropdown availableAdditions={widgetConfig.availableAdditions} onAddWidget={widgetConfig.addWidget} />
+        </div>
+      </div>
+      <WidgetGrid
+        widgetIds={widgetConfig.widgets}
+        role={role}
+        onRemoveWidget={widgetConfig.removeWidget}
       />
 
       {/* ── Stats section (collapsible, auto-hidden when offline) ── */}

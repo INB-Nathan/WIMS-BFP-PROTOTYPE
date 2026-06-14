@@ -28,6 +28,8 @@ import { useScrollSafeUpdate } from "@/lib/useScrollSafeUpdate";
 import { useHoverHint } from "@/lib/useHoverHint";
 import { StatCard, StatsDateFilterChips, StickyBanner, EmptyState } from "@/components/ui";
 import type { StatsDateFilterValue } from "@/components/ui";
+import { WidgetGrid, AddWidgetDropdown } from "@/components/dashboard";
+import { useDashboardWidgets } from "@/hooks/useDashboardWidgets";
 import { ValidatorPageHeader } from "@/components/validator/ValidatorPageHeader";
 import { ActionModal } from "@/components/validator/ActionModal";
 import { ValidatorDuplicateModal } from "@/components/validator/ValidatorDuplicateModal";
@@ -192,6 +194,9 @@ export default function ValidatorDashboard() {
   }, [updateFiltersWithoutScrollShift]);
 
   const { hoverHint, clearHoverHint, scheduleHoverHint, hideHoverHintOnMove } = useHoverHint();
+
+  // ── Widget customization ────────────────────────────────────────────────
+  const widgetConfig = useDashboardWidgets("NATIONAL_VALIDATOR");
 
   const refreshQueuedValidatorOpsCount = useCallback(async () => {
     try {
@@ -658,6 +663,20 @@ export default function ValidatorDashboard() {
         onBulkApprove={() => setShowBulkConfirmModal(true)}
       />
 
+      {/* ── Customizable widget grid ── */}
+      <WidgetToolbar
+        role="NATIONAL_VALIDATOR"
+        widgets={widgetConfig.widgets}
+        availableAdditions={widgetConfig.availableAdditions}
+        onAddWidget={widgetConfig.addWidget}
+        onResetToDefaults={widgetConfig.resetToDefaults}
+      />
+      <WidgetGrid
+        widgetIds={widgetConfig.widgets}
+        role="NATIONAL_VALIDATOR"
+        onRemoveWidget={widgetConfig.removeWidget}
+      />
+
       {/* ── Error/bulk banners ── */}
       {bulkError && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{bulkError}</div>
@@ -978,6 +997,45 @@ export default function ValidatorDashboard() {
           onSubmit={submitAction}
         />
       )}
+    </div>
+  );
+}
+
+// ── Widget toolbar ──────────────────────────────────────────────────────────
+
+function WidgetToolbar({
+  role,
+  widgets,
+  availableAdditions,
+  onAddWidget,
+  onResetToDefaults,
+}: {
+  role: string | null;
+  widgets: string[];
+  availableAdditions: import("@/components/dashboard").WidgetDefinition[];
+  onAddWidget: (id: string) => void;
+  onResetToDefaults: () => void;
+}) {
+  if (!role || widgets.length === 0 && availableAdditions.length === 0) return null;
+
+  return (
+    <div className="flex items-center justify-between gap-2 flex-wrap">
+      <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+        Dashboard Widgets
+      </span>
+      <div className="flex items-center gap-2">
+        {widgets.length > 0 && (
+          <button
+            type="button"
+            onClick={onResetToDefaults}
+            className="text-xs font-medium px-2 py-1 rounded-md border hover:bg-gray-50 transition-colors"
+            style={{ borderColor: "var(--border-color)", color: "var(--text-secondary)" }}
+          >
+            Reset
+          </button>
+        )}
+        <AddWidgetDropdown availableAdditions={availableAdditions} onAddWidget={onAddWidget} />
+      </div>
     </div>
   );
 }
