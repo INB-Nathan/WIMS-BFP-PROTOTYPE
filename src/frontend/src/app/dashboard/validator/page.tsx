@@ -4,10 +4,10 @@
  * /dashboard/validator — NATIONAL_VALIDATOR incident queue.
  */
 
-import { useEffect, useState, useCallback, useMemo, useRef, type MouseEvent } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
-  RefreshCw, Flame, Building2, TreePine, Car, Layers, Home, Users, Truck, Trees,
+  Flame, Building2, TreePine, Car, Layers, Home, Users, Truck, Trees,
   Archive, CalendarDays,
 } from "lucide-react";
 import {
@@ -24,6 +24,11 @@ import { useUserProfile } from "@/lib/auth";
 import { formatClassification } from "@/lib/afor-utils";
 import { PH_REGIONS, getShortRegionName } from "@/lib/ph-regions";
 import { isDateOnly, getDateBounds, categoryCount as sharedCategoryCount } from "@/lib/incident-utils";
+import { useScrollSafeUpdate } from "@/lib/useScrollSafeUpdate";
+import { useHoverHint } from "@/lib/useHoverHint";
+import { StatCard, StatsDateFilterChips, StickyBanner, EmptyState } from "@/components/ui";
+import type { StatsDateFilterValue } from "@/components/ui";
+import { ValidatorPageHeader } from "@/components/validator/ValidatorPageHeader";
 import { ActionModal } from "@/components/validator/ActionModal";
 import { ValidatorDuplicateModal } from "@/components/validator/ValidatorDuplicateModal";
 import { AcceptConfirmModal } from "@/components/validator/AcceptConfirmModal";
@@ -53,12 +58,6 @@ const VALIDATOR_STATUS_FILTERS = [
   { label: "Rejected", value: "REJECTED" },
 ] as const;
 
-interface HoverHint {
-  id: number;
-  x: number;
-  y: number;
-}
-
 const DATE_FILTERS = [
   { label: "Today", value: "today" },
   { label: "This Week", value: "week" },
@@ -70,14 +69,7 @@ const DATE_FILTERS = [
 
 type DateFilterValue = (typeof DATE_FILTERS)[number]["value"];
 
-const STATS_DATE_FILTERS = [
-  { label: "Today", value: "today" },
-  { label: "This Week", value: "week" },
-  { label: "This Month", value: "month" },
-  { label: "All Time", value: "all" },
-] as const;
 
-type StatsDateFilterValue = (typeof STATS_DATE_FILTERS)[number]["value"];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -113,7 +105,7 @@ export default function ValidatorDashboard() {
   const dateBounds = useMemo(() => getDateBounds(dateFilter, specificDate), [dateFilter, specificDate]);
   const specificDateDraftIsValid = isDateOnly(specificDateDraft);
 
-  const [statsDateFilter, setStatsDateFilter] = useState<StatsDateFilterValue>("week");
+  const [statsDateFilter, setStatsDateFilter] = useState<StatsDateFilterValue>("week" as StatsDateFilterValue);
   const statsDateBounds = useMemo(
     () => getDateBounds(statsDateFilter, ""),
     [statsDateFilter],
@@ -158,25 +150,10 @@ export default function ValidatorDashboard() {
   const [runtimeDuplicates, setRuntimeDuplicates] = useState<Map<number, number>>(new Map());
   const [newIncidentBanner, setNewIncidentBanner] = useState(false);
   const [confirmAcceptTarget, setConfirmAcceptTarget] = useState<ValidatorIncident | null>(null);
-  const [hoverHint, setHoverHint] = useState<HoverHint | null>(null);
   const lastKnownTotal = useRef<number | null>(null);
-  const hoverHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statsInitialMountRef = useRef(true);
 
-  const updateFiltersWithoutScrollShift = useCallback((update: () => void) => {
-    const x = window.scrollX;
-    const y = window.scrollY;
-    update();
-    const restore = () => {
-      if (Math.abs(window.scrollY - y) > 1 || Math.abs(window.scrollX - x) > 1) {
-        window.scrollTo({ left: x, top: y, behavior: 'auto' });
-      }
-    };
-    requestAnimationFrame(() => {
-      restore();
-      requestAnimationFrame(restore);
-    });
-  }, []);
+  const updateFiltersWithoutScrollShift = useScrollSafeUpdate();
 
   const applySpecificDateFilter = useCallback(() => {
     if (!specificDateDraftIsValid) return;
@@ -214,34 +191,7 @@ export default function ValidatorDashboard() {
     });
   }, [updateFiltersWithoutScrollShift]);
 
-  const clearHoverHint = useCallback(() => {
-    if (hoverHintTimer.current) {
-      clearTimeout(hoverHintTimer.current);
-      hoverHintTimer.current = null;
-    }
-    setHoverHint(null);
-  }, []);
-
-  const scheduleHoverHint = useCallback((id: number, event: MouseEvent<HTMLElement>) => {
-    if (hoverHintTimer.current) clearTimeout(hoverHintTimer.current);
-    const { clientX, clientY } = event;
-    hoverHintTimer.current = setTimeout(() => {
-      setHoverHint({ id, x: clientX, y: clientY });
-      hoverHintTimer.current = null;
-    }, 2000);
-  }, []);
-
-  const hideHoverHintOnMove = useCallback(() => {
-    if (hoverHintTimer.current) {
-      clearTimeout(hoverHintTimer.current);
-      hoverHintTimer.current = null;
-    }
-    if (hoverHint) setHoverHint(null);
-  }, [hoverHint]);
-
-  useEffect(() => () => {
-    if (hoverHintTimer.current) clearTimeout(hoverHintTimer.current);
-  }, []);
+  const { hoverHint, clearHoverHint, scheduleHoverHint, hideHoverHintOnMove } = useHoverHint();
 
   const refreshQueuedValidatorOpsCount = useCallback(async () => {
     try {
@@ -643,9 +593,9 @@ export default function ValidatorDashboard() {
     <div className="space-y-6 pb-8" style={{ backgroundColor: 'var(--content-bg)' }}>
       {/* ── Sticky notification toast (visible while scrolling) ── */}
       {newIncidentBanner && (
-        <div className="sticky top-0 z-40">
-          <div className="flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 shadow-md">
-            <span>New incidents have been submitted. Refresh to see the latest queue.</span>
+        <StickyBanner
+          tone="blue"
+          action={
             <button
               onClick={fetchQueue}
               className="ml-4 rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
@@ -653,15 +603,16 @@ export default function ValidatorDashboard() {
             >
               Refresh now
             </button>
-          </div>
-        </div>
+          }
+        >
+          New incidents have been submitted. Refresh to see the latest queue.
+        </StickyBanner>
       )}
 
-      {/* ── Stale cache banner ── */}
       {syncNotification && (
-        <div className="sticky top-0 z-40">
-          <div className="flex items-center justify-between rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 shadow-md">
-            <span>{syncNotification}</span>
+        <StickyBanner
+          tone="green"
+          action={
             <button
               onClick={() => setSyncNotification(null)}
               className="ml-4 rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
@@ -669,18 +620,16 @@ export default function ValidatorDashboard() {
             >
               Dismiss
             </button>
-          </div>
-        </div>
+          }
+        >
+          {syncNotification}
+        </StickyBanner>
       )}
 
       {cacheMeta && (
-        <div className="sticky top-0 z-40">
-          <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 shadow-md">
-            <span>
-              Showing cached data
-              {cacheMeta.cachedAt ? ` from ${new Date(cacheMeta.cachedAt).toLocaleTimeString()}` : ''}.
-              {' '}Reconnect to see the latest queue.
-            </span>
+        <StickyBanner
+          tone="amber"
+          action={
             <button
               onClick={fetchQueue}
               className="ml-4 rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
@@ -688,74 +637,26 @@ export default function ValidatorDashboard() {
             >
               Retry
             </button>
-          </div>
-        </div>
+          }
+        >
+          Showing cached data
+          {cacheMeta.cachedAt ? ` from ${new Date(cacheMeta.cachedAt).toLocaleTimeString()}` : ''}.
+          {' '}Reconnect to see the latest queue.
+        </StickyBanner>
       )}
 
       {/* ── Page header ── */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="font-bold leading-tight" style={{ fontSize: '32px', color: 'var(--text-primary)' }}>
-              Dashboard
-            </h1>
-          </div>
-          <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            Review workload, validation decisions, and finalized incident records.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <button
-            onClick={fetchQueue}
-            disabled={loading}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} aria-hidden />
-            Refresh
-          </button>
-          {queuedValidatorOpsCount > 0 && (
-            <span
-              className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold"
-              style={{
-                backgroundColor: '#FEF3C7',
-                borderColor: '#F59E0B',
-                color: '#92400E',
-              }}
-              title={`${queuedValidatorOpsCount} action${queuedValidatorOpsCount !== 1 ? 's' : ''} waiting for sync`}
-            >
-              {autoSync.syncing ? (
-                <RefreshCw className="h-3 w-3 animate-spin" />
-              ) : null}
-              {queuedValidatorOpsCount} queued
-            </span>
-          )}
-          {!networkStatus.isOnline && (
-            <span
-              className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold"
-              style={{
-                backgroundColor: '#FEE2E2',
-                borderColor: '#FCA5A5',
-                color: '#991B1B',
-              }}
-              title="You are offline. Changes will be queued and synced when you reconnect."
-            >
-              Offline
-            </span>
-          )}
-          {selectedIds.size > 0 && (
-            <button
-              onClick={() => setShowBulkConfirmModal(true)}
-              disabled={bulkLoading}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors disabled:opacity-50"
-              style={{ backgroundColor: '#16A34A' }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#15803D'; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#16A34A'; }}
-            >
-              {bulkLoading ? (bulkProgress ?? "Processing…") : `Bulk Approve (${selectedIds.size})`}
-            </button>
-          )}
-        </div>
-      </div>
+      <ValidatorPageHeader
+        loading={loading}
+        onRefresh={fetchQueue}
+        queuedValidatorOpsCount={queuedValidatorOpsCount}
+        syncing={autoSync.syncing}
+        isOnline={networkStatus.isOnline}
+        selectedCount={selectedIds.size}
+        bulkLoading={bulkLoading}
+        bulkProgress={bulkProgress}
+        onBulkApprove={() => setShowBulkConfirmModal(true)}
+      />
 
       {/* ── Error/bulk banners ── */}
       {bulkError && (
@@ -769,72 +670,23 @@ export default function ValidatorDashboard() {
       )}
 
       {/* ── Stats date filter chips ── */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>Stats:</span>
-        {STATS_DATE_FILTERS.map((f) => {
-          const active = statsDateFilter === f.value;
-          return (
-            <button
-              key={f.value}
-              type="button"
-              onClick={() => setStatsDateFilter(f.value)}
-              className="rounded-full border px-3 py-1 text-xs font-semibold transition-colors"
-              style={active
-                ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#991B1B' }
-                : { backgroundColor: '#fff', borderColor: '#e5e7eb', color: 'var(--text-secondary)' }
-              }
-            >
-              {f.label}
-            </button>
-          );
-        })}
-      </div>
+      <StatsDateFilterChips value={statsDateFilter} onChange={setStatsDateFilter} />
 
       {/* ── Incident stats cards ── */}
       {incidentCards.length > 0 && (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          {incidentCards.map((card) => {
-            const IconComp = card.icon;
-            return (
-              <div
-                key={card.key}
-                className="bg-white rounded-2xl p-4 flex flex-col gap-3 transition-shadow hover:shadow-md"
-                style={{ boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
-              >
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: card.iconBg }}>
-                  <IconComp className="w-5 h-5" style={{ color: card.iconColor }} />
-                </div>
-                <div>
-                  <div className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-muted)' }}>{card.title}</div>
-                  <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{card.value}</div>
-                </div>
-              </div>
-            );
-          })}
+          {incidentCards.map((card) => (
+            <StatCard key={card.key} card={card} />
+          ))}
         </div>
       )}
 
       {/* ── Affected count cards ── */}
       {affectedCards.length > 0 && (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          {affectedCards.map((card) => {
-            const IconComp = card.icon;
-            return (
-              <div
-                key={card.key}
-                className="bg-white rounded-2xl p-4 flex flex-col gap-3 transition-shadow hover:shadow-md"
-                style={{ boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
-              >
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: card.iconBg }}>
-                  <IconComp className="w-5 h-5" style={{ color: card.iconColor }} />
-                </div>
-                <div>
-                  <div className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-muted)' }}>{card.title}</div>
-                  <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{card.value}</div>
-                </div>
-              </div>
-            );
-          })}
+          {affectedCards.map((card) => (
+            <StatCard key={card.key} card={card} />
+          ))}
         </div>
       )}
 
@@ -965,26 +817,11 @@ export default function ValidatorDashboard() {
           <div className="border-b border-red-100 bg-red-50 px-5 py-3 text-sm text-red-800">{error}</div>
         )}
         {!loading && !error && incidents.length === 0 && (
-          <div className="flex min-h-[240px] flex-col items-center justify-center px-5 py-14 text-center">
-            <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-              No incidents found
-            </p>
-            {dateFilter !== 'all' && (
-              <>
-                <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                  Try searching All Time.
-                </p>
-                <button
-                  type="button"
-                  onClick={showAllTimeIncidents}
-                  className="mt-4 inline-flex items-center rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-900"
-                  style={{ backgroundColor: '#991B1B' }}
-                >
-                  Search All Time
-                </button>
-              </>
-            )}
-          </div>
+          <EmptyState
+            showAllTime={dateFilter !== 'all'}
+            onShowAllTime={showAllTimeIncidents}
+            secondary={dateFilter !== 'all' ? 'Try searching All Time.' : undefined}
+          />
         )}
 
         {/* Table */}

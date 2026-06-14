@@ -113,6 +113,16 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `system-wiki/gaps/frs-codebase-gap-register.md`: updated M8 entry to note ACK/RESOLVE workflow closed via #283 (M8 remains PARTIAL due to 2 deferred detectors)
 - 44 total backend pytest pass (31 anomaly detection + 13 anomaly API), 14 frontend Vitest pass, ruff check + format green
 
+## [2026-06-14] refactor | #181 extract dashboard mega-components
+
+- Extracted shared UI components into `src/frontend/src/components/ui/`: `StatCard`, `StatsDateFilterChips`, `EmptyState`, `StickyBanner` — all exported from barrel `ui/index.ts`.
+- Extracted page-header components: `RegionalPageHeader` (quick actions, stats toggle, refresh) and `ValidatorPageHeader` (refresh, queued-ops badge, offline indicator, bulk approve).
+- Extracted shared hooks: `useHoverHint` (hover-tooltip), `useScrollSafeUpdate` (scroll-preserving filter updates).
+- Extracted `SyncNotificationModal` for regional post-sync summary.
+- Added `formatCacheAge()` utility to `incident-utils.ts`.
+- Validator page: 1379 → 986 lines. Regional page: 1181 → 1085 lines. Behavior-preserving.
+- No FRS gap changes.
+
 ## [2026-06-13] fix | PR #262 FrontierCode review — Q1 narrative_report anonymize leak + Q2 key_version silent decrypt failure
 
 - Q1 MUST-FIX: Added `narrative_report = NULL` to the `incident_sensitive_details` anonymize UPDATE SET clause in `api/routes/admin/privacy.py`. Previously, `narrative_report` was SELECTed for export (plaintext PII column) but never nulled during anonymization, leaking PII after the right-to-erasure path.

@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import {
-  RefreshCw, Flame, Building2, TreePine, Car, ChevronLeft, ChevronRight, Trees,
-  Home, Users, Layers, Truck, FileText, Upload, CalendarDays, Archive, ChevronDown, ChevronUp,
+  Flame, Building2, TreePine, Car, ChevronLeft, ChevronRight, Trees,
+  Home, Users, Layers, Truck, CalendarDays, Archive,
 } from 'lucide-react';
 import { apiFetch, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
 import { fetchRegionalIncidentsOfflineAware } from '@/lib/api/offlineRegional';
@@ -13,7 +13,6 @@ import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { getConnectivitySnapshot } from '@/lib/connectivity';
 import { getPendingOps, getCachedIncidents, type OfflineOpDecrypted } from '@/lib/offlineStore';
 import { type SyncedIncidentSummary } from '@/lib/useAutoSync';
-import Link from 'next/link';
 import {
   REGIONAL_INCIDENT_GENERAL_CATEGORIES,
   REGIONAL_PAGE_SIZE_OPTIONS,
@@ -23,9 +22,16 @@ import {
 } from '@/lib/regional-incidents';
 import { formatClassification } from '@/lib/afor-utils';
 import { StatusBadge } from '@/components/ui/StatusBadge';
-import { formatIncidentDate, isDateOnly, getDateBounds as getDateBoundsUtil, categoryCount } from '@/lib/incident-utils';
+import { StatCard, StatsDateFilterChips } from '@/components/ui';
+import type { StatsDateFilterValue } from '@/components/ui';
+import { formatIncidentDate, isDateOnly, getDateBounds as getDateBoundsUtil, categoryCount, formatCacheAge } from '@/lib/incident-utils';
+import { useScrollSafeUpdate } from '@/lib/useScrollSafeUpdate';
+import { useHoverHint } from '@/lib/useHoverHint';
+import { EmptyState } from '@/components/ui';
+import { RegionalPageHeader } from '@/components/regional/RegionalPageHeader';
 import { NotificationToasts } from '@/components/regional/NotificationToasts';
 import { IncidentCard } from '@/components/regional/IncidentCard';
+import { SyncNotificationModal } from '@/components/regional/SyncNotificationModal';
 import { WildlandFireBreakdown } from '@/components/regional/WildlandFireBreakdown';
 import { OfflineModeManager } from '@/components/regional/OfflineModeManager';
 
@@ -62,21 +68,8 @@ const DATE_FILTERS = [
   { label: 'All Time', value: 'all' },
 ] as const;
 
-const STATS_DATE_FILTERS = [
-  { label: 'Today', value: 'today' },
-  { label: 'This Week', value: 'week' },
-  { label: 'This Month', value: 'month' },
-  { label: 'All Time', value: 'all' },
-] as const;
 
-type StatsDateFilterValue = (typeof STATS_DATE_FILTERS)[number]['value'];
 type DateFilterValue = (typeof DATE_FILTERS)[number]['value'];
-
-interface HoverHint {
-  id: number;
-  x: number;
-  y: number;
-}
 
 const FILTER_STORAGE_KEY = 'wims:regional_filters';
 
@@ -181,8 +174,6 @@ export default function RegionalDashboardPage() {
   const lastKnownPendingCountRef = useRef<number | null>(null);
   const [isArchiveView, setIsArchiveView] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
-  const [hoverHint, setHoverHint] = useState<HoverHint | null>(null);
-  const hoverHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const incidentsSectionRef = useRef<HTMLElement | null>(null);
   const dateBounds = useMemo(() => getRegionalDateBounds(dateFilter, specificDate), [dateFilter, specificDate]);
   const statsDateBounds = useMemo(() => getRegionalDateBounds(statsDateFilter, ''), [statsDateFilter]);
@@ -192,28 +183,8 @@ export default function RegionalDashboardPage() {
     savePersistedFilters({ dateFilter, statusFilter, categoryFilter, pageIndex, pageSize, specificDate });
   }, [dateFilter, statusFilter, categoryFilter, pageIndex, pageSize, specificDate]);
 
-  const updateFiltersWithoutScrollShift = useCallback((update: () => void) => {
-    const x = window.scrollX;
-    const y = window.scrollY;
-    update();
-    const restore = () => {
-      if (Math.abs(window.scrollY - y) > 1 || Math.abs(window.scrollX - x) > 1) {
-        window.scrollTo({ left: x, top: y, behavior: 'auto' });
-      }
-    };
-    requestAnimationFrame(() => {
-      restore();
-      requestAnimationFrame(restore);
-    });
-  }, []);
-
-  const clearHoverHint = useCallback(() => {
-    if (hoverHintTimer.current) {
-      clearTimeout(hoverHintTimer.current);
-      hoverHintTimer.current = null;
-    }
-    setHoverHint(null);
-  }, []);
+  const updateFiltersWithoutScrollShift = useScrollSafeUpdate();
+  const { hoverHint, clearHoverHint, scheduleHoverHint, hideHoverHintOnMove } = useHoverHint();
 
   const applySpecificDateFilter = useCallback(() => {
     if (!specificDateDraftIsValid) return;
@@ -223,27 +194,6 @@ export default function RegionalDashboardPage() {
       setPageIndex(0);
     });
   }, [specificDateDraft, specificDateDraftIsValid, updateFiltersWithoutScrollShift]);
-
-  const scheduleHoverHint = useCallback((id: number, event: MouseEvent<HTMLElement>) => {
-    if (hoverHintTimer.current) clearTimeout(hoverHintTimer.current);
-    const { clientX, clientY } = event;
-    hoverHintTimer.current = setTimeout(() => {
-      setHoverHint({ id, x: clientX, y: clientY });
-      hoverHintTimer.current = null;
-    }, 2000);
-  }, []);
-
-  const hideHoverHintOnMove = useCallback(() => {
-    if (hoverHintTimer.current) {
-      clearTimeout(hoverHintTimer.current);
-      hoverHintTimer.current = null;
-    }
-    if (hoverHint) setHoverHint(null);
-  }, [hoverHint]);
-
-  useEffect(() => () => {
-    if (hoverHintTimer.current) clearTimeout(hoverHintTimer.current);
-  }, []);
 
   const loadStats = useCallback(async () => {
     const statsData = await fetchRegionalStats(statsDateBounds);
@@ -594,59 +544,10 @@ export default function RegionalDashboardPage() {
 
       {/* ── Sync notification modal ── */}
       {syncNotification && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-md rounded-2xl bg-white shadow-2xl">
-            <div className="border-b border-gray-100 px-6 py-4">
-              <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
-                Incidents Synced
-              </h2>
-              <p className="mt-0.5 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                The following {syncNotification.length === 1 ? 'incident was' : 'incidents were'} successfully synced while you were offline.
-              </p>
-            </div>
-            <ul className="max-h-60 divide-y divide-gray-100 overflow-y-auto px-6 py-2">
-              {syncNotification.map((inc) => (
-                <li key={`${inc.serverId}-${inc.operation}`} className="flex items-center justify-between gap-4 py-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                      {formatClassification(inc.category) || 'Incident'}
-                      <span className="ml-1.5 text-xs font-normal" style={{ color: 'var(--text-muted)' }}>
-                        #{inc.serverId}
-                      </span>
-                    </p>
-                    {inc.location && (
-                      <p className="mt-0.5 truncate text-xs" style={{ color: 'var(--text-secondary)' }}>{inc.location}</p>
-                    )}
-                    <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
-                      {inc.operation === 'create' ? 'Created' : inc.operation === 'submit' ? 'Submitted' : inc.operation === 'update' ? 'Edited' : 'Deleted'}
-                    </p>
-                  </div>
-                  <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
-                      inc.operation === 'delete'
-                        ? 'bg-gray-100 text-gray-600'
-                        : inc.operation === 'submit'
-                        ? 'bg-amber-100 text-amber-800'
-                        : 'bg-green-100 text-green-700'
-                    }`}
-                  >
-                    {inc.result}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <div className="border-t border-gray-100 px-6 py-4 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setSyncNotification(null)}
-                className="rounded-lg px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-900"
-                style={{ backgroundColor: '#991B1B' }}
-              >
-                Confirm
-              </button>
-            </div>
-          </div>
-        </div>
+        <SyncNotificationModal
+          incidents={syncNotification}
+          onConfirm={() => setSyncNotification(null)}
+        />
       )}
 
       {/* ── Archive error banner ── */}
@@ -671,149 +572,32 @@ export default function RegionalDashboardPage() {
       />
 
       {/* ── Page header ── */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1
-              className="font-bold leading-tight"
-              style={{ fontSize: '32px', color: 'var(--text-primary)' }}
-            >
-              Dashboard
-            </h1>
-          </div>
-          <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            Regional incident workload and submissions.
-          </p>
-        </div>
-
-        {/* Quick actions */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <Link
-            href="/afor/create"
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors"
-            style={{ backgroundColor: '#991B1B' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-dark)'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#991B1B'; }}
-          >
-            <FileText className="h-3.5 w-3.5" aria-hidden />
-            Manual Entry
-          </Link>
-          <Link
-            href="/afor/import"
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
-            style={{ borderColor: 'var(--bfp-red)', color: 'var(--bfp-red)' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-light)'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = ''; }}
-          >
-            <Upload className="h-3.5 w-3.5" aria-hidden />
-            Import AFOR
-          </Link>
-          <button
-            type="button"
-            onClick={toggleStats}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
-            title={showStats ? 'Hide statistics' : 'Show statistics'}
-          >
-            {showStats
-              ? <ChevronUp className="h-3.5 w-3.5" aria-hidden />
-              : <ChevronDown className="h-3.5 w-3.5" aria-hidden />}
-            Stats
-          </button>
-          <button
-            type="button"
-            onClick={() => refreshAll()}
-            disabled={statsRefreshing || incidentsLoading}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${statsRefreshing ? 'animate-spin' : ''}`} aria-hidden />
-            Refresh
-          </button>
-        </div>
-      </div>
+      <RegionalPageHeader
+        showStats={showStats}
+        onToggleStats={toggleStats}
+        statsRefreshing={statsRefreshing}
+        incidentsLoading={incidentsLoading}
+        onRefreshAll={refreshAll}
+      />
 
       {/* ── Stats section (collapsible, auto-hidden when offline) ── */}
       {showStats && (
         <>
           {/* Period filter */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
-              Stats:
-            </span>
-            {STATS_DATE_FILTERS.map((f) => {
-              const active = statsDateFilter === f.value;
-              return (
-                <button
-                  key={f.value}
-                  type="button"
-                  onClick={() => setStatsDateFilter(f.value)}
-                  className="rounded-full border px-3 py-1 text-xs font-semibold transition-colors"
-                  style={active
-                    ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#991B1B' }
-                    : { backgroundColor: '#fff', borderColor: '#e5e7eb', color: 'var(--text-secondary)' }
-                  }
-                >
-                  {f.label}
-                </button>
-              );
-            })}
-          </div>
+          <StatsDateFilterChips value={statsDateFilter} onChange={setStatsDateFilter} />
 
           {/* Incident type stats */}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-            {incidentCards.map((card) => {
-              const IconComp = card.icon;
-              return (
-                <div
-                  key={card.key}
-                  className="bg-white rounded-2xl p-4 flex flex-col gap-3 transition-shadow hover:shadow-md"
-                  style={{ boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
-                >
-                  <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: card.iconBg }}
-                  >
-                    <IconComp className="w-5 h-5" style={{ color: card.iconColor }} />
-                  </div>
-                  <div>
-                    <div className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-muted)' }}>
-                      {card.title}
-                    </div>
-                    <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-                      {card.value}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {incidentCards.map((card) => (
+              <StatCard key={card.key} card={card} />
+            ))}
           </div>
 
           {/* Affected count stats */}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-            {affectedCards.map((card) => {
-              const IconComp = card.icon;
-              return (
-                <div
-                  key={card.key}
-                  className="bg-white rounded-2xl p-4 flex flex-col gap-3 transition-shadow hover:shadow-md"
-                  style={{ boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
-                >
-                  <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: card.iconBg }}
-                  >
-                    <IconComp className="w-5 h-5" style={{ color: card.iconColor }} />
-                  </div>
-                  <div>
-                    <div className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-muted)' }}>
-                      {card.title}
-                    </div>
-                    <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-                      {card.value}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {affectedCards.map((card) => (
+              <StatCard key={card.key} card={card} />
+            ))}
           </div>
         </>
       )}
@@ -1013,31 +797,16 @@ export default function RegionalDashboardPage() {
               Loading incidents...
             </div>
           ) : !incidentsLoading && incidents.length === 0 && queuedOps.length === 0 ? (
-            <div className="flex min-h-[260px] flex-col items-center justify-center px-5 py-14 text-center">
-              <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                {incidentsError ? 'Could not load incidents.' : 'No incidents found'}
-              </p>
-              {incidentsError ? (
-                <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Try refreshing the dashboard.</p>
-              ) : dateFilter !== 'all' ? (
-                <>
-                  <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Try searching All Time.</p>
-                  <button
-                    type="button"
-                    onClick={showAllTimeIncidents}
-                    className="mt-4 inline-flex items-center rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-900"
-                    style={{ backgroundColor: '#991B1B' }}
-                  >
-                    Search All Time
-                  </button>
-                </>
-              ) : null}
-            </div>
+            <EmptyState
+              message={incidentsError ? 'Could not load incidents.' : undefined}
+              secondary={incidentsError ? 'Try refreshing the dashboard.' : undefined}
+              showAllTime={!incidentsError && dateFilter !== 'all'}
+              onShowAllTime={showAllTimeIncidents}
+            />
           ) : (
             <div className={`grid min-h-[420px] gap-4 p-5 transition-opacity lg:grid-cols-2 ${incidentsLoading ? 'opacity-60' : ''}`}>
               {queuedOps.map((op) => {
                 const queuedIncident = getQueuedIncidentItem(op);
-                const { category, station, location, savedAt } = getQueuedOpDisplay(op);
                 return (
                   <div key={`queued-${op.localId}`} className="contents">
                   <IncidentCard
@@ -1053,36 +822,6 @@ export default function RegionalDashboardPage() {
                     isDetailCached
                     isOnline={isOnline}
                   />
-                  {false && (
-                  <div
-                    key={`queued-${op.localId}`}
-                    role="button"
-                    tabIndex={0}
-                    className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 flex flex-col gap-2 cursor-pointer hover:border-amber-400 hover:bg-amber-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-                    title="Edit this locally saved incident"
-                    onClick={() => router.push(`/dashboard/regional/incidents/${op.localId}`)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        router.push(`/dashboard/regional/incidents/${op.localId}`);
-                      }
-                    }}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
-                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-                        Pending Sync
-                      </span>
-                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{savedAt}</span>
-                    </div>
-                    <div className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
-                      {formatClassification(category)}
-                    </div>
-                    <div className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
-                      {station !== '—' ? `${station} · ` : ''}{location}
-                    </div>
-                  </div>
-                  )}
                   </div>
                 );
               })}
@@ -1127,26 +866,12 @@ export default function RegionalDashboardPage() {
               ) : incidents.length === 0 && queuedOps.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-12">
-                    <div className="flex min-h-[180px] flex-col items-center justify-center text-center">
-                      <p className="text-sm font-semibold" style={{ color: incidentsError ? '#991B1B' : 'var(--text-primary)' }}>
-                        {incidentsError ? 'Could not load incidents.' : 'No incidents found'}
-                      </p>
-                      {incidentsError ? (
-                        <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Try refreshing the dashboard.</p>
-                      ) : dateFilter !== 'all' ? (
-                        <>
-                          <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Try searching All Time.</p>
-                          <button
-                            type="button"
-                            onClick={showAllTimeIncidents}
-                            className="mt-4 inline-flex items-center rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-900"
-                            style={{ backgroundColor: '#991B1B' }}
-                          >
-                            Search All Time
-                          </button>
-                        </>
-                      ) : null}
-                    </div>
+                    <EmptyState
+                      message={incidentsError ? 'Could not load incidents.' : undefined}
+                      secondary={incidentsError ? 'Try refreshing the dashboard.' : undefined}
+                      showAllTime={!incidentsError && dateFilter !== 'all'}
+                      onShowAllTime={showAllTimeIncidents}
+                    />
                   </td>
                 </tr>
               ) : (
@@ -1356,16 +1081,5 @@ export default function RegionalDashboardPage() {
       )}
     </div>
   );
-}
-
-function formatCacheAge(cachedAt: number): string {
-  const diffMs = Date.now() - cachedAt;
-  const mins = Math.floor(diffMs / 60_000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins} minute${mins !== 1 ? 's' : ''} ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs} hour${hrs !== 1 ? 's' : ''} ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days} day${days !== 1 ? 's' : ''} ago`;
 }
 
