@@ -41,6 +41,13 @@ Format: `## [YYYY-MM-DD] action | subject`
 - **Tests:** `tests/test_ai_service_retry.py` — 14 new unit tests covering timeout configuration, retry on ConnectError/5xx, no-retry on TimeoutException/4xx, compose config assertions (healthcheck, celery deps, resource limits), and narrative task return shape. All 14 pass.
 - No FRS gap register change (no FRS alignment change — these are operational stability fixes).
 
+## [2026-06-14] fix(#268,#269) | validator offline wiring — wims:sync-complete listener + offlineOps test coverage
+
+- **wims:sync-complete listener**: Validator dashboard page (`/dashboard/validator/page.tsx`) previously listened on `navigator.serviceWorker` for `sync-complete` messages — a channel the SW never emits (the SW sends `run-sync`, not `sync-complete`). `useAutoSync` dispatches `wims:sync-complete` on `window` after a successful reconnect sync. Switched to `window.addEventListener('wims:sync-complete', ...)` matching the regional dashboard pattern so the validator queue and pending-ops badge refresh after auto-sync.
+- **OfflineOps test coverage**: Added 7 sync engine tests for the offlineOps (`getPendingOps`) path — verify and archive_action ops. Previously only the legacy (`getPendingIncidents`) path had verify/archive_action tests. Tests cover: PATCH dispatch with `client_id`, `original_incident_id` forwarding, 409 DUPLICATE_DETECTED → `markOpConflict`, and network error → `markOpError` + batch abort.
+- No FRS gap register change (validator offline wiring gap already closed by #271/#272).
+- CI pre-flight: vitest 318/318 pass, eslint 0 errors, ruff check + format green.
+
 ## [2026-06-13] fix | PR #262 FrontierCode review — Q1 narrative_report anonymize leak + Q2 key_version silent decrypt failure
 
 - Q1 MUST-FIX: Added `narrative_report = NULL` to the `incident_sensitive_details` anonymize UPDATE SET clause in `api/routes/admin/privacy.py`. Previously, `narrative_report` was SELECTed for export (plaintext PII column) but never nulled during anonymization, leaking PII after the right-to-erasure path.
