@@ -17,6 +17,21 @@ Development Keycloak realm config in `src/keycloak/bfp-realm.json` enables the b
 
 Temporary demo MFA shortcut (2026-06-11): browser OTP login uses `wims-demo-otp-form`, a custom Keycloak provider in `src/keycloak/demo-otp-provider` that accepts normal OTP codes and also accepts fixed code `123123` for accounts that reach the OTP step. This is presentation-only, logs `wims_demo_otp_bypass=true` on the Keycloak event, does not alter Direct Grant OTP, and must be removed before PR using `docs/agents/remove-demo-otp-bypass.md`.
 
+### SKIP_MFA Role (2026-06-14)
+A deliberate per-user MFA exemption via the `SKIP_MFA` realm role (`bfp-realm.json` → `roles.realm[]`). Users assigned this role bypass only the OTP sub-flow during browser login; all other accounts must still complete MFA.
+
+**How it works:**
+- Realm role `SKIP_MFA` with description "Exempts user from TOTP/OTP multi-factor authentication requirements".
+- Authenticator config `otp-skip-mfa` checks `condUserRole=SKIP_MFA` (negate=false) using the `conditional-user-role` authenticator.
+- In the `forms` authentication flow, the `conditional-user-role` step runs as an ALTERNATIVE at priority 20, before the existing `Browser - Conditional OTP` sub-flow (now ALTERNATIVE at priority 30).
+- If the user has `SKIP_MFA`, the conditional-user-role check succeeds and the ALTERNATIVE chain is satisfied → OTP sub-flow never executes.
+- If the user does NOT have `SKIP_MFA`, the conditional-user-role check is silently skipped and execution proceeds to `Browser - Conditional OTP` as before.
+- The Direct Grant flow is unchanged — this exemption applies only to browser login.
+
+**Seeded users with SKIP_MFA:** `validator_test`, `n-val`, `g-val`, `e-val`, `r-val` (all NATIONAL_VALIDATOR accounts).
+
+**Config files:** `src/keycloak/import/bfp-realm.json` (source of truth) and `src/keycloak/bfp-realm.json` (sync copy) — both updated.
+
 Self-service profile email edits (`PATCH /api/user/me`) treat email as a login identity: users must provide `current_password`, which the backend verifies against Keycloak using the Direct Grant-enabled `bfp-client` before updating Keycloak email/username and local `wims.users.email`/`username`. Name/contact-only profile updates remain JWT-authenticated. Email verification after self-service changes is not yet triggered automatically; Keycloak remains configured with `verifyEmail: false` in the development realm.
 
 ## Fail-Closed Rule
