@@ -1,0 +1,62 @@
+{# subject: WIMS-BFP Scheduled Report — {{ report_name }} #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WIMS-BFP Scheduled Report</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f4;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:24px 16px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+          <tr>
+            <td style="background-color:#8B0000;padding:24px 32px;text-align:center;">
+              <p style="margin:0;color:#ffffff;font-size:20px;font-weight:bold;">Bureau of Fire Protection</p>
+              <p style="margin:4px 0 0;color:#ffcccc;font-size:14px;">WIMS-BFP Incident Management System</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#ffffff;padding:40px 32px;">
+              <p style="margin:0 0 4px;font-size:18px;font-weight:bold;color:#8B0000;">Scheduled Report: {{ report_name }}</p>
+              <p style="margin:0 0 24px;font-size:14px;color:#666666;">Generated at {{ generated_at }}</p>
+              <hr style="border:none;border-top:1px solid #eeeeee;margin:0 0 24px;">
+              <table cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 24px;">
+                <tr>
+                  <td style="font-size:14px;color:#666666;width:120px;">Format:</td>
+                  <td style="font-size:14px;font-weight:bold;color:#333333;">{{ report_format }}</td>
+                </tr>
+                <tr>
+                  <td style="font-size:14px;color:#666666;">Filters:</td>
+                  <td style="font-size:14px;color:#333333;">{{ filters_summary }}</td>
+                </tr>
+              </table>
+              <p style="margin:0 0 24px;font-size:14px;color:#333333;line-height:1.6;">
+                Your scheduled report <strong>{{ report_name }}</strong> has been generated in <strong>{{ report_format }}</strong> format.
+                The export file is available on the server. Visit the analytics dashboard to download or
+                view your latest reports.
+              </p>
+              <table cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
+                <tr>
+                  <td style="background-color:#8B0000;border-radius:4px;padding:12px 32px;text-align:center;">
+                    <a href="{{ report_link }}" style="color:#ffffff;font-size:16px;font-weight:bold;text-decoration:none;display:inline-block;">View Analytics Dashboard</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#f9f9f9;padding:24px 32px;text-align:center;">
+              <p style="margin:0;font-size:12px;color:#999999;line-height:1.6;">
+                Bureau of Fire Protection — WIMS-BFP<br/>
+                This is an automated scheduled report delivery. To adjust notification preferences or report schedules, contact your administrator.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

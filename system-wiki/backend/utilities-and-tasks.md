@@ -199,3 +199,54 @@ Renders a Jinja2 HTML template and sends it via `services.email.sender.send_emai
 - Security alert email on CONFIRM_THREAT HITL action (#176)
 
 **Import:** Explicitly registered in `main.py` via `import tasks.notifications`.
+
+### `scheduled_reports.py` — Automated Report Delivery (Issue #88)
+
+**File:** `src/backend/tasks/scheduled_reports.py`
+
+Celery task that periodically finds due enabled scheduled reports, generates
+exports, dispatches notification emails to recipients, and updates `last_run_at`.
+
+#### `execute_due_reports` (Celery beat)
+
+| Attribute | Value |
+|---|---|
+| Name | `tasks.scheduled_reports.execute_due_reports` |
+| Binding | `bind=True` (`self` parameter) |
+| Max retries | 1, 60s delay |
+| Beat schedule | Every `SCHEDULE_CHECK_INTERVAL` seconds (default 300s) |
+
+Queries `wims.scheduled_reports` for enabled reports, checks due status using
+`croniter` against `last_run_at`, generates exports via `tasks.exports` writers,
+dispatches `send_email_task` with `scheduled_report` template, and updates
+`last_run_at` to current UTC time.
+
+**Cron due-check logic:**
+1. Parse `cron_expr` with `croniter`.
+2. Get the most recent trigger time before now.
+3. If `last_run_at IS NULL` → due (never run).
+4. If `last_run_at < prev_trigger` → due (missed schedule).
+5. Otherwise → not due.
+
+**Template:** `scheduled_report.html.j2` — renders report name, format, generation
+timestamp, filters summary, and a dashboard link.
+
+**Recipient filtering:** Only strings containing "@" are treated as email
+addresses. Non-email recipient entries generate a warning but do not block
+execution.
+
+**Error handling:** Failed exports are counted as `skipped`; the task continues
+with remaining due reports. `last_run_at` update and email dispatch are
+independent per report.
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|---|---|---|
+| `SCHEDULE_CHECK_INTERVAL` | `300` | Beat check interval in seconds |
+| `SMTP_HOST` | `mailhog` | SMTP host (shared with email service) |
+| `SMTP_PORT` | `1025` | SMTP port |
+| `SMTP_FROM` | `no-reply@bfp.gov.ph` | Sender address |
+| `SMTP_USER` | (empty) | SMTP auth user |
+| `SMTP_PASS` | (empty) | SMTP auth password |
+| `NEXT_PUBLIC_APP_URL` | `http://localhost:3000` | Dashboard link in emails |

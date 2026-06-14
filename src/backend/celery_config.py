@@ -6,6 +6,7 @@ from celery import Celery
 from celery.schedules import crontab
 
 MV_REFRESH_INTERVAL = int(os.environ.get("CELERY_MV_REFRESH_INTERVAL", 3600 * 6))
+SCHEDULE_CHECK_INTERVAL = int(os.environ.get("SCHEDULE_CHECK_INTERVAL", 300))
 
 celery_app = Celery(
     "wims_worker",
@@ -37,6 +38,7 @@ celery_app.conf.imports = (
     "tasks.monitoring",
     "tasks.narrative",
     "tasks.notifications",
+    "tasks.scheduled_reports",
     "tasks.suricata",
 )
 # Auto-discover task modules instead of side-effect imports in main.py
@@ -105,6 +107,11 @@ celery_app.conf.update(
         "detect-behavioral-anomalies": {
             "task": "tasks.anomaly_detection.detect_behavioral_anomalies",
             "schedule": 60.0,
+        },
+        # Issue #88: Check due scheduled reports periodically (default 300s)
+        "execute-scheduled-reports": {
+            "task": "tasks.scheduled_reports.execute_due_reports",
+            "schedule": SCHEDULE_CHECK_INTERVAL,
         },
     },
 )

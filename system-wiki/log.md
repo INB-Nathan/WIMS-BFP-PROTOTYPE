@@ -59,6 +59,19 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Updated `system-wiki/security/security-baseline.md` with SKIP_MFA mechanism documentation.
 - No FRS gap register change (this is an auth-config enhancement within existing MFA scope).
 
+## [2026-06-14] feat | Issue #88 — Scheduled report execution and management UI
+
+- New `tasks/scheduled_reports.py` Celery task: `execute_due_reports` finds due enabled reports using `croniter`, generates exports, dispatches notification emails via `send_email_task`, and updates `last_run_at`.
+- Beat schedule entry added in `celery_config.py`: checks every `SCHEDULE_CHECK_INTERVAL` seconds (default 300s).
+- Admin API improved: PATCH now supports full field update (name, cron_expr, format, filters, recipients, enabled); new DELETE endpoint; list now returns `filters`, `last_run_at`.
+- New email template `scheduled_report.html.j2` for report delivery notifications.
+- Frontend: scheduled reports CRUD section added to `admin/system/page.tsx` with list, create modal, toggle enable/disable, and delete.
+- Frontend API: `fetchScheduledReports`, `createScheduledReport`, `updateScheduledReport`, `deleteScheduledReport` with `ScheduledReport` type.
+- Backend tests: 11 tests in `test_scheduled_reports.py` covering due-report selection, execution, skipping, error handling, multiple reports, last_run_at update.
+- Frontend tests: 6 tests in `scheduledReports.test.ts` covering API client functions.
+- Updated `requirements.txt` with `croniter>=2.0.0`.
+- Updated `system-wiki/backend/utilities-and-tasks.md` with scheduled_reports task documentation.
+
 ## [2026-06-13] fix | PR #262 FrontierCode review — Q1 narrative_report anonymize leak + Q2 key_version silent decrypt failure
 
 - Q1 MUST-FIX: Added `narrative_report = NULL` to the `incident_sensitive_details` anonymize UPDATE SET clause in `api/routes/admin/privacy.py`. Previously, `narrative_report` was SELECTed for export (plaintext PII column) but never nulled during anonymization, leaking PII after the right-to-erasure path.

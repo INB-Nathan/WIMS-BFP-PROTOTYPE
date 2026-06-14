@@ -21,6 +21,11 @@ import {
     fetchSystemHealthOfflineAware,
     fetchSystemMetricsOfflineAware,
     fetchWorkerStatusOfflineAware,
+    fetchScheduledReports,
+    createScheduledReport,
+    updateScheduledReport,
+    deleteScheduledReport,
+    ScheduledReport,
 } from '@/lib/api';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { getConnectivitySnapshot, subscribeConnectivity, probeConnectivity } from '@/lib/connectivity';
@@ -46,6 +51,13 @@ import {
     Server,
     Database,
     Search,
+    Clock,
+    Calendar,
+    Mail,
+    Plus,
+    Trash2,
+    ToggleLeft,
+    ToggleRight,
 } from 'lucide-react';
 
 interface AdminUser {
@@ -167,6 +179,22 @@ export default function AdminSystemPage() {
     const [showTempPassword, setShowTempPassword] = useState(false);
     const [copySuccess, setCopySuccess] = useState(false);
 
+    // Scheduled Reports state (Issue #88)
+    const [scheduledReports, setScheduledReports] = useState<ScheduledReport[]>([]);
+    const [loadingReports, setLoadingReports] = useState(false);
+    const [showCreateReport, setShowCreateReport] = useState(false);
+    const [newReport, setNewReport] = useState({
+        name: '',
+        cron_expr: '0 7 * * 1',
+        format: 'pdf' as 'pdf' | 'excel' | 'csv',
+        filters: '{}',
+        recipients: '',
+        enabled: true,
+    });
+    const [creatingReport, setCreatingReport] = useState(false);
+    const [togglingReportId, setTogglingReportId] = useState<number | null>(null);
+    const [deletingReportId, setDeletingReportId] = useState<number | null>(null);
+
     useEffect(() => {
         if (!loading && role !== 'SYSTEM_ADMIN') {
             router.replace('/dashboard');
@@ -233,6 +261,7 @@ export default function AdminSystemPage() {
             loadAuditLogs();
             loadRegions();
             loadSessions();
+            loadScheduledReports();
         }
     }, [role]);
 
@@ -264,6 +293,76 @@ export default function AdminSystemPage() {
             setRegions(data);
         } catch {
             setRegions([]);
+        }
+    };
+
+    const loadScheduledReports = async () => {
+        setLoadingReports(true);
+        try {
+            const data = await fetchScheduledReports();
+            setScheduledReports(data);
+        } catch {
+            setScheduledReports([]);
+        } finally {
+            setLoadingReports(false);
+        }
+    };
+
+    const handleCreateReport = async () => {
+        if (!newReport.name.trim() || !newReport.cron_expr.trim()) {
+            alert('Name and cron expression are required.');
+            return;
+        }
+        setCreatingReport(true);
+        try {
+            let filters: Record<string, unknown> = {};
+            try {
+                filters = JSON.parse(newReport.filters || '{}');
+            } catch { /* use empty */ }
+            const recipients = newReport.recipients
+                .split(',')
+                .map((e) => e.trim())
+                .filter((e) => e.length > 0);
+            await createScheduledReport({
+                name: newReport.name.trim(),
+                cron_expr: newReport.cron_expr.trim(),
+                format: newReport.format,
+                filters,
+                recipients,
+                enabled: newReport.enabled,
+            });
+            setShowCreateReport(false);
+            setNewReport({ name: '', cron_expr: '0 7 * * 1', format: 'pdf', filters: '{}', recipients: '', enabled: true });
+            await loadScheduledReports();
+        } catch (e: unknown) {
+            alert((e as { message?: string })?.message ?? 'Failed to create report');
+        } finally {
+            setCreatingReport(false);
+        }
+    };
+
+    const handleToggleReport = async (report: ScheduledReport) => {
+        setTogglingReportId(report.id);
+        try {
+            await updateScheduledReport(report.id, { enabled: !report.enabled });
+            await loadScheduledReports();
+        } catch (e: unknown) {
+            alert((e as { message?: string })?.message ?? 'Failed to toggle report');
+        } finally {
+            setTogglingReportId(null);
+        }
+    };
+
+    const handleDeleteReport = async (reportId: number) => {
+        if (!confirm('Delete this scheduled report?')) return;
+        setDeletingReportId(reportId);
+        try {
+            await deleteScheduledReport(reportId);
+            await loadScheduledReports();
+        } catch (e: unknown) {
+            alert((e as { message?: string })?.message ?? 'Failed to delete report');
+        } finally {
+            setDeletingReportId(null);
         }
     };
 
@@ -952,6 +1051,193 @@ export default function AdminSystemPage() {
                 </div>
                 {auditLogs.total > 0 && <div className="px-6 py-2 bg-gray-50 border-t border-gray-200 text-xs text-gray-500">Showing {auditLogs.items.length} of {auditLogs.total}</div>}
             </section>
+
+            {/* Scheduled Reports (Issue #88) */}
+            <section id="scheduled-reports" className="card overflow-hidden">
+                <div className="card-header flex items-center justify-between" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
+                    <div className="flex items-center gap-2">
+                        <Clock className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                        <span>Scheduled Reports</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={() => setShowCreateReport(true)}
+                            className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-md text-white"
+                            style={{ backgroundColor: '#991B1B' }}
+                        >
+                            <Plus className="w-4 h-4" /> New Schedule
+                        </button>
+                        <button onClick={loadScheduledReports} disabled={loadingReports} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
+                            <RefreshCw className={`w-4 h-4 ${loadingReports ? 'animate-spin' : ''}`} /> Refresh
+                        </button>
+                    </div>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                            <tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cron</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Format</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Recipients</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Enabled</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Run</th>
+                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                            {scheduledReports.map((r) => (
+                                <tr key={r.id} className="hover:bg-gray-50">
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{r.name}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">{r.cron_expr}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 uppercase">{r.format}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        {r.recipients && r.recipients.length > 0 ? (
+                                            <span className="flex items-center gap-1">
+                                                <Mail className="w-3 h-3" /> {r.recipients.length}
+                                            </span>
+                                        ) : (
+                                            <span className="text-gray-400">—</span>
+                                        )}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <button
+                                            onClick={() => handleToggleReport(r)}
+                                            disabled={togglingReportId === r.id}
+                                            className="disabled:opacity-50"
+                                        >
+                                            {r.enabled ? (
+                                                <ToggleRight className="w-6 h-6 text-green-600" />
+                                            ) : (
+                                                <ToggleLeft className="w-6 h-6 text-gray-400" />
+                                            )}
+                                        </button>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        {r.last_run_at ? new Date(r.last_run_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : (
+                                            <span className="text-gray-400 italic">Never</span>
+                                        )}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                                        <button
+                                            onClick={() => handleDeleteReport(r.id)}
+                                            disabled={deletingReportId === r.id}
+                                            className="text-red-600 hover:text-red-800 text-sm font-medium disabled:opacity-50"
+                                        >
+                                            {deletingReportId === r.id ? 'Deleting…' : (
+                                                <Trash2 className="w-4 h-4" />
+                                            )}
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                    {scheduledReports.length === 0 && !loadingReports && (
+                        <div className="p-8 text-center text-gray-500">
+                            No scheduled reports. Click &ldquo;New Schedule&rdquo; to create one.
+                        </div>
+                    )}
+                </div>
+            </section>
+
+            {/* Create Scheduled Report Modal */}
+            {showCreateReport && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+                    <div className="rounded-xl shadow-2xl w-full max-w-lg bg-white overflow-hidden">
+                        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center" style={{ backgroundColor: 'var(--sidebar-bg)' }}>
+                            <div className="flex items-center gap-2">
+                                <Calendar className="w-5 h-5 text-white" />
+                                <h3 className="text-base font-bold text-white">New Scheduled Report</h3>
+                            </div>
+                            <button onClick={() => setShowCreateReport(false)} className="text-white/70 hover:text-white">
+                                <XCircle className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Report Name <span className="text-red-500">*</span></label>
+                                <input
+                                    type="text"
+                                    value={newReport.name}
+                                    onChange={(e) => setNewReport((p) => ({ ...p, name: e.target.value }))}
+                                    placeholder="e.g. Weekly Incident Summary"
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Cron Expression <span className="text-red-500">*</span></label>
+                                <input
+                                    type="text"
+                                    value={newReport.cron_expr}
+                                    onChange={(e) => setNewReport((p) => ({ ...p, cron_expr: e.target.value }))}
+                                    placeholder="0 7 * * 1"
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2"
+                                />
+                                <p className="text-xs text-gray-400 mt-1">Standard cron: min hour dom month dow. Example: <code>0 7 * * 1</code> = Every Monday at 07:00 UTC.</p>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Format</label>
+                                <select
+                                    value={newReport.format}
+                                    onChange={(e) => setNewReport((p) => ({ ...p, format: e.target.value as 'pdf' | 'excel' | 'csv' }))}
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                                >
+                                    <option value="pdf">PDF</option>
+                                    <option value="excel">Excel (XLSX)</option>
+                                    <option value="csv">CSV</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Recipients (comma-separated emails)</label>
+                                <input
+                                    type="text"
+                                    value={newReport.recipients}
+                                    onChange={(e) => setNewReport((p) => ({ ...p, recipients: e.target.value }))}
+                                    placeholder="admin@bfp.gov.ph, analyst@bfp.gov.ph"
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Filters (JSON)</label>
+                                <textarea
+                                    value={newReport.filters}
+                                    onChange={(e) => setNewReport((p) => ({ ...p, filters: e.target.value }))}
+                                    placeholder='{"region_id": 1}'
+                                    rows={3}
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2"
+                                />
+                                <p className="text-xs text-gray-400 mt-1">Optional JSON filters applied to the export query.</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    id="report-enabled"
+                                    checked={newReport.enabled}
+                                    onChange={(e) => setNewReport((p) => ({ ...p, enabled: e.target.checked }))}
+                                />
+                                <label htmlFor="report-enabled" className="text-sm text-gray-700">Enabled on creation</label>
+                            </div>
+                            <div className="flex gap-3 pt-2">
+                                <button
+                                    onClick={handleCreateReport}
+                                    disabled={creatingReport || !newReport.name.trim() || !newReport.cron_expr.trim()}
+                                    className="flex-1 py-2.5 rounded-lg text-white font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+                                    style={{ backgroundColor: 'var(--sidebar-bg)' }}
+                                >
+                                    {creatingReport ? <><RefreshCw className="w-4 h-4 animate-spin" /> Creating…</> : <><Plus className="w-4 h-4" /> Create Schedule</>}
+                                </button>
+                                <button
+                                    onClick={() => setShowCreateReport(false)}
+                                    className="px-5 py-2.5 rounded-lg bg-gray-100 text-gray-700 font-medium hover:bg-gray-200"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {selectedLog && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
