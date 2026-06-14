@@ -386,4 +386,42 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
             expect(screen.getByText('No calls recorded')).toBeInTheDocument();
         });
     });
+
+    it('renders "No calls recorded" when ai_inference is null (not just zero-count)', async () => {
+        const metricsNullInference = {
+            ...mockSystemMetrics,
+            ai_inference: null,
+            network: { bytes_sent: 0, bytes_recv: 0 },
+        };
+        mockFetchSystemHealth.mockResolvedValue(mockHealth);
+        mockFetchSystemMetrics.mockResolvedValue(metricsNullInference);
+        mockFetchWorkerStatus.mockResolvedValue([]);
+
+        vi.useRealTimers();
+        render(<AdminSystemPage />);
+
+        await waitFor(() => {
+            expect(screen.getByText('No calls recorded')).toBeInTheDocument();
+        });
+        expect(screen.queryByText(/NaN/)).toBeNull();
+    });
+
+    it('renders "N/A" when network is null', async () => {
+        const metricsNullNetwork = {
+            ...mockSystemMetrics,
+            ai_inference: { avg_latency_ms: null, count: 0 },
+            network: null,
+        };
+        mockFetchSystemHealth.mockResolvedValue(mockHealth);
+        mockFetchSystemMetrics.mockResolvedValue(metricsNullNetwork);
+        mockFetchWorkerStatus.mockResolvedValue([]);
+
+        vi.useRealTimers();
+        render(<AdminSystemPage />);
+
+        await waitFor(() => {
+            expect(screen.getByText('N/A')).toBeInTheDocument();
+        });
+        expect(screen.queryByText(/NaN/)).toBeNull();
+    });
 });

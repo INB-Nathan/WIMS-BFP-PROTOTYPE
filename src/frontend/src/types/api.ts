@@ -92,6 +92,19 @@ export interface AuditLogEntry {
   timestamp: string | null;
 }
 
+// ── Sessions ─────────────────────────────────────────────────────────────────
+
+export interface ActiveSession {
+  session_id: string;
+  user_id: string;
+  username: string;
+  role: string;
+  ip_address: string;
+  start: number;
+  last_access: number;
+  clients?: Record<string, unknown>;
+}
+
 export interface PaginatedResponse<T> {
   items: T[];
   total: number;

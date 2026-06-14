@@ -10,7 +10,7 @@ import type {
   SystemMetricsResponse,
   WorkerStatusResponse,
 } from './legacy';
-import type { AuditLogEntry, PaginatedResponse } from '@/types/api';
+import type { ActiveSession, AuditLogEntry, PaginatedResponse } from '@/types/api';
 import {
   cacheAnalyticsResponse,
   getCachedAnalyticsResponse,
@@ -137,8 +137,7 @@ export async function fetchWorkerStatusOfflineAware(): Promise<OfflineAdminResul
   return offlineAware('worker-status', [], ADMIN_CACHE_TTL_MS, () => legacyFetchWorkerStatus());
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function fetchActiveSessionsOfflineAware(): Promise<OfflineAdminResult<any[]>> {
+export async function fetchActiveSessionsOfflineAware(): Promise<OfflineAdminResult<ActiveSession[]>> {
   return offlineAware('active-sessions', [], SESSIONS_CACHE_TTL_MS, () => legacyFetchActiveSessions());
 }
 

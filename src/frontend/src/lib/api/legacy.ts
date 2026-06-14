@@ -10,6 +10,7 @@ import type {
   IncidentListItem,
   SecurityLog,
   AuditLogEntry,
+  ActiveSession,
   PaginatedResponse,
 } from '@/types/api';
 import {
@@ -135,10 +136,9 @@ export async function fetchAdminUsers(): Promise<any[]> {
 }
 
 /** Fetch all active sessions (admin) - returns [] on error */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function fetchActiveSessions(): Promise<any[]> {
+export async function fetchActiveSessions(): Promise<ActiveSession[]> {
   try {
-    const data = await apiFetch<Record<string, unknown>[] | { data?: Record<string, unknown>[] }>('/admin/active-sessions');
+    const data = await apiFetch<ActiveSession[] | { data?: ActiveSession[] }>('/admin/active-sessions');
     return Array.isArray(data) ? data : (data?.data ?? []);
   } catch {
     return [];

@@ -2919,3 +2919,11 @@ Made pending-sync offline incidents fully manageable through the normal regional
 **Purpose:** Belt-and-suspenders coverage for PR #263 finding T6 (can defer). Individual filters tested separately; this closes the combined filter gap.
 
 **No FRS gap status changed.**
+
+## [2026-06-13] feat | #277 types: replace any[] with ActiveSession interface in offlineAdmin
+## [2026-06-13] test | #279 add frontend fallback tests for null AI/network metrics
+
+- #277: Added `ActiveSession` interface to `src/types/api.ts` (shared types). Updated `legacy.ts` return type from `any[]` to `ActiveSession[]`. Updated `offlineAdmin.ts` to use `ActiveSession[]` and removed unused eslint-disable. Removed local `ActiveSession` definition from `page.tsx` in favor of shared import. No runtime change.
+- #279: Added two Vitest tests to `admin-system-monitoring.test.tsx`: (1) `ai_inference: null` asserts "No calls recorded" and no NaN; (2) `network: null` asserts "N/A" and no NaN. All 14 tests pass.
+- No FRS gap register change (type narrowing + test coverage — no FRS requirement change).
+- Lint clean (0 errors, 1 pre-existing useEffect dep warning).
