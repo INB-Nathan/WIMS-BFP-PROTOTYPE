@@ -84,6 +84,15 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Tests: 6 backend unit tests in `test_public_submission.py`; updated tracking page and triage page frontend test mocks.
 - Wiki updated: `schema-overview.md`, `api-route-map.md`, `log.md`.
 
+## [2026-06-14] feat | GH #64 offline queue encryption + sync conflict resolution
+
+- `src/frontend/src/app/dashboard/regional/conflicts/page.tsx`: new conflict resolution page. Lists all offline ops in 'conflict' state for the current encoder with local payload, server version, and three resolution options: Keep Local (re-queue via `resolveConflictOp`), Use Server Version (delete local op), or Discard (delete without accepting server). Replaces the dead link from `SyncStatusBar` (`/dashboard/regional?tab=conflicts` → `/dashboard/regional/conflicts`).
+- `src/frontend/src/components/SyncStatusBar.tsx`: updated "Review" link from `/dashboard/regional?tab=conflicts` to `/dashboard/regional/conflicts`.
+- `src/frontend/src/lib/__tests__/offlineStore.encryption.test.ts`: 15 new encryption-at-rest tests covering legacy queue, offlineOps, cached incidents, analytics cache, unique IV per write, and re-encryption behaviour.
+- `src/frontend/src/lib/__tests__/syncEngine.conflict.test.ts`: 10 new conflict handling tests covering 409 DUPLICATE_DETECTED across all op types, 409 CONFLICT (OCC) with serverVersion preservation, max-retries-exceeded, conflict-op exclusion from sync, and auth-abort during replay.
+- `system-wiki/frontend/frontend-infrastructure.md`: added Sync Conflict Resolution subsection documenting the resolution path under "Offline-first encoder sync"; updated SyncStatusBar description and component tree.
+- All 66 tests pass (41 existing + 25 new). No FRS gap register update (encryption at rest and conflict handling were already partially implemented; this adds the user-facing resolution UI and test coverage).
+
 ## [2026-06-13] fix | PR #262 FrontierCode review — Q1 narrative_report anonymize leak + Q2 key_version silent decrypt failure
 
 - Q1 MUST-FIX: Added `narrative_report = NULL` to the `incident_sensitive_details` anonymize UPDATE SET clause in `api/routes/admin/privacy.py`. Previously, `narrative_report` was SELECTed for export (plaintext PII column) but never nulled during anonymization, leaking PII after the right-to-erasure path.

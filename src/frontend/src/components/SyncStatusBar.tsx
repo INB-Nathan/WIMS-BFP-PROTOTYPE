@@ -111,7 +111,7 @@ export function SyncStatusBar() {
           <span className="inline-block h-2 w-2 rounded-full bg-orange-500" />
           <span>{conflictCount} item{conflictCount !== 1 ? 's' : ''} need your attention</span>
           <a
-            href="/dashboard/regional?tab=conflicts"
+            href="/dashboard/regional/conflicts"
             className="ml-auto rounded-md bg-orange-600 px-3 py-1 text-xs font-medium text-white hover:bg-orange-700"
           >
             Review
