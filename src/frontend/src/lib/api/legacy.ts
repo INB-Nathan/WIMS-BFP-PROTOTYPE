@@ -325,6 +325,52 @@ export async function createIncidentFromAlert(logId: number): Promise<{
   return apiFetch(`/admin/security-logs/${logId}/create-incident`, { method: 'POST' });
 }
 
+// ---------------------------------------------------------------------------
+// Anomaly detection (admin) — GET /admin/anomalies, PATCH /admin/anomalies/:id
+// ---------------------------------------------------------------------------
+
+export interface AnomalyDetectionItem {
+  anomaly_id: number;
+  anomaly_type: string;
+  subject_user_id: string | null;
+  severity: string;
+  details: Record<string, unknown>;
+  detected_at: string | null;
+  status: string;
+  dedup_key: string;
+}
+
+/** Fetch anomaly detections (admin) - GET /admin/anomalies */
+export async function fetchAnomalies(params?: {
+  status?: string;
+  severity?: string;
+  anomaly_type?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ items: AnomalyDetectionItem[]; total: number; limit: number; offset: number }> {
+  const search = new URLSearchParams();
+  if (params?.status) search.set('status', params.status);
+  if (params?.severity) search.set('severity', params.severity);
+  if (params?.anomaly_type) search.set('anomaly_type', params.anomaly_type);
+  if (params?.limit != null) search.set('limit', String(params.limit));
+  if (params?.offset != null) search.set('offset', String(params.offset));
+  const qs = search.toString();
+  return apiFetch<{ items: AnomalyDetectionItem[]; total: number; limit: number; offset: number }>(
+    `/admin/anomalies${qs ? `?${qs}` : ''}`
+  );
+}
+
+/** Update anomaly detection status (admin) - PATCH /admin/anomalies/:id */
+export async function updateAnomalyStatus(
+  anomalyId: number,
+  status: string
+): Promise<{ status: string; anomaly_id: number; previous_status: string; new_status: string }> {
+  return apiFetch(`/admin/anomalies/${anomalyId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+}
+
 /** Fetch audit logs (admin) - paginated, ordered by ts_rank when q is set */
 export async function fetchAuditLogs(params?: {
   limit?: number;

@@ -14,6 +14,7 @@ from . import (
     config,
     breach,
     privacy,
+    anomalies,
 )
 
 router = APIRouter(tags=["admin"])
@@ -28,3 +29,4 @@ router.include_router(scheduled_reports.router)
 router.include_router(config.router)
 router.include_router(breach.router)
 router.include_router(privacy.router)
+router.include_router(anomalies.router)

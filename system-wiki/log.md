@@ -93,6 +93,26 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `system-wiki/frontend/frontend-infrastructure.md`: added Sync Conflict Resolution subsection documenting the resolution path under "Offline-first encoder sync"; updated SyncStatusBar description and component tree.
 - All 66 tests pass (41 existing + 25 new). No FRS gap register update (encryption at rest and conflict handling were already partially implemented; this adds the user-facing resolution UI and test coverage).
 
+## [2026-06-14] feat | GH #283 — anomaly detection ACK/RESOLVE workflow and admin UI
+
+- `src/backend/api/routes/admin/anomalies.py`: new admin route module
+  - `GET /api/admin/anomalies` — list anomaly detections with status/severity/type filters and pagination (limit/offset, ordered by detected_at DESC)
+  - `PATCH /api/admin/anomalies/{anomaly_id}` — status transitions: NEW→ACKNOWLEDGED (ANOMALY_ACK audit), ACKNOWLEDGED→RESOLVED (ANOMALY_RESOLVE audit); RESOLVED is terminal; invalid transitions return 409; status transition metadata appended to details JSONB
+  - SYSTEM_ADMIN only (get_system_admin + get_db_with_rls); RBAC enforced via existing RLS policies on wims.anomaly_detections
+- `src/backend/api/routes/admin/__init__.py`: registered anomalies router
+- `src/backend/tests/integration/test_anomaly_api.py`: 13 backend tests (403 gate, empty list, pagination, status/type filters, 404, 422 validation, 409 invalid transitions, ACK flow+audit, RESOLVE flow+audit)
+- `src/frontend/src/lib/api/legacy.ts`: added `fetchAnomalies()` and `updateAnomalyStatus()` API client functions with `AnomalyDetectionItem` type
+- `src/frontend/src/app/admin/anomalies/page.tsx`: admin anomaly detection management page
+  - Summary cards (New/Acknowledged/Resolved counts)
+  - Status filter chips (All/New/Acknowledged/Resolved)
+  - Type filter dropdown (BULK_DELETE/OFF_HOURS/PRIVILEGE_ESCALATION/RAPID_IP_SWITCH)
+  - Anomaly table: ID, type, severity badge, status badge (with icon), detected timestamp, compact details preview, action buttons (Acknowledge/Resolve per current status)
+  - Pagination (20/page), 60s auto-refresh, error banner, SYSTEM_ADMIN auth gate
+- `src/frontend/src/app/admin/anomalies/page.test.tsx`: 14 Vitest tests (rendering, summary counts, table data, acknowledge/resolve actions, empty state, auth gate, error state, filter chips, type dropdown, pagination)
+- `src/frontend/src/components/Sidebar.tsx`: added "Anomaly Detection" nav item (Activity icon) under Administration section for SYSTEM_ADMIN
+- `system-wiki/gaps/frs-codebase-gap-register.md`: updated M8 entry to note ACK/RESOLVE workflow closed via #283 (M8 remains PARTIAL due to 2 deferred detectors)
+- 44 total backend pytest pass (31 anomaly detection + 13 anomaly API), 14 frontend Vitest pass, ruff check + format green
+
 ## [2026-06-13] fix | PR #262 FrontierCode review — Q1 narrative_report anonymize leak + Q2 key_version silent decrypt failure
 
 - Q1 MUST-FIX: Added `narrative_report = NULL` to the `incident_sensitive_details` anonymize UPDATE SET clause in `api/routes/admin/privacy.py`. Previously, `narrative_report` was SELECTed for export (plaintext PII column) but never nulled during anonymization, leaking PII after the right-to-erasure path.
