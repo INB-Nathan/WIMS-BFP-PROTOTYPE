@@ -102,8 +102,8 @@ def get_audit_logs(
                 "ip_address": r[5],
                 "user_agent": r[6],
                 "timestamp": r[7].isoformat() if r[7] else None,
-                "old_values": r[8] if len(r) > 8 else None,
-                "new_values": r[9] if len(r) > 9 else None,
+                "old_values": r._mapping.get("old_values"),
+                "new_values": r._mapping.get("new_values"),
             }
             for r in rows
         ],

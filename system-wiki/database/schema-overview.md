@@ -47,7 +47,7 @@ PostgreSQL/PostGIS schema is bootstrapped by ordered SQL files in `src/postgres-
 - Reference geography: `wims.ref_regions`, `wims.ref_provinces`, `wims.ref_cities`, `wims.ref_barangays`.
 - Users and RBAC mirror: `wims.users` plus Keycloak identity data. PR #207 adds local `email` storage with a unique `LOWER(email)` index (`uq_users_email_lower`) to align local email uniqueness with Keycloak's duplicate-email prevention; startup DDL intentionally does not patch this table.
 - Incident workflow: `wims.fire_incidents`, detail tables, involved parties, responding units, operational challenges, attachments.
-- Verification/immutability: `wims.incident_verification_history`, immutable records SQL, audit trails.
+- Verification/immutability: `wims.incident_verification_history`, immutable records SQL (DELETE + UPDATE blocked for audit trails), audit trails.
 - Analytics: `wims.analytics_incident_facts`, materialized view SQL, export/scheduled report tables. Migration `28_analytics_geography_denorm.sql` adds denormalized `municipality_name` and `province_name` fields for analyst filters/top-N views, plus export task/file metadata on `analytics_export_log`. Scheduled reports remain deferred outside the National Analyst dashboard phase.
 - Security: `wims.security_threat_logs`, `wims.system_audit_trails`, public keys.
 - Civilian reporting: `wims.citizen_reports` stores device-UUID-owned reports. The `location` column is a PostGIS `geography` type — when extracting latitude/longitude via `ST_Y`/`ST_X`, the column must be cast to `geometry`: `ST_Y(location::geometry)` or `ST_X(location::geometry)`. The Phase 2 update flow uses `GET /api/civilian/reports?device_id=` to enumerate a device's owned reports before allowing an append.

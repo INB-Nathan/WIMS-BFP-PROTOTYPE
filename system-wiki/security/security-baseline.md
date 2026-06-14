@@ -28,9 +28,9 @@ FRS Module 10 requires minimization, purpose limitation, rectification/erasure h
 ## Audit and Immutability
 FRS Module 4 requires SHA-256 data hashes, append-only audit logs, and immutable commit records. Verification/correction workflow remains a high-risk area; see [[gaps/frs-codebase-gap-register]].
 
-- `17_immutable_records.sql` now includes `no_delete_audit` RULE on `wims.system_audit_trails` (GH #240) — DELETE silently no-ops at DB level.
+- `17_immutable_records.sql` now includes `no_delete_audit` and `no_update_audit` RULEs on `wims.system_audit_trails` (GH #240) — DELETE and UPDATE silently no-op at DB level for full audit trail immutability. (Future migrations that need to UPDATE/DELETE rows must temporarily drop these rules.)
 - `wims.system_audit_trails` now has `old_values` and `new_values` JSONB columns (GH #242, migration `60_audit_forensics_columns.sql`) for forensic completeness per ASVS V7.3.1.
-- `log_system_audit()` accepts optional `old_values`/`new_values` params; UPDATE call sites in `users.py` and `config.py` populate them.
+- `log_system_audit()` accepts optional `old_values`/`new_values` params; UPDATE call sites in `users.py` and `config.py` populate them. Non-JSON-serializable types (UUID, datetime, Decimal) are safely coerced via `default=str`.
 
 ## IDS/XAI
 FRS Modules 7 and 8 define Suricata network monitoring and Qwen2.5-3B explainability. Relevant code/config: `src/suricata/`, admin security-log routes, and AI service paths. Real-time security event push via SSE (`GET /api/events/stream`) notifies SYSTEM_ADMIN clients of threat detection, AI analysis completion, and HITL confirmations.

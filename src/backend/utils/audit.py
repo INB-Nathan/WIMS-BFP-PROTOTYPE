@@ -56,12 +56,12 @@ def log_system_audit(
                 "rec": record_id,
                 "ip": ip_address,
                 "ua": user_agent,
-                "oldv": json.dumps(old_values) if old_values else None,
-                "newv": json.dumps(new_values) if new_values else None,
+                "oldv": json.dumps(old_values, default=str) if old_values else None,
+                "newv": json.dumps(new_values, default=str) if new_values else None,
             },
         )
         # Note: Caller is responsible for committing the transaction
     except Exception as e:
-        logger.error(f"Failed to log system audit: {e}")
+        logger.exception(f"Failed to log system audit: {e}")
         # We don't want audit failures to block the main action,
         # but we do want to know about it.

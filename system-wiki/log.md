@@ -3000,3 +3000,44 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - Anomaly detection still works correctly with LIMIT active
 
 **No FRS gap status change** (M8 #160 remains PARTIAL; this is a perf/resilience hardening of the existing 4 shipped detectors).
+
+## [2026-06-14] fix(#332) | PR #332 review blockers: audit forensics completeness
+
+**PR:** #332 — PR review fix pass for audit-db-forensics cluster
+**Scope:** PR #332 worktree only; no push, merge, or cross-worktree edits.
+
+### Fixed from review report (5 accepted findings):
+
+1. **`src/backend/api/routes/admin/users.py`** — Forensic old_state completeness:
+   - Expanded SELECT to include `assigned_region_id` and `is_active` (was only `keycloak_id, role`).
+   - `old_state["is_active"]` now reads actual DB value instead of hardcoded `True`.
+   - `old_state["assigned_region_id"]` now populated when region changes.
+   - Region-only changes (no role or is_active change) now emit `REGION_ASSIGNMENT_CHANGE` audit action so audit log is always written.
+   - Fixed truthiness check `if body.role:` → `if body.role is not None:` (consistency with other field checks).
+
+2. **`src/backend/utils/audit.py`** — Safer JSON serialization:
+   - `json.dumps(old_values, default=str)` and `json.dumps(new_values, default=str)` so UUID/datetime/Decimal types don't silently drop audit entries.
+   - Changed `logger.error` to `logger.exception` for full traceback on audit insert failures.
+
+3. **`src/postgres-init/17_immutable_records.sql`** — Full audit immutability:
+   - Added `no_update_audit` RULE alongside existing `no_delete_audit` RULE on `system_audit_trails`.
+   - Documented tradeoff: future migrations that need to UPDATE/DELETE audit rows must temporarily drop these rules.
+
+4. **`src/backend/tests/integration/test_ai_ids_api.py`** — Test fixture cleanup:
+   - Removed ineffective DELETE teardown from `audit_trail_rows` fixture.
+   - Added docstring explaining that teardown is intentionally no-op due to `no_delete_audit` RULE.
+
+5. **`src/backend/api/routes/admin/audit.py`** — Robust column access:
+   - Changed positional index `r[8]`/`r[9]` to `r._mapping.get("old_values")`/`r._mapping.get("new_values")` for resilience against SELECT column reordering.
+
+### Tests added:
+- `test_system_config.py::TestPatchConfig::test_audit_log_includes_forensic_old_new_values` — verifies config PATCH audit INSERT carries correct oldv/newv.
+- `test_system_config.py::TestAuditSerialization::test_serializes_uuid_and_datetime_with_default_str` — verifies UUID/datetime don't crash `json.dumps`.
+- `test_system_config.py::TestAuditSerialization::test_none_values_passed_as_none` — verifies None passthrough.
+
+### Wiki updates:
+- `system-wiki/security/security-baseline.md` — Updated audit immutability bullet to mention `no_update_audit` RULE and `default=str` coercion.
+- `system-wiki/database/schema-overview.md` — Added UPDATE blocking to immutability description.
+- This log entry.
+
+**No FRS gap status changed.** No production-unsafe bypasses introduced.

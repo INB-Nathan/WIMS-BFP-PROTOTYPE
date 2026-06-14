@@ -184,6 +184,96 @@ class TestPatchConfig:
         response = client.patch("/api/admin/config/ai_timeout_seconds", json={"value": "99"})
         assert response.status_code in (401, 403)
 
+    def test_audit_log_includes_forensic_old_new_values(self, client: TestClient):
+        """PATCH audit INSERT carries oldv/newv with correct old/new config_value."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+
+        # Provide a fetchone row whose first element is the old config_value "3"
+        old_row = MagicMock()
+        old_row.__getitem__ = lambda self, i: "3"
+        mock_db, mock_get_db = _mock_config_db(fetchone_row=old_row)
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        client.patch("/api/admin/config/alert_severity_threshold", json={"value": "2"})
+
+        # Collect the params from the audit INSERT call
+        audit_params = None
+        for call in mock_db.execute.call_args_list:
+            sql = str(call[0][0])
+            if "system_audit_trails" in sql and "oldv" in sql:
+                audit_params = call[0][1]
+                break
+
+        assert audit_params is not None, "No audit INSERT with oldv/newv found"
+        assert audit_params["oldv"] == '{"config_value": "3"}', (
+            f"Expected oldv to be old config_value 3, got {audit_params['oldv']!r}"
+        )
+        assert audit_params["newv"] == '{"config_value": "2"}', (
+            f"Expected newv to be new config_value 2, got {audit_params['newv']!r}"
+        )
+
+
+# =============================================================================
+# Audit utility — serialization safety
+# =============================================================================
+
+
+class TestAuditSerialization:
+    """Unit tests for log_system_audit() old/new value serialization."""
+
+    def test_serializes_uuid_and_datetime_with_default_str(self):
+        """Non-JSON-serializable types (UUID, datetime) are coerced by default=str."""
+        import uuid as _uuid
+        from datetime import datetime, timezone
+        from utils.audit import log_system_audit
+
+        mock_db = MagicMock()
+        test_uuid = _uuid.UUID("12345678-1234-5678-1234-567812345678")
+        test_dt = datetime(2026, 6, 14, 12, 0, 0, tzinfo=timezone.utc)
+
+        log_system_audit(
+            db=mock_db,
+            user_id="00000000-0000-0000-0000-000000000001",
+            action_type="TEST_FORENSIC",
+            table_affected="test_table",
+            record_id=1,
+            old_values={"uuid_col": test_uuid, "dt_col": test_dt},
+            new_values={"uuid_col": test_uuid},
+        )
+
+        # Verify db.execute was called exactly once
+        assert mock_db.execute.call_count == 1, "Expected exactly one db.execute call"
+
+        call_args = mock_db.execute.call_args[0]
+        params = call_args[1]
+
+        # Neither call should have raised TypeError
+        oldv = params["oldv"]
+        newv = params["newv"]
+        assert isinstance(oldv, str), f"oldv should be a JSON string, got {type(oldv)}"
+        assert isinstance(newv, str), f"newv should be a JSON string, got {type(newv)}"
+        assert str(test_uuid) in oldv
+        assert "2026-06-14" in oldv
+
+    def test_none_values_passed_as_none(self):
+        """None old_values/new_values are passed as None, not JSON null."""
+        from utils.audit import log_system_audit
+
+        mock_db = MagicMock()
+        log_system_audit(
+            db=mock_db,
+            user_id="00000000-0000-0000-0000-000000000001",
+            action_type="TEST",
+            table_affected="test",
+            record_id=1,
+            old_values=None,
+            new_values=None,
+        )
+
+        params = mock_db.execute.call_args[0][1]
+        assert params["oldv"] is None
+        assert params["newv"] is None
+
 
 # =============================================================================
 # Suricata severity threshold consumer
