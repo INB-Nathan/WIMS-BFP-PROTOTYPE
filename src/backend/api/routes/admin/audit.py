@@ -91,6 +91,12 @@ def get_audit_logs(
         or 0
     )
 
+    def _row_value(row, key: str, index: int):
+        mapping = getattr(row, "_mapping", None)
+        if mapping is not None:
+            return mapping.get(key)
+        return row[index] if len(row) > index else None
+
     return {
         "items": [
             {
@@ -102,8 +108,8 @@ def get_audit_logs(
                 "ip_address": r[5],
                 "user_agent": r[6],
                 "timestamp": r[7].isoformat() if r[7] else None,
-                "old_values": r._mapping.get("old_values"),
-                "new_values": r._mapping.get("new_values"),
+                "old_values": _row_value(r, "old_values", 8),
+                "new_values": _row_value(r, "new_values", 9),
             }
             for r in rows
         ],
