@@ -3,6 +3,16 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-14] fix(deploy) | ollama CPU override for VPS in docker-compose.prod.yml
+
+- VPS has 2 CPUs but base `docker-compose.yml` sets `cpus: '4'` for ollama.
+- `compose run` (used during deploy DB connectivity check) triggers ollama recreation, which Docker rejects: `range of CPUs is from 0.01 to 2.00, as there are only 2 CPUs available`.
+- Added ollama resource override in `docker-compose.prod.yml`: `cpus: '2'`, `memory: 4gb`.
+- Confirmed fix by running the failing `compose run` command on the VPS — succeeded, ollama recreated with correct limits, all services healthy.
+- Deploy workflow for commit `8be6a6d` in progress at time of writing.
+- Updated [[architecture/infrastructure-config]] with Ollama VPS CPU override docs.
+- No FRS gap register change (infrastructure — no FRS alignment change).
+
 ## [2026-06-13] fix | cluster/offline-store-cleanups — #274 markSynced perf + #275 console.warn gate
 
 - #274 (perf): Removed redundant `put()` before `delete()` in `markSynced()`. The `put()` with `status: 'synced'` was a dead write since the record was immediately deleted. Simplified to a single `store.delete(id)` call. Idempotent — IndexedDB `delete()` is silent on missing keys.

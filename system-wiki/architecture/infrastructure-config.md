@@ -1,7 +1,7 @@
 ---
 title: Infrastructure Configuration
 created: 2026-05-16
-updated: 2026-06-12
+updated: 2026-06-14
 type: architecture
 tags: [wims-bfp, docker, nginx, suricata, keycloak, infrastructure]
 sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/nginx/, src/suricata/, src/keycloak/import/bfp-realm.json, src/keycloak/Dockerfile, .github/workflows/ci.yml]
@@ -109,6 +109,8 @@ Changing `.env.production` does not update database roles already stored in the 
 **Docker DNS upstream refresh:** Both nginx configs use Docker's embedded resolver (`127.0.0.11`) and shared upstream zones with `server backend:8000 resolve` (`backend_servers`) and `server frontend:3000 resolve` (`frontend_servers`). Nginx refreshes both addresses after Compose recreates containers instead of retaining stale IPs and returning `502 Connection refused`. The deploy workflow also runs `nginx -s reload` after `compose up` as a safety net, and checks the frontend `/login` route post-deploy in addition to the existing Keycloak and API health probes.
 
 **Ollama model provisioning:** `ollama-model-pull` is a one-shot service that runs `ollama pull qwen2.5:3b` through the image's existing `ollama` entrypoint. Its Compose command is therefore `pull qwen2.5:3b`, not `ollama pull ...`. Backend startup waits for successful model provisioning.
+
+**Ollama VPS CPU override:** The base `docker-compose.yml` sets `cpus: '4'` / `memory: 8gb` for Ollama, assuming a 4-CPU/16 GB dev machine. The VPS has 2 CPUs / 8 GB RAM. `docker-compose.prod.yml` overrides these to `cpus: '2'` / `memory: 4gb`. Without this override, `compose run` (used during deploy DB connectivity checks) attempts to recreate Ollama with the 4-CPU constraint, which Docker rejects on a 2-CPU host with `range of CPUs is from 0.01 to 2.00, as there are only 2 CPUs available`. This was the root cause of every deploy.yml failure on master from commits 3f83fb1 back through at least ab20823 (5+ failures). Fixed 2026-06-14 in commit `8be6a6d`.
 
 **Frontend/auth env:** `docker-compose.prod.yml` sets browser-facing frontend build/runtime variables to the public HTTPS origin (`${PUBLIC_BASE_URL}`) or relative paths (`/api`, `/auth`). The development compose file also uses relative `/api` and `/auth` for browser-facing access, so local HTTP desk checks stay same-origin and avoid CORS preflight redirects. The Next.js server-side auth routes use `BACKEND_URL=http://backend:8000` in both development and production, and route handlers append `/api/...` explicitly. `POST /api/auth/refresh` is also server-side and must use the internal Keycloak origin, so both development and production compose set `AUTH_SERVER_URL=http://keycloak:8080/auth`; do not substitute browser-relative `/auth` for this value. Keycloak advertises `KC_HOSTNAME_URL=${PUBLIC_BASE_URL}/auth` in production to keep OIDC discovery issuer/endpoints aligned with the nginx `/auth/` proxy path. For `POST /api/auth/sync`, the route forwards nginx-provided `X-Real-IP`/sanitized `X-Forwarded-For` to backend `POST /api/auth/callback` so backend Redis rate limiting keys by end-user IP rather than by the frontend container.
 
