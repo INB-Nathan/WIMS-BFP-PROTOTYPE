@@ -279,6 +279,12 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Used `vi.useRealTimers()` in the first test so @loadable/component's 200ms delay fires and the dynamic import resolves.
 - All 4 tests pass.
 
+## [2026-06-10] fix | M1 Keycloak theme: TOTP setup page left-edge clipping (#231)
+
+- Root cause: `.pf-v5-c-login__main` base rule had `overflow: hidden` with a min horizontal padding of 0.75rem (12px). On the TOTP page the wide `.wims-totp-setup` card (up to 860px) filled the content area edge-to-edge; its 24px box-shadow blur and the step-number circles were clipped at the panel's left overflow boundary.
+- Fix (CSS-only, `wims-custom.css`): (1) `:has(.wims-totp-setup)` override — raised panel min horizontal padding to 1.5rem (24px) via `padding-left/right: clamp(1.5rem, 4vw, 4.5rem)` (`overflow-x: visible` coerces to `auto` due to CSS spec, producing a horizontal scrollbar — padding raise is the correct approach). (2) `.wims-totp-setup` card left/right padding `clamp(0.7rem,1.2vw,0.95rem)` → `clamp(1.25rem,2vw,1.5rem)`. (3) `.wims-totp-steps > li` left padding `0.5rem` → `0.9rem` so the 1.55rem circles sit fully clear of the card's left border.
+- No migration, no app code, no FTL changes. Validation: visual — restart keycloak, assign "Configure OTP" action to a test user, log in.
+
 ## [2026-06-09] fix | PR #238 rebase + review fixes — 6 files
 
 - Rebased `feat/m13-email-triggers` onto origin/master (1345808). Resolved 2 conflicts:

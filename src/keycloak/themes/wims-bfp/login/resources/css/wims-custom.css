@@ -500,10 +500,15 @@ input[type="checkbox"] {
 
 /* === MFA / TOTP Setup — allow scroll so OTP boxes are always reachable === */
 
-/* The right panel must scroll; overflow:hidden clips the form on short viewports */
+/* The right panel must scroll; overflow:hidden clips the form on short viewports.
+   overflow-x:visible coerces to auto (scrollbar) when overflow-y is non-visible, so
+   keep hidden but raise min horizontal padding so the card's 24px box-shadow blur
+   never reaches the clip boundary (was 0.75rem = 12px, now 1.5rem = 24px). */
 .pf-v5-c-login__main:has(.wims-totp-setup) {
     overflow-y: auto !important;
     overflow-x: hidden !important;
+    padding-left: clamp(1.5rem, 4vw, 4.5rem) !important;
+    padding-right: clamp(1.5rem, 4vw, 4.5rem) !important;
 }
 
 /* Body must not centre-justify — content starts at the top so nothing is pushed below the fold */
@@ -518,7 +523,7 @@ input[type="checkbox"] {
     border: 1px solid #e5e7eb !important;
     border-radius: 12px !important;
     box-shadow: 0 8px 24px rgba(15,23,42,0.08) !important;
-    padding: clamp(0.85rem, 1.6vw, 1.1rem) clamp(0.7rem, 1.2vw, 0.95rem) !important;
+    padding: clamp(0.85rem, 1.6vw, 1.1rem) clamp(1.25rem, 2vw, 1.5rem) !important;
     margin: 0 auto !important;
 }
 
@@ -553,7 +558,7 @@ input[type="checkbox"] {
     border-left: 3px solid #e2e8f0 !important;
     border-radius: 6px !important;
     background: #ffffff !important;
-    padding: 0.35rem 0.5rem !important;
+    padding: 0.35rem 0.5rem 0.35rem 0.9rem !important;
 }
 
 .wims-totp-step-number {
