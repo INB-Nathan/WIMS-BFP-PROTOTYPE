@@ -1,7 +1,7 @@
 ---
 title: Agent Routing Guide
 created: 2026-05-14
-updated: 2026-06-12
+updated: 2026-06-15
 type: operations
 tags: [wims-bfp, agent-routing, implementation-map]
 sources: [SCHEMA.md, index.md]
@@ -28,6 +28,7 @@ Every WIMS-BFP agent touching this repo should read:
 |- Reference data: read [[database/schema-overview]], [[database/sql-init-files]] (geography seeds), then `ref.py` and geography seed files.
 - PR review (three-axis): run `/run-chain three-axis-review <PR_NUMBER>` to fetch the PR branch, run Standards/Spec/Quality reviewers, and post the report as a PR comment. Chain lives in `~/.pi/agent/chains/three-axis-review.chain.json` (user scope).
 - Infrastructure/Docker/CI: read [[architecture/infrastructure-config]], [[architecture/pwa-tests-cicd]].
+- Manual smoke testing and issue intake: read [[operations/manual-smoke-testing]] and `docs/operations/manual-smoke-tests.md`; convert independent failures into GitHub issues with evidence fields preserved.
 
 ## Delegation Rules
 - Security-sensitive work gets explicit security review before merge.

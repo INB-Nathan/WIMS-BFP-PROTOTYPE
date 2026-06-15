@@ -3188,3 +3188,11 @@ Made pending-sync offline incidents fully manageable through the normal regional
 **Behavior change:** `INTEGRITY_VIOLATION` audit rows are now committed in an isolated, self-committing session so they survive read-only route handler sessions that never commit. Previously, audit rows were silently rolled back on session close.
 
 **No FRS gap status changed.**
+
+## [2026-06-15] docs | manual smoke-test runbook for Admin, Validator, Analyst
+
+- Added `docs/operations/manual-smoke-tests.md` as the team-facing manual smoke-test runbook.
+- Covered System Admin, National Validator, and National Analyst role assumptions, route/page targets, exact manual actions, expected results, and failure evidence capture.
+- Included reusable smoke-result and GitHub issue templates so teammates can report failures in a consistent issue-ready format.
+- Added [[operations/manual-smoke-testing]] as the wiki routing summary and linked it from [[operations/agent-routing-guide]] and `system-wiki/index.md`.
+- No FRS gap register change (documentation/runbook only; no implementation alignment change).

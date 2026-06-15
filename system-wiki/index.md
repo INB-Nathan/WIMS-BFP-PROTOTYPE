@@ -1,14 +1,15 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-06-12
-Total synthesis pages: 32
-Last changes: Rebased feat/offline-first-encoder onto origin/master (post-PR #272). 19 commits rebased with conflict resolution across offlineStore, syncEngine, connectivity, Operations Board home page, celery_config, and wiki files. Offline-first encoder PWA/sync architecture with IndexedDB v3 ops queue, encrypted read cache, full-fidelity incident create sync via upload-bundle endpoint, and connectivity state machine. National Analyst offline-first read caching with encrypted IndexedDB analytics cache and offline-aware frontend wrappers. Pending-sync offline regional incidents render as full detail pages from IndexedDB and support local edit/delete before sync. Connectivity recovery treats `navigator.onLine` as a hint, continues `/health` probes while offline, adds Next.js `/health` route for non-nginx dev runs, and shows Reconnecting in header. Offline-created regional incidents sync without `ON CONFLICT` on immutable-rule tables. Session-aware sync loop prevention, auth-refresh offline detection, and Celery Beat explicit task registration.
+Last updated: 2026-06-15
+Total synthesis pages: 33
+Last changes: Added team-facing manual smoke-test runbook for System Admin, National Validator, and National Analyst under `docs/operations/manual-smoke-tests.md`, plus [[operations/manual-smoke-testing]] wiki routing summary.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
 - [[mocs/system-map]] — primary map of content and routing entry point.
 - [[operations/agent-routing-guide]] — which page an agent should read before touching each subsystem.
 - [[operations/local-dev-deploy-guide]] — clean-slate local deployment on Windows: local HTTP-only nginx override, known pitfalls (CRLF scripts, accidental production TLS config, password policy), seed users, verification.
+- [[operations/manual-smoke-testing]] — role-based manual smoke-test runbook for Admin, Validator, and Analyst issue intake.
 
 ## Architecture
 - [[architecture/system-overview]] — Dockerized full-stack architecture, runtime services, and evidence sources.
