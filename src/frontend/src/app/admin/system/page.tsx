@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -38,8 +38,6 @@ import {
     ShieldAlert,
     FileText,
     RefreshCw,
-    ChevronDown,
-    ChevronUp,
     CheckCircle,
     XCircle,
     Sparkles,
@@ -113,6 +111,8 @@ interface WorkerStatus {
     active_tasks: number;
     status: string;
 }
+
+const GOVERNANCE_ROLES = ['REGIONAL_ENCODER', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST', 'SYSTEM_ADMIN'];
 
 function formatLastCheckedAgo(checkedAt: Date | null): string | null {
     if (!checkedAt) return null;
@@ -210,6 +210,74 @@ export default function AdminSystemPage() {
     const [creatingReport, setCreatingReport] = useState(false);
     const [togglingReportId, setTogglingReportId] = useState<number | null>(null);
     const [deletingReportId, setDeletingReportId] = useState<number | null>(null);
+
+    // Identity Governance filters & pagination (#346)
+    const [governanceQuery, setGovernanceQuery] = useState('');
+    const [governanceRoleFilter, setGovernanceRoleFilter] = useState('');
+    const [governanceRegionFilter, setGovernanceRegionFilter] = useState('');
+    const [governanceActiveFilter, setGovernanceActiveFilter] = useState('');
+    const [governancePage, setGovernancePage] = useState(1);
+    const [governancePageSize, setGovernancePageSize] = useState(10);
+
+    // Active Sessions filter & pagination (#347)
+    const [sessionsQuery, setSessionsQuery] = useState('');
+    const [sessionsPage, setSessionsPage] = useState(1);
+    const [sessionsPageSize, setSessionsPageSize] = useState(10);
+
+    // Edit User modal state (#346)
+    const [editUserModal, setEditUserModal] = useState<AdminUser | null>(null);
+    const [editRole, setEditRole] = useState('');
+    const [editRegionId, setEditRegionId] = useState('');
+    const [editActive, setEditActive] = useState(false);
+    const [savingUser, setSavingUser] = useState(false);
+
+    // Client-side filtered & paginated users (#346)
+    const filteredUsers = useMemo(() => {
+        return users.filter((u) => {
+            if (governanceQuery && !u.username.toLowerCase().includes(governanceQuery.toLowerCase())) return false;
+            if (governanceRoleFilter && u.role !== governanceRoleFilter) return false;
+            if (governanceRegionFilter && u.assigned_region_id !== parseInt(governanceRegionFilter, 10)) return false;
+            if (governanceActiveFilter === 'active' && !u.is_active) return false;
+            if (governanceActiveFilter === 'inactive' && u.is_active) return false;
+            return true;
+        });
+    }, [users, governanceQuery, governanceRoleFilter, governanceRegionFilter, governanceActiveFilter]);
+
+    const paginatedUsers = useMemo(() => {
+        const start = (governancePage - 1) * governancePageSize;
+        return filteredUsers.slice(start, start + governancePageSize);
+    }, [filteredUsers, governancePage, governancePageSize]);
+
+    const totalGovernancePages = Math.max(1, Math.ceil(filteredUsers.length / governancePageSize));
+
+    // Client-side filtered & paginated sessions (#347)
+    const filteredSessions = useMemo(() => {
+        if (!sessionsQuery) return activeSessions;
+        const q = sessionsQuery.toLowerCase();
+        return activeSessions.filter((s) => s.username.toLowerCase().includes(q));
+    }, [activeSessions, sessionsQuery]);
+
+    const paginatedSessions = useMemo(() => {
+        const start = (sessionsPage - 1) * sessionsPageSize;
+        return filteredSessions.slice(start, start + sessionsPageSize);
+    }, [filteredSessions, sessionsPage, sessionsPageSize]);
+
+    const totalSessionsPages = Math.max(1, Math.ceil(filteredSessions.length / sessionsPageSize));
+
+    // Reset pagination when filters change
+    const prevGovFiltersRef = React.useRef({ q: '', role: '', region: '', active: '' });
+    useEffect(() => {
+        const curr = { q: governanceQuery, role: governanceRoleFilter, region: governanceRegionFilter, active: governanceActiveFilter };
+        if (
+            curr.q !== prevGovFiltersRef.current.q ||
+            curr.role !== prevGovFiltersRef.current.role ||
+            curr.region !== prevGovFiltersRef.current.region ||
+            curr.active !== prevGovFiltersRef.current.active
+        ) {
+            setGovernancePage(1);
+        }
+        prevGovFiltersRef.current = curr;
+    }, [governanceQuery, governanceRoleFilter, governanceRegionFilter, governanceActiveFilter]);
 
     useEffect(() => {
         if (!loading && role !== 'SYSTEM_ADMIN') {
@@ -931,6 +999,72 @@ export default function AdminSystemPage() {
                         </button>
                     </div>
                 </div>
+                {/* Filter bar (#346) */}
+                <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap gap-3 items-end">
+                    <div className="flex-1 min-w-[160px]">
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Username</label>
+                        <input
+                            type="text"
+                            value={governanceQuery}
+                            onChange={(e) => setGovernanceQuery(e.target.value)}
+                            placeholder="Search username…"
+                            className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
+                            style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                            aria-label="Filter by username"
+                        />
+                    </div>
+                    <div className="min-w-[140px]">
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Role</label>
+                        <select
+                            value={governanceRoleFilter}
+                            onChange={(e) => setGovernanceRoleFilter(e.target.value)}
+                            className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
+                            style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                            aria-label="Filter by role"
+                        >
+                            <option value="">All Roles</option>
+                            {GOVERNANCE_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                    </div>
+                    <div className="min-w-[140px]">
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Region</label>
+                        <select
+                            value={governanceRegionFilter}
+                            onChange={(e) => setGovernanceRegionFilter(e.target.value)}
+                            className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
+                            style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                            aria-label="Filter by region"
+                            disabled={regions.length === 0}
+                        >
+                            <option value="">All Regions</option>
+                            {regions.map((r) => <option key={r.region_id} value={r.region_id}>{r.region_name}</option>)}
+                        </select>
+                    </div>
+                    <div className="min-w-[120px]">
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+                        <select
+                            value={governanceActiveFilter}
+                            onChange={(e) => setGovernanceActiveFilter(e.target.value)}
+                            className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
+                            style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                            aria-label="Filter by active status"
+                        >
+                            <option value="">All</option>
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                        </select>
+                    </div>
+                    {(governanceQuery || governanceRoleFilter || governanceRegionFilter || governanceActiveFilter) && (
+                        <div className="flex items-end pb-0.5">
+                            <button
+                                onClick={() => { setGovernanceQuery(''); setGovernanceRoleFilter(''); setGovernanceRegionFilter(''); setGovernanceActiveFilter(''); }}
+                                className="text-xs px-2 py-1.5 text-gray-500 hover:text-gray-700"
+                            >
+                                Clear filters
+                            </button>
+                        </div>
+                    )}
+                </div>
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
@@ -940,30 +1074,96 @@ export default function AdminSystemPage() {
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Region</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Active</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sessions</th>
                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                            {users.map((u) => (
-                                <UserRow
-                                    key={u.user_id}
-                                    user={u}
-                                    onUpdate={handleUpdateUser}
-                                    sessionCount={sessionsByUser[u.user_id]?.length ?? 0}
-                                    onViewSessions={() => setSelectedSessionUser(u)}
-                                />
-                            ))}
+                            {loadingUsers ? (
+                                <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400">Loading users…</td></tr>
+                            ) : paginatedUsers.length === 0 ? (
+                                <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                                    {filteredUsers.length === 0 && users.length > 0 ? 'No users match the current filters.' : 'No users found.'}
+                                </td></tr>
+                            ) : (
+                                paginatedUsers.map((u) => (
+                                    <tr key={u.user_id} className="hover:bg-gray-50">
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                            <button
+                                                onClick={() => setSelectedSessionUser(u)}
+                                                className="text-blue-600 hover:text-blue-800 hover:underline text-left"
+                                                title="View sessions"
+                                            >
+                                                {u.username}
+                                            </button>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{u.role}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            {regions.find((r) => r.region_id === u.assigned_region_id)?.region_name ?? u.assigned_region_id ?? '—'}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">{u.is_active ? <CheckCircle className="w-5 h-5 text-green-600" /> : <XCircle className="w-5 h-5 text-red-500" />}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                                            <button
+                                                onClick={() => {
+                                                    setEditUserModal(u);
+                                                    setEditRole(u.role);
+                                                    setEditRegionId(u.assigned_region_id?.toString() ?? '');
+                                                    setEditActive(u.is_active);
+                                                }}
+                                                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                                            >
+                                                Edit
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
                         </tbody>
                     </table>
-                    {users.length === 0 && !loadingUsers && <div className="p-8 text-center text-gray-500">No users found.</div>}
                 </div>
+                {/* Pagination (#346) */}
+                {filteredUsers.length > 0 && (
+                    <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex flex-wrap items-center justify-between gap-3">
+                        <div className="text-xs text-gray-500">
+                            Showing {(governancePage - 1) * governancePageSize + 1}–{Math.min(governancePage * governancePageSize, filteredUsers.length)} of {filteredUsers.length} users
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <select
+                                value={governancePageSize}
+                                onChange={(e) => { setGovernancePageSize(Number(e.target.value)); setGovernancePage(1); }}
+                                className="border border-gray-300 rounded px-2 py-1 text-xs"
+                                aria-label="Users per page"
+                            >
+                                <option value={10}>10 / page</option>
+                                <option value={25}>25 / page</option>
+                                <option value={50}>50 / page</option>
+                            </select>
+                            <button
+                                onClick={() => setGovernancePage((p) => Math.max(1, p - 1))}
+                                disabled={governancePage <= 1}
+                                className="px-2 py-1 text-xs border border-gray-300 rounded disabled:opacity-40 hover:bg-gray-100"
+                            >
+                                Prev
+                            </button>
+                            <span className="text-xs text-gray-600 px-1">
+                                Page {governancePage} of {totalGovernancePages}
+                            </span>
+                            <button
+                                onClick={() => setGovernancePage((p) => Math.min(totalGovernancePages, p + 1))}
+                                disabled={governancePage >= totalGovernancePages}
+                                className="px-2 py-1 text-xs border border-gray-300 rounded disabled:opacity-40 hover:bg-gray-100"
+                            >
+                                Next
+                            </button>
+                        </div>
+                    </div>
+                )}
             </section>
 
             <section id="sessions" className="card overflow-hidden">
                 <div className="card-header flex items-center justify-between" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
                     <div className="flex items-center gap-2">
-                        <BarChart3 className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                        <Monitor className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
                         <span>Active Sessions</span>
                         {sessionsFromCache && <span className="text-xs italic text-amber-600">(cached)</span>}
                         {sessionsFromCache && sessionsLastChecked && (
@@ -975,6 +1175,20 @@ export default function AdminSystemPage() {
                     <button onClick={loadSessions} disabled={loadingSessions} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
                         <RefreshCw className={`w-4 h-4 ${loadingSessions ? 'animate-spin' : ''}`} /> Refresh
                     </button>
+                </div>
+                {/* Username filter (#347) */}
+                <div className="px-4 py-3 border-b border-gray-100">
+                    <div className="max-w-xs">
+                        <input
+                            type="text"
+                            value={sessionsQuery}
+                            onChange={(e) => { setSessionsQuery(e.target.value); setSessionsPage(1); }}
+                            placeholder="Filter by username…"
+                            className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
+                            style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                            aria-label="Filter sessions by username"
+                        />
+                    </div>
                 </div>
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
@@ -988,27 +1202,71 @@ export default function AdminSystemPage() {
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                            {activeSessions.map((s) => (
-                                <tr key={s.session_id} className="hover:bg-gray-50">
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{s.username}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{s.role}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-500">{s.ip_address}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(s.last_access).toLocaleString()}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                                        <button 
-                                            onClick={() => handleRevokeSession(s.user_id)} 
-                                            disabled={isRevoking === s.user_id}
-                                            className="text-red-600 hover:text-red-800 text-sm font-medium disabled:opacity-50"
-                                        >
-                                            {isRevoking === s.user_id ? 'Revoking...' : 'Force Logout'}
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
+                            {loadingSessions ? (
+                                <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400">Loading sessions…</td></tr>
+                            ) : paginatedSessions.length === 0 ? (
+                                <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                                    {filteredSessions.length === 0 && activeSessions.length > 0 ? 'No sessions match the username filter.' : 'No active sessions found.'}
+                                </td></tr>
+                            ) : (
+                                paginatedSessions.map((s) => (
+                                    <tr key={s.session_id} className="hover:bg-gray-50">
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{s.username}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{s.role}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-500">{s.ip_address}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(s.last_access).toLocaleString()}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                                            <button 
+                                                onClick={() => handleRevokeSession(s.user_id)} 
+                                                disabled={isRevoking === s.user_id}
+                                                className="text-red-600 hover:text-red-800 text-sm font-medium disabled:opacity-50"
+                                            >
+                                                {isRevoking === s.user_id ? 'Revoking...' : 'Force Logout'}
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
                         </tbody>
                     </table>
-                    {activeSessions.length === 0 && !loadingSessions && <div className="p-8 text-center text-gray-500">No active sessions found.</div>}
                 </div>
+                {/* Pagination (#347) */}
+                {filteredSessions.length > 0 && (
+                    <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex flex-wrap items-center justify-between gap-3">
+                        <div className="text-xs text-gray-500">
+                            Showing {(sessionsPage - 1) * sessionsPageSize + 1}–{Math.min(sessionsPage * sessionsPageSize, filteredSessions.length)} of {filteredSessions.length} sessions
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <select
+                                value={sessionsPageSize}
+                                onChange={(e) => { setSessionsPageSize(Number(e.target.value)); setSessionsPage(1); }}
+                                className="border border-gray-300 rounded px-2 py-1 text-xs"
+                                aria-label="Sessions per page"
+                            >
+                                <option value={10}>10 / page</option>
+                                <option value={25}>25 / page</option>
+                                <option value={50}>50 / page</option>
+                            </select>
+                            <button
+                                onClick={() => setSessionsPage((p) => Math.max(1, p - 1))}
+                                disabled={sessionsPage <= 1}
+                                className="px-2 py-1 text-xs border border-gray-300 rounded disabled:opacity-40 hover:bg-gray-100"
+                            >
+                                Prev
+                            </button>
+                            <span className="text-xs text-gray-600 px-1">
+                                Page {sessionsPage} of {totalSessionsPages}
+                            </span>
+                            <button
+                                onClick={() => setSessionsPage((p) => Math.min(totalSessionsPages, p + 1))}
+                                disabled={sessionsPage >= totalSessionsPages}
+                                className="px-2 py-1 text-xs border border-gray-300 rounded disabled:opacity-40 hover:bg-gray-100"
+                            >
+                                Next
+                            </button>
+                        </div>
+                    </div>
+                )}
             </section>
 
             <section id="telemetry" className="card overflow-hidden">
@@ -1816,78 +2074,93 @@ export default function AdminSystemPage() {
                     </div>
                 </div>
             )}
-        </div>
-    );
-}
-
-function UserRow({ user, onUpdate, sessionCount, onViewSessions }: {
-    user: AdminUser;
-    onUpdate: (id: string, p: { role?: string; assigned_region_id?: number; is_active?: boolean }) => void;
-    sessionCount: number;
-    onViewSessions: () => void;
-}) {
-    const [expanded, setExpanded] = useState(false);
-    const [editRole, setEditRole] = useState(user.role);
-    const [editRegion, setEditRegion] = useState(user.assigned_region_id?.toString() ?? '');
-    const [editActive, setEditActive] = useState(user.is_active);
-    const hasChanges = editRole !== user.role || editRegion !== (user.assigned_region_id?.toString() ?? '') || editActive !== user.is_active;
-    const handleSave = () => {
-        if (!hasChanges) return;
-        onUpdate(user.user_id, { role: editRole, assigned_region_id: editRegion ? parseInt(editRegion, 10) : undefined, is_active: editActive });
-        setExpanded(false);
-    };
-    const ROLES = ['CIVILIAN_REPORTER', 'REGIONAL_ENCODER', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST', 'SYSTEM_ADMIN'];
-    return (
-        <>
-            <tr className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{user.username}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{user.role}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.assigned_region_id ?? '—'}</td>
-                <td className="px-6 py-4 whitespace-nowrap">{user.is_active ? <CheckCircle className="w-5 h-5 text-green-600" /> : <XCircle className="w-5 h-5 text-red-500" />}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.created_at ? new Date(user.created_at).toLocaleDateString() : '—'}</td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                    <button
-                        onClick={onViewSessions}
-                        className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-800"
-                    >
-                        <Monitor className="w-4 h-4" />
-                        {sessionCount > 0 ? (
-                            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">{sessionCount}</span>
-                        ) : (
-                            <span className="text-gray-400">0</span>
-                        )}
-                    </button>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <button onClick={() => setExpanded(!expanded)} className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1 ml-auto">
-                        {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />} Edit
-                    </button>
-                </td>
-            </tr>
-            {expanded && (
-                <tr className="bg-gray-50">
-                    <td colSpan={7} className="px-6 py-4">
-                        <div className="flex flex-wrap gap-4 items-end">
+            {/* Edit User Modal (#346) */}
+            {editUserModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+                    <div className="rounded-xl shadow-2xl max-w-md w-full bg-[var(--background)] text-[var(--foreground)] overflow-hidden">
+                        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center" style={{ backgroundColor: 'var(--sidebar-bg)' }}>
+                            <div className="flex items-center gap-2">
+                                <Users className="w-5 h-5 text-white" />
+                                <h3 className="text-base font-bold text-white">Edit User — {editUserModal.username}</h3>
+                            </div>
+                            <button onClick={() => setEditUserModal(null)} className="text-white/70 hover:text-white">
+                                <XCircle className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4">
                             <div>
-                                <label className="block text-xs font-medium text-gray-500 mb-1">Role</label>
-                                <select value={editRole} onChange={(e) => setEditRole(e.target.value)} className="border border-gray-300 rounded px-3 py-1.5 text-sm">
-                                    {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Role</label>
+                                <select
+                                    value={editRole}
+                                    onChange={(e) => setEditRole(e.target.value)}
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                                    style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                                >
+                                    {GOVERNANCE_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-gray-500 mb-1">Region ID</label>
-                                <input type="number" value={editRegion} onChange={(e) => setEditRegion(e.target.value)} placeholder="—" className="border border-gray-300 rounded px-3 py-1.5 text-sm w-24" />
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Assigned Region</label>
+                                <select
+                                    value={editRegionId}
+                                    onChange={(e) => setEditRegionId(e.target.value)}
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                                    style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                                >
+                                    <option value="">— No region —</option>
+                                    {regions.map((r) => <option key={r.region_id} value={r.region_id}>{r.region_name}</option>)}
+                                </select>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <input type="checkbox" id={`active-${user.user_id}`} checked={editActive} onChange={(e) => setEditActive(e.target.checked)} />
-                                <label htmlFor={`active-${user.user_id}`} className="text-sm text-gray-700">Active</label>
+                            <div className="flex items-center gap-3">
+                                <input
+                                    type="checkbox"
+                                    id={`edit-active-${editUserModal.user_id}`}
+                                    checked={editActive}
+                                    onChange={(e) => setEditActive(e.target.checked)}
+                                    className="h-4 w-4"
+                                />
+                                <label htmlFor={`edit-active-${editUserModal.user_id}`} className="text-sm font-medium text-gray-700">Active</label>
                             </div>
-                            <button onClick={handleSave} disabled={!hasChanges} className="px-4 py-2 bg-red-600 text-white rounded text-sm font-medium hover:bg-red-700 disabled:opacity-50">Save</button>
-                            <button onClick={() => { setEditRole(user.role); setEditRegion(user.assigned_region_id?.toString() ?? ''); setEditActive(user.is_active); setExpanded(false); }} className="px-4 py-2 bg-gray-200 text-gray-800 rounded text-sm font-medium hover:bg-gray-300">Cancel</button>
+                            <div className="flex gap-3 pt-2">
+                                <button
+                                    onClick={async () => {
+                                        const regionId = editRegionId ? parseInt(editRegionId, 10) : undefined;
+                                        const hasRegionChanged = regionId !== editUserModal.assigned_region_id;
+                                        const hasRoleChanged = editRole !== editUserModal.role;
+                                        const hasActiveChanged = editActive !== editUserModal.is_active;
+                                        if (!hasRoleChanged && !hasRegionChanged && !hasActiveChanged) {
+                                            setEditUserModal(null);
+                                            return;
+                                        }
+                                        setSavingUser(true);
+                                        try {
+                                            await handleUpdateUser(editUserModal.user_id, {
+                                                role: hasRoleChanged ? editRole : undefined,
+                                                assigned_region_id: hasRegionChanged ? regionId : undefined,
+                                                is_active: hasActiveChanged ? editActive : undefined,
+                                            });
+                                            setEditUserModal(null);
+                                        } finally {
+                                            setSavingUser(false);
+                                        }
+                                    }}
+                                    disabled={savingUser}
+                                    className="flex-1 py-2.5 rounded-lg text-white font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+                                    style={{ backgroundColor: 'var(--sidebar-bg)' }}
+                                >
+                                    {savingUser ? <><RefreshCw className="w-4 h-4 animate-spin" /> Saving…</> : 'Save Changes'}
+                                </button>
+                                <button
+                                    onClick={() => setEditUserModal(null)}
+                                    className="px-5 py-2.5 rounded-lg bg-gray-100 text-gray-700 font-medium hover:bg-gray-200"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
                         </div>
-                    </td>
-                </tr>
+                    </div>
+                </div>
             )}
-        </>
+        </div>
     );
 }

@@ -19,7 +19,7 @@ The admin hub (`/admin/system`) is the `SYSTEM_ADMIN`-only management console fo
 
 ## Frontend UI Surface
 
-**Route:** `/admin/system` (`src/frontend/src/app/admin/system/page.tsx`, ~973 lines)
+**Route:** `/admin/system` (`src/frontend/src/app/admin/system/page.tsx`, ~2160 lines)
 
 **Panels (all loaded on mount, server-side tab-less layout):**
 
@@ -27,10 +27,10 @@ The admin hub (`/admin/system`) is the `SYSTEM_ADMIN`-only management console fo
 |---|---|---|---|
 | **System Health & Monitoring** (#344 consolidated) | System metrics (CPU/Memory/Disk/AI/Network), Celery workers, and component health (DB/Redis/Keycloak) | `fetchSystemMetricsOfflineAware()`, `fetchWorkerStatusOfflineAware()`, `fetchSystemHealthOfflineAware()` | Single card with skeleton loading on initial fetch; one refresh button for both sections; auto-refreshes every 60s |
 | **System Analytics / Flow** | Total Users, Active Sessions (from aggregate endpoint), Celery Workers count | `fetchAdminUsers()`, `fetchActiveSessionsOfflineAware()`, `fetchWorkerStatusOfflineAware()` | Three-stat dashboard cards. "Total API Requests" placeholder replaced with live Celery Workers count (#359) |
-| **User Management** | All users (masked Keycloak IDs), edit role/region/active state | `fetchAdminUsers()`, `updateAdminUser()` | Inline edit for role/region/active; Create User modal for onboarding; region dropdown populated from `fetchRegions()` |
-| **Create User Modal** | First name, last name, email, role, region, contact | `createAdminUser()` → `POST /api/admin/users` | Returns temp password in plaintext (prototype); copy-to-clipboard with show/hide toggle; region filter list from `fetchRegions()` |
-| **Active Sessions** | All active Keycloak sessions across all users | `fetchActiveSessionsOfflineAware()` → `GET /api/admin/active-sessions` | Table with session ID, username, role, IP, start, last access; Revoke button calls `revokeUserSessions()`. Per-user sessions loaded lazily on "View Sessions" click (#359 N+1 fix) |
-| **Per-User Sessions Modal** | Per-user Keycloak sessions (lazy-loaded) | `fetchUserSessions(user_id)` on demand | Lazy-loads sessions when user clicks "View Sessions"; shows loading/error/no-sessions states; Terminate All button |
+| **Identity Governance** (#346) | All users with client-side filters (username, role, region, active status) and pagination (10/25/50 per page) | `fetchAdminUsers()`, `updateAdminUser()` | Edit button opens modal with role dropdown (excludes deprecated CIVILIAN_REPORTER), region dropdown from `fetchRegions()`, and active checkbox. Create User modal for onboarding; region dropdown populated from `fetchRegions()`. Sessions column removed — per-user sessions are accessible by clicking the username or via the dedicated Active Sessions section. |
+| **Create User Modal** | First name, last name, email, role, region, contact | `createAdminUser()` → `POST /api/admin/users` | Returns temp password in plaintext (prototype); copy-to-clipboard with show/hide toggle; region filter list from `fetchRegions()`; CIVILIAN_REPORTER excluded from role dropdown (#346) |
+| **Active Sessions** (#347) | All active Keycloak sessions across all users with client-side username filter and pagination (10/25/50 per page) | `fetchActiveSessionsOfflineAware()` → `GET /api/admin/active-sessions` | Table with username, role, IP address, last access; Force Logout button calls `revokeUserSessions()`. Per-user sessions loaded lazily on username click (#359 N+1 fix) |
+| **Per-User Sessions Modal** | Per-user Keycloak sessions (lazy-loaded) | `fetchUserSessions(user_id)` on demand | Lazy-loads sessions when user clicks username in Identity Governance; shows loading/error/no-sessions states; Terminate All button |
 | **Security Threat Logs** | Suricata/XAI threat telemetry | `fetchAdminSecurityLogs()` → `GET /api/admin/security-logs` | Table with source/dest IP, severity, Suricata SID, raw payload, XAI narrative/confidence; Analyze button runs `analyzeSecurityLog()`; HITL modal: 3 decision buttons (Confirm Threat / False Positive / Request More Info) replacing free-text admin_action_taken form. Request More Info reveals optional note textarea + Confirm. Already-actioned logs show read-only display. Backend response is paginated (`items`, `total`, `limit`, `offset`) and includes `hitl_decision` JSONB. |
 | **System Audit Trails** | Paginated audit log of all admin actions | `fetchAuditLogs(limit, offset)` → `GET /api/admin/audit-logs` | Table with user_id, action_type, table_affected, record_id, IP, UA, timestamp; paginated with limit/offset |
 | **Scheduled Reports** | Create/manage scheduled analytics reports | `POST /api/admin/scheduled-reports`, `GET /api/admin/scheduled-reports` | Create form: name, format (pdf/excel/csv), cron expression, filters JSON, recipients; list with toggle/delete; delete uses confirmation modal (no native `confirm()`) |
@@ -137,7 +137,8 @@ User CRUD, security HITL ops, and scheduled reports remain online-only.
 - The page shows all panels in a **single vertical scroll layout** — no tabbed Activity & Governance section (logged in [[gaps/ui-ux-gap-register]] as issue #A-02 and #A-04)
 - Security threat logs still have **no frontend pagination/search/filter**. Backend API is paginated, but the admin UI currently consumes only the initial page.
 - **M9 System Monitoring metrics** (VPS usage, container status, PWA sync, AI model latency, DB query latency cards) are **not implemented** beyond the basic DB/Redis/Keycloak health check; the FRS-required 60s refresh and configuration management UI are missing (logged in [[gaps/frs-codebase-gap-register]])
-- **No pagination, full-text search, or filter** on user list or incident lists in admin hub (logged in [[gaps/ui-ux-gap-register]])
+- **✅ Identity Governance (GH #346):** Client-side username search, role filter (excludes CIVILIAN_REPORTER), region filter (dropdown from `fetchRegions()`), active status filter, and pagination (10/25/50 per page). Inline UserRow edit replaced with a modal. Sessions column removed from Identity Governance table; per-user sessions accessible via username click or dedicated Active Sessions section.
+- **✅ Active Sessions (GH #347):** Client-side username filter and pagination (10/25/50 per page). Sessions remain viewable/manageable in the dedicated Active Sessions container.
 - Backup download is not rate-limited or logged beyond the system audit trail
 - Admin hub uses `get_db()` (not `get_db_with_rls()`) for health check, `get_db_with_rls()` for all other queries
 

@@ -3230,3 +3230,11 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - This prevents FK-violation teardown failures when `POST /api/incidents` writes `CREATE_INCIDENT` audit rows referencing the temporary test user.
 - Audit immutability is preserved: the rule is only lifted during fixture cleanup and is always recreated before the next test runs.
 - No FRS gap register change (test infrastructure only).
+
+## 2026-06-16: Identity Governance & Active Sessions UI (#346, #347)
+
+- **Identity Governance (#346):** Replaced inline UserRow expand/collapse with an edit modal. Added client-side filter bar (username search, role dropdown, region dropdown, active status selector) and client-side pagination (10/25/50 per page). Removed deprecated CIVILIAN_REPORTER from all role dropdowns. Region editor now uses named dropdown from `fetchRegions()` instead of numeric input. Removed the Sessions column from the Identity Governance table.
+- **Active Sessions (#347):** Added client-side username filter input and client-side pagination (10/25/50 per page). Sessions remain viewable and manageable in the dedicated Active Sessions container. Per-user sessions are accessible by clicking a username in Identity Governance.
+- **Backend:** No changes. All filtering and pagination is client-side using the existing full-list `GET /api/admin/users` and `GET /api/admin/active-sessions` endpoints.
+- **Tests:** New test file `admin-system-governance.test.tsx` with 17 tests covering filters, pagination, modal behavior, role validation, region dropdown, sessions column removal, and Active Sessions features.
+- **Wiki:** Updated `system-wiki/subsystems/admin-hub.md` to reflect the new governance and sessions UX. No FRS gap register changes (UI improvements only).
