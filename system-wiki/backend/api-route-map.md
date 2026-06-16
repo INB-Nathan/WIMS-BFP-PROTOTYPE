@@ -113,14 +113,14 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `admin/breach.py` | `GET` | `/admin/breach` | `list_breaches` | List all breach records, RA 10173 NPC 72h tracking (M10d) |
 | `admin/breach.py` | `GET` | `/admin/breach/{breach_id}` | `get_breach` | Fetch single breach by ID (M10d) |
 | `admin/breach.py` | `PATCH` | `/admin/breach/{breach_id}` | `update_breach` | Update breach status/notes; captures old_values/new_values in forensic audit with request metadata (#360, #361) |
-| `admin/config.py` | `GET` | `/admin/config` | `get_config` | M9c configuration management — reads `wims.system_config` including NPC contact keys `npc_contact_name`, `npc_contact_phone`, `npc_office_phone` (#170, #247, #355) |
-| `admin/config.py` | `PATCH` | `/admin/config/{key}` | `update_config` | M9c configuration management — audit-logged config write with forensic old/new values (#170, #247, #355) |
+| `admin/config.py` | `GET` | `/admin/config` | `get_config` | M9c configuration management — reads `wims.system_config` including NPC contact keys `npc_contact_name`, `npc_contact_phone`, `npc_office_phone` and worker timeout keys `worker_stale_timeout_seconds`, `worker_offline_timeout_seconds` (#170, #247, #354, #355) |
+| `admin/config.py` | `PATCH` | `/admin/config/{key}` | `update_config` | M9c configuration management — audit-logged config write with per-key validation (min ranges, cross-key constraints for worker timeouts) and forensic old/new values (#170, #247, #354, #355) |
 | `admin/analytics.py` | `POST` | `/analytics/backfill` | `backfill_analytics` |
 | `admin/scheduled_reports.py` | `POST` | `/scheduled-reports` | `create_scheduled_report` |
 | `admin/scheduled_reports.py` | `GET` | `/scheduled-reports` | `list_scheduled_reports` |
 | `admin/scheduled_reports.py` | `PATCH` | `/scheduled-reports/{report_id}` | `update_scheduled_report` |
-| `admin/rate_limits.py` | `GET` | `/rate-limits` | `get_rate_limits` |
-| `admin/rate_limits.py` | `PATCH` | `/rate-limits` | `update_rate_limits` |
+| `admin/rate_limits.py` | `GET` | `/rate-limits` | `get_rate_limits` | Return auth-flow rate-limit config from Redis (legacy `login` tier label protects OIDC callback endpoint) (#47, #363) |
+| `admin/rate_limits.py` | `PATCH` | `/rate-limits` | `update_rate_limits` | Update rate-limit threshold/window with Pydantic validation (≥1), audit-logged with `RATE_LIMIT_UPDATED` action (#47, #363) |
 | `admin/backups.py` | `POST` | `/backup` | `trigger_backup` |
 | `admin/backups.py` | `GET` | `/backups` | `list_backups` |
 | `admin/backups.py` | `GET` | `/backup/{filename}` | `download_backup` |

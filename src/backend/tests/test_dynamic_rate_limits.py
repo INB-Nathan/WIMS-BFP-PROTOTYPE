@@ -124,44 +124,28 @@ class TestPatchRateLimits:
         call_kwargs = mock_redis.hset.call_args
         assert call_kwargs[0][0] == "rate_limit_config:login"
 
-    def test_patch_rate_limits_rejects_zero_limit(self, client):
+    def _patch_rejects(self, client, body, expected_status=422):
+        """Helper: PATCH rate-limits with admin + mocked DB, expect rejection."""
         app.dependency_overrides[auth.get_current_wims_user] = admin_override
+        app.dependency_overrides[get_db_with_rls] = lambda: MagicMock()
+        response = client.patch("/api/admin/rate-limits", json=body)
+        assert response.status_code == expected_status
 
-        response = client.patch(
-            "/api/admin/rate-limits",
-            json={"tier": "login", "limit": 0, "window": 600},
-        )
-        assert response.status_code == 422
+    def test_patch_rate_limits_rejects_zero_limit(self, client):
+        self._patch_rejects(client, {"tier": "login", "limit": 0, "window": 600})
 
     def test_patch_rate_limits_rejects_zero_window(self, client):
-        app.dependency_overrides[auth.get_current_wims_user] = admin_override
-
-        response = client.patch(
-            "/api/admin/rate-limits",
-            json={"tier": "login", "limit": 5, "window": 0},
-        )
-        assert response.status_code == 422
+        self._patch_rejects(client, {"tier": "login", "limit": 5, "window": 0})
 
     def test_patch_rate_limits_rejects_negative_limit(self, client):
-        app.dependency_overrides[auth.get_current_wims_user] = admin_override
-
-        response = client.patch(
-            "/api/admin/rate-limits",
-            json={"tier": "login", "limit": -1, "window": 600},
-        )
-        assert response.status_code == 422
+        self._patch_rejects(client, {"tier": "login", "limit": -1, "window": 600})
 
     def test_patch_rate_limits_rejects_unknown_tier(self, client):
-        app.dependency_overrides[auth.get_current_wims_user] = admin_override
-
-        response = client.patch(
-            "/api/admin/rate-limits",
-            json={"tier": "unknown_tier", "limit": 5, "window": 900},
-        )
-        assert response.status_code == 422
+        self._patch_rejects(client, {"tier": "unknown_tier", "limit": 5, "window": 900})
 
     def test_patch_rate_limits_requires_admin(self, client):
         app.dependency_overrides[auth.get_current_wims_user] = encoder_override
+        app.dependency_overrides[get_db_with_rls] = lambda: MagicMock()
 
         response = client.patch(
             "/api/admin/rate-limits",

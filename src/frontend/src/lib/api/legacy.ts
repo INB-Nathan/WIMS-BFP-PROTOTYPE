@@ -1713,6 +1713,32 @@ export async function updateAdminConfig(
   );
 }
 
+// ─── Rate Limits (#363) — auth/login rate-limit configuration ──────────────
+
+export interface RateLimitConfig {
+  tier: string;
+  login_window_seconds: number;
+  login_threshold: number;
+  updated_at: string | null;
+}
+
+/** Fetch current auth-flow rate-limit config (SYSTEM_ADMIN only). */
+export async function fetchRateLimits(): Promise<RateLimitConfig> {
+  return apiFetch<RateLimitConfig>('/admin/rate-limits');
+}
+
+/** Update rate-limit threshold/window (SYSTEM_ADMIN only). */
+export async function updateRateLimits(
+  tier: string,
+  limit: number,
+  window: number
+): Promise<RateLimitConfig> {
+  return apiFetch<RateLimitConfig>('/admin/rate-limits', {
+    method: 'PATCH',
+    body: JSON.stringify({ tier, limit, window }),
+  });
+}
+
 // ─── Scheduled Reports (Issue #88) ──────────────────────────────────────────
 
 export interface ScheduledReport {
