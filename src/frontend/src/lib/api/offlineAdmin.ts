@@ -41,7 +41,7 @@ export async function fetchActiveSessionsOfflineAware(): Promise<OfflineAdminRes
 }
 
 export async function fetchAuditLogsOfflineAware(
-  params?: { limit?: number; offset?: number; q?: string },
+  params?: { limit?: number; offset?: number; q?: string; user_id?: string; action_type?: string; table_affected?: string; ip_address?: string; date_from?: string; date_to?: string },
 ): Promise<OfflineAdminResult<PaginatedResponse<AuditLogEntry>>> {
   return offlineAware('audit-logs', [params ?? {}], 'admin', ADMIN_CACHE_TTL_MS, () => legacyFetchAuditLogs(params), OFFLINE_ADMIN_ERROR);
 }

@@ -204,7 +204,7 @@ function getNavSections(role: string | null): NavSection[] {
                 { label: 'Security Monitoring', href: '/admin/monitoring', icon: ShieldAlert },
                 { label: 'Telemetry', href: '/admin/system#telemetry', icon: ShieldAlert },
                 { label: 'Breach Notifications', href: '/admin/breach', icon: ShieldX },
-                { label: 'System Audit', href: '/admin/system#audit', icon: Settings },
+                { label: 'System Audit', href: '/admin/audit', icon: Settings },
                 { label: 'Anomaly Detection', href: '/admin/anomalies', icon: Activity },
                 { label: 'Configuration', href: '/admin/system/config', icon: SlidersHorizontal },
             ],

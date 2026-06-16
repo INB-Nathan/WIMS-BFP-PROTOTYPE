@@ -145,8 +145,6 @@ export default function AdminSystemPage() {
     const [monitoringFromCache, setMonitoringFromCache] = useState(false);
     const [sessionsLastChecked, setSessionsLastChecked] = useState<Date | null>(null);
     const [sessionsFromCache, setSessionsFromCache] = useState(false);
-    const [auditLastChecked, setAuditLastChecked] = useState<Date | null>(null);
-    const [auditFromCache, setAuditFromCache] = useState(false);
     const [securitySearchQ, setSecuritySearchQ] = useState('');
 
     // Threat Telemetry filter & pagination state (#348)
@@ -162,10 +160,9 @@ export default function AdminSystemPage() {
     const securitySearchQRef = React.useRef(securitySearchQ);
     securitySearchQRef.current = securitySearchQ;
 
-    const [auditSearchQ, setAuditSearchQ] = useState('');
     const [loadingUsers, setLoadingUsers] = useState(false);
     const [loadingLogs, setLoadingLogs] = useState(false);
-    const [loadingAudit, setLoadingAudit] = useState(false);
+    const [loadingHighlights, setLoadingHighlights] = useState(false);
     const [loadingSessions, setLoadingSessions] = useState(false);
     const [loadingMonitoring, setLoadingMonitoring] = useState(true);
 
@@ -356,7 +353,7 @@ export default function AdminSystemPage() {
         if (role === 'SYSTEM_ADMIN') {
             loadUsers();
             loadSecurityLogs();
-            loadAuditLogs();
+            loadHighlightAudit();
             loadRegions();
             loadSessions();
             loadScheduledReports();
@@ -591,11 +588,10 @@ export default function AdminSystemPage() {
         setTelemetryError(null);
     };
 
-    const loadAuditLogs = async (q = auditSearchQ.trim()) => {
-        setLoadingAudit(true);
+    const loadHighlightAudit = async () => {
+        setLoadingHighlights(true);
         try {
-            const trimmed = q.trim();
-            const { response, fromCache, cachedAt } = await fetchAuditLogsOfflineAware({ limit: 50, offset: 0, ...(trimmed ? { q: trimmed } : {}) });
+            const { response } = await fetchAuditLogsOfflineAware({ limit: 50, offset: 0 });
             setAuditLogs({
                 items: response.items.map((item): AuditItem => ({
                     audit_id: item.audit_id,
@@ -609,12 +605,10 @@ export default function AdminSystemPage() {
                 })),
                 total: response.total,
             });
-            setAuditFromCache(fromCache);
-            setAuditLastChecked(cachedAt ? new Date(cachedAt) : new Date());
         } catch {
             setAuditLogs({ items: [], total: 0 });
         } finally {
-            setLoadingAudit(false);
+            setLoadingHighlights(false);
         }
     };
 
@@ -1562,81 +1556,32 @@ export default function AdminSystemPage() {
                 )}
             </section>
 
+            {/* System Audit — dedicated page CTA (#352) */}
             <section id="audit" className="card overflow-hidden">
-                <div className="card-header flex items-center justify-between" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
-                    <div className="flex items-center gap-2">
-                        <FileText className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
-                        <span>System Audit</span>
-                        {auditFromCache && <span className="text-xs italic text-amber-600">(cached)</span>}
-                        {auditFromCache && auditLastChecked && (
-                            <span className="text-xs text-gray-400">
-                                Last checked: {formatLastCheckedAgo(auditLastChecked)}
-                            </span>
-                        )}
-                    </div>
-                    <button onClick={() => loadAuditLogs(auditSearchQ)} disabled={loadingAudit} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
-                        <RefreshCw className={`w-4 h-4 ${loadingAudit ? 'animate-spin' : ''}`} /> Refresh
-                    </button>
+                <div className="card-header flex items-center gap-2" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
+                    <FileText className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                    <span>System Audit</span>
                 </div>
-                <form
-                    onSubmit={e => { e.preventDefault(); loadAuditLogs(auditSearchQ.trim()); }}
-                    className="px-6 py-3 border-b border-gray-100 flex items-center gap-2"
-                >
-                    <input
-                        type="text"
-                        aria-label="Search audit logs"
-                        value={auditSearchQ}
-                        onChange={e => setAuditSearchQ(e.target.value)}
-                        placeholder="Search audit trail (action, table, user agent…)"
-                        className="flex-1 border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
-                        style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
-                    />
-                    <button
-                        type="submit"
-                        className="flex items-center gap-1 px-3 py-1.5 rounded text-sm text-white"
-                        style={{ backgroundColor: 'var(--sidebar-bg)' }}
-                        aria-label="Search audit logs"
-                    >
-                        <Search className="w-3 h-3" />
-                    </button>
-                    {auditSearchQ && (
-                        <button
-                            type="button"
-                            onClick={() => { setAuditSearchQ(''); loadAuditLogs(''); }}
-                            className="text-xs px-2 py-1 text-gray-500 hover:text-gray-700"
+                <div className="card-body">
+                    <div className="p-6 flex items-center justify-between">
+                        <div className="space-y-2">
+                            <h3 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                                Full audit trail with advanced filters
+                            </h3>
+                            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                                Search and filter by action type, table, user ID, IP address, date range, and full-text.
+                            </p>
+                        </div>
+                        <a
+                            href="/admin/audit"
+                            className="px-4 py-2 rounded-md text-sm font-medium text-white inline-flex items-center gap-2"
+                            style={{ backgroundColor: 'var(--sidebar-bg)' }}
                         >
-                            Clear
-                        </button>
-                    )}
-                </form>
-                <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Table</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Record ID</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IP</th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {auditLogs.items.map((a) => (
-                                <tr key={a.audit_id} className="hover:bg-gray-50">
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{a.timestamp ? new Date(a.timestamp).toLocaleString() : '—'}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">{a.user_id ?? '—'}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{a.action_type ?? '—'}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{a.table_affected ?? '—'}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{a.record_id ?? '—'}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-500">{a.ip_address ?? '—'}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    {auditLogs.items.length === 0 && !loadingAudit && <div className="p-8 text-center text-gray-500">No audit entries.</div>}
+                            <Search className="w-4 h-4" />
+                            Open System Audit
+                        </a>
+                    </div>
                 </div>
-                {auditLogs.total > 0 && <div className="px-6 py-2 bg-gray-50 border-t border-gray-200 text-xs text-gray-500">Showing {auditLogs.items.length} of {auditLogs.total}</div>}
             </section>
 
             {/* Alert Action Highlights (issue #350) */}
@@ -1646,8 +1591,8 @@ export default function AdminSystemPage() {
                         <ShieldAlert className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
                         <span>Alert Action Highlights</span>
                     </div>
-                    <button onClick={() => loadAuditLogs(auditSearchQ)} disabled={loadingAudit} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
-                        <RefreshCw className={`w-4 h-4 ${loadingAudit ? 'animate-spin' : ''}`} /> Refresh
+                    <button onClick={loadHighlightAudit} disabled={loadingHighlights} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
+                        <RefreshCw className={`w-4 h-4 ${loadingHighlights ? 'animate-spin' : ''}`} /> Refresh
                     </button>
                 </div>
                 <div className="overflow-x-auto">
