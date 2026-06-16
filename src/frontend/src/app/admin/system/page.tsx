@@ -31,6 +31,7 @@ import {
 } from '@/lib/api';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { getConnectivitySnapshot, subscribeConnectivity, probeConnectivity } from '@/lib/connectivity';
+import { normalizeNarrative } from '@/lib/xaiNarrativeNormalizer';
 import { ActiveSession, Region } from '@/types/api';
 import {
     BarChart3,
@@ -147,6 +148,20 @@ export default function AdminSystemPage() {
     const [auditLastChecked, setAuditLastChecked] = useState<Date | null>(null);
     const [auditFromCache, setAuditFromCache] = useState(false);
     const [securitySearchQ, setSecuritySearchQ] = useState('');
+
+    // Threat Telemetry filter & pagination state (#348)
+    const [telemetryPage, setTelemetryPage] = useState(0);
+    const [telemetryTotal, setTelemetryTotal] = useState(0);
+    const [telemetrySeverities, setTelemetrySeverities] = useState<Set<string>>(new Set());
+    const [telemetrySourceIp, setTelemetrySourceIp] = useState('');
+    const [telemetryDateFrom, setTelemetryDateFrom] = useState('');
+    const [telemetryDateTo, setTelemetryDateTo] = useState('');
+    const [telemetryError, setTelemetryError] = useState<string | null>(null);
+
+    const TELEMETRY_PAGE_SIZE = 20;
+    const securitySearchQRef = React.useRef(securitySearchQ);
+    securitySearchQRef.current = securitySearchQ;
+
     const [auditSearchQ, setAuditSearchQ] = useState('');
     const [loadingUsers, setLoadingUsers] = useState(false);
     const [loadingLogs, setLoadingLogs] = useState(false);
@@ -518,17 +533,62 @@ export default function AdminSystemPage() {
         }
     };
 
-    const loadSecurityLogs = async (q = securitySearchQ.trim()) => {
+    const loadSecurityLogs = async () => {
         setLoadingLogs(true);
+        setTelemetryError(null);
         try {
-            const trimmed = q.trim();
-            const data = await fetchAdminSecurityLogs(trimmed ? { q: trimmed } : undefined);
+            const q = securitySearchQRef.current.trim();
+            const params: Record<string, unknown> = {
+                limit: TELEMETRY_PAGE_SIZE,
+                offset: telemetryPage * TELEMETRY_PAGE_SIZE,
+            };
+            if (q) params.q = q;
+            if (telemetrySeverities.size > 0) params.severity = Array.from(telemetrySeverities).join(',');
+            if (telemetrySourceIp.trim()) params.source_ip = telemetrySourceIp.trim();
+            if (telemetryDateFrom) params.date_from = telemetryDateFrom;
+            if (telemetryDateTo) params.date_to = telemetryDateTo;
+
+            const data = await fetchAdminSecurityLogs(params);
             setSecurityLogs(data.items as SecurityLog[]);
+            setTelemetryTotal(data.total);
         } catch {
             setSecurityLogs([]);
+            setTelemetryTotal(0);
+            setTelemetryError('Failed to load security logs');
         } finally {
             setLoadingLogs(false);
         }
+    };
+
+    // Auto-reload when telemetry filters change (#348)
+    const prevTelemetryKeyRef = React.useRef('');
+    useEffect(() => {
+        if (role !== 'SYSTEM_ADMIN') return;
+        const key = `${telemetryPage}|${Array.from(telemetrySeverities).sort().join(',')}|${telemetrySourceIp}|${telemetryDateFrom}|${telemetryDateTo}`;
+        if (key !== prevTelemetryKeyRef.current) {
+            prevTelemetryKeyRef.current = key;
+            loadSecurityLogs();
+        }
+    }, [role, telemetryPage, telemetrySeverities, telemetrySourceIp, telemetryDateFrom, telemetryDateTo]);
+
+    const handleToggleTelemetrySeverity = (sev: string) => {
+        setTelemetrySeverities((prev) => {
+            const next = new Set(prev);
+            if (next.has(sev)) next.delete(sev);
+            else next.add(sev);
+            return next;
+        });
+        setTelemetryPage(0);
+    };
+
+    const handleClearTelemetryFilters = () => {
+        setSecuritySearchQ('');
+        setTelemetryPage(0);
+        setTelemetrySeverities(new Set());
+        setTelemetrySourceIp('');
+        setTelemetryDateFrom('');
+        setTelemetryDateTo('');
+        setTelemetryError(null);
     };
 
     const loadAuditLogs = async (q = auditSearchQ.trim()) => {
@@ -622,7 +682,7 @@ export default function AdminSystemPage() {
             await updateAdminSecurityLog(selectedLog.log_id, { action, note });
             setHitlMessage({ type: 'success', text: `Action \u201c${action}\u201d applied to alert #${selectedLog.log_id}.` });
             setSelectedLog(null);
-            await loadSecurityLogs(securitySearchQ);
+            await loadSecurityLogs();
         } catch (e: unknown) {
             setHitlMessage({ type: 'error', text: (e as { message?: string })?.message ?? 'Update failed' });
         } finally {
@@ -1275,12 +1335,13 @@ export default function AdminSystemPage() {
                         <ShieldAlert className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
                         <span>Threat Telemetry</span>
                     </div>
-                    <button onClick={() => loadSecurityLogs(securitySearchQ)} disabled={loadingLogs} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
+                    <button onClick={() => loadSecurityLogs()} disabled={loadingLogs} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
                         <RefreshCw className={`w-4 h-4 ${loadingLogs ? 'animate-spin' : ''}`} /> Refresh
                     </button>
                 </div>
+                {/* Search bar */}
                 <form
-                    onSubmit={e => { e.preventDefault(); loadSecurityLogs(securitySearchQ.trim()); }}
+                    onSubmit={e => { e.preventDefault(); loadSecurityLogs(); }}
                     className="px-6 py-3 border-b border-gray-100 flex items-center gap-2"
                 >
                     <input
@@ -1303,58 +1364,202 @@ export default function AdminSystemPage() {
                     {securitySearchQ && (
                         <button
                             type="button"
-                            onClick={() => { setSecuritySearchQ(''); loadSecurityLogs(''); }}
+                            onClick={() => { setSecuritySearchQ(''); securitySearchQRef.current = ''; loadSecurityLogs(); }}
                             className="text-xs px-2 py-1 text-gray-500 hover:text-gray-700"
                         >
                             Clear
                         </button>
                     )}
                 </form>
-                <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Severity</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source → Dest</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SID</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">View</th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {securityLogs.map((log) => (
-                                <tr key={log.log_id} className="hover:bg-gray-50">
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${log.severity_level === 'CRITICAL' ? 'bg-red-100 text-red-800' : log.severity_level === 'HIGH' ? 'bg-orange-100 text-orange-800' : log.severity_level === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'}`}>
-                                            {log.severity_level ?? '—'}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{log.timestamp ? new Date(log.timestamp).toLocaleString() : '—'}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">{log.source_ip ?? '—'} → {log.destination_ip ?? '—'}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{log.suricata_sid ?? '—'}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{log.admin_action_taken ? <span className="text-green-700 font-medium">{log.admin_action_taken}</span> : <span className="text-gray-400 italic">Unreviewed</span>}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                                        <div className="flex items-center justify-end gap-2">
-                                            {!log.xai_narrative && (
-                                                <button
-                                                    onClick={() => handleAnalyze(log)}
-                                                    disabled={analyzingLogId === log.log_id}
-                                                    className="text-purple-600 hover:text-purple-800 text-sm font-medium flex items-center gap-1 disabled:opacity-50"
-                                                >
-                                                    <Sparkles className="w-4 h-4" />
-                                                    {analyzingLogId === log.log_id ? 'Analyzing…' : 'Analyze with AI'}
-                                                </button>
-                                            )}
-                                            <button onClick={() => setSelectedLog(log)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">View</button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    {securityLogs.length === 0 && !loadingLogs && <div className="p-8 text-center text-gray-500">No Suricata alerts.</div>}
+
+                {/* Advanced filter bar (#348) */}
+                <div className="px-6 py-3 border-b border-gray-100 space-y-3">
+                    {/* Severity chips */}
+                    <div>
+                        <span className="text-xs font-medium text-gray-500 block mb-2">Severity</span>
+                        <div className="flex gap-2 flex-wrap">
+                            {(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const).map((sev) => {
+                                const active = telemetrySeverities.has(sev);
+                                const chipColors: Record<string, string> = {
+                                    LOW: active ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600',
+                                    MEDIUM: active ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-600',
+                                    HIGH: active ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-600',
+                                    CRITICAL: active ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600',
+                                };
+                                return (
+                                    <button
+                                        key={sev}
+                                        type="button"
+                                        onClick={() => handleToggleTelemetrySeverity(sev)}
+                                        className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${chipColors[sev]}`}
+                                    >
+                                        {sev}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                    {/* Source IP + Date range on one row */}
+                    <div className="flex flex-wrap gap-3">
+                        <div className="flex-1 min-w-[160px]">
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Source IP</label>
+                            <input
+                                type="text"
+                                value={telemetrySourceIp}
+                                onChange={(e) => { setTelemetrySourceIp(e.target.value); setTelemetryPage(0); }}
+                                onBlur={() => loadSecurityLogs()}
+                                onKeyDown={(e) => { if (e.key === 'Enter') loadSecurityLogs(); }}
+                                placeholder="e.g. 192.168.1.1"
+                                className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
+                                style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                            />
+                        </div>
+                        <div className="min-w-[140px]">
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Date From</label>
+                            <input
+                                type="text"
+                                value={telemetryDateFrom}
+                                onChange={(e) => { setTelemetryDateFrom(e.target.value); setTelemetryPage(0); }}
+                                onBlur={() => loadSecurityLogs()}
+                                onKeyDown={(e) => { if (e.key === 'Enter') loadSecurityLogs(); }}
+                                placeholder="YYYY-MM-DD"
+                                className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
+                                style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                            />
+                        </div>
+                        <div className="min-w-[140px]">
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Date To</label>
+                            <input
+                                type="text"
+                                value={telemetryDateTo}
+                                onChange={(e) => { setTelemetryDateTo(e.target.value); setTelemetryPage(0); }}
+                                onBlur={() => loadSecurityLogs()}
+                                onKeyDown={(e) => { if (e.key === 'Enter') loadSecurityLogs(); }}
+                                placeholder="YYYY-MM-DD"
+                                className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
+                                style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                            />
+                        </div>
+                    </div>
+                    {/* Reset controls */}
+                    {(telemetrySeverities.size > 0 || telemetrySourceIp || telemetryDateFrom || telemetryDateTo || securitySearchQ) && (
+                        <div className="pt-1">
+                            <button
+                                type="button"
+                                onClick={handleClearTelemetryFilters}
+                                className="text-xs px-3 py-1.5 rounded-md font-medium transition-colors"
+                                style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
+                            >
+                                Reset All Filters
+                            </button>
+                        </div>
+                    )}
                 </div>
+
+                {/* Error state (#348) */}
+                {telemetryError && !loadingLogs && (
+                    <div className="mx-6 mt-3 p-3 rounded-md text-sm font-medium bg-red-50 border border-red-200 text-red-800" role="alert">
+                        {telemetryError}
+                    </div>
+                )}
+
+                <div className="overflow-x-auto">
+                    {/* Loading skeleton */}
+                    {loadingLogs ? (
+                        <div className="p-4 space-y-3 animate-pulse">
+                            {Array.from({ length: 5 }).map((_, i) => (
+                                <div key={i} className="flex gap-4">
+                                    <div className="h-6 bg-gray-100 rounded w-16" />
+                                    <div className="h-6 bg-gray-100 rounded w-40" />
+                                    <div className="h-6 bg-gray-100 rounded w-48 flex-1" />
+                                    <div className="h-6 bg-gray-100 rounded w-12" />
+                                    <div className="h-6 bg-gray-100 rounded w-20" />
+                                    <div className="h-6 bg-gray-100 rounded w-12" />
+                                </div>
+                            ))}
+                        </div>
+                    ) : securityLogs.length === 0 ? (
+                        /* Empty state */
+                        <div className="p-8 text-center text-gray-500">
+                            {telemetrySeverities.size > 0 || telemetrySourceIp || telemetryDateFrom || telemetryDateTo || securitySearchQ
+                                ? 'No alerts match the current filters.'
+                                : 'No Suricata alerts.'}
+                        </div>
+                    ) : (
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Severity</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source → Dest</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SID</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">View</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {securityLogs.map((log) => (
+                                    <tr key={log.log_id} className="hover:bg-gray-50">
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${log.severity_level === 'CRITICAL' ? 'bg-red-100 text-red-800' : log.severity_level === 'HIGH' ? 'bg-orange-100 text-orange-800' : log.severity_level === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'}`}>
+                                                {log.severity_level ?? '—'}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{log.timestamp ? new Date(log.timestamp).toLocaleString() : '—'}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">{log.source_ip ?? '—'} → {log.destination_ip ?? '—'}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{log.suricata_sid ?? '—'}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{log.admin_action_taken ? <span className="text-green-700 font-medium">{log.admin_action_taken}</span> : <span className="text-gray-400 italic">Unreviewed</span>}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                                            <div className="flex items-center justify-end gap-2">
+                                                {!log.xai_narrative && (
+                                                    <button
+                                                        onClick={() => handleAnalyze(log)}
+                                                        disabled={analyzingLogId === log.log_id}
+                                                        className="text-purple-600 hover:text-purple-800 text-sm font-medium flex items-center gap-1 disabled:opacity-50"
+                                                    >
+                                                        <Sparkles className="w-4 h-4" />
+                                                        {analyzingLogId === log.log_id ? 'Analyzing…' : 'Analyze with AI'}
+                                                    </button>
+                                                )}
+                                                <button onClick={() => setSelectedLog(log)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">View</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+
+                {/* Pagination (#348) */}
+                {!loadingLogs && telemetryTotal > 0 && (
+                    <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+                        <span className="text-xs text-gray-500">
+                            Showing {Math.min((telemetryPage * TELEMETRY_PAGE_SIZE) + 1, telemetryTotal)}–{Math.min((telemetryPage + 1) * TELEMETRY_PAGE_SIZE, telemetryTotal)} of {telemetryTotal}
+                        </span>
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setTelemetryPage((p) => Math.max(0, p - 1))}
+                                disabled={telemetryPage === 0}
+                                className="px-3 py-1.5 rounded-md text-sm font-medium transition-colors disabled:opacity-50"
+                                style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
+                            >
+                                Previous
+                            </button>
+                            <span className="text-xs text-gray-500">
+                                Page {telemetryPage + 1} of {Math.max(1, Math.ceil(telemetryTotal / TELEMETRY_PAGE_SIZE))}
+                            </span>
+                            <button
+                                onClick={() => setTelemetryPage((p) => p + 1)}
+                                disabled={(telemetryPage + 1) * TELEMETRY_PAGE_SIZE >= telemetryTotal}
+                                className="px-3 py-1.5 rounded-md text-sm font-medium transition-colors disabled:opacity-50"
+                                style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
+                            >
+                                Next
+                            </button>
+                        </div>
+                    </div>
+                )}
             </section>
 
             <section id="audit" className="card overflow-hidden">
@@ -1480,7 +1685,7 @@ export default function AdminSystemPage() {
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                                 {a.table_affected === 'security_threat_logs' && a.record_id ? (
-                                                    <a href={`#telemetry`} className="text-blue-600 hover:underline font-mono text-xs" onClick={(e) => { e.preventDefault(); setSecuritySearchQ(''); loadSecurityLogs(''); }}>
+                                                    <a href={`#telemetry`} className="text-blue-600 hover:underline font-mono text-xs" onClick={(e) => { e.preventDefault(); setSecuritySearchQ(''); securitySearchQRef.current = ''; loadSecurityLogs(); }}>
                                                         alert #{a.record_id}
                                                     </a>
                                                 ) : (
@@ -1717,44 +1922,42 @@ export default function AdminSystemPage() {
                                 <h4 className="text-xs font-bold text-white dark:text-white uppercase mb-2">AI Analysis</h4>
                                 {selectedLog.xai_narrative ? (
                                     (() => {
-                                        try {
-                                            const parsed = JSON.parse(selectedLog.xai_narrative);
-                                            if (typeof parsed === 'object' && parsed !== null) {
-                                                return (
-                                                    <div className="space-y-3">
-                                                        {parsed.anomaly_description && (
-                                                            <div>
-                                                                <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Anomaly Description</p>
-                                                                <p className="text-sm text-[var(--foreground)]">{parsed.anomaly_description}</p>
-                                                            </div>
-                                                        )}
-                                                        {parsed.log_evidence && (
-                                                            <div>
-                                                                <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Log Evidence</p>
-                                                                <p className="text-sm text-[var(--foreground)]">{parsed.log_evidence}</p>
-                                                            </div>
-                                                        )}
-                                                        {parsed.risk_assessment && (
-                                                            <div>
-                                                                <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Risk Assessment</p>
-                                                                <p className="text-sm text-[var(--foreground)]">{parsed.risk_assessment}</p>
-                                                            </div>
-                                                        )}
-                                                        {parsed.recommended_action && (
-                                                            <div>
-                                                                <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Recommended Action</p>
-                                                                <p className="text-sm text-[var(--foreground)]">{parsed.recommended_action}</p>
-                                                            </div>
-                                                        )}
-                                                        {selectedLog.xai_confidence != null && (
-                                                            <div className="mt-2 text-xs text-purple-800 dark:text-purple-600 font-medium text-right">
-                                                                Confidence: {((selectedLog.xai_confidence ?? 0) * 100).toFixed(1)}%
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            }
-                                        } catch {}
+                                        const parsed = normalizeNarrative(selectedLog.xai_narrative);
+                                        if (parsed.isStructured || parsed.anomalyDescription || parsed.logEvidence || parsed.riskAssessment || parsed.recommendedAction) {
+                                            return (
+                                                <div className="space-y-3">
+                                                    {parsed.anomalyDescription && (
+                                                        <div>
+                                                            <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Anomaly Description</p>
+                                                            <p className="text-sm text-[var(--foreground)]">{parsed.anomalyDescription}</p>
+                                                        </div>
+                                                    )}
+                                                    {parsed.logEvidence && (
+                                                        <div>
+                                                            <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Log Evidence</p>
+                                                            <p className="text-sm text-[var(--foreground)]">{parsed.logEvidence}</p>
+                                                        </div>
+                                                    )}
+                                                    {parsed.riskAssessment && (
+                                                        <div>
+                                                            <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Risk Assessment</p>
+                                                            <p className="text-sm text-[var(--foreground)]">{parsed.riskAssessment}</p>
+                                                        </div>
+                                                    )}
+                                                    {parsed.recommendedAction && (
+                                                        <div>
+                                                            <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Recommended Action</p>
+                                                            <p className="text-sm text-[var(--foreground)]">{parsed.recommendedAction}</p>
+                                                        </div>
+                                                    )}
+                                                    {selectedLog.xai_confidence != null && (
+                                                        <div className="mt-2 text-xs text-purple-800 dark:text-purple-600 font-medium text-right">
+                                                            Confidence: {((selectedLog.xai_confidence ?? 0) * 100).toFixed(1)}%
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        }
                                         return (
                                             <>
                                                 <p className="text-sm text-[var(--foreground)]">{selectedLog.xai_narrative}</p>

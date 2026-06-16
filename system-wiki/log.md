@@ -12,6 +12,14 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Wiki: `admin-hub.md` — added Anomaly Dashboard section; `api-route-map.md` — added anomalies GET/PATCH entries; `frontend/route-map.md` — updated anomalies route description.
 - No schema migration, no FRS gap register changes.
 
+## [2026-06-16] feat(#348,#351) | threat telemetry filter/pagination + XAI narrative normalizer
+
+- **#348 (Threat Telemetry filter & pagination):** Added advanced filter bar to `/admin/system` Security Threat Logs section: severity chips (LOW/MEDIUM/HIGH/CRITICAL toggle), Source IP text input, Date From/To text inputs, and a Reset All Filters button. Added prev/next pagination (20 items/page) with page indicator. Auto-reload via useEffect watching a combined filter key; stale-ref bug fixed in clear/reset handlers by updating `securitySearchQRef.current` before calling `loadSecurityLogs()`. Error state banner shown on fetch failure. `fetchAdminSecurityLogs()` signature extended with `source_ip`, `date_from`, `date_to` query params in `src/frontend/src/lib/api/legacy.ts`.
+- **#351 (XAI Narrative Normalizer):** Added `src/frontend/src/lib/xaiNarrativeNormalizer.ts` — a shared tolerant parser for AI-generated structured output in `xai_narrative`. Handles well-formed JSON, JSON-in-markdown-fences, partial/malformed JSON (regex field extraction for `anomaly_description`, `log_evidence`, `risk_assessment`, `recommended_action`, `confidence`/`xai_confidence`), plain text fallback, and empty/null input. Used in both `/admin/system` (detail drawer structured rendering) and `/admin/monitoring` (recent narratives structured display). Unit tests: `xaiNarrativeNormalizer.test.ts` (14 cases).
+- Test fix: `admin-system-search.test.ts` updated for new pagination params (`{ limit: 20, offset: 0 }` in clear/search assertions). Stale-ref bug in clear handlers fixed (deferred state update vs mutable ref).
+- Wiki updates: `system-wiki/subsystems/admin-hub.md` — updated Security Threat Logs table with filter/pagination details, added XAI Narrative Normalizer section, updated gap register note for #348 progress.
+- No backend changes, no dependency additions, no FRS gap register changes (enhancements to existing frontend UI; no new FRS gaps created or closed).
+
 ## [2026-06-16] feat(#344,#358,#359) | admin hub loading feedback, auth guards, toast/confirm replacement, N+1 session fix
 
 - **#344 (consolidated System Health & Monitoring):** Merged System Health and System Monitoring sections on `/admin/system` into a single "System Health & Monitoring" card. Single refresh button controls both health and metrics/workers. Skeleton loading shown during initial fetch instead of blank sections. Loading states use `loadingMonitoring` flag. Test file `admin-system-monitoring.test.tsx` updated to match new heading text.

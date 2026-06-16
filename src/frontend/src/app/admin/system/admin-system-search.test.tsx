@@ -112,7 +112,7 @@ describe('Admin System search wiring', () => {
     await user.click(screen.getByRole('button', { name: 'Search security logs' }));
 
     await waitFor(() => {
-      expect(mockFetchAdminSecurityLogs).toHaveBeenLastCalledWith({ q: 'smoke' });
+      expect(mockFetchAdminSecurityLogs).toHaveBeenLastCalledWith({ limit: 20, offset: 0, q: 'smoke' });
     });
   });
 
@@ -144,7 +144,7 @@ describe('Admin System search wiring', () => {
     await user.click(screen.getByRole('button', { name: 'Clear' }));
 
     await waitFor(() => {
-      expect(mockFetchAdminSecurityLogs).toHaveBeenLastCalledWith(undefined);
+      expect(mockFetchAdminSecurityLogs).toHaveBeenLastCalledWith({ limit: 20, offset: 0 });
     });
   });
 
