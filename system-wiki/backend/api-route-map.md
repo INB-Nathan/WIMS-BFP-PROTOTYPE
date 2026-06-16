@@ -108,6 +108,8 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `admin/security.py` | `GET` | `/security-logs/{log_id}/related-audit` | `get_related_audit` | Related audit trail rows (±1h window) for a security log (#357) |
 | `admin/audit.py` | `GET` | `/audit-logs` | `get_audit_logs` | Supports `user_id`, `action_type`, `table_affected`, `ip_address`, `date_from`, `date_to` filter params |
 | `admin/audit.py` | `POST` | `/audit-logs/analyze` | `analyze_audit_logs` | Batch SLM behavioral pattern analysis via Ollama (#163) |
+| `admin/anomalies.py` | `GET` | `/anomalies` | `list_anomalies` | Paginated items + aggregate `counts` (per-status) and `type_facets` (#356, #362); supports `status`, `severity`, `anomaly_type` filter params |
+| `admin/anomalies.py` | `PATCH` | `/anomalies/{anomaly_id}` | `update_anomaly_status` | Transition anomaly status (NEW → ACKNOWLEDGED → RESOLVED); writes audit trail |
 | `admin/config.py` | `GET` | `/admin/config` | `get_config` | M9c configuration management — reads `wims.system_config` (#170, #247) |
 | `admin/config.py` | `PATCH` | `/admin/config/{key}` | `update_config` | M9c configuration management — audit-logged config write (#170, #247) |
 | `admin/analytics.py` | `POST` | `/analytics/backfill` | `backfill_analytics` |
