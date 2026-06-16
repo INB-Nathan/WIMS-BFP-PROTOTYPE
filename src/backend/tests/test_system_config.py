@@ -156,7 +156,9 @@ class TestNpcConfigKeys:
         mock_db, mock_get_db = _mock_config_db(fetchone_row=old_row)
         app.dependency_overrides[get_db_with_rls] = mock_get_db
 
-        response = client.patch("/api/admin/config/npc_contact_phone", json={"value": "+63 2 8234-2228"})
+        response = client.patch(
+            "/api/admin/config/npc_contact_phone", json={"value": "+63 2 8234-2228"}
+        )
         assert response.status_code == 200
 
     def test_npc_office_phone_is_valid_key(self, client: TestClient):
@@ -167,7 +169,9 @@ class TestNpcConfigKeys:
         mock_db, mock_get_db = _mock_config_db(fetchone_row=old_row)
         app.dependency_overrides[get_db_with_rls] = mock_get_db
 
-        response = client.patch("/api/admin/config/npc_office_phone", json={"value": "+63 2 8234-2228"})
+        response = client.patch(
+            "/api/admin/config/npc_office_phone", json={"value": "+63 2 8234-2228"}
+        )
         assert response.status_code == 200
 
     def test_npc_key_update_audit_logged(self, client: TestClient):
