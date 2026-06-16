@@ -33,6 +33,7 @@ import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { getConnectivitySnapshot, subscribeConnectivity, probeConnectivity } from '@/lib/connectivity';
 import { normalizeNarrative } from '@/lib/xaiNarrativeNormalizer';
 import { ActiveSession, Region } from '@/types/api';
+import ReportFilterBuilder from '@/components/admin/ReportFilterBuilder';
 import {
     BarChart3,
     Users,
@@ -207,7 +208,7 @@ export default function AdminSystemPage() {
     const [showTempPassword, setShowTempPassword] = useState(false);
     const [copySuccess, setCopySuccess] = useState(false);
 
-    // Scheduled Reports state (Issue #88)
+    // Scheduled Reports state (Issue #88 / #353)
     const [scheduledReports, setScheduledReports] = useState<ScheduledReport[]>([]);
     const [loadingReports, setLoadingReports] = useState(false);
     const [showCreateReport, setShowCreateReport] = useState(false);
@@ -215,10 +216,11 @@ export default function AdminSystemPage() {
         name: '',
         cron_expr: '0 7 * * 1',
         format: 'pdf' as 'pdf' | 'excel' | 'csv',
-        filters: '{}',
+        filters: {} as Record<string, unknown>,
         recipients: '',
         enabled: true,
     });
+    const [filterErrors, setFilterErrors] = useState<Record<string, string>>({});
     const [creatingReport, setCreatingReport] = useState(false);
     const [togglingReportId, setTogglingReportId] = useState<number | null>(null);
     const [deletingReportId, setDeletingReportId] = useState<number | null>(null);
@@ -403,31 +405,61 @@ export default function AdminSystemPage() {
         }
     };
 
+    const validateReportFilters = (f: Record<string, unknown>): Record<string, string> => {
+        const errs: Record<string, string> = {};
+        if (f.region_id !== undefined && f.region_id !== null) {
+            if (typeof f.region_id !== 'number' || !Number.isFinite(f.region_id) || f.region_id <= 0) {
+                errs.region_id = 'Must be a valid region ID.';
+            }
+        }
+        if (f.severity !== undefined && f.severity !== null && f.severity !== '') {
+            const valid = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+            if (typeof f.severity !== 'string' || !valid.includes(f.severity)) {
+                errs.severity = `Must be one of: ${valid.join(', ')}.`;
+            }
+        }
+        if (f.start_date && f.end_date) {
+            if (typeof f.start_date === 'string' && typeof f.end_date === 'string') {
+                if (f.start_date > f.end_date) {
+                    errs.end_date = 'End date must be on or after start date.';
+                }
+            }
+        }
+        return errs;
+    };
+
     const handleCreateReport = async () => {
         if (!newReport.name.trim() || !newReport.cron_expr.trim()) {
             setToast({ type: 'error', text: 'Name and cron expression are required.' });
             return;
         }
+
+        // Validate filters before save
+        const fErrs = validateReportFilters(newReport.filters);
+        setFilterErrors(fErrs);
+        if (Object.keys(fErrs).length > 0) {
+            setToast({ type: 'error', text: 'Please fix filter errors before saving.' });
+            return;
+        }
+
         setCreatingReport(true);
         try {
-            let filters: Record<string, unknown> = {};
-            try {
-                filters = JSON.parse(newReport.filters || '{}');
-            } catch { /* use empty */ }
             const recipients = newReport.recipients
                 .split(',')
                 .map((e) => e.trim())
                 .filter((e) => e.length > 0);
+            // Send structured filters object directly (no more JSON.parse)
             await createScheduledReport({
                 name: newReport.name.trim(),
                 cron_expr: newReport.cron_expr.trim(),
                 format: newReport.format,
-                filters,
+                filters: { ...newReport.filters },
                 recipients,
                 enabled: newReport.enabled,
             });
             setShowCreateReport(false);
-            setNewReport({ name: '', cron_expr: '0 7 * * 1', format: 'pdf', filters: '{}', recipients: '', enabled: true });
+            setNewReport({ name: '', cron_expr: '0 7 * * 1', format: 'pdf', filters: {}, recipients: '', enabled: true });
+            setFilterErrors({});
             setToast({ type: 'success', text: 'Scheduled report created.' });
             await loadScheduledReports();
         } catch (e: unknown) {
@@ -1798,15 +1830,18 @@ export default function AdminSystemPage() {
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Filters (JSON)</label>
-                                <textarea
-                                    value={newReport.filters}
-                                    onChange={(e) => setNewReport((p) => ({ ...p, filters: e.target.value }))}
-                                    placeholder='{"region_id": 1}'
-                                    rows={3}
-                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2"
+                                <ReportFilterBuilder
+                                    filters={newReport.filters}
+                                    onChange={(f) => {
+                                        setNewReport((p) => ({ ...p, filters: f }));
+                                        if (Object.keys(filterErrors).length > 0) {
+                                            setFilterErrors({});
+                                        }
+                                    }}
+                                    regions={regions}
+                                    errors={filterErrors}
                                 />
-                                <p className="text-xs text-gray-400 mt-1">Optional JSON filters applied to the export query.</p>
+                                <p className="text-xs text-gray-400 mt-2">Optional filters applied to the export query. Use the form fields or toggle Expert mode for raw JSON editing.</p>
                             </div>
                             <div className="flex items-center gap-2">
                                 <input

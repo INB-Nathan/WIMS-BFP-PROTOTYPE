@@ -3,6 +3,14 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-16] feat(#353) | scheduled reports human-friendly filter builder
+
+- **#353 (filter builder for Scheduled Reports):** Replaced raw JSON textarea on `/admin/system` Scheduled Reports create/edit form with a human-friendly filter builder as the primary UI. Common filter fields (`region_id`, `severity`, `start_date`, `end_date`, `incident_type`) use dropdown, date-picker, and text inputs. Raw JSON remains available via an "Expert" toggle button for advanced users. Filters are validated client-side before save with clear inline error messages; invalid filters block save. The create payload now sends structured filter objects directly (no more `JSON.parse` of a raw string).
+- **New component:** `src/frontend/src/components/admin/ReportFilterBuilder.tsx` — self-contained component with builder/expert mode toggle, live JSON validation, per-field error display, and a summary of applied filters.
+- **Modified:** `src/frontend/src/app/admin/system/page.tsx` — replaced filters textarea with `ReportFilterBuilder`; added `validateReportFilters()` validator; changed `newReport.filters` type from JSON string to `Record<string, unknown>`; added `filterErrors` state for inline errors.
+- **Tests:** `src/frontend/src/components/admin/__tests__/ReportFilterBuilder.test.tsx` (17 tests: builder field rendering, onChange callbacks, region/severity select, date validation, summary display, error display, expert mode toggle, JSON validation/parsing, blur-to-onChange, live validation). Existing API client tests (`scheduledReports.test.ts`, 5 tests) and admin system search tests (`admin-system-search.test.tsx`, 5 tests) continue to pass.
+- No backend/API/schema changes (filters JSONB column already accepts structured objects). No dependency changes. No FRS gap register change (UI usability enhancement of existing functionality).
+
 ## [2026-06-16] fix(#360) | backend real-IP audit metadata for breach + anomaly ACK/RESOLVE
 
 - **#360 (remaining backend audit metadata gaps):** `PATCH /api/admin/breach/{breach_id}` and `PATCH /api/admin/anomalies/{anomaly_id}` now pass `request=request` to `log_system_audit()` so audit rows capture real client IP (via X-Forwarded-For/X-Real-IP/client.host fallback) and real user-agent instead of storing NULL IP or a hardcoded `"anomalies-api"` string.
