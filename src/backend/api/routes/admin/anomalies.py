@@ -99,13 +99,44 @@ def list_anomalies(
         params,
     ).fetchall()
 
+    # Aggregate query params — exclude pagination
+    agg_params = {k: v for k, v in params.items() if k not in ("limit", "offset")}
+
     total = (
         db.execute(
             text(f"SELECT COUNT(*) FROM wims.anomaly_detections {where_sql}"),
-            {k: v for k, v in params.items() if k not in ("limit", "offset")},
+            agg_params,
         ).scalar()
         or 0
     )
+
+    # Status aggregate counts (same filter scope as total)
+    status_rows = db.execute(
+        text(f"""
+            SELECT status, COUNT(*) as cnt
+            FROM wims.anomaly_detections
+            {where_sql}
+            GROUP BY status
+        """),
+        agg_params,
+    ).fetchall()
+    counts: dict[str, int] = {row[0]: row[1] for row in status_rows}
+    # Ensure all three statuses are present even if zero in filtered set
+    for s in VALID_STATUSES:
+        counts.setdefault(s, 0)
+
+    # Type facets (same filter scope)
+    type_rows = db.execute(
+        text(f"""
+            SELECT anomaly_type, COUNT(*) as cnt
+            FROM wims.anomaly_detections
+            {where_sql}
+            GROUP BY anomaly_type
+            ORDER BY cnt DESC, anomaly_type
+        """),
+        agg_params,
+    ).fetchall()
+    type_facets = [{"type": row[0], "count": row[1]} for row in type_rows]
 
     return {
         "items": [
@@ -126,6 +157,8 @@ def list_anomalies(
         "total": total,
         "limit": limit,
         "offset": offset,
+        "counts": counts,
+        "type_facets": type_facets,
     }
 
 

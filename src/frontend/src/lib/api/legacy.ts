@@ -363,6 +363,20 @@ export interface AnomalyDetectionItem {
   dedup_key: string;
 }
 
+export interface AnomalyTypeFacet {
+  type: string;
+  count: number;
+}
+
+export interface AnomalyAggregateResponse {
+  items: AnomalyDetectionItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  counts: Record<string, number>;
+  type_facets: AnomalyTypeFacet[];
+}
+
 /** Fetch anomaly detections (admin) - GET /admin/anomalies */
 export async function fetchAnomalies(params?: {
   status?: string;
@@ -370,7 +384,7 @@ export async function fetchAnomalies(params?: {
   anomaly_type?: string;
   limit?: number;
   offset?: number;
-}): Promise<{ items: AnomalyDetectionItem[]; total: number; limit: number; offset: number }> {
+}): Promise<AnomalyAggregateResponse> {
   const search = new URLSearchParams();
   if (params?.status) search.set('status', params.status);
   if (params?.severity) search.set('severity', params.severity);
@@ -378,7 +392,7 @@ export async function fetchAnomalies(params?: {
   if (params?.limit != null) search.set('limit', String(params.limit));
   if (params?.offset != null) search.set('offset', String(params.offset));
   const qs = search.toString();
-  return apiFetch<{ items: AnomalyDetectionItem[]; total: number; limit: number; offset: number }>(
+  return apiFetch<AnomalyAggregateResponse>(
     `/admin/anomalies${qs ? `?${qs}` : ''}`
   );
 }

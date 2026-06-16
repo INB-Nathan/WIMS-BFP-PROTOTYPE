@@ -119,6 +119,25 @@ Monitoring (`/admin/monitoring`), anomalies (`/admin/anomalies`), and breach (`/
 - No admin API calls are triggered
 - The "Access restricted" message only appears after auth resolves to a non-SYSTEM_ADMIN role
 
+## Anomaly Dashboard (#356, #362)
+
+The anomaly detection page (`/admin/anomalies`) manages behavioral anomaly detections (NEW → ACKNOWLEDGED → RESOLVED lifecycle).
+
+### Aggregate Counts & Dynamic Filters (#362)
+
+- **API contract:** `GET /api/admin/anomalies` returns `counts` (per-status aggregate: `{NEW, ACKNOWLEDGED, RESOLVED}`) and `type_facets` (per-type aggregate: `[{type, count}]`) alongside the existing `items`/`total`/`limit`/`offset` envelope.
+- **Filter scope:** `counts`, `type_facets`, and `total` all use the same WHERE clause as the paginated items query — filters applied by the user (status, type, severity) narrow all aggregates.
+- **Summary cards:** New / Acknowledged / Resolved cards render aggregate counts from API `counts`, not from `anomalies.filter(...)` on the current page.
+- **Dynamic type filter:** The type dropdown is populated from `type_facets` (with count labels), replacing the previous hardcoded 4-type list.
+- **Severity filter:** A new dropdown (Low/Medium/High/Critical) filters anomalies by severity — hardcoded options matching the DB CHECK constraint.
+- **Empty state:** Distinguishes "no anomalies exist yet" (shows seed script hint) from "no anomalies match current filters" (suggests adjusting filter selection).
+
+### Seed Data (#356)
+
+- **`scripts/seed-anomaly-detections.sh`** + **`scripts/seed-anomaly-detections.sql`**: Manual seed script inserting 20 anomaly_detections rows covering all 5 anomaly types (BULK_DELETE, OFF_HOURS, PRIVILEGE_ESCALATION, RAPID_IP_SWITCH, SUSPICIOUS_QUERY_PATTERN), all 3 statuses, all 4 severities, and timestamps distributed across the last 24 hours.
+- `subject_user_id` references known test users from `03_users.sql` or is NULL for appliance-origin detections.
+- Uses `ON CONFLICT (anomaly_type, dedup_key) DO NOTHING` — safe to re-run.
+
 ## Offline Read Caching (GH #270)
 
 The admin hub monitoring reads (system health, system metrics, worker status, active sessions, audit logs) are wrapped in offline-aware functions in `src/frontend/src/lib/api/offlineAdmin.ts`. Each wrapper:

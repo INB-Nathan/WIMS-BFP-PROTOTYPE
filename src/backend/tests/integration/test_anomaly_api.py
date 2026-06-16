@@ -46,6 +46,29 @@ def _mock_admin_user():
     }
 
 
+def _make_aggregate_mocks(mock_db, rows, total=0, status_counts=None, type_facets=None):
+    """Wire up mock_db.execute with a 4-call side_effect list matching the new
+    four-query aggregate pattern in list_anomalies:
+      0. fetch rows
+      1. COUNT(*) total
+      2. status GROUP BY
+      3. anomaly_type GROUP BY
+    """
+    fetch_result = MagicMock()
+    fetch_result.fetchall.return_value = rows
+
+    count_result = MagicMock()
+    count_result.scalar.return_value = total
+
+    status_result = MagicMock()
+    status_result.fetchall.return_value = [(k, v) for k, v in (status_counts or {}).items()]
+
+    type_result = MagicMock()
+    type_result.fetchall.return_value = [(f["type"], f["count"]) for f in (type_facets or [])]
+
+    mock_db.execute.side_effect = [fetch_result, count_result, status_result, type_result]
+
+
 def _make_anomaly_row(
     anomaly_id=1,
     anomaly_type="BULK_DELETE",
@@ -107,17 +130,13 @@ class TestListAnomalies:
         assert resp.status_code == 403
 
     def test_empty_list(self, client):
-        """Return empty items when no anomalies exist."""
+        """Return empty items when no anomalies exist.  Aggregate fields included."""
 
         async def _admin():
             return _mock_admin_user()
 
         mock_db = MagicMock()
-        mock_fetch = MagicMock()
-        mock_fetch.fetchall.return_value = []
-        mock_db.execute.return_value = mock_fetch
-        # Second call (COUNT) also returns 0
-        mock_db.execute.side_effect = [mock_fetch, MagicMock(scalar=MagicMock(return_value=0))]
+        _make_aggregate_mocks(mock_db, [], total=0, status_counts={}, type_facets=[])
 
         def _get_db():
             try:
@@ -134,19 +153,31 @@ class TestListAnomalies:
         data = resp.json()
         assert data["items"] == []
         assert data["total"] == 0
+        # Aggregate fields always present
+        assert "counts" in data
+        assert "type_facets" in data
+        assert data["counts"]["NEW"] == 0
+        assert data["counts"]["ACKNOWLEDGED"] == 0
+        assert data["counts"]["RESOLVED"] == 0
+        assert data["type_facets"] == []
 
     def test_list_with_items(self, client):
-        """Return paginated anomaly items."""
+        """Return paginated anomaly items with aggregate counts and type facets."""
 
         async def _admin():
             return _mock_admin_user()
 
         mock_db = MagicMock()
-        fetch_result = MagicMock()
-        fetch_result.fetchall.return_value = [_make_anomaly_row(1)]
-        count_result = MagicMock()
-        count_result.scalar.return_value = 5
-        mock_db.execute.side_effect = [fetch_result, count_result]
+        _make_aggregate_mocks(
+            mock_db,
+            rows=[_make_anomaly_row(1)],
+            total=5,
+            status_counts={"NEW": 3, "ACKNOWLEDGED": 2, "RESOLVED": 0},
+            type_facets=[
+                {"type": "BULK_DELETE", "count": 3},
+                {"type": "OFF_HOURS", "count": 2},
+            ],
+        )
 
         def _get_db():
             try:
@@ -168,20 +199,28 @@ class TestListAnomalies:
         assert item["anomaly_type"] == "BULK_DELETE"
         assert item["severity"] == "HIGH"
         assert item["status"] == "NEW"
+        # Aggregate fields
+        assert data["counts"] == {"NEW": 3, "ACKNOWLEDGED": 2, "RESOLVED": 0}
+        assert data["type_facets"] == [
+            {"type": "BULK_DELETE", "count": 3},
+            {"type": "OFF_HOURS", "count": 2},
+        ]
 
     def test_status_filter(self, client):
-        """Filter by status=ACKNOWLEDGED."""
+        """Filter by status=ACKNOWLEDGED.  Aggregates reflect filter scope."""
 
         async def _admin():
             return _mock_admin_user()
 
         mock_db = MagicMock()
-        fetch_result = MagicMock()
         ack_row = _make_anomaly_row(2, "OFF_HOURS", "MEDIUM", "ACKNOWLEDGED")
-        fetch_result.fetchall.return_value = [ack_row]
-        count_result = MagicMock()
-        count_result.scalar.return_value = 1
-        mock_db.execute.side_effect = [fetch_result, count_result]
+        _make_aggregate_mocks(
+            mock_db,
+            rows=[ack_row],
+            total=1,
+            status_counts={"NEW": 0, "ACKNOWLEDGED": 1, "RESOLVED": 0},
+            type_facets=[{"type": "OFF_HOURS", "count": 1}],
+        )
 
         def _get_db():
             try:
@@ -198,29 +237,34 @@ class TestListAnomalies:
         data = resp.json()
         assert len(data["items"]) == 1
         assert data["items"][0]["status"] == "ACKNOWLEDGED"
+        # Aggregates reflect filter scope: only ACKNOWLEDGED rows counted
+        assert data["counts"]["ACKNOWLEDGED"] == 1
+        assert data["counts"]["NEW"] == 0
 
         # Verify SQL includes status filter
         executed_sql = str(mock_db.execute.call_args_list[0][0][0])
         assert "status" in executed_sql.lower()
 
     def test_type_filter(self, client):
-        """Filter by anomaly_type=RAPID_IP_SWITCH."""
+        """Filter by anomaly_type=RAPID_IP_SWITCH.  Type facets still show all."""
 
         async def _admin():
             return _mock_admin_user()
 
         mock_db = MagicMock()
-        fetch_result = MagicMock()
         ip_row = _make_anomaly_row(
             3,
             "RAPID_IP_SWITCH",
             "MEDIUM",
             details={"distinct_ip_count": 2, "ips": ["1.1.1.1", "2.2.2.2"]},
         )
-        fetch_result.fetchall.return_value = [ip_row]
-        count_result = MagicMock()
-        count_result.scalar.return_value = 1
-        mock_db.execute.side_effect = [fetch_result, count_result]
+        _make_aggregate_mocks(
+            mock_db,
+            rows=[ip_row],
+            total=1,
+            status_counts={"NEW": 1, "ACKNOWLEDGED": 0, "RESOLVED": 0},
+            type_facets=[{"type": "RAPID_IP_SWITCH", "count": 1}],
+        )
 
         def _get_db():
             try:
@@ -237,19 +281,26 @@ class TestListAnomalies:
         data = resp.json()
         assert len(data["items"]) == 1
         assert data["items"][0]["anomaly_type"] == "RAPID_IP_SWITCH"
+        assert len(data["type_facets"]) == 1
+        assert data["type_facets"][0]["type"] == "RAPID_IP_SWITCH"
 
     def test_pagination_offset(self, client):
-        """Verify limit and offset are passed through."""
+        """Verify limit and offset are passed through.  Aggregates ignore pagination."""
 
         async def _admin():
             return _mock_admin_user()
 
         mock_db = MagicMock()
-        fetch_result = MagicMock()
-        fetch_result.fetchall.return_value = []
-        count_result = MagicMock()
-        count_result.scalar.return_value = 100
-        mock_db.execute.side_effect = [fetch_result, count_result]
+        _make_aggregate_mocks(
+            mock_db,
+            rows=[],
+            total=100,
+            status_counts={"NEW": 40, "ACKNOWLEDGED": 35, "RESOLVED": 25},
+            type_facets=[
+                {"type": "BULK_DELETE", "count": 50},
+                {"type": "OFF_HOURS", "count": 50},
+            ],
+        )
 
         def _get_db():
             try:
@@ -265,10 +316,122 @@ class TestListAnomalies:
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] == 100
-        # Verify SQL received correct params
+        # Verify SQL received correct params for the main query
         first_call_params = mock_db.execute.call_args_list[0][0][1]
         assert first_call_params["limit"] == 10
         assert first_call_params["offset"] == 20
+        # Aggregates should not include limit/offset params
+        agg_call_params = mock_db.execute.call_args_list[2][0][1]
+        assert "limit" not in agg_call_params
+        assert "offset" not in agg_call_params
+
+
+# ---------------------------------------------------------------------------
+# Aggregate counts + type facets
+# ---------------------------------------------------------------------------
+
+
+class TestAggregateFields:
+    def test_counts_always_populate_all_statuses(self, client):
+        """counts dict includes NEW/ACKNOWLEDGED/RESOLVED even when zero."""
+
+        async def _admin():
+            return _mock_admin_user()
+
+        mock_db = MagicMock()
+        _make_aggregate_mocks(
+            mock_db,
+            rows=[],
+            total=0,
+            status_counts={},  # empty DB returns no rows from GROUP BY
+            type_facets=[],
+        )
+
+        def _get_db():
+            try:
+                yield mock_db
+            finally:
+                pass
+
+        app.dependency_overrides[auth.get_current_wims_user] = _admin
+        app.dependency_overrides[auth.get_system_admin] = _admin
+        app.dependency_overrides[auth.get_db_with_rls] = _get_db
+
+        resp = client.get("/api/admin/anomalies")
+        assert resp.status_code == 200
+        data = resp.json()
+        # All three statuses present, even when DB GROUP BY returns nothing
+        assert data["counts"] == {"NEW": 0, "ACKNOWLEDGED": 0, "RESOLVED": 0}
+
+    def test_type_facets_sorted_by_count(self, client):
+        """type_facets returned in count-desc order."""
+
+        async def _admin():
+            return _mock_admin_user()
+
+        mock_db = MagicMock()
+        _make_aggregate_mocks(
+            mock_db,
+            rows=[],
+            total=0,
+            status_counts={"NEW": 0, "ACKNOWLEDGED": 0, "RESOLVED": 0},
+            type_facets=[
+                {"type": "BULK_DELETE", "count": 12},
+                {"type": "OFF_HOURS", "count": 8},
+                {"type": "RAPID_IP_SWITCH", "count": 5},
+            ],
+        )
+
+        def _get_db():
+            try:
+                yield mock_db
+            finally:
+                pass
+
+        app.dependency_overrides[auth.get_current_wims_user] = _admin
+        app.dependency_overrides[auth.get_system_admin] = _admin
+        app.dependency_overrides[auth.get_db_with_rls] = _get_db
+
+        resp = client.get("/api/admin/anomalies")
+        assert resp.status_code == 200
+        data = resp.json()
+        facets = data["type_facets"]
+        # Already sorted by SQL, but verify order
+        counts_only = [f["count"] for f in facets]
+        assert counts_only == sorted(counts_only, reverse=True)
+
+    def test_aggregates_respect_filter_scope(self, client):
+        """When filtering by status=ACKNOWLEDGED, counts only reflect that subset."""
+
+        async def _admin():
+            return _mock_admin_user()
+
+        mock_db = MagicMock()
+        _make_aggregate_mocks(
+            mock_db,
+            rows=[_make_anomaly_row(1, "BULK_DELETE", "HIGH", "ACKNOWLEDGED")],
+            total=1,
+            status_counts={"NEW": 0, "ACKNOWLEDGED": 1, "RESOLVED": 0},
+            type_facets=[{"type": "BULK_DELETE", "count": 1}],
+        )
+
+        def _get_db():
+            try:
+                yield mock_db
+            finally:
+                pass
+
+        app.dependency_overrides[auth.get_current_wims_user] = _admin
+        app.dependency_overrides[auth.get_system_admin] = _admin
+        app.dependency_overrides[auth.get_db_with_rls] = _get_db
+
+        resp = client.get("/api/admin/anomalies?status=ACKNOWLEDGED")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["counts"]["ACKNOWLEDGED"] == 1
+        assert data["counts"]["NEW"] == 0
+        assert data["counts"]["RESOLVED"] == 0
+        assert data["total"] == 1
 
 
 # ---------------------------------------------------------------------------

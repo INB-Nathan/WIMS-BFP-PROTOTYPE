@@ -3,6 +3,15 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-16] feat(#356,#362) | anomaly dashboard seed data + aggregate counts/dynamic filters
+
+- **#362 (aggregate counts + dynamic filters):** `GET /api/admin/anomalies` now returns `counts` (per-status aggregates: NEW/ACKNOWLEDGED/RESOLVED) and `type_facets` (per-type aggregates with counts) alongside existing paginated items. Same WHERE/filter scope as items and total. Summary cards on `/admin/anomalies` switched from `anomalies.filter()` on current page to API `counts`. Type filter dropdown populated dynamically from `type_facets`. Added severity filter dropdown (LOW/MEDIUM/HIGH/CRITICAL — hardcoded). Empty state distinguishes "no anomalies exist" (seed script hint) from "no anomalies match current filters" (adjust filters suggestion).
+- **#356 (seed/test anomaly data):** Added `scripts/seed-anomaly-detections.sh` + `scripts/seed-anomaly-detections.sql` inserting 20 anomaly_detections rows covering all 5 anomaly types, all 3 statuses, all 4 severities, timestamps distributed across last 24h. Uses `ON CONFLICT DO NOTHING` for safe re-runs. `subject_user_id` references known test users from `03_users.sql` or NULL.
+- Backend: `anomalies.py` — added status GROUP BY and type GROUP BY aggregate queries; `test_anomaly_api.py` — added `TestAggregateFields` test class (3 tests), updated 5 existing tests with `_make_aggregate_mocks` helper.
+- Frontend: `legacy.ts` — added `AnomalyAggregateResponse` type with `counts`/`type_facets`; `page.tsx` — aggregate counts, dynamic filters, severity filter, conditional empty state; `page.test.tsx` — 6 new/updated tests (18 total, all passing).
+- Wiki: `admin-hub.md` — added Anomaly Dashboard section; `api-route-map.md` — added anomalies GET/PATCH entries; `frontend/route-map.md` — updated anomalies route description.
+- No schema migration, no FRS gap register changes.
+
 ## [2026-06-16] feat(#344,#358,#359) | admin hub loading feedback, auth guards, toast/confirm replacement, N+1 session fix
 
 - **#344 (consolidated System Health & Monitoring):** Merged System Health and System Monitoring sections on `/admin/system` into a single "System Health & Monitoring" card. Single refresh button controls both health and metrics/workers. Skeleton loading shown during initial fetch instead of blank sections. Loading states use `loadingMonitoring` flag. Test file `admin-system-monitoring.test.tsx` updated to match new heading text.
