@@ -59,6 +59,11 @@ INSERT INTO wims.system_config (config_key, config_value, description) VALUES
     'worker_offline_timeout_seconds',
     '300',
     'Seconds of worker inactivity before status transitions to OFFLINE (from STALE or ACTIVE). Minimum 60. Must be strictly greater than worker_stale_timeout_seconds. Consumed by the Celery beat worker heartbeat task (tasks/monitoring.py). After this interval the worker is considered unreachable.'
+  ),
+  (
+    'worker_heartbeat_retention_days',
+    '7',
+    'Number of days to retain OFFLINE Celery worker heartbeat rows before automatic and manual prune deletes them. Must be >= 1.'
   )
 ON CONFLICT (config_key) DO NOTHING;
 

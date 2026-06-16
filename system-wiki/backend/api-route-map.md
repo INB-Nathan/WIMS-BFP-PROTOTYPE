@@ -99,7 +99,8 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `admin/users.py` | `GET` | `/active-sessions` | `get_active_sessions` |
 | `admin/users.py` | `POST` | `/users/{user_id}/logout` | `force_logout_user` |
 | `admin/monitoring.py` | `GET` | `/health` | `get_system_health` |
-| `admin/monitoring.py` | `GET` | `/monitoring/workers` | `get_worker_status` |
+| `admin/monitoring.py` | `GET` | `/monitoring/workers` | `get_worker_status` | Paginated (limit/offset, default 20/page, max 200) |
+| `admin/monitoring.py` | `POST` | `/monitoring/workers/prune` | `prune_offline_workers` | Prunes OFFLINE workers older than retention threshold (#345) |
 | `admin/monitoring.py` | `GET` | `/monitoring/system` | `get_system_metrics` |
 | `admin/security.py` | `GET` | `/security-logs` | `get_security_logs` | Supports `source_ip`, `severity`, `date_from`, `date_to` filter params |
 | `admin/security.py` | `POST` | `/security-logs/{log_id}/analyze` | `analyze_security_log` | XAI analysis via Ollama (#161) |

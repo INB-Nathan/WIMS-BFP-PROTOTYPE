@@ -166,6 +166,13 @@ export interface WorkerStatusResponse {
   status: string;
 }
 
+export interface WorkerStatusPaginatedResponse {
+  items: WorkerStatusResponse[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 /** Fetch system health (admin) - GET /admin/health */
 export async function fetchSystemHealth(): Promise<SystemHealthResponse> {
   return apiFetch<SystemHealthResponse>('/admin/health');
@@ -177,8 +184,37 @@ export async function fetchSystemMetrics(): Promise<SystemMetricsResponse> {
 }
 
 /** Fetch Celery worker status (admin) - GET /admin/monitoring/workers */
-export async function fetchWorkerStatus(): Promise<WorkerStatusResponse[]> {
-  return apiFetch<WorkerStatusResponse[]>('/admin/monitoring/workers');
+export async function fetchWorkerStatus(
+  params?: { limit?: number; offset?: number }
+): Promise<WorkerStatusPaginatedResponse> {
+  const search = new URLSearchParams();
+  if (params?.limit != null) search.set('limit', String(params.limit));
+  if (params?.offset != null) search.set('offset', String(params.offset));
+  const qs = search.toString();
+  const data = await apiFetch<WorkerStatusPaginatedResponse | WorkerStatusResponse[]>(
+    `/admin/monitoring/workers${qs ? `?${qs}` : ''}`
+  );
+  // Backward-compat: if the backend returned a raw array (pre-pagination),
+  // wrap it ourselves so callers always destructure .items / .total.
+  if (Array.isArray(data)) {
+    return { items: data, total: data.length, limit: data.length, offset: 0 };
+  }
+  return {
+    items: data.items ?? [],
+    total: data.total ?? 0,
+    limit: data.limit ?? (params?.limit ?? 20),
+    offset: data.offset ?? (params?.offset ?? 0),
+  };
+}
+
+/** Prune OFFLINE workers older than retention threshold (admin) - POST /admin/monitoring/workers/prune */
+export async function pruneWorkers(): Promise<{
+  status: string;
+  deleted_count: number;
+  retention_days: number;
+  message: string;
+}> {
+  return apiFetch('/admin/monitoring/workers/prune', { method: 'POST' });
 }
 
 /** Revoke user's sessions (admin) - POST /admin/users/{userId}/logout */

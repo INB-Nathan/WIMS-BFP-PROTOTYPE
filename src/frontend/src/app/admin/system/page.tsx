@@ -27,7 +27,9 @@ import {
     createScheduledReport,
     updateScheduledReport,
     deleteScheduledReport,
+    pruneWorkers,
     ScheduledReport,
+    WorkerStatusPaginatedResponse,
 } from '@/lib/api';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { getConnectivitySnapshot, subscribeConnectivity, probeConnectivity } from '@/lib/connectivity';
@@ -114,6 +116,13 @@ interface WorkerStatus {
     status: string;
 }
 
+interface PruneResult {
+    status: string;
+    deleted_count: number;
+    retention_days: number;
+    message: string;
+}
+
 const GOVERNANCE_ROLES = ['REGIONAL_ENCODER', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST', 'SYSTEM_ADMIN'];
 
 function formatLastCheckedAgo(checkedAt: Date | null): string | null {
@@ -142,6 +151,12 @@ export default function AdminSystemPage() {
     const [healthFromCache, setHealthFromCache] = useState(false);
     const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
     const [workers, setWorkers] = useState<WorkerStatus[]>([]);
+    const [workersTotal, setWorkersTotal] = useState(0);
+    const [workersPage, setWorkersPage] = useState(0);
+    const [workersPageSize, setWorkersPageSize] = useState(20);
+    const [pruningWorkers, setPruningWorkers] = useState(false);
+    const [pruneResult, setPruneResult] = useState<PruneResult | null>(null);
+    const [confirmPruneWorkers, setConfirmPruneWorkers] = useState(false);
     const [monitoringLastChecked, setMonitoringLastChecked] = useState<Date | null>(null);
     const [monitoringFromCache, setMonitoringFromCache] = useState(false);
     const [sessionsLastChecked, setSessionsLastChecked] = useState<Date | null>(null);
@@ -326,7 +341,7 @@ export default function AdminSystemPage() {
         setLoadingMonitoring(true);
         const [metricsRes, workersRes] = await Promise.allSettled([
             fetchSystemMetricsOfflineAware(),
-            fetchWorkerStatusOfflineAware(),
+            fetchWorkerStatusOfflineAware({ limit: workersPageSize, offset: workersPage * workersPageSize }),
         ]);
 
         let fromCache = false;
@@ -339,7 +354,9 @@ export default function AdminSystemPage() {
         }
 
         if (workersRes.status === 'fulfilled') {
-            setWorkers(workersRes.value.response as WorkerStatus[]);
+            const data = workersRes.value.response as WorkerStatusPaginatedResponse;
+            setWorkers(data.items ?? []);
+            setWorkersTotal(data.total ?? 0);
             fromCache = fromCache || workersRes.value.fromCache;
             cachedAt = workersRes.value.cachedAt ?? cachedAt;
         }
@@ -349,7 +366,7 @@ export default function AdminSystemPage() {
         setLoadingMonitoring(false);
 
         await loadHealth();
-    }, [loadHealth]);
+    }, [loadHealth, workersPage, workersPageSize]);
 
     useEffect(() => {
         if (role === 'SYSTEM_ADMIN') {
@@ -770,6 +787,24 @@ export default function AdminSystemPage() {
         }
     };
 
+    const handlePruneWorkers = async () => {
+        setConfirmPruneWorkers(false);
+        setPruningWorkers(true);
+        setPruneResult(null);
+        try {
+            const result = await pruneWorkers();
+            setPruneResult(result);
+            // Refresh worker list after prune, resetting to first page
+            setWorkersPage(0);
+            // loadMonitoring will be called via the state change effect
+            await loadMonitoring();
+        } catch (e: unknown) {
+            setToast({ type: 'error', text: (e as { message?: string })?.message ?? 'Failed to prune workers' });
+        } finally {
+            setPruningWorkers(false);
+        }
+    };
+
     const handleRevokeSession = async (userId: string) => {
         setIsRevoking(userId);
         try {
@@ -798,7 +833,7 @@ export default function AdminSystemPage() {
     const systemStats = [
         { label: 'Total Users', value: users.length.toString(), icon: Users },
         { label: 'Active Sessions', value: totalActiveSessions, icon: Monitor },
-        { label: 'Celery Workers', value: workers.length.toString(), icon: BarChart3 },
+        { label: 'Celery Workers', value: workersTotal.toString(), icon: BarChart3 },
     ];
 
     return (
@@ -839,6 +874,40 @@ export default function AdminSystemPage() {
                     >
                         <XCircle className="w-4 h-4" />
                     </button>
+                </div>
+            )}
+
+            {/* Confirmation modal for worker prune */}
+            {confirmPruneWorkers && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+                    <div className="rounded-xl shadow-2xl max-w-sm w-full bg-white overflow-hidden">
+                        <div className="px-6 py-4">
+                            <h3 className="text-base font-bold text-gray-900">Prune OFFLINE Workers?</h3>
+                            <p className="text-sm text-gray-600 mt-2">
+                                This will permanently remove worker heartbeat records for OFFLINE workers
+                                older than the retention threshold (default 7 days). ACTIVE and STALE workers
+                                are never affected.
+                            </p>
+                            <p className="text-xs text-gray-400 mt-2">
+                                The action is audit-logged. You can refresh the worker list afterwards.
+                            </p>
+                        </div>
+                        <div className="px-6 py-3 bg-gray-50 flex gap-3 justify-end">
+                            <button
+                                onClick={() => setConfirmPruneWorkers(false)}
+                                className="px-4 py-2 rounded-lg bg-gray-200 text-gray-700 font-medium hover:bg-gray-300"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handlePruneWorkers}
+                                disabled={pruningWorkers}
+                                className="px-4 py-2 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-50"
+                            >
+                                {pruningWorkers ? 'Pruning…' : 'Prune'}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -1033,30 +1102,91 @@ export default function AdminSystemPage() {
                             )}
 
                             <div>
-                                <h3 className="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Celery Workers</h3>
+                                <div className="flex items-center justify-between mb-2">
+                                    <h3 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Celery Workers</h3>
+                                    <button
+                                        onClick={() => setConfirmPruneWorkers(true)}
+                                        disabled={pruningWorkers}
+                                        className="flex items-center gap-1 text-xs font-medium px-3 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 transition-colors"
+                                        title="Prune OFFLINE workers older than retention threshold"
+                                    >
+                                        <Trash2 className="w-3 h-3" />
+                                        {pruningWorkers ? 'Pruning…' : 'Prune Old Workers'}
+                                    </button>
+                                </div>
+                                {pruneResult && (
+                                    <div
+                                        className={`rounded-md border px-3 py-2 text-xs font-medium mb-2 ${
+                                            pruneResult.deleted_count > 0
+                                                ? 'border-green-200 bg-green-50 text-green-800'
+                                                : 'border-gray-200 bg-gray-50 text-gray-600'
+                                        }`}
+                                    >
+                                        {pruneResult.message}
+                                    </div>
+                                )}
                                 {workers.length > 0 ? (
-                                    <table className="min-w-full divide-y divide-gray-200">
-                                        <thead className="bg-gray-50">
-                                            <tr>
-                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hostname</th>
-                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Active Tasks</th>
-                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Seen</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="bg-white divide-y divide-gray-200">
-                                            {workers.map((w) => (
-                                                <tr key={w.worker_id} className="hover:bg-gray-50">
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{w.hostname}</td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{w.status}</td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{w.active_tasks}</td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                        {w.last_seen ? new Date(w.last_seen).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : '—'}
-                                                    </td>
+                                    <>
+                                        <table className="min-w-full divide-y divide-gray-200">
+                                            <thead className="bg-gray-50">
+                                                <tr>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hostname</th>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Active Tasks</th>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Seen</th>
                                                 </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                                            </thead>
+                                            <tbody className="bg-white divide-y divide-gray-200">
+                                                {workers.map((w) => (
+                                                    <tr key={w.worker_id} className="hover:bg-gray-50">
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{w.hostname}</td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{w.status}</td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{w.active_tasks}</td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                            {w.last_seen ? new Date(w.last_seen).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : '—'}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                        {/* Pagination controls */}
+                                        {workersTotal > 0 && (
+                                            <div className="px-1 py-2 flex flex-wrap items-center justify-between gap-2">
+                                                <div className="text-xs text-gray-500">
+                                                    Showing {workersPage * workersPageSize + 1}–{Math.min((workersPage + 1) * workersPageSize, workersTotal)} of {workersTotal} workers
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <select
+                                                        value={workersPageSize}
+                                                        onChange={(e) => { setWorkersPageSize(Number(e.target.value)); setWorkersPage(0); }}
+                                                        className="border border-gray-300 rounded px-2 py-1 text-xs"
+                                                        aria-label="Workers per page"
+                                                    >
+                                                        <option value={10}>10 / page</option>
+                                                        <option value={20}>20 / page</option>
+                                                        <option value={50}>50 / page</option>
+                                                    </select>
+                                                    <button
+                                                        onClick={() => setWorkersPage((p) => Math.max(0, p - 1))}
+                                                        disabled={workersPage <= 0}
+                                                        className="px-2 py-1 text-xs border border-gray-300 rounded disabled:opacity-40 hover:bg-gray-100"
+                                                    >
+                                                        Prev
+                                                    </button>
+                                                    <span className="text-xs text-gray-600 px-1">
+                                                        Page {workersPage + 1} of {Math.max(1, Math.ceil(workersTotal / workersPageSize))}
+                                                    </span>
+                                                    <button
+                                                        onClick={() => setWorkersPage((p) => p + 1)}
+                                                        disabled={(workersPage + 1) * workersPageSize >= workersTotal}
+                                                        className="px-2 py-1 text-xs border border-gray-300 rounded disabled:opacity-40 hover:bg-gray-100"
+                                                    >
+                                                        Next
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
                                 ) : (
                                     <p className="text-sm text-gray-400">No active workers.</p>
                                 )}
