@@ -1,4 +1,4 @@
-"""Pydantic schemas for RA 10173 privacy-rights endpoints (M6)."""
+"""Pydantic schemas for RA 10173 privacy-rights endpoints (M10)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class SubjectType(str, Enum):
@@ -25,7 +25,7 @@ class ConsentAction(str, Enum):
 class ConsentRequest(BaseModel):
     subject_type: SubjectType
     subject_id: str
-    consent_type: str
+    consent_type: str = Field(..., max_length=100)
     action: ConsentAction
 
 

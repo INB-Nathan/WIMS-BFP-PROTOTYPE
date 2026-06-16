@@ -26,7 +26,7 @@ Format: `## [YYYY-MM-DD] action | subject`
 - #304 (security): `_decrypt_sensitive_details` now sets `sd["decryption_failed"] = True` in the bare `except Exception` block, giving API consumers a sentinel to distinguish "no PII exists" from "decryption silently failed". The sentinel nests inside `incident_sensitive_details`; PII fields remain absent and blob columns stay stripped. New test `test_export_decrypt_failure_adds_sentinel` covers the failure path.
 - #316: Anonymize audit entries (`PII_ANONYMIZE`) now gated on `rowcount > 0` for all four tables. UPDATE WHERE clauses augmented with `IS DISTINCT FROM` / `IS NOT NULL` conditions so idempotent calls return `rowcount=0` and skip audit. User existence now checked with a separate SELECT before the conditional UPDATE.
 - Test `test_anonymize_idempotent` strengthened: second call returns `rowcount=0`, only one audit entry across two calls. All existing tests updated for the SELECT-existence + conditional-UPDATE flow.
-- No FRS gap register change (review fixes to existing M6 implementation; gap #165 remains CLOSED).
+- No FRS gap register change (review fixes to existing M10 implementation; gap #165 remains CLOSED).
 - Ruff check + format green. All 19 privacy tests pass.
 
 ## [2026-06-13] fix | anomaly detection cluster cleanups #284 #285 #286 #287
@@ -310,7 +310,7 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Deferred: SSE real-time push (polling sufficient for v1), global sidebar unreviewed badge.
 - Gap register updated: M8 monitoring dashboard CLOSED.
 
-## [2026-06-12] feat | GH #73 — M6 RA 10173 PII export, anonymization, consent logging (feat/m6-privacy-rights)
+## [2026-06-12] feat | GH #73 — M10 RA 10173 PII export, anonymization, consent logging (feat/m6-privacy-rights)
 
 - `src/postgres-init/59_consent_log.sql`: new `wims.consent_log` table. RLS: INSERT WITH CHECK (TRUE) for public consent recording; SELECT/UPDATE/DELETE SYSTEM_ADMIN only.
 - `src/backend/schemas/privacy.py`: `ConsentRequest`, `ConsentRecord`, `ExportResponse`, `AnonymizeRequest` (confirm validator), `AnonymizeResponse`.
@@ -318,7 +318,7 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `src/backend/api/routes/consent.py`: `POST /api/auth/consent` (public, no auth; inserts to consent_log; CONSENT_GRANT/CONSENT_WITHDRAW audit with user_id=None).
 - `src/backend/api/routes/admin/__init__.py` + `src/backend/main.py`: router registrations.
 - `src/backend/tests/test_privacy.py`: 18 unit tests covering all ACs + corrections A-G.
-- Gap register: M6 #73 CLOSED; full DPA compliance (PIA/retention/DPO) noted as out-of-scope separate initiative.
+- Gap register: M10 #73 CLOSED; full DPA compliance (PIA/retention/DPO) noted as out-of-scope separate initiative.
 ## [2026-06-11] fix | OpenBao token-file mounting for backend/celery
 
 - `src/openbao/init/bootstrap-openbao.sh`: after writing the `wims-app` policy, bootstrap now verifies any existing app token or creates a replacement policy-scoped orphan service token and persists the token value to `/vault/file/.wims-app-token` without logging it. This regenerates app auth after an OpenBao volume reset while avoiding token churn on normal restarts.
