@@ -572,6 +572,13 @@ export default function AnalystDashboardPage() {
     void loadData();
   }, [loadData]);
 
+  const now = useNow();
+  const headerCacheTs = cacheMeta.heatmap || cacheMeta.trends;
+  const headerMinutesAgo =
+    headerCacheTs != null
+      ? Math.max(0, Math.floor((now - headerCacheTs) / 60_000))
+      : undefined;
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[40vh] text-gray-500">
@@ -614,7 +621,7 @@ export default function AnalystDashboardPage() {
               <h1 className="text-xl font-bold text-white sm:text-2xl">
                 National Analyst Dashboard
               </h1>
-              <FreshnessDot cachedAt={cacheMeta.heatmap || cacheMeta.trends} isOnline={networkStatus.isOnline} />
+              <FreshnessDot minutesAgo={headerMinutesAgo} isOnline={networkStatus.isOnline} />
             </div>
             <p className="mt-1 text-sm text-white/70">
               Bureau of Fire Protection &mdash; Nationwide verified incident intelligence for trend review, geographic monitoring, and AFOR export.
