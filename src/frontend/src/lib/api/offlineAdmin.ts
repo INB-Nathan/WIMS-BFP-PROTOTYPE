@@ -8,7 +8,7 @@ import {
 import type {
   SystemHealthResponse,
   SystemMetricsResponse,
-  WorkerStatusResponse,
+  WorkerStatusPaginatedResponse,
 } from './legacy';
 import type { ActiveSession, AuditLogEntry, PaginatedResponse } from '@/types/api';
 import {
@@ -32,8 +32,17 @@ export async function fetchSystemMetricsOfflineAware(): Promise<OfflineAdminResu
   return offlineAware('system-metrics', [], 'admin', ADMIN_CACHE_TTL_MS, () => legacyFetchSystemMetrics(), OFFLINE_ADMIN_ERROR);
 }
 
-export async function fetchWorkerStatusOfflineAware(): Promise<OfflineAdminResult<WorkerStatusResponse[]>> {
-  return offlineAware('worker-status', [], 'admin', ADMIN_CACHE_TTL_MS, () => legacyFetchWorkerStatus(), OFFLINE_ADMIN_ERROR);
+export async function fetchWorkerStatusOfflineAware(
+  params?: { limit?: number; offset?: number }
+): Promise<OfflineAdminResult<WorkerStatusPaginatedResponse>> {
+  return offlineAware(
+    'worker-status',
+    [params ?? {}],
+    'admin',
+    ADMIN_CACHE_TTL_MS,
+    () => legacyFetchWorkerStatus(params),
+    OFFLINE_ADMIN_ERROR
+  );
 }
 
 export async function fetchActiveSessionsOfflineAware(): Promise<OfflineAdminResult<ActiveSession[]>> {

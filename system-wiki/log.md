@@ -3310,3 +3310,16 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - **Tests:** Added `TestRateLimitMiddlewareConfig` class in `tests/test_dynamic_rate_limits.py` with 5 tests: middleware passes configured window/threshold to eval, fallback on empty config hash, fallback on non-numeric values, fallback on zero/negative values, 429 response includes Retry-After header.
 - **Wiki:** Updated `system-wiki/subsystems/admin-hub.md` — added middleware consumption note and corrected test count (10→15). `system-wiki/log.md` — this entry.
 - No FRS gap register change (bugfix, no new feature/capability gap).
+
+## [2026-06-16] feat(#345) | Celery worker retention + pagination
+
+- **Worker pagination:** `GET /api/admin/monitoring/workers` now returns paginated response `{ items, total, limit, offset }` with default page size 20 (max 200). Frontend worker table has prev/next pagination, page size selector (10/20/50), and "Showing N–M of T" indicator.
+- **Manual prune:** `POST /api/admin/monitoring/workers/prune` (SYSTEM_ADMIN only) deletes OFFLINE worker heartbeat rows older than the retention threshold. ACTIVE, STALE, and recent OFFLINE rows are protected. Action is audit-logged (`WORKER_PRUNE`) with deleted count and retention days. Returns `{ status, deleted_count, retention_days, message }`. Frontend "Prune Old Workers" button opens a confirmation modal; result banner shows deleted count and message.
+- **Retention policy:** Config key `worker_heartbeat_retention_days` registered in `system_config` (default 7 days, minimum 1). Consumed by both manual and auto-prune logic. Invalid values fall back to 7-day default.
+- **Auto-prune:** Integrated in existing `tasks.monitoring.worker_heartbeat` Celery beat task (runs every 30s). Prunes OFFLINE rows older than retention threshold after status updates; audit-logged as `WORKER_PRUNE_AUTO`; skips audit when nothing deleted.
+- **Backend tests:** `test_system_monitoring.py` — added 11 new tests: 4 pagination tests (paginated response shape, limit/offset, invalid limit, excessive limit), 5 manual prune tests (admin-only, delete-only-old-offline, config-retention-days, invalid-config-fallback, audit-metadata), 4 auto-prune tests (deletes-old-offline, skips-audit-when-empty, respects-config-retention). Existing `test_worker_status_returns_list_for_admin` replaced with `test_worker_status_returns_paginated_for_admin`.
+- **Frontend tests:** `admin-system-monitoring.test.tsx` — updated all 14 existing tests for paginated worker response shape (`mockWorkers` → `mockWorkersPaginated`; empty array → `{ items: [], total: 0, limit: 20, offset: 0 }`).
+- **Frontend API:** `fetchWorkerStatus(params?)` returns `WorkerStatusPaginatedResponse`; backward-compat wrapper for older raw-array responses. `pruneWorkers()` calls `POST /api/admin/monitoring/workers/prune`. Offline-aware wrappers updated in `offlineAdmin.ts`. Types exported from `admin.ts`.
+- **SQL:** Seed row `worker_heartbeat_retention_days = '7'` added to `49_system_config.sql`.
+- **Wiki:** `system-wiki/backend/api-route-map.md` — added prune endpoint and pagination note. `system-wiki/subsystems/admin-hub.md` — updated System Health & Monitoring panel and backend route table for #345.
+- No FRS gap register change (operational enhancement to existing worker heartbeat infrastructure).

@@ -18,6 +18,7 @@ export {
   fetchSystemMetrics,
   fetchWorkerStatus,
   fetchUserSessions,
+  pruneWorkers,
   revokeUserSessions,
   terminateUserSessions,
   updateAdminSecurityLog,
@@ -27,7 +28,13 @@ export {
   updateScheduledReport,
 } from './legacy';
 
-export type { KeycloakSession, RateLimitConfig, RelatedAuditItem, RelatedAuditResponse } from './legacy';
+export type {
+  KeycloakSession,
+  RateLimitConfig,
+  RelatedAuditItem,
+  RelatedAuditResponse,
+  WorkerStatusPaginatedResponse,
+} from './legacy';
 export type { ScheduledReport } from './legacy';
 
 export {

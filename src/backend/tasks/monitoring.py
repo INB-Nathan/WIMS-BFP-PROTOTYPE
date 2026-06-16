@@ -8,8 +8,11 @@ from celery import shared_task
 from sqlalchemy import text
 
 from database import get_session
+from utils.audit import log_system_audit
 
 logger = logging.getLogger("wims.monitoring")
+
+_WORKER_RETENTION_DAYS_DEFAULT = 7
 
 
 def _read_worker_timeout_config(db) -> tuple[int, int]:
@@ -96,6 +99,55 @@ def worker_heartbeat() -> int:
                   AND status != 'OFFLINE'
             """)
         )
+
+        # Auto-prune OFFLINE workers older than retention threshold.
+        # Retention days are read from system_config; fallback to 7 days.
+        row = db.execute(
+            text(
+                "SELECT config_value FROM wims.system_config "
+                "WHERE config_key = 'worker_heartbeat_retention_days'"
+            )
+        ).fetchone()
+        retention_days = _WORKER_RETENTION_DAYS_DEFAULT
+        if row and row[0] is not None:
+            try:
+                val = int(row[0])
+                if val >= 1:
+                    retention_days = val
+            except (ValueError, TypeError):
+                pass
+
+        result = db.execute(
+            text(
+                """
+                DELETE FROM wims.worker_heartbeat
+                WHERE status = 'OFFLINE'
+                  AND last_seen < now() - (:retention_days || ' days')::INTERVAL
+                """
+            ),
+            {"retention_days": str(retention_days)},
+        )
+        deleted = result.rowcount or 0
+
+        if deleted > 0:
+            log_system_audit(
+                db=db,
+                user_id=None,
+                action_type="WORKER_PRUNE_AUTO",
+                table_affected="worker_heartbeat",
+                record_id=None,
+                request=None,
+                new_values={
+                    "deleted_count": deleted,
+                    "retention_days": retention_days,
+                    "cutoff": f"now() - {retention_days} days",
+                },
+            )
+            logger.info(
+                "Auto-pruned %d OFFLINE worker(s) older than %d day(s).",
+                deleted,
+                retention_days,
+            )
 
         db.commit()
         logger.info("Worker heartbeat recorded for celery@%s", hostname)

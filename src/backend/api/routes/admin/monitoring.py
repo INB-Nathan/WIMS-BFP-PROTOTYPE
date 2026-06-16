@@ -3,15 +3,19 @@
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from auth import get_system_admin
 from database import get_db
 from services.ai_service import _ollama_url
+from utils.audit import log_system_audit
 
 router = APIRouter()
+
+_WORKER_PAGE_SIZE_DEFAULT = 20
+_WORKER_RETENTION_DAYS_DEFAULT = 7  # fallback when system_config key is absent
 
 
 @router.get("/health")
@@ -159,26 +163,106 @@ def get_system_health(
 def get_worker_status(
     current_user: dict = Depends(get_system_admin),
     db: Session = Depends(get_db),
+    limit: int = Query(_WORKER_PAGE_SIZE_DEFAULT, ge=1, le=200, description="Workers per page"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
 ):
-    """Return current Celery worker liveness status."""
+    """Return current Celery worker liveness status (paginated)."""
+    total = db.execute(text("SELECT COUNT(*) FROM wims.worker_heartbeat")).scalar() or 0
+
     rows = db.execute(
         text("""
             SELECT worker_id, hostname, last_seen, active_tasks, status
             FROM wims.worker_heartbeat
             ORDER BY last_seen DESC
-        """)
+            LIMIT :limit OFFSET :offset
+        """),
+        {"limit": limit, "offset": offset},
     ).fetchall()
 
-    return [
-        {
-            "worker_id": r[0],
-            "hostname": r[1],
-            "last_seen": r[2].isoformat() if r[2] else None,
-            "active_tasks": r[3],
-            "status": r[4],
-        }
-        for r in rows
-    ]
+    return {
+        "items": [
+            {
+                "worker_id": r[0],
+                "hostname": r[1],
+                "last_seen": r[2].isoformat() if r[2] else None,
+                "active_tasks": r[3],
+                "status": r[4],
+            }
+            for r in rows
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.post("/monitoring/workers/prune")
+def prune_offline_workers(
+    current_user: dict = Depends(get_system_admin),
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    """
+    Prune OFFLINE worker heartbeat rows older than the retention threshold.
+
+    Retention days are read from system_config key
+    `worker_heartbeat_retention_days`; if absent or invalid, defaults to 7.
+    Only rows with status = 'OFFLINE' AND last_seen before the cutoff are
+    deleted.  ACTIVE, STALE, and recent OFFLINE rows are never touched.
+    The action is audit-logged with deleted row count.
+    """
+    # Resolve retention threshold from system_config
+    row = db.execute(
+        text(
+            "SELECT config_value FROM wims.system_config "
+            "WHERE config_key = 'worker_heartbeat_retention_days'"
+        )
+    ).fetchone()
+    retention_days = _WORKER_RETENTION_DAYS_DEFAULT
+    if row and row[0] is not None:
+        try:
+            val = int(row[0])
+            if val >= 1:
+                retention_days = val
+        except (ValueError, TypeError):
+            pass  # fall back to default
+
+    # Prune only OFFLINE rows older than the threshold
+    result = db.execute(
+        text(
+            """
+            DELETE FROM wims.worker_heartbeat
+            WHERE status = 'OFFLINE'
+              AND last_seen < now() - (:retention_days || ' days')::INTERVAL
+            """
+        ),
+        {"retention_days": str(retention_days)},
+    )
+    deleted_count = result.rowcount or 0
+
+    log_system_audit(
+        db=db,
+        user_id=current_user["user_id"],
+        action_type="WORKER_PRUNE",
+        table_affected="worker_heartbeat",
+        record_id=None,
+        request=request,
+        new_values={
+            "deleted_count": deleted_count,
+            "retention_days": retention_days,
+            "cutoff": f"now() - {retention_days} days",
+        },
+    )
+    db.commit()
+
+    return {
+        "status": "ok",
+        "deleted_count": deleted_count,
+        "retention_days": retention_days,
+        "message": (
+            f"Pruned {deleted_count} OFFLINE worker(s) older than {retention_days} day(s)."
+        ),
+    }
 
 
 @router.get("/monitoring/system")

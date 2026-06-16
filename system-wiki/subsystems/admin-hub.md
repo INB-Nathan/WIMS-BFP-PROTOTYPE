@@ -25,7 +25,7 @@ The admin hub (`/admin/system`) is the `SYSTEM_ADMIN`-only management console fo
 
 | Panel | Data | API Call | Notes |
 |---|---|---|---|
-| **System Health & Monitoring** (#344 consolidated) | System metrics (CPU/Memory/Disk/AI/Network), Celery workers, and component health (DB/Redis/Keycloak) | `fetchSystemMetricsOfflineAware()`, `fetchWorkerStatusOfflineAware()`, `fetchSystemHealthOfflineAware()` | Single card with skeleton loading on initial fetch; one refresh button for both sections; auto-refreshes every 60s |
+| **System Health & Monitoring** (#344 consolidated, #345) | System metrics (CPU/Memory/Disk/AI/Network), Celery workers (paginated, 20/page), and component health (DB/Redis/Keycloak) | `fetchSystemMetricsOfflineAware()`, `fetchWorkerStatusOfflineAware(limit, offset)`, `fetchSystemHealthOfflineAware()`, `pruneWorkers()` | Single card with skeleton loading on initial fetch; one refresh button for both sections; auto-refreshes every 60s. **Worker pagination (#345):** prev/next buttons, page size selector (10/20/50), "Showing N–M of T" indicator. **Manual prune (#345):** "Prune Old Workers" button with confirmation modal; deletes only OFFLINE rows older than retention threshold (default 7 days); ACTIVE/STALE protected; audit-logged; result banner with deleted count. |
 | **System Analytics / Flow** | Total Users, Active Sessions (from aggregate endpoint), Celery Workers count | `fetchAdminUsers()`, `fetchActiveSessionsOfflineAware()`, `fetchWorkerStatusOfflineAware()` | Three-stat dashboard cards. "Total API Requests" placeholder replaced with live Celery Workers count (#359) |
 | **Identity Governance** (#346) | All users with client-side filters (username, role, region, active status) and pagination (10/25/50 per page) | `fetchAdminUsers()`, `updateAdminUser()` | Edit button opens modal with role dropdown (excludes deprecated CIVILIAN_REPORTER), region dropdown from `fetchRegions()`, and active checkbox. Create User modal for onboarding; region dropdown populated from `fetchRegions()`. Sessions column removed — per-user sessions are accessible by clicking the username or via the dedicated Active Sessions section. |
 | **Create User Modal** | First name, last name, email, role, region, contact | `createAdminUser()` → `POST /api/admin/users` | Returns temp password in plaintext (prototype); copy-to-clipboard with show/hide toggle; region filter list from `fetchRegions()`; CIVILIAN_REPORTER excluded from role dropdown (#346) |
@@ -50,11 +50,14 @@ All in `src/backend/api/routes/admin.py` (~935 lines). Every endpoint is gated b
 | `GET` | `/api/admin/active-sessions` | `get_active_sessions` | Fetches Keycloak sessions for all active users via admin API; sorted by last_access desc; includes session_id, IP, start, last_access, clients |
 | `POST` | `/api/admin/users/{user_id}/logout` | `force_logout_user` | Revokes all Keycloak sessions + Redis session manager for a specific user |
 
-### System Health (`admin.py` lines 475–553)
+### System Health & Monitoring (`admin/monitoring.py`)
 
 | Method | Path | Function | Behavior |
 |---|---|---|---|
-| `GET` | `/api/admin/health` | `get_system_health` | Checks DB (`SELECT 1`), Redis (`PING`), Keycloak (admin API connectivity) with latency; returns `HEALTHY`/`DEGRADED` status |
+| `GET` | `/api/admin/health` | `get_system_health` | Checks DB (`SELECT 1`), Redis (`PING`), Keycloak (admin API connectivity), Suricata (recent threat log flow), Ollama (`/api/tags`); returns `HEALTHY`/`DEGRADED` status per component |
+| `GET` | `/api/admin/monitoring/workers` | `get_worker_status` | Lists Celery worker heartbeats (paginated: `limit` default 20, max 200; `offset` default 0); returns `{ items, total, limit, offset }` sorted by `last_seen DESC` |
+| `POST` | `/api/admin/monitoring/workers/prune` | `prune_offline_workers` | Deletes OFFLINE workers older than retention threshold (default 7d, configurable via `worker_heartbeat_retention_days`); ACTIVE/STALE/recent OFFLINE protected; audit-logged; returns `{ status, deleted_count, retention_days, message }` (#345) |
+| `GET` | `/api/admin/monitoring/system` | `get_system_metrics` | Returns CPU/Memory/Disk/AI-Inference/Network metrics via psutil + Redis |
 
 ### Security Telemetry (`admin.py` lines 555–626)
 

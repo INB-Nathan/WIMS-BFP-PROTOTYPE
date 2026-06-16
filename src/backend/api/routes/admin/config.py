@@ -27,6 +27,7 @@ VALID_CONFIG_KEYS = frozenset(
         "npc_office_phone",
         "worker_stale_timeout_seconds",
         "worker_offline_timeout_seconds",
+        "worker_heartbeat_retention_days",
     }
 )
 
@@ -39,6 +40,7 @@ _NUMERIC_CONFIG_KEYS: dict[str, tuple[type, int | float]] = {
     "ai_timeout_seconds": (float, 0.1),
     "worker_stale_timeout_seconds": (int, 30),
     "worker_offline_timeout_seconds": (int, 60),
+    "worker_heartbeat_retention_days": (int, 1),
 }
 
 
