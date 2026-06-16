@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -210,6 +210,7 @@ async def analyze_security_log(
 def update_security_log(
     log_id: int,
     body: SecurityLogUpdate,
+    request: Request,
     _admin: Annotated[dict, Depends(get_system_admin)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
@@ -269,7 +270,21 @@ def update_security_log(
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Security log not found")
 
-    log_system_audit(db, _admin["user_id"], "HITL_REVIEW", "security_threat_logs", log_id)
+    log_system_audit(
+        db,
+        _admin["user_id"],
+        "HITL_REVIEW",
+        "security_threat_logs",
+        log_id,
+        request=request,
+        new_values={
+            "endpoint_action": body.action,
+            "method": "PATCH",
+            "path": f"/api/admin/security-logs/{log_id}",
+            "log_id": log_id,
+            "outcome": "SUCCESS",
+        },
+    )
 
     # M10d: breach record — must be created inside the HITL transaction while RLS
     # context (SET LOCAL) is still active. HIGH/CRITICAL confirmed threats are
@@ -300,7 +315,20 @@ def update_security_log(
         ).fetchone()
         new_breach_id = breach_row[0]
         log_system_audit(
-            db, _admin["user_id"], "BREACH_DETECTED", "breach_notifications", new_breach_id
+            db,
+            _admin["user_id"],
+            "BREACH_DETECTED",
+            "breach_notifications",
+            new_breach_id,
+            request=request,
+            new_values={
+                "endpoint_action": body.action,
+                "method": "PATCH",
+                "path": f"/api/admin/security-logs/{log_id}",
+                "log_id": log_id,
+                "breach_id": new_breach_id,
+                "outcome": "SUCCESS",
+            },
         )
 
     db.commit()
@@ -363,6 +391,7 @@ def update_security_log(
 @router.post("/security-logs/{log_id}/create-incident")
 def create_incident_from_alert(
     log_id: int,
+    request: Request,
     _admin: Annotated[dict, Depends(get_system_admin)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
@@ -410,6 +439,15 @@ def create_incident_from_alert(
             "CREATE_INCIDENT_FROM_ALERT",
             "security_threat_logs",
             log_id,
+            request=request,
+            new_values={
+                "endpoint_action": "CREATE_INCIDENT",
+                "method": "POST",
+                "path": f"/api/admin/security-logs/{log_id}/create-incident",
+                "log_id": log_id,
+                "incident_id": incident_id,
+                "outcome": "SUCCESS",
+            },
         )
         db.commit()
         return {"status": "ok", "incident_id": incident_id}
@@ -423,3 +461,88 @@ def create_incident_from_alert(
             status_code=500,
             detail="Failed to create incident from alert",
         )
+
+
+@router.get("/security-logs/{log_id}/related-audit")
+def get_related_audit(
+    log_id: int,
+    _admin: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Return audit trail rows related to the given security log.
+
+    Queries system_audit_trails for rows within ±1 hour of the alert's
+    timestamp where either:
+      - table_affected = 'security_threat_logs' AND record_id = log_id, OR
+      - old_values or new_values JSONB contains a log_id matching the requested id.
+
+    Returns an empty list when no related audit rows exist; 404 if the alert
+    itself is missing.
+    """
+    # Verify the alert exists first
+    alert = db.execute(
+        text("SELECT log_id, timestamp FROM wims.security_threat_logs WHERE log_id = :log_id"),
+        {"log_id": log_id},
+    ).fetchone()
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Security log not found")
+
+    alert_ts = alert[1]
+    window_start = None
+    window_end = None
+    if alert_ts is not None:
+        window_start = alert_ts - timedelta(hours=1)
+        window_end = alert_ts + timedelta(hours=1)
+
+    # Query audit rows: direct match via table_affected + record_id OR JSONB log_id match
+    query = text(
+        """
+        SELECT audit_id, user_id, action_type, table_affected, record_id,
+               ip_address, user_agent, timestamp, new_values, old_values
+        FROM wims.system_audit_trails
+        WHERE (
+            (table_affected = 'security_threat_logs' AND record_id = :log_id)
+            OR (new_values ->> 'log_id') = CAST(:log_id_str AS text)
+            OR (old_values ->> 'log_id') = CAST(:log_id_str2 AS text)
+        )
+        {time_window}
+        ORDER BY timestamp DESC
+        LIMIT 100
+    """.format(
+            time_window=(
+                "AND timestamp >= CAST(:window_start AS timestamptz) AND timestamp <= CAST(:window_end AS timestamptz)"
+                if window_start and window_end
+                else ""
+            )
+        )
+    )
+
+    params: dict = {
+        "log_id": log_id,
+        "log_id_str": str(log_id),
+        "log_id_str2": str(log_id),
+    }
+    if window_start and window_end:
+        params["window_start"] = window_start
+        params["window_end"] = window_end
+
+    rows = db.execute(query, params).fetchall()
+
+    return {
+        "log_id": log_id,
+        "items": [
+            {
+                "audit_id": r[0],
+                "user_id": str(r[1]) if r[1] else None,
+                "action_type": r[2],
+                "table_affected": r[3],
+                "record_id": r[4],
+                "ip_address": r[5],
+                "user_agent": r[6],
+                "timestamp": r[7].isoformat() if r[7] else None,
+                "new_values": r[8],
+                "old_values": r[9],
+            }
+            for r in rows
+        ],
+    }

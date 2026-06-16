@@ -325,6 +325,29 @@ export async function createIncidentFromAlert(logId: number): Promise<{
   return apiFetch(`/admin/security-logs/${logId}/create-incident`, { method: 'POST' });
 }
 
+export interface RelatedAuditItem {
+  audit_id: number;
+  user_id: string | null;
+  action_type: string | null;
+  table_affected: string | null;
+  record_id: number | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  timestamp: string | null;
+  new_values: Record<string, unknown> | null;
+  old_values: Record<string, unknown> | null;
+}
+
+export interface RelatedAuditResponse {
+  log_id: number;
+  items: RelatedAuditItem[];
+}
+
+/** Fetch audit trail rows related to a security log (±1 hour window) */
+export async function fetchRelatedAuditLogs(logId: number): Promise<RelatedAuditResponse> {
+  return apiFetch<RelatedAuditResponse>(`/admin/security-logs/${logId}/related-audit`);
+}
+
 // ---------------------------------------------------------------------------
 // Anomaly detection (admin) — GET /admin/anomalies, PATCH /admin/anomalies/:id
 // ---------------------------------------------------------------------------

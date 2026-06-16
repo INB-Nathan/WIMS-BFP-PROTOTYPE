@@ -3,6 +3,18 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-16] feat(#349,#350,#357) | admin security alert HITL audit + related-evidence + highlights
+
+- **#357 (backend audit completeness):** `PATCH /security-logs/{log_id}` and `POST /security-logs/{log_id}/create-incident` now pass `request=request` to `log_system_audit()` so audit rows capture real client IP/UA via `X-Forwarded-For`/`X-Real-IP` headers (no sensitive headers/tokens/cookies). `new_values` JSONB in each audit row includes `endpoint_action`, `method`, `path`, `log_id`, `incident_id` (create-incident only), and `outcome: SUCCESS` for forensic traceability.
+- **#357 (new endpoint):** `GET /admin/security-logs/{log_id}/related-audit` queries `system_audit_trails` within ±1h of alert timestamp, matching by `table_affected='security_threat_logs' AND record_id=log_id` or JSONB `log_id` match. Returns 404 for missing alert, empty `items` list if no evidence.
+- **#349 (frontend View/Find Related Evidence):** HITL modal replaces "Request More Info" button with "View Related Evidence". Calls `fetchRelatedAuditLogs()` and renders related audit rows inline with loading/error/empty states.
+- **#349/#350 (inline HITL messages):** Confirm Threat, False Positive, Create Incident show inline success/error messages instead of `alert()`. Create Incident success shows incident ID with link.
+- **#350 (Alert Action Highlights):** New `Alert Action Highlights` section on admin/system page filters `auditLogs` for `HITL_REVIEW`, `CREATE_INCIDENT_FROM_ALERT`, `BREACH_DETECTED` actions with refresh button, timestamp, action badge, table/record links, and IP/UA metadata.
+- Frontend API layer: Added `RelatedAuditItem`, `RelatedAuditResponse` interfaces and `fetchRelatedAuditLogs()` in `src/frontend/src/lib/api/legacy.ts`.
+- Tests: 3 new backend test methods in `TestSecurityAuditRequestParam` (#357 audit `request`/`new_values`), 4 new tests in `TestGetRelatedAudit` (#357 endpoint). Frontend test `admin-system-hitl.test.tsx` updated: Request More Info tests replaced with View Related Evidence + empty state tests; added assertion for inline success patterns.
+- System wiki: api-route-map.md updated with new route and enhanced audit notes.
+- No FRS gap register change (enhancements to existing M10d implementation; no new FRS alignment).
+
 ## [2026-06-14] fix(deploy) | ollama CPU override for VPS in docker-compose.prod.yml
 
 - VPS has 2 CPUs but base `docker-compose.yml` sets `cpus: '4'` for ollama.
