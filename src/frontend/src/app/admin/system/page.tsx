@@ -176,7 +176,7 @@ export default function AdminSystemPage() {
     const [securityLogs, setSecurityLogs] = useState<SecurityLog[]>([]);
     const [auditLogs, setAuditLogs] = useState<{ items: AuditItem[]; total: number }>({ items: [], total: 0 });
     const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
-    const [health, setHealth] = useState<{ status: string; components: Record<string, { status: string; latency_ms: number }> } | null>(null);
+    const [health, setHealth] = useState<{ status: string; components: Record<string, { status: string; latency_ms: number; detail?: string; error?: string }> } | null>(null);
     const [healthLastChecked, setHealthLastChecked] = useState<Date | null>(null);
     const [healthFromCache, setHealthFromCache] = useState(false);
     const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
@@ -1092,11 +1092,11 @@ export default function AdminSystemPage() {
                                 <div>
                                     <div className="flex items-center gap-2 mb-2">
                                         <h3 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Service Health</h3>
-                                        <span className={`px-2 py-0.5 rounded text-xs font-bold text-white ${health.status === 'HEALTHY' ? 'bg-green-600' : 'bg-red-600'}`}>
+                                        <span className={`px-2 py-0.5 rounded text-xs font-bold text-white ${getOverallBadgeColor(health.status)}`}>
                                             {health.status}
                                         </span>
                                     </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                                         <div className="p-4 rounded-lg flex items-center justify-between" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
                                             <div className="flex items-center gap-3">
                                                 <Database className="w-5 h-5 text-gray-500" />
@@ -1126,6 +1126,21 @@ export default function AdminSystemPage() {
                                                 </div>
                                             </div>
                                             <span className={`w-3 h-3 rounded-full ${health.components.keycloak?.status === 'HEALTHY' ? 'bg-green-500' : 'bg-red-500'}`} />
+                                        </div>
+                                        <div className="p-4 rounded-lg flex items-center justify-between" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
+                                            <div className="flex items-center gap-3">
+                                                <ShieldAlert className="w-5 h-5 text-gray-500" />
+                                                <div>
+                                                    <div className="text-sm font-semibold">Suricata IDS</div>
+                                                    <div className="text-xs text-gray-500">{health.components.suricata?.latency_ms ?? 0}ms</div>
+                                                    {health.components.suricata?.detail && (
+                                                        <div className={`text-xs mt-0.5 font-medium ${getComponentStatusTextColor(health.components.suricata?.status ?? '')}`}>
+                                                            {health.components.suricata.detail}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <span className={`w-3 h-3 rounded-full ${getComponentStatusColor(health.components.suricata?.status ?? '')}`} />
                                         </div>
                                     </div>
                                 </div>

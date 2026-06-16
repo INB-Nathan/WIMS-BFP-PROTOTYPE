@@ -3336,3 +3336,11 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - **SQL:** Seed row `worker_heartbeat_retention_days = '7'` added to `49_system_config.sql`.
 - **Wiki:** `system-wiki/backend/api-route-map.md` — added prune endpoint and pagination note. `system-wiki/subsystems/admin-hub.md` — updated System Health & Monitoring panel and backend route table for #345.
 - No FRS gap register change (operational enhancement to existing worker heartbeat infrastructure).
+
+## [2026-06-16] fix(#364) | Suricata health displayed in consolidated system UI
+
+- **Gap:** Backend `GET /api/admin/health` returned 5-state Suricata component status (HEALTHY/QUIET/FRESH/DEGRADED/UNHEALTHY) with detail text, but the consolidated System Health & Monitoring UI only showed PostgreSQL, Redis, and Keycloak cards. The Suricata card was lost during conflict resolution of the original #364 implementation.
+- **Fix:** Added a "Suricata IDS" card to the health grid using the existing `getComponentStatusColor` and `getComponentStatusTextColor` 5-state helpers. The card shows latency, status dot (5-state colored), and detail text (e.g., "alerting — recent threats detected", "healthy, no recent alerts", "no threat data yet"). Updated overall status badge to use `getOverallBadgeColor` for proper DEGRADED (amber) coloring. Expanded health type to include optional `detail`/`error` fields. Changed health grid from 3 to 4 columns on desktop.
+- **Backend test cleanup:** Removed unused `from database import get_db` import in `test_system_monitoring.py`.
+- **Files:** `src/frontend/src/app/admin/system/page.tsx` (+18/-3), `src/backend/tests/test_system_monitoring.py` (+0/-1).
+- No FRS gap register change (UI completeness fix for already-implemented backend health check).

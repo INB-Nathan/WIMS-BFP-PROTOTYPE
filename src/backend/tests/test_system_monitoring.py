@@ -11,7 +11,6 @@ from fastapi.testclient import TestClient
 from auth import get_current_wims_user
 from database import get_db
 from main import app
-from database import get_db
 
 _ENCODER_UID = uuid.UUID("11111111-1111-4111-8111-111111111111")
 _ADMIN_UID = uuid.UUID("00000000-0000-0000-0000-000000000099")
