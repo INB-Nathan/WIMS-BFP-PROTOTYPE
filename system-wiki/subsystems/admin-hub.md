@@ -32,7 +32,7 @@ The admin hub (`/admin/system`) is the `SYSTEM_ADMIN`-only management console fo
 | **Active Sessions** (#347) | All active Keycloak sessions across all users with client-side username filter and pagination (10/25/50 per page) | `fetchActiveSessionsOfflineAware()` → `GET /api/admin/active-sessions` | Table with username, role, IP address, last access; Force Logout button calls `revokeUserSessions()`. Per-user sessions loaded lazily on username click (#359 N+1 fix) |
 | **Per-User Sessions Modal** | Per-user Keycloak sessions (lazy-loaded) | `fetchUserSessions(user_id)` on demand | Lazy-loads sessions when user clicks username in Identity Governance; shows loading/error/no-sessions states; Terminate All button |
 | **Security Threat Logs** | Suricata/XAI threat telemetry with advanced filters & pagination (#348) | `fetchAdminSecurityLogs()` → `GET /api/admin/security-logs` | Table with source/dest IP, severity, Suricata SID, raw payload, XAI narrative/confidence; Analyze button runs `analyzeSecurityLog()`; HITL modal: 3 decision buttons (Confirm Threat / False Positive / Request More Info) replacing free-text admin_action_taken form. Request More Info reveals optional note textarea + Confirm. Already-actioned logs show read-only display. Backend response is paginated (`items`, `total`, `limit`, `offset`) and includes `hitl_decision` JSONB. **Advanced filter bar (#348):** severity chips (LOW/MEDIUM/HIGH/CRITICAL), Source IP input, Date From/To inputs; Reset All Filters button. **Pagination controls (#348):** prev/next with page indicator; 20 items/page. **Auto-reload:** triggered by filter/pagination state changes via useEffect comparison of telemetry filter key. **Error state:** inline alert shown on fetch failure. |
-| **System Audit Trails** | Paginated audit log of all admin actions | `fetchAuditLogs(limit, offset)` → `GET /api/admin/audit-logs` | Table with user_id, action_type, table_affected, record_id, IP, UA, timestamp; paginated with limit/offset |
+| **System Audit Trails** | Dedicated page `/admin/audit` with full filters, pagination, offline caching (#352) | `fetchAuditLogsOfflineAware()` → `GET /api/admin/audit-logs` | The admin hub now shows a CTA card linking to `/admin/audit`; full audit table, advanced filters (q, user_id, action_type, table_affected, ip_address, date_from, date_to), expandable old/new values, and prev/next pagination live on the dedicated page |
 | **Scheduled Reports** | Create/manage scheduled analytics reports | `POST /api/admin/scheduled-reports`, `GET /api/admin/scheduled-reports` | Create form: name, format (pdf/excel/csv), cron expression, filters JSON, recipients; list with toggle/delete; delete uses confirmation modal (no native `confirm()`) |
 | **Backup Management** | Trigger pg_dump + AES encrypt, list backups, download | `triggerBackup()`, `listBackups()`, `downloadBackup()` | Backup filenames: `wims_YYYYMMDD_HHMMSS.sql.enc`; retention policy deletes oldest when >100 files; download via FileResponse |
 
@@ -152,6 +152,30 @@ Used by:
 - `/admin/monitoring` — Recent Narratives list: renders structured narratives inline with Anomaly/Risk/Recommendation fields and confidence badge, preserving expand/collapse for long content
 
 Unit tests: `src/frontend/src/lib/xaiNarrativeNormalizer.test.ts` (14 test cases covering valid JSON, fences, partial extraction, edge cases).
+
+## Dedicated System Audit Page (#352)
+
+`src/frontend/src/app/admin/audit/page.tsx` provides a dedicated full-featured System Audit page for SYSTEM_ADMIN users, extracted from the overcrowded `/admin/system` hub.
+
+**Features:**
+- All 7 audit filters: full-text search (`q`), `user_id`, `action_type`, `table_affected`, `ip_address`, `date_from`, `date_to`
+- Suggestive datalist for action types and tables; plain text inputs for UUID/IP/date fields
+- Apply Filters / Clear Filters buttons; Clear only appears when at least one filter is active
+- Previous/Next pagination with page indicator (50 items/page)
+- Expandable rows showing old_values/new_values JSONB diffs on click
+- Action type color-coded badges (HITL_REVIEW=blue, CREATE_INCIDENT=orange, BREACH=red, ANOMALY=purple)
+- Loading skeleton (5 pulse rows), empty state, filtered-empty state, error state (role="alert")
+- Offline banner with cached-data indicator and "Last checked: X sec ago" timestamps
+- Refresh button
+- SYSTEM_ADMIN role gate with redirect for non-admins; auth loading guard
+
+**API:** Uses `fetchAuditLogsOfflineAware()` from `offlineAdmin.ts` → `GET /api/admin/audit-logs` with all filter query params supported by the backend.
+
+**Sidebar:** `Sidebar.tsx` "System Audit" link points to `/admin/audit` instead of the old `/admin/system#audit` anchor.
+
+**Admin Hub CTA:** `/admin/system` no longer embeds the full audit table/search section. The old System Audit panel is replaced with a compact CTA card linking to `/admin/audit` with a descriptive summary. The Alert Action Highlights section remains on the hub page.
+
+Tests: `src/frontend/src/app/admin/audit/admin-audit.test.tsx` (14 tests covering rendering, filters, pagination, loading/empty/error/offline states, row expansion, role redirect, and auth loading guard).
 
 ## Offline Read Caching (GH #270)
 

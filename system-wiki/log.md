@@ -12,6 +12,16 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `security.py` already fixed by earlier PR (#349/#350/#357) — no changes needed.
 - No FRS gap register change (enhancement to existing M10d audit implementation; no new FRS alignment).
 
+## [2026-06-16] feat(#352) | dedicated system audit page
+
+- **#352 (dedicated System Audit page):** Extracted full audit table and search from overcrowded `/admin/system` hub into a dedicated `/admin/audit` page. New page supports 7 audit filters (q, user_id, action_type, table_affected, ip_address, date_from, date_to) with Apply/Clear buttons, prev/next pagination (50/page), expandable old_values/new_values rows, loading skeleton, empty/filtered-empty/error states, offline cached-data indicator, and SYSTEM_ADMIN role gate with auth loading guard.
+- **Admin Hub CTA:** `/admin/system` System Audit section replaced with a compact CTA card linking to `/admin/audit`. Alert Action Highlights section (HITL_REVIEW, CREATE_INCIDENT_FROM_ALERT, BREACH_DETECTED) remains on the hub page, now backed by `loadHighlightAudit` (no search). Removed audit-specific state from admin system page (auditSearchQ, auditLastChecked, auditFromCache, loadingAudit).
+- **Sidebar:** `Sidebar.tsx` System Audit nav link updated from `/admin/system#audit` to `/admin/audit`. Icon changed from Settings (gear) — already used for Configuration — but the task accepts the existing icon.
+- **API layer:** Existing `fetchAuditLogsOfflineAware()` in `offlineAdmin.ts` already supports all filter params used by the new page. `fetchAuditLogs()` in `legacy.ts` and `AuditLogEntry` type in `types/api.ts` already include `old_values`/`new_values`.
+- **Tests:** `admin-audit.test.tsx` (14 tests: rendering, filter inputs, filter submission, clear filters, pagination prev/next, loading skeleton, empty state, filtered empty state, error state, non-admin redirect, row render+expand, refresh button). `admin-system-search.test.tsx` updated for CTA link and renamed audit search to highlights refresh.
+- **Wiki:** `system-wiki/frontend/route-map.md` — added `/admin/audit` route entry; updated admin/system description with audit CTA note. `system-wiki/subsystems/admin-hub.md` — updated System Audit Trails panel table, added Dedicated System Audit Page section, updated Gap/Status Notes.
+- No backend changes, no schema changes, no dependency additions, no FRS gap register changes (UI reorganization of existing functionality).
+
 ## [2026-06-16] feat(#356,#362) | anomaly dashboard seed data + aggregate counts/dynamic filters
 
 - **#362 (aggregate counts + dynamic filters):** `GET /api/admin/anomalies` now returns `counts` (per-status aggregates: NEW/ACKNOWLEDGED/RESOLVED) and `type_facets` (per-type aggregates with counts) alongside existing paginated items. Same WHERE/filter scope as items and total. Summary cards on `/admin/anomalies` switched from `anomalies.filter()` on current page to API `counts`. Type filter dropdown populated dynamically from `type_facets`. Added severity filter dropdown (LOW/MEDIUM/HIGH/CRITICAL — hardcoded). Empty state distinguishes "no anomalies exist" (seed script hint) from "no anomalies match current filters" (adjust filters suggestion).

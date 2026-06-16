@@ -416,11 +416,23 @@ export async function fetchAuditLogs(params?: {
   limit?: number;
   offset?: number;
   q?: string;
+  user_id?: string;
+  action_type?: string;
+  table_affected?: string;
+  ip_address?: string;
+  date_from?: string;
+  date_to?: string;
 }): Promise<PaginatedResponse<AuditLogEntry>> {
   const search = new URLSearchParams();
   if (params?.limit != null) search.set('limit', String(params.limit));
   if (params?.offset != null) search.set('offset', String(params.offset));
   if (params?.q) search.set('q', params.q);
+  if (params?.user_id) search.set('user_id', params.user_id);
+  if (params?.action_type) search.set('action_type', params.action_type);
+  if (params?.table_affected) search.set('table_affected', params.table_affected);
+  if (params?.ip_address) search.set('ip_address', params.ip_address);
+  if (params?.date_from) search.set('date_from', params.date_from);
+  if (params?.date_to) search.set('date_to', params.date_to);
   const qs = search.toString();
   return apiFetch<PaginatedResponse<AuditLogEntry>>(`/admin/audit-logs${qs ? `?${qs}` : ''}`);
 }

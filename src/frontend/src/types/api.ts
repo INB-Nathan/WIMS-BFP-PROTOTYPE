@@ -90,6 +90,8 @@ export interface AuditLogEntry {
   ip_address: string | null;
   user_agent: string | null;
   timestamp: string | null;
+  old_values?: Record<string, unknown> | null;
+  new_values?: Record<string, unknown> | null;
 }
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
