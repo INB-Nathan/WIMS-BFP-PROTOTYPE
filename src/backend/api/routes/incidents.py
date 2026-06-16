@@ -8,7 +8,17 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -27,6 +37,7 @@ from services.regional_incidents.helpers import (
     verify_incident_hash_chain as _verify_incident_hash_chain,
 )
 from tasks.exports import export_analyst_incidents_task
+from utils.audit import log_system_audit
 from utils.crypto import SecurityProviderError
 
 router = APIRouter(prefix="/api", tags=["incidents"])
@@ -705,6 +716,7 @@ async def serve_attachment(
 @router.post("/incidents", response_model=IncidentResponse, status_code=201)
 def create_incident(
     body: IncidentCreate,
+    request: Request,
     user: Annotated[dict, Depends(get_current_wims_user)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ) -> IncidentResponse:
@@ -738,10 +750,12 @@ def create_incident(
         },
     )
     row = result.fetchone()
-    db.commit()
 
     if row is None:
         raise HTTPException(status_code=500, detail="Failed to create incident")
+
+    log_system_audit(db, user_id, "CREATE_INCIDENT", "wims.fire_incidents", row[0], request)
+    db.commit()
 
     # SET LOCAL resets on commit; re-apply RLS context before the analytics sync.
     set_rls_context(db, user_id)

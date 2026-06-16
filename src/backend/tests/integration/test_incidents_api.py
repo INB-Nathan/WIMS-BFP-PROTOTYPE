@@ -66,6 +66,25 @@ def mock_user_and_override(client):
                 text("DELETE FROM wims.fire_incidents WHERE encoder_id = :uid"),
                 {"uid": user_id},
             )
+            # The no_delete_audit rule (17_immutable_records.sql) replaces
+            # DELETE on system_audit_trails with DO INSTEAD NOTHING, making
+            # cleanup silently ineffective. Temporarily drop the rule so we
+            # can remove audit rows created by this test, then recreate it
+            # immediately to preserve immutability for other tests.
+            conn.execute(text("DROP RULE IF EXISTS no_delete_audit ON wims.system_audit_trails"))
+            try:
+                conn.execute(
+                    text("DELETE FROM wims.system_audit_trails WHERE user_id = :uid"),
+                    {"uid": user_id},
+                )
+            finally:
+                conn.execute(
+                    text(
+                        "CREATE RULE no_delete_audit AS"
+                        " ON DELETE TO wims.system_audit_trails"
+                        " DO INSTEAD NOTHING"
+                    )
+                )
             conn.execute(
                 text("DELETE FROM wims.users WHERE user_id = :uid"),
                 {"uid": user_id},

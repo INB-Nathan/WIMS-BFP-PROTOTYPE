@@ -48,10 +48,12 @@ def ingest_suricata_eve() -> int:
     try:
         set_rls_context(db, SYSTEM_SURICATA_USER_ID)
         count = ingest_eve_file(EVE_LOG_PATH, db_session=db)
+        db.commit()
         if count > 0:
             logger.info("Ingested %d Suricata alert(s) from %s", count, EVE_LOG_PATH)
         return count
     except Exception as e:
+        db.rollback()
         logger.exception("Suricata EVE ingestion failed: %s", e)
         raise
     finally:

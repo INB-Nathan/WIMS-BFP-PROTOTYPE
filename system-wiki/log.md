@@ -3188,6 +3188,13 @@ Made pending-sync offline incidents fully manageable through the normal regional
 **Behavior change:** `INTEGRITY_VIOLATION` audit rows are now committed in an isolated, self-committing session so they survive read-only route handler sessions that never commit. Previously, audit rows were silently rolled back on session close.
 
 **No FRS gap status changed.**
+## [2026-06-14] fix | Audit client IP, Suricata ingestion commit, incident create audit, deploy cleanup
+
+- `utils.audit.log_system_audit()` now prefers `X-Forwarded-For` / `X-Real-IP` before `request.client.host`, preventing nginx Docker-network IPs from being stored as audit client addresses in production. Nginx now overwrites `X-Forwarded-For` with `$remote_addr` instead of appending client-supplied spoofable values. Added focused audit utility and nginx header tests.
+- `POST /api/incidents` now writes a `CREATE_INCIDENT` row to `wims.system_audit_trails` in the same transaction as the incident insert.
+- `tasks.suricata.ingest_suricata_eve()` now commits the caller-owned DB session after `ingest_eve_file(..., db_session=db)` and rolls back on failure; previously closing the session rolled back parsed Suricata alert inserts.
+- Deploy workflow now removes stale Compose-renamed `*_wims-*` containers with the `com.docker.compose.project=wims_internal` label before the production recreate to avoid interrupted-deploy name conflicts such as `<hash>_wims-backend already in use`.
+- Validation: `python -m pytest -q tests/test_audit_utils.py tests/test_nginx_forwarded_headers.py tests/test_incidents_create_endpoint.py tests/test_suricata_auto_incident.py` => 17 passed; focused `ruff check`/`ruff format --check`; `git diff --check`.
 
 ## [2026-06-15] docs | manual smoke-test runbook for Admin, Validator, Analyst
 
@@ -3196,3 +3203,10 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - Included reusable smoke-result and GitHub issue templates so teammates can report failures in a consistent issue-ready format.
 - Added [[operations/manual-smoke-testing]] as the wiki routing summary and linked it from [[operations/agent-routing-guide]] and `system-wiki/index.md`.
 - No FRS gap register change (documentation/runbook only; no implementation alignment change).
+
+## [2026-06-16] fix | test fixture: drop/recreate no_delete_audit rule during incident API test cleanup
+
+- `test_incidents_api.py` `mock_user_and_override` fixture now temporarily drops the `no_delete_audit` RULE on `wims.system_audit_trails` before deleting audit rows created by the test, then recreates the rule immediately in a `finally` block.
+- This prevents FK-violation teardown failures when `POST /api/incidents` writes `CREATE_INCIDENT` audit rows referencing the temporary test user.
+- Audit immutability is preserved: the rule is only lifted during fixture cleanup and is always recreated before the next test runs.
+- No FRS gap register change (test infrastructure only).

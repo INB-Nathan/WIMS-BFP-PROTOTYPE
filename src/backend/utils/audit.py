@@ -10,6 +10,31 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger("wims.audit")
 
 
+def get_client_ip(request: Request | None) -> str | None:
+    """Return the real client IP from trusted reverse-proxy headers.
+
+    In production FastAPI sees nginx's Docker-network address in
+    ``request.client.host``. Prefer the first ``X-Forwarded-For`` hop, then
+    ``X-Real-IP``, and only fall back to the socket peer.
+    """
+    if request is None:
+        return None
+
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        first_hop = forwarded.split(",", 1)[0].strip()
+        if first_hop:
+            return first_hop
+
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip and real_ip.strip():
+        return real_ip.strip()
+
+    if request.client:
+        return request.client.host
+    return None
+
+
 def log_system_audit(
     db: Session,
     user_id: uuid.UUID | str | None,
@@ -31,9 +56,7 @@ def log_system_audit(
     user_agent = None
 
     if request:
-        # FastAPI request object might have client info
-        if request.client:
-            ip_address = request.client.host
+        ip_address = get_client_ip(request)
         user_agent = request.headers.get("user-agent")
 
     try:
