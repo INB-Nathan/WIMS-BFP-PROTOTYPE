@@ -186,9 +186,17 @@ describe('Analyst dashboard — AQ-04: Casualty severity filter', () => {
   });
 
   it('renders casualty severity filter dropdown', async () => {
+    const user = userEvent.setup();
     // Dynamic import to get fresh component after mocks
     const { default: AnalystDashboardPage } = await import('@/app/dashboard/analyst/page');
     render(<AnalystDashboardPage />);
+
+    await waitFor(() => {
+      expect(mockFetchHeatmapData).toHaveBeenCalled();
+    });
+
+    // Progressive disclosure: click Advanced filters to reveal hidden controls
+    await user.click(screen.getByRole('button', { name: /advanced filters/i }));
 
     await waitFor(() => {
       expect(screen.getByLabelText(/casualty severity/i)).toBeInTheDocument();
@@ -204,8 +212,11 @@ describe('Analyst dashboard — AQ-04: Casualty severity filter', () => {
       expect(mockFetchHeatmapData).toHaveBeenCalled();
     });
 
+    // Progressive disclosure: reveal advanced filters
+    await user.click(screen.getByRole('button', { name: /advanced filters/i }));
+
     await user.selectOptions(screen.getByLabelText(/casualty severity/i), 'high');
-    await user.click(screen.getByRole('button', { name: /^apply$/i }));
+    await user.click(screen.getByRole('button', { name: /apply filters/i }));
 
     await waitFor(() => {
       const lastHeat = mockFetchHeatmapData.mock.calls[mockFetchHeatmapData.mock.calls.length - 1][0];
@@ -216,8 +227,16 @@ describe('Analyst dashboard — AQ-04: Casualty severity filter', () => {
   });
 
   it('has high/medium/low options', async () => {
+    const user = userEvent.setup();
     const { default: AnalystDashboardPage } = await import('@/app/dashboard/analyst/page');
     render(<AnalystDashboardPage />);
+
+    await waitFor(() => {
+      expect(mockFetchHeatmapData).toHaveBeenCalled();
+    });
+
+    // Reveal advanced filters
+    await user.click(screen.getByRole('button', { name: /advanced filters/i }));
 
     await waitFor(() => {
       const select = screen.getByLabelText(/casualty severity/i);
@@ -239,12 +258,20 @@ describe('Analyst dashboard — AQ-05: Property damage range filter', () => {
   });
 
   it('renders damage_min and damage_max inputs', async () => {
+    const user = userEvent.setup();
     const { default: AnalystDashboardPage } = await import('@/app/dashboard/analyst/page');
     render(<AnalystDashboardPage />);
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/damage min|minimum damage/i)).toBeInTheDocument();
-      expect(screen.getByLabelText(/damage max|maximum damage/i)).toBeInTheDocument();
+      expect(mockFetchHeatmapData).toHaveBeenCalled();
+    });
+
+    // Progressive disclosure: reveal advanced filters
+    await user.click(screen.getByRole('button', { name: /advanced filters/i }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/damage min/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/damage max/i)).toBeInTheDocument();
     });
   });
 
@@ -257,9 +284,12 @@ describe('Analyst dashboard — AQ-05: Property damage range filter', () => {
       expect(mockFetchHeatmapData).toHaveBeenCalled();
     });
 
-    await user.type(screen.getByLabelText(/damage min|minimum damage/i), '10000');
-    await user.type(screen.getByLabelText(/damage max|maximum damage/i), '500000');
-    await user.click(screen.getByRole('button', { name: /^apply$/i }));
+    // Progressive disclosure: reveal advanced filters
+    await user.click(screen.getByRole('button', { name: /advanced filters/i }));
+
+    await user.type(screen.getByLabelText(/damage min/i), '10000');
+    await user.type(screen.getByLabelText(/damage max/i), '500000');
+    await user.click(screen.getByRole('button', { name: /apply filters/i }));
 
     await waitFor(() => {
       const lastHeat = mockFetchHeatmapData.mock.calls[mockFetchHeatmapData.mock.calls.length - 1][0];
@@ -430,7 +460,7 @@ describe('Analyst dashboard — AQ-12: Multi-region select', () => {
     });
 
     await user.selectOptions(screen.getByLabelText(/^region$/i), '1');
-    await user.click(screen.getByRole('button', { name: /^apply$/i }));
+    await user.click(screen.getByRole('button', { name: /apply filters/i }));
 
     await waitFor(() => {
       const lastHeat = mockFetchHeatmapData.mock.calls[mockFetchHeatmapData.mock.calls.length - 1][0];
@@ -469,7 +499,7 @@ describe('Analyst dashboard — AQ-13: Cross-region comparison view', () => {
 
     // Select a region to trigger compare-regions
     await user.selectOptions(screen.getByLabelText(/^region$/i), '1');
-    await user.click(screen.getByRole('button', { name: /^apply$/i }));
+    await user.click(screen.getByRole('button', { name: /apply filters/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/cross.*region|region.*comparison/i)).toBeInTheDocument();
@@ -506,7 +536,7 @@ describe('Analyst dashboard — AQ-13: Cross-region comparison view', () => {
       expect(screen.getByText('NCR (NCR)')).toBeInTheDocument()
     );
     await user.selectOptions(screen.getByLabelText(/^region$/i), '1');
-    await user.click(screen.getByRole('button', { name: /^apply$/i }));
+    await user.click(screen.getByRole('button', { name: /apply filters/i }));
 
     // Wait for comparison fetch to be called
     await waitFor(() => {
@@ -558,7 +588,7 @@ describe('Analyst dashboard — AQ-14: Top-N configurable analysis', () => {
 
     mockFetchTopN.mockClear();
     await user.selectOptions(await screen.findByLabelText(/metric/i, undefined, { timeout: 5000 }), 'casualties');
-    await user.click(screen.getByRole('button', { name: /^apply$/i }));
+    await user.click(screen.getByRole('button', { name: /apply filters/i }));
 
     await waitFor(() => {
       expect(mockFetchTopN).toHaveBeenCalled();
