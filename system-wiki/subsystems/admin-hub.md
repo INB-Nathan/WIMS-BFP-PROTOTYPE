@@ -83,6 +83,8 @@ All in `src/backend/api/routes/admin.py` (~935 lines). Every endpoint is gated b
 | `POST` | `/api/admin/scheduled-reports` | `create_scheduled_report` | Creates row in `wims.scheduled_reports` with name, cron (validated against regex), format, filters JSON, recipients |
 | `GET` | `/api/admin/scheduled-reports` | `list_scheduled_reports` | Lists all scheduled reports ordered by ID DESC |
 
+**Frontend Filter Builder (#353):** The create/edit form on `/admin/system` uses a human-friendly `ReportFilterBuilder` component (region dropdown, severity select, date pickers, incident type input) as the primary UI. An "Expert" toggle exposes a raw JSON textarea for advanced filter editing. Filters are validated client-side before save and sent as structured JSON objects.
+
 ### Backup Management (`admin.py` lines 785–935)
 
 | Method | Path | Function | Behavior |
