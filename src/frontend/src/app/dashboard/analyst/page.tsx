@@ -42,6 +42,8 @@ import {
   RotateCcw,
   Search,
   TrendingUp,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { ExportPreviewModal, type ExportFormat } from '@/components/analytics/ExportPreviewModal';
 import {
@@ -51,7 +53,7 @@ import {
 import { getShortRegionName, PH_REGIONS } from '@/lib/ph-regions';
 import { useAutoSync } from '@/lib/useAutoSync';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
-import { WidgetGrid, AddWidgetDropdown } from '@/components/dashboard';
+import { WidgetGrid, AddWidgetDropdown, FreshnessDot, FilterChips, type FilterChip } from '@/components/dashboard';
 import { useDashboardWidgets } from '@/hooks/useDashboardWidgets';
 
 const HeatmapViewer = dynamic(
@@ -90,6 +92,9 @@ const WORKFLOW_LINKS = [
     title: 'Comparative',
     description: 'Period variance, calculations, export, and evidence table',
     icon: <BarChart3 className="h-5 w-5" />,
+    accentBorder: 'border-t-blue-500',
+    iconBg: 'bg-blue-50 text-blue-700',
+    hoverBorder: 'hover:border-blue-300',
   },
   {
     slug: 'heatmap',
@@ -97,6 +102,9 @@ const WORKFLOW_LINKS = [
     title: 'Heatmap',
     description: 'Map-first geographic review with filtered records',
     icon: <MapPinned className="h-5 w-5" />,
+    accentBorder: 'border-t-emerald-500',
+    iconBg: 'bg-emerald-50 text-emerald-700',
+    hoverBorder: 'hover:border-emerald-300',
   },
   {
     slug: 'trends',
@@ -104,6 +112,9 @@ const WORKFLOW_LINKS = [
     title: 'Trends',
     description: 'Interval controls, bucket totals, and incident table',
     icon: <TrendingUp className="h-5 w-5" />,
+    accentBorder: 'border-t-purple-500',
+    iconBg: 'bg-purple-50 text-purple-700',
+    hoverBorder: 'hover:border-purple-300',
   },
   {
     slug: 'response-time',
@@ -111,6 +122,9 @@ const WORKFLOW_LINKS = [
     title: 'Response Time',
     description: 'Regional min, max, average detail, and export',
     icon: <Clock className="h-5 w-5" />,
+    accentBorder: 'border-t-amber-500',
+    iconBg: 'bg-amber-50 text-amber-700',
+    hoverBorder: 'hover:border-amber-300',
   },
   {
     slug: 'top-n',
@@ -118,6 +132,9 @@ const WORKFLOW_LINKS = [
     title: 'Top-N Hotspots',
     description: 'Metric and dimension controls for hotspot ranking',
     icon: <ListChecks className="h-5 w-5" />,
+    accentBorder: 'border-t-[#991B1B]',
+    iconBg: 'bg-red-50 text-red-700',
+    hoverBorder: 'hover:border-red-300',
   },
   {
     slug: 'incident-explorer',
@@ -125,6 +142,9 @@ const WORKFLOW_LINKS = [
     title: 'Incident Explorer',
     description: 'Dedicated verified incident table and detail drawer',
     icon: <Search className="h-5 w-5" />,
+    accentBorder: 'border-t-slate-500',
+    iconBg: 'bg-slate-50 text-slate-700',
+    hoverBorder: 'hover:border-slate-300',
   },
 ];
 
@@ -137,7 +157,7 @@ function FilterField({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+      <span className="mb-1 block text-sm font-semibold text-gray-700">
         {label}
       </span>
       {children}
@@ -145,17 +165,34 @@ function FilterField({
   );
 }
 
+function useNow(intervalMs = 30_000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
 function PanelHeader({
   icon,
   title,
   description,
   action,
+  freshness,
 }: {
   icon: ReactNode;
   title: string;
   description?: string;
   action?: ReactNode;
+  freshness?: { cachedAt?: number; isOnline: boolean };
 }) {
+  const now = useNow();
+  const minutesAgo =
+    freshness?.cachedAt != null
+      ? Math.max(0, Math.floor((now - freshness.cachedAt) / 60_000))
+      : undefined;
+
   return (
     <div className="flex flex-col gap-3 border-b border-gray-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 items-start gap-3">
@@ -163,7 +200,10 @@ function PanelHeader({
           {icon}
         </div>
         <div className="min-w-0">
-          <h2 className="text-base font-bold text-gray-900">{title}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-bold text-gray-900">{title}</h2>
+            {freshness && <FreshnessDot minutesAgo={minutesAgo} isOnline={freshness.isOnline} />}
+          </div>
           {description && <p className="mt-0.5 text-sm text-gray-500">{description}</p>}
         </div>
       </div>
@@ -172,44 +212,10 @@ function PanelHeader({
   );
 }
 
-function StatTile({
-  icon,
-  label,
-  value,
-  detail,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  detail: string;
-}) {
-  return (
-    <div className="rounded-md border border-gray-200 bg-white px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-semibold uppercase text-gray-500">{label}</span>
-        <span className="text-red-700">{icon}</span>
-      </div>
-      <div className="mt-2 text-2xl font-bold text-gray-900">{value}</div>
-      <p className="mt-1 text-xs text-gray-500">{detail}</p>
-    </div>
-  );
-}
-
 type DashboardCacheMeta = Partial<Record<
   'heatmap' | 'trends' | 'comparative' | 'typeDistribution' | 'responseTime' | 'topN',
   number
 >>;
-
-function formatCachedAt(cachedAt?: number): string | null {
-  if (!cachedAt) return null;
-  return `Last updated ${new Date(cachedAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}`;
-}
-
-function CacheMetaText({ cachedAt }: { cachedAt?: number }) {
-  const label = formatCachedAt(cachedAt);
-  if (!label) return null;
-  return <p className="mt-2 text-xs font-medium text-amber-700">Showing cached data — {label}</p>;
-}
 
 /** Default comparative windows: last 30 days split into Range A then Range B (ranges may overlap — server does not enforce ordering). */
 function initialComparativeRanges(): {
@@ -286,6 +292,9 @@ export default function AnalystDashboardPage() {
   const [topNMetric, setTopNMetric] = useState('incidents');
   const [topNDimension, setTopNDimension] = useState('municipality');
   const [appliedIncidentFilters, setAppliedIncidentFilters] = useState<AnalystIncidentListParams>({});
+
+  // Progressive disclosure: advanced filters collapsed by default
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   type FilterOverrides = {
     startDate?: string;
@@ -462,16 +471,21 @@ export default function AnalystDashboardPage() {
     damageMin,
     damageMax,
   ].filter(Boolean).length;
+
   const activeRegionName = regionId
     ? regions.find((r) => String(r.region_id) === regionId)?.region_name ?? `Region ${regionId}`
     : 'All Regions';
+
   const visibleIncidentCount = typeDistribution?.reduce((sum, item) => sum + item.count, 0)
     ?? heatmap?.features.length
     ?? 0;
+
   const exportUnavailableOffline = !networkStatus.isOnline;
+
   const averageResponseTime = responseTime && responseTime.length > 0
     ? responseTime.reduce((sum, item) => sum + Number(item.avg_response_time || 0), 0) / responseTime.length
     : null;
+
   const dashboardTransferFilters = useMemo<AnalystIncidentListParams>(() => ({
     start_date: startDate || undefined,
     end_date: endDate || undefined,
@@ -495,10 +509,68 @@ export default function AnalystDashboardPage() {
     regionId,
     startDate,
   ]);
+
   const openWorkflow = (event: MouseEvent<HTMLAnchorElement>, workflow: AnalystWorkflowSlug) => {
     event.preventDefault();
     router.push(createAnalystWorkflowTransferUrl(workflow, { filters: dashboardTransferFilters }));
   };
+
+  // Active filter chips for progressive disclosure
+  const activeChips: FilterChip[] = useMemo(() => {
+    const chips: FilterChip[] = [];
+    if (startDate) chips.push({ key: 'startDate', label: `From: ${startDate}`, onRemove: () => setStartDate('') });
+    if (endDate) chips.push({ key: 'endDate', label: `To: ${endDate}`, onRemove: () => setEndDate('') });
+    if (regionId) {
+      const name = regions.find((r) => String(r.region_id) === regionId)?.region_name ?? `Region ${regionId}`;
+      chips.push({ key: 'regionId', label: `Region: ${name}`, onRemove: () => setRegionId('') });
+    }
+    if (province) chips.push({ key: 'province', label: `Province: ${province}`, onRemove: () => { setProvince(''); setMunicipality(''); } });
+    if (municipality) chips.push({ key: 'municipality', label: `Municipality: ${municipality}`, onRemove: () => setMunicipality('') });
+    if (incidentType) chips.push({ key: 'incidentType', label: `Type: ${incidentType}`, onRemove: () => setIncidentType('') });
+    if (alarmLevel) chips.push({ key: 'alarmLevel', label: `Alarm: ${alarmLevel}`, onRemove: () => setAlarmLevel('') });
+    if (casualtySeverity) chips.push({ key: 'casualtySeverity', label: `Casualty: ${casualtySeverity}`, onRemove: () => setCasualtySeverity('') });
+    if (damageMin) chips.push({ key: 'damageMin', label: `Damage ≥ ₱${Number(damageMin).toLocaleString()}`, onRemove: () => setDamageMin('') });
+    if (damageMax) chips.push({ key: 'damageMax', label: `Damage ≤ ₱${Number(damageMax).toLocaleString()}`, onRemove: () => setDamageMax('') });
+    return chips;
+  }, [startDate, endDate, regionId, regions, province, municipality, incidentType, alarmLevel, casualtySeverity, damageMin, damageMax]);
+
+  const handleClearFilters = useCallback(() => {
+    const reset = initialComparativeRanges();
+    setStartDate('');
+    setEndDate('');
+    setRegionId('');
+    setProvince('');
+    setMunicipality('');
+    setIncidentType('');
+    setAlarmLevel('');
+    setCasualtySeverity('');
+    setDamageMin('');
+    setDamageMax('');
+    setInterval('daily');
+    setCmpRanges(reset);
+    setShowAdvancedFilters(false);
+    loadData({
+      startDate: '',
+      endDate: '',
+      regionId: '',
+      province: '',
+      municipality: '',
+      incidentType: '',
+      alarmLevel: '',
+      interval: 'daily',
+      rangeAStart: reset.rangeAStart,
+      rangeAEnd: reset.rangeAEnd,
+      rangeBStart: reset.rangeBStart,
+      rangeBEnd: reset.rangeBEnd,
+      casualtySeverity: '',
+      damageMin: '',
+      damageMax: '',
+    });
+  }, [loadData]);
+
+  const handleApplyFilters = useCallback(() => {
+    void loadData();
+  }, [loadData]);
 
   if (loading) {
     return (
@@ -527,60 +599,76 @@ export default function AnalystDashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* ── Offline banner ── */}
       {exportUnavailableOffline && (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
           You are offline. Cached analyst reads are available; analytics exports are unavailable until reconnect.
         </div>
       )}
-      <div className="rounded-md border border-gray-200 bg-white px-5 py-4 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
+
+      {/* ── Phase 1: Redesigned maroon header with integrated KPI strip ── */}
+      <div className="rounded-lg bg-[#991B1B] px-5 py-5 shadow-md sm:px-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+              <h1 className="text-xl font-bold text-white sm:text-2xl">
                 National Analyst Dashboard
               </h1>
-              <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                Analytics ready
-              </span>
+              <FreshnessDot cachedAt={cacheMeta.heatmap || cacheMeta.trends} isOnline={networkStatus.isOnline} />
             </div>
-            <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
-              Verified incident intelligence for national trend review, geographic monitoring, and AFOR export.
+            <p className="mt-1 text-sm text-white/70">
+              Bureau of Fire Protection &mdash; Nationwide verified incident intelligence for trend review, geographic monitoring, and AFOR export.
             </p>
           </div>
           <button
-            onClick={() => void loadData()}
+            onClick={handleApplyFilters}
             disabled={loadingData}
-            className="inline-flex items-center justify-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-70"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/20 disabled:opacity-50"
           >
             <RefreshCw className={`h-4 w-4 ${loadingData ? 'animate-spin' : ''}`} /> Refresh data
           </button>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <StatTile
-            icon={<ListChecks className="h-4 w-4" />}
-            label="Visible Incidents"
-            value={visibleIncidentCount.toLocaleString()}
-            detail="Count under the applied dashboard filters"
-          />
-          <StatTile
-            icon={<MapPinned className="h-4 w-4" />}
-            label="Scope"
-            value={activeRegionName}
-            detail={province || municipality ? [province, municipality].filter(Boolean).join(' / ') : 'National coverage'}
-          />
-          <StatTile
-            icon={<Clock className="h-4 w-4" />}
-            label="Avg Response"
-            value={averageResponseTime == null ? 'N/A' : `${averageResponseTime.toFixed(1)} min`}
-            detail="Mean of regional averages in the current result set"
-          />
-          <StatTile
-            icon={<Filter className="h-4 w-4" />}
-            label="Active Filters"
-            value={String(activeFilterCount)}
-            detail={activeFilterCount === 0 ? 'Showing all verified incidents' : 'Filters are limiting the dashboard'}
-          />
+        {/* ── KPI strip inside header ── */}
+        <div className="mt-5 flex flex-wrap items-stretch divide-x divide-white/20 rounded-lg bg-black/15 overflow-hidden">
+          <div className="flex-1 min-w-[130px] px-4 py-3">
+            <div className="flex items-center gap-1.5">
+              <ListChecks className="h-3.5 w-3.5 text-white/60" />
+              <span className="text-xs font-medium uppercase tracking-wide text-white/60">Incidents</span>
+            </div>
+            <div className="mt-1 text-2xl font-bold text-white">{visibleIncidentCount.toLocaleString()}</div>
+            <div className="mt-0.5 text-xs text-white/50">Under applied filters</div>
+          </div>
+          <div className="flex-1 min-w-[130px] px-4 py-3">
+            <div className="flex items-center gap-1.5">
+              <MapPinned className="h-3.5 w-3.5 text-white/60" />
+              <span className="text-xs font-medium uppercase tracking-wide text-white/60">Scope</span>
+            </div>
+            <div className="mt-1 text-2xl font-bold text-white">{activeRegionName}</div>
+            <div className="mt-0.5 text-xs text-white/50">
+              {province || municipality ? [province, municipality].filter(Boolean).join(' / ') : 'National coverage'}
+            </div>
+          </div>
+          <div className="flex-1 min-w-[130px] px-4 py-3">
+            <div className="flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 text-white/60" />
+              <span className="text-xs font-medium uppercase tracking-wide text-white/60">Avg Response</span>
+            </div>
+            <div className="mt-1 text-2xl font-bold text-white">
+              {averageResponseTime == null ? 'N/A' : `${averageResponseTime.toFixed(1)} min`}
+            </div>
+            <div className="mt-0.5 text-xs text-white/50">Mean of regional averages</div>
+          </div>
+          <div className="flex-1 min-w-[130px] px-4 py-3">
+            <div className="flex items-center gap-1.5">
+              <Filter className="h-3.5 w-3.5 text-white/60" />
+              <span className="text-xs font-medium uppercase tracking-wide text-white/60">Filters</span>
+            </div>
+            <div className="mt-1 text-2xl font-bold text-white">{activeFilterCount}</div>
+            <div className="mt-0.5 text-xs text-white/50">
+              {activeFilterCount === 0 ? 'Showing all incidents' : 'Active'}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -588,7 +676,7 @@ export default function AnalystDashboardPage() {
       {ANALYST_ROLES.includes(role ?? '') && (
         <>
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
               Dashboard Widgets
             </span>
             <div className="flex items-center gap-2">
@@ -596,8 +684,7 @@ export default function AnalystDashboardPage() {
                 <button
                   type="button"
                   onClick={widgetConfig.resetToDefaults}
-                  className="text-xs font-medium px-2 py-1 rounded-md border hover:bg-gray-50 transition-colors"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+                  className="rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-50 transition-colors"
                 >
                   Reset
                 </button>
@@ -613,311 +700,267 @@ export default function AnalystDashboardPage() {
         </>
       )}
 
-      <div className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
-        <PanelHeader
-          icon={<BarChart3 className="h-5 w-5" />}
-          title="Analyst Workflows"
-          description="Open a dedicated workspace for calculations, export actions, and the matching incident table."
-        />
-        <div className="grid grid-cols-1 gap-3 p-5 md:grid-cols-2 xl:grid-cols-3">
-          {WORKFLOW_LINKS.map((workflow) => (
-            <Link
-              key={workflow.href}
-              href={workflow.href}
-              onClick={(event) => openWorkflow(event, workflow.slug as AnalystWorkflowSlug)}
-              className="group rounded-md border border-gray-200 bg-white p-4 transition-colors hover:border-red-200 hover:bg-red-50/40"
-            >
-              <div className="flex items-start gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-red-50 text-red-700 group-hover:bg-white">
-                  {workflow.icon}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-bold text-gray-900">{workflow.title}</span>
-                  <span className="mt-1 block text-sm text-gray-500">{workflow.description}</span>
-                </span>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      {/* Filter bar */}
-      <div className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
+      {/* ── Phase 1: Filter bar with progressive disclosure ── */}
+      <div className="overflow-hidden rounded-md border border-gray-200 bg-gray-50">
         <PanelHeader
           icon={<Filter className="h-5 w-5" />}
           title="Analysis Filters"
           description="Apply one shared filter contract across map, charts, exports, and the incident list."
           action={
-            <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-600">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-200 px-2.5 py-1 text-xs font-semibold text-gray-600">
               {activeFilterCount} active
             </span>
           }
         />
-        <div className="space-y-6 p-5">
-          <div>
-            <p className="mb-3 text-xs font-semibold uppercase text-gray-500">
-              Incident scope
-            </p>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <FilterField label="Start Date">
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full rounded-md py-2 px-3 text-sm border"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                  aria-label="Start date"
-                />
-              </FilterField>
-              <FilterField label="End Date">
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full rounded-md py-2 px-3 text-sm border"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                  aria-label="End date"
-                />
-              </FilterField>
-              <FilterField label="Region">
-                <select
-                  value={regionId}
-                  onChange={(e) => setRegionId(e.target.value)}
-                  className="w-full rounded-md py-2 px-3 text-sm border cursor-pointer"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                  aria-label="Region"
-                >
-                  <option value="">All Regions</option>
-                  {regions.map((r) => (
-                    <option key={r.region_id} value={String(r.region_id)}>
-                      {r.region_name} ({r.region_code})
-                    </option>
-                  ))}
-                </select>
-              </FilterField>
-              <FilterField label="Province">
-                <select
-                  value={province}
-                  onChange={(e) => {
-                    setProvince(e.target.value);
-                    setMunicipality('');
-                  }}
-                  className="w-full rounded-md py-2 px-3 text-sm border cursor-pointer"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                  aria-label="Province"
-                >
-                  <option value="">All Provinces</option>
-                  {provinceOptions.map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              </FilterField>
-              <FilterField label="Municipality">
-                <select
-                  value={municipality}
-                  onChange={(e) => setMunicipality(e.target.value)}
-                  disabled={!province}
-                  className="w-full rounded-md py-2 px-3 text-sm border cursor-pointer disabled:opacity-50"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                  aria-label="Municipality"
-                >
-                  <option value="">All Municipalities</option>
-                  {municipalityOptions.map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-              </FilterField>
+        <div className="space-y-4 p-5">
+          {/* Active filter chips */}
+          {activeChips.length > 0 && (
+            <div className="pb-3 border-b border-gray-200">
+              <FilterChips
+                chips={activeChips}
+                onClearAll={handleClearFilters}
+              />
             </div>
+          )}
+
+          {/* Primary filters: always visible */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <FilterField label="Start Date">
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900"
+                aria-label="Start date"
+              />
+            </FilterField>
+            <FilterField label="End Date">
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900"
+                aria-label="End date"
+              />
+            </FilterField>
+            <FilterField label="Region">
+              <select
+                value={regionId}
+                onChange={(e) => setRegionId(e.target.value)}
+                className="w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 cursor-pointer"
+                aria-label="Region"
+              >
+                <option value="">All Regions</option>
+                {regions.map((r) => (
+                  <option key={r.region_id} value={String(r.region_id)}>
+                    {r.region_name} ({r.region_code})
+                  </option>
+                ))}
+              </select>
+            </FilterField>
+            <FilterField label="Incident Type">
+              <select
+                value={incidentType}
+                onChange={(e) => setIncidentType(e.target.value)}
+                className="w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 cursor-pointer"
+                aria-label="Incident type"
+              >
+                {INCIDENT_TYPES.map((o) => (
+                  <option key={o.value || 'all'} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </FilterField>
           </div>
 
-          <div>
-            <p className="mb-3 text-xs font-semibold uppercase text-gray-500">
-              Classification and impact
-            </p>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
-              <FilterField label="Incident Type">
-                <select
-                  value={incidentType}
-                  onChange={(e) => setIncidentType(e.target.value)}
-                  className="w-full rounded-md py-2 px-3 text-sm border cursor-pointer"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                  aria-label="Incident type"
-                >
-                  {INCIDENT_TYPES.map((o) => (
-                    <option key={o.value || 'all'} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </FilterField>
-              <FilterField label="Alarm level">
-                <select
-                  value={alarmLevel}
-                  onChange={(e) => setAlarmLevel(e.target.value)}
-                  className="w-full rounded-md py-2 px-3 text-sm border cursor-pointer"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                  aria-label="Alarm level"
-                >
-                  {ALARM_LEVELS.map((o) => (
-                    <option key={o.value || 'all'} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </FilterField>
-              <FilterField label="Trend interval">
-                <select
-                  value={interval}
-                  onChange={(e) => setInterval(e.target.value as 'daily' | 'weekly' | 'monthly')}
-                  className="w-full rounded-md py-2 px-3 text-sm border cursor-pointer"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                  aria-label="Interval"
-                >
-                  {INTERVALS.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </FilterField>
-              <FilterField label="Casualty Severity">
-                <select
-                  value={casualtySeverity}
-                  onChange={(e) => setCasualtySeverity(e.target.value)}
-                  className="w-full rounded-md py-2 px-3 text-sm border cursor-pointer"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                  aria-label="Casualty severity"
-                >
-                  <option value="">All</option>
-                  <option value="high">High (deaths)</option>
-                  <option value="medium">Medium (injuries)</option>
-                  <option value="low">Low (none)</option>
-                </select>
-              </FilterField>
-              <FilterField label="Damage Min">
-                <input
-                  type="number"
-                  value={damageMin}
-                  onChange={(e) => setDamageMin(e.target.value)}
-                  placeholder="0"
-                  min="0"
-                  className="w-full rounded-md py-2 px-3 text-sm border"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                  aria-label="Damage min"
-                />
-              </FilterField>
-              <FilterField label="Damage Max">
-                <input
-                  type="number"
-                  value={damageMax}
-                  onChange={(e) => setDamageMax(e.target.value)}
-                  placeholder="∞"
-                  min="0"
-                  className="w-full rounded-md py-2 px-3 text-sm border"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                  aria-label="Damage max"
-                />
-              </FilterField>
-              <div className="flex items-end gap-2 md:col-span-2 xl:col-span-6">
-                <button
-                  onClick={() => void loadData()}
-                  disabled={loadingData}
-                  aria-label="Apply"
-                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-bold text-white transition-colors disabled:opacity-70 sm:flex-none"
-                  style={{ backgroundColor: '#991B1B' }}
-                >
-                  <Search className="h-4 w-4" />
-                  Apply filters
-                </button>
-                <button
-                  onClick={() => {
-                    const reset = initialComparativeRanges();
-                    setStartDate('');
-                    setEndDate('');
-                    setRegionId('');
-                    setProvince('');
-                    setMunicipality('');
-                    setIncidentType('');
-                    setAlarmLevel('');
-                    setCasualtySeverity('');
-                    setDamageMin('');
-                    setDamageMax('');
-                    setInterval('daily');
-                    setCmpRanges(reset);
-                    loadData({
-                      startDate: '',
-                      endDate: '',
-                      regionId: '',
-                      province: '',
-                      municipality: '',
-                      incidentType: '',
-                      alarmLevel: '',
-                      interval: 'daily',
-                      rangeAStart: reset.rangeAStart,
-                      rangeAEnd: reset.rangeAEnd,
-                      rangeBStart: reset.rangeBStart,
-                      rangeBEnd: reset.rangeBEnd,
-                      casualtySeverity: '',
-                      damageMin: '',
-                      damageMax: '',
-                    });
-                  }}
-                  className="inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold hover:bg-gray-50"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
-                >
-                  <RotateCcw className="h-4 w-4" />
-                  Clear
-                </button>
+          {/* Advanced filters toggle */}
+          <button
+            type="button"
+            onClick={() => setShowAdvancedFilters((v) => !v)}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+          >
+            {showAdvancedFilters ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            Advanced filters
+            <span className="text-xs text-gray-400">(province, alarm, casualty, damage, comparative)</span>
+          </button>
+
+          {/* Advanced filters: collapsible */}
+          {showAdvancedFilters && (
+            <div className="space-y-5 border-t border-gray-200 pt-4">
+              <div>
+                <p className="mb-3 text-xs font-semibold uppercase text-gray-500">
+                  Location details
+                </p>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <FilterField label="Province">
+                    <select
+                      value={province}
+                      onChange={(e) => {
+                        setProvince(e.target.value);
+                        setMunicipality('');
+                      }}
+                      className="w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 cursor-pointer"
+                      aria-label="Province"
+                    >
+                      <option value="">All Provinces</option>
+                      {provinceOptions.map((p) => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                  </FilterField>
+                  <FilterField label="Municipality">
+                    <select
+                      value={municipality}
+                      onChange={(e) => setMunicipality(e.target.value)}
+                      disabled={!province}
+                      className="w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 cursor-pointer disabled:opacity-50"
+                      aria-label="Municipality"
+                    >
+                      <option value="">All Municipalities</option>
+                      {municipalityOptions.map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </FilterField>
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-3 text-xs font-semibold uppercase text-gray-500">
+                  Classification and impact
+                </p>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <FilterField label="Alarm level">
+                    <select
+                      value={alarmLevel}
+                      onChange={(e) => setAlarmLevel(e.target.value)}
+                      className="w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 cursor-pointer"
+                      aria-label="Alarm level"
+                    >
+                      {ALARM_LEVELS.map((o) => (
+                        <option key={o.value || 'all'} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  </FilterField>
+                  <FilterField label="Trend interval">
+                    <select
+                      value={interval}
+                      onChange={(e) => setInterval(e.target.value as 'daily' | 'weekly' | 'monthly')}
+                      className="w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 cursor-pointer"
+                      aria-label="Interval"
+                    >
+                      {INTERVALS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  </FilterField>
+                  <FilterField label="Casualty Severity">
+                    <select
+                      value={casualtySeverity}
+                      onChange={(e) => setCasualtySeverity(e.target.value)}
+                      className="w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 cursor-pointer"
+                      aria-label="Casualty severity"
+                    >
+                      <option value="">All</option>
+                      <option value="high">High (deaths)</option>
+                      <option value="medium">Medium (injuries)</option>
+                      <option value="low">Low (none)</option>
+                    </select>
+                  </FilterField>
+                  <FilterField label="Damage Min">
+                    <input
+                      type="number"
+                      value={damageMin}
+                      onChange={(e) => setDamageMin(e.target.value)}
+                      placeholder="0"
+                      min="0"
+                      className="w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900"
+                      aria-label="Damage min"
+                    />
+                  </FilterField>
+                  <FilterField label="Damage Max">
+                    <input
+                      type="number"
+                      value={damageMax}
+                      onChange={(e) => setDamageMax(e.target.value)}
+                      placeholder="∞"
+                      min="0"
+                      className="w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900"
+                      aria-label="Damage max"
+                    />
+                  </FilterField>
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-3 text-xs font-semibold uppercase text-gray-500">
+                  Comparative periods (variance)
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+                  <FilterField label="Range A start">
+                    <input
+                      type="date"
+                      value={cmpRanges.rangeAStart}
+                      onChange={(e) => setCmpRanges((prev) => ({ ...prev, rangeAStart: e.target.value }))}
+                      className="w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900"
+                      aria-label="Range A start"
+                    />
+                  </FilterField>
+                  <FilterField label="Range A end">
+                    <input
+                      type="date"
+                      value={cmpRanges.rangeAEnd}
+                      onChange={(e) => setCmpRanges((prev) => ({ ...prev, rangeAEnd: e.target.value }))}
+                      className="w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900"
+                      aria-label="Range A end"
+                    />
+                  </FilterField>
+                  <FilterField label="Range B start">
+                    <input
+                      type="date"
+                      value={cmpRanges.rangeBStart}
+                      onChange={(e) => setCmpRanges((prev) => ({ ...prev, rangeBStart: e.target.value }))}
+                      className="w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900"
+                      aria-label="Range B start"
+                    />
+                  </FilterField>
+                  <FilterField label="Range B end">
+                    <input
+                      type="date"
+                      value={cmpRanges.rangeBEnd}
+                      onChange={(e) => setCmpRanges((prev) => ({ ...prev, rangeBEnd: e.target.value }))}
+                      className="w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900"
+                      aria-label="Range B end"
+                    />
+                  </FilterField>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
-          <div>
-            <p className="mb-3 text-xs font-semibold uppercase text-gray-500">
-              Comparative periods (variance)
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
-              <FilterField label="Range A start">
-                <input
-                  type="date"
-                  value={cmpRanges.rangeAStart}
-                  onChange={(e) => setCmpRanges((prev) => ({ ...prev, rangeAStart: e.target.value }))}
-                  className="w-full rounded-md py-2 px-3 text-sm border"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                  aria-label="Range A start"
-                />
-              </FilterField>
-              <FilterField label="Range A end">
-                <input
-                  type="date"
-                  value={cmpRanges.rangeAEnd}
-                  onChange={(e) => setCmpRanges((prev) => ({ ...prev, rangeAEnd: e.target.value }))}
-                  className="w-full rounded-md py-2 px-3 text-sm border"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                  aria-label="Range A end"
-                />
-              </FilterField>
-              <FilterField label="Range B start">
-                <input
-                  type="date"
-                  value={cmpRanges.rangeBStart}
-                  onChange={(e) => setCmpRanges((prev) => ({ ...prev, rangeBStart: e.target.value }))}
-                  className="w-full rounded-md py-2 px-3 text-sm border"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                  aria-label="Range B start"
-                />
-              </FilterField>
-              <FilterField label="Range B end">
-                <input
-                  type="date"
-                  value={cmpRanges.rangeBEnd}
-                  onChange={(e) => setCmpRanges((prev) => ({ ...prev, rangeBEnd: e.target.value }))}
-                  className="w-full rounded-md py-2 px-3 text-sm border"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                  aria-label="Range B end"
-                />
-              </FilterField>
-            </div>
+          {/* Apply / Clear buttons — always visible */}
+          <div className="flex flex-wrap items-center gap-2 pt-2">
+            <button
+              onClick={handleApplyFilters}
+              disabled={loadingData}
+              aria-label="Apply filters"
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-[#991B1B] px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-[#7f1d1d] disabled:opacity-70"
+            >
+              <Search className="h-4 w-4" />
+              Apply filters
+            </button>
+            <button
+              onClick={handleClearFilters}
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-colors"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Clear
+            </button>
           </div>
         </div>
       </div>
 
       {error && (
-        <div className="card overflow-hidden" style={{ borderLeft: '4px solid #dc2626' }}>
+        <div className="card overflow-hidden border-l-4 border-l-red-600">
           <p className="p-3 text-sm font-medium text-red-700">{error}</p>
         </div>
       )}
@@ -930,25 +973,19 @@ export default function AnalystDashboardPage() {
 
       {!loadingData && heatmap !== null && (
         <>
-          {/* Two-column layout: main content left, heatmap portrait on right */}
+          {/* ── Phase 1: Charts BEFORE incident list (reorganized) ── */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
             <div className="space-y-6">
-              <AnalystIncidentList
-                filters={appliedIncidentFilters}
-                prominent
-                title="Incident Analysis Set"
-                description="Select verified incidents across pages, then send that selected set to a dedicated analyst workflow."
-              />
-
+              {/* Charts: Trend + Comparative */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
                   <PanelHeader
                     icon={<TrendingUp className="h-5 w-5" />}
                     title="Trend Window"
                     description={`${interval.charAt(0).toUpperCase()}${interval.slice(1)} verified incident volume`}
+                    freshness={{ cachedAt: cacheMeta.trends, isOnline: networkStatus.isOnline }}
                   />
                   <div className="p-5">
-                    <CacheMetaText cachedAt={cacheMeta.trends} />
                     {trends && <TrendCharts data={trends} />}
                   </div>
                 </div>
@@ -959,21 +996,21 @@ export default function AnalystDashboardPage() {
                       icon={<AlertTriangle className="h-5 w-5" />}
                       title="Comparative Summary"
                       description="Variance between the selected review periods"
+                      freshness={{ cachedAt: cacheMeta.comparative, isOnline: networkStatus.isOnline }}
                     />
                     <div className="p-5">
-                      <CacheMetaText cachedAt={cacheMeta.comparative} />
                       <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div className="p-3 rounded border" style={{ borderColor: 'var(--border-color)' }}>
+                        <div className="rounded border border-gray-200 p-3">
                           <div className="text-xs font-semibold uppercase text-gray-500 mb-1">Range A</div>
                           <div>{comparative.range_a.start} to {comparative.range_a.end}</div>
-                          <div className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{comparative.range_a.count}</div>
+                          <div className="text-xl font-bold text-gray-900">{comparative.range_a.count}</div>
                         </div>
-                        <div className="p-3 rounded border" style={{ borderColor: 'var(--border-color)' }}>
+                        <div className="rounded border border-gray-200 p-3">
                           <div className="text-xs font-semibold uppercase text-gray-500 mb-1">Range B</div>
                           <div>{comparative.range_b.start} to {comparative.range_b.end}</div>
-                          <div className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{comparative.range_b.count}</div>
+                          <div className="text-xl font-bold text-gray-900">{comparative.range_b.count}</div>
                         </div>
-                        <div className="col-span-2 p-3 rounded bg-gray-50">
+                        <div className="col-span-2 rounded bg-gray-50 p-3">
                           <span className="text-gray-600">Variance: </span>
                           <span className={`font-bold ${comparative.variance_percent >= 0 ? 'text-red-600' : 'text-green-600'}`}>
                             {comparative.variance_percent >= 0 ? '+' : ''}{comparative.variance_percent}%
@@ -1005,8 +1042,7 @@ export default function AnalystDashboardPage() {
                       disabled={exportUnavailableOffline}
                       title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
                       aria-label="Export CSV"
-                      className="inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                      style={{ backgroundColor: '#991B1B' }}
+                      className="inline-flex items-center justify-center gap-2 rounded-md bg-[#991B1B] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                     >
                       <Download className="h-4 w-4" />
                       CSV
@@ -1016,8 +1052,7 @@ export default function AnalystDashboardPage() {
                       disabled={exportUnavailableOffline}
                       title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
                       aria-label="Export PDF"
-                      className="inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                      style={{ backgroundColor: '#991B1B' }}
+                      className="inline-flex items-center justify-center gap-2 rounded-md bg-[#991B1B] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                     >
                       <Download className="h-4 w-4" />
                       PDF
@@ -1027,8 +1062,7 @@ export default function AnalystDashboardPage() {
                       disabled={exportUnavailableOffline}
                       title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
                       aria-label="Export Excel"
-                      className="inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                      style={{ backgroundColor: '#991B1B' }}
+                      className="inline-flex items-center justify-center gap-2 rounded-md bg-[#991B1B] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                     >
                       <Download className="h-4 w-4" />
                       Excel
@@ -1037,36 +1071,34 @@ export default function AnalystDashboardPage() {
                 </div>
               </div>
 
-              {/* Charts grid: two summary widgets without reserving an unused third column */}
+              {/* Charts: Type Distribution + Response Time */}
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                {/* AQ-06: Type distribution donut chart */}
                 <div className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
                   <PanelHeader
                     icon={<BarChart3 className="h-5 w-5" />}
                     title="Incident Types"
                     description="Distribution by general category"
+                    freshness={{ cachedAt: cacheMeta.typeDistribution, isOnline: networkStatus.isOnline }}
                   />
                   <div className="p-5">
-                    <CacheMetaText cachedAt={cacheMeta.typeDistribution} />
                     <TypeDistributionChart data={typeDistribution ?? []} />
                   </div>
                 </div>
 
-                {/* AQ-08: Response time by region bar chart */}
                 <div className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
                   <PanelHeader
                     icon={<Clock className="h-5 w-5" />}
                     title="Response Time"
                     description="Average, minimum, and maximum by region"
+                    freshness={{ cachedAt: cacheMeta.responseTime, isOnline: networkStatus.isOnline }}
                   />
                   <div className="p-5">
-                    <CacheMetaText cachedAt={cacheMeta.responseTime} />
                     <ResponseTimeChart data={responseTime ?? []} />
                   </div>
                 </div>
               </div>
 
-              {/* AQ-13: Cross-region comparison */}
+              {/* Cross-Region Comparison */}
               {compareRegions && (
                 <div className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
                   <PanelHeader
@@ -1077,7 +1109,7 @@ export default function AnalystDashboardPage() {
                   <div className="p-5">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="border-b" style={{ borderColor: 'var(--border-color)' }}>
+                        <tr className="border-b border-gray-200">
                           <th className="text-left py-2">Region</th>
                           <th className="text-right py-2">Total Incidents</th>
                           <th className="text-right py-2">Avg Response Time</th>
@@ -1086,7 +1118,7 @@ export default function AnalystDashboardPage() {
                       </thead>
                       <tbody>
                         {compareRegions.map((r) => (
-                          <tr key={r.region_id} className="border-b" style={{ borderColor: 'var(--border-color)' }}>
+                          <tr key={r.region_id} className="border-b border-gray-200">
                             <td className="py-2">{getShortRegionName(r.region_id)}</td>
                             <td className="text-right py-2 font-bold">{r.total_incidents}</td>
                             <td className="text-right py-2">{r.avg_response_time ?? '—'}</td>
@@ -1099,25 +1131,24 @@ export default function AnalystDashboardPage() {
                 </div>
               )}
 
-              {/* AQ-14: Top-N configurable analysis */}
+              {/* Top-N Analysis */}
               <div className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
                 <PanelHeader
                   icon={<ListChecks className="h-5 w-5" />}
                   title="Top-N Analysis"
                   description="Switch metric and dimension to inspect hotspots without leaving the dashboard"
+                  freshness={{ cachedAt: cacheMeta.topN, isOnline: networkStatus.isOnline }}
                 />
                 <div className="space-y-4 p-5">
-                  <CacheMetaText cachedAt={cacheMeta.topN} />
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
-                      <label className="block text-sm font-semibold mb-1" style={{ color: 'var(--text-muted)' }}>
+                      <label className="block text-sm font-semibold text-gray-500 mb-1">
                         Metric
                       </label>
                       <select
                         value={topNMetric}
                         onChange={(e) => setTopNMetric(e.target.value)}
-                        className="w-full rounded-md py-2.5 px-3 text-sm border cursor-pointer"
-                        style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                        className="w-full rounded-md border border-gray-300 bg-white py-2.5 px-3 text-sm text-gray-900 cursor-pointer"
                         aria-label="Metric"
                       >
                         <option value="incidents">Incidents</option>
@@ -1127,14 +1158,13 @@ export default function AnalystDashboardPage() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold mb-1" style={{ color: 'var(--text-muted)' }}>
+                      <label className="block text-sm font-semibold text-gray-500 mb-1">
                         Dimension
                       </label>
                       <select
                         value={topNDimension}
                         onChange={(e) => setTopNDimension(e.target.value)}
-                        className="w-full rounded-md py-2.5 px-3 text-sm border cursor-pointer"
-                        style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                        className="w-full rounded-md border border-gray-300 bg-white py-2.5 px-3 text-sm text-gray-900 cursor-pointer"
                         aria-label="Dimension"
                       >
                         <option value="fire_station">Fire Station</option>
@@ -1157,7 +1187,7 @@ export default function AnalystDashboardPage() {
                           displayValue = d.value.toLocaleString('en-PH', { maximumFractionDigits: 0 });
                         }
                         return (
-                          <div key={d.name} className="flex justify-between py-1 text-sm border-b" style={{ borderColor: 'var(--border-color)' }}>
+                          <div key={d.name} className="flex justify-between py-1 text-sm border-b border-gray-200">
                             <span>{d.name}</span>
                             <span className="font-bold">{displayValue}</span>
                           </div>
@@ -1170,6 +1200,13 @@ export default function AnalystDashboardPage() {
                 </div>
               </div>
 
+              {/* ── Phase 1: Incident list MOVED BELOW charts ── */}
+              <AnalystIncidentList
+                filters={appliedIncidentFilters}
+                prominent
+                title="Incident Analysis Set"
+                description="Select verified incidents across pages, then send that selected set to a dedicated analyst workflow."
+              />
             </div>
 
             {/* Heatmap: portrait side column on desktop */}
@@ -1178,17 +1215,42 @@ export default function AnalystDashboardPage() {
                 icon={<MapPinned className="h-5 w-5" />}
                 title="Incident Heatmap"
                 description="Geographic clustering of verified incidents"
+                freshness={{ cachedAt: cacheMeta.heatmap, isOnline: networkStatus.isOnline }}
               />
               <div className="p-0">
-                <div className="px-4 py-2">
-                  <CacheMetaText cachedAt={cacheMeta.heatmap} />
-                </div>
                 <HeatmapViewer geojson={heatmap} className="h-[520px] lg:h-[calc(100vh-7rem)] lg:min-h-[600px] lg:max-h-[920px]" />
               </div>
             </div>
           </div>
         </>
       )}
+
+      {/* ── Phase 1: Workflow cards — color-coded, larger icons, hover lift ── */}
+      <div className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
+        <PanelHeader
+          icon={<BarChart3 className="h-5 w-5" />}
+          title="Analyst Workflows"
+          description="Open a dedicated workspace for calculations, export actions, and the matching incident table."
+        />
+        <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-2 xl:grid-cols-3">
+          {WORKFLOW_LINKS.map((workflow) => (
+            <Link
+              key={workflow.href}
+              href={workflow.href}
+              onClick={(event) => openWorkflow(event, workflow.slug as AnalystWorkflowSlug)}
+              className={`group rounded-md border border-gray-200 bg-white p-4 border-t-[3px] ${workflow.accentBorder} ${workflow.hoverBorder} shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5`}
+            >
+              <div className="flex flex-col items-center gap-2 text-center">
+                <span className={`flex h-12 w-12 items-center justify-center rounded-full ${workflow.iconBg} group-hover:scale-110 transition-transform`}>
+                  {workflow.icon}
+                </span>
+                <span className="text-sm font-bold text-gray-900">{workflow.title}</span>
+                <span className="text-xs text-gray-500 leading-snug">{workflow.description}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </div>
 
       {exportModal?.open && (
         <ExportPreviewModal

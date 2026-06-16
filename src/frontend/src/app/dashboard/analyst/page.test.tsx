@@ -1,5 +1,12 @@
 /**
  * Analyst dashboard page tests — filter controls, loading, access denied, error states.
+ *
+ * Phase 1 (#236) notes:
+ * - Advanced filter controls (alarm, range A/B, province, casualty, damage) are behind
+ *   a progressive-disclosure "Advanced filters" toggle. Tests that interact with them
+ *   must click the toggle first.
+ * - CacheMetaText has been replaced by FreshnessDot coloured-dot indicators. Tests
+ *   now look for the dot-based text ("Updated Xm ago", "Cached Xm ago", "Stale", "Offline").
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -139,15 +146,27 @@ describe('Analyst dashboard page', () => {
     });
   });
 
-  it('renders filter controls', async () => {
+  it('renders primary filter controls, and advanced controls after expanding', async () => {
+    const user = userEvent.setup();
     render(<AnalystDashboardPage />);
 
     await waitFor(() => {
       expect(screen.getByLabelText(/start date|date from/i)).toBeInTheDocument();
     });
+
+    // Primary filters always visible
     expect(screen.getByLabelText(/end date|date to/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^region$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/incident type|type/i)).toBeInTheDocument();
+
+    // Advanced filters initially hidden
+    expect(screen.queryByLabelText(/alarm level/i)).toBeNull();
+    expect(screen.queryByLabelText(/range a start/i)).toBeNull();
+
+    // Expand advanced filters
+    await user.click(screen.getByText(/advanced filters/i));
+
+    // Now visible
     expect(screen.getByLabelText(/alarm level/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/range a start/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/range a end/i)).toBeInTheDocument();
@@ -177,10 +196,13 @@ describe('Analyst dashboard page', () => {
       expect(mockFetchComparativeData).toHaveBeenCalled();
     });
 
+    // Expand advanced filters first (alarm level and range A are behind toggle)
+    await user.click(screen.getByText(/advanced filters/i));
+
     await user.selectOptions(screen.getByLabelText(/alarm level/i), '2');
     await user.clear(screen.getByLabelText(/range a start/i));
     await user.type(screen.getByLabelText(/range a start/i), '2024-06-01');
-    await user.click(screen.getByRole('button', { name: /^apply$/i }));
+    await user.click(screen.getByRole('button', { name: /apply filters/i }));
 
     await waitFor(() => {
       const lastHeat = mockFetchHeatmapData.mock.calls[mockFetchHeatmapData.mock.calls.length - 1][0];
@@ -237,7 +259,7 @@ describe('Analyst dashboard page', () => {
       expect(mockFetchHeatmapData).toHaveBeenCalled();
     });
 
-    // Set filters
+    // Set primary filters (always visible)
     const startInput = screen.getByLabelText(/start date/i);
     const regionSelect = screen.getByLabelText(/region/i);
     await user.clear(startInput);
@@ -246,7 +268,7 @@ describe('Analyst dashboard page', () => {
     await user.selectOptions(screen.getByLabelText(/incident type/i), 'STRUCTURAL');
 
     // Apply
-    await user.click(screen.getByRole('button', { name: /apply/i }));
+    await user.click(screen.getByRole('button', { name: /apply filters/i }));
 
     await waitFor(() => {
       const lastCall = mockFetchHeatmapData.mock.calls[mockFetchHeatmapData.mock.calls.length - 1];
@@ -260,7 +282,7 @@ describe('Analyst dashboard page', () => {
     mockFetchHeatmapData.mockClear();
 
     // Clear
-    await user.click(screen.getByRole('button', { name: /clear/i }));
+    await user.click(screen.getByRole('button', { name: 'Clear' }));
 
     await waitFor(() => {
       expect(mockFetchHeatmapData).toHaveBeenCalled();
@@ -292,17 +314,36 @@ describe('Analyst dashboard page', () => {
       expect(screen.getByText(/cached analyst reads/i)).toBeInTheDocument();
     });
 
-    it('shows cached data indicators when APIs return fromCache:true', async () => {
+    it('shows freshness dots in chart panels when data is from cache', async () => {
+      // Switch to online so FreshnessDot shows "Updated Xm ago" instead of "Offline"
+      analystOfflineMocks.networkOnline = true;
+
       render(<AnalystDashboardPage />);
 
       await waitFor(() => {
         expect(mockFetchHeatmapData).toHaveBeenCalled();
       });
 
-      // At least one panel should display the cached-data label after all async
-      // dashboard fetches settle and cache metadata is applied.
+      // FreshnessDot replaces old CacheMetaText. When cachedAt is ~1 min ago and
+      // online, it should render a green "Updated Xm ago" indicator inside each
+      // PanelHeader that received cache metadata.
       await waitFor(() => {
-        expect(screen.getAllByText(/showing cached data/i).length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText(/updated \d+m ago/i).length).toBeGreaterThanOrEqual(1);
+      });
+    });
+
+    it('shows offline dots in chart panels when network is offline', async () => {
+      // networkOnline is already false from the outer beforeEach
+
+      render(<AnalystDashboardPage />);
+
+      await waitFor(() => {
+        expect(mockFetchHeatmapData).toHaveBeenCalled();
+      });
+
+      // When offline, FreshnessDot renders gray "Offline" labels in PanelHeaders
+      await waitFor(() => {
+        expect(screen.getAllByText(/^offline$/i).length).toBeGreaterThanOrEqual(1);
       });
     });
 
@@ -313,9 +354,6 @@ describe('Analyst dashboard page', () => {
         expect(mockFetchHeatmapData).toHaveBeenCalled();
       });
 
-      // Export buttons are gated behind !loadingData && heatmap !== null.
-      // Use findBy* (async retry) rather than getBy* (synchronous) so React
-      // can finish the loadData finally block and re-render the export section.
       const csvBtn = await screen.findByLabelText('Export CSV');
       const pdfBtn = await screen.findByLabelText('Export PDF');
       const excelBtn = await screen.findByLabelText('Export Excel');

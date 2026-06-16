@@ -13,3 +13,6 @@ export {
   widgetById,
 } from "./widget-definitions";
 export type { WidgetDefinition } from "./widget-definitions";
+export { FreshnessDot } from "./FreshnessDot";
+export { FilterChips } from "./FilterChips";
+export type { FilterChip } from "./FilterChips";
