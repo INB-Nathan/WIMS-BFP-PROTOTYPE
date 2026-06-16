@@ -96,41 +96,6 @@ class PasswordChange(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _verify_current_password_for_profile_email_change(
-    current_user: dict, current_password: str
-) -> None:
-    """Verify current password before allowing email/login identity changes."""
-    keycloak_id = current_user["keycloak_id"]
-
-    try:
-        adm = _get_admin_client()
-        kc_user_data = adm.get_user(keycloak_id)
-        target_username = (
-            kc_user_data.get("username")
-            or current_user.get("kc_username")
-            or current_user["username"]
-        )
-    except Exception:
-        target_username = current_user.get("kc_username") or current_user["username"]
-
-    kc_openid = KeycloakOpenID(
-        server_url=_KC_BASE_URL,
-        realm_name=_KC_REALM,
-        client_id="bfp-client",
-        verify=True,
-    )
-    try:
-        kc_openid.token(username=target_username, password=current_password)
-    except KeycloakError as e:
-        logger.warning(f"Profile email verification failed for {keycloak_id}: {e}")
-        raise HTTPException(status_code=401, detail="Incorrect current password")
-
-
-# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -193,12 +158,10 @@ def update_my_profile(
     keycloak_id = current_user["keycloak_id"]
 
     if body.email:
-        if not body.current_password or not body.current_password.strip():
-            raise HTTPException(
-                status_code=400,
-                detail="Current password is required to change email/login identity",
-            )
-        _verify_current_password_for_profile_email_change(current_user, body.current_password)
+        raise HTTPException(
+            status_code=400,
+            detail="Email changes require verification. Use POST /api/auth/change-email to initiate the verification flow, then POST /api/auth/verify-email to confirm.",
+        )
 
     # --- Update Keycloak profile (only when identity/contact fields are present) ---
     if any([body.first_name, body.last_name, body.email, body.contact_number]):
@@ -232,20 +195,6 @@ def update_my_profile(
             db.rollback()
             db_sync_failed = True
             logger.exception(f"DB contact_number sync failed for user {current_user['user_id']}")
-
-    if body.email:
-        try:
-            db.execute(
-                text(
-                    "UPDATE wims.users SET email = :eml, username = :uname, updated_at = now() WHERE user_id = :uid"
-                ),
-                {"eml": body.email, "uname": body.email, "uid": current_user["user_id"]},
-            )
-            db.commit()
-        except Exception:
-            db.rollback()
-            db_sync_failed = True
-            logger.exception(f"DB email sync failed for user {current_user['user_id']}")
 
     if body.email_opt_in is not None or body.push_opt_in is not None:
         try:

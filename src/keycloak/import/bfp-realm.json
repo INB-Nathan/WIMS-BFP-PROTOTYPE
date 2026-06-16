@@ -1521,14 +1521,17 @@
     "strictTransportSecurity": "max-age=31536000; includeSubDomains"
   },
   "smtpServer": {
-    "host": "mailhog",
-    "port": "1025",
-    "from": "noreply@wims-bfp.local",
-    "fromDisplayName": "WIMS-BFP",
-    "replyTo": "no-reply@wimsbfp.tech",
-    "replyToDisplayName": "WIMS-BFP No Reply",
-    "starttls": false,
-    "auth": false
+    "host": "${env.SMTP_HOST:mailhog}",
+    "port": "${env.SMTP_PORT:1025}",
+    "from": "${env.SMTP_FROM:noreply@wims-bfp.local}",
+    "fromDisplayName": "${env.SMTP_FROM_DISPLAY:WIMS-BFP}",
+    "replyTo": "${env.SMTP_REPLYTO:}",
+    "replyToDisplayName": "${env.SMTP_REPLYTO_DISPLAY:}",
+    "ssl": "${env.SMTP_SSL:false}",
+    "starttls": "${env.SMTP_STARTTLS:false}",
+    "auth": "${env.SMTP_AUTH:false}",
+    "user": "${env.SMTP_USER:}",
+    "password": "${env.SMTP_PASSWORD:}"
   },
   "eventsEnabled": false,
   "eventsListeners": [
@@ -1768,11 +1771,55 @@
       "builtIn": true,
       "authenticationExecutions": [
         {
+          "authenticator": "conditional-user-configured",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 10,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorConfig": "otp-role-system-administrator",
+          "authenticator": "conditional-user-role",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 20,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorConfig": "otp-role-national-validator",
+          "authenticator": "conditional-user-role",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 30,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorConfig": "otp-role-regional-encoder",
+          "authenticator": "conditional-user-role",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 35,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorConfig": "otp-role-national-analyst",
+          "authenticator": "conditional-user-role",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 38,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
           "authenticatorConfig": "otp-trusted-device",
           "authenticator": "wims-demo-otp-form",
           "authenticatorFlow": false,
           "requirement": "REQUIRED",
-          "priority": 10,
+          "priority": 40,
           "autheticatorFlow": false,
           "userSetupAllowed": false
         }
@@ -1789,8 +1836,44 @@
         {
           "authenticator": "conditional-user-configured",
           "authenticatorFlow": false,
-          "requirement": "REQUIRED",
+          "requirement": "ALTERNATIVE",
           "priority": 10,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorConfig": "otp-role-system-administrator",
+          "authenticator": "conditional-user-role",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 20,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorConfig": "otp-role-national-validator",
+          "authenticator": "conditional-user-role",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 25,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorConfig": "otp-role-regional-encoder",
+          "authenticator": "conditional-user-role",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 28,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorConfig": "otp-role-national-analyst",
+          "authenticator": "conditional-user-role",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 30,
           "autheticatorFlow": false,
           "userSetupAllowed": false
         },
@@ -1798,7 +1881,7 @@
           "authenticator": "direct-grant-validate-otp",
           "authenticatorFlow": false,
           "requirement": "REQUIRED",
-          "priority": 20,
+          "priority": 40,
           "autheticatorFlow": false,
           "userSetupAllowed": false
         }
@@ -2045,7 +2128,7 @@
         },
         {
           "authenticatorFlow": true,
-          "requirement": "CONDITIONAL",
+          "requirement": "REQUIRED",
           "priority": 30,
           "autheticatorFlow": true,
           "flowAlias": "Direct Grant - Conditional OTP",
@@ -2115,9 +2198,18 @@
           "userSetupAllowed": false
         },
         {
-          "authenticatorFlow": true,
-          "requirement": "REQUIRED",
+          "authenticatorConfig": "otp-skip-mfa",
+          "authenticator": "conditional-user-role",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
           "priority": 20,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "ALTERNATIVE",
+          "priority": 30,
           "autheticatorFlow": true,
           "flowAlias": "Browser - Conditional OTP",
           "userSetupAllowed": false
@@ -2265,7 +2357,7 @@
       "id": "4d83561a-579a-4c75-89f5-42f064f33f35",
       "alias": "otp-role-system-administrator",
       "config": {
-        "condUserRole": "system_administrator",
+        "condUserRole": "SYSTEM_ADMIN",
         "negate": "false"
       }
     },
@@ -2273,7 +2365,23 @@
       "id": "12ad5f4d-c4f3-4cd9-9b83-a7856e155f26",
       "alias": "otp-role-national-validator",
       "config": {
-        "condUserRole": "national_validator",
+        "condUserRole": "NATIONAL_VALIDATOR",
+        "negate": "false"
+      }
+    },
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "alias": "otp-role-regional-encoder",
+      "config": {
+        "condUserRole": "REGIONAL_ENCODER",
+        "negate": "false"
+      }
+    },
+    {
+      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+      "alias": "otp-role-national-analyst",
+      "config": {
+        "condUserRole": "NATIONAL_ANALYST",
         "negate": "false"
       }
     },
@@ -2298,7 +2406,7 @@
       "name": "Configure OTP",
       "providerId": "CONFIGURE_TOTP",
       "enabled": true,
-      "defaultAction": false,
+      "defaultAction": true,
       "priority": 10,
       "config": {}
     },
