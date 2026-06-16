@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from auth import get_current_wims_user
+from database import get_db
 from main import app
 from database import get_db
 
@@ -705,3 +706,237 @@ class TestReadWorkerTimeoutConfig:
         stale, offline = _read_worker_timeout_config(mock_db)
         assert stale == 60
         assert offline == 300
+
+
+# ---------------------------------------------------------------------------
+# /api/admin/monitoring/health — Suricata EVE log mtime heartbeat (GH #364)
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_db(recent: int = 0, total: int = 0):
+    """Build a mock DB session whose execute().scalar() returns recent then total.
+
+    The first execute() call is always the DB health check (SELECT 1), so we
+    prepend a scalar value of 1 for it.
+    """
+    from unittest import mock
+
+    db = mock.MagicMock()
+    # First execute() = DB health SELECT 1, then suricata recent, then suricata total
+    scalar_returns = [1, recent, total]
+
+    def _execute_side_effect(*_args, **_kwargs):
+        result = mock.MagicMock()
+        result.scalar.return_value = scalar_returns.pop(0) if scalar_returns else 0
+        return result
+
+    db.execute.side_effect = _execute_side_effect
+    return db
+
+
+def _health_mocks(mock_db, *, mtime=100.0, mtime_error=None, time_now=None):
+    """Set up the standard mocks for health endpoint tests.
+
+    Returns a context-manager stack that patches:
+    - os.path.getmtime (Suricata heartbeat)
+    - time.time (for consistent mtime age calculations)
+    - redis.from_url (prevents real Redis connection attempts)
+    - services.keycloak_admin._get_admin_client (prevents real Keycloak attempts)
+    - httpx.Client (prevents real Ollama connection attempts)
+    """
+    from unittest import mock
+
+    patches = []
+
+    # Mock EVE log mtime
+    if mtime_error:
+        patches.append(mock.patch("os.path.getmtime", side_effect=mtime_error))
+    else:
+        patches.append(mock.patch("os.path.getmtime", return_value=mtime))
+
+    # Mock time
+    if time_now is not None:
+        patches.append(mock.patch("time.time", return_value=time_now))
+
+    # Mock Redis — make ping() succeed so it doesn't hang
+    mock_redis = mock.MagicMock()
+    mock_redis.ping.return_value = True
+    patches.append(mock.patch("redis.from_url", return_value=mock_redis))
+
+    # Mock Keycloak admin client
+    mock_kc = mock.MagicMock()
+    mock_kc.users_count.return_value = 5
+    patches.append(mock.patch("services.keycloak_admin._get_admin_client", return_value=mock_kc))
+
+    # Mock Ollama HTTP client — make it raise so it falls through gracefully
+    mock_httpx = mock.MagicMock()
+    mock_httpx.get.side_effect = Exception("mock ollama unavailable")
+    patches.append(mock.patch("httpx.Client", return_value=mock_httpx))
+
+    # Override DB dependency
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    return patches
+
+
+def test_suricata_healthy_with_recent_alerts():
+    """Recent threats > 0 → HEALTHY with 'alerting' detail."""
+    app.dependency_overrides[get_current_wims_user] = _admin_override
+    client = TestClient(app)
+
+    mock_db = _make_mock_db(recent=3, total=50)
+    patches = _health_mocks(mock_db)
+    for p in patches:
+        p.start()
+
+    try:
+        resp = client.get("/api/admin/health")
+    finally:
+        for p in reversed(patches):
+            p.stop()
+
+    assert resp.status_code == 200
+    suricata = resp.json()["components"]["suricata"]
+    assert suricata["status"] == "HEALTHY"
+    assert "alerting" in suricata["detail"]
+
+
+def test_suricata_quiet_fresh_mtime_no_recent_threats():
+    """EVE mtime < 60s old, 0 recent, total > 0 → QUIET."""
+    app.dependency_overrides[get_current_wims_user] = _admin_override
+    client = TestClient(app)
+
+    mock_db = _make_mock_db(recent=0, total=100)
+    # mtime=170, now=200 → 30s old (< 60)
+    patches = _health_mocks(mock_db, mtime=170.0, time_now=200.0)
+    for p in patches:
+        p.start()
+
+    try:
+        resp = client.get("/api/admin/health")
+    finally:
+        for p in reversed(patches):
+            p.stop()
+
+    assert resp.status_code == 200
+    suricata = resp.json()["components"]["suricata"]
+    assert suricata["status"] == "QUIET"
+    assert "no recent alerts" in suricata["detail"]
+
+
+def test_suricata_fresh_deployment_no_threat_data():
+    """Total = 0 → FRESH regardless of mtime."""
+    app.dependency_overrides[get_current_wims_user] = _admin_override
+    client = TestClient(app)
+
+    mock_db = _make_mock_db(recent=0, total=0)
+    patches = _health_mocks(mock_db)
+    for p in patches:
+        p.start()
+
+    try:
+        resp = client.get("/api/admin/health")
+    finally:
+        for p in reversed(patches):
+            p.stop()
+
+    assert resp.status_code == 200
+    suricata = resp.json()["components"]["suricata"]
+    assert suricata["status"] == "FRESH"
+    assert "no threat data yet" in suricata["detail"]
+
+
+def test_suricata_degraded_stale_mtime_with_total():
+    """EVE mtime 60-600s old, 0 recent, total > 0 → DEGRADED."""
+    app.dependency_overrides[get_current_wims_user] = _admin_override
+    client = TestClient(app)
+
+    mock_db = _make_mock_db(recent=0, total=200)
+    # mtime=50, now=200 → 150s old (between 60 and 600)
+    patches = _health_mocks(mock_db, mtime=50.0, time_now=200.0)
+    for p in patches:
+        p.start()
+
+    try:
+        resp = client.get("/api/admin/health")
+    finally:
+        for p in reversed(patches):
+            p.stop()
+
+    assert resp.status_code == 200
+    suricata = resp.json()["components"]["suricata"]
+    assert suricata["status"] == "DEGRADED"
+    assert "EVE log is" in suricata["detail"]
+
+
+def test_suricata_unhealthy_very_stale_mtime():
+    """EVE mtime > 600s old, 0 recent, total > 0 → UNHEALTHY."""
+    app.dependency_overrides[get_current_wims_user] = _admin_override
+    client = TestClient(app)
+
+    mock_db = _make_mock_db(recent=0, total=200)
+    # mtime=50, now=1000 → 950s old (> 600)
+    patches = _health_mocks(mock_db, mtime=50.0, time_now=1000.0)
+    for p in patches:
+        p.start()
+
+    try:
+        resp = client.get("/api/admin/health")
+    finally:
+        for p in reversed(patches):
+            p.stop()
+
+    assert resp.status_code == 200
+    suricata = resp.json()["components"]["suricata"]
+    assert suricata["status"] == "UNHEALTHY"
+    assert "stalled" in suricata["detail"]
+
+
+def test_suricata_unhealthy_query_failure():
+    """DB query raises → UNHEALTHY with error, overall status DEGRADED."""
+    from unittest import mock
+
+    app.dependency_overrides[get_current_wims_user] = _admin_override
+    client = TestClient(app)
+
+    mock_db = mock.MagicMock()
+    mock_db.execute.side_effect = RuntimeError("DB connection lost")
+    patches = _health_mocks(mock_db)
+    for p in patches:
+        p.start()
+
+    try:
+        resp = client.get("/api/admin/health")
+    finally:
+        for p in reversed(patches):
+            p.stop()
+
+    assert resp.status_code == 200
+    data = resp.json()
+    suricata = data["components"]["suricata"]
+    assert suricata["status"] == "UNHEALTHY"
+    assert "DB connection lost" in suricata["error"]
+    assert data["status"] == "DEGRADED"
+
+
+def test_suricata_unhealthy_eve_log_unreadable():
+    """EVE log file not accessible → UNHEALTHY with OS error detail."""
+    app.dependency_overrides[get_current_wims_user] = _admin_override
+    client = TestClient(app)
+
+    mock_db = _make_mock_db(recent=0, total=50)
+    patches = _health_mocks(mock_db, mtime_error=OSError("No such file"))
+    for p in patches:
+        p.start()
+
+    try:
+        resp = client.get("/api/admin/health")
+    finally:
+        for p in reversed(patches):
+            p.stop()
+
+    assert resp.status_code == 200
+    suricata = resp.json()["components"]["suricata"]
+    assert suricata["status"] == "UNHEALTHY"
+    assert "cannot access EVE log" in suricata["detail"]
+    assert "No such file" in suricata["detail"]

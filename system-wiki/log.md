@@ -67,6 +67,19 @@ Format: `## [YYYY-MM-DD] action | subject`
 - System wiki: api-route-map.md updated with new route and enhanced audit notes.
 - No FRS gap register change (enhancements to existing M10d implementation; no new FRS alignment).
 
+## [2026-06-16] feat(#364) | Suricata EVE log mtime heartbeat with 5-state health
+
+- `src/backend/api/routes/admin/monitoring.py`: Replaced binary HEALTHY/UNHEALTHY Suricata check with 5-state logic driven by EVE log mtime (`/var/log/suricata/eve.json`) + threat log presence:
+  - `HEALTHY`: recent threats detected in last 5 min
+  - `QUIET`: EVE log mtime < 60s, no recent threats, total > 0 (quiet network — not a failure)
+  - `FRESH`: total = 0 (fresh deployment, no data yet)
+  - `DEGRADED`: EVE log mtime 60–600s old, no recent threats, total > 0 (ingestion may be stalled)
+  - `UNHEALTHY`: EVE log mtime > 600s old, EVE log unreadable, or DB query failure
+  - Only DEGRADED/UNHEALTHY degrade the overall system health status. QUIET and FRESH are valid operational states.
+- `src/frontend/src/app/admin/system/page.tsx`: Added Suricata card to the System Health grid (4-card layout: DB, Redis, Keycloak, Suricata). Added `getComponentStatusColor()`, `getComponentStatusTextColor()`, `getOverallBadgeColor()` helpers with 5-state coloring (green/blue/slate/amber/red). Suricata card shows detail text below the status dot. Overall status badge uses amber for DEGRADED instead of red.
+- `src/backend/tests/test_system_monitoring.py`: Added 7 new tests covering all 5 Suricata states plus query-failure and EVE-log-unreadable edge cases. All 18 monitoring tests pass (excluding the pre-existing DB-dependent worker test).
+- No FRS gap register change (this is a monitoring UX/accuracy enhancement; no FRS gap status changed).
+
 ## [2026-06-14] fix(deploy) | ollama CPU override for VPS in docker-compose.prod.yml
 
 - VPS has 2 CPUs but base `docker-compose.yml` sets `cpus: '4'` for ollama.

@@ -135,6 +135,36 @@ function formatLastCheckedAgo(checkedAt: Date | null): string | null {
     return `${hours} hr ago`;
 }
 
+function getComponentStatusColor(status: string): string {
+    switch (status) {
+        case 'HEALTHY': return 'bg-green-500';
+        case 'QUIET': return 'bg-blue-500';
+        case 'FRESH': return 'bg-slate-400';
+        case 'DEGRADED': return 'bg-amber-500';
+        case 'UNHEALTHY': return 'bg-red-500';
+        default: return 'bg-gray-400';
+    }
+}
+
+function getComponentStatusTextColor(status: string): string {
+    switch (status) {
+        case 'HEALTHY': return 'text-green-700';
+        case 'QUIET': return 'text-blue-700';
+        case 'FRESH': return 'text-slate-600';
+        case 'DEGRADED': return 'text-amber-700';
+        case 'UNHEALTHY': return 'text-red-700';
+        default: return 'text-gray-600';
+    }
+}
+
+function getOverallBadgeColor(status: string): string {
+    switch (status) {
+        case 'HEALTHY': return 'bg-green-600';
+        case 'DEGRADED': return 'bg-amber-600';
+        default: return 'bg-red-600';
+    }
+}
+
 export default function AdminSystemPage() {
     const router = useRouter();
     const { user, loading } = useAuth();
@@ -1195,6 +1225,7 @@ export default function AdminSystemPage() {
                     )}
                 </div>
             </section>
+
 
             <section id="governance" className="card overflow-hidden">
                 <div className="card-header flex items-center justify-between" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
