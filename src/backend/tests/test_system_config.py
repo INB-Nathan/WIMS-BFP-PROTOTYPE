@@ -51,6 +51,9 @@ _SEED_ROWS = [
     ("alert_severity_threshold", "3", "Suricata HIGH cutoff", None, None),
     ("offline_storage_mb", "50", "IndexedDB advisory cap", None, None),
     ("session_timeout_minutes", "30", "Idle timeout UI hint", None, None),
+    ("npc_contact_name", "NPC DPO", "NPC contact person", None, None),
+    ("npc_contact_phone", "+63 2 8234-2228", "NPC contact phone", None, None),
+    ("npc_office_phone", "+63 2 8234-2228", "NPC office phone", None, None),
 ]
 
 _SENTINEL = object()
@@ -84,7 +87,7 @@ def _mock_config_db(rows=None, update_rowcount=1, fetchone_row=_SENTINEL):
 
 class TestGetConfig:
     def test_returns_all_seed_keys(self, client: TestClient):
-        """GET /admin/config returns all four seed config keys."""
+        """GET /admin/config returns all seven seed config keys."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
         mock_db, mock_get_db = _mock_config_db()
         app.dependency_overrides[get_db_with_rls] = mock_get_db
@@ -99,6 +102,9 @@ class TestGetConfig:
         assert "alert_severity_threshold" in keys
         assert "offline_storage_mb" in keys
         assert "session_timeout_minutes" in keys
+        assert "npc_contact_name" in keys
+        assert "npc_contact_phone" in keys
+        assert "npc_office_phone" in keys
 
     def test_returns_value_and_description(self, client: TestClient):
         """Each config entry includes value and description fields."""
@@ -125,6 +131,66 @@ class TestGetConfig:
 # =============================================================================
 # PATCH /api/admin/config/{key}
 # =============================================================================
+
+
+class TestNpcConfigKeys:
+    """NPC contact config keys (#355) — valid in VALID_CONFIG_KEYS and patchable."""
+
+    def test_npc_contact_name_is_valid_key(self, client: TestClient):
+        """PATCH npc_contact_name succeeds with 200."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        old_row = MagicMock()
+        old_row.__getitem__ = lambda self, i: "Old Name"
+        mock_db, mock_get_db = _mock_config_db(fetchone_row=old_row)
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch("/api/admin/config/npc_contact_name", json={"value": "Atty. Reyes"})
+        assert response.status_code == 200
+        assert response.json()["value"] == "Atty. Reyes"
+
+    def test_npc_contact_phone_is_valid_key(self, client: TestClient):
+        """PATCH npc_contact_phone succeeds with 200."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        old_row = MagicMock()
+        old_row.__getitem__ = lambda self, i: "+63 2 111-1111"
+        mock_db, mock_get_db = _mock_config_db(fetchone_row=old_row)
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch("/api/admin/config/npc_contact_phone", json={"value": "+63 2 8234-2228"})
+        assert response.status_code == 200
+
+    def test_npc_office_phone_is_valid_key(self, client: TestClient):
+        """PATCH npc_office_phone succeeds with 200."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        old_row = MagicMock()
+        old_row.__getitem__ = lambda self, i: "+63 2 111-1111"
+        mock_db, mock_get_db = _mock_config_db(fetchone_row=old_row)
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch("/api/admin/config/npc_office_phone", json={"value": "+63 2 8234-2228"})
+        assert response.status_code == 200
+
+    def test_npc_key_update_audit_logged(self, client: TestClient):
+        """NPC config key update produces audit INSERT with old/new values."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        old_row = MagicMock()
+        old_row.__getitem__ = lambda self, i: "Old Name"
+        mock_db, mock_get_db = _mock_config_db(fetchone_row=old_row)
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        client.patch("/api/admin/config/npc_contact_name", json={"value": "New Name"})
+
+        # Find the audit INSERT call
+        audit_params = None
+        for call in mock_db.execute.call_args_list:
+            sql = str(call[0][0])
+            if "system_audit_trails" in sql:
+                audit_params = call[0][1]
+                break
+
+        assert audit_params is not None, "No audit INSERT found"
+        assert audit_params["action"] == "CONFIG_UPDATE"
+        assert audit_params["table"] == "system_config"
 
 
 class TestPatchConfig:

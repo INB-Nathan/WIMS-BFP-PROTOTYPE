@@ -34,6 +34,21 @@ INSERT INTO wims.system_config (config_key, config_value, description) VALUES
     'ai_timeout_seconds',
     '60',
     'Ollama inference HTTP timeout in seconds. Consumed by ai_service.py analyze_threat_log and generate_incident_narrative. Increase for slow GPU nodes; decrease to fail fast.'
+  ),
+  (
+    'npc_contact_name',
+    'NPC Data Protection Officer',
+    'Contact person name displayed on the admin breach notification page (NPC compliance).'
+  ),
+  (
+    'npc_contact_phone',
+    '+63 2 8234-2228',
+    'Direct contact phone number for the NPC contact person (NPC compliance).'
+  ),
+  (
+    'npc_office_phone',
+    '+63 2 8234-2228',
+    'NPC office main line displayed on the admin breach notification page (NPC compliance).'
   )
 ON CONFLICT (config_key) DO NOTHING;
 

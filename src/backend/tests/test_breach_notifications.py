@@ -409,27 +409,57 @@ class TestBreachPatch:
             now,
         )
 
+    def _make_old_row(self, status="DETECTED"):
+        now = datetime(2026, 6, 10, 12, 0, 0, tzinfo=timezone.utc)
+        return (
+            1,
+            42,
+            now,
+            now + timedelta(hours=72),
+            status,
+            None,
+            None,
+            None,
+            None,
+            None,
+            now,
+            now,
+        )
+
     def test_patch_status_transition(self, client: TestClient):
         """PATCH with valid status returns 200 and updated breach."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin
 
         mock_db = MagicMock()
+        old_select_result = MagicMock()
+        old_select_result.fetchone.return_value = self._make_old_row("DETECTED")
         update_result = MagicMock()
         update_result.rowcount = 1
         fetch_result = MagicMock()
         fetch_result.fetchone.return_value = self._make_updated_row("DPO_NOTIFIED")
-        mock_db.execute.side_effect = [update_result, fetch_result]
+        mock_db.execute.side_effect = [old_select_result, update_result, fetch_result]
 
         def mock_get_db():
             yield mock_db
 
         app.dependency_overrides[get_db_with_rls] = mock_get_db
 
-        with patch("api.routes.admin.breach.log_system_audit"):
+        with patch("api.routes.admin.breach.log_system_audit") as mock_audit:
             response = client.patch("/api/admin/breach/1", json={"status": "DPO_NOTIFIED"})
 
         assert response.status_code == 200
         assert response.json()["status"] == "DPO_NOTIFIED"
+        # Verify enriched audit call
+        assert mock_audit.call_count == 1
+        _, kwargs = mock_audit.call_args_list[0] if mock_audit.call_args_list else ((), {})
+        # Check positional args
+        args = mock_audit.call_args_list[0][0] if mock_audit.call_args_list else []
+        kwargs = mock_audit.call_args_list[0][1] if mock_audit.call_args_list else {}
+        # action_type is arg[2]
+        if len(args) >= 3:
+            assert args[2] == "BREACH_STATUS_UPDATE"
+        else:
+            assert kwargs.get("action_type") == "BREACH_STATUS_UPDATE"
 
     def test_patch_invalid_status_returns_422(self, client: TestClient):
         """PATCH with an invalid status value → 422 (Pydantic enum validation)."""
@@ -447,7 +477,11 @@ class TestBreachPatch:
     def test_patch_no_fields_returns_400(self, client: TestClient):
         """PATCH with empty body → 400."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin
+
         mock_db = MagicMock()
+        old_select_result = MagicMock()
+        old_select_result.fetchone.return_value = self._make_old_row("DETECTED")
+        mock_db.execute.return_value = old_select_result
 
         def mock_get_db():
             yield mock_db
@@ -462,6 +496,8 @@ class TestBreachPatch:
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin
 
         mock_db = MagicMock()
+        old_select_result = MagicMock()
+        old_select_result.fetchone.return_value = self._make_old_row("DPO_NOTIFIED")
         update_result = MagicMock()
         update_result.rowcount = 1
         now = datetime(2026, 6, 10, 14, 0, 0, tzinfo=timezone.utc)
@@ -480,7 +516,7 @@ class TestBreachPatch:
             now,
             now,
         )
-        mock_db.execute.side_effect = [update_result, fetch_result]
+        mock_db.execute.side_effect = [old_select_result, update_result, fetch_result]
 
         def mock_get_db():
             yield mock_db
@@ -491,17 +527,17 @@ class TestBreachPatch:
             response = client.patch("/api/admin/breach/1", json={"status": "NPC_SUBMITTED"})
 
         assert response.status_code == 200
-        update_sql = mock_db.execute.call_args_list[0][0][0].text
+        update_sql = mock_db.execute.call_args_list[1][0][0].text
         assert "npc_submitted_at" in update_sql
 
     def test_patch_404_for_missing_breach(self, client: TestClient):
-        """PATCH on a non-existent breach_id → 404."""
+        """PATCH on a non-existent breach_id → 404 (caught at old-row SELECT)."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin
 
         mock_db = MagicMock()
-        update_result = MagicMock()
-        update_result.rowcount = 0
-        mock_db.execute.return_value = update_result
+        old_select_result = MagicMock()
+        old_select_result.fetchone.return_value = None
+        mock_db.execute.return_value = old_select_result
 
         def mock_get_db():
             yield mock_db
@@ -512,3 +548,92 @@ class TestBreachPatch:
             response = client.patch("/api/admin/breach/9999", json={"status": "CLOSED"})
 
         assert response.status_code == 404
+
+    def test_patch_includes_audit_old_new_values(self, client: TestClient):
+        """PATCH audit call carries old_values and new_values for forensic comparison."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin
+
+        mock_db = MagicMock()
+        old_select_result = MagicMock()
+        old_select_result.fetchone.return_value = self._make_old_row("DETECTED")
+        update_result = MagicMock()
+        update_result.rowcount = 1
+        fetch_result = MagicMock()
+        fetch_result.fetchone.return_value = self._make_updated_row("DPO_NOTIFIED")
+        mock_db.execute.side_effect = [old_select_result, update_result, fetch_result]
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        with patch("api.routes.admin.breach.log_system_audit") as mock_audit:
+            response = client.patch("/api/admin/breach/1", json={"status": "DPO_NOTIFIED"})
+
+        assert response.status_code == 200
+        assert mock_audit.call_count == 1
+        kwargs = mock_audit.call_args[1]
+        assert kwargs["old_values"] is not None
+        assert kwargs["old_values"]["status"] == "DETECTED"
+        assert kwargs["new_values"] is not None
+        assert kwargs["new_values"]["status"] == "DPO_NOTIFIED"
+
+    def test_patch_includes_request_metadata(self, client: TestClient):
+        """PATCH audit call includes request param for client IP/UA capture (#360 pattern)."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin
+
+        mock_db = MagicMock()
+        old_select_result = MagicMock()
+        old_select_result.fetchone.return_value = self._make_old_row("DETECTED")
+        update_result = MagicMock()
+        update_result.rowcount = 1
+        fetch_result = MagicMock()
+        fetch_result.fetchone.return_value = self._make_updated_row("DPO_NOTIFIED")
+        mock_db.execute.side_effect = [old_select_result, update_result, fetch_result]
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        with patch("api.routes.admin.breach.log_system_audit") as mock_audit:
+            response = client.patch(
+                "/api/admin/breach/1",
+                json={"status": "DPO_NOTIFIED"},
+                headers={"X-Forwarded-For": "192.168.1.100"},
+            )
+
+        assert response.status_code == 200
+        assert mock_audit.call_count == 1
+        kwargs = mock_audit.call_args[1]
+        # request should be a non-None Request object
+        assert kwargs["request"] is not None
+
+    def test_patch_notes_included_in_audit(self, client: TestClient):
+        """PATCH with notes passes notes through to audit new_values."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin
+
+        mock_db = MagicMock()
+        old_row = self._make_old_row("DETECTED")
+        old_select_result = MagicMock()
+        old_select_result.fetchone.return_value = old_row
+        update_result = MagicMock()
+        update_result.rowcount = 1
+        fetch_result = MagicMock()
+        fetch_result.fetchone.return_value = self._make_updated_row("DPO_NOTIFIED")
+        mock_db.execute.side_effect = [old_select_result, update_result, fetch_result]
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        with patch("api.routes.admin.breach.log_system_audit") as mock_audit:
+            response = client.patch(
+                "/api/admin/breach/1",
+                json={"status": "DPO_NOTIFIED", "notes": "advancing with evidence"},
+            )
+
+        assert response.status_code == 200
+        kwargs = mock_audit.call_args[1]
+        assert kwargs["new_values"]["notes"] == "advancing with evidence"
