@@ -22,6 +22,9 @@ VALID_CONFIG_KEYS = frozenset(
         "session_timeout_minutes",
         "offline_storage_mb",
         "ai_timeout_seconds",
+        "npc_contact_name",
+        "npc_contact_phone",
+        "npc_office_phone",
     }
 )
 

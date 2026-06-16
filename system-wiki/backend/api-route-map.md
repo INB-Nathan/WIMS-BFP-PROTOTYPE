@@ -110,8 +110,11 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `admin/audit.py` | `POST` | `/audit-logs/analyze` | `analyze_audit_logs` | Batch SLM behavioral pattern analysis via Ollama (#163) |
 | `admin/anomalies.py` | `GET` | `/anomalies` | `list_anomalies` | Paginated items + aggregate `counts` (per-status) and `type_facets` (#356, #362); supports `status`, `severity`, `anomaly_type` filter params |
 | `admin/anomalies.py` | `PATCH` | `/anomalies/{anomaly_id}` | `update_anomaly_status` | Transition anomaly status (NEW → ACKNOWLEDGED → RESOLVED); writes audit trail |
-| `admin/config.py` | `GET` | `/admin/config` | `get_config` | M9c configuration management — reads `wims.system_config` (#170, #247) |
-| `admin/config.py` | `PATCH` | `/admin/config/{key}` | `update_config` | M9c configuration management — audit-logged config write (#170, #247) |
+| `admin/breach.py` | `GET` | `/admin/breach` | `list_breaches` | List all breach records, RA 10173 NPC 72h tracking (M10d) |
+| `admin/breach.py` | `GET` | `/admin/breach/{breach_id}` | `get_breach` | Fetch single breach by ID (M10d) |
+| `admin/breach.py` | `PATCH` | `/admin/breach/{breach_id}` | `update_breach` | Update breach status/notes; captures old_values/new_values in forensic audit with request metadata (#360, #361) |
+| `admin/config.py` | `GET` | `/admin/config` | `get_config` | M9c configuration management — reads `wims.system_config` including NPC contact keys `npc_contact_name`, `npc_contact_phone`, `npc_office_phone` (#170, #247, #355) |
+| `admin/config.py` | `PATCH` | `/admin/config/{key}` | `update_config` | M9c configuration management — audit-logged config write with forensic old/new values (#170, #247, #355) |
 | `admin/analytics.py` | `POST` | `/analytics/backfill` | `backfill_analytics` |
 | `admin/scheduled_reports.py` | `POST` | `/scheduled-reports` | `create_scheduled_report` |
 | `admin/scheduled_reports.py` | `GET` | `/scheduled-reports` | `list_scheduled_reports` |

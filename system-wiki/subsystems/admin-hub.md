@@ -119,6 +119,22 @@ Monitoring (`/admin/monitoring`), anomalies (`/admin/anomalies`), and breach (`/
 - No admin API calls are triggered
 - The "Access restricted" message only appears after auth resolves to a non-SYSTEM_ADMIN role
 
+## Breach Notifications (#355, #361)
+
+The breach notifications page (`/admin/breach`) tracks RA 10173 NPC 72-hour breach reporting workflow (DETECTED → DPO_NOTIFIED → NPC_SUBMITTED → CLOSED).
+
+### NPC Contact Configuration (#355)
+
+- **NPC Contact Card:** Displays at the top of the breach page, showing configurable contact person name, contact phone, and NPC office phone fetched from `GET /api/admin/config` keys `npc_contact_name`, `npc_contact_phone`, `npc_office_phone`.
+- **Edit Flow:** "Edit" button opens a modal with editable fields and a confirmation phrase (`confirm-npc-update`) requirement. On confirm, calls `PATCH /api/admin/config` for each changed value. Audit trail captures old/new values per the existing `CONFIG_UPDATE` audit pattern.
+- **Confirmation:** Uses explicit confirmation phrase (not password re-entry). True MFA step-up (Keycloak TOTP re-challenge) is a non-goal for this iteration.
+
+### Status Advance Confirmation (#361)
+
+- **Status Advance Button:** Replaced direct `updateBreach` call with a confirmation modal showing current → next status transition, NPC deadline impact (overdue warning or <24h urgent), and optional notes/evidence textarea.
+- **Modal Behavior:** Cancel closes modal without mutation. Confirm calls `PATCH /api/admin/breach/{id}` with status (and optional notes). Success updates the row and shows a green success banner; failure displays a red error inline in the modal and keeps the prior row state intact (no optimistic mutation).
+- **Audit Enrichment:** `PATCH /breach/{id}` now captures old_values (status, affected_systems, data_scope, notes) before UPDATE and passes request metadata (client IP/UA via `X-Forwarded-For`/`X-Real-IP` headers) preserving #360 real-IP pattern. `log_system_audit` writes both `old_values` and `new_values` JSONB for forensic traceability.
+
 ## Anomaly Dashboard (#356, #362)
 
 The anomaly detection page (`/admin/anomalies`) manages behavioral anomaly detections (NEW → ACKNOWLEDGED → RESOLVED lifecycle).
