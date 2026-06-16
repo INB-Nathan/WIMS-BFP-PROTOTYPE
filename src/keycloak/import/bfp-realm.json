@@ -1768,37 +1768,11 @@
       "builtIn": true,
       "authenticationExecutions": [
         {
-          "authenticator": "conditional-user-configured",
-          "authenticatorFlow": false,
-          "requirement": "ALTERNATIVE",
-          "priority": 10,
-          "autheticatorFlow": false,
-          "userSetupAllowed": false
-        },
-        {
-          "authenticatorConfig": "otp-role-system-administrator",
-          "authenticator": "conditional-user-role",
-          "authenticatorFlow": false,
-          "requirement": "ALTERNATIVE",
-          "priority": 20,
-          "autheticatorFlow": false,
-          "userSetupAllowed": false
-        },
-        {
-          "authenticatorConfig": "otp-role-national-validator",
-          "authenticator": "conditional-user-role",
-          "authenticatorFlow": false,
-          "requirement": "ALTERNATIVE",
-          "priority": 30,
-          "autheticatorFlow": false,
-          "userSetupAllowed": false
-        },
-        {
           "authenticatorConfig": "otp-trusted-device",
           "authenticator": "wims-demo-otp-form",
           "authenticatorFlow": false,
           "requirement": "REQUIRED",
-          "priority": 40,
+          "priority": 10,
           "autheticatorFlow": false,
           "userSetupAllowed": false
         }
@@ -2141,18 +2115,9 @@
           "userSetupAllowed": false
         },
         {
-          "authenticatorConfig": "otp-skip-mfa",
-          "authenticator": "conditional-user-role",
-          "authenticatorFlow": false,
-          "requirement": "ALTERNATIVE",
-          "priority": 20,
-          "autheticatorFlow": false,
-          "userSetupAllowed": false
-        },
-        {
           "authenticatorFlow": true,
-          "requirement": "ALTERNATIVE",
-          "priority": 30,
+          "requirement": "REQUIRED",
+          "priority": 20,
           "autheticatorFlow": true,
           "flowAlias": "Browser - Conditional OTP",
           "userSetupAllowed": false
