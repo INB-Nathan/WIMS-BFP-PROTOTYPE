@@ -21,6 +21,7 @@ vi.mock('../offlineStore', () => ({
   markOpSynced: vi.fn(),
   markOpConflict: vi.fn(),
   markOpError: vi.fn(),
+  markOpFailed: vi.fn(),
   deleteOfflineOp: vi.fn(),
   purgeSyncedOps: vi.fn(),
   evictStaleCachedIncidents: vi.fn(),
@@ -43,7 +44,7 @@ vi.stubGlobal('fetch', fetchSpy);
 import { syncPendingIncidents } from '../syncEngine';
 import type { OfflineOpType, OfflineOpDecrypted } from '../offlineStore';
 import {
-  getPendingOps, getPendingIncidents, markOpSyncing, markOpSynced, markOpConflict, markOpError,
+  getPendingOps, getPendingIncidents, markOpSyncing, markOpSynced, markOpConflict, markOpError, markOpFailed,
 } from '../offlineStore';
 import { refreshToken } from '../auth-refresh';
 import { isReachable } from '../connectivity';
@@ -96,6 +97,7 @@ beforeEach(() => {
   vi.mocked(markOpSynced).mockResolvedValue(undefined);
   vi.mocked(markOpConflict).mockResolvedValue(undefined);
   vi.mocked(markOpError).mockResolvedValue(undefined);
+  vi.mocked(markOpFailed).mockResolvedValue(undefined);
 });
 
 // ─── 409 DUPLICATE_DETECTED ──────────────────────────────────────────────────

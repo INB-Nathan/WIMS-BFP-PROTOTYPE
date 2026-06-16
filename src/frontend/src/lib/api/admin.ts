@@ -5,10 +5,12 @@ export {
   createIncidentFromAlert,
   createScheduledReport,
   deleteScheduledReport,
+  deleteSyncOp,
   fetchActiveSessions,
   fetchAdminSecurityLogs,
   fetchAdminUsers,
   fetchAuditLogs,
+  fetchFailedSyncOps,
   fetchMyProfile,
   fetchRateLimits,
   fetchRelatedAuditLogs,
@@ -19,6 +21,7 @@ export {
   fetchWorkerStatus,
   fetchUserSessions,
   pruneWorkers,
+  retrySyncOp,
   revokeUserSessions,
   terminateUserSessions,
   updateAdminSecurityLog,
@@ -29,6 +32,7 @@ export {
 } from './legacy';
 
 export type {
+  FailedSyncOp,
   KeycloakSession,
   RateLimitConfig,
   RelatedAuditItem,

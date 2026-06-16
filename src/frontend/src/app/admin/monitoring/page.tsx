@@ -89,6 +89,7 @@ export default function SecurityMonitoringPage() {
 
   const loadThreats = useCallback(async () => {
     if (!isAdmin) return;
+    setError(null);
     setLoading(true);
     try {
       const severityParam = activeSeverities.size > 0 ? Array.from(activeSeverities).join(',') : undefined;

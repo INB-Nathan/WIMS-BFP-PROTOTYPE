@@ -24,6 +24,7 @@ vi.mock('../offlineStore', () => ({
   markOpSynced: vi.fn(),
   markOpConflict: vi.fn(),
   markOpError: vi.fn(),
+  markOpFailed: vi.fn(),
   deleteOfflineOp: vi.fn(),
   purgeSyncedOps: vi.fn(),
   evictStaleCachedIncidents: vi.fn(),
@@ -48,7 +49,7 @@ vi.stubGlobal('fetch', fetchSpy);
 import { syncPendingIncidents } from '../syncEngine';
 import type { OfflineOpType, OfflineOpDecrypted } from '../offlineStore';
 import {
-  getPendingOps, getPendingIncidents, markSynced, markOpSyncing, markOpPending, markOpSynced, markOpConflict, markOpError,
+  getPendingOps, getPendingIncidents, markSynced, markOpSyncing, markOpPending, markOpSynced, markOpConflict, markOpError, markOpFailed,
   purgeSyncedOps, evictStaleCachedIncidents, cacheIncident,
 } from '../offlineStore';
 import { refreshToken } from '../auth-refresh';
@@ -113,6 +114,7 @@ beforeEach(() => {
   vi.mocked(markOpSynced).mockResolvedValue(undefined);
   vi.mocked(markOpConflict).mockResolvedValue(undefined);
   vi.mocked(markOpError).mockResolvedValue(undefined);
+  vi.mocked(markOpFailed).mockResolvedValue(undefined);
   vi.mocked(purgeSyncedOps).mockResolvedValue(undefined);
   vi.mocked(evictStaleCachedIncidents).mockResolvedValue(undefined);
   vi.mocked(cacheIncident).mockResolvedValue(undefined);

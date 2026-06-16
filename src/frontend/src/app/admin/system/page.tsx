@@ -30,6 +30,10 @@ import {
     pruneWorkers,
     ScheduledReport,
     WorkerStatusPaginatedResponse,
+    fetchFailedSyncOps,
+    retrySyncOp,
+    deleteSyncOp,
+    FailedSyncOp,
 } from '@/lib/api';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { getConnectivitySnapshot, subscribeConnectivity, probeConnectivity } from '@/lib/connectivity';
@@ -37,6 +41,7 @@ import { normalizeNarrative } from '@/lib/xaiNarrativeNormalizer';
 import { ActiveSession, Region } from '@/types/api';
 import ReportFilterBuilder from '@/components/admin/ReportFilterBuilder';
 import {
+    AlertTriangle,
     BarChart3,
     Users,
     ShieldAlert,
@@ -260,6 +265,12 @@ export default function AdminSystemPage() {
     const [editActive, setEditActive] = useState(false);
     const [savingUser, setSavingUser] = useState(false);
 
+    // Failed Syncs state (Issue #141)
+    const [failedSyncs, setFailedSyncs] = useState<FailedSyncOp[]>([]);
+    const [loadingFailedSyncs, setLoadingFailedSyncs] = useState(false);
+    const [retryingOpId, setRetryingOpId] = useState<string | null>(null);
+    const [deletingOpId, setDeletingOpId] = useState<string | null>(null);
+
     // Client-side filtered & paginated users (#346)
     const filteredUsers = useMemo(() => {
         return users.filter((u) => {
@@ -337,6 +348,43 @@ export default function AdminSystemPage() {
         }
     }, []);
 
+    const loadFailedSyncs = useCallback(async () => {
+        setLoadingFailedSyncs(true);
+        try {
+            const data = await fetchFailedSyncOps();
+            setFailedSyncs(data.items);
+        } catch {
+            setFailedSyncs([]);
+        } finally {
+            setLoadingFailedSyncs(false);
+        }
+    }, []);
+
+    const handleRetrySyncOp = async (opId: string) => {
+        setRetryingOpId(opId);
+        try {
+            await retrySyncOp(opId);
+            setFailedSyncs((prev) => prev.filter((op) => op.localId !== opId));
+        } catch (e: unknown) {
+            alert((e as { message?: string })?.message ?? 'Failed to retry sync op');
+        } finally {
+            setRetryingOpId(null);
+        }
+    };
+
+    const handleDeleteSyncOp = async (opId: string) => {
+        if (!confirm('Delete this failed sync op? This cannot be undone.')) return;
+        setDeletingOpId(opId);
+        try {
+            await deleteSyncOp(opId);
+            setFailedSyncs((prev) => prev.filter((op) => op.localId !== opId));
+        } catch (e: unknown) {
+            alert((e as { message?: string })?.message ?? 'Failed to delete sync op');
+        } finally {
+            setDeletingOpId(null);
+        }
+    };
+
     const loadMonitoring = useCallback(async () => {
         setLoadingMonitoring(true);
         const [metricsRes, workersRes] = await Promise.allSettled([
@@ -376,6 +424,7 @@ export default function AdminSystemPage() {
             loadRegions();
             loadSessions();
             loadScheduledReports();
+            loadFailedSyncs();
         }
     }, [role]);
 
@@ -1743,6 +1792,85 @@ export default function AdminSystemPage() {
                             Open System Audit
                         </a>
                     </div>
+                </div>
+            </section>
+
+            {/* Failed Syncs (Issue #141) */}
+            <section id="failed-syncs" className="card overflow-hidden">
+                <div className="card-header flex items-center justify-between" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
+                    <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                        <span>Failed Syncs</span>
+                        {failedSyncs.length > 0 && (
+                            <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-bold">
+                                {failedSyncs.length}
+                            </span>
+                        )}
+                    </div>
+                    <button
+                        onClick={loadFailedSyncs}
+                        disabled={loadingFailedSyncs}
+                        className="flex items-center gap-1 text-sm font-medium disabled:opacity-50"
+                        style={{ color: 'var(--bfp-maroon)' }}
+                    >
+                        <RefreshCw className={`w-4 h-4 ${loadingFailedSyncs ? 'animate-spin' : ''}`} /> Refresh
+                    </button>
+                </div>
+                <div className="overflow-x-auto">
+                    {loadingFailedSyncs ? (
+                        <div className="p-8 text-center text-gray-500">Loading failed syncs…</div>
+                    ) : failedSyncs.length === 0 ? (
+                        <div className="p-8 text-center text-gray-500">No failed sync operations.</div>
+                    ) : (
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Op ID</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Operation</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Error</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Retries</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Failed At</th>
+                                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {failedSyncs.map((op) => (
+                                    <tr key={op.localId} className="hover:bg-gray-50">
+                                        <td className="px-6 py-4 whitespace-nowrap text-xs font-mono text-gray-600" title={op.localId}>
+                                            {op.localId.slice(0, 8)}…
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{op.operation}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 max-w-[200px] truncate" title={op.errorMessage}>
+                                            {op.errorCode ? `${op.errorCode}: ` : ''}{op.errorMessage}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{op.retryCount}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            {op.failed_at ? new Date(op.failed_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : '—'}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                                            <div className="flex items-center justify-end gap-2">
+                                                <button
+                                                    onClick={() => handleRetrySyncOp(op.localId)}
+                                                    disabled={retryingOpId === op.localId}
+                                                    className="text-blue-600 hover:text-blue-800 text-sm font-medium disabled:opacity-50"
+                                                >
+                                                    {retryingOpId === op.localId ? 'Retrying…' : 'Retry'}
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteSyncOp(op.localId)}
+                                                    disabled={deletingOpId === op.localId}
+                                                    className="text-red-600 hover:text-red-800 text-sm font-medium disabled:opacity-50 flex items-center gap-1"
+                                                >
+                                                    <Trash2 className="w-3 h-3" />
+                                                    {deletingOpId === op.localId ? 'Deleting…' : 'Delete'}
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
                 </div>
             </section>
 
