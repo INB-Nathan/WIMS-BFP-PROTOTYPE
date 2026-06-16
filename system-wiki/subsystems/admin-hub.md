@@ -175,6 +175,7 @@ The rate limits page (`/admin/system/rate-limits`) provides SYSTEM_ADMIN-only au
 - **`GET /api/admin/rate-limits`** — Returns current Redis config for tier `login` (window_seconds, threshold, updated_at). Returns defaults (900s window, 5 threshold) when Redis key is empty.
 - **`PATCH /api/admin/rate-limits`** — Updates Redis hash `rate_limit_config:login` with Pydantic-validated `limit` (≥1) and `window` (≥1). Audit-logged as `RATE_LIMIT_UPDATED`. Only `login` tier is accepted.
 - **Redis key:** `rate_limit_config:login` (hash with fields `window_seconds`, `threshold`, `updated_at`).
+- **Middleware consumption:** The auth/callback rate-limit middleware in `main.py` reads `rate_limit_config:login` via `hgetall` on every callback request and uses the configured `window_seconds` / `threshold` in the Lua sliding-window eval. Falls back to hardcoded defaults (900/5) when Redis is unavailable, the hash is empty, or values are non-numeric/non-positive.
 
 ### API Helpers
 
@@ -183,7 +184,7 @@ The rate limits page (`/admin/system/rate-limits`) provides SYSTEM_ADMIN-only au
 
 ### Tests
 
-- **Backend:** `tests/test_dynamic_rate_limits.py` — 10 tests covering GET returns config/defaults, PATCH updates/validation/rejection, audit logging, and admin-only access.
+- **Backend:** `tests/test_dynamic_rate_limits.py` — 15 tests covering GET returns config/defaults, PATCH updates/validation/rejection, audit logging, admin-only access, and 5 middleware config-consumption tests (configured values passed to eval, fallback on empty/non-numeric/non-positive config, 429 with Retry-After).
 - **Frontend:** `src/app/admin/system/rate-limits/rate-limits.test.tsx` — 11 tests covering loading, display, explanatory copy, save/save-failure/disabled-state, validation errors, load error, timestamp, and non-admin redirect.
 - **Sidebar:** `src/components/Sidebar.test.tsx` — 6 tests covering Rate Limits visibility by role and link target.
 

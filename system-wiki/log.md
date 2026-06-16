@@ -3302,3 +3302,11 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - **Backend:** No changes. All filtering and pagination is client-side using the existing full-list `GET /api/admin/users` and `GET /api/admin/active-sessions` endpoints.
 - **Tests:** New test file `admin-system-governance.test.tsx` with 17 tests covering filters, pagination, modal behavior, role validation, region dropdown, sessions column removal, and Active Sessions features.
 - **Wiki:** Updated `system-wiki/subsystems/admin-hub.md` to reflect the new governance and sessions UX. No FRS gap register changes (UI improvements only).
+
+## [2026-06-16] fix(#354,#363) | rate-limit middleware reads Redis config (B1 blocker)
+
+- **Root cause:** The auth/callback rate-limit middleware in `main.py` used hardcoded `WINDOW_SECONDS` (900) and `RATE_LIMIT_THRESHOLD` (5) and never read `rate_limit_config:login` from Redis. Changes made via `/admin/system/rate-limits` were written to Redis but had no effect on actual rate-limiting behavior (dead control).
+- **Fix:** Modified `rate_limit_middleware` in `main.py` to call `r.hgetall("rate_limit_config:login")` before each eval. Parses `window_seconds` and `threshold` as ints; uses them when both are positive, otherwise falls back to the module-level constants. Safe parse: catches `ValueError`/`TypeError` for non-numeric values and generic `Exception` for Redis connection issues.
+- **Tests:** Added `TestRateLimitMiddlewareConfig` class in `tests/test_dynamic_rate_limits.py` with 5 tests: middleware passes configured window/threshold to eval, fallback on empty config hash, fallback on non-numeric values, fallback on zero/negative values, 429 response includes Retry-After header.
+- **Wiki:** Updated `system-wiki/subsystems/admin-hub.md` — added middleware consumption note and corrected test count (10→15). `system-wiki/log.md` — this entry.
+- No FRS gap register change (bugfix, no new feature/capability gap).
