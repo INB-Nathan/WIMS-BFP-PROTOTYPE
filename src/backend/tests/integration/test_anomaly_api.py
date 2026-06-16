@@ -591,7 +591,11 @@ class TestUpdateAnomalyStatus:
         audit_sql = str(mock_db.execute.call_args_list[2][0][0])
         assert "system_audit_trails" in audit_sql
         audit_params = mock_db.execute.call_args_list[2][0][1]
-        assert audit_params["action_type"] == "ANOMALY_ACK"
+        assert audit_params["action"] == "ANOMALY_ACK"
+        # Real client metadata: ip comes from request.client.host, not hardcoded None
+        assert audit_params["ip"] is not None
+        assert audit_params["ua"] is not None
+        assert audit_params["ua"] != "anomalies-api"
 
     def test_resolve_from_acknowledged(self, client):
         """ACKNOWLEDGED → RESOLVED succeeds and writes ANOMALY_RESOLVE audit."""
@@ -626,4 +630,8 @@ class TestUpdateAnomalyStatus:
 
         # Verify audit INSERT has ANOMALY_RESOLVE
         audit_params = mock_db.execute.call_args_list[2][0][1]
-        assert audit_params["action_type"] == "ANOMALY_RESOLVE"
+        assert audit_params["action"] == "ANOMALY_RESOLVE"
+        # Real client metadata: ip comes from request.client.host, not hardcoded None
+        assert audit_params["ip"] is not None
+        assert audit_params["ua"] is not None
+        assert audit_params["ua"] != "anomalies-api"

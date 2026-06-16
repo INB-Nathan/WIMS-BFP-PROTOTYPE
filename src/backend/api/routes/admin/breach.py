@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -69,6 +69,7 @@ def get_breach(
 def update_breach(
     breach_id: int,
     body: BreachUpdate,
+    request: Request,
     _admin: Annotated[dict, Depends(get_system_admin)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
@@ -106,7 +107,12 @@ def update_breach(
         raise HTTPException(status_code=404, detail="Breach record not found")
 
     log_system_audit(
-        db, _admin["user_id"], "BREACH_STATUS_UPDATE", "breach_notifications", breach_id
+        db,
+        _admin["user_id"],
+        "BREACH_STATUS_UPDATE",
+        "breach_notifications",
+        breach_id,
+        request=request,
     )
     db.commit()
 
