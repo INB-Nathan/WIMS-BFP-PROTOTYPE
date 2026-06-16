@@ -10,6 +10,7 @@ export {
   fetchAdminUsers,
   fetchAuditLogs,
   fetchMyProfile,
+  fetchRateLimits,
   fetchRelatedAuditLogs,
   fetchScheduledReports,
   fetchSecurityLogs,
@@ -22,10 +23,11 @@ export {
   updateAdminSecurityLog,
   updateAdminUser,
   updateMyProfile,
+  updateRateLimits,
   updateScheduledReport,
 } from './legacy';
 
-export type { KeycloakSession, RelatedAuditItem, RelatedAuditResponse } from './legacy';
+export type { KeycloakSession, RateLimitConfig, RelatedAuditItem, RelatedAuditResponse } from './legacy';
 export type { ScheduledReport } from './legacy';
 
 export {

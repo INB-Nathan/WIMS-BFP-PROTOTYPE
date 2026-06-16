@@ -16,7 +16,8 @@ Next.js App Router pages detected under `src/frontend/src/app`.
 |---|---|
 | `/admin` | `admin/page.tsx` |
 | `/admin/system` | `admin/system/page.tsx` | System admin hub with identity governance (#346), active sessions (#347), consolidated health & monitoring (#344), audit CTA (#352) |
-| `/admin/system/config` | `admin/system/config/page.tsx` | M9c admin configuration management UI (#170, #247) |
+| `/admin/system/config` | `admin/system/config/page.tsx` | M9c admin configuration management UI including worker timeouts (#170, #247, #354) |
+| `/admin/system/rate-limits` | `admin/system/rate-limits/page.tsx` | Auth-flow rate-limit configuration UI with validation, explanatory copy, and success/failure states (#363) |
 | `/admin/monitoring` | `admin/monitoring/page.tsx` | Security monitoring with auth loading guard (#358) |
 | `/admin/anomalies` | `admin/anomalies/page.tsx` | Anomaly detection with aggregate counts, dynamic type/severity filters, seed-data empty state (#356, #358, #362) |
 | `/admin/audit` | `admin/audit/page.tsx` | Dedicated system audit page with advanced filters, pagination, offline caching (#352) |

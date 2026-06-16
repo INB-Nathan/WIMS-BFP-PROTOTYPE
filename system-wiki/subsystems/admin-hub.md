@@ -3,8 +3,8 @@ title: System Admin Hub
 created: 2026-05-16
 updated: 2026-06-16
 type: operation
-tags: [wims-bfp, admin, system-admin, dashboard, identity, security]
-sources: [src/frontend/src/app/admin/system/page.tsx, src/backend/api/routes/admin.py, src/frontend/src/lib/api/legacy.ts]
+tags: [wims-bfp, admin, system-admin, dashboard, identity, security, rate-limits, config]
+sources: [src/frontend/src/app/admin/system/page.tsx, src/backend/api/routes/admin.py, src/frontend/src/lib/api/legacy.ts, src/frontend/src/app/admin/system/rate-limits/page.tsx]
 status: draft
 ---
 
@@ -155,6 +155,76 @@ The anomaly detection page (`/admin/anomalies`) manages behavioral anomaly detec
 - **`scripts/seed-anomaly-detections.sh`** + **`scripts/seed-anomaly-detections.sql`**: Manual seed script inserting 20 anomaly_detections rows covering all 5 anomaly types (BULK_DELETE, OFF_HOURS, PRIVILEGE_ESCALATION, RAPID_IP_SWITCH, SUSPICIOUS_QUERY_PATTERN), all 3 statuses, all 4 severities, and timestamps distributed across the last 24 hours.
 - `subject_user_id` references known test users from `03_users.sql` or is NULL for appliance-origin detections.
 - Uses `ON CONFLICT (anomaly_type, dedup_key) DO NOTHING` — safe to re-run.
+
+## Rate Limit Configuration (#363)
+
+The rate limits page (`/admin/system/rate-limits`) provides SYSTEM_ADMIN-only auth-flow rate-limit controls.
+
+### Frontend
+
+- **Route:** `/admin/system/rate-limits` (`src/frontend/src/app/admin/system/rate-limits/page.tsx`)
+- **Explanatory card:** Describes what the `login` tier protects (Keycloak OIDC callback endpoint in `main.py`), how threshold and window work, and that changes are hot-reloaded from Redis.
+- **Input fields:** Threshold (≥1, whole number) and Window seconds (≥1, whole number) with client-side validation.
+- **Save:** Calls `PATCH /api/admin/rate-limits`, shows green success or red error message inline. Save button is disabled when no changes.
+- **Refresh:** Reloads current config from API.
+- **Last-updated timestamp:** Displayed when available from Redis.
+- **Sidebar:** "Rate Limits" nav item with Timer icon under System section for SYSTEM_ADMIN only.
+
+### Backend
+
+- **`GET /api/admin/rate-limits`** — Returns current Redis config for tier `login` (window_seconds, threshold, updated_at). Returns defaults (900s window, 5 threshold) when Redis key is empty.
+- **`PATCH /api/admin/rate-limits`** — Updates Redis hash `rate_limit_config:login` with Pydantic-validated `limit` (≥1) and `window` (≥1). Audit-logged as `RATE_LIMIT_UPDATED`. Only `login` tier is accepted.
+- **Redis key:** `rate_limit_config:login` (hash with fields `window_seconds`, `threshold`, `updated_at`).
+- **Middleware consumption:** The auth/callback rate-limit middleware in `main.py` reads `rate_limit_config:login` via `hgetall` on every callback request and uses the configured `window_seconds` / `threshold` in the Lua sliding-window eval. Falls back to hardcoded defaults (900/5) when Redis is unavailable, the hash is empty, or values are non-numeric/non-positive.
+
+### API Helpers
+
+- `src/frontend/src/lib/api/legacy.ts` — `fetchRateLimits()` and `updateRateLimits(tier, limit, window)`, plus `RateLimitConfig` type.
+- `src/frontend/src/lib/api/admin.ts` — re-exports rate-limit functions and type.
+
+### Tests
+
+- **Backend:** `tests/test_dynamic_rate_limits.py` — 15 tests covering GET returns config/defaults, PATCH updates/validation/rejection, audit logging, admin-only access, and 5 middleware config-consumption tests (configured values passed to eval, fallback on empty/non-numeric/non-positive config, 429 with Retry-After).
+- **Frontend:** `src/app/admin/system/rate-limits/rate-limits.test.tsx` — 11 tests covering loading, display, explanatory copy, save/save-failure/disabled-state, validation errors, load error, timestamp, and non-admin redirect.
+- **Sidebar:** `src/components/Sidebar.test.tsx` — 6 tests covering Rate Limits visibility by role and link target.
+
+## Worker Timeout Configuration (#354)
+
+Two new system config keys allow the SYSTEM_ADMIN to tune Celery worker liveness thresholds without a restart.
+
+### Config Keys
+
+| Key | Type | Min | Default | Description |
+|---|---|---|---|---|
+| `worker_stale_timeout_seconds` | int | 30 | 60 | Seconds of inactivity before worker status transitions ACTIVE → STALE |
+| `worker_offline_timeout_seconds` | int | 60 | 300 | Seconds of inactivity before worker status transitions to OFFLINE; must be strictly greater than stale timeout |
+
+### Backend Validation
+
+- **Per-key numeric validation:** Both keys require integer values; `worker_stale_timeout_seconds` ≥ 30, `worker_offline_timeout_seconds` ≥ 60.
+- **Cross-key constraint:** `worker_offline_timeout_seconds` must be strictly greater than `worker_stale_timeout_seconds`. Updating either key checks the other's current DB value and rejects with 400 if the ordering would be violated.
+- **Audit:** All updates write `CONFIG_UPDATE` audit trails with old/new values.
+
+### Monitoring Consumer
+
+- `tasks/monitoring.py` — `_read_worker_timeout_config()` reads both keys from `wims.system_config` on every worker heartbeat run (every 30s by Celery beat).
+- Fallback to defaults (60/300) on missing keys, malformed values, DB errors, or invalid ordering (offline ≤ stale).
+- The heartbeat task uses the configured values in `INTERVAL` clauses of the STALE and OFFLINE status-transition UPDATEs.
+
+### Frontend Discovery
+
+- The existing `/admin/system/config` page (`system-config.page.tsx`) renders all 9 config keys including the two worker timeout keys with descriptions, inline editing, and per-key save.
+- No dedicated worker timeout page — these are managed through the unified System Configuration page.
+
+### Seed Data
+
+- `src/postgres-init/49_system_config.sql` — two new INSERT rows with defaults (60, 300) and descriptive comments.
+
+### Tests
+
+- **Backend config:** `tests/test_system_config.py` — 10 new tests in `TestWorkerTimeoutConfigKeys` covering min-value rejection/acceptance, cross-key constraint enforcement, valid updates, and audit logging.
+- **Backend monitoring:** `tests/test_system_monitoring.py` — 5 new tests in `TestReadWorkerTimeoutConfig` covering defaults, configured values, fallback on bad ordering/equality, malformed values, and DB exceptions.
+- **Frontend config:** `src/app/admin/system/config/system-config.test.tsx` — 5 tests covering worker timeout key rendering, multiple "60" display values, descriptions, inline editing, and non-admin redirect.
 
 ## XAI Narrative Normalizer (#351)
 

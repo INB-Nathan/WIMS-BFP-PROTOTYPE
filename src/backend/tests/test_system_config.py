@@ -51,6 +51,8 @@ _SEED_ROWS = [
     ("alert_severity_threshold", "3", "Suricata HIGH cutoff", None, None),
     ("offline_storage_mb", "50", "IndexedDB advisory cap", None, None),
     ("session_timeout_minutes", "30", "Idle timeout UI hint", None, None),
+    ("worker_offline_timeout_seconds", "300", "Worker OFFLINE threshold", None, None),
+    ("worker_stale_timeout_seconds", "60", "Worker STALE threshold", None, None),
     ("npc_contact_name", "NPC DPO", "NPC contact person", None, None),
     ("npc_contact_phone", "+63 2 8234-2228", "NPC contact phone", None, None),
     ("npc_office_phone", "+63 2 8234-2228", "NPC office phone", None, None),
@@ -87,7 +89,7 @@ def _mock_config_db(rows=None, update_rowcount=1, fetchone_row=_SENTINEL):
 
 class TestGetConfig:
     def test_returns_all_seed_keys(self, client: TestClient):
-        """GET /admin/config returns all seven seed config keys."""
+        """GET /admin/config returns all nine seed config keys."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
         mock_db, mock_get_db = _mock_config_db()
         app.dependency_overrides[get_db_with_rls] = mock_get_db
@@ -102,6 +104,8 @@ class TestGetConfig:
         assert "alert_severity_threshold" in keys
         assert "offline_storage_mb" in keys
         assert "session_timeout_minutes" in keys
+        assert "worker_stale_timeout_seconds" in keys
+        assert "worker_offline_timeout_seconds" in keys
         assert "npc_contact_name" in keys
         assert "npc_contact_phone" in keys
         assert "npc_office_phone" in keys
@@ -461,3 +465,200 @@ class TestAiTimeoutConsumer:
         assert captured_timeout == 90.0, (
             f"Expected timeout=90.0 from config, got {captured_timeout}"
         )
+
+
+# =============================================================================
+# Worker timeout config keys (#354)
+# =============================================================================
+
+
+def _make_row(value):
+    """Return a MagicMock that behaves like a DB row whose first element is value."""
+    row = MagicMock()
+    row.__getitem__ = lambda self, i: value
+    return row
+
+
+def _build_side_effect_db(stale_value="60", offline_value="300"):
+    """
+    Return (mock_db, mock_get_db) where mock_db.execute uses side_effect to
+    return different rows for the stale-vs-offline cross-key lookups.
+
+    The config route calls db.execute() at most 3 times for worker timeout keys:
+      1. Cross-key SELECT (offline→stale or stale→offline)
+      2. Old-row SELECT for the key being patched
+      3. UPDATE system_config
+      4. INSERT system_audit_trails
+
+    Calls 1 and 2 need different fetchone() results.  Call 3's result rowcount
+    doesn't matter.  Call 4 just needs to not throw.
+    """
+    results = []
+
+    def _execute_side_effect(query, params=None):
+        sql = str(query)
+        result = MagicMock()
+        result.rowcount = 1
+
+        if "system_audit_trails" in sql:
+            result.fetchone.return_value = None
+            results.append(result)
+            return result
+
+        if (
+            "SELECT config_value" in sql
+            and "worker_stale_timeout_seconds" in sql
+            and "worker_offline_timeout_seconds" not in sql
+        ):
+            result.fetchone.return_value = _make_row(stale_value)
+        elif (
+            "SELECT config_value" in sql
+            and "worker_offline_timeout_seconds" in sql
+            and "worker_stale_timeout_seconds" not in sql
+        ):
+            result.fetchone.return_value = _make_row(offline_value)
+        else:
+            # Generic fallback — used for the third old-row SELECT
+            result.fetchone.return_value = _make_row("0")
+
+        results.append(result)
+        return result
+
+    mock_db = MagicMock()
+    mock_db.execute.side_effect = _execute_side_effect
+
+    def mock_get_db():
+        yield mock_db
+
+    return mock_db, mock_get_db
+
+
+class TestWorkerTimeoutConfigKeys:
+    """Worker stale/offline timeout config keys (#354)."""
+
+    def test_stale_timeout_rejects_below_minimum(self, client: TestClient):
+        """worker_stale_timeout_seconds must be >= 30."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        app.dependency_overrides[get_db_with_rls] = lambda: MagicMock()
+
+        response = client.patch(
+            "/api/admin/config/worker_stale_timeout_seconds",
+            json={"value": "15"},
+        )
+        assert response.status_code == 400
+        assert "must be >=" in response.json()["detail"]
+
+    def test_stale_timeout_accepts_minimum(self, client: TestClient):
+        """worker_stale_timeout_seconds = 30 is valid."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _build_side_effect_db(stale_value="60", offline_value="300")
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch(
+            "/api/admin/config/worker_stale_timeout_seconds",
+            json={"value": "30"},
+        )
+        assert response.status_code == 200
+        assert response.json()["value"] == "30"
+
+    def test_offline_timeout_rejects_below_minimum(self, client: TestClient):
+        """worker_offline_timeout_seconds must be >= 60."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        app.dependency_overrides[get_db_with_rls] = lambda: MagicMock()
+
+        response = client.patch(
+            "/api/admin/config/worker_offline_timeout_seconds",
+            json={"value": "30"},
+        )
+        assert response.status_code == 400
+        assert "must be >=" in response.json()["detail"]
+
+    def test_offline_timeout_accepts_minimum(self, client: TestClient):
+        """worker_offline_timeout_seconds = 60 is valid."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _build_side_effect_db(stale_value="30", offline_value="300")
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch(
+            "/api/admin/config/worker_offline_timeout_seconds",
+            json={"value": "60"},
+        )
+        assert response.status_code == 200
+        assert response.json()["value"] == "60"
+
+    def test_offline_must_be_greater_than_stale(self, client: TestClient):
+        """Reject worker_offline_timeout_seconds <= worker_stale_timeout_seconds."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        # stale=90, offline would be set to 80 — must reject
+        mock_db, mock_get_db = _build_side_effect_db(stale_value="90", offline_value="300")
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch(
+            "/api/admin/config/worker_offline_timeout_seconds",
+            json={"value": "80"},
+        )
+        assert response.status_code == 400
+        assert "must be greater than" in response.json()["detail"]
+
+    def test_stale_must_be_less_than_offline(self, client: TestClient):
+        """Reject worker_stale_timeout_seconds >= worker_offline_timeout_seconds."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        # offline=200, stale would be set to 250 — must reject
+        mock_db, mock_get_db = _build_side_effect_db(stale_value="60", offline_value="200")
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch(
+            "/api/admin/config/worker_stale_timeout_seconds",
+            json={"value": "250"},
+        )
+        assert response.status_code == 400
+        assert "must be less than" in response.json()["detail"]
+
+    def test_stale_timeout_valid_update(self, client: TestClient):
+        """worker_stale_timeout_seconds = 45 is valid when offline=300."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _build_side_effect_db(stale_value="60", offline_value="300")
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch(
+            "/api/admin/config/worker_stale_timeout_seconds",
+            json={"value": "45"},
+        )
+        assert response.status_code == 200
+        assert response.json()["value"] == "45"
+
+    def test_offline_timeout_valid_update(self, client: TestClient):
+        """worker_offline_timeout_seconds = 600 is valid when stale=60."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _build_side_effect_db(stale_value="60", offline_value="300")
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch(
+            "/api/admin/config/worker_offline_timeout_seconds",
+            json={"value": "600"},
+        )
+        assert response.status_code == 200
+        assert response.json()["value"] == "600"
+
+    def test_worker_timeout_audit_logged(self, client: TestClient):
+        """Worker timeout config update produces audit INSERT."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _build_side_effect_db(stale_value="60", offline_value="300")
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        client.patch(
+            "/api/admin/config/worker_stale_timeout_seconds",
+            json={"value": "90"},
+        )
+
+        # Find the audit INSERT call
+        audit_params = None
+        for call in mock_db.execute.call_args_list:
+            sql = str(call[0][0])
+            if "system_audit_trails" in sql:
+                audit_params = call[0][1]
+                break
+
+        assert audit_params is not None, "No audit INSERT found"
+        assert audit_params["action"] == "CONFIG_UPDATE"
+        assert audit_params["table"] == "system_config"

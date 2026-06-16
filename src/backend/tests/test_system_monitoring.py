@@ -84,6 +84,14 @@ def test_worker_status_requires_admin():
 
 def test_worker_status_returns_list_for_admin():
     """GET /api/admin/monitoring/workers returns 200 with list for admin."""
+    from database import get_db
+    from unittest.mock import MagicMock
+
+    mock_db = MagicMock()
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = []
+    mock_db.execute.return_value = mock_result
+    app.dependency_overrides[get_db] = lambda: mock_db
     app.dependency_overrides[get_current_wims_user] = _admin_override
     client = TestClient(app)
     resp = client.get("/api/admin/monitoring/workers")
@@ -223,3 +231,107 @@ def test_system_metrics_network_none_fallback():
     net = resp.json()["network"]
     assert net["bytes_sent"] == 0
     assert net["bytes_recv"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Worker timeout config consumer (#354) — _read_worker_timeout_config
+# ---------------------------------------------------------------------------
+
+
+class TestReadWorkerTimeoutConfig:
+    """Verify _read_worker_timeout_config reads from system_config with safe fallback."""
+
+    def test_returns_defaults_when_config_table_empty(self):
+        """Empty config table returns (60, 300) defaults."""
+        from unittest import mock
+        from tasks.monitoring import _read_worker_timeout_config
+
+        mock_db = mock.MagicMock()
+        mock_result = mock.MagicMock()
+        mock_result.fetchall.return_value = []
+        mock_db.execute.return_value = mock_result
+
+        stale, offline = _read_worker_timeout_config(mock_db)
+        assert stale == 60
+        assert offline == 300
+
+    def test_returns_configured_values(self):
+        """Returns configured values when both keys are present."""
+        from unittest import mock
+        from tasks.monitoring import _read_worker_timeout_config
+
+        mock_db = mock.MagicMock()
+        mock_result = mock.MagicMock()
+        mock_result.fetchall.return_value = [
+            ("worker_stale_timeout_seconds", "45"),
+            ("worker_offline_timeout_seconds", "600"),
+        ]
+        mock_db.execute.return_value = mock_result
+
+        stale, offline = _read_worker_timeout_config(mock_db)
+        assert stale == 45
+        assert offline == 600
+
+    def test_falls_back_when_offline_le_stale(self):
+        """When offline <= stale, fall back to defaults (60, 300)."""
+        from unittest import mock
+        from tasks.monitoring import _read_worker_timeout_config
+
+        mock_db = mock.MagicMock()
+        mock_result = mock.MagicMock()
+        mock_result.fetchall.return_value = [
+            ("worker_stale_timeout_seconds", "100"),
+            ("worker_offline_timeout_seconds", "80"),
+        ]
+        mock_db.execute.return_value = mock_result
+
+        stale, offline = _read_worker_timeout_config(mock_db)
+        assert stale == 60
+        assert offline == 300
+
+    def test_falls_back_when_values_equal(self):
+        """When offline == stale, fall back to defaults (60, 300)."""
+        from unittest import mock
+        from tasks.monitoring import _read_worker_timeout_config
+
+        mock_db = mock.MagicMock()
+        mock_result = mock.MagicMock()
+        mock_result.fetchall.return_value = [
+            ("worker_stale_timeout_seconds", "120"),
+            ("worker_offline_timeout_seconds", "120"),
+        ]
+        mock_db.execute.return_value = mock_result
+
+        stale, offline = _read_worker_timeout_config(mock_db)
+        assert stale == 60
+        assert offline == 300
+
+    def test_ignores_malformed_config_values(self):
+        """Non-numeric config values are ignored; defaults used for those keys."""
+        from unittest import mock
+        from tasks.monitoring import _read_worker_timeout_config
+
+        mock_db = mock.MagicMock()
+        mock_result = mock.MagicMock()
+        mock_result.fetchall.return_value = [
+            ("worker_stale_timeout_seconds", "not_a_number"),
+            ("worker_offline_timeout_seconds", "300"),
+        ]
+        mock_db.execute.return_value = mock_result
+
+        stale, offline = _read_worker_timeout_config(mock_db)
+        # stale falls back to 60 (malformed); offline is 300; 300 > 60 is valid
+        assert stale == 60
+        assert offline == 300
+
+    def test_falls_back_on_db_exception(self):
+        """If the DB query raises, return safe defaults (60, 300)."""
+        from unittest import mock
+        from tasks.monitoring import _read_worker_timeout_config
+
+        mock_db = mock.MagicMock()
+        mock_db.execute.side_effect = RuntimeError("DB connection lost")
+
+        stale, offline = _read_worker_timeout_config(mock_db)
+        assert stale == 60
+        assert offline == 300
