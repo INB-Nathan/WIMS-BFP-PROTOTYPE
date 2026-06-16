@@ -152,10 +152,13 @@ export default function AdminSystemPage() {
     const [loadingLogs, setLoadingLogs] = useState(false);
     const [loadingAudit, setLoadingAudit] = useState(false);
     const [loadingSessions, setLoadingSessions] = useState(false);
+    const [loadingMonitoring, setLoadingMonitoring] = useState(true);
+
+    // Page-level toast for replacing native alert()/confirm() (#359)
+    const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const [confirmDeleteReportId, setConfirmDeleteReportId] = useState<number | null>(null);
     const [regions, setRegions] = useState<Region[]>([]);
     const [selectedLog, setSelectedLog] = useState<SecurityLog | null>(null);
-    const [actionNote, setActionNote] = useState('');
-    const [pendingMoreInfo, setPendingMoreInfo] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [analyzingLogId, setAnalyzingLogId] = useState<number | null>(null);
     const [isRevoking, setIsRevoking] = useState<string | null>(null);
@@ -173,6 +176,8 @@ export default function AdminSystemPage() {
     const [sessionsByUser, setSessionsByUser] = useState<Record<string, KeycloakSession[]>>({});
     const [selectedSessionUser, setSelectedSessionUser] = useState<AdminUser | null>(null);
     const [terminatingUser, setTerminatingUser] = useState<string | null>(null);
+    const [loadingSessionUser, setLoadingSessionUser] = useState(false);
+    const [sessionUserError, setSessionUserError] = useState<string | null>(null);
 
     // Create User modal state
     const [showCreateUser, setShowCreateUser] = useState(false);
@@ -236,6 +241,7 @@ export default function AdminSystemPage() {
     }, []);
 
     const loadMonitoring = useCallback(async () => {
+        setLoadingMonitoring(true);
         const [metricsRes, workersRes] = await Promise.allSettled([
             fetchSystemMetricsOfflineAware(),
             fetchWorkerStatusOfflineAware(),
@@ -258,16 +264,14 @@ export default function AdminSystemPage() {
 
         setMonitoringFromCache(fromCache);
         setMonitoringLastChecked(cachedAt ? new Date(cachedAt) : new Date());
+        setLoadingMonitoring(false);
 
         await loadHealth();
     }, [loadHealth]);
 
     useEffect(() => {
         if (role === 'SYSTEM_ADMIN') {
-            loadUsers().then(async () => {
-                const data = await fetchAdminUsers().catch(() => []);
-                await loadAllUserSessions(data as AdminUser[]);
-            });
+            loadUsers();
             loadSecurityLogs();
             loadAuditLogs();
             loadRegions();
@@ -321,7 +325,7 @@ export default function AdminSystemPage() {
 
     const handleCreateReport = async () => {
         if (!newReport.name.trim() || !newReport.cron_expr.trim()) {
-            alert('Name and cron expression are required.');
+            setToast({ type: 'error', text: 'Name and cron expression are required.' });
             return;
         }
         setCreatingReport(true);
@@ -344,9 +348,10 @@ export default function AdminSystemPage() {
             });
             setShowCreateReport(false);
             setNewReport({ name: '', cron_expr: '0 7 * * 1', format: 'pdf', filters: '{}', recipients: '', enabled: true });
+            setToast({ type: 'success', text: 'Scheduled report created.' });
             await loadScheduledReports();
         } catch (e: unknown) {
-            alert((e as { message?: string })?.message ?? 'Failed to create report');
+            setToast({ type: 'error', text: (e as { message?: string })?.message ?? 'Failed to create report' });
         } finally {
             setCreatingReport(false);
         }
@@ -357,54 +362,79 @@ export default function AdminSystemPage() {
         try {
             await updateScheduledReport(report.id, { enabled: !report.enabled });
             await loadScheduledReports();
+            setToast({ type: 'success', text: `Report ${report.enabled ? 'disabled' : 'enabled'}.` });
         } catch (e: unknown) {
-            alert((e as { message?: string })?.message ?? 'Failed to toggle report');
+            setToast({ type: 'error', text: (e as { message?: string })?.message ?? 'Failed to toggle report' });
         } finally {
             setTogglingReportId(null);
         }
     };
 
     const handleDeleteReport = async (reportId: number) => {
-        if (!confirm('Delete this scheduled report?')) return;
+        setConfirmDeleteReportId(reportId);
+    };
+
+    const executeDeleteReport = async () => {
+        if (confirmDeleteReportId === null) return;
+        const reportId = confirmDeleteReportId;
+        setConfirmDeleteReportId(null);
         setDeletingReportId(reportId);
         try {
             await deleteScheduledReport(reportId);
             await loadScheduledReports();
+            setToast({ type: 'success', text: 'Scheduled report deleted.' });
         } catch (e: unknown) {
-            alert((e as { message?: string })?.message ?? 'Failed to delete report');
+            setToast({ type: 'error', text: (e as { message?: string })?.message ?? 'Failed to delete report' });
         } finally {
             setDeletingReportId(null);
         }
     };
 
-    const loadUsers = async () => {
+    const loadUsers = async (): Promise<AdminUser[]> => {
         setLoadingUsers(true);
         try {
             const data = await fetchAdminUsers();
             setUsers(data as AdminUser[]);
+            return data as AdminUser[];
         } catch {
             setUsers([]);
+            return [];
         } finally {
             setLoadingUsers(false);
         }
     };
 
-    const loadAllUserSessions = async (userList: AdminUser[]) => {
-        setLoadingSessions(true);
-        const results: Record<string, KeycloakSession[]> = {};
-        await Promise.allSettled(
-            userList.map(async (u) => {
-                try {
-                    const res = await fetchUserSessions(u.user_id);
-                    results[u.user_id] = res.sessions ?? [];
-                } catch {
-                    results[u.user_id] = [];
+    // Lazy-load per-user sessions only when modal is opened (#359 N+1 fix)
+    useEffect(() => {
+        if (!selectedSessionUser) return;
+        if (sessionsByUser[selectedSessionUser.user_id] !== undefined) return;
+        let cancelled = false;
+        const fetchSessions = async () => {
+            setLoadingSessionUser(true);
+            setSessionUserError(null);
+            try {
+                const res = await fetchUserSessions(selectedSessionUser.user_id);
+                if (!cancelled) {
+                    setSessionsByUser((prev) => ({
+                        ...prev,
+                        [selectedSessionUser.user_id]: res.sessions ?? [],
+                    }));
                 }
-            })
-        );
-        setSessionsByUser(results);
-        setLoadingSessions(false);
-    };
+            } catch {
+                if (!cancelled) {
+                    setSessionsByUser((prev) => ({
+                        ...prev,
+                        [selectedSessionUser.user_id]: [],
+                    }));
+                    setSessionUserError('Failed to load sessions for this user.');
+                }
+            } finally {
+                if (!cancelled) setLoadingSessionUser(false);
+            }
+        };
+        fetchSessions();
+        return () => { cancelled = true; };
+    }, [selectedSessionUser, sessionsByUser]);
 
     const handleTerminateSessions = async (u: AdminUser) => {
         setTerminatingUser(u.user_id);
@@ -412,8 +442,9 @@ export default function AdminSystemPage() {
             await terminateUserSessions(u.user_id, 'all');
             setSessionsByUser((prev) => ({ ...prev, [u.user_id]: [] }));
             setSelectedSessionUser(null);
+            setToast({ type: 'success', text: `Sessions terminated for ${u.username}.` });
         } catch (e: unknown) {
-            alert((e as { message?: string })?.message ?? 'Failed to terminate sessions');
+            setToast({ type: 'error', text: (e as { message?: string })?.message ?? 'Failed to terminate sessions' });
         } finally {
             setTerminatingUser(null);
         }
@@ -469,8 +500,9 @@ export default function AdminSystemPage() {
             if (payload.is_active === false) {
                 await loadSessions();
             }
+            setToast({ type: 'success', text: 'User updated.' });
         } catch (e: unknown) {
-            alert((e as { message?: string })?.message ?? 'Update failed');
+            setToast({ type: 'error', text: (e as { message?: string })?.message ?? 'Update failed' });
         }
     };
 
@@ -482,7 +514,7 @@ export default function AdminSystemPage() {
             last_name: createForm.last_name.trim(),
         };
         if (!payload.first_name || !payload.last_name || !payload.email || !payload.role || !payload.username?.trim()) {
-            alert('First name, last name, email, username, and role are required.');
+            setToast({ type: 'error', text: 'First name, last name, email, username, and role are required.' });
             return;
         }
         setIsCreating(true);
@@ -499,8 +531,9 @@ export default function AdminSystemPage() {
             setCreatedUser({ username: result.username, temporary_password: result.temporary_password, note: result.note });
             setCreateForm({ first_name: '', last_name: '', email: '', username: '', role: 'REGIONAL_ENCODER', contact_number: '', assigned_region_id: '' });
             await loadUsers();
+            setToast({ type: 'success', text: `User ${payload.username.trim()} created.` });
         } catch (e: unknown) {
-            alert((e as { message?: string })?.message ?? 'Failed to create user');
+            setToast({ type: 'error', text: (e as { message?: string })?.message ?? 'Failed to create user' });
         } finally {
             setIsCreating(false);
         }
@@ -521,8 +554,6 @@ export default function AdminSystemPage() {
             await updateAdminSecurityLog(selectedLog.log_id, { action, note });
             setHitlMessage({ type: 'success', text: `Action \u201c${action}\u201d applied to alert #${selectedLog.log_id}.` });
             setSelectedLog(null);
-            setActionNote('');
-            setPendingMoreInfo(false);
             await loadSecurityLogs(securitySearchQ);
         } catch (e: unknown) {
             setHitlMessage({ type: 'error', text: (e as { message?: string })?.message ?? 'Update failed' });
@@ -540,8 +571,6 @@ export default function AdminSystemPage() {
             const result = await createIncidentFromAlert(selectedLog.log_id);
             setCreateIncidentResult({ incident_id: result.incident_id });
             setSelectedLog(null);
-            setActionNote('');
-            setPendingMoreInfo(false);
             await loadSecurityLogs();
         } catch (e: unknown) {
             setHitlMessage({ type: 'error', text: (e as { message?: string })?.message ?? 'Create incident failed' });
@@ -581,7 +610,7 @@ export default function AdminSystemPage() {
                 setSelectedLog((s) => (s && s.log_id === log.log_id ? { ...s, ...updated } : s));
             }
         } catch (e: unknown) {
-            alert((e as { message?: string })?.message ?? 'Failed to analyze');
+            setToast({ type: 'error', text: (e as { message?: string })?.message ?? 'Failed to analyze' });
         } finally {
             setAnalyzingLogId(null);
         }
@@ -592,8 +621,9 @@ export default function AdminSystemPage() {
         try {
             await revokeUserSessions(userId);
             await loadSessions();
+            setToast({ type: 'success', text: 'Session revoked.' });
         } catch (e: unknown) {
-            alert((e as { message?: string })?.message ?? 'Failed to revoke session');
+            setToast({ type: 'error', text: (e as { message?: string })?.message ?? 'Failed to revoke session' });
         } finally {
             setIsRevoking(null);
         }
@@ -609,12 +639,12 @@ export default function AdminSystemPage() {
 
     const totalActiveSessions = loadingSessions
         ? '…'
-        : Object.values(sessionsByUser).reduce((sum, s) => sum + s.length, 0).toString();
+        : activeSessions.length.toString();
 
     const systemStats = [
         { label: 'Total Users', value: users.length.toString(), icon: Users },
         { label: 'Active Sessions', value: totalActiveSessions, icon: Monitor },
-        { label: 'Total API Requests', value: '—', icon: BarChart3 },
+        { label: 'Celery Workers', value: workers.length.toString(), icon: BarChart3 },
     ];
 
     return (
@@ -629,6 +659,61 @@ export default function AdminSystemPage() {
                     {!networkStatus.isOnline
                         ? 'You are offline — showing cached data'
                         : 'Backend unreachable — showing cached data'}
+                </div>
+            )}
+
+            {/* Page-level toast banner (#359 alert replacement) */}
+            {toast && (
+                <div
+                    className={`rounded-md border px-4 py-3 text-sm font-medium flex items-center gap-2 ${
+                        toast.type === 'success'
+                            ? 'border-green-200 bg-green-50 text-green-800'
+                            : 'border-red-200 bg-red-50 text-red-800'
+                    }`}
+                    role="alert"
+                >
+                    {toast.type === 'success' ? (
+                        <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                    ) : (
+                        <XCircle className="w-4 h-4 flex-shrink-0" />
+                    )}
+                    <span className="flex-1">{toast.text}</span>
+                    <button
+                        onClick={() => setToast(null)}
+                        className="text-current opacity-60 hover:opacity-100"
+                        aria-label="Dismiss"
+                    >
+                        <XCircle className="w-4 h-4" />
+                    </button>
+                </div>
+            )}
+
+            {/* Confirmation modal for report delete (#359 confirm replacement) */}
+            {confirmDeleteReportId !== null && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+                    <div className="rounded-xl shadow-2xl max-w-sm w-full bg-white overflow-hidden">
+                        <div className="px-6 py-4">
+                            <h3 className="text-base font-bold text-gray-900">Delete Scheduled Report?</h3>
+                            <p className="text-sm text-gray-600 mt-2">
+                                This action cannot be undone. The report schedule will be permanently removed.
+                            </p>
+                        </div>
+                        <div className="px-6 py-3 bg-gray-50 flex gap-3 justify-end">
+                            <button
+                                onClick={() => setConfirmDeleteReportId(null)}
+                                className="px-4 py-2 rounded-lg bg-gray-200 text-gray-700 font-medium hover:bg-gray-300"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={executeDeleteReport}
+                                disabled={deletingReportId !== null}
+                                className="px-4 py-2 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-50"
+                            >
+                                {deletingReportId !== null ? 'Deleting…' : 'Delete'}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -656,11 +741,11 @@ export default function AdminSystemPage() {
                 <div className="card-header flex items-center justify-between" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
                     <div className="flex items-center gap-2">
                         <Activity className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
-                        <span>System Monitoring</span>
-                        {monitoringFromCache && <span className="text-xs italic text-amber-600">(cached)</span>}
-                        {monitoringFromCache && monitoringLastChecked && (
+                        <span>System Health &amp; Monitoring</span>
+                        {(monitoringFromCache || healthFromCache) && <span className="text-xs italic text-amber-600">(cached)</span>}
+                        {(monitoringFromCache || healthFromCache) && (monitoringLastChecked || healthLastChecked) && (
                             <span className="text-xs text-gray-400">
-                                Last checked: {formatLastCheckedAgo(monitoringLastChecked)}
+                                Last checked: {formatLastCheckedAgo(monitoringLastChecked || healthLastChecked)}
                             </span>
                         )}
                         <span className="text-xs text-gray-400">(auto-refreshes every 60s)</span>
@@ -670,157 +755,162 @@ export default function AdminSystemPage() {
                     </button>
                 </div>
                 <div className="card-body space-y-4">
-                    {systemMetrics ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                            <div className="p-4 rounded-lg" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
-                                <div className="text-sm text-gray-500">CPU</div>
-                                <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{systemMetrics.cpu_percent}%</div>
-                                <div className="w-full bg-gray-200 rounded h-2 mt-2">
-                                    <div className="bg-blue-500 h-2 rounded" style={{ width: `${systemMetrics.cpu_percent}%` }} />
-                                </div>
+                    {loadingMonitoring ? (
+                        /* Skeleton loading state (#344) */
+                        <div className="space-y-4 animate-pulse">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                                {Array.from({ length: 5 }).map((_, i) => (
+                                    <div key={i} className="p-4 rounded-lg bg-gray-100 h-24" />
+                                ))}
                             </div>
-                            <div className="p-4 rounded-lg" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
-                                <div className="text-sm text-gray-500">Memory</div>
-                                <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{systemMetrics.memory.percent}%</div>
-                                <div className="text-xs text-gray-400">
-                                    {systemMetrics.memory.used_mb} / {systemMetrics.memory.total_mb} MB
-                                </div>
-                                <div className="w-full bg-gray-200 rounded h-2 mt-2">
-                                    <div className="bg-green-500 h-2 rounded" style={{ width: `${systemMetrics.memory.percent}%` }} />
-                                </div>
-                            </div>
-                            <div className="p-4 rounded-lg" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
-                                <div className="text-sm text-gray-500">Disk</div>
-                                <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{systemMetrics.disk.percent}%</div>
-                                <div className="text-xs text-gray-400">
-                                    {systemMetrics.disk.used_gb} / {systemMetrics.disk.total_gb} GB
-                                </div>
-                                <div className="w-full bg-gray-200 rounded h-2 mt-2">
-                                    <div className="bg-amber-500 h-2 rounded" style={{ width: `${systemMetrics.disk.percent}%` }} />
-                                </div>
-                            </div>
-                            <div className="p-4 rounded-lg" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
-                                <div className="text-sm text-gray-500">AI Inference</div>
-                                {systemMetrics.ai_inference && systemMetrics.ai_inference.count > 0 ? (
-                                    <>
-                                        <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-                                            {systemMetrics.ai_inference.avg_latency_ms}ms
-                                        </div>
-                                        <div className="text-xs text-gray-400">
-                                            avg · {systemMetrics.ai_inference.count} call{systemMetrics.ai_inference.count !== 1 ? 's' : ''}
-                                        </div>
-                                    </>
-                                ) : (
-                                    <div className="text-sm text-gray-400 mt-1">No calls recorded</div>
-                                )}
-                            </div>
-                            <div className="p-4 rounded-lg" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
-                                <div className="text-sm text-gray-500">Network</div>
-                                {systemMetrics.network ? (
-                                    <>
-                                        <div className="text-sm font-medium mt-1" style={{ color: 'var(--text-primary)' }}>
-                                            ↑ {(systemMetrics.network.bytes_sent / 1048576).toFixed(1)} MB sent
-                                        </div>
-                                        <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                                            ↓ {(systemMetrics.network.bytes_recv / 1048576).toFixed(1)} MB recv
-                                        </div>
-                                    </>
-                                ) : (
-                                    <div className="text-sm text-gray-400 mt-1">N/A</div>
-                                )}
+                            <div className="space-y-2">
+                                <div className="h-4 bg-gray-100 rounded w-32" />
+                                <div className="h-10 bg-gray-100 rounded w-full" />
                             </div>
                         </div>
                     ) : (
-                        <p className="text-sm text-gray-400">System metrics unavailable.</p>
-                    )}
+                        <>
+                            {systemMetrics ? (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                                    <div className="p-4 rounded-lg" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
+                                        <div className="text-sm text-gray-500">CPU</div>
+                                        <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{systemMetrics.cpu_percent}%</div>
+                                        <div className="w-full bg-gray-200 rounded h-2 mt-2">
+                                            <div className="bg-blue-500 h-2 rounded" style={{ width: `${systemMetrics.cpu_percent}%` }} />
+                                        </div>
+                                    </div>
+                                    <div className="p-4 rounded-lg" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
+                                        <div className="text-sm text-gray-500">Memory</div>
+                                        <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{systemMetrics.memory.percent}%</div>
+                                        <div className="text-xs text-gray-400">
+                                            {systemMetrics.memory.used_mb} / {systemMetrics.memory.total_mb} MB
+                                        </div>
+                                        <div className="w-full bg-gray-200 rounded h-2 mt-2">
+                                            <div className="bg-green-500 h-2 rounded" style={{ width: `${systemMetrics.memory.percent}%` }} />
+                                        </div>
+                                    </div>
+                                    <div className="p-4 rounded-lg" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
+                                        <div className="text-sm text-gray-500">Disk</div>
+                                        <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{systemMetrics.disk.percent}%</div>
+                                        <div className="text-xs text-gray-400">
+                                            {systemMetrics.disk.used_gb} / {systemMetrics.disk.total_gb} GB
+                                        </div>
+                                        <div className="w-full bg-gray-200 rounded h-2 mt-2">
+                                            <div className="bg-amber-500 h-2 rounded" style={{ width: `${systemMetrics.disk.percent}%` }} />
+                                        </div>
+                                    </div>
+                                    <div className="p-4 rounded-lg" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
+                                        <div className="text-sm text-gray-500">AI Inference</div>
+                                        {systemMetrics.ai_inference && systemMetrics.ai_inference.count > 0 ? (
+                                            <>
+                                                <div className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+                                                    {systemMetrics.ai_inference.avg_latency_ms}ms
+                                                </div>
+                                                <div className="text-xs text-gray-400">
+                                                    avg · {systemMetrics.ai_inference.count} call{systemMetrics.ai_inference.count !== 1 ? 's' : ''}
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="text-sm text-gray-400 mt-1">No calls recorded</div>
+                                        )}
+                                    </div>
+                                    <div className="p-4 rounded-lg" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
+                                        <div className="text-sm text-gray-500">Network</div>
+                                        {systemMetrics.network ? (
+                                            <>
+                                                <div className="text-sm font-medium mt-1" style={{ color: 'var(--text-primary)' }}>
+                                                    ↑ {(systemMetrics.network.bytes_sent / 1048576).toFixed(1)} MB sent
+                                                </div>
+                                                <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                                                    ↓ {(systemMetrics.network.bytes_recv / 1048576).toFixed(1)} MB recv
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="text-sm text-gray-400 mt-1">N/A</div>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : (
+                                <p className="text-sm text-gray-400">System metrics unavailable.</p>
+                            )}
 
-                    <div>
-                        <h3 className="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Celery Workers</h3>
-                        {workers.length > 0 ? (
-                            <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hostname</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Active Tasks</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Seen</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                    {workers.map((w) => (
-                                        <tr key={w.worker_id} className="hover:bg-gray-50">
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{w.hostname}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{w.status}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{w.active_tasks}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                {w.last_seen ? new Date(w.last_seen).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : '—'}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        ) : (
-                            <p className="text-sm text-gray-400">No active workers.</p>
-                        )}
-                    </div>
+                            {/* Health sub-section (consolidated into monitoring, #344) */}
+                            {health && (
+                                <div>
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <h3 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Service Health</h3>
+                                        <span className={`px-2 py-0.5 rounded text-xs font-bold text-white ${health.status === 'HEALTHY' ? 'bg-green-600' : 'bg-red-600'}`}>
+                                            {health.status}
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div className="p-4 rounded-lg flex items-center justify-between" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
+                                            <div className="flex items-center gap-3">
+                                                <Database className="w-5 h-5 text-gray-500" />
+                                                <div>
+                                                    <div className="text-sm font-semibold">PostgreSQL</div>
+                                                    <div className="text-xs text-gray-500">{health.components.database?.latency_ms ?? 0}ms</div>
+                                                </div>
+                                            </div>
+                                            <span className={`w-3 h-3 rounded-full ${health.components.database?.status === 'HEALTHY' ? 'bg-green-500' : 'bg-red-500'}`} />
+                                        </div>
+                                        <div className="p-4 rounded-lg flex items-center justify-between" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
+                                            <div className="flex items-center gap-3">
+                                                <Server className="w-5 h-5 text-gray-500" />
+                                                <div>
+                                                    <div className="text-sm font-semibold">Redis</div>
+                                                    <div className="text-xs text-gray-500">{health.components.redis?.latency_ms ?? 0}ms</div>
+                                                </div>
+                                            </div>
+                                            <span className={`w-3 h-3 rounded-full ${health.components.redis?.status === 'HEALTHY' ? 'bg-green-500' : 'bg-red-500'}`} />
+                                        </div>
+                                        <div className="p-4 rounded-lg flex items-center justify-between" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
+                                            <div className="flex items-center gap-3">
+                                                <Server className="w-5 h-5 text-gray-500" />
+                                                <div>
+                                                    <div className="text-sm font-semibold">Keycloak</div>
+                                                    <div className="text-xs text-gray-500">{health.components.keycloak?.latency_ms ?? 0}ms</div>
+                                                </div>
+                                            </div>
+                                            <span className={`w-3 h-3 rounded-full ${health.components.keycloak?.status === 'HEALTHY' ? 'bg-green-500' : 'bg-red-500'}`} />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div>
+                                <h3 className="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Celery Workers</h3>
+                                {workers.length > 0 ? (
+                                    <table className="min-w-full divide-y divide-gray-200">
+                                        <thead className="bg-gray-50">
+                                            <tr>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hostname</th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Active Tasks</th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Seen</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-gray-200">
+                                            {workers.map((w) => (
+                                                <tr key={w.worker_id} className="hover:bg-gray-50">
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{w.hostname}</td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{w.status}</td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{w.active_tasks}</td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                        {w.last_seen ? new Date(w.last_seen).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : '—'}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                ) : (
+                                    <p className="text-sm text-gray-400">No active workers.</p>
+                                )}
+                            </div>
+                        </>
+                    )}
                 </div>
             </section>
-
-            {health && (
-                <section id="health" className="card overflow-hidden">
-                    <div className="card-header flex items-center justify-between" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
-                        <div className="flex items-center gap-2">
-                            <Activity className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
-                            <span>System Health</span>
-                            {healthFromCache && <span className="text-xs italic text-amber-600">(cached)</span>}
-                            <span className={`ml-2 px-2 py-0.5 rounded text-xs font-bold text-white ${health.status === 'HEALTHY' ? 'bg-green-600' : 'bg-red-600'}`}>
-                                {health.status}
-                            </span>
-                            {healthFromCache && healthLastChecked && (
-                                <span className="text-xs text-gray-400">
-                                    Last checked: {formatLastCheckedAgo(healthLastChecked)}
-                                </span>
-                            )}
-                            <span className="text-xs text-gray-400 ml-2">(auto-refreshes every 60s)</span>
-                        </div>
-                        <button onClick={loadHealth} className="flex items-center gap-1 text-sm font-medium hover:opacity-80 transition-opacity" style={{ color: 'var(--bfp-maroon)' }}>
-                            <RefreshCw className="w-4 h-4" /> Refresh
-                        </button>
-                    </div>
-                    <div className="card-body grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="p-4 rounded-lg flex items-center justify-between" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
-                            <div className="flex items-center gap-3">
-                                <Database className="w-5 h-5 text-gray-500" />
-                                <div>
-                                    <div className="text-sm font-semibold">PostgreSQL</div>
-                                    <div className="text-xs text-gray-500">{health.components.database?.latency_ms ?? 0}ms</div>
-                                </div>
-                            </div>
-                            <span className={`w-3 h-3 rounded-full ${health.components.database?.status === 'HEALTHY' ? 'bg-green-500' : 'bg-red-500'}`} />
-                        </div>
-                        <div className="p-4 rounded-lg flex items-center justify-between" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
-                            <div className="flex items-center gap-3">
-                                <Server className="w-5 h-5 text-gray-500" />
-                                <div>
-                                    <div className="text-sm font-semibold">Redis</div>
-                                    <div className="text-xs text-gray-500">{health.components.redis?.latency_ms ?? 0}ms</div>
-                                </div>
-                            </div>
-                            <span className={`w-3 h-3 rounded-full ${health.components.redis?.status === 'HEALTHY' ? 'bg-green-500' : 'bg-red-500'}`} />
-                        </div>
-                        <div className="p-4 rounded-lg flex items-center justify-between" style={{ backgroundColor: '#f8f9fa', border: '1px solid var(--border-color)' }}>
-                            <div className="flex items-center gap-3">
-                                <Server className="w-5 h-5 text-gray-500" />
-                                <div>
-                                    <div className="text-sm font-semibold">Keycloak</div>
-                                    <div className="text-xs text-gray-500">{health.components.keycloak?.latency_ms ?? 0}ms</div>
-                                </div>
-                            </div>
-                            <span className={`w-3 h-3 rounded-full ${health.components.keycloak?.status === 'HEALTHY' ? 'bg-green-500' : 'bg-red-500'}`} />
-                        </div>
-                    </div>
-                </section>
-            )}
 
             <section id="governance" className="card overflow-hidden">
                 <div className="card-header flex items-center justify-between" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
@@ -1345,7 +1435,7 @@ export default function AdminSystemPage() {
                     <div className="rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto bg-[var(--background)] text-[var(--foreground)]">
                         <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800">
                             <h3 className="text-lg font-bold text-[var(--foreground)] text-white">Suricata Alert #{selectedLog.log_id}</h3>
-                            <button onClick={() => { setSelectedLog(null); setActionNote(''); setPendingMoreInfo(false); setHitlMessage(null); setCreateIncidentResult(null); setRelatedEvidence(null); setRelatedEvidenceError(null); }} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"><XCircle className="w-6 h-6" /></button>
+                            <button onClick={() => { setSelectedLog(null); setHitlMessage(null); setCreateIncidentResult(null); setRelatedEvidence(null); setRelatedEvidenceError(null); }} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"><XCircle className="w-6 h-6" /></button>
                         </div>
                         <div className="p-6 space-y-4 text-[var(--foreground)]">
                             {/* Inline hitl success/error message */}
@@ -1531,7 +1621,11 @@ export default function AdminSystemPage() {
                             </button>
                         </div>
                         <div className="p-5 space-y-3">
-                            {(sessionsByUser[selectedSessionUser.user_id] ?? []).length === 0 ? (
+                            {loadingSessionUser ? (
+                                <p className="text-sm text-gray-500 text-center py-4">Loading sessions…</p>
+                            ) : sessionUserError ? (
+                                <p className="text-sm text-red-600 text-center py-4">{sessionUserError}</p>
+                            ) : (sessionsByUser[selectedSessionUser.user_id] ?? []).length === 0 ? (
                                 <p className="text-sm text-gray-500 text-center py-4">No active sessions.</p>
                             ) : (
                                 <ul className="divide-y divide-gray-100">

@@ -59,7 +59,7 @@ function DeadlineCell({ npcDeadlineAt }: { npcDeadlineAt: string }) {
 }
 
 export default function BreachNotificationsPage() {
-    const { user } = useAuth();
+    const { user, loading: authLoading } = useAuth();
     const role = (user as { role?: string })?.role ?? null;
     const isAdmin = role === 'SYSTEM_ADMIN';
 
@@ -102,6 +102,14 @@ export default function BreachNotificationsPage() {
             setUpdating(null);
         }
     };
+
+    if (authLoading) {
+        return (
+            <div className="flex items-center justify-center min-h-[50vh] text-gray-500">
+                Loading…
+            </div>
+        );
+    }
 
     if (!isAdmin) {
         return (

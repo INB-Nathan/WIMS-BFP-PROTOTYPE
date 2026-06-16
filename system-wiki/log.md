@@ -3,6 +3,14 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-16] feat(#344,#358,#359) | admin hub loading feedback, auth guards, toast/confirm replacement, N+1 session fix
+
+- **#344 (consolidated System Health & Monitoring):** Merged System Health and System Monitoring sections on `/admin/system` into a single "System Health & Monitoring" card. Single refresh button controls both health and metrics/workers. Skeleton loading shown during initial fetch instead of blank sections. Loading states use `loadingMonitoring` flag. Test file `admin-system-monitoring.test.tsx` updated to match new heading text.
+- **#358 (auth loading guards for admin subpages):** Added `useAuth().loading` check to `/admin/monitoring`, `/admin/anomalies`, and `/admin/breach` pages. While auth resolves, a neutral "Loading…" spinner is shown; "Access restricted" only appears for confirmed non-admin roles. Prevents premature flash of restricted-access UI.
+- **#359 (UI feedback + session N+1 fix):** (a) Replaced all native `alert()` and `window.confirm()` calls on `/admin/system` with an in-app toast banner (`setToast`) and a confirmation modal for scheduled report deletion. (b) Fixed N+1 session query: per-user Keycloak sessions are now lazy-loaded via `useEffect` when the admin opens the per-user Sessions modal, instead of loading all user sessions upfront on page mount. Also removed duplicate `fetchAdminUsers()` call in initial mount chain. (c) Removed dead-code `actionNote`/`pendingMoreInfo` state left over from prior HITL refactor (#349/#350/#357).
+- Wiki updates: `system-wiki/frontend/route-map.md` — added monitoring/anomalies/breach routes; `system-wiki/subsystems/admin-hub.md` — documented consolidated System Health & Monitoring card, auth guards, toast/modal pattern, N+1 lazy-loading, and UI feedback pattern.
+- No backend changes, no dependency additions, no FRS gap register changes.
+
 ## [2026-06-16] feat(#349,#350,#357) | admin security alert HITL audit + related-evidence + highlights
 
 - **#357 (backend audit completeness):** `PATCH /security-logs/{log_id}` and `POST /security-logs/{log_id}/create-incident` now pass `request=request` to `log_system_audit()` so audit rows capture real client IP/UA via `X-Forwarded-For`/`X-Real-IP` headers (no sensitive headers/tokens/cookies). `new_values` JSONB in each audit row includes `endpoint_action`, `method`, `path`, `log_id`, `incident_id` (create-incident only), and `outcome: SUCCESS` for forensic traceability.
