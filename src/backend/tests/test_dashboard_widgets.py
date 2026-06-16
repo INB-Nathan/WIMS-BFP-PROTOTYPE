@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from main import app
-from auth import get_current_user, get_db_with_rls
+from auth import get_current_wims_user, get_db_with_rls
 
 
 @pytest.fixture
@@ -37,11 +37,13 @@ def _mock_db(rows_by_query_prefix: dict[str, list]):
             if prefix in stmt:
                 mock_result = MagicMock()
                 mock_result.fetchall.return_value = rows
+                mock_result.fetchone.return_value = rows[0] if rows else None
                 mock_result.scalar.return_value = rows[0][0] if rows and len(rows[0]) > 0 else 0
                 return mock_result
         # Default: empty result
         mock_result = MagicMock()
         mock_result.fetchall.return_value = []
+        mock_result.fetchone.return_value = None
         mock_result.scalar.return_value = 0
         return mock_result
 
@@ -95,7 +97,7 @@ class TestAuthRequired:
 class TestEmptyRequest:
     def test_empty_ids_returns_empty(self, client: TestClient):
         """Empty ids parameter returns empty object."""
-        app.dependency_overrides[get_current_user] = _validator_user
+        app.dependency_overrides[get_current_wims_user] = _validator_user
         db = _mock_db({})
         app.dependency_overrides[get_db_with_rls] = lambda: db
 
@@ -105,7 +107,7 @@ class TestEmptyRequest:
 
     def test_no_ids_param_returns_empty(self, client: TestClient):
         """Missing ids parameter returns empty object."""
-        app.dependency_overrides[get_current_user] = _validator_user
+        app.dependency_overrides[get_current_wims_user] = _validator_user
         db = _mock_db({})
         app.dependency_overrides[get_db_with_rls] = lambda: db
 
@@ -117,7 +119,7 @@ class TestEmptyRequest:
 class TestValidatorWidgets:
     def test_validator_count_widgets(self, client: TestClient):
         """NATIONAL_VALIDATOR gets count widgets."""
-        app.dependency_overrides[get_current_user] = _validator_user
+        app.dependency_overrides[get_current_wims_user] = _validator_user
         db = _mock_db(
             {
                 "PENDING": [(5,)],
@@ -138,7 +140,7 @@ class TestValidatorWidgets:
 
     def test_validator_categorical_widget(self, client: TestClient):
         """by_category widget returns categories array."""
-        app.dependency_overrides[get_current_user] = _validator_user
+        app.dependency_overrides[get_current_wims_user] = _validator_user
         db = _mock_db(
             {
                 "general_category": [
@@ -158,7 +160,7 @@ class TestValidatorWidgets:
 
     def test_validator_cannot_request_encoder_widget(self, client: TestClient):
         """NATIONAL_VALIDATOR cannot access REGIONAL_ENCODER widgets."""
-        app.dependency_overrides[get_current_user] = _validator_user
+        app.dependency_overrides[get_current_wims_user] = _validator_user
         db = _mock_db({})
         app.dependency_overrides[get_db_with_rls] = lambda: db
 
@@ -174,7 +176,7 @@ class TestValidatorWidgets:
 class TestEncoderWidgets:
     def test_encoder_count_widgets(self, client: TestClient):
         """REGIONAL_ENCODER gets encoder count widgets."""
-        app.dependency_overrides[get_current_user] = _encoder_user
+        app.dependency_overrides[get_current_wims_user] = _encoder_user
         db = _mock_db(
             {
                 "region_id": [(42,)],
@@ -195,7 +197,7 @@ class TestEncoderWidgets:
 
     def test_encoder_categorical_widget(self, client: TestClient):
         """by_alarm_level returns categories for encoder."""
-        app.dependency_overrides[get_current_user] = _encoder_user
+        app.dependency_overrides[get_current_wims_user] = _encoder_user
         db = _mock_db(
             {
                 "alarm_level": [
@@ -216,7 +218,7 @@ class TestEncoderWidgets:
 class TestAnalystWidgets:
     def test_analyst_widgets(self, client: TestClient):
         """NATIONAL_ANALYST gets analyst widgets."""
-        app.dependency_overrides[get_current_user] = _analyst_user
+        app.dependency_overrides[get_current_wims_user] = _analyst_user
         db = _mock_db(
             {
                 "region_id": [(100,)],
@@ -245,7 +247,7 @@ class TestAnalystWidgets:
 
     def test_analyst_by_region_returns_top5(self, client: TestClient):
         """by_region widget returns at most 5 categories."""
-        app.dependency_overrides[get_current_user] = _analyst_user
+        app.dependency_overrides[get_current_wims_user] = _analyst_user
         db = _mock_db(
             {
                 "region_name": [
@@ -269,7 +271,7 @@ class TestAnalystWidgets:
 class TestMixedIds:
     def test_mixed_valid_and_invalid_ids(self, client: TestClient):
         """Mixed valid/invalid IDs return only valid ones."""
-        app.dependency_overrides[get_current_user] = _validator_user
+        app.dependency_overrides[get_current_wims_user] = _validator_user
         db = _mock_db(
             {
                 "PENDING": [(10,)],
@@ -287,7 +289,7 @@ class TestMixedIds:
 
     def test_db_error_handled_gracefully(self, client: TestClient):
         """DB errors are caught and returned as error values."""
-        app.dependency_overrides[get_current_user] = _validator_user
+        app.dependency_overrides[get_current_wims_user] = _validator_user
         db = MagicMock()
         db.execute.side_effect = RuntimeError("DB connection lost")
         app.dependency_overrides[get_db_with_rls] = lambda: db
