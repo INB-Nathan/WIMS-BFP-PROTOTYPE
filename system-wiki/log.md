@@ -3,6 +3,15 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-16] fix(#360) | backend real-IP audit metadata for breach + anomaly ACK/RESOLVE
+
+- **#360 (remaining backend audit metadata gaps):** `PATCH /api/admin/breach/{breach_id}` and `PATCH /api/admin/anomalies/{anomaly_id}` now pass `request=request` to `log_system_audit()` so audit rows capture real client IP (via X-Forwarded-For/X-Real-IP/client.host fallback) and real user-agent instead of storing NULL IP or a hardcoded `"anomalies-api"` string.
+- `breach.py`: added `request: Request` parameter; `BREACH_STATUS_UPDATE` audit call passes `request=request`.
+- `anomalies.py`: replaced manual `INSERT INTO wims.system_audit_trails` with `log_system_audit(db, ..., request=request)` for both `ANOMALY_ACK` and `ANOMALY_RESOLVE` actions; removed unused `_safe_ip()` helper.
+- Tests: updated `test_anomaly_api.py` ACK/RESOLVE audit assertions to use `log_system_audit` bind-param keys (`action` instead of `action_type`, `ip`/`ua` instead of `ip_address`/`user_agent`); added assertions that audit `ua` is not the old hardcoded `"anomalies-api"` and that `ip`/`ua` are not None.
+- `security.py` already fixed by earlier PR (#349/#350/#357) — no changes needed.
+- No FRS gap register change (enhancement to existing M10d audit implementation; no new FRS alignment).
+
 ## [2026-06-16] feat(#356,#362) | anomaly dashboard seed data + aggregate counts/dynamic filters
 
 - **#362 (aggregate counts + dynamic filters):** `GET /api/admin/anomalies` now returns `counts` (per-status aggregates: NEW/ACKNOWLEDGED/RESOLVED) and `type_facets` (per-type aggregates with counts) alongside existing paginated items. Same WHERE/filter scope as items and total. Summary cards on `/admin/anomalies` switched from `anomalies.filter()` on current page to API `counts`. Type filter dropdown populated dynamically from `type_facets`. Added severity filter dropdown (LOW/MEDIUM/HIGH/CRITICAL — hardcoded). Empty state distinguishes "no anomalies exist" (seed script hint) from "no anomalies match current filters" (adjust filters suggestion).

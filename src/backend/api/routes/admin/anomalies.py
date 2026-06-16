@@ -11,12 +11,13 @@ import logging
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, field_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from auth import get_system_admin, get_db_with_rls
+from utils.audit import log_system_audit
 
 logger = logging.getLogger("wims.admin.anomalies")
 router = APIRouter()
@@ -166,6 +167,7 @@ def list_anomalies(
 def update_anomaly_status(
     anomaly_id: int,
     body: AnomalyStatusUpdate,
+    request: Request,
     admin: Annotated[dict, Depends(get_system_admin)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
@@ -231,27 +233,13 @@ def update_anomaly_status(
     )
 
     # Audit trail
-    db.execute(
-        text("""
-            INSERT INTO wims.system_audit_trails
-                (user_id, action_type, table_affected, record_id,
-                 ip_address, user_agent)
-            VALUES (
-                CAST(:user_id AS uuid),
-                :action_type,
-                'anomaly_detections',
-                :record_id,
-                :ip_address,
-                :user_agent
-            )
-        """),
-        {
-            "user_id": admin["user_id"],
-            "action_type": audit_action,
-            "record_id": anomaly_id,
-            "ip_address": _safe_ip(admin),
-            "user_agent": "anomalies-api",
-        },
+    log_system_audit(
+        db,
+        admin["user_id"],
+        audit_action,
+        "anomaly_detections",
+        anomaly_id,
+        request=request,
     )
 
     db.commit()
@@ -270,13 +258,3 @@ def update_anomaly_status(
         "previous_status": current_status,
         "new_status": new_status,
     }
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _safe_ip(user: dict) -> str | None:
-    """Extract client IP from user dict if present (injected by middleware)."""
-    return user.get("ip_address") or None
