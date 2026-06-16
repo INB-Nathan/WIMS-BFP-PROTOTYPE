@@ -1,7 +1,7 @@
 ---
 title: Backend API Route Map
 created: 2026-05-14
-updated: 2026-06-12
+updated: 2026-06-16
 type: backend
 tags: [wims-bfp, backend, api, implementation-map]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/backend/api/routes]
@@ -103,8 +103,9 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `admin/monitoring.py` | `GET` | `/monitoring/system` | `get_system_metrics` |
 | `admin/security.py` | `GET` | `/security-logs` | `get_security_logs` | Supports `source_ip`, `severity`, `date_from`, `date_to` filter params |
 | `admin/security.py` | `POST` | `/security-logs/{log_id}/analyze` | `analyze_security_log` | XAI analysis via Ollama (#161) |
-| `admin/security.py` | `PATCH` | `/security-logs/{log_id}` | `update_security_log` | HITL decision (CONFIRM_THREAT, FALSE_POSITIVE, REQUEST_MORE_INFO) (#162) |
-| `admin/security.py` | `POST` | `/security-logs/{log_id}/create-incident` | `create_incident_from_alert` | Manual DRAFT incident from reviewed alert (#165) |
+| `admin/security.py` | `PATCH` | `/security-logs/{log_id}` | `update_security_log` | HITL decision (CONFIRM_THREAT, FALSE_POSITIVE, REQUEST_MORE_INFO); writes audit trail with endpoint metadata (#162, #357) |
+| `admin/security.py` | `POST` | `/security-logs/{log_id}/create-incident` | `create_incident_from_alert` | Manual DRAFT incident from reviewed alert; writes audit trail with endpoint metadata (#165, #357) |
+| `admin/security.py` | `GET` | `/security-logs/{log_id}/related-audit` | `get_related_audit` | Related audit trail rows (±1h window) for a security log (#357) |
 | `admin/audit.py` | `GET` | `/audit-logs` | `get_audit_logs` | Supports `user_id`, `action_type`, `table_affected`, `ip_address`, `date_from`, `date_to` filter params |
 | `admin/audit.py` | `POST` | `/audit-logs/analyze` | `analyze_audit_logs` | Batch SLM behavioral pattern analysis via Ollama (#163) |
 | `admin/config.py` | `GET` | `/admin/config` | `get_config` | M9c configuration management — reads `wims.system_config` (#170, #247) |

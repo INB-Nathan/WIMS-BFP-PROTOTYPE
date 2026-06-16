@@ -1056,3 +1056,204 @@ class TestAnalyzeAuditLogsBatchLimit:
         assert response.status_code != 400, (
             f"Expected non-400 with invalid config (fallback to 50), got {response.status_code}"
         )
+
+
+# =============================================================================
+# Tests for issue #357: request param passed to log_system_audit in security endpoints
+# =============================================================================
+
+
+class TestSecurityAuditRequestParam:
+    """Verify that PATCH /security-logs and POST create-incident pass request to log_system_audit."""
+
+    def test_hitl_review_audit_includes_new_values_metadata(self, client: TestClient):
+        """PATCH HITL review calls log_system_audit with new_values containing endpoint metadata."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        mock_db.execute.return_value.fetchone.return_value = ("LOW", None, None)
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        with patch("api.routes.admin.security.log_system_audit") as mock_audit:
+            response = client.patch(
+                "/api/admin/security-logs/1",
+                json={"action": "CONFIRM_THREAT"},
+            )
+
+        assert response.status_code == 200
+        # LOW severity so no breach; only HITL_REVIEW audit call
+        assert mock_audit.call_count >= 1
+        first_call = mock_audit.call_args_list[0]
+        assert first_call[0][2] == "HITL_REVIEW"
+        assert "request" in first_call[1]
+        assert "new_values" in first_call[1]
+        nv = first_call[1]["new_values"]
+        assert nv["method"] == "PATCH"
+        assert nv["outcome"] == "SUCCESS"
+        assert nv["log_id"] == 1
+
+    def test_create_incident_audit_includes_new_values_metadata(self, client: TestClient):
+        """POST create-incident calls log_system_audit with new_values containing incident_id."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchone.side_effect = [
+            ("1", "10.0.0.1", "12345", "{}"),
+            None,
+            (42,),
+        ]
+        mock_db.execute.return_value = mock_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        with patch("api.routes.admin.security.log_system_audit") as mock_audit:
+            response = client.post("/api/admin/security-logs/1/create-incident")
+
+        assert response.status_code == 200
+        assert mock_audit.call_count >= 1
+        first_call = mock_audit.call_args_list[0]
+        assert first_call[0][2] == "CREATE_INCIDENT_FROM_ALERT"
+        assert "request" in first_call[1]
+        assert "new_values" in first_call[1]
+        nv = first_call[1]["new_values"]
+        assert nv["method"] == "POST"
+        assert nv["incident_id"] == 42
+        assert nv["outcome"] == "SUCCESS"
+
+    def test_confirm_threat_high_severity_writes_breach_audit(self, client: TestClient):
+        """HIGH severity CONFIRM_THREAT triggers BREACH_DETECTED audit with request."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        mock_db.execute.return_value.fetchone.side_effect = [
+            ("HIGH", "suspicious activity", "2026-01-01T00:00:00+00:00"),
+            (99,),
+        ]
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        with patch("api.routes.admin.security.log_system_audit") as mock_audit:
+            with patch("tasks.notifications.send_email_task") as mock_email:
+                mock_email.delay = MagicMock()
+                response = client.patch(
+                    "/api/admin/security-logs/1",
+                    json={"action": "CONFIRM_THREAT"},
+                )
+
+        assert response.status_code == 200
+        assert mock_audit.call_count >= 2
+        actions = [c[0][2] for c in mock_audit.call_args_list]
+        assert "HITL_REVIEW" in actions
+        assert "BREACH_DETECTED" in actions
+        for call in mock_audit.call_args_list:
+            assert "request" in call[1], f"{call[0][2]} missing request"
+            assert "new_values" in call[1], f"{call[0][2]} missing new_values"
+
+
+# =============================================================================
+# Tests for issue #357: GET /admin/security-logs/{log_id}/related-audit
+# =============================================================================
+
+
+class TestGetRelatedAudit:
+    """T13: GET /admin/security-logs/{log_id}/related-audit."""
+
+    def test_returns_empty_list_when_no_related_audit(self, client: TestClient):
+        """Returns items=[] when alert exists but no audit rows match."""
+        from datetime import datetime, timezone
+
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchone.side_effect = [
+            (1, datetime(2026, 1, 15, 10, 0, 0, tzinfo=timezone.utc)),
+        ]
+        mock_result.fetchall.return_value = []
+        mock_db.execute.return_value = mock_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/security-logs/1/related-audit")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["log_id"] == 1
+        assert data["items"] == []
+
+    def test_returns_404_when_alert_missing(self, client: TestClient):
+        """Returns 404 when the alert does not exist."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = None
+        mock_db = MagicMock()
+        mock_db.execute.return_value = mock_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/security-logs/99999/related-audit")
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_returns_audit_rows_for_related_log(self, client: TestClient):
+        """Returns matching audit rows for the alert's log_id."""
+        from datetime import datetime, timezone
+
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchone.side_effect = [
+            (1, datetime(2026, 1, 15, 10, 0, 0, tzinfo=timezone.utc)),
+        ]
+        mock_result.fetchall.return_value = [
+            (
+                10,
+                "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+                "HITL_REVIEW",
+                "security_threat_logs",
+                1,
+                "192.168.1.100",
+                "TestAgent/1.0",
+                datetime(2026, 1, 15, 10, 5, 0, tzinfo=timezone.utc),
+                '{"method": "PATCH", "outcome": "SUCCESS"}',
+                None,
+            ),
+        ]
+        mock_db.execute.return_value = mock_result
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/security-logs/1/related-audit")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["items"]) == 1
+        item = data["items"][0]
+        assert item["audit_id"] == 10
+        assert item["action_type"] == "HITL_REVIEW"
+        assert item["ip_address"] == "192.168.1.100"
+        assert item["user_agent"] == "TestAgent/1.0"
+        assert item["timestamp"] is not None
+
+    def test_requires_admin(self, client: TestClient):
+        """Non-admin (encoder) returns 403."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_encoder_user
+        mock_db = MagicMock()
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/security-logs/1/related-audit")
+
+        assert response.status_code == 403

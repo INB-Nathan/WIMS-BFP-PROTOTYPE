@@ -11,11 +11,13 @@ import {
     updateAdminSecurityLog,
     createIncidentFromAlert,
     fetchAuditLogsOfflineAware,
+    fetchRelatedAuditLogs,
     analyzeSecurityLog,
     fetchRegions,
     fetchUserSessions,
     terminateUserSessions,
     KeycloakSession,
+    RelatedAuditItem,
     fetchActiveSessionsOfflineAware,
     revokeUserSessions,
     fetchSystemHealthOfflineAware,
@@ -157,6 +159,15 @@ export default function AdminSystemPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [analyzingLogId, setAnalyzingLogId] = useState<number | null>(null);
     const [isRevoking, setIsRevoking] = useState<string | null>(null);
+
+    // HITL / alert-action inline message state (issue #349/#350)
+    const [hitlMessage, setHitlMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const [createIncidentResult, setCreateIncidentResult] = useState<{ incident_id: number } | null>(null);
+
+    // Related evidence panel state (issue #349)
+    const [relatedEvidence, setRelatedEvidence] = useState<RelatedAuditItem[] | null>(null);
+    const [loadingRelatedEvidence, setLoadingRelatedEvidence] = useState(false);
+    const [relatedEvidenceError, setRelatedEvidenceError] = useState<string | null>(null);
 
     // Sessions state
     const [sessionsByUser, setSessionsByUser] = useState<Record<string, KeycloakSession[]>>({});
@@ -505,13 +516,16 @@ export default function AdminSystemPage() {
     const handleHitlDecision = async (action: string, note?: string) => {
         if (!selectedLog) return;
         setIsSubmitting(true);
+        setHitlMessage(null);
         try {
             await updateAdminSecurityLog(selectedLog.log_id, { action, note });
+            setHitlMessage({ type: 'success', text: `Action \u201c${action}\u201d applied to alert #${selectedLog.log_id}.` });
             setSelectedLog(null);
             setActionNote('');
+            setPendingMoreInfo(false);
             await loadSecurityLogs(securitySearchQ);
         } catch (e: unknown) {
-            alert((e as { message?: string })?.message ?? 'Update failed');
+            setHitlMessage({ type: 'error', text: (e as { message?: string })?.message ?? 'Update failed' });
         } finally {
             setIsSubmitting(false);
         }
@@ -520,14 +534,34 @@ export default function AdminSystemPage() {
     const handleCreateIncident = async () => {
         if (!selectedLog) return;
         setIsSubmitting(true);
+        setCreateIncidentResult(null);
+        setHitlMessage(null);
         try {
             const result = await createIncidentFromAlert(selectedLog.log_id);
-            alert(`Incident #${result.incident_id} created from this alert.`);
+            setCreateIncidentResult({ incident_id: result.incident_id });
+            setSelectedLog(null);
+            setActionNote('');
+            setPendingMoreInfo(false);
             await loadSecurityLogs();
         } catch (e: unknown) {
-            alert((e as { message?: string })?.message ?? 'Create incident failed');
+            setHitlMessage({ type: 'error', text: (e as { message?: string })?.message ?? 'Create incident failed' });
         } finally {
             setIsSubmitting(false);
+        }
+    };
+
+    const handleViewRelatedEvidence = async () => {
+        if (!selectedLog) return;
+        setLoadingRelatedEvidence(true);
+        setRelatedEvidenceError(null);
+        setRelatedEvidence(null);
+        try {
+            const data = await fetchRelatedAuditLogs(selectedLog.log_id);
+            setRelatedEvidence(data.items);
+        } catch (e: unknown) {
+            setRelatedEvidenceError((e as { message?: string })?.message ?? 'Failed to load related evidence');
+        } finally {
+            setLoadingRelatedEvidence(false);
         }
     };
 
@@ -1052,6 +1086,73 @@ export default function AdminSystemPage() {
                 {auditLogs.total > 0 && <div className="px-6 py-2 bg-gray-50 border-t border-gray-200 text-xs text-gray-500">Showing {auditLogs.items.length} of {auditLogs.total}</div>}
             </section>
 
+            {/* Alert Action Highlights (issue #350) */}
+            <section id="audit-highlights" className="card overflow-hidden">
+                <div className="card-header flex items-center justify-between" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
+                    <div className="flex items-center gap-2">
+                        <ShieldAlert className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                        <span>Alert Action Highlights</span>
+                    </div>
+                    <button onClick={() => loadAuditLogs(auditSearchQ)} disabled={loadingAudit} className="flex items-center gap-1 text-sm font-medium disabled:opacity-50" style={{ color: 'var(--bfp-maroon)' }}>
+                        <RefreshCw className={`w-4 h-4 ${loadingAudit ? 'animate-spin' : ''}`} /> Refresh
+                    </button>
+                </div>
+                <div className="overflow-x-auto">
+                    {(() => {
+                        const highlightActions = new Set(['HITL_REVIEW', 'CREATE_INCIDENT_FROM_ALERT', 'BREACH_DETECTED']);
+                        const highlights = auditLogs.items.filter(a => a.action_type && highlightActions.has(a.action_type));
+                        if (highlights.length === 0) {
+                            return <div className="p-8 text-center text-gray-500">No security action highlights yet. Admin HITL decisions, incident creation from alerts, and breach detections will appear here.</div>;
+                        }
+                        return (
+                            <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Table</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Record</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IP / UA</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                    {highlights.map((a) => (
+                                        <tr key={a.audit_id} className="hover:bg-gray-50">
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{a.timestamp ? new Date(a.timestamp).toLocaleString() : '\u2014'}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                                                    a.action_type === 'HITL_REVIEW' ? 'bg-blue-100 text-blue-800' :
+                                                    a.action_type === 'CREATE_INCIDENT_FROM_ALERT' ? 'bg-orange-100 text-orange-800' :
+                                                    'bg-red-100 text-red-800'
+                                                }`}>
+                                                    {a.action_type === 'HITL_REVIEW' ? 'HITL Review' :
+                                                     a.action_type === 'CREATE_INCIDENT_FROM_ALERT' ? 'Incident Created' :
+                                                     'Breach Detected'}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                {a.table_affected === 'security_threat_logs' && a.record_id ? (
+                                                    <a href={`#telemetry`} className="text-blue-600 hover:underline font-mono text-xs" onClick={(e) => { e.preventDefault(); setSecuritySearchQ(''); loadSecurityLogs(''); }}>
+                                                        alert #{a.record_id}
+                                                    </a>
+                                                ) : (
+                                                    <span className="text-gray-400">{a.table_affected ?? '\u2014'}</span>
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{a.record_id ?? '\u2014'}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                                                {a.ip_address ? <span className="font-mono text-xs mr-2">{a.ip_address}</span> : null}
+                                                {a.user_agent ? <span className="text-xs truncate max-w-[200px] inline-block">{a.user_agent.substring(0, 50)}</span> : <span className="italic">no metadata</span>}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        );
+                    })()}
+                </div>
+            </section>
+
             {/* Scheduled Reports (Issue #88) */}
             <section id="scheduled-reports" className="card overflow-hidden">
                 <div className="card-header flex items-center justify-between" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
@@ -1244,9 +1345,26 @@ export default function AdminSystemPage() {
                     <div className="rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto bg-[var(--background)] text-[var(--foreground)]">
                         <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800">
                             <h3 className="text-lg font-bold text-[var(--foreground)] text-white">Suricata Alert #{selectedLog.log_id}</h3>
-                            <button onClick={() => { setSelectedLog(null); setActionNote(''); setPendingMoreInfo(false); }} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"><XCircle className="w-6 h-6" /></button>
+                            <button onClick={() => { setSelectedLog(null); setActionNote(''); setPendingMoreInfo(false); setHitlMessage(null); setCreateIncidentResult(null); setRelatedEvidence(null); setRelatedEvidenceError(null); }} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"><XCircle className="w-6 h-6" /></button>
                         </div>
                         <div className="p-6 space-y-4 text-[var(--foreground)]">
+                            {/* Inline hitl success/error message */}
+                            {hitlMessage && (
+                                <div className={`p-3 rounded-md text-sm font-medium ${hitlMessage.type === 'success' ? 'bg-green-50 border border-green-200 text-green-800 dark:bg-green-950/40 dark:border-green-800 dark:text-green-200' : 'bg-red-50 border border-red-200 text-red-800 dark:bg-red-950/40 dark:border-red-800 dark:text-red-200'}`}>
+                                    {hitlMessage.type === 'success' ? <CheckCircle className="w-4 h-4 inline mr-1" /> : <XCircle className="w-4 h-4 inline mr-1" />}
+                                    {hitlMessage.text}
+                                </div>
+                            )}
+
+                            {/* Inline create incident success message */}
+                            {createIncidentResult && (
+                                <div className="p-3 rounded-md text-sm font-medium bg-green-50 border border-green-200 text-green-800 dark:bg-green-950/40 dark:border-green-800 dark:text-green-200">
+                                    <CheckCircle className="w-4 h-4 inline mr-1" />
+                                    Incident #{createIncidentResult.incident_id} created from this alert.{' '}
+                                    <a href={`/incidents/${createIncidentResult.incident_id}`} className="underline font-semibold hover:opacity-80">View Incident</a>
+                                </div>
+                            )}
+
                             <div className="bg-purple-50 dark:bg-purple-950/40 p-4 rounded-lg border border-purple-100 dark:border-purple-800">
                                 <h4 className="text-xs font-bold text-white dark:text-white uppercase mb-2">AI Analysis</h4>
                                 {selectedLog.xai_narrative ? (
@@ -1308,16 +1426,16 @@ export default function AdminSystemPage() {
                                             className="px-3 py-1.5 bg-purple-600 text-white rounded text-sm font-medium hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
                                         >
                                             <Sparkles className="w-4 h-4" />
-                                            {analyzingLogId === selectedLog.log_id ? 'Analyzing…' : 'Analyze with AI'}
+                                            {analyzingLogId === selectedLog.log_id ? 'Analyzing\u2026' : 'Analyze with AI'}
                                         </button>
                                     </div>
                                 )}
                             </div>
                             <div className="grid grid-cols-2 gap-4 text-sm">
-                                <div><span className="text-gray-600 dark:text-gray-400">Source</span><div className="font-mono text-[var(--foreground)]">{selectedLog.source_ip ?? '—'}</div></div>
-                                <div><span className="text-gray-600 dark:text-gray-400">Destination</span><div className="font-mono text-[var(--foreground)]">{selectedLog.destination_ip ?? '—'}</div></div>
-                                <div><span className="text-gray-600 dark:text-gray-400">SID</span><div className="text-[var(--foreground)]">{selectedLog.suricata_sid ?? '—'}</div></div>
-                                <div><span className="text-gray-600 dark:text-gray-400">Severity</span><div className="text-[var(--foreground)]">{selectedLog.severity_level ?? '—'}</div></div>
+                                <div><span className="text-gray-600 dark:text-gray-400">Source</span><div className="font-mono text-[var(--foreground)]">{selectedLog.source_ip ?? '\u2014'}</div></div>
+                                <div><span className="text-gray-600 dark:text-gray-400">Destination</span><div className="font-mono text-[var(--foreground)]">{selectedLog.destination_ip ?? '\u2014'}</div></div>
+                                <div><span className="text-gray-600 dark:text-gray-400">SID</span><div className="text-[var(--foreground)]">{selectedLog.suricata_sid ?? '\u2014'}</div></div>
+                                <div><span className="text-gray-600 dark:text-gray-400">Severity</span><div className="text-[var(--foreground)]">{selectedLog.severity_level ?? '\u2014'}</div></div>
                             </div>
                             {selectedLog.raw_payload && (
                                 <div>
@@ -1337,53 +1455,59 @@ export default function AdminSystemPage() {
                                             Create Incident from Alert
                                         </button>
                                     </div>
-                                    {pendingMoreInfo ? (
-                                        <div className="space-y-2">
-                                            <textarea
-                                                value={actionNote}
-                                                onChange={(e) => setActionNote(e.target.value)}
-                                                placeholder="Optional note for analyst..."
-                                                className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm text-[var(--foreground)] bg-[var(--background)]"
-                                                rows={2}
-                                            />
-                                            <div className="flex gap-2">
-                                                <button
-                                                    onClick={() => handleHitlDecision('REQUEST_MORE_INFO', actionNote || undefined)}
-                                                    disabled={isSubmitting}
-                                                    className="px-4 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 disabled:opacity-50"
-                                                >
-                                                    {isSubmitting ? 'Sending…' : 'Confirm'}
-                                                </button>
-                                                <button
-                                                    onClick={() => { setPendingMoreInfo(false); setActionNote(''); }}
-                                                    className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 rounded font-medium hover:bg-gray-300 dark:hover:bg-gray-500"
-                                                >
-                                                    Cancel
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-wrap gap-2">
-                                            <button
-                                                onClick={() => handleHitlDecision('CONFIRM_THREAT')}
-                                                disabled={isSubmitting}
-                                                className="px-4 py-2 bg-red-600 text-white rounded font-medium hover:bg-red-700 disabled:opacity-50"
-                                            >
-                                                Confirm Threat
-                                            </button>
-                                            <button
-                                                onClick={() => handleHitlDecision('FALSE_POSITIVE')}
-                                                disabled={isSubmitting}
-                                                className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 rounded font-medium hover:bg-gray-300 dark:hover:bg-gray-500 disabled:opacity-50"
-                                            >
-                                                False Positive
-                                            </button>
-                                            <button
-                                                onClick={() => setPendingMoreInfo(true)}
-                                                className="px-4 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700"
-                                            >
-                                                Request More Info
-                                            </button>
+                                    <div className="flex flex-wrap gap-2 mb-3">
+                                        <button
+                                            onClick={() => handleHitlDecision('CONFIRM_THREAT')}
+                                            disabled={isSubmitting}
+                                            className="px-4 py-2 bg-red-600 text-white rounded font-medium hover:bg-red-700 disabled:opacity-50"
+                                        >
+                                            Confirm Threat
+                                        </button>
+                                        <button
+                                            onClick={() => handleHitlDecision('FALSE_POSITIVE')}
+                                            disabled={isSubmitting}
+                                            className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 rounded font-medium hover:bg-gray-300 dark:hover:bg-gray-500 disabled:opacity-50"
+                                        >
+                                            False Positive
+                                        </button>
+                                        <button
+                                            onClick={() => handleViewRelatedEvidence()}
+                                            disabled={loadingRelatedEvidence}
+                                            className="px-4 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 disabled:opacity-50"
+                                        >
+                                            {loadingRelatedEvidence ? 'Loading\u2026' : 'View Related Evidence'}
+                                        </button>
+                                    </div>
+
+                                    {/* Related Evidence sub-panel */}
+                                    {(relatedEvidence !== null || loadingRelatedEvidence || relatedEvidenceError) && (
+                                        <div className="border border-gray-200 dark:border-gray-700 rounded-md p-3 mt-3 bg-gray-50 dark:bg-gray-900/50">
+                                            <h4 className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-2">Related Audit Evidence</h4>
+                                            {loadingRelatedEvidence && (
+                                                <p className="text-sm text-gray-500 italic">Loading related evidence\u2026</p>
+                                            )}
+                                            {relatedEvidenceError && (
+                                                <p className="text-sm text-red-600">{relatedEvidenceError}</p>
+                                            )}
+                                            {relatedEvidence && relatedEvidence.length === 0 && (
+                                                <p className="text-sm text-gray-500">No related audit records found in the \u00b11 hour window.</p>
+                                            )}
+                                            {relatedEvidence && relatedEvidence.length > 0 && (
+                                                <div className="max-h-48 overflow-y-auto space-y-1">
+                                                    {relatedEvidence.map((item) => (
+                                                        <div key={item.audit_id} className="text-xs p-2 bg-white dark:bg-gray-800 rounded border border-gray-100 dark:border-gray-700">
+                                                            <div className="flex justify-between">
+                                                                <span className="font-semibold text-blue-700 dark:text-blue-300">{item.action_type ?? '\u2014'}</span>
+                                                                <span className="text-gray-400">{item.timestamp ? new Date(item.timestamp).toLocaleString() : '\u2014'}</span>
+                                                            </div>
+                                                            <div className="text-gray-500 mt-0.5">
+                                                                {item.ip_address && <span className="mr-2 font-mono">{item.ip_address}</span>}
+                                                                {item.user_agent && <span className="truncate block">{item.user_agent.substring(0, 80)}</span>}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
