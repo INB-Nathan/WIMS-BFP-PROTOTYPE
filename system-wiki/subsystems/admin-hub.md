@@ -1,7 +1,7 @@
 ---
 title: System Admin Hub
 created: 2026-05-16
-updated: 2026-06-12
+updated: 2026-06-16
 type: operation
 tags: [wims-bfp, admin, system-admin, dashboard, identity, security]
 sources: [src/frontend/src/app/admin/system/page.tsx, src/backend/api/routes/admin.py, src/frontend/src/lib/api/legacy.ts]
@@ -25,13 +25,15 @@ The admin hub (`/admin/system`) is the `SYSTEM_ADMIN`-only management console fo
 
 | Panel | Data | API Call | Notes |
 |---|---|---|---|
-| **System Health** | Component-wise health (DB/Redis/Keycloak) with latency | `fetchSystemHealth()` → `GET /api/admin/health` | Single-card per component with status + latency |
+| **System Health & Monitoring** (#344 consolidated) | System metrics (CPU/Memory/Disk/AI/Network), Celery workers, and component health (DB/Redis/Keycloak) | `fetchSystemMetricsOfflineAware()`, `fetchWorkerStatusOfflineAware()`, `fetchSystemHealthOfflineAware()` | Single card with skeleton loading on initial fetch; one refresh button for both sections; auto-refreshes every 60s |
+| **System Analytics / Flow** | Total Users, Active Sessions (from aggregate endpoint), Celery Workers count | `fetchAdminUsers()`, `fetchActiveSessionsOfflineAware()`, `fetchWorkerStatusOfflineAware()` | Three-stat dashboard cards. "Total API Requests" placeholder replaced with live Celery Workers count (#359) |
 | **User Management** | All users (masked Keycloak IDs), edit role/region/active state | `fetchAdminUsers()`, `updateAdminUser()` | Inline edit for role/region/active; Create User modal for onboarding; region dropdown populated from `fetchRegions()` |
 | **Create User Modal** | First name, last name, email, role, region, contact | `createAdminUser()` → `POST /api/admin/users` | Returns temp password in plaintext (prototype); copy-to-clipboard with show/hide toggle; region filter list from `fetchRegions()` |
-| **Active Sessions** | All active Keycloak sessions across all users | `fetchActiveSessions()` → `GET /api/admin/active-sessions` | Table with session ID, username, role, IP, start, last access; Revoke button calls `revokeUserSessions()` |
+| **Active Sessions** | All active Keycloak sessions across all users | `fetchActiveSessionsOfflineAware()` → `GET /api/admin/active-sessions` | Table with session ID, username, role, IP, start, last access; Revoke button calls `revokeUserSessions()`. Per-user sessions loaded lazily on "View Sessions" click (#359 N+1 fix) |
+| **Per-User Sessions Modal** | Per-user Keycloak sessions (lazy-loaded) | `fetchUserSessions(user_id)` on demand | Lazy-loads sessions when user clicks "View Sessions"; shows loading/error/no-sessions states; Terminate All button |
 | **Security Threat Logs** | Suricata/XAI threat telemetry | `fetchAdminSecurityLogs()` → `GET /api/admin/security-logs` | Table with source/dest IP, severity, Suricata SID, raw payload, XAI narrative/confidence; Analyze button runs `analyzeSecurityLog()`; HITL modal: 3 decision buttons (Confirm Threat / False Positive / Request More Info) replacing free-text admin_action_taken form. Request More Info reveals optional note textarea + Confirm. Already-actioned logs show read-only display. Backend response is paginated (`items`, `total`, `limit`, `offset`) and includes `hitl_decision` JSONB. |
 | **System Audit Trails** | Paginated audit log of all admin actions | `fetchAuditLogs(limit, offset)` → `GET /api/admin/audit-logs` | Table with user_id, action_type, table_affected, record_id, IP, UA, timestamp; paginated with limit/offset |
-| **Scheduled Reports** | Create/manage scheduled analytics reports | `POST /api/admin/scheduled-reports`, `GET /api/admin/scheduled-reports` | Create form: name, format (pdf/excel/csv), cron expression, filters JSON, recipients; list with delete capability |
+| **Scheduled Reports** | Create/manage scheduled analytics reports | `POST /api/admin/scheduled-reports`, `GET /api/admin/scheduled-reports` | Create form: name, format (pdf/excel/csv), cron expression, filters JSON, recipients; list with toggle/delete; delete uses confirmation modal (no native `confirm()`) |
 | **Backup Management** | Trigger pg_dump + AES encrypt, list backups, download | `triggerBackup()`, `listBackups()`, `downloadBackup()` | Backup filenames: `wims_YYYYMMDD_HHMMSS.sql.enc`; retention policy deletes oldest when >100 files; download via FileResponse |
 
 ## Backend API Routes
@@ -96,6 +98,26 @@ All in `src/backend/api/routes/admin.py` (~935 lines). Every endpoint is gated b
 - **Partial sync failure tolerance** — user deactivation updates DB first, logs Keycloak sync failure as warning rather than rolling back
 - **Backup format** — `pg_dump` encrypted with AES-256-CBC; `_apply_backup_retention()` deletes oldest when count exceeds 100
 - **Backup dir** — lazy-created at `/app/storage/backups` (configurable via `BACKUP_DIR` env var)
+
+## UI Feedback Pattern (#359)
+
+Native `alert()` and `confirm()` calls have been replaced with page-level in-app feedback:
+- **Toast banner**: A dismissible inline banner at the top of the page shows success/error messages for all CRUD operations (create/update/delete user, report, session, AI analysis).
+- **Confirmation modal**: The scheduled report delete action uses a confirmation modal instead of `window.confirm()`, with Cancel/Delete buttons.
+- **Error messages**: Backend error messages are preserved safely through the toast with no extra dependencies.
+
+## N+1 Session Fix (#359)
+
+- Initial page load uses the aggregate `GET /admin/active-sessions` endpoint (via `fetchActiveSessionsOfflineAware()`) for the Active Sessions table.
+- Per-user Keycloak sessions (`fetchUserSessions(user_id)`) are lazy-loaded only when the admin opens the per-user Sessions modal.
+- The duplicate `fetchAdminUsers()` call in the initial mount chain has been removed.
+
+## Auth Loading Guards (#358)
+
+Monitoring (`/admin/monitoring`), anomalies (`/admin/anomalies`), and breach (`/admin/breach`) pages now consume `loading` from `useAuth()`. While auth is resolving:
+- A neutral "Loading…" state is shown (not "Access restricted")
+- No admin API calls are triggered
+- The "Access restricted" message only appears after auth resolves to a non-SYSTEM_ADMIN role
 
 ## Offline Read Caching (GH #270)
 

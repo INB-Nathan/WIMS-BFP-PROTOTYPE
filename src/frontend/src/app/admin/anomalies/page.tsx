@@ -43,7 +43,7 @@ function formatTime(iso: string): string {
 }
 
 export default function AnomalyDetectionPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const role = (user as { role?: string })?.role ?? null;
   const isAdmin = role === 'SYSTEM_ADMIN';
 
@@ -114,6 +114,14 @@ export default function AnomalyDetectionPage() {
       setUpdatingId(null);
     }
   };
+
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh] text-gray-500">
+        Loading…
+      </div>
+    );
+  }
 
   if (!isAdmin) {
     return (

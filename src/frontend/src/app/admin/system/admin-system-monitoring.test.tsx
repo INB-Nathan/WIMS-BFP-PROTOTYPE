@@ -229,7 +229,7 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
         expect(screen.getByText('System metrics unavailable.')).toBeInTheDocument();
     });
 
-    it('renders System Monitoring section heading after initial data load', async () => {
+    it('renders System Health & Monitoring section heading after initial data load', async () => {
         mockFetchSystemHealth.mockResolvedValue(mockHealth);
         mockFetchSystemMetrics.mockResolvedValue(mockSystemMetrics);
         mockFetchWorkerStatus.mockResolvedValue([]);
@@ -238,10 +238,10 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
         render(<AdminSystemPage />);
 
         await waitFor(() => {
-            expect(screen.getByText('System Monitoring')).toBeInTheDocument();
+            expect(screen.getByText('System Health & Monitoring')).toBeInTheDocument();
         });
 
-        expect(screen.getByText('Celery Workers')).toBeInTheDocument();
+        expect(screen.getAllByText('Celery Workers').length).toBeGreaterThanOrEqual(1);
         expect(screen.getByText('No active workers.')).toBeInTheDocument();
     });
 
@@ -303,7 +303,7 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
         render(<AdminSystemPage />);
 
         await waitFor(() => {
-            expect(screen.getByText('System Monitoring')).toBeInTheDocument();
+            expect(screen.getByText('System Health & Monitoring')).toBeInTheDocument();
         });
 
         expect(screen.queryByText(/You are offline/)).toBeNull();
@@ -324,7 +324,7 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
         render(<AdminSystemPage />);
 
         await waitFor(() => {
-            expect(screen.getByText('System Monitoring')).toBeInTheDocument();
+            expect(screen.getByText('System Health & Monitoring')).toBeInTheDocument();
         });
 
         // No banner yet

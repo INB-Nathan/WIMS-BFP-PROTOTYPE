@@ -15,8 +15,11 @@ Next.js App Router pages detected under `src/frontend/src/app`.
 | Route | Source file |
 |---|---|
 | `/admin` | `admin/page.tsx` |
-| `/admin/system` | `admin/system/page.tsx` |
+| `/admin/system` | `admin/system/page.tsx` | System admin hub with consolidated health & monitoring (#344) |
 | `/admin/system/config` | `admin/system/config/page.tsx` | M9c admin configuration management UI (#170, #247) |
+| `/admin/monitoring` | `admin/monitoring/page.tsx` | Security monitoring with auth loading guard (#358) |
+| `/admin/anomalies` | `admin/anomalies/page.tsx` | Anomaly detection with auth loading guard (#358) |
+| `/admin/breach` | `admin/breach/page.tsx` | Breach notifications with auth loading guard (#358) |
 | `/afor/create` | `afor/create/page.tsx` |
 | `/afor/import` | `afor/import/page.tsx` |
 | `/callback` | `callback/page.tsx` |
@@ -53,7 +56,8 @@ Next.js App Router pages detected under `src/frontend/src/app`.
 - Regional encoder: `/dashboard/regional` defaults its incident list to Today by Date Modified, renders Today, Specific Date, and result sets of 6 or fewer incidents as richer cards with status-coloured 1px borders, exposes date-range controls plus an always-visible calendar picker that filters by modified date, and keeps activity-log access in the sidebar. Manual-entry draft autosave in `IncidentForm.tsx` is per authenticated user (`wims:incident_draft:{user.id}`), starts only after actual user input, and clears the legacy global draft key on discard/submit so first-login blank forms do not show restore banners. The summary cards show Total This Week plus category/wildland counts, and the rejected alert can be dismissed or can bypass date/classification filters to show all rejected incidents. `/dashboard/regional/incidents/[id]` uses a formal report-style read-only detail page with a compact header, non-status summary panel, larger animated desktop vertical dot section navigation fixed against the right viewport margin, grouped softened section cards, compact affected-count cells, cleaner tables, explicit 24H time indicators, and unchanged online edit/delete/withdraw/submit/map behavior. Pending-sync local IDs render from IndexedDB on the same route and support local view/edit/delete before sync.
 - Shared authenticated shell: `components/Sidebar.tsx`, `Header.tsx`, and `LayoutShell.tsx` label `/home` as Operations, put role dashboards first for encoder/validator users, and no longer render the global sync status banner above every authenticated page. Global app CSS applies a 90% browser zoom baseline through `src/app/globals.css`.
 - Analytics/reporting: `/dashboard/analyst`, `/dashboard/analyst/[workflow]`, `/dashboard/analyst/incidents/[id]`, `/dashboard/analyst/incidents/[id]/wildland`, `/`, `/tracking`. The sidebar now has an explicit `NATIONAL_ANALYST` navigation section pointing to `/dashboard/analyst`, dedicated analyst workflow routes, and `/profile`; analyst incident list/drawer/detail routes are implemented as read-only surfaces. The dashboard now includes the side-column heatmap layout, prominent filter bar, Recharts analytics panels, CSV/PDF/Excel export preview modal with full column label parity, active-filter export download flow with descriptive date-range filenames, and workflow launch cards. `/dashboard/analyst/[workflow]` currently supports `comparative`, `heatmap`, `trends`, `response-time`, `top-n`, and `incident-explorer`, each with shared filters, export preview actions, a verified incident table with rows-per-page selector (25/50/100/250), and action-oriented "Check all on page" / "Uncheck all on page" labels. The analyst detail page and drawer both have a copy-incident-ID button. Phase 1 workflow selection is implemented with `sessionStorage` transfer IDs, selected-set handoff, local reset, persistent row selection across pagination, selected-set labels, and a 100-row Incident Explorer table.
-- Administration/security: `/admin`, `/admin/system`.
+- Administration/security: `/admin`, `/admin/system`, `/admin/monitoring`, `/admin/anomalies`, `/admin/breach`.
+  - **Auth loading guards** (#358): Monitoring, anomalies, and breach pages show a neutral loading state while auth resolves, then show "Access restricted" only for confirmed non-admin roles. System page already had this pattern.
 
 ## Related
 - [[backend/api-route-map]]
