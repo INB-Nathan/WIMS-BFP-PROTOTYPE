@@ -3,6 +3,15 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-17] test(#225) | align profile email tests with verification flow
+
+- **Test-only change:** Updated 6 failing tests in `tests/test_profile_email.py` to match the new email verification policy (introduced in parent commit). Direct email changes via `PATCH /api/user/me` now always return 400 with guidance to use `POST /api/auth/change-email` and `POST /api/auth/verify-email` instead. Tests now assert the 400 response and verify that no Keycloak/DB operations are triggered for direct email changes.
+- **New test file:** `tests/test_auth_email_verification.py` (18 tests) covers the full verification flow with mocks:
+  - `POST /api/auth/change-email`: success, password verification, incorrect password (401), missing/empty password (400), Redis unavailable (503), email send failure with Redis cleanup (502), schema validation (empty/invalid email).
+  - `POST /api/auth/verify-email`: success with Keycloak+DB update and Redis cleanup, missing/whitespace code (400), no pending change (404), wrong code (400, key preserved), Redis unavailable (503), Keycloak failure (502, key preserved), DB sync failure (200 partial, key cleaned), empty body (422).
+- All mocks used; no live Redis/Keycloak/SMTP required.
+- No FRS gap register change (test alignment only).
+
 ## [2026-06-16] feat(#353) | scheduled reports human-friendly filter builder
 
 - **#353 (filter builder for Scheduled Reports):** Replaced raw JSON textarea on `/admin/system` Scheduled Reports create/edit form with a human-friendly filter builder as the primary UI. Common filter fields (`region_id`, `severity`, `start_date`, `end_date`, `incident_type`) use dropdown, date-picker, and text inputs. Raw JSON remains available via an "Expert" toggle button for advanced users. Filters are validated client-side before save with clear inline error messages; invalid filters block save. The create payload now sends structured filter objects directly (no more `JSON.parse` of a raw string).
