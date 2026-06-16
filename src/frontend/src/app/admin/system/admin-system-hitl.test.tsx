@@ -129,7 +129,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogUnactioned], total: 1 });
         render(<AdminSystemPage />);
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
-        const viewButtons = screen.getAllByRole('button', { name: /View/i });
+        const viewButtons = await screen.findAllByRole('button', { name: /View/i });
         fireEvent.click(viewButtons[0]);
         await waitFor(() => {
             expect(screen.getByText('Suricata Alert #1')).toBeInTheDocument();
@@ -144,7 +144,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogUnactioned], total: 1 });
         render(<AdminSystemPage />);
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
-        const viewButtons = screen.getAllByRole('button', { name: /View/i });
+        const viewButtons = await screen.findAllByRole('button', { name: /View/i });
         fireEvent.click(viewButtons[0]);
         await waitFor(() => expect(screen.getByText('Suricata Alert #1')).toBeInTheDocument());
         fireEvent.click(screen.getByRole('button', { name: /Confirm Threat/i }));
@@ -159,7 +159,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogUnactioned], total: 1 });
         render(<AdminSystemPage />);
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
-        const viewButtons = screen.getAllByRole('button', { name: /View/i });
+        const viewButtons = await screen.findAllByRole('button', { name: /View/i });
         fireEvent.click(viewButtons[0]);
         await waitFor(() => expect(screen.getByText('Suricata Alert #1')).toBeInTheDocument());
         fireEvent.click(screen.getByRole('button', { name: /False Positive/i }));
@@ -189,7 +189,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         });
         render(<AdminSystemPage />);
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
-        const viewButtons = screen.getAllByRole('button', { name: /View/i });
+        const viewButtons = await screen.findAllByRole('button', { name: /View/i });
         fireEvent.click(viewButtons[0]);
         await waitFor(() => expect(screen.getByText('Suricata Alert #1')).toBeInTheDocument());
         fireEvent.click(screen.getByRole('button', { name: /View Related Evidence/i }));
@@ -207,7 +207,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         mockFetchRelatedAuditLogs.mockResolvedValue({ log_id: 1, items: [] });
         render(<AdminSystemPage />);
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
-        const viewButtons = screen.getAllByRole('button', { name: /View/i });
+        const viewButtons = await screen.findAllByRole('button', { name: /View/i });
         fireEvent.click(viewButtons[0]);
         await waitFor(() => expect(screen.getByText('Suricata Alert #1')).toBeInTheDocument());
         fireEvent.click(screen.getByRole('button', { name: /View Related Evidence/i }));
@@ -220,7 +220,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogActioned], total: 1 });
         render(<AdminSystemPage />);
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
-        const viewButtons = screen.getAllByRole('button', { name: /View/i });
+        const viewButtons = await screen.findAllByRole('button', { name: /View/i });
         fireEvent.click(viewButtons[0]);
         await waitFor(() => {
             expect(screen.getByText('Suricata Alert #2')).toBeInTheDocument();
@@ -235,7 +235,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogUnactioned], total: 1 });
         render(<AdminSystemPage />);
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
-        const viewButtons = screen.getAllByRole('button', { name: /View/i });
+        const viewButtons = await screen.findAllByRole('button', { name: /View/i });
         fireEvent.click(viewButtons[0]);
         await waitFor(() => expect(screen.getByText('Suricata Alert #1')).toBeInTheDocument());
         fireEvent.click(screen.getByRole('button', { name: /Create Incident from Alert/i }));

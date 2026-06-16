@@ -263,12 +263,15 @@ export async function changeMyPassword(payload: {
 /** Fetch security logs (admin) - ordered by timestamp desc, or by ts_rank when q is set, supports severity filter.
  * Returns the full paginated response including `total` so callers can correctly disable Next when on the last page. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function fetchAdminSecurityLogs(params?: { q?: string; severity?: string; limit?: number; offset?: number }): Promise<{ items: any[]; total: number }> {
+export async function fetchAdminSecurityLogs(params?: { q?: string; severity?: string; limit?: number; offset?: number; source_ip?: string; date_from?: string; date_to?: string }): Promise<{ items: any[]; total: number }> {
   const search = new URLSearchParams();
   if (params?.q) search.set('q', params.q);
   if (params?.severity) search.set('severity', params.severity);
   if (params?.limit != null) search.set('limit', String(params.limit));
   if (params?.offset != null) search.set('offset', String(params.offset));
+  if (params?.source_ip) search.set('source_ip', params.source_ip);
+  if (params?.date_from) search.set('date_from', params.date_from);
+  if (params?.date_to) search.set('date_to', params.date_to);
   const qs = search.toString();
   const data = await apiFetch<
     Record<string, unknown>[] | { items?: Record<string, unknown>[]; data?: Record<string, unknown>[]; total?: number }

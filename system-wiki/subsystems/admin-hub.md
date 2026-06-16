@@ -31,7 +31,7 @@ The admin hub (`/admin/system`) is the `SYSTEM_ADMIN`-only management console fo
 | **Create User Modal** | First name, last name, email, role, region, contact | `createAdminUser()` → `POST /api/admin/users` | Returns temp password in plaintext (prototype); copy-to-clipboard with show/hide toggle; region filter list from `fetchRegions()`; CIVILIAN_REPORTER excluded from role dropdown (#346) |
 | **Active Sessions** (#347) | All active Keycloak sessions across all users with client-side username filter and pagination (10/25/50 per page) | `fetchActiveSessionsOfflineAware()` → `GET /api/admin/active-sessions` | Table with username, role, IP address, last access; Force Logout button calls `revokeUserSessions()`. Per-user sessions loaded lazily on username click (#359 N+1 fix) |
 | **Per-User Sessions Modal** | Per-user Keycloak sessions (lazy-loaded) | `fetchUserSessions(user_id)` on demand | Lazy-loads sessions when user clicks username in Identity Governance; shows loading/error/no-sessions states; Terminate All button |
-| **Security Threat Logs** | Suricata/XAI threat telemetry | `fetchAdminSecurityLogs()` → `GET /api/admin/security-logs` | Table with source/dest IP, severity, Suricata SID, raw payload, XAI narrative/confidence; Analyze button runs `analyzeSecurityLog()`; HITL modal: 3 decision buttons (Confirm Threat / False Positive / Request More Info) replacing free-text admin_action_taken form. Request More Info reveals optional note textarea + Confirm. Already-actioned logs show read-only display. Backend response is paginated (`items`, `total`, `limit`, `offset`) and includes `hitl_decision` JSONB. |
+| **Security Threat Logs** | Suricata/XAI threat telemetry with advanced filters & pagination (#348) | `fetchAdminSecurityLogs()` → `GET /api/admin/security-logs` | Table with source/dest IP, severity, Suricata SID, raw payload, XAI narrative/confidence; Analyze button runs `analyzeSecurityLog()`; HITL modal: 3 decision buttons (Confirm Threat / False Positive / Request More Info) replacing free-text admin_action_taken form. Request More Info reveals optional note textarea + Confirm. Already-actioned logs show read-only display. Backend response is paginated (`items`, `total`, `limit`, `offset`) and includes `hitl_decision` JSONB. **Advanced filter bar (#348):** severity chips (LOW/MEDIUM/HIGH/CRITICAL), Source IP input, Date From/To inputs; Reset All Filters button. **Pagination controls (#348):** prev/next with page indicator; 20 items/page. **Auto-reload:** triggered by filter/pagination state changes via useEffect comparison of telemetry filter key. **Error state:** inline alert shown on fetch failure. |
 | **System Audit Trails** | Paginated audit log of all admin actions | `fetchAuditLogs(limit, offset)` → `GET /api/admin/audit-logs` | Table with user_id, action_type, table_affected, record_id, IP, UA, timestamp; paginated with limit/offset |
 | **Scheduled Reports** | Create/manage scheduled analytics reports | `POST /api/admin/scheduled-reports`, `GET /api/admin/scheduled-reports` | Create form: name, format (pdf/excel/csv), cron expression, filters JSON, recipients; list with toggle/delete; delete uses confirmation modal (no native `confirm()`) |
 | **Backup Management** | Trigger pg_dump + AES encrypt, list backups, download | `triggerBackup()`, `listBackups()`, `downloadBackup()` | Backup filenames: `wims_YYYYMMDD_HHMMSS.sql.enc`; retention policy deletes oldest when >100 files; download via FileResponse |
@@ -138,6 +138,21 @@ The anomaly detection page (`/admin/anomalies`) manages behavioral anomaly detec
 - `subject_user_id` references known test users from `03_users.sql` or is NULL for appliance-origin detections.
 - Uses `ON CONFLICT (anomaly_type, dedup_key) DO NOTHING` — safe to re-run.
 
+## XAI Narrative Normalizer (#351)
+
+`src/frontend/src/lib/xaiNarrativeNormalizer.ts` provides a shared tolerant parser for AI-generated structured output stored in `xai_narrative`. It handles:
+- Well-formed JSON objects with known fields (`anomaly_description`, `log_evidence`, `risk_assessment`, `recommended_action`, `confidence`/`xai_confidence`)
+- JSON inside markdown fenced code blocks (```` ```json ... ``` ````)
+- Partial/malformed JSON via regex fallback for individual field extraction
+- Plain text (falls back to raw)
+- Empty/null input
+
+Used by:
+- `/admin/system` — Threat Telemetry detail drawer: renders structured fields with labeled sections (Anomaly, Risk, Recommendation) + confidence badge
+- `/admin/monitoring` — Recent Narratives list: renders structured narratives inline with Anomaly/Risk/Recommendation fields and confidence badge, preserving expand/collapse for long content
+
+Unit tests: `src/frontend/src/lib/xaiNarrativeNormalizer.test.ts` (14 test cases covering valid JSON, fences, partial extraction, edge cases).
+
 ## Offline Read Caching (GH #270)
 
 The admin hub monitoring reads (system health, system metrics, worker status, active sessions, audit logs) are wrapped in offline-aware functions in `src/frontend/src/lib/api/offlineAdmin.ts`. Each wrapper:
@@ -154,7 +169,7 @@ User CRUD, security HITL ops, and scheduled reports remain online-only.
 ## Gap / Status Notes
 
 - The page shows all panels in a **single vertical scroll layout** — no tabbed Activity & Governance section (logged in [[gaps/ui-ux-gap-register]] as issue #A-02 and #A-04)
-- Security threat logs still have **no frontend pagination/search/filter**. Backend API is paginated, but the admin UI currently consumes only the initial page.
+- **🔧 Security threat logs filter & pagination (GH #348):** Frontend now has severity chips (LOW/MEDIUM/HIGH/CRITICAL), Source IP filter, Date From/To range filters, a Reset All Filters button, and prev/next pagination (20 items/page). Backend API was already paginated; frontend now passes `limit`, `offset`, `severity`, `source_ip`, `date_from`, `date_to` query params. Remaining gaps: background polling (issue #A-37), sub-100ms key-by-key response for clustered threats (FRS M10a filtering perf).
 - **M9 System Monitoring metrics** (VPS usage, container status, PWA sync, AI model latency, DB query latency cards) are **not implemented** beyond the basic DB/Redis/Keycloak health check; the FRS-required 60s refresh and configuration management UI are missing (logged in [[gaps/frs-codebase-gap-register]])
 - **✅ Identity Governance (GH #346):** Client-side username search, role filter (excludes CIVILIAN_REPORTER), region filter (dropdown from `fetchRegions()`), active status filter, and pagination (10/25/50 per page). Inline UserRow edit replaced with a modal. Sessions column removed from Identity Governance table; per-user sessions accessible via username click or dedicated Active Sessions section.
 - **✅ Active Sessions (GH #347):** Client-side username filter and pagination (10/25/50 per page). Sessions remain viewable/manageable in the dedicated Active Sessions container.
