@@ -498,7 +498,11 @@ def upload_incident_bundle(
             sync_incident_to_analytics(db, iid)
         except Exception:
             logger.warning("Failed to sync incident %s to analytics read model", iid)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.warning("Analytics sync commit failed; incidents already saved in first commit")
 
     return {
         "status": "ok",

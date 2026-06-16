@@ -104,6 +104,7 @@ def sync_incident_to_analytics(db: Session, incident_id: int) -> None:
                 incident_id,
                 e,
             )
+            db.rollback()
         return
 
     notification_dt = row[5]
@@ -177,6 +178,7 @@ def sync_incident_to_analytics(db: Session, incident_id: int) -> None:
             incident_id,
             e,
         )
+        db.rollback()
 
 
 def sync_incidents_batch(db: Session, incident_ids: list[int]) -> None:
@@ -236,6 +238,7 @@ def sync_incidents_batch(db: Session, incident_ids: list[int]) -> None:
                 len(to_delete),
                 e,
             )
+            db.rollback()
 
     if to_upsert:
         try:
@@ -321,6 +324,7 @@ def sync_incidents_batch(db: Session, incident_ids: list[int]) -> None:
                 len(to_upsert),
                 e,
             )
+            db.rollback()
 
 
 def backfill_analytics_facts(db: Session) -> int:
