@@ -230,11 +230,15 @@ MailHog local development: host=`mailhog`, port=`1025`, from=`noreply@wims-bfp.l
 
 ### Authentication Flows
 
-**Browser Flow:** Cookie check (ALTERNATIVE) → Username/Password form (REQUIRED) → Conditional OTP sub-flow (REQUIRED):
+**Browser Flow:** Cookie check (ALTERNATIVE) → Username/Password form (REQUIRED) → `otp-skip-mfa` conditional-user-role (ALTERNATIVE, priority 20) → Browser Conditional OTP sub-flow (ALTERNATIVE, priority 30):
   - `conditional-user-configured` (ALTERNATIVE) — skip if user has no TOTP
-  - `otp-role-system-administrator` (ALTERNATIVE) — requires OTP if role = system_administrator
-  - `otp-role-national-validator` (ALTERNATIVE) — requires OTP if role = national_validator
-  - `auth-otp-form` with `otpRememberDeviceFor=7d` (REQUIRED) — 7-day trusted device
+  - `otp-role-system-administrator` (ALTERNATIVE) — requires OTP if role = SYSTEM_ADMIN
+  - `otp-role-national-validator` (ALTERNATIVE) — requires OTP if role = NATIONAL_VALIDATOR
+  - `otp-role-regional-encoder` (ALTERNATIVE) — requires OTP if role = REGIONAL_ENCODER
+  - `otp-role-national-analyst` (ALTERNATIVE) — requires OTP if role = NATIONAL_ANALYST
+  - `wims-demo-otp-form` with `otpRememberDeviceFor=7d` (REQUIRED) — 7-day trusted device plus temporary demo code support
+
+**Direct Grant Flow:** Direct Grant Conditional OTP is REQUIRED in the parent direct-grant flow (intentional #243 hardening to close direct-grant MFA bypass). Its sub-flow uses the same four uppercase role conditionals plus REQUIRED `direct-grant-validate-otp`; unlike browser login, it does not use the temporary demo OTP provider.
 
 **Reset Credentials Flow:** Choose user → Email via Mailhog → Reset password → Conditional OTP (if user has TOTP)
 

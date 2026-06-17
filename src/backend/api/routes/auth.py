@@ -7,11 +7,12 @@ POST /api/auth/verify-email — Step 2: verify code, update email in Keycloak an
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import secrets
-from typing import Annotated
+from typing import Annotated, Optional
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException
@@ -38,20 +39,67 @@ router = APIRouter(prefix="/api/auth", tags=["email-verification"])
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 VERIFICATION_CODE_TTL = 600  # 10 minutes
 
+# Rate-limit windows (per user)
+CHANGE_EMAIL_RATE_LIMIT = 3  # max requests per window
+CHANGE_EMAIL_RATE_WINDOW = 600  # seconds (10 min)
+VERIFY_EMAIL_RATE_LIMIT = 5  # max code attempts per window
+VERIFY_EMAIL_RATE_WINDOW = 600  # seconds (10 min)
+
 _redis: aioredis.Redis | None = None
+_redis_lock = asyncio.Lock()
 
 
 async def _get_redis() -> aioredis.Redis | None:
-    """Return a shared async Redis connection, or None if unavailable."""
+    """Return a shared async Redis connection, or None if unavailable.
+
+    Uses a module-level asyncio.Lock to guard initialization so that
+    concurrent coroutines do not race on _redis and orphan connections.
+    Cached connections are pinged before reuse so a Redis restart can recover
+    without waiting for a process restart.
+    """
     global _redis
-    if _redis is None:
+    if _redis is not None:
         try:
-            _redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+            await _redis.ping()
+            return _redis
+        except Exception:
+            logger.warning("Cached Redis connection unavailable; reconnecting")
+            _redis = None
+    async with _redis_lock:
+        if _redis is not None:  # double-check after acquiring lock
+            try:
+                await _redis.ping()
+                return _redis
+            except Exception:
+                logger.warning("Cached Redis connection unavailable after lock; reconnecting")
+                _redis = None
+        try:
+            _redis = aioredis.from_url(REDIS_URL, decode_responses=True, health_check_interval=30)
             await _redis.ping()
         except Exception:
             logger.warning("Redis unavailable for email verification at %s", REDIS_URL)
             _redis = None
     return _redis
+
+
+async def _check_rate_limit(
+    r: aioredis.Redis, key: str, max_requests: int, window_seconds: int
+) -> None:
+    """Increment a rate-limit counter in Redis; raise HTTPException(429) if exceeded."""
+    try:
+        current = await r.incr(key)
+        if current == 1:
+            await r.expire(key, window_seconds)
+        if current > max_requests:
+            ttl = await r.ttl(key) or window_seconds
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many requests. Try again in {ttl} seconds.",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.warning("Rate-limit check failed for key %s; allowing request", key)
 
 
 def _generate_code() -> str:
@@ -65,6 +113,7 @@ def _generate_code() -> str:
 class ChangeEmailRequest(BaseModel):
     new_email: EmailStr
     current_password: str
+    otp_code: Optional[str] = None  # Required if user has TOTP/2FA enrolled
 
 
 class VerifyEmailRequest(BaseModel):
@@ -74,10 +123,16 @@ class VerifyEmailRequest(BaseModel):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _verify_password(current_user: dict, current_password: str) -> str:
+def _verify_password(
+    current_user: dict, current_password: str, otp_code: Optional[str] = None
+) -> str:
     """Verify the user's current password against Keycloak.
 
     Returns the resolved Keycloak username on success; raises HTTPException on failure.
+
+    When *otp_code* is provided it is passed as the ``totp`` parameter to
+    Keycloak's Direct Grant token endpoint so that users with TOTP configured
+    can still verify their password (see #243).
     """
     keycloak_id = current_user["keycloak_id"]
 
@@ -89,7 +144,10 @@ def _verify_password(current_user: dict, current_password: str) -> str:
             or current_user.get("kc_username")
             or current_user["username"]
         )
-    except Exception:
+    except KeycloakError:
+        # Fall back to username from current-user dict when Keycloak admin
+        # API is unavailable; password verification will still proceed
+        # but the admin can see the real auth error instead of a masked one.
         target_username = current_user.get("kc_username") or current_user["username"]
 
     kc_openid = KeycloakOpenID(
@@ -99,10 +157,13 @@ def _verify_password(current_user: dict, current_password: str) -> str:
         verify=True,
     )
     try:
-        kc_openid.token(username=target_username, password=current_password)
+        token_kwargs: dict[str, str] = {}
+        if otp_code:
+            token_kwargs["totp"] = otp_code
+        kc_openid.token(username=target_username, password=current_password, **token_kwargs)
     except KeycloakError as e:
         logger.warning("Email change verification failed for %s: %s", keycloak_id, e)
-        raise HTTPException(status_code=401, detail="Incorrect current password")
+        raise HTTPException(status_code=401, detail="Incorrect current password or OTP code")
 
     return target_username
 
@@ -131,13 +192,21 @@ async def change_email(
     user_id = current_user["user_id"]
     username = current_user.get("username", "user")
 
+    # Rate-limit: prevent email bombing and password brute-force
+    await _check_rate_limit(
+        r,
+        f"rate:change_email:{user_id}",
+        CHANGE_EMAIL_RATE_LIMIT,
+        CHANGE_EMAIL_RATE_WINDOW,
+    )
+
     # Verify current password
     if not body.current_password or not body.current_password.strip():
         raise HTTPException(
             status_code=400,
             detail="Current password is required to change email/login identity",
         )
-    _verify_password(current_user, body.current_password)
+    _verify_password(current_user, body.current_password, otp_code=body.otp_code)
 
     # Generate code and store in Redis
     code = _generate_code()
@@ -201,6 +270,14 @@ async def verify_email(
     user_id = current_user["user_id"]
     keycloak_id = current_user["keycloak_id"]
     redis_key = f"email_verify:{user_id}"
+
+    # Rate-limit: prevent brute-force code attempts
+    await _check_rate_limit(
+        r,
+        f"rate:verify_email:{user_id}",
+        VERIFY_EMAIL_RATE_LIMIT,
+        VERIFY_EMAIL_RATE_WINDOW,
+    )
 
     # Check for whitespace-only or empty code
     if not body.code or not body.code.strip():

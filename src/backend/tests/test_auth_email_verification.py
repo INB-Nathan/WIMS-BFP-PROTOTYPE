@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from keycloak.exceptions import KeycloakError
 
 import auth
+import api.routes.auth as email_auth
 from auth import get_db_with_rls
 from main import app
 
@@ -26,8 +27,10 @@ def client():
 
 @pytest.fixture(autouse=True)
 def _reset_overrides():
+    email_auth._redis = None
     yield
     app.dependency_overrides.clear()
+    email_auth._redis = None
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -62,10 +65,158 @@ def _async_redis_mock(with_data=None):
     return r
 
 
+@pytest.mark.asyncio
+async def test_get_redis_reuses_healthy_cached_connection(monkeypatch):
+    """A healthy cached Redis connection is reused after a ping check."""
+    redis_conn = _async_redis_mock()
+    factory = MagicMock(return_value=redis_conn)
+    monkeypatch.setattr(email_auth.aioredis, "from_url", factory)
+
+    first = await email_auth._get_redis()
+    second = await email_auth._get_redis()
+
+    assert first is redis_conn
+    assert second is redis_conn
+    factory.assert_called_once_with(
+        email_auth.REDIS_URL, decode_responses=True, health_check_interval=30
+    )
+    assert redis_conn.ping.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_get_redis_reconnects_when_cached_connection_ping_fails(monkeypatch):
+    """A stale cached Redis connection is discarded and replaced."""
+    stale_conn = _async_redis_mock()
+    stale_conn.ping.side_effect = ConnectionError("stale")
+    fresh_conn = _async_redis_mock()
+    email_auth._redis = stale_conn
+    factory = MagicMock(return_value=fresh_conn)
+    monkeypatch.setattr(email_auth.aioredis, "from_url", factory)
+
+    result = await email_auth._get_redis()
+
+    assert result is fresh_conn
+    assert email_auth._redis is fresh_conn
+    assert stale_conn.ping.await_count == 1
+    factory.assert_called_once_with(
+        email_auth.REDIS_URL, decode_responses=True, health_check_interval=30
+    )
+    fresh_conn.ping.assert_awaited_once()
+
+
 # ── POST /api/auth/change-email ──────────────────────────────────────────────
 
 
 class TestChangeEmail:
+    def test_success_with_otp_code_passed_to_verify(self, client: TestClient):
+        """When otp_code is provided, _verify_password receives it as totp kwarg."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
+        mock_db = _get_db_session()
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        mock_redis = _async_redis_mock()
+
+        with (
+            patch(
+                "api.routes.auth._verify_password", return_value="analyst@bfp.gov.ph"
+            ) as mock_verify,
+            patch("api.routes.auth._get_redis", return_value=mock_redis),
+            patch("api.routes.auth.send_email_async"),
+        ):
+            response = client.post(
+                "/api/auth/change-email",
+                json={
+                    "new_email": "new@bfp.gov.ph",
+                    "current_password": "CorrectPassword1!",
+                    "otp_code": "654321",
+                },
+            )
+
+            assert response.status_code == 200
+            mock_verify.assert_called_once_with(
+                mock_analyst_user(), "CorrectPassword1!", otp_code="654321"
+            )
+
+    def test_success_without_otp_code_omits_totp(self, client: TestClient):
+        """When otp_code is omitted, _verify_password receives otp_code=None."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
+        mock_db = _get_db_session()
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        mock_redis = _async_redis_mock()
+
+        with (
+            patch(
+                "api.routes.auth._verify_password", return_value="analyst@bfp.gov.ph"
+            ) as mock_verify,
+            patch("api.routes.auth._get_redis", return_value=mock_redis),
+            patch("api.routes.auth.send_email_async"),
+        ):
+            response = client.post(
+                "/api/auth/change-email",
+                json={"new_email": "new@bfp.gov.ph", "current_password": "CorrectPassword1!"},
+            )
+
+            assert response.status_code == 200
+            mock_verify.assert_called_once_with(
+                mock_analyst_user(), "CorrectPassword1!", otp_code=None
+            )
+
+    def test_incorrect_otp_returns_401(self, client: TestClient):
+        """Wrong TOTP code causes password verification to fail with 401."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
+        mock_db = _get_db_session()
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        mock_redis = _async_redis_mock()
+
+        with (
+            patch(
+                "api.routes.auth._verify_password",
+                side_effect=__import__("fastapi").HTTPException(
+                    status_code=401, detail="Incorrect current password or OTP code"
+                ),
+            ),
+            patch("api.routes.auth._get_redis", return_value=mock_redis),
+            patch("api.routes.auth.send_email_async") as mock_send,
+        ):
+            response = client.post(
+                "/api/auth/change-email",
+                json={
+                    "new_email": "new@bfp.gov.ph",
+                    "current_password": "CorrectPassword1!",
+                    "otp_code": "000000",
+                },
+            )
+
+            assert response.status_code == 401
+            mock_send.assert_not_called()
+            mock_redis.setex.assert_not_called()
+
+    def test_rate_limit_returns_429_on_exceed(self, client: TestClient):
+        """After CHANGE_EMAIL_RATE_LIMIT attempts, the endpoint returns 429."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
+        mock_db = _get_db_session()
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        mock_redis = _async_redis_mock()
+        # Simulate Redis already above the rate limit
+        mock_redis.incr = AsyncMock(return_value=4)  # > CHANGE_EMAIL_RATE_LIMIT (3)
+        mock_redis.ttl = AsyncMock(return_value=300)
+
+        with (
+            patch("api.routes.auth._get_redis", return_value=mock_redis),
+            patch("api.routes.auth._verify_password", return_value="analyst@bfp.gov.ph"),
+            patch("api.routes.auth.send_email_async") as mock_send,
+        ):
+            response = client.post(
+                "/api/auth/change-email",
+                json={"new_email": "new@bfp.gov.ph", "current_password": "CorrectPassword1!"},
+            )
+
+            assert response.status_code == 429
+            mock_send.assert_not_called()
+
     def test_success_stores_code_and_sends_email(self, client: TestClient):
         """Happy path: password verified, code stored in Redis, email sent."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
@@ -276,6 +427,29 @@ class TestChangeEmail:
 
 
 class TestVerifyEmail:
+    def test_rate_limit_returns_429_on_exceed(self, client: TestClient):
+        """After VERIFY_EMAIL_RATE_LIMIT code attempts, the endpoint returns 429."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
+        mock_db = _get_db_session()
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        mock_redis = _async_redis_mock()
+        # Simulate Redis already above the rate limit
+        mock_redis.incr = AsyncMock(return_value=6)  # > VERIFY_EMAIL_RATE_LIMIT (5)
+        mock_redis.ttl = AsyncMock(return_value=300)
+
+        with (
+            patch("api.routes.auth._get_redis", return_value=mock_redis),
+            patch("api.routes.auth.update_user_profile") as mock_kc_update,
+        ):
+            response = client.post(
+                "/api/auth/verify-email",
+                json={"code": "123456"},
+            )
+
+            assert response.status_code == 429
+            mock_kc_update.assert_not_called()
+
     def test_success_updates_keycloak_and_db(self, client: TestClient):
         """Happy path: code matches, Keycloak updated, DB synced, Redis cleaned."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user

@@ -100,6 +100,42 @@ def flush_rate_limits() -> None:
 
 
 @pytest.mark.skipif(_IN_DOCKER, reason="compose/config files not mounted in Docker container")
+def test_keycloak_smtp_env_vars_present() -> None:
+    """All SMTP_* env vars needed by Keycloak's ${env.SMTP_*} placeholders
+    are present in docker-compose.yml with non-None defaults."""
+    compose = _load_compose()
+    keycloak_env = _service_env(compose, "keycloak")
+
+    required_smtp_vars = [
+        "SMTP_HOST",
+        "SMTP_PORT",
+        "SMTP_FROM",
+        "SMTP_FROM_DISPLAY",
+        "SMTP_REPLYTO",
+        "SMTP_REPLYTO_DISPLAY",
+        "SMTP_SSL",
+        "SMTP_STARTTLS",
+        "SMTP_AUTH",
+        "SMTP_USER",
+        "SMTP_PASSWORD",
+    ]
+
+    for var in required_smtp_vars:
+        assert var in keycloak_env, (
+            f"SMTP env var {var} is missing from keycloak service in docker-compose.yml"
+        )
+        assert keycloak_env[var] is not None, (
+            f"SMTP env var {var} must not be None (use empty string or sensible default)"
+        )
+
+    # Critical vars that affect email delivery must have non-empty defaults
+    assert keycloak_env["SMTP_HOST"], "SMTP_HOST must have a non-empty default"
+    assert keycloak_env["SMTP_FROM"], "SMTP_FROM must have a non-empty default"
+    # replyTo/replyToDisplayName defaults restored by this PR (empty is acceptable
+    # when the realm JSON provides fallback values via ${env.SMTP_REPLYTO:...}).
+
+
+@pytest.mark.skipif(_IN_DOCKER, reason="compose/config files not mounted in Docker container")
 def test_keycloak_admin_lockout_guard() -> None:
     compose = _load_compose()
     keycloak_env = _service_env(compose, "keycloak")

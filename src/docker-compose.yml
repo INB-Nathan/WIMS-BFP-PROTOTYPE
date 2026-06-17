@@ -79,8 +79,8 @@ services:
       SMTP_PORT: ${SMTP_PORT:-1025}
       SMTP_FROM: ${SMTP_FROM:-noreply@wims-bfp.local}
       SMTP_FROM_DISPLAY: ${SMTP_FROM_DISPLAY:-WIMS-BFP}
-      SMTP_REPLYTO: ${SMTP_REPLYTO:-}
-      SMTP_REPLYTO_DISPLAY: ${SMTP_REPLYTO_DISPLAY:-}
+      SMTP_REPLYTO: ${SMTP_REPLYTO:-no-reply@wimsbfp.tech}
+      SMTP_REPLYTO_DISPLAY: ${SMTP_REPLYTO_DISPLAY:-WIMS-BFP No Reply}
       SMTP_SSL: ${SMTP_SSL:-false}
       SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
       SMTP_AUTH: ${SMTP_AUTH:-false}
