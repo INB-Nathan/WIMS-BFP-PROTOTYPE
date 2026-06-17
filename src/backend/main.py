@@ -57,6 +57,7 @@ from api.routes.map import router as public_map_router, operational_router as va
 from api.routes.events import router as events_router
 from api.routes.geocode import router as geocode_router
 from api.routes.operations import router as operations_router
+from api.routes.auth import router as auth_router
 from api.routes.consent import router as consent_router
 
 # WIMS role resolution — canonical source in auth.py
@@ -491,6 +492,7 @@ app.include_router(
 )  # GET /api/geocode/reverse, /api/geocode/search (Nominatim proxy)
 app.include_router(dashboard.router)  # GET /api/dashboard/widgets
 app.include_router(operations_router)  # GET/POST/PATCH/DELETE /api/operations
+app.include_router(auth_router)  # POST /api/auth/change-email, POST /api/auth/verify-email
 app.include_router(consent_router)  # POST /api/auth/consent (public, no-auth)
 
 # ---------------------------------------------------------------------------
@@ -589,6 +591,23 @@ async def rate_limit_middleware(request: Request, call_next):
     else:
         client_ip = request.client.host if request.client else "unknown"
 
+    # Read dynamic threshold / window from Redis (set by admin UI #363).
+    # Fall back to module-level defaults when config is missing or invalid.
+    window = WINDOW_SECONDS
+    threshold = RATE_LIMIT_THRESHOLD
+    try:
+        config = await r.hgetall("rate_limit_config:login")
+        if config:
+            parsed_window = int(config.get("window_seconds", ""))  # type: ignore[arg-type]
+            parsed_threshold = int(config.get("threshold", ""))  # type: ignore[arg-type]
+            if parsed_window > 0 and parsed_threshold > 0:
+                window = parsed_window
+                threshold = parsed_threshold
+    except (ValueError, TypeError):
+        pass  # non-numeric or missing → keep defaults
+    except Exception:
+        logger.warning("Redis hgetall failed — using default rate-limit config")
+
     key = f"rate_limit:{client_ip}"
     now = time.time()
 
@@ -598,8 +617,8 @@ async def rate_limit_middleware(request: Request, call_next):
             1,
             key,
             str(now),
-            str(WINDOW_SECONDS),
-            str(RATE_LIMIT_THRESHOLD),
+            str(window),
+            str(threshold),
         )
     except Exception:
         logger.warning("Redis eval failed — allowing request through")

@@ -17,6 +17,8 @@ def test_security_alert_dispatched_on_confirm_threat_high():
 
     mock_db = MagicMock()
     mock_admin = {"user_id": "test-admin-uuid"}
+    mock_request = MagicMock()
+    mock_request.client.host = "127.0.0.1"
 
     # Setup mock chain: first call returns log metadata (HIGH severity),
     # second call returns UPDATE result, third call returns admin emails
@@ -49,7 +51,7 @@ def test_security_alert_dispatched_on_confirm_threat_high():
         patch("tasks.notifications.send_email_task") as mock_task,
         patch("api.routes.admin.security.publish_security_event_sync"),
     ):
-        result = update_security_log(123, body, mock_admin, mock_db)
+        result = update_security_log(123, body, mock_request, mock_admin, mock_db)
         assert result["status"] == "ok"
         # M10d: HIGH/CRITICAL CONFIRM_THREAT now dispatches two emails:
         # security_alert (M13b) + breach_alert (M10d)
@@ -65,6 +67,8 @@ def test_security_alert_dispatched_on_confirm_threat_critical():
 
     mock_db = MagicMock()
     mock_admin = {"user_id": "test-admin-uuid"}
+    mock_request = MagicMock()
+    mock_request.client.host = "127.0.0.1"
 
     # Mock SELECT (returns CRITICAL severity)
     mock_log_result = MagicMock()
@@ -99,7 +103,7 @@ def test_security_alert_dispatched_on_confirm_threat_critical():
         patch("tasks.notifications.send_email_task") as mock_task,
         patch("api.routes.admin.security.publish_security_event_sync"),
     ):
-        result = update_security_log(456, body, mock_admin, mock_db)
+        result = update_security_log(456, body, mock_request, mock_admin, mock_db)
         assert result["status"] == "ok"
         # M10d: CRITICAL CONFIRM_THREAT dispatches security_alert + breach_alert
         assert mock_task.delay.call_count == 2
@@ -114,6 +118,8 @@ def test_security_alert_not_dispatched_on_false_positive():
 
     mock_db = MagicMock()
     mock_admin = {"user_id": "test-admin-uuid"}
+    mock_request = MagicMock()
+    mock_request.client.host = "127.0.0.1"
 
     # Mock UPDATE result
     mock_update_result = MagicMock()
@@ -126,7 +132,7 @@ def test_security_alert_not_dispatched_on_false_positive():
         patch("tasks.notifications.send_email_task") as mock_task,
         patch("api.routes.admin.security.publish_security_event_sync"),
     ):
-        result = update_security_log(789, body, mock_admin, mock_db)
+        result = update_security_log(789, body, mock_request, mock_admin, mock_db)
         assert result["status"] == "ok"
         mock_task.delay.assert_not_called()
 
@@ -137,6 +143,8 @@ def test_security_alert_not_dispatched_on_low_severity():
 
     mock_db = MagicMock()
     mock_admin = {"user_id": "test-admin-uuid"}
+    mock_request = MagicMock()
+    mock_request.client.host = "127.0.0.1"
 
     # Mock SELECT (returns LOW severity)
     mock_log_result = MagicMock()
@@ -166,7 +174,7 @@ def test_security_alert_not_dispatched_on_low_severity():
         patch("tasks.notifications.send_email_task") as mock_task,
         patch("api.routes.admin.security.publish_security_event_sync"),
     ):
-        result = update_security_log(321, body, mock_admin, mock_db)
+        result = update_security_log(321, body, mock_request, mock_admin, mock_db)
         assert result["status"] == "ok"
         mock_task.delay.assert_not_called()
 

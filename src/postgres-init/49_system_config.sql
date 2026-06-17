@@ -34,6 +34,36 @@ INSERT INTO wims.system_config (config_key, config_value, description) VALUES
     'ai_timeout_seconds',
     '60',
     'Ollama inference HTTP timeout in seconds. Consumed by ai_service.py analyze_threat_log and generate_incident_narrative. Increase for slow GPU nodes; decrease to fail fast.'
+  ),
+  (
+    'npc_contact_name',
+    'NPC Data Protection Officer',
+    'Contact person name displayed on the admin breach notification page (NPC compliance).'
+  ),
+  (
+    'npc_contact_phone',
+    '+63 2 8234-2228',
+    'Direct contact phone number for the NPC contact person (NPC compliance).'
+  ),
+  (
+    'npc_office_phone',
+    '+63 2 8234-2228',
+    'NPC office main line displayed on the admin breach notification page (NPC compliance).'
+  ),
+  (
+    'worker_stale_timeout_seconds',
+    '60',
+    'Seconds of worker inactivity before status transitions from ACTIVE to STALE. Minimum 30. Consumed by the Celery beat worker heartbeat task (tasks/monitoring.py). Lower values make the worker table more responsive but may cause flicker on brief network hiccups.'
+  ),
+  (
+    'worker_offline_timeout_seconds',
+    '300',
+    'Seconds of worker inactivity before status transitions to OFFLINE (from STALE or ACTIVE). Minimum 60. Must be strictly greater than worker_stale_timeout_seconds. Consumed by the Celery beat worker heartbeat task (tasks/monitoring.py). After this interval the worker is considered unreachable.'
+  ),
+  (
+    'worker_heartbeat_retention_days',
+    '7',
+    'Number of days to retain OFFLINE Celery worker heartbeat rows before automatic and manual prune deletes them. Must be >= 1.'
   )
 ON CONFLICT (config_key) DO NOTHING;
 

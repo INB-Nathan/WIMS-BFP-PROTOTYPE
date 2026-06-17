@@ -205,10 +205,21 @@ jobs:
               # <hash>_wims-<service> during recreate. If a prior deploy is
               # interrupted, a stale renamed container can block future recreates
               # with "container name ... is already in use".
-              stale_ids=$(docker ps -aq --filter 'label=com.docker.compose.project=wims_internal' --format '{{.ID}} {{.Names}}' | awk '$2 ~ /^[0-9a-f]+_wims-/ {print $1}')
+              # The project name is derived from the working directory (src/).
+
+              # 1. Remove stale renamed containers (<hash>_wims-<service>)
+              stale_ids=$(docker ps -aq --filter 'label=com.docker.compose.project=src' --format '{{.ID}} {{.Names}}' | awk '$2 ~ /^[0-9a-f]+_wims-/ {print $1}')
               if [ -n "$stale_ids" ]; then
                 echo "Removing stale Compose-renamed WIMS containers..."
                 echo "$stale_ids" | xargs -r docker rm -f
+              fi
+
+              # 2. Remove fixed-name WIMS containers stuck in "created" state
+              #    (never started — always from an interrupted deploy)
+              stuck_ids=$(docker ps -a --filter 'status=created' --format '{{.ID}} {{.Names}}' | awk '$2 ~ /^wims-/ {print $1}')
+              if [ -n "$stuck_ids" ]; then
+                echo "Removing stale WIMS containers stuck in created state..."
+                echo "$stuck_ids" | xargs -r docker rm -f
               fi
             }
 

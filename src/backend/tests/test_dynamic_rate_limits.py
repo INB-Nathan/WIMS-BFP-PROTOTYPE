@@ -9,10 +9,11 @@ current auth callback rate-limit policy.
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import AsyncMock, patch, MagicMock
 from fastapi.testclient import TestClient
 
 import auth
+import main as main_module
 from main import app
 from auth import get_db_with_rls
 
@@ -124,44 +125,28 @@ class TestPatchRateLimits:
         call_kwargs = mock_redis.hset.call_args
         assert call_kwargs[0][0] == "rate_limit_config:login"
 
-    def test_patch_rate_limits_rejects_zero_limit(self, client):
+    def _patch_rejects(self, client, body, expected_status=422):
+        """Helper: PATCH rate-limits with admin + mocked DB, expect rejection."""
         app.dependency_overrides[auth.get_current_wims_user] = admin_override
+        app.dependency_overrides[get_db_with_rls] = lambda: MagicMock()
+        response = client.patch("/api/admin/rate-limits", json=body)
+        assert response.status_code == expected_status
 
-        response = client.patch(
-            "/api/admin/rate-limits",
-            json={"tier": "login", "limit": 0, "window": 600},
-        )
-        assert response.status_code == 422
+    def test_patch_rate_limits_rejects_zero_limit(self, client):
+        self._patch_rejects(client, {"tier": "login", "limit": 0, "window": 600})
 
     def test_patch_rate_limits_rejects_zero_window(self, client):
-        app.dependency_overrides[auth.get_current_wims_user] = admin_override
-
-        response = client.patch(
-            "/api/admin/rate-limits",
-            json={"tier": "login", "limit": 5, "window": 0},
-        )
-        assert response.status_code == 422
+        self._patch_rejects(client, {"tier": "login", "limit": 5, "window": 0})
 
     def test_patch_rate_limits_rejects_negative_limit(self, client):
-        app.dependency_overrides[auth.get_current_wims_user] = admin_override
-
-        response = client.patch(
-            "/api/admin/rate-limits",
-            json={"tier": "login", "limit": -1, "window": 600},
-        )
-        assert response.status_code == 422
+        self._patch_rejects(client, {"tier": "login", "limit": -1, "window": 600})
 
     def test_patch_rate_limits_rejects_unknown_tier(self, client):
-        app.dependency_overrides[auth.get_current_wims_user] = admin_override
-
-        response = client.patch(
-            "/api/admin/rate-limits",
-            json={"tier": "unknown_tier", "limit": 5, "window": 900},
-        )
-        assert response.status_code == 422
+        self._patch_rejects(client, {"tier": "unknown_tier", "limit": 5, "window": 900})
 
     def test_patch_rate_limits_requires_admin(self, client):
         app.dependency_overrides[auth.get_current_wims_user] = encoder_override
+        app.dependency_overrides[get_db_with_rls] = lambda: MagicMock()
 
         response = client.patch(
             "/api/admin/rate-limits",
@@ -189,3 +174,125 @@ class TestPatchRateLimits:
         mock_audit.assert_called_once()
         call_kwargs = mock_audit.call_args
         assert "RATE_LIMIT_UPDATED" in str(call_kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Rate-limit middleware config consumption tests (#354/#363 B1 fix)
+# ---------------------------------------------------------------------------
+class TestRateLimitMiddlewareConfig:
+    """Verify POST /api/auth/callback middleware reads rate_limit_config:login."""
+
+    @staticmethod
+    def _make_async_redis_mock(hgetall_return=None, eval_return=None):
+        mock = MagicMock()
+        mock.hgetall = AsyncMock(return_value=hgetall_return if hgetall_return is not None else {})
+        mock.eval = AsyncMock(return_value=eval_return if eval_return is not None else [1, 30])
+        return mock
+
+    @pytest.fixture
+    def client(self):
+        return TestClient(app)
+
+    @pytest.fixture(autouse=True)
+    def _reset_overrides(self):
+        yield
+        app.dependency_overrides.clear()
+
+    # -- config consumed ---------------------------------------------------
+
+    def test_middleware_uses_configured_window_and_threshold(self, client):
+        """Valid config → eval receives configured window_seconds / threshold."""
+        mock_redis = self._make_async_redis_mock(
+            hgetall_return={"window_seconds": "300", "threshold": "3"},
+        )
+
+        with patch.object(main_module, "_get_redis", new_callable=AsyncMock) as mock_get_redis:
+            mock_get_redis.return_value = mock_redis
+            client.post(
+                "/api/auth/callback",
+                json={"code": "test", "code_verifier": "test"},
+                headers={"X-Forwarded-For": "10.0.0.1"},
+            )
+
+        mock_redis.hgetall.assert_called_once_with("rate_limit_config:login")
+        eval_args = mock_redis.eval.call_args
+        assert eval_args[0][4] == "300", f"Expected window=300, got {eval_args[0][4]}"
+        assert eval_args[0][5] == "3", f"Expected threshold=3, got {eval_args[0][5]}"
+
+    # -- fallback: missing config -----------------------------------------
+
+    def test_middleware_falls_back_when_config_empty(self, client):
+        """Empty config hash → eval receives hardcoded defaults (900/5)."""
+        mock_redis = self._make_async_redis_mock(hgetall_return={})
+
+        with patch.object(main_module, "_get_redis", new_callable=AsyncMock) as mock_get_redis:
+            mock_get_redis.return_value = mock_redis
+            client.post(
+                "/api/auth/callback",
+                json={"code": "test", "code_verifier": "test"},
+                headers={"X-Forwarded-For": "10.0.0.1"},
+            )
+
+        eval_args = mock_redis.eval.call_args
+        assert eval_args[0][4] == "900", f"Expected default window=900, got {eval_args[0][4]}"
+        assert eval_args[0][5] == "5", f"Expected default threshold=5, got {eval_args[0][5]}"
+
+    # -- fallback: non-numeric config -------------------------------------
+
+    def test_middleware_falls_back_on_non_numeric_config(self, client):
+        """Non-numeric values → eval receives defaults."""
+        mock_redis = self._make_async_redis_mock(
+            hgetall_return={"window_seconds": "abc", "threshold": "xyz"},
+        )
+
+        with patch.object(main_module, "_get_redis", new_callable=AsyncMock) as mock_get_redis:
+            mock_get_redis.return_value = mock_redis
+            client.post(
+                "/api/auth/callback",
+                json={"code": "test", "code_verifier": "test"},
+                headers={"X-Forwarded-For": "10.0.0.1"},
+            )
+
+        eval_args = mock_redis.eval.call_args
+        assert eval_args[0][4] == "900"
+        assert eval_args[0][5] == "5"
+
+    # -- fallback: non-positive config ------------------------------------
+
+    def test_middleware_falls_back_on_nonpositive_config(self, client):
+        """Zero or negative values → eval receives defaults."""
+        mock_redis = self._make_async_redis_mock(
+            hgetall_return={"window_seconds": "0", "threshold": "-1"},
+        )
+
+        with patch.object(main_module, "_get_redis", new_callable=AsyncMock) as mock_get_redis:
+            mock_get_redis.return_value = mock_redis
+            client.post(
+                "/api/auth/callback",
+                json={"code": "test", "code_verifier": "test"},
+                headers={"X-Forwarded-For": "10.0.0.1"},
+            )
+
+        eval_args = mock_redis.eval.call_args
+        assert eval_args[0][4] == "900"
+        assert eval_args[0][5] == "5"
+
+    # -- 429 behaviour ----------------------------------------------------
+
+    def test_middleware_returns_429_with_retry_after(self, client):
+        """When eval returns blocked, middleware returns 429 + Retry-After."""
+        mock_redis = self._make_async_redis_mock(
+            hgetall_return={"window_seconds": "60", "threshold": "2"},
+            eval_return=[1, 45],
+        )
+
+        with patch.object(main_module, "_get_redis", new_callable=AsyncMock) as mock_get_redis:
+            mock_get_redis.return_value = mock_redis
+            response = client.post(
+                "/api/auth/callback",
+                json={"code": "test", "code_verifier": "test"},
+                headers={"X-Forwarded-For": "10.0.0.1"},
+            )
+
+        assert response.status_code == 429
+        assert response.headers.get("Retry-After") == "45"

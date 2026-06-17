@@ -3,6 +3,9 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-17] fix(deploy) | correct compose project label in stale container cleanup
+
+- **`deploy.yml`:** `cleanup_stale_compose_renames()` had label filter `com.docker.compose.project=wims_internal` but the actual compose project name is `src` (derived from working directory). The network is `wims_internal`, not the project — so stale renamed containers from interrupted deploys were never cleaned up, causing "container name already in use" errors on subsequent deploys.
 ## [2026-06-17] fix | FrontierCode review — dead code, test gaps, icons, timer cleanup
 
 - FrontierCode review found 20 verified findings across 5 axes. Fixed all major/minor items:
@@ -33,6 +36,119 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Spec requires Nearby Fire Activity to be Safety-only, removes the visible Public Fire Report Areas card from later steps, keeps `PublicFireMap`/public cluster data source, and treats Safety-step geolocation as display-only situational awareness.
 - Security/privacy guardrails documented: no Safety-step mutation of incident/fire location, no implicit submitted `phoneGeo`, truthful public-report-awaiting-review copy, credentialless public reads, and FrontierCode-style review gates.
 - No FRS gap register update (spec/planning only; no gap status change).
+
+## [2026-06-14] fix(deploy) | ollama CPU override for VPS in docker-compose.prod.yml
+- Added second cleanup pass for fixed-name `wims-*` containers stuck in `created` state (never started — always from an interrupted deploy).
+- No FRS gap register change (CI/CD workflow fix).
+
+## [2026-06-17] fix(#379) | sync failure reporting + admin retry/delete integration with IndexedDB
+
+- **PR #379 review fixes** — blocked integration issues found during security/quality review.
+- **Backend `sync.py`:** Changed `POST /admin/sync/report` auth dependency from `get_system_admin` to `get_current_wims_user` so the sync engine (running in the encoder's browser) can report failures. The report is one-way (client → server); `GET /sync/failed`, `POST /sync/{id}/retry`, and `DELETE /sync/{id}` remain `SYSTEM_ADMIN`-only.
+- **Frontend `syncEngine.ts`:** Added best-effort `fetch('/api/admin/sync/report', ...)` after `markOpFailed()` so max-retry failures are surfaced to the admin dashboard. Exported `computeBackoffDelay` and `isWithinBackoffWindow` with an optional `random` parameter for deterministic testing.
+- **Frontend `offlineStore.ts`:** Removed redundant `op.retryCount += 1` from `markOpFailed()` (retryCount is already at the MAX_RETRY ceiling).
+- **Frontend `system/page.tsx`:** Admin retry now calls the dedicated `resetFailedOp()` helper to reset the local IndexedDB op to `pending` while preserving the encrypted payload; admin delete calls `deleteOfflineOp()` to remove from IndexedDB. This local IndexedDB action works when the failed op exists in the same browser profile; cross-browser admin retry/delete currently clears the backend/admin queue and remains a follow-up architecture limit for encoder-side local queues.
+- **Tests:** New backend test suite `test_admin_sync.py` (9 tests: report auth, missing localId, list/report integration, retry 404, delete 404). Frontend: added `markOpFailed` assertions to both MAX_RETRY tests; added backoff window skip test and deterministic unit tests for `computeBackoffDelay`/`isWithinBackoffWindow`; added `markOpFailed` and `getFailedOps` tests to `offlineStore.ops.test.ts` (5 tests).
+- No FRS gap register change (integration fix of existing #302/#141 implementation).
+
+## [2026-06-17] fix(#243,#225) | PR #380 review — security hardening and test fixes
+
+- **TOTP gap (#243):** `ChangeEmailRequest` now accepts optional `otp_code`; `_verify_password` passes it as `totp` to Keycloak's Direct Grant token endpoint. TOTP-enabled users can now verify their password during email changes. Error detail updated to "Incorrect current password or OTP code".
+- **Abuse protection (#225):** Per-user Redis-based rate limiting added to both `/change-email` (3 req/10 min) and `/verify-email` (5 req/10 min) via `_check_rate_limit()` helper. Returns 429 when exceeded.
+- **Redis concurrency/reconnect fix:** `_get_redis()` now uses `asyncio.Lock` with double-check pattern to prevent connection leaks and races under concurrent load, pings cached connections before reuse, and reconnects after a stale cached connection fails.
+- **Exception narrowing:** `_verify_password` now catches only `KeycloakError` in the admin-client username-resolution block instead of broad `Exception`, preventing Keycloak infrastructure failures from being silently masked as wrong-password errors.
+- **replyTo defaults restored:** Both `import/bfp-realm.json` and `bfp-realm.json` now use `${env.SMTP_REPLYTO:no-reply@wimsbfp.tech}` and `${env.SMTP_REPLYTO_DISPLAY:WIMS-BFP No Reply}` fallbacks instead of empty defaults.
+- **OTP policy tests fixed:** `test_otp_required_roles_are_configured` updated to use uppercase role names (`SYSTEM_ADMIN`, `NATIONAL_VALIDATOR`, `REGIONAL_ENCODER`, `NATIONAL_ANALYST`) and assert all 4 role conditionals in both Browser and Direct Grant sub-flows. Tautological `test_non_target_roles_not_forced_to_otp` replaced with `test_all_four_mfa_roles_are_enforced`. Added `test_skip_mfa_bypass_present_in_forms_flow` for SKIP_MFA ALTERNATIVE wiring. Direct Grant Conditional OTP remains REQUIRED in the parent flow as intentional #243 hardening to close direct-grant MFA bypass.
+- **SMTP env validation test:** `test_keycloak_smtp_env_vars_present` added to `test_infra_config.py` asserting all 11 SMTP_* env vars are present with non-None defaults in docker-compose.yml.
+- **Email verification tests:** Added 7 new tests: `test_success_with_otp_code_passed_to_verify`, `test_success_without_otp_code_omits_totp`, `test_incorrect_otp_returns_401`, change-email rate-limit test, verify-email rate-limit test, and two `_get_redis()` cache/reconnect tests.
+- **Wiki updates:** `security-baseline.md` updated to document the email verification flow; `infrastructure-config.md` updated to list all 4 MFA-required roles.
+- No FRS gap register change (hardening and test fixes to existing #243/#225 implementation).
+
+## [2026-06-17] test(#225) | align profile email tests with verification flow
+
+- **Test-only change:** Updated 6 failing tests in `tests/test_profile_email.py` to match the new email verification policy (introduced in parent commit). Direct email changes via `PATCH /api/user/me` now always return 400 with guidance to use `POST /api/auth/change-email` and `POST /api/auth/verify-email` instead. Tests now assert the 400 response and verify that no Keycloak/DB operations are triggered for direct email changes.
+- **New test file:** `tests/test_auth_email_verification.py` (18 tests) covers the full verification flow with mocks:
+  - `POST /api/auth/change-email`: success, password verification, incorrect password (401), missing/empty password (400), Redis unavailable (503), email send failure with Redis cleanup (502), schema validation (empty/invalid email).
+  - `POST /api/auth/verify-email`: success with Keycloak+DB update and Redis cleanup, missing/whitespace code (400), no pending change (404), wrong code (400, key preserved), Redis unavailable (503), Keycloak failure (502, key preserved), DB sync failure (200 partial, key cleaned), empty body (422).
+- All mocks used; no live Redis/Keycloak/SMTP required.
+- No FRS gap register change (test alignment only).
+
+## [2026-06-16] feat(#353) | scheduled reports human-friendly filter builder
+
+- **#353 (filter builder for Scheduled Reports):** Replaced raw JSON textarea on `/admin/system` Scheduled Reports create/edit form with a human-friendly filter builder as the primary UI. Common filter fields (`region_id`, `severity`, `start_date`, `end_date`, `incident_type`) use dropdown, date-picker, and text inputs. Raw JSON remains available via an "Expert" toggle button for advanced users. Filters are validated client-side before save with clear inline error messages; invalid filters block save. The create payload now sends structured filter objects directly (no more `JSON.parse` of a raw string).
+- **New component:** `src/frontend/src/components/admin/ReportFilterBuilder.tsx` — self-contained component with builder/expert mode toggle, live JSON validation, per-field error display, and a summary of applied filters.
+- **Modified:** `src/frontend/src/app/admin/system/page.tsx` — replaced filters textarea with `ReportFilterBuilder`; added `validateReportFilters()` validator; changed `newReport.filters` type from JSON string to `Record<string, unknown>`; added `filterErrors` state for inline errors.
+- **Tests:** `src/frontend/src/components/admin/__tests__/ReportFilterBuilder.test.tsx` (17 tests: builder field rendering, onChange callbacks, region/severity select, date validation, summary display, error display, expert mode toggle, JSON validation/parsing, blur-to-onChange, live validation). Existing API client tests (`scheduledReports.test.ts`, 5 tests) and admin system search tests (`admin-system-search.test.tsx`, 5 tests) continue to pass.
+- No backend/API/schema changes (filters JSONB column already accepts structured objects). No dependency changes. No FRS gap register change (UI usability enhancement of existing functionality).
+
+## [2026-06-16] fix(#360) | backend real-IP audit metadata for breach + anomaly ACK/RESOLVE
+
+- **#360 (remaining backend audit metadata gaps):** `PATCH /api/admin/breach/{breach_id}` and `PATCH /api/admin/anomalies/{anomaly_id}` now pass `request=request` to `log_system_audit()` so audit rows capture real client IP (via X-Forwarded-For/X-Real-IP/client.host fallback) and real user-agent instead of storing NULL IP or a hardcoded `"anomalies-api"` string.
+- `breach.py`: added `request: Request` parameter; `BREACH_STATUS_UPDATE` audit call passes `request=request`.
+- `anomalies.py`: replaced manual `INSERT INTO wims.system_audit_trails` with `log_system_audit(db, ..., request=request)` for both `ANOMALY_ACK` and `ANOMALY_RESOLVE` actions; removed unused `_safe_ip()` helper.
+- Tests: updated `test_anomaly_api.py` ACK/RESOLVE audit assertions to use `log_system_audit` bind-param keys (`action` instead of `action_type`, `ip`/`ua` instead of `ip_address`/`user_agent`); added assertions that audit `ua` is not the old hardcoded `"anomalies-api"` and that `ip`/`ua` are not None.
+- `security.py` already fixed by earlier PR (#349/#350/#357) — no changes needed.
+- No FRS gap register change (enhancement to existing M10d audit implementation; no new FRS alignment).
+
+## [2026-06-16] feat(#352) | dedicated system audit page
+
+- **#352 (dedicated System Audit page):** Extracted full audit table and search from overcrowded `/admin/system` hub into a dedicated `/admin/audit` page. New page supports 7 audit filters (q, user_id, action_type, table_affected, ip_address, date_from, date_to) with Apply/Clear buttons, prev/next pagination (50/page), expandable old_values/new_values rows, loading skeleton, empty/filtered-empty/error states, offline cached-data indicator, and SYSTEM_ADMIN role gate with auth loading guard.
+- **Admin Hub CTA:** `/admin/system` System Audit section replaced with a compact CTA card linking to `/admin/audit`. Alert Action Highlights section (HITL_REVIEW, CREATE_INCIDENT_FROM_ALERT, BREACH_DETECTED) remains on the hub page, now backed by `loadHighlightAudit` (no search). Removed audit-specific state from admin system page (auditSearchQ, auditLastChecked, auditFromCache, loadingAudit).
+- **Sidebar:** `Sidebar.tsx` System Audit nav link updated from `/admin/system#audit` to `/admin/audit`. Icon changed from Settings (gear) — already used for Configuration — but the task accepts the existing icon.
+- **API layer:** Existing `fetchAuditLogsOfflineAware()` in `offlineAdmin.ts` already supports all filter params used by the new page. `fetchAuditLogs()` in `legacy.ts` and `AuditLogEntry` type in `types/api.ts` already include `old_values`/`new_values`.
+- **Tests:** `admin-audit.test.tsx` (14 tests: rendering, filter inputs, filter submission, clear filters, pagination prev/next, loading skeleton, empty state, filtered empty state, error state, non-admin redirect, row render+expand, refresh button). `admin-system-search.test.tsx` updated for CTA link and renamed audit search to highlights refresh.
+- **Wiki:** `system-wiki/frontend/route-map.md` — added `/admin/audit` route entry; updated admin/system description with audit CTA note. `system-wiki/subsystems/admin-hub.md` — updated System Audit Trails panel table, added Dedicated System Audit Page section, updated Gap/Status Notes.
+- No backend changes, no schema changes, no dependency additions, no FRS gap register changes (UI reorganization of existing functionality).
+
+## [2026-06-16] feat(#356,#362) | anomaly dashboard seed data + aggregate counts/dynamic filters
+
+- **#362 (aggregate counts + dynamic filters):** `GET /api/admin/anomalies` now returns `counts` (per-status aggregates: NEW/ACKNOWLEDGED/RESOLVED) and `type_facets` (per-type aggregates with counts) alongside existing paginated items. Same WHERE/filter scope as items and total. Summary cards on `/admin/anomalies` switched from `anomalies.filter()` on current page to API `counts`. Type filter dropdown populated dynamically from `type_facets`. Added severity filter dropdown (LOW/MEDIUM/HIGH/CRITICAL — hardcoded). Empty state distinguishes "no anomalies exist" (seed script hint) from "no anomalies match current filters" (adjust filters suggestion).
+- **#356 (seed/test anomaly data):** Added `scripts/seed-anomaly-detections.sh` + `scripts/seed-anomaly-detections.sql` inserting 20 anomaly_detections rows covering all 5 anomaly types, all 3 statuses, all 4 severities, timestamps distributed across last 24h. Uses `ON CONFLICT DO NOTHING` for safe re-runs. `subject_user_id` references known test users from `03_users.sql` or NULL.
+- Backend: `anomalies.py` — added status GROUP BY and type GROUP BY aggregate queries; `test_anomaly_api.py` — added `TestAggregateFields` test class (3 tests), updated 5 existing tests with `_make_aggregate_mocks` helper.
+- Frontend: `legacy.ts` — added `AnomalyAggregateResponse` type with `counts`/`type_facets`; `page.tsx` — aggregate counts, dynamic filters, severity filter, conditional empty state; `page.test.tsx` — 6 new/updated tests (18 total, all passing).
+- Wiki: `admin-hub.md` — added Anomaly Dashboard section; `api-route-map.md` — added anomalies GET/PATCH entries; `frontend/route-map.md` — updated anomalies route description.
+- No schema migration, no FRS gap register changes.
+
+## [2026-06-16] feat(#348,#351) | threat telemetry filter/pagination + XAI narrative normalizer
+
+- **#348 (Threat Telemetry filter & pagination):** Added advanced filter bar to `/admin/system` Security Threat Logs section: severity chips (LOW/MEDIUM/HIGH/CRITICAL toggle), Source IP text input, Date From/To text inputs, and a Reset All Filters button. Added prev/next pagination (20 items/page) with page indicator. Auto-reload via useEffect watching a combined filter key; stale-ref bug fixed in clear/reset handlers by updating `securitySearchQRef.current` before calling `loadSecurityLogs()`. Error state banner shown on fetch failure. `fetchAdminSecurityLogs()` signature extended with `source_ip`, `date_from`, `date_to` query params in `src/frontend/src/lib/api/legacy.ts`.
+- **#351 (XAI Narrative Normalizer):** Added `src/frontend/src/lib/xaiNarrativeNormalizer.ts` — a shared tolerant parser for AI-generated structured output in `xai_narrative`. Handles well-formed JSON, JSON-in-markdown-fences, partial/malformed JSON (regex field extraction for `anomaly_description`, `log_evidence`, `risk_assessment`, `recommended_action`, `confidence`/`xai_confidence`), plain text fallback, and empty/null input. Used in both `/admin/system` (detail drawer structured rendering) and `/admin/monitoring` (recent narratives structured display). Unit tests: `xaiNarrativeNormalizer.test.ts` (14 cases).
+- Test fix: `admin-system-search.test.ts` updated for new pagination params (`{ limit: 20, offset: 0 }` in clear/search assertions). Stale-ref bug in clear handlers fixed (deferred state update vs mutable ref).
+- Wiki updates: `system-wiki/subsystems/admin-hub.md` — updated Security Threat Logs table with filter/pagination details, added XAI Narrative Normalizer section, updated gap register note for #348 progress.
+- No backend changes, no dependency additions, no FRS gap register changes (enhancements to existing frontend UI; no new FRS gaps created or closed).
+
+## [2026-06-16] feat(#344,#358,#359) | admin hub loading feedback, auth guards, toast/confirm replacement, N+1 session fix
+
+- **#344 (consolidated System Health & Monitoring):** Merged System Health and System Monitoring sections on `/admin/system` into a single "System Health & Monitoring" card. Single refresh button controls both health and metrics/workers. Skeleton loading shown during initial fetch instead of blank sections. Loading states use `loadingMonitoring` flag. Test file `admin-system-monitoring.test.tsx` updated to match new heading text.
+- **#358 (auth loading guards for admin subpages):** Added `useAuth().loading` check to `/admin/monitoring`, `/admin/anomalies`, and `/admin/breach` pages. While auth resolves, a neutral "Loading…" spinner is shown; "Access restricted" only appears for confirmed non-admin roles. Prevents premature flash of restricted-access UI.
+- **#359 (UI feedback + session N+1 fix):** (a) Replaced all native `alert()` and `window.confirm()` calls on `/admin/system` with an in-app toast banner (`setToast`) and a confirmation modal for scheduled report deletion. (b) Fixed N+1 session query: per-user Keycloak sessions are now lazy-loaded via `useEffect` when the admin opens the per-user Sessions modal, instead of loading all user sessions upfront on page mount. Also removed duplicate `fetchAdminUsers()` call in initial mount chain. (c) Removed dead-code `actionNote`/`pendingMoreInfo` state left over from prior HITL refactor (#349/#350/#357).
+- Wiki updates: `system-wiki/frontend/route-map.md` — added monitoring/anomalies/breach routes; `system-wiki/subsystems/admin-hub.md` — documented consolidated System Health & Monitoring card, auth guards, toast/modal pattern, N+1 lazy-loading, and UI feedback pattern.
+- No backend changes, no dependency additions, no FRS gap register changes.
+
+## [2026-06-16] feat(#349,#350,#357) | admin security alert HITL audit + related-evidence + highlights
+
+- **#357 (backend audit completeness):** `PATCH /security-logs/{log_id}` and `POST /security-logs/{log_id}/create-incident` now pass `request=request` to `log_system_audit()` so audit rows capture real client IP/UA via `X-Forwarded-For`/`X-Real-IP` headers (no sensitive headers/tokens/cookies). `new_values` JSONB in each audit row includes `endpoint_action`, `method`, `path`, `log_id`, `incident_id` (create-incident only), and `outcome: SUCCESS` for forensic traceability.
+- **#357 (new endpoint):** `GET /admin/security-logs/{log_id}/related-audit` queries `system_audit_trails` within ±1h of alert timestamp, matching by `table_affected='security_threat_logs' AND record_id=log_id` or JSONB `log_id` match. Returns 404 for missing alert, empty `items` list if no evidence.
+- **#349 (frontend View/Find Related Evidence):** HITL modal replaces "Request More Info" button with "View Related Evidence". Calls `fetchRelatedAuditLogs()` and renders related audit rows inline with loading/error/empty states.
+- **#349/#350 (inline HITL messages):** Confirm Threat, False Positive, Create Incident show inline success/error messages instead of `alert()`. Create Incident success shows incident ID with link.
+- **#350 (Alert Action Highlights):** New `Alert Action Highlights` section on admin/system page filters `auditLogs` for `HITL_REVIEW`, `CREATE_INCIDENT_FROM_ALERT`, `BREACH_DETECTED` actions with refresh button, timestamp, action badge, table/record links, and IP/UA metadata.
+- Frontend API layer: Added `RelatedAuditItem`, `RelatedAuditResponse` interfaces and `fetchRelatedAuditLogs()` in `src/frontend/src/lib/api/legacy.ts`.
+- Tests: 3 new backend test methods in `TestSecurityAuditRequestParam` (#357 audit `request`/`new_values`), 4 new tests in `TestGetRelatedAudit` (#357 endpoint). Frontend test `admin-system-hitl.test.tsx` updated: Request More Info tests replaced with View Related Evidence + empty state tests; added assertion for inline success patterns.
+- System wiki: api-route-map.md updated with new route and enhanced audit notes.
+- No FRS gap register change (enhancements to existing M10d implementation; no new FRS alignment).
+
+## [2026-06-16] feat(#364) | Suricata EVE log mtime heartbeat with 5-state health
+
+- `src/backend/api/routes/admin/monitoring.py`: Replaced binary HEALTHY/UNHEALTHY Suricata check with 5-state logic driven by EVE log mtime (`/var/log/suricata/eve.json`) + threat log presence:
+  - `HEALTHY`: recent threats detected in last 5 min
+  - `QUIET`: EVE log mtime < 60s, no recent threats, total > 0 (quiet network — not a failure)
+  - `FRESH`: total = 0 (fresh deployment, no data yet)
+  - `DEGRADED`: EVE log mtime 60–600s old, no recent threats, total > 0 (ingestion may be stalled)
+  - `UNHEALTHY`: EVE log mtime > 600s old, EVE log unreadable, or DB query failure
+  - Only DEGRADED/UNHEALTHY degrade the overall system health status. QUIET and FRESH are valid operational states.
+- `src/frontend/src/app/admin/system/page.tsx`: Added Suricata card to the System Health grid (4-card layout: DB, Redis, Keycloak, Suricata). Added `getComponentStatusColor()`, `getComponentStatusTextColor()`, `getOverallBadgeColor()` helpers with 5-state coloring (green/blue/slate/amber/red). Suricata card shows detail text below the status dot. Overall status badge uses amber for DEGRADED instead of red.
+- `src/backend/tests/test_system_monitoring.py`: Added 7 new tests covering all 5 Suricata states plus query-failure and EVE-log-unreadable edge cases. All 18 monitoring tests pass (excluding the pre-existing DB-dependent worker test).
+- No FRS gap register change (this is a monitoring UX/accuracy enhancement; no FRS gap status changed).
 
 ## [2026-06-14] fix(deploy) | ollama CPU override for VPS in docker-compose.prod.yml
 
@@ -3241,3 +3357,60 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - This prevents FK-violation teardown failures when `POST /api/incidents` writes `CREATE_INCIDENT` audit rows referencing the temporary test user.
 - Audit immutability is preserved: the rule is only lifted during fixture cleanup and is always recreated before the next test runs.
 - No FRS gap register change (test infrastructure only).
+
+## [2026-06-16] feat(#355,#361) | breach workflow NPC contact config + status confirmation modal
+
+- **#355 (NPC contact display/config):** Added 3 new `system_config` keys: `npc_contact_name`, `npc_contact_phone`, `npc_office_phone`. Registered in `VALID_CONFIG_KEYS` frozenset in `admin/config.py`. Seed rows added to `49_system_config.sql` with default NPC DPO values. Frontend breach page now fetches NPC config via `fetchAdminConfig()` and displays an NPC Contact card at the top with name, phone, and office phone. Edit button opens a modal with editable fields; saving requires typing the confirmation phrase `confirm-npc-update`. On save, calls `updateAdminConfig()` for each changed value; audit logged via existing `CONFIG_UPDATE` pattern.
+- **#361 (breach status confirmation modal):** Replaced direct `handleStatusAdvance` button with a confirmation modal (`StatusAdvanceModal`). Modal displays current→next status transition, NPC deadline impact (overdue/urgent/normal), and an optional notes/evidence textarea. Cancel closes modal without mutation. Confirm calls `PATCH /api/admin/breach/{id}` with status and notes; success shows a green banner and updates the row; failure shows a red inline error in the modal and keeps prior row state (no optimistic mutation).
+- **Backend audit enrichment:** `update_breach()` now captures `old_values` (status, affected_systems, data_scope, notes) via a SELECT before UPDATE, and passes `request`, `old_values`, `new_values` to `log_system_audit()`. The `request` parameter enables client IP/UA capture via `X-Forwarded-For`/`X-Real-IP` headers, preserving the #360 real-IP audit pattern. Early 404 check moved to old-row SELECT (fails fast before any mutation).
+- **Backend tests:** `test_breach_notifications.py` — updated 4 existing tests for new execute call ordering (old-row SELECT added); added 3 new tests (`test_patch_includes_audit_old_new_values`, `test_patch_includes_request_metadata`, `test_patch_notes_included_in_audit`). `test_system_config.py` — updated `_SEED_ROWS` to 7 entries; added `TestNpcConfigKeys` class with 4 tests.
+- **Frontend tests:** `breach-list.test.tsx` — updated to include NPC config mock, added 11 new tests covering NPC contact card rendering, NPC edit modal open/cancel/confirm/error, status confirmation modal open/cancel/confirm/notes/error/CLOSED transition. Total: 22 tests (all passing).
+- **Wiki:** `system-wiki/log.md` — this entry. `system-wiki/subsystems/admin-hub.md` — added Breach Notifications section with NPC contact config and status advance confirmation details. `system-wiki/frontend/route-map.md` — updated breach route description. `system-wiki/backend/api-route-map.md` — added breach GET/PATCH routes and updated config route descriptions.
+- No FRS gap register changes (enhancements to existing M10d implementation; no new FRS alignment gaps).
+
+## [2026-06-16] feat(#354,#363) | worker timeout config keys + admin rate-limit UI
+
+- **#354 (worker timeout config):** Added two new system_config keys: `worker_stale_timeout_seconds` (min 30, default 60) and `worker_offline_timeout_seconds` (min 60, default 300). Registered in `VALID_CONFIG_KEYS` and `_NUMERIC_CONFIG_KEYS` in `admin/config.py`. Cross-key validation enforces offline > stale; both directions checked on PATCH. Seeds added to `49_system_config.sql`. Backend monitoring `tasks/monitoring.py` now reads these keys via `_read_worker_timeout_config()` on every heartbeat run (30s beat) and uses them in STALE/OFFLINE status-transition UPDATEs. Falls back to safe defaults (60/300) on missing, malformed, or invalidly-ordered values. No dead config — values are consumed by the running heartbeat task.
+- **#363 (rate-limits UI):** New `/admin/system/rate-limits` page with System Admin-only access. Displays current login-tier threshold and window from `GET /api/admin/rate-limits` (Redis). Explanatory card describes what the tier protects (Keycloak OIDC callback in `main.py`). Client-side validation: threshold ≥ 1, window ≥ 1, both required. Save calls `PATCH /api/admin/rate-limits` with green success/red failure feedback. Save button disabled when unchanged. Refresh button. Last-updated timestamp. Sidebar "Rate Limits" entry (Timer icon) under System section for SYSTEM_ADMIN only.
+- **API helpers:** `legacy.ts` — `fetchRateLimits()`, `updateRateLimits(tier, limit, window)`, `RateLimitConfig` type. `admin.ts` — re-exports.
+- **Backend tests:** `test_dynamic_rate_limits.py` — fixed 4 rejection-validation tests that were missing `get_db_with_rls` mock. `test_system_config.py` — 10 new `TestWorkerTimeoutConfigKeys` tests. `test_system_monitoring.py` — 5 new `TestReadWorkerTimeoutConfig` tests plus fixed `test_worker_status_returns_list_for_admin` DB mock.
+- **Frontend tests:** `rate-limits.test.tsx` (11 tests — loading, display, explanatory copy, save/save-failure/disabled, validation errors, load error, timestamp, non-admin redirect). `system-config.test.tsx` (5 tests — worker timeout key rendering, descriptions, inline editing, non-admin redirect). `Sidebar.test.tsx` (6 tests — Rate Limits visibility by role and link target).
+- **Wiki:** `system-wiki/log.md` — this entry. `system-wiki/subsystems/admin-hub.md` — added Rate Limit Configuration (#363) and Worker Timeout Configuration (#354) sections. `system-wiki/backend/api-route-map.md` — updated rate_limits and config route descriptions. `system-wiki/frontend/route-map.md` — added `/admin/system/rate-limits` route.
+- No FRS gap register changes (enhancements to existing M9c config management and M8 monitoring; no new FRS alignment gaps).
+
+## 2026-06-16: Identity Governance & Active Sessions UI (#346, #347)
+
+- **Identity Governance (#346):** Replaced inline UserRow expand/collapse with an edit modal. Added client-side filter bar (username search, role dropdown, region dropdown, active status selector) and client-side pagination (10/25/50 per page). Removed deprecated CIVILIAN_REPORTER from all role dropdowns. Region editor now uses named dropdown from `fetchRegions()` instead of numeric input. Removed the Sessions column from the Identity Governance table.
+- **Active Sessions (#347):** Added client-side username filter input and client-side pagination (10/25/50 per page). Sessions remain viewable and manageable in the dedicated Active Sessions container. Per-user sessions are accessible by clicking a username in Identity Governance.
+- **Backend:** No changes. All filtering and pagination is client-side using the existing full-list `GET /api/admin/users` and `GET /api/admin/active-sessions` endpoints.
+- **Tests:** New test file `admin-system-governance.test.tsx` with 17 tests covering filters, pagination, modal behavior, role validation, region dropdown, sessions column removal, and Active Sessions features.
+- **Wiki:** Updated `system-wiki/subsystems/admin-hub.md` to reflect the new governance and sessions UX. No FRS gap register changes (UI improvements only).
+
+## [2026-06-16] fix(#354,#363) | rate-limit middleware reads Redis config (B1 blocker)
+
+- **Root cause:** The auth/callback rate-limit middleware in `main.py` used hardcoded `WINDOW_SECONDS` (900) and `RATE_LIMIT_THRESHOLD` (5) and never read `rate_limit_config:login` from Redis. Changes made via `/admin/system/rate-limits` were written to Redis but had no effect on actual rate-limiting behavior (dead control).
+- **Fix:** Modified `rate_limit_middleware` in `main.py` to call `r.hgetall("rate_limit_config:login")` before each eval. Parses `window_seconds` and `threshold` as ints; uses them when both are positive, otherwise falls back to the module-level constants. Safe parse: catches `ValueError`/`TypeError` for non-numeric values and generic `Exception` for Redis connection issues.
+- **Tests:** Added `TestRateLimitMiddlewareConfig` class in `tests/test_dynamic_rate_limits.py` with 5 tests: middleware passes configured window/threshold to eval, fallback on empty config hash, fallback on non-numeric values, fallback on zero/negative values, 429 response includes Retry-After header.
+- **Wiki:** Updated `system-wiki/subsystems/admin-hub.md` — added middleware consumption note and corrected test count (10→15). `system-wiki/log.md` — this entry.
+- No FRS gap register change (bugfix, no new feature/capability gap).
+
+## [2026-06-16] feat(#345) | Celery worker retention + pagination
+
+- **Worker pagination:** `GET /api/admin/monitoring/workers` now returns paginated response `{ items, total, limit, offset }` with default page size 20 (max 200). Frontend worker table has prev/next pagination, page size selector (10/20/50), and "Showing N–M of T" indicator.
+- **Manual prune:** `POST /api/admin/monitoring/workers/prune` (SYSTEM_ADMIN only) deletes OFFLINE worker heartbeat rows older than the retention threshold. ACTIVE, STALE, and recent OFFLINE rows are protected. Action is audit-logged (`WORKER_PRUNE`) with deleted count and retention days. Returns `{ status, deleted_count, retention_days, message }`. Frontend "Prune Old Workers" button opens a confirmation modal; result banner shows deleted count and message.
+- **Retention policy:** Config key `worker_heartbeat_retention_days` registered in `system_config` (default 7 days, minimum 1). Consumed by both manual and auto-prune logic. Invalid values fall back to 7-day default.
+- **Auto-prune:** Integrated in existing `tasks.monitoring.worker_heartbeat` Celery beat task (runs every 30s). Prunes OFFLINE rows older than retention threshold after status updates; audit-logged as `WORKER_PRUNE_AUTO`; skips audit when nothing deleted.
+- **Backend tests:** `test_system_monitoring.py` — added 11 new tests: 4 pagination tests (paginated response shape, limit/offset, invalid limit, excessive limit), 5 manual prune tests (admin-only, delete-only-old-offline, config-retention-days, invalid-config-fallback, audit-metadata), 4 auto-prune tests (deletes-old-offline, skips-audit-when-empty, respects-config-retention). Existing `test_worker_status_returns_list_for_admin` replaced with `test_worker_status_returns_paginated_for_admin`.
+- **Frontend tests:** `admin-system-monitoring.test.tsx` — updated all 14 existing tests for paginated worker response shape (`mockWorkers` → `mockWorkersPaginated`; empty array → `{ items: [], total: 0, limit: 20, offset: 0 }`).
+- **Frontend API:** `fetchWorkerStatus(params?)` returns `WorkerStatusPaginatedResponse`; backward-compat wrapper for older raw-array responses. `pruneWorkers()` calls `POST /api/admin/monitoring/workers/prune`. Offline-aware wrappers updated in `offlineAdmin.ts`. Types exported from `admin.ts`.
+- **SQL:** Seed row `worker_heartbeat_retention_days = '7'` added to `49_system_config.sql`.
+- **Wiki:** `system-wiki/backend/api-route-map.md` — added prune endpoint and pagination note. `system-wiki/subsystems/admin-hub.md` — updated System Health & Monitoring panel and backend route table for #345.
+- No FRS gap register change (operational enhancement to existing worker heartbeat infrastructure).
+
+## [2026-06-16] fix(#364) | Suricata health displayed in consolidated system UI
+
+- **Gap:** Backend `GET /api/admin/health` returned 5-state Suricata component status (HEALTHY/QUIET/FRESH/DEGRADED/UNHEALTHY) with detail text, but the consolidated System Health & Monitoring UI only showed PostgreSQL, Redis, and Keycloak cards. The Suricata card was lost during conflict resolution of the original #364 implementation.
+- **Fix:** Added a "Suricata IDS" card to the health grid using the existing `getComponentStatusColor` and `getComponentStatusTextColor` 5-state helpers. The card shows latency, status dot (5-state colored), and detail text (e.g., "alerting — recent threats detected", "healthy, no recent alerts", "no threat data yet"). Updated overall status badge to use `getOverallBadgeColor` for proper DEGRADED (amber) coloring. Expanded health type to include optional `detail`/`error` fields. Changed health grid from 3 to 4 columns on desktop.
+- **Backend test cleanup:** Removed unused `from database import get_db` import in `test_system_monitoring.py`.
+- **Files:** `src/frontend/src/app/admin/system/page.tsx` (+18/-3), `src/backend/tests/test_system_monitoring.py` (+0/-1).
+- No FRS gap register change (UI completeness fix for already-implemented backend health check).

@@ -68,7 +68,9 @@ def get_crypto_provider(
         row_provider = row.get("crypto_provider")
         if row_provider == "openbao_transit":
             return _get_openbao()
-        if row_provider is not None and row_provider != "env_aesgcm":
+        if row_provider == "env_aesgcm":
+            return _get_env_aesgcm()
+        if row_provider is not None:
             raise OpenBaoClientError(
                 f"Unknown row crypto_provider={row_provider!r} — expected "
                 f"'env_aesgcm' or 'openbao_transit'"

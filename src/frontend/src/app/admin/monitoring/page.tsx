@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { AuditLogEntry } from '@/types/api';
 import { useAuth } from '@/context/AuthContext';
+import { normalizeNarrative } from '@/lib/xaiNarrativeNormalizer';
 import {
   fetchAdminSecurityLogs,
   fetchSecurityLogsSummary,
@@ -49,7 +50,7 @@ function formatTime(iso: string): string {
 }
 
 export default function SecurityMonitoringPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const role = (user as { role?: string })?.role ?? null;
   const isAdmin = role === 'SYSTEM_ADMIN';
 
@@ -88,6 +89,7 @@ export default function SecurityMonitoringPage() {
 
   const loadThreats = useCallback(async () => {
     if (!isAdmin) return;
+    setError(null);
     setLoading(true);
     try {
       const severityParam = activeSeverities.size > 0 ? Array.from(activeSeverities).join(',') : undefined;
@@ -178,6 +180,14 @@ export default function SecurityMonitoringPage() {
       return next;
     });
   };
+
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh] text-gray-500">
+        Loading…
+      </div>
+    );
+  }
 
   if (!isAdmin) {
     return (
@@ -490,7 +500,16 @@ export default function SecurityMonitoringPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {summary.recent_narratives.map((narrative) => (
+              {summary.recent_narratives.map((narrative) => {
+                const parsed = normalizeNarrative(narrative.xai_narrative);
+                const hasStructuredFields = parsed.isStructured || parsed.anomalyDescription || parsed.logEvidence || parsed.riskAssessment || parsed.recommendedAction;
+                const primaryText = hasStructuredFields
+                  ? (parsed.anomalyDescription || parsed.logEvidence || parsed.riskAssessment || parsed.recommendedAction || '')
+                  : (narrative.xai_narrative || '');
+                const isLong = primaryText.length > 200;
+                const isExpanded = expandedNarratives.has(narrative.log_id);
+
+                return (
                 <div
                   key={narrative.log_id}
                   className="p-3 rounded-lg"
@@ -510,48 +529,94 @@ export default function SecurityMonitoringPage() {
                     <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
                       {formatTime(narrative.timestamp)}
                     </span>
+                    {parsed.confidence != null && (
+                      <span className="text-xs font-medium text-purple-600">{(parsed.confidence * 100).toFixed(0)}% conf.</span>
+                    )}
                   </div>
-                  <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
+                  <div className="text-sm" style={{ color: 'var(--text-primary)' }}>
                     {narrative.xai_narrative ? (
-                      narrative.xai_narrative.length > 200 ? (
-                        expandedNarratives.has(narrative.log_id) ? (
-                          <>
-                            {narrative.xai_narrative}{' '}
+                      hasStructuredFields ? (
+                        /* Structured rendering */
+                        <div className="space-y-2">
+                          {parsed.anomalyDescription && (
+                            <div>
+                              <span className="text-xs font-semibold text-purple-600">Anomaly: </span>
+                              <span>{isExpanded || !isLong ? parsed.anomalyDescription : parsed.anomalyDescription.slice(0, 200) + '…'}</span>
+                            </div>
+                          )}
+                          {(isExpanded || !isLong) && (
+                            <>
+                              {parsed.riskAssessment && (
+                                <div>
+                                  <span className="text-xs font-semibold text-orange-600">Risk: </span>
+                                  <span>{parsed.riskAssessment}</span>
+                                </div>
+                              )}
+                              {parsed.recommendedAction && (
+                                <div>
+                                  <span className="text-xs font-semibold text-green-600">Recommendation: </span>
+                                  <span>{parsed.recommendedAction}</span>
+                                </div>
+                              )}
+                            </>
+                          )}
+                          {isLong && (
                             <span
                               className="text-xs text-blue-600 cursor-pointer"
                               onClick={() => toggleNarrative(narrative.log_id)}
                               role="button"
                               tabIndex={0}
                               onKeyDown={(e) => e.key === 'Enter' && toggleNarrative(narrative.log_id)}
-                              aria-expanded="true"
+                              aria-expanded={isExpanded}
                             >
-                              Show less
+                              {isExpanded ? 'Show less' : 'Read more'}
                             </span>
-                          </>
-                        ) : (
-                          <>
-                            {narrative.xai_narrative.slice(0, 200)}…{' '}
-                            <span
-                              className="text-xs text-blue-600 cursor-pointer"
-                              onClick={() => toggleNarrative(narrative.log_id)}
-                              role="button"
-                              tabIndex={0}
-                              onKeyDown={(e) => e.key === 'Enter' && toggleNarrative(narrative.log_id)}
-                              aria-expanded="false"
-                            >
-                              Read more
-                            </span>
-                          </>
-                        )
+                          )}
+                        </div>
                       ) : (
-                        narrative.xai_narrative
+                        /* Plain text fallback with truncation */
+                        <>
+                          {isLong ? (
+                            isExpanded ? (
+                              <>
+                                {narrative.xai_narrative}{' '}
+                                <span
+                                  className="text-xs text-blue-600 cursor-pointer"
+                                  onClick={() => toggleNarrative(narrative.log_id)}
+                                  role="button"
+                                  tabIndex={0}
+                                  onKeyDown={(e) => e.key === 'Enter' && toggleNarrative(narrative.log_id)}
+                                  aria-expanded="true"
+                                >
+                                  Show less
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                {narrative.xai_narrative!.slice(0, 200)}…{' '}
+                                <span
+                                  className="text-xs text-blue-600 cursor-pointer"
+                                  onClick={() => toggleNarrative(narrative.log_id)}
+                                  role="button"
+                                  tabIndex={0}
+                                  onKeyDown={(e) => e.key === 'Enter' && toggleNarrative(narrative.log_id)}
+                                  aria-expanded="false"
+                                >
+                                  Read more
+                                </span>
+                              </>
+                            )
+                          ) : (
+                            narrative.xai_narrative
+                          )}
+                        </>
                       )
                     ) : (
                       <span className="text-gray-500 italic">No narrative available</span>
                     )}
-                  </p>
+                  </div>
                 </div>
-              ))}
+              );})}
             </div>
           )}
         </div>

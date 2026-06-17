@@ -11,12 +11,13 @@ import logging
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, field_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from auth import get_system_admin, get_db_with_rls
+from utils.audit import log_system_audit
 
 logger = logging.getLogger("wims.admin.anomalies")
 router = APIRouter()
@@ -99,13 +100,44 @@ def list_anomalies(
         params,
     ).fetchall()
 
+    # Aggregate query params — exclude pagination
+    agg_params = {k: v for k, v in params.items() if k not in ("limit", "offset")}
+
     total = (
         db.execute(
             text(f"SELECT COUNT(*) FROM wims.anomaly_detections {where_sql}"),
-            {k: v for k, v in params.items() if k not in ("limit", "offset")},
+            agg_params,
         ).scalar()
         or 0
     )
+
+    # Status aggregate counts (same filter scope as total)
+    status_rows = db.execute(
+        text(f"""
+            SELECT status, COUNT(*) as cnt
+            FROM wims.anomaly_detections
+            {where_sql}
+            GROUP BY status
+        """),
+        agg_params,
+    ).fetchall()
+    counts: dict[str, int] = {row[0]: row[1] for row in status_rows}
+    # Ensure all three statuses are present even if zero in filtered set
+    for s in VALID_STATUSES:
+        counts.setdefault(s, 0)
+
+    # Type facets (same filter scope)
+    type_rows = db.execute(
+        text(f"""
+            SELECT anomaly_type, COUNT(*) as cnt
+            FROM wims.anomaly_detections
+            {where_sql}
+            GROUP BY anomaly_type
+            ORDER BY cnt DESC, anomaly_type
+        """),
+        agg_params,
+    ).fetchall()
+    type_facets = [{"type": row[0], "count": row[1]} for row in type_rows]
 
     return {
         "items": [
@@ -126,6 +158,8 @@ def list_anomalies(
         "total": total,
         "limit": limit,
         "offset": offset,
+        "counts": counts,
+        "type_facets": type_facets,
     }
 
 
@@ -133,6 +167,7 @@ def list_anomalies(
 def update_anomaly_status(
     anomaly_id: int,
     body: AnomalyStatusUpdate,
+    request: Request,
     admin: Annotated[dict, Depends(get_system_admin)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
@@ -198,27 +233,13 @@ def update_anomaly_status(
     )
 
     # Audit trail
-    db.execute(
-        text("""
-            INSERT INTO wims.system_audit_trails
-                (user_id, action_type, table_affected, record_id,
-                 ip_address, user_agent)
-            VALUES (
-                CAST(:user_id AS uuid),
-                :action_type,
-                'anomaly_detections',
-                :record_id,
-                :ip_address,
-                :user_agent
-            )
-        """),
-        {
-            "user_id": admin["user_id"],
-            "action_type": audit_action,
-            "record_id": anomaly_id,
-            "ip_address": _safe_ip(admin),
-            "user_agent": "anomalies-api",
-        },
+    log_system_audit(
+        db,
+        admin["user_id"],
+        audit_action,
+        "anomaly_detections",
+        anomaly_id,
+        request=request,
     )
 
     db.commit()
@@ -237,13 +258,3 @@ def update_anomaly_status(
         "previous_status": current_status,
         "new_status": new_status,
     }
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _safe_ip(user: dict) -> str | None:
-    """Extract client IP from user dict if present (injected by middleware)."""
-    return user.get("ip_address") or None

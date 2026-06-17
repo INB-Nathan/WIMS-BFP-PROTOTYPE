@@ -22,6 +22,12 @@ VALID_CONFIG_KEYS = frozenset(
         "session_timeout_minutes",
         "offline_storage_mb",
         "ai_timeout_seconds",
+        "npc_contact_name",
+        "npc_contact_phone",
+        "npc_office_phone",
+        "worker_stale_timeout_seconds",
+        "worker_offline_timeout_seconds",
+        "worker_heartbeat_retention_days",
     }
 )
 
@@ -32,6 +38,9 @@ _NUMERIC_CONFIG_KEYS: dict[str, tuple[type, int | float]] = {
     "session_timeout_minutes": (int, 1),
     "offline_storage_mb": (int, 1),
     "ai_timeout_seconds": (float, 0.1),
+    "worker_stale_timeout_seconds": (int, 30),
+    "worker_offline_timeout_seconds": (int, 60),
+    "worker_heartbeat_retention_days": (int, 1),
 }
 
 
@@ -94,6 +103,47 @@ def update_config(
                 status_code=400,
                 detail=f"Config key {key!r} must be >= {min_val}, got {val}",
             )
+
+    # Cross-key validation: worker_offline_timeout_seconds must be greater than
+    # worker_stale_timeout_seconds.
+    if key == "worker_offline_timeout_seconds":
+        conv, _ = _NUMERIC_CONFIG_KEYS[key]
+        offline_val = conv(body.value)
+        stale_row = db.execute(
+            text(
+                "SELECT config_value FROM wims.system_config WHERE config_key = 'worker_stale_timeout_seconds'"
+            ),
+        ).fetchone()
+        if stale_row is not None:
+            try:
+                stale_val = int(stale_row[0])
+            except (ValueError, TypeError):
+                stale_val = 60  # default fallback
+            if offline_val <= stale_val:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"worker_offline_timeout_seconds ({offline_val}) must be greater than "
+                    f"worker_stale_timeout_seconds ({stale_val})",
+                )
+    if key == "worker_stale_timeout_seconds":
+        conv, _ = _NUMERIC_CONFIG_KEYS[key]
+        stale_val = conv(body.value)
+        offline_row = db.execute(
+            text(
+                "SELECT config_value FROM wims.system_config WHERE config_key = 'worker_offline_timeout_seconds'"
+            ),
+        ).fetchone()
+        if offline_row is not None:
+            try:
+                offline_val = int(offline_row[0])
+            except (ValueError, TypeError):
+                offline_val = 300  # default fallback
+            if stale_val >= offline_val:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"worker_stale_timeout_seconds ({stale_val}) must be less than "
+                    f"worker_offline_timeout_seconds ({offline_val})",
+                )
 
     old_row = db.execute(
         text("SELECT config_value FROM wims.system_config WHERE config_key = :key"),

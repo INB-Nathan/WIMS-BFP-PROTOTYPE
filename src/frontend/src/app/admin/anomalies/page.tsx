@@ -43,7 +43,7 @@ function formatTime(iso: string): string {
 }
 
 export default function AnomalyDetectionPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const role = (user as { role?: string })?.role ?? null;
   const isAdmin = role === 'SYSTEM_ADMIN';
 
@@ -53,8 +53,12 @@ export default function AnomalyDetectionPage() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<AnomalyStatus | ''>('');
   const [typeFilter, setTypeFilter] = useState('');
+  const [severityFilter, setSeverityFilter] = useState('');
   const [page, setPage] = useState(0);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
+  // Aggregate data from API for summary cards and dynamic filter options
+  const [counts, setCounts] = useState<Record<string, number>>({ NEW: 0, ACKNOWLEDGED: 0, RESOLVED: 0 });
+  const [typeFacets, setTypeFacets] = useState<Array<{ type: string; count: number }>>([]);
 
   const PAGE_SIZE = 20;
 
@@ -65,20 +69,26 @@ export default function AnomalyDetectionPage() {
     try {
       const result = await fetchAnomalies({
         status: statusFilter || undefined,
+        severity: severityFilter || undefined,
         anomaly_type: typeFilter || undefined,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       });
       setAnomalies(result.items);
       setTotal(result.total);
+      setCounts(result.counts ?? { NEW: 0, ACKNOWLEDGED: 0, RESOLVED: 0 });
+      setTypeFacets(result.type_facets ?? []);
     } catch (err) {
       console.error('loadAnomalies error', err);
       setError(err instanceof Error ? err.message : 'Failed to load anomaly data');
       setAnomalies([]);
+      setTotal(0);
+      setCounts({ NEW: 0, ACKNOWLEDGED: 0, RESOLVED: 0 });
+      setTypeFacets([]);
     } finally {
       setLoading(false);
     }
-  }, [isAdmin, statusFilter, typeFilter, page]);
+  }, [isAdmin, statusFilter, typeFilter, severityFilter, page]);
 
   useEffect(() => {
     loadAnomalies();
@@ -115,6 +125,14 @@ export default function AnomalyDetectionPage() {
     }
   };
 
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh] text-gray-500">
+        Loading…
+      </div>
+    );
+  }
+
   if (!isAdmin) {
     return (
       <div className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>
@@ -123,10 +141,11 @@ export default function AnomalyDetectionPage() {
     );
   }
 
-  // Summary counts
-  const newCount = anomalies.filter((a) => a.status === 'NEW').length;
-  const ackCount = anomalies.filter((a) => a.status === 'ACKNOWLEDGED').length;
-  const resolvedCount = anomalies.filter((a) => a.status === 'RESOLVED').length;
+  // Summary counts — sourced from API aggregate, not current-page items
+  const newCount = counts.NEW ?? 0;
+  const ackCount = counts.ACKNOWLEDGED ?? 0;
+  const resolvedCount = counts.RESOLVED ?? 0;
+  const hasAnyFilters = statusFilter !== '' || typeFilter !== '' || severityFilter !== '';
 
   return (
     <div className="space-y-6">
@@ -225,7 +244,7 @@ export default function AnomalyDetectionPage() {
                 );
               })}
             </div>
-            {/* Type filter */}
+            {/* Type filter — dynamic from API type_facets */}
             <select
               value={typeFilter}
               onChange={(e) => { setTypeFilter(e.target.value); setPage(0); }}
@@ -233,10 +252,24 @@ export default function AnomalyDetectionPage() {
               style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
             >
               <option value="">All Types</option>
-              <option value="BULK_DELETE">Bulk Delete</option>
-              <option value="OFF_HOURS">Off Hours</option>
-              <option value="PRIVILEGE_ESCALATION">Privilege Escalation</option>
-              <option value="RAPID_IP_SWITCH">Rapid IP Switch</option>
+              {typeFacets.map((f) => (
+                <option key={f.type} value={f.type}>
+                  {f.type.replace(/_/g, ' ')} ({f.count})
+                </option>
+              ))}
+            </select>
+            {/* Severity filter */}
+            <select
+              value={severityFilter}
+              onChange={(e) => { setSeverityFilter(e.target.value); setPage(0); }}
+              className="border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
+              style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+            >
+              <option value="">All Severities</option>
+              <option value="LOW">Low</option>
+              <option value="MEDIUM">Medium</option>
+              <option value="HIGH">High</option>
+              <option value="CRITICAL">Critical</option>
             </select>
           </div>
         </div>
@@ -255,7 +288,19 @@ export default function AnomalyDetectionPage() {
           </div>
         ) : anomalies.length === 0 ? (
           <div className="p-10 text-center" style={{ color: 'var(--text-muted)' }}>
-            No anomalies found.
+            {total === 0 && !hasAnyFilters ? (
+              <div className="space-y-2">
+                <p>No anomaly detections exist yet.</p>
+                <p className="text-xs">
+                  Run <code className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono">
+                    ./scripts/seed-anomaly-detections.sh
+                  </code>{' '}
+                  to seed test data, or wait for the Celery anomaly detector to populate results.
+                </p>
+              </div>
+            ) : (
+              <p>No anomalies match the current filters. Try adjusting your filter selection.</p>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">

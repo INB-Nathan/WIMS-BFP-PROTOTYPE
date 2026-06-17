@@ -1,7 +1,9 @@
 /**
- * TDD: /admin/system search wiring for security and audit logs.
+ * TDD: /admin/system search wiring for security logs.
  *
  * Covers search submit buttons, trimmed q values, and clear behavior.
+ * Note: Audit section moved to /admin/audit (#352); this test only covers
+ * security telemetry search.
  */
 
 import { render, screen, waitFor } from '@testing-library/react';
@@ -27,6 +29,12 @@ const mockFetchAuditLogs = vi.fn();
 
 vi.mock('@/lib/useNetworkStatus', () => ({
   useNetworkStatus: () => ({ isOnline: true, isReconnecting: false }),
+}));
+
+vi.mock('@/lib/connectivity', () => ({
+  getConnectivitySnapshot: () => ({ state: 'online' }),
+  subscribeConnectivity: () => () => {},
+  probeConnectivity: () => {},
 }));
 
 vi.mock('@/lib/api', () => ({
@@ -78,6 +86,7 @@ vi.mock('@/lib/api', () => ({
   fetchUserSessions: vi.fn().mockResolvedValue({ sessions: [] }),
   terminateUserSessions: vi.fn(),
   revokeUserSessions: vi.fn(),
+  fetchRelatedAuditLogs: vi.fn().mockResolvedValue({ log_id: 1, items: [] }),
 }));
 
 describe('Admin System search wiring', () => {
@@ -88,7 +97,7 @@ describe('Admin System search wiring', () => {
     mockFetchAuditLogs.mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
   });
 
-  it('exposes accessible labels for the icon-only search buttons', async () => {
+  it('exposes accessible label for the security search button', async () => {
     render(<AdminSystemPage />);
 
     await waitFor(() => {
@@ -97,7 +106,8 @@ describe('Admin System search wiring', () => {
     });
 
     expect(screen.getByRole('button', { name: 'Search security logs' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Search audit logs' })).toBeInTheDocument();
+    // Audit search moved to /admin/audit (#352)
+    expect(screen.getByText('Open System Audit')).toBeInTheDocument();
   });
 
   it('submits trimmed security q values', async () => {
@@ -112,24 +122,19 @@ describe('Admin System search wiring', () => {
     await user.click(screen.getByRole('button', { name: 'Search security logs' }));
 
     await waitFor(() => {
-      expect(mockFetchAdminSecurityLogs).toHaveBeenLastCalledWith({ q: 'smoke' });
+      expect(mockFetchAdminSecurityLogs).toHaveBeenLastCalledWith({ limit: 20, offset: 0, q: 'smoke' });
     });
   });
 
-  it('submits trimmed audit q values with pagination', async () => {
-    const user = userEvent.setup();
+  it('audit CTA links to /admin/audit', async () => {
     render(<AdminSystemPage />);
 
-    await waitFor(() => expect(screen.getByText('System Audit')).toBeInTheDocument());
-
-    const input = screen.getAllByPlaceholderText('Search audit trail (action, table, user agent…)')[0];
-    await user.clear(input);
-    await user.type(input, '  login  ');
-    await user.click(screen.getByRole('button', { name: 'Search audit logs' }));
-
     await waitFor(() => {
-      expect(mockFetchAuditLogs).toHaveBeenLastCalledWith({ limit: 50, offset: 0, q: 'login' });
+      expect(screen.getByText('System Audit')).toBeInTheDocument();
     });
+
+    const ctaLink = screen.getByText('Open System Audit');
+    expect(ctaLink.closest('a')).toHaveAttribute('href', '/admin/audit');
   });
 
   it('clears security q and refetches unfiltered logs', async () => {
@@ -144,23 +149,7 @@ describe('Admin System search wiring', () => {
     await user.click(screen.getByRole('button', { name: 'Clear' }));
 
     await waitFor(() => {
-      expect(mockFetchAdminSecurityLogs).toHaveBeenLastCalledWith(undefined);
-    });
-  });
-
-  it('clears audit q and refetches unfiltered logs', async () => {
-    const user = userEvent.setup();
-    render(<AdminSystemPage />);
-
-    await waitFor(() => expect(screen.getByText('System Audit')).toBeInTheDocument());
-
-    const input = screen.getAllByPlaceholderText('Search audit trail (action, table, user agent…)')[0];
-    await user.type(input, 'action');
-    await user.click(screen.getByRole('button', { name: 'Search audit logs' }));
-    await user.click(screen.getByRole('button', { name: 'Clear' }));
-
-    await waitFor(() => {
-      expect(mockFetchAuditLogs).toHaveBeenLastCalledWith({ limit: 50, offset: 0 });
+      expect(mockFetchAdminSecurityLogs).toHaveBeenLastCalledWith({ limit: 20, offset: 0 });
     });
   });
 });

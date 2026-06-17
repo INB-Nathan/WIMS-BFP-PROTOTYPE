@@ -8,20 +8,65 @@ from celery import shared_task
 from sqlalchemy import text
 
 from database import get_session
+from utils.audit import log_system_audit
 
 logger = logging.getLogger("wims.monitoring")
+
+_WORKER_RETENTION_DAYS_DEFAULT = 7
+
+
+def _read_worker_timeout_config(db) -> tuple[int, int]:
+    """Read worker_stale_timeout_seconds and worker_offline_timeout_seconds
+    from wims.system_config.  Falls back to hardcoded defaults (60/300) when
+    the config table is unavailable or values are malformed."""
+    try:
+        rows = db.execute(
+            text("""
+                SELECT config_key, config_value
+                FROM wims.system_config
+                WHERE config_key IN (
+                    'worker_stale_timeout_seconds',
+                    'worker_offline_timeout_seconds'
+                )
+            """)
+        ).fetchall()
+        cfg: dict[str, int] = {}
+        for r in rows:
+            try:
+                cfg[r[0]] = int(r[1])
+            except (ValueError, TypeError):
+                pass
+        stale = cfg.get("worker_stale_timeout_seconds", 60)
+        offline = cfg.get("worker_offline_timeout_seconds", 300)
+        # Sanity: offline must be strictly greater than stale
+        if offline <= stale:
+            logger.warning(
+                "worker_offline_timeout_seconds (%d) <= worker_stale_timeout_seconds (%d); "
+                "using fallback defaults 60/300",
+                offline,
+                stale,
+            )
+            stale, offline = 60, 300
+        return stale, offline
+    except Exception:
+        return 60, 300
 
 
 @shared_task(name="tasks.monitoring.worker_heartbeat")
 def worker_heartbeat() -> int:
     """
     Register this Celery worker in wims.worker_heartbeat.
-    Mark workers not seen in >300s as OFFLINE.
+    Mark workers not seen within configured intervals as STALE/OFFLINE.
+    Reads worker_stale_timeout_seconds and worker_offline_timeout_seconds
+    from wims.system_config each run so admin changes take effect without
+    a Celery restart.
     Runs every 30 seconds via Celery beat.
     """
     hostname = socket.gethostname()
     db = get_session()
     try:
+        stale_secs, offline_secs = _read_worker_timeout_config(db)
+
         db.execute(
             text("""
                 INSERT INTO wims.worker_heartbeat
@@ -37,23 +82,72 @@ def worker_heartbeat() -> int:
         )
 
         db.execute(
-            text("""
+            text(f"""
                 UPDATE wims.worker_heartbeat
                 SET status = 'STALE'
-                WHERE last_seen < now() - INTERVAL '60 seconds'
-                  AND last_seen >= now() - INTERVAL '300 seconds'
+                WHERE last_seen < now() - INTERVAL '{stale_secs} seconds'
+                  AND last_seen >= now() - INTERVAL '{offline_secs} seconds'
                   AND status = 'ACTIVE'
             """)
         )
 
         db.execute(
-            text("""
+            text(f"""
                 UPDATE wims.worker_heartbeat
                 SET status = 'OFFLINE'
-                WHERE last_seen < now() - INTERVAL '300 seconds'
+                WHERE last_seen < now() - INTERVAL '{offline_secs} seconds'
                   AND status != 'OFFLINE'
             """)
         )
+
+        # Auto-prune OFFLINE workers older than retention threshold.
+        # Retention days are read from system_config; fallback to 7 days.
+        row = db.execute(
+            text(
+                "SELECT config_value FROM wims.system_config "
+                "WHERE config_key = 'worker_heartbeat_retention_days'"
+            )
+        ).fetchone()
+        retention_days = _WORKER_RETENTION_DAYS_DEFAULT
+        if row and row[0] is not None:
+            try:
+                val = int(row[0])
+                if val >= 1:
+                    retention_days = val
+            except (ValueError, TypeError):
+                pass
+
+        result = db.execute(
+            text(
+                """
+                DELETE FROM wims.worker_heartbeat
+                WHERE status = 'OFFLINE'
+                  AND last_seen < now() - (:retention_days || ' days')::INTERVAL
+                """
+            ),
+            {"retention_days": str(retention_days)},
+        )
+        deleted = result.rowcount or 0
+
+        if deleted > 0:
+            log_system_audit(
+                db=db,
+                user_id=None,
+                action_type="WORKER_PRUNE_AUTO",
+                table_affected="worker_heartbeat",
+                record_id=None,
+                request=None,
+                new_values={
+                    "deleted_count": deleted,
+                    "retention_days": retention_days,
+                    "cutoff": f"now() - {retention_days} days",
+                },
+            )
+            logger.info(
+                "Auto-pruned %d OFFLINE worker(s) older than %d day(s).",
+                deleted,
+                retention_days,
+            )
 
         db.commit()
         logger.info("Worker heartbeat recorded for celery@%s", hostname)

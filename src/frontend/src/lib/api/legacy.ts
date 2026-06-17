@@ -166,6 +166,13 @@ export interface WorkerStatusResponse {
   status: string;
 }
 
+export interface WorkerStatusPaginatedResponse {
+  items: WorkerStatusResponse[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 /** Fetch system health (admin) - GET /admin/health */
 export async function fetchSystemHealth(): Promise<SystemHealthResponse> {
   return apiFetch<SystemHealthResponse>('/admin/health');
@@ -177,8 +184,63 @@ export async function fetchSystemMetrics(): Promise<SystemMetricsResponse> {
 }
 
 /** Fetch Celery worker status (admin) - GET /admin/monitoring/workers */
-export async function fetchWorkerStatus(): Promise<WorkerStatusResponse[]> {
-  return apiFetch<WorkerStatusResponse[]>('/admin/monitoring/workers');
+export async function fetchWorkerStatus(
+  params?: { limit?: number; offset?: number }
+): Promise<WorkerStatusPaginatedResponse> {
+  const search = new URLSearchParams();
+  if (params?.limit != null) search.set('limit', String(params.limit));
+  if (params?.offset != null) search.set('offset', String(params.offset));
+  const qs = search.toString();
+  const data = await apiFetch<WorkerStatusPaginatedResponse | WorkerStatusResponse[]>(
+    `/admin/monitoring/workers${qs ? `?${qs}` : ''}`
+  );
+  // Backward-compat: if the backend returned a raw array (pre-pagination),
+  // wrap it ourselves so callers always destructure .items / .total.
+  if (Array.isArray(data)) {
+    return { items: data, total: data.length, limit: data.length, offset: 0 };
+  }
+  return {
+    items: data.items ?? [],
+    total: data.total ?? 0,
+    limit: data.limit ?? (params?.limit ?? 20),
+    offset: data.offset ?? (params?.offset ?? 0),
+  };
+}
+
+/** Prune OFFLINE workers older than retention threshold (admin) - POST /admin/monitoring/workers/prune */
+export async function pruneWorkers(): Promise<{
+  status: string;
+  deleted_count: number;
+  retention_days: number;
+  message: string;
+}> {
+  return apiFetch('/admin/monitoring/workers/prune', { method: 'POST' });
+}
+
+export interface FailedSyncOp {
+  localId: string;
+  operation: string;
+  errorCode: string | null;
+  errorMessage: string;
+  encoderId: string;
+  regionId: number | null;
+  retryCount: number;
+  failed_at: string;
+}
+
+/** Fetch failed sync ops (admin) - GET /admin/sync/failed */
+export async function fetchFailedSyncOps(): Promise<{ items: FailedSyncOp[]; total: number }> {
+  return apiFetch<{ items: FailedSyncOp[]; total: number }>('/admin/sync/failed');
+}
+
+/** Retry a failed sync op (admin) - POST /admin/sync/{opId}/retry */
+export async function retrySyncOp(opId: string): Promise<{ status: string; opId: string }> {
+  return apiFetch<{ status: string; opId: string }>(`/admin/sync/${opId}/retry`, { method: 'POST' });
+}
+
+/** Delete a failed sync op (admin) - DELETE /admin/sync/{opId} */
+export async function deleteSyncOp(opId: string): Promise<{ status: string; opId: string }> {
+  return apiFetch<{ status: string; opId: string }>(`/admin/sync/${opId}`, { method: 'DELETE' });
 }
 
 /** Revoke user's sessions (admin) - POST /admin/users/{userId}/logout */
@@ -263,12 +325,15 @@ export async function changeMyPassword(payload: {
 /** Fetch security logs (admin) - ordered by timestamp desc, or by ts_rank when q is set, supports severity filter.
  * Returns the full paginated response including `total` so callers can correctly disable Next when on the last page. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function fetchAdminSecurityLogs(params?: { q?: string; severity?: string; limit?: number; offset?: number }): Promise<{ items: any[]; total: number }> {
+export async function fetchAdminSecurityLogs(params?: { q?: string; severity?: string; limit?: number; offset?: number; source_ip?: string; date_from?: string; date_to?: string }): Promise<{ items: any[]; total: number }> {
   const search = new URLSearchParams();
   if (params?.q) search.set('q', params.q);
   if (params?.severity) search.set('severity', params.severity);
   if (params?.limit != null) search.set('limit', String(params.limit));
   if (params?.offset != null) search.set('offset', String(params.offset));
+  if (params?.source_ip) search.set('source_ip', params.source_ip);
+  if (params?.date_from) search.set('date_from', params.date_from);
+  if (params?.date_to) search.set('date_to', params.date_to);
   const qs = search.toString();
   const data = await apiFetch<
     Record<string, unknown>[] | { items?: Record<string, unknown>[]; data?: Record<string, unknown>[]; total?: number }
@@ -325,6 +390,29 @@ export async function createIncidentFromAlert(logId: number): Promise<{
   return apiFetch(`/admin/security-logs/${logId}/create-incident`, { method: 'POST' });
 }
 
+export interface RelatedAuditItem {
+  audit_id: number;
+  user_id: string | null;
+  action_type: string | null;
+  table_affected: string | null;
+  record_id: number | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  timestamp: string | null;
+  new_values: Record<string, unknown> | null;
+  old_values: Record<string, unknown> | null;
+}
+
+export interface RelatedAuditResponse {
+  log_id: number;
+  items: RelatedAuditItem[];
+}
+
+/** Fetch audit trail rows related to a security log (±1 hour window) */
+export async function fetchRelatedAuditLogs(logId: number): Promise<RelatedAuditResponse> {
+  return apiFetch<RelatedAuditResponse>(`/admin/security-logs/${logId}/related-audit`);
+}
+
 // ---------------------------------------------------------------------------
 // Anomaly detection (admin) — GET /admin/anomalies, PATCH /admin/anomalies/:id
 // ---------------------------------------------------------------------------
@@ -340,6 +428,20 @@ export interface AnomalyDetectionItem {
   dedup_key: string;
 }
 
+export interface AnomalyTypeFacet {
+  type: string;
+  count: number;
+}
+
+export interface AnomalyAggregateResponse {
+  items: AnomalyDetectionItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  counts: Record<string, number>;
+  type_facets: AnomalyTypeFacet[];
+}
+
 /** Fetch anomaly detections (admin) - GET /admin/anomalies */
 export async function fetchAnomalies(params?: {
   status?: string;
@@ -347,7 +449,7 @@ export async function fetchAnomalies(params?: {
   anomaly_type?: string;
   limit?: number;
   offset?: number;
-}): Promise<{ items: AnomalyDetectionItem[]; total: number; limit: number; offset: number }> {
+}): Promise<AnomalyAggregateResponse> {
   const search = new URLSearchParams();
   if (params?.status) search.set('status', params.status);
   if (params?.severity) search.set('severity', params.severity);
@@ -355,7 +457,7 @@ export async function fetchAnomalies(params?: {
   if (params?.limit != null) search.set('limit', String(params.limit));
   if (params?.offset != null) search.set('offset', String(params.offset));
   const qs = search.toString();
-  return apiFetch<{ items: AnomalyDetectionItem[]; total: number; limit: number; offset: number }>(
+  return apiFetch<AnomalyAggregateResponse>(
     `/admin/anomalies${qs ? `?${qs}` : ''}`
   );
 }
@@ -376,11 +478,23 @@ export async function fetchAuditLogs(params?: {
   limit?: number;
   offset?: number;
   q?: string;
+  user_id?: string;
+  action_type?: string;
+  table_affected?: string;
+  ip_address?: string;
+  date_from?: string;
+  date_to?: string;
 }): Promise<PaginatedResponse<AuditLogEntry>> {
   const search = new URLSearchParams();
   if (params?.limit != null) search.set('limit', String(params.limit));
   if (params?.offset != null) search.set('offset', String(params.offset));
   if (params?.q) search.set('q', params.q);
+  if (params?.user_id) search.set('user_id', params.user_id);
+  if (params?.action_type) search.set('action_type', params.action_type);
+  if (params?.table_affected) search.set('table_affected', params.table_affected);
+  if (params?.ip_address) search.set('ip_address', params.ip_address);
+  if (params?.date_from) search.set('date_from', params.date_from);
+  if (params?.date_to) search.set('date_to', params.date_to);
   const qs = search.toString();
   return apiFetch<PaginatedResponse<AuditLogEntry>>(`/admin/audit-logs${qs ? `?${qs}` : ''}`);
 }
@@ -1659,6 +1773,32 @@ export async function updateAdminConfig(
     `/admin/config/${key}`,
     { method: 'PATCH', body: JSON.stringify({ value }) }
   );
+}
+
+// ─── Rate Limits (#363) — auth/login rate-limit configuration ──────────────
+
+export interface RateLimitConfig {
+  tier: string;
+  login_window_seconds: number;
+  login_threshold: number;
+  updated_at: string | null;
+}
+
+/** Fetch current auth-flow rate-limit config (SYSTEM_ADMIN only). */
+export async function fetchRateLimits(): Promise<RateLimitConfig> {
+  return apiFetch<RateLimitConfig>('/admin/rate-limits');
+}
+
+/** Update rate-limit threshold/window (SYSTEM_ADMIN only). */
+export async function updateRateLimits(
+  tier: string,
+  limit: number,
+  window: number
+): Promise<RateLimitConfig> {
+  return apiFetch<RateLimitConfig>('/admin/rate-limits', {
+    method: 'PATCH',
+    body: JSON.stringify({ tier, limit, window }),
+  });
 }
 
 // ─── Scheduled Reports (Issue #88) ──────────────────────────────────────────

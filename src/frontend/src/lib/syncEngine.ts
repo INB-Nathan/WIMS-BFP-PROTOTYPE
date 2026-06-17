@@ -18,7 +18,7 @@
  */
 
 import {
-  getPendingOps, getPendingIncidents, markSynced, markOpSyncing, markOpPending, markOpSynced, markOpConflict, markOpError,
+  getPendingOps, getPendingIncidents, markSynced, markOpSyncing, markOpPending, markOpSynced, markOpConflict, markOpError, markOpFailed,
   purgeSyncedOps, evictStaleCachedIncidents, cacheIncident, getCachedIncident,
   type ArchiveActionPayload, type OfflineOpDecrypted, type OfflineOpType, type PendingIncident, type VerifyPayload,
 } from './offlineStore';
@@ -26,6 +26,30 @@ import { refreshToken } from './auth-refresh';
 import { isReachable, markConnectivityOffline } from './connectivity';
 
 const MAX_RETRY = 5;
+const MAX_BACKOFF_MS = 64_000; // 64s cap on exponential backoff
+
+/**
+ * Compute exponential backoff delay with ±20% jitter.
+ * Formula: min(2^retryCount * 1000, 64s) + jitter.
+ * Accepts an optional random function for deterministic testing.
+ */
+export function computeBackoffDelay(retryCount: number, random = Math.random): number {
+  const base = Math.pow(2, retryCount) * 1000;
+  const capped = Math.min(base, MAX_BACKOFF_MS);
+  const jitter = (random() * 0.4 - 0.2) * capped; // ±20%
+  return Math.max(0, capped + jitter);
+}
+
+/**
+ * Return true when an op is within its backoff window and should not be retried yet.
+ */
+export function isWithinBackoffWindow(op: { retryCount: number; lastAttemptAt: number | null }): boolean {
+  if (op.lastAttemptAt === null) return false;
+  if (op.retryCount === 0) return false;
+  const delay = computeBackoffDelay(op.retryCount - 1); // retryCount was already incremented
+  return Date.now() - op.lastAttemptAt < delay;
+}
+
 const CREATE_ENDPOINT = '/api/regional/incidents';
 // Offline creates replay through the same full-fidelity bundle endpoint the online
 // form uses, so all nested detail (resources, timeline, casualties, encrypted PII)
@@ -418,10 +442,34 @@ export async function syncPendingIncidents(encoderId?: string): Promise<SyncResu
   };
 
   for (const op of ops) {
-    // Skip ops that have hit the retry ceiling
+    // Skip ops already marked as permanently failed
+    if (op.syncStatus === 'failed') {
+      continue;
+    }
+    // Mark as permanently failed after exhausting all retries
     if (op.retryCount >= MAX_RETRY) {
+      await markOpFailed(op.localId, op.errorCode ?? 'network', op.errorMessage ?? 'max retries exceeded');
+      // Report to backend so admin dashboard can surface this op
+      fetch('/api/admin/sync/report', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          localId: op.localId,
+          operation: op.operation,
+          errorCode: op.errorCode,
+          errorMessage: op.errorMessage,
+          encoderId: op.encoderId,
+          regionId: op.regionId,
+          retryCount: op.retryCount,
+        }),
+      }).catch(() => { /* best-effort; IndexedDB is the source of truth */ });
       failed++;
       errors.push({ localId: op.localId, operation: op.operation, error: 'max retries exceeded' });
+      continue;
+    }
+    // Skip ops within exponential backoff window
+    if (isWithinBackoffWindow(op)) {
       continue;
     }
 

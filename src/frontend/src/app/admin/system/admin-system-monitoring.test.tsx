@@ -27,22 +27,27 @@ const mockSystemMetrics = {
     disk: { total_gb: 100, used_gb: 45, percent: 45 },
 };
 
-const mockWorkers = [
-    {
-        worker_id: 'worker1@celery-host-1',
-        hostname: 'celery-host-1',
-        last_seen: '2025-03-14T10:00:00Z',
-        active_tasks: 3,
-        status: 'UP',
-    },
-    {
-        worker_id: 'worker2@celery-host-2',
-        hostname: 'celery-host-2',
-        last_seen: '2025-03-14T09:59:00Z',
-        active_tasks: 0,
-        status: 'UP',
-    },
-];
+const mockWorkersPaginated = {
+    items: [
+        {
+            worker_id: 'worker1@celery-host-1',
+            hostname: 'celery-host-1',
+            last_seen: '2025-03-14T10:00:00Z',
+            active_tasks: 3,
+            status: 'ACTIVE',
+        },
+        {
+            worker_id: 'worker2@celery-host-2',
+            hostname: 'celery-host-2',
+            last_seen: '2025-03-14T09:59:00Z',
+            active_tasks: 0,
+            status: 'ACTIVE',
+        },
+    ],
+    total: 2,
+    limit: 20,
+    offset: 0,
+};
 
 vi.mock('next/navigation', () => ({
     useRouter: () => ({ replace: vi.fn() }),
@@ -112,6 +117,8 @@ vi.mock('@/lib/api', () => ({
     fetchActiveSessions: () => mockFetchActiveSessions(),
     fetchActiveSessionsOfflineAware: async () => ({ response: await mockFetchActiveSessions(), fromCache: false }),
     revokeUserSessions: vi.fn(),
+    pruneWorkers: vi.fn(),
+    WorkerStatusPaginatedResponse: {},
 }));
 
 describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => {
@@ -133,7 +140,7 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
     it('initial monitoring fetch on mount — all three fetch fns called once', async () => {
         mockFetchSystemHealth.mockResolvedValue(mockHealth);
         mockFetchSystemMetrics.mockResolvedValue(mockSystemMetrics);
-        mockFetchWorkerStatus.mockResolvedValue(mockWorkers);
+        mockFetchWorkerStatus.mockResolvedValue(mockWorkersPaginated);
 
         render(<AdminSystemPage />);
 
@@ -149,7 +156,7 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
     it('CPU%, memory MB, disk GB, and worker hostname appear in DOM after initial load', async () => {
         mockFetchSystemHealth.mockResolvedValue(mockHealth);
         mockFetchSystemMetrics.mockResolvedValue(mockSystemMetrics);
-        mockFetchWorkerStatus.mockResolvedValue(mockWorkers);
+        mockFetchWorkerStatus.mockResolvedValue(mockWorkersPaginated);
 
         vi.useRealTimers();
         render(<AdminSystemPage />);
@@ -167,7 +174,7 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
     it('60s auto-refresh calls each fetch fn twice (initial + one interval)', async () => {
         mockFetchSystemHealth.mockResolvedValue(mockHealth);
         mockFetchSystemMetrics.mockResolvedValue(mockSystemMetrics);
-        mockFetchWorkerStatus.mockResolvedValue(mockWorkers);
+        mockFetchWorkerStatus.mockResolvedValue(mockWorkersPaginated);
 
         render(<AdminSystemPage />);
 
@@ -189,7 +196,7 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
     it('interval cleanup on unmount — no fetch calls after unmount', async () => {
         mockFetchSystemHealth.mockResolvedValue(mockHealth);
         mockFetchSystemMetrics.mockResolvedValue(mockSystemMetrics);
-        mockFetchWorkerStatus.mockResolvedValue(mockWorkers);
+        mockFetchWorkerStatus.mockResolvedValue(mockWorkersPaginated);
 
         const { unmount } = render(<AdminSystemPage />);
 
@@ -213,7 +220,7 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
     it('partial failure: fetchSystemMetrics rejects, health and workers still render', async () => {
         mockFetchSystemHealth.mockResolvedValue(mockHealth);
         mockFetchSystemMetrics.mockRejectedValue(new Error('metrics error'));
-        mockFetchWorkerStatus.mockResolvedValue(mockWorkers);
+        mockFetchWorkerStatus.mockResolvedValue(mockWorkersPaginated);
 
         vi.useRealTimers();
         render(<AdminSystemPage />);
@@ -229,19 +236,19 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
         expect(screen.getByText('System metrics unavailable.')).toBeInTheDocument();
     });
 
-    it('renders System Monitoring section heading after initial data load', async () => {
+    it('renders System Health & Monitoring section heading after initial data load', async () => {
         mockFetchSystemHealth.mockResolvedValue(mockHealth);
         mockFetchSystemMetrics.mockResolvedValue(mockSystemMetrics);
-        mockFetchWorkerStatus.mockResolvedValue([]);
+        mockFetchWorkerStatus.mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 });
 
         vi.useRealTimers();
         render(<AdminSystemPage />);
 
         await waitFor(() => {
-            expect(screen.getByText('System Monitoring')).toBeInTheDocument();
+            expect(screen.getByText('System Health & Monitoring')).toBeInTheDocument();
         });
 
-        expect(screen.getByText('Celery Workers')).toBeInTheDocument();
+        expect(screen.getAllByText('Celery Workers').length).toBeGreaterThanOrEqual(1);
         expect(screen.getByText('No active workers.')).toBeInTheDocument();
     });
 
@@ -250,7 +257,7 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
 
         mockFetchSystemHealth.mockResolvedValue(mockHealth);
         mockFetchSystemMetrics.mockResolvedValue(mockSystemMetrics);
-        mockFetchWorkerStatus.mockResolvedValue(mockWorkers);
+        mockFetchWorkerStatus.mockResolvedValue(mockWorkersPaginated);
 
         vi.useRealTimers();
         render(<AdminSystemPage />);
@@ -272,7 +279,7 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
 
         mockFetchSystemHealth.mockResolvedValue(mockHealth);
         mockFetchSystemMetrics.mockResolvedValue(mockSystemMetrics);
-        mockFetchWorkerStatus.mockResolvedValue(mockWorkers);
+        mockFetchWorkerStatus.mockResolvedValue(mockWorkersPaginated);
 
         vi.useRealTimers();
         render(<AdminSystemPage />);
@@ -297,13 +304,13 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
 
         mockFetchSystemHealth.mockResolvedValue(mockHealth);
         mockFetchSystemMetrics.mockResolvedValue(mockSystemMetrics);
-        mockFetchWorkerStatus.mockResolvedValue(mockWorkers);
+        mockFetchWorkerStatus.mockResolvedValue(mockWorkersPaginated);
 
         vi.useRealTimers();
         render(<AdminSystemPage />);
 
         await waitFor(() => {
-            expect(screen.getByText('System Monitoring')).toBeInTheDocument();
+            expect(screen.getByText('System Health & Monitoring')).toBeInTheDocument();
         });
 
         expect(screen.queryByText(/You are offline/)).toBeNull();
@@ -318,13 +325,13 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
 
         mockFetchSystemHealth.mockResolvedValue(mockHealth);
         mockFetchSystemMetrics.mockResolvedValue(mockSystemMetrics);
-        mockFetchWorkerStatus.mockResolvedValue(mockWorkers);
+        mockFetchWorkerStatus.mockResolvedValue(mockWorkersPaginated);
 
         vi.useRealTimers();
         render(<AdminSystemPage />);
 
         await waitFor(() => {
-            expect(screen.getByText('System Monitoring')).toBeInTheDocument();
+            expect(screen.getByText('System Health & Monitoring')).toBeInTheDocument();
         });
 
         // No banner yet
@@ -353,7 +360,7 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
         };
         mockFetchSystemHealth.mockResolvedValue(mockHealth);
         mockFetchSystemMetrics.mockResolvedValue(metricsWithExtras);
-        mockFetchWorkerStatus.mockResolvedValue([]);
+        mockFetchWorkerStatus.mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 });
 
         vi.useRealTimers();
         render(<AdminSystemPage />);
@@ -377,7 +384,7 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
         };
         mockFetchSystemHealth.mockResolvedValue(mockHealth);
         mockFetchSystemMetrics.mockResolvedValue(metricsNoInference);
-        mockFetchWorkerStatus.mockResolvedValue([]);
+        mockFetchWorkerStatus.mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 });
 
         vi.useRealTimers();
         render(<AdminSystemPage />);
@@ -395,7 +402,7 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
         };
         mockFetchSystemHealth.mockResolvedValue(mockHealth);
         mockFetchSystemMetrics.mockResolvedValue(metricsNullInference);
-        mockFetchWorkerStatus.mockResolvedValue([]);
+        mockFetchWorkerStatus.mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 });
 
         vi.useRealTimers();
         render(<AdminSystemPage />);
@@ -414,7 +421,7 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
         };
         mockFetchSystemHealth.mockResolvedValue(mockHealth);
         mockFetchSystemMetrics.mockResolvedValue(metricsNullNetwork);
-        mockFetchWorkerStatus.mockResolvedValue([]);
+        mockFetchWorkerStatus.mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 });
 
         vi.useRealTimers();
         render(<AdminSystemPage />);

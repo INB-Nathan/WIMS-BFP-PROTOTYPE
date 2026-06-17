@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -69,10 +69,27 @@ def get_breach(
 def update_breach(
     breach_id: int,
     body: BreachUpdate,
+    request: Request,
     _admin: Annotated[dict, Depends(get_system_admin)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """Update breach status, affected_systems, data_scope, or notes."""
+    # Snapshot old values before UPDATE for forensic audit
+    old_row = db.execute(
+        text(f"SELECT {_SELECT_COLS} FROM wims.breach_notifications WHERE breach_id = :bid"),
+        {"bid": breach_id},
+    ).fetchone()
+    if old_row is None:
+        raise HTTPException(status_code=404, detail="Breach record not found")
+
+    old_dict = _row_to_dict(old_row)
+    old_values = {
+        "status": str(old_dict["status"]),
+        "affected_systems": old_dict["affected_systems"],
+        "data_scope": old_dict["data_scope"],
+        "notes": old_dict["notes"],
+    }
+
     updates: list[str] = ["updated_at = now()"]
     params: dict = {"bid": breach_id}
 
@@ -105,8 +122,26 @@ def update_breach(
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Breach record not found")
 
+    # Build new_values from the request body for audit compare
+    new_values = {}
+    if body.status is not None:
+        new_values["status"] = body.status.value
+    if body.affected_systems is not None:
+        new_values["affected_systems"] = body.affected_systems
+    if body.data_scope is not None:
+        new_values["data_scope"] = body.data_scope
+    if body.notes is not None:
+        new_values["notes"] = body.notes
+
     log_system_audit(
-        db, _admin["user_id"], "BREACH_STATUS_UPDATE", "breach_notifications", breach_id
+        db=db,
+        user_id=_admin["user_id"],
+        action_type="BREACH_STATUS_UPDATE",
+        table_affected="breach_notifications",
+        record_id=breach_id,
+        request=request,
+        old_values=old_values,
+        new_values=new_values,
     )
     db.commit()
 

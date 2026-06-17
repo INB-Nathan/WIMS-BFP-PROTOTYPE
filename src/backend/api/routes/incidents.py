@@ -491,14 +491,20 @@ def upload_incident_bundle(
             status_code=500, detail=f"upload-bundle commit failed: {type(e).__name__}"
         ) from None
 
-    # SET LOCAL resets on commit; re-apply RLS context before the analytics sync loop.
-    set_rls_context(db, user_id)
+    # SET LOCAL resets on commit/rollback; re-apply RLS context before every
+    # analytics sync iteration so a rollback inside sync_incident_to_analytics
+    # doesn't leave subsequent iterations without the intended row-level filter.
     for iid in results["imported"]:
+        set_rls_context(db, user_id)
         try:
             sync_incident_to_analytics(db, iid)
         except Exception:
             logger.warning("Failed to sync incident %s to analytics read model", iid)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.warning("Analytics sync commit failed; incidents already saved in first commit")
 
     return {
         "status": "ok",

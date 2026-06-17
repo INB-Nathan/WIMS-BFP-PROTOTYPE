@@ -21,6 +21,7 @@ vi.mock('../offlineStore', () => ({
   markOpSynced: vi.fn(),
   markOpConflict: vi.fn(),
   markOpError: vi.fn(),
+  markOpFailed: vi.fn(),
   deleteOfflineOp: vi.fn(),
   purgeSyncedOps: vi.fn(),
   evictStaleCachedIncidents: vi.fn(),
@@ -43,7 +44,7 @@ vi.stubGlobal('fetch', fetchSpy);
 import { syncPendingIncidents } from '../syncEngine';
 import type { OfflineOpType, OfflineOpDecrypted } from '../offlineStore';
 import {
-  getPendingOps, getPendingIncidents, markOpSyncing, markOpSynced, markOpConflict, markOpError,
+  getPendingOps, getPendingIncidents, markOpSyncing, markOpSynced, markOpConflict, markOpError, markOpFailed,
 } from '../offlineStore';
 import { refreshToken } from '../auth-refresh';
 import { isReachable } from '../connectivity';
@@ -60,6 +61,9 @@ function mockSessionAndApi(...responses: Array<Record<string, unknown>>) {
   const queue = [...responses];
   fetchSpy.mockImplementation((url: string) => {
     if (url === '/api/auth/session') return Promise.resolve(sessionOkResponse);
+    if (url === '/api/admin/sync/report') {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ status: 'logged' }) });
+    }
     const next = queue.shift();
     if (!next) throw new Error(`Unexpected fetch call: ${url}`);
     return Promise.resolve(next);
@@ -96,6 +100,7 @@ beforeEach(() => {
   vi.mocked(markOpSynced).mockResolvedValue(undefined);
   vi.mocked(markOpConflict).mockResolvedValue(undefined);
   vi.mocked(markOpError).mockResolvedValue(undefined);
+  vi.mocked(markOpFailed).mockResolvedValue(undefined);
 });
 
 // ─── 409 DUPLICATE_DETECTED ──────────────────────────────────────────────────
@@ -220,6 +225,7 @@ describe('409 CONFLICT (OCC) — version conflict handling', () => {
 describe('max retries exceeded', () => {
   it('counts as failed (not conflict) when retryCount >= MAX_RETRY', async () => {
     vi.mocked(getPendingOps).mockResolvedValue([makeOp({ localId: 'maxed', retryCount: 5 })]);
+    mockSessionAndApi();
 
     const result = await syncPendingIncidents(ENCODER_ID);
 
@@ -227,6 +233,8 @@ describe('max retries exceeded', () => {
     expect(result.conflicts).toBe(0);
     // Should never call markOpConflict for max-retry ops
     expect(markOpConflict).not.toHaveBeenCalled();
+    // Should call markOpFailed to permanently mark the op
+    expect(markOpFailed).toHaveBeenCalledWith('maxed', expect.any(String), expect.any(String));
   });
 });
 

@@ -27,6 +27,7 @@ import {
     Map,
     SlidersHorizontal,
     Activity,
+    Timer,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -204,9 +205,10 @@ function getNavSections(role: string | null): NavSection[] {
                 { label: 'Security Monitoring', href: '/admin/monitoring', icon: ShieldAlert },
                 { label: 'Telemetry', href: '/admin/system#telemetry', icon: ShieldAlert },
                 { label: 'Breach Notifications', href: '/admin/breach', icon: ShieldX },
-                { label: 'System Audit', href: '/admin/system#audit', icon: Settings },
+                { label: 'System Audit', href: '/admin/audit', icon: Settings },
                 { label: 'Anomaly Detection', href: '/admin/anomalies', icon: Activity },
                 { label: 'Configuration', href: '/admin/system/config', icon: SlidersHorizontal },
+                { label: 'Rate Limits', href: '/admin/system/rate-limits', icon: Timer },
             ],
         });
         sections.push({ label: 'Account', items: [{ label: 'My Profile', href: '/profile', icon: UserCircle }] });
