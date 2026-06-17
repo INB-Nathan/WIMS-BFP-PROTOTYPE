@@ -193,6 +193,7 @@ def get_queue(
 
     followup_cte = (
         """
+            ,
             followup_aggs AS (
                 -- Aggregate follow-up text and count per report
                 SELECT
@@ -208,7 +209,7 @@ def get_queue(
                     ) FILTER (WHERE f.followup_id IS NOT NULL) AS followups_json
                 FROM wims.citizen_report_followups f
                 GROUP BY f.report_id
-            ),"""
+            )"""
         if has_followups
         else ""
     )
@@ -296,7 +297,7 @@ def get_queue(
                       AND cr2.report_id != cr.report_id
                 ) cr2 ON TRUE
                 GROUP BY cr.report_id
-            ),{followup_cte}
+            ){followup_cte}
             SELECT
                 cr.report_id,
                 ST_Y(cr.location::geometry) AS lat,
