@@ -244,7 +244,6 @@ function getNavSections(role: string | null): NavSection[] {
             items: [
                 { label: 'Dashboard', href: '/dashboard/validator', icon: LayoutDashboard },
                 { label: 'Operations', href: '/home', icon: Home },
-                { label: 'Incidents', href: '/incidents', icon: Flame },
             ],
         });
         sections.push({
