@@ -31,18 +31,19 @@ const MAX_BACKOFF_MS = 64_000; // 64s cap on exponential backoff
 /**
  * Compute exponential backoff delay with ±20% jitter.
  * Formula: min(2^retryCount * 1000, 64s) + jitter.
+ * Accepts an optional random function for deterministic testing.
  */
-function computeBackoffDelay(retryCount: number): number {
+export function computeBackoffDelay(retryCount: number, random = Math.random): number {
   const base = Math.pow(2, retryCount) * 1000;
   const capped = Math.min(base, MAX_BACKOFF_MS);
-  const jitter = (Math.random() * 0.4 - 0.2) * capped; // ±20%
+  const jitter = (random() * 0.4 - 0.2) * capped; // ±20%
   return Math.max(0, capped + jitter);
 }
 
 /**
  * Return true when an op is within its backoff window and should not be retried yet.
  */
-function isWithinBackoffWindow(op: { retryCount: number; lastAttemptAt: number | null }): boolean {
+export function isWithinBackoffWindow(op: { retryCount: number; lastAttemptAt: number | null }): boolean {
   if (op.lastAttemptAt === null) return false;
   if (op.retryCount === 0) return false;
   const delay = computeBackoffDelay(op.retryCount - 1); // retryCount was already incremented
@@ -448,6 +449,21 @@ export async function syncPendingIncidents(encoderId?: string): Promise<SyncResu
     // Mark as permanently failed after exhausting all retries
     if (op.retryCount >= MAX_RETRY) {
       await markOpFailed(op.localId, op.errorCode ?? 'network', op.errorMessage ?? 'max retries exceeded');
+      // Report to backend so admin dashboard can surface this op
+      fetch('/api/admin/sync/report', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          localId: op.localId,
+          operation: op.operation,
+          errorCode: op.errorCode,
+          errorMessage: op.errorMessage,
+          encoderId: op.encoderId,
+          regionId: op.regionId,
+          retryCount: op.retryCount,
+        }),
+      }).catch(() => { /* best-effort; IndexedDB is the source of truth */ });
       failed++;
       errors.push({ localId: op.localId, operation: op.operation, error: 'max retries exceeded' });
       continue;

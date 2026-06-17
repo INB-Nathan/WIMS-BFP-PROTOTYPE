@@ -46,7 +46,7 @@ vi.mock('../connectivity', () => ({
 const fetchSpy = vi.fn();
 vi.stubGlobal('fetch', fetchSpy);
 
-import { syncPendingIncidents } from '../syncEngine';
+import { syncPendingIncidents, computeBackoffDelay, isWithinBackoffWindow } from '../syncEngine';
 import type { OfflineOpType, OfflineOpDecrypted } from '../offlineStore';
 import {
   getPendingOps, getPendingIncidents, markSynced, markOpSyncing, markOpPending, markOpSynced, markOpConflict, markOpError, markOpFailed,
@@ -67,6 +67,9 @@ function mockSessionOkWithApiResponses(...responses: Array<Record<string, unknow
   const queue = [...responses];
   fetchSpy.mockImplementation((url: string) => {
     if (url === '/api/auth/session') return Promise.resolve(sessionOkResponse);
+    if (url === '/api/admin/sync/report') {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ status: 'logged' }) });
+    }
     const next = queue.shift();
     if (!next) throw new Error(`Unexpected fetch call: ${url}`);
     return Promise.resolve(next);
@@ -322,10 +325,14 @@ describe('syncPendingIncidents', () => {
     vi.mocked(getPendingOps).mockResolvedValue([
       makeOp({ localId: 'op-maxed', retryCount: 5 }),
     ]);
+    // Use the helper with no API responses — the op is skipped before any API call
+    mockSessionOkWithApiResponses();
 
     const result = await syncPendingIncidents(ENCODER_ID);
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // session check + best-effort report → 2 fetch calls, no op fetch
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(markOpFailed).toHaveBeenCalledWith('op-maxed', 'network', 'max retries exceeded');
     expect(result.failed).toBe(1);
     expect(result.errors[0].error).toMatch(/max retries/);
   });
@@ -651,6 +658,101 @@ describe('offlineOps dispatch — verify ops', () => {
     expect(markOpError).toHaveBeenCalledWith('v-net-1', 'network', expect.any(String));
     expect(markConnectivityOffline).toHaveBeenCalled();
     expect(result.failed).toBe(1);
+  });
+});
+
+// ── Backoff window — ops within backoff window are skipped ──────────────────
+
+describe('backoff window skip', () => {
+  it('skips op that is within its backoff window', async () => {
+    vi.mocked(getPendingOps).mockResolvedValue([
+      makeOp({ localId: 'op-backoff', retryCount: 1, lastAttemptAt: Date.now() - 100 }),
+    ]);
+
+    const result = await syncPendingIncidents(ENCODER_ID);
+
+    // Only the session check fetch, no op attempted
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(markOpSyncing).not.toHaveBeenCalled();
+    expect(markOpFailed).not.toHaveBeenCalled();
+    expect(result.failed).toBe(0);
+    expect(result.synced).toBe(0);
+  });
+
+  it('retries op that is past its backoff window', async () => {
+    vi.mocked(getPendingOps).mockResolvedValue([
+      makeOp({ localId: 'op-past-backoff', retryCount: 1, lastAttemptAt: Date.now() - 10000 }),
+    ]);
+    mockSessionOkWithApiResponses({
+      ok: true, status: 200,
+      json: () => Promise.resolve({ incident_ids: [10], failed: [] }),
+    });
+
+    const result = await syncPendingIncidents(ENCODER_ID);
+
+    expect(markOpSyncing).toHaveBeenCalledWith('op-past-backoff');
+    expect(result.synced).toBe(1);
+  });
+});
+
+// ── computeBackoffDelay / isWithinBackoffWindow unit tests ───────────────────
+
+describe('computeBackoffDelay', () => {
+  it('returns ~1000ms for retryCount=0 with no jitter', () => {
+    // deterministic random always returns 0.5 (center of range)
+    const rng = () => 0.5;
+    const delay = computeBackoffDelay(0, rng);
+    // base = 2^0 * 1000 = 1000; jitter = (0.5*0.4 - 0.2) * 1000 = 0
+    expect(delay).toBe(1000);
+  });
+
+  it('returns ~2000ms for retryCount=1 with no jitter', () => {
+    const rng = () => 0.5;
+    const delay = computeBackoffDelay(1, rng);
+    expect(delay).toBe(2000);
+  });
+
+  it('caps at MAX_BACKOFF_MS (64000ms)', () => {
+    const rng = () => 0.5;
+    const delay = computeBackoffDelay(7, rng); // 2^7 * 1000 = 128000, capped
+    expect(delay).toBe(64000);
+  });
+
+  it('always returns non-negative', () => {
+    // extreme jitter at low end
+    const rng = () => 0.0; // jitter = -20% of capped
+    const delay = computeBackoffDelay(0, rng);
+    expect(delay).toBeGreaterThanOrEqual(0);
+  });
+
+  it('jitter range is within ±20%', () => {
+    const rngMin = () => 0.0;
+    const rngMax = () => 1.0;
+    const minDelay = computeBackoffDelay(2, rngMin);
+    const maxDelay = computeBackoffDelay(2, rngMax);
+    const base = 4000; // 2^2 * 1000
+    expect(minDelay).toBeGreaterThanOrEqual(base * 0.8);
+    expect(maxDelay).toBeLessThanOrEqual(base * 1.2);
+  });
+});
+
+describe('isWithinBackoffWindow', () => {
+  it('returns false when lastAttemptAt is null', () => {
+    expect(isWithinBackoffWindow({ retryCount: 1, lastAttemptAt: null })).toBe(false);
+  });
+
+  it('returns false when retryCount is 0', () => {
+    expect(isWithinBackoffWindow({ retryCount: 0, lastAttemptAt: Date.now() })).toBe(false);
+  });
+
+  it('returns true when within backoff window', () => {
+    // retryCount=1, lastAttemptAt was 100ms ago — still within ~2000ms window
+    expect(isWithinBackoffWindow({ retryCount: 1, lastAttemptAt: Date.now() - 100 })).toBe(true);
+  });
+
+  it('returns false when backoff window has expired', () => {
+    // retryCount=1, lastAttemptAt was 10s ago — past the ~2000ms window
+    expect(isWithinBackoffWindow({ retryCount: 1, lastAttemptAt: Date.now() - 10000 })).toBe(false);
   });
 });
 

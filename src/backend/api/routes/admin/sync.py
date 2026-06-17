@@ -8,7 +8,7 @@ from typing import Annotated
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
-from auth import get_system_admin
+from auth import get_current_wims_user, get_system_admin
 
 router = APIRouter()
 
@@ -33,8 +33,14 @@ def list_failed_syncs(
 
 
 @router.post("/sync/report")
-async def report_sync_failure(payload: dict, _admin: Annotated[dict, Depends(get_system_admin)]):
-    """Report a sync op that has permanently failed (called by sync engine)."""
+async def report_sync_failure(
+    payload: dict, _user: Annotated[dict, Depends(get_current_wims_user)]
+):
+    """Report a sync op that has permanently failed (called by sync engine).
+
+    Accepts any authenticated user (not just admin) because the sync engine
+    runs in the encoder's browser and only reports its own failures.
+    The report is one-way (client → server); no data is exposed back."""
     op_id = payload.get("localId")
     if not op_id:
         raise HTTPException(status_code=400, detail="localId is required")

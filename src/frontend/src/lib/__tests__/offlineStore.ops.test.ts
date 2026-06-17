@@ -86,10 +86,13 @@ const {
   deleteOfflineOpCascade,
   recoverStaleSyncingOps,
   resolveConflictOp,
+  resetFailedOp,
   updateOfflineOp,
   queueOfflineOp,
   getOfflineOp,
   setActiveOfflineUser,
+  markOpFailed,
+  getFailedOps,
 } = await import('../offlineStore');
 
 const ENCODER_ID = 'enc-001';
@@ -359,5 +362,146 @@ describe('per-user isolation (F12)', () => {
 
     await setActiveOfflineUser('user-A'); // same uid → no wipe
     expect(opsStore.size).toBe(1);
+  });
+});
+
+// ─── markOpFailed ────────────────────────────────────────────────────────────
+
+describe('markOpFailed', () => {
+  beforeEach(async () => {
+    await setActiveOfflineUser(ENCODER_ID);
+  });
+
+  it('sets syncStatus to failed', async () => {
+    const localId = crypto.randomUUID();
+    await queueOfflineOp({
+      localId,
+      operation: 'create',
+      serverId: null,
+      linkedLocalId: null,
+      serverUpdatedAt: null,
+      regionId: 1,
+      encoderId: ENCODER_ID,
+      payload: { general_category: 'STRUCTURAL' },
+      createdAt: Date.now(),
+    });
+
+    await markOpFailed(localId, 'network', 'max retries exceeded');
+
+    const op = await getOfflineOp(localId);
+    expect(op).toBeDefined();
+    expect(op!.syncStatus).toBe('failed');
+    expect(op!.errorCode).toBe('network');
+    expect(op!.errorMessage).toBe('max retries exceeded');
+    expect(op!.lastAttemptAt).not.toBeNull();
+  });
+
+  it('does NOT double-increment retryCount (already at ceiling)', async () => {
+    const localId = crypto.randomUUID();
+    await queueOfflineOp({
+      localId,
+      operation: 'create',
+      serverId: null,
+      linkedLocalId: null,
+      serverUpdatedAt: null,
+      regionId: 1,
+      encoderId: ENCODER_ID,
+      payload: { general_category: 'STRUCTURAL' },
+      createdAt: Date.now(),
+    });
+
+    // Manually set retryCount to 5 (MAX_RETRY)
+    const raw = opsStore.get(localId)!;
+    opsStore.set(localId, { ...raw, retryCount: 5 });
+
+    await markOpFailed(localId, '4xx', 'HTTP 422');
+
+    const op = await getOfflineOp(localId);
+    expect(op).toBeDefined();
+    expect(op!.retryCount).toBe(5); // not 6
+  });
+
+  it('silently no-ops when op does not exist', async () => {
+    await expect(markOpFailed('nonexistent', 'network', 'gone')).resolves.toBeUndefined();
+  });
+});
+
+// ─── getFailedOps ────────────────────────────────────────────────────────────
+
+describe('getFailedOps', () => {
+  beforeEach(async () => {
+    await setActiveOfflineUser(ENCODER_ID);
+  });
+
+  it('returns empty array when no failed ops exist', async () => {
+    await queueOfflineOp({
+      localId: crypto.randomUUID(),
+      operation: 'create',
+      serverId: null, linkedLocalId: null, serverUpdatedAt: null,
+      regionId: 1, encoderId: ENCODER_ID,
+      payload: { general_category: 'STRUCTURAL' },
+      createdAt: Date.now(),
+    });
+
+    const result = await getFailedOps(ENCODER_ID);
+    expect(result).toEqual([]);
+  });
+
+  it('returns only ops with syncStatus=failed', async () => {
+    const failedId = crypto.randomUUID();
+    const pendingId = crypto.randomUUID();
+
+    await queueOfflineOp({
+      localId: failedId,
+      operation: 'create',
+      serverId: null, linkedLocalId: null, serverUpdatedAt: null,
+      regionId: 1, encoderId: ENCODER_ID,
+      payload: { general_category: 'STRUCTURAL' },
+      createdAt: Date.now(),
+    });
+    await queueOfflineOp({
+      localId: pendingId,
+      operation: 'update',
+      serverId: null, linkedLocalId: null, serverUpdatedAt: null,
+      regionId: 1, encoderId: ENCODER_ID,
+      payload: { notes: 'test' },
+      createdAt: Date.now(),
+    });
+
+    await markOpFailed(failedId, 'network', 'max retries');
+
+    const result = await getFailedOps(ENCODER_ID);
+    expect(result).toHaveLength(1);
+    expect(result[0].localId).toBe(failedId);
+    expect(result[0].syncStatus).toBe('failed');
+  });
+
+  it('scopes results by encoderId', async () => {
+    const myFailedId = crypto.randomUUID();
+    const otherFailedId = crypto.randomUUID();
+
+    await queueOfflineOp({
+      localId: myFailedId,
+      operation: 'create',
+      serverId: null, linkedLocalId: null, serverUpdatedAt: null,
+      regionId: 1, encoderId: ENCODER_ID,
+      payload: { general_category: 'STRUCTURAL' },
+      createdAt: Date.now(),
+    });
+    await queueOfflineOp({
+      localId: otherFailedId,
+      operation: 'create',
+      serverId: null, linkedLocalId: null, serverUpdatedAt: null,
+      regionId: 1, encoderId: 'other-enc',
+      payload: { general_category: 'VEHICULAR' },
+      createdAt: Date.now(),
+    });
+
+    await markOpFailed(myFailedId, 'network', 'max retries');
+    await markOpFailed(otherFailedId, '4xx', 'HTTP 422');
+
+    const myResult = await getFailedOps(ENCODER_ID);
+    expect(myResult).toHaveLength(1);
+    expect(myResult[0].localId).toBe(myFailedId);
   });
 });

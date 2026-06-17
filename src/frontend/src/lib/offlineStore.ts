@@ -650,7 +650,7 @@ export async function markOpFailed(
         op.syncStatus = 'failed';
         op.errorCode = errorCode;
         op.errorMessage = errorMessage;
-        op.retryCount += 1;
+        // retryCount already at MAX_RETRY ceiling — don't double-increment
         op.lastAttemptAt = Date.now();
         await store.put(op);
     }
@@ -676,6 +676,28 @@ export async function resolveConflictOp(
         op.errorMessage = null;
         op.serverVersion = null;
         op.retryCount = 0;
+        await store.put(op);
+    }
+    await tx.done;
+}
+
+/**
+ * Reset a failed op back to 'pending' for retry — preserves the original
+ * encrypted payload so the sync engine replays the same operation.
+ * Unlike resolveConflictOp, this does not replace the payload.
+ */
+export async function resetFailedOp(localId: string): Promise<void> {
+    const db = await getDB();
+    const tx = db.transaction(OPS_STORE, 'readwrite');
+    const store = tx.objectStore(OPS_STORE);
+    const op: OfflineOp | undefined = await store.get(localId);
+    if (op) {
+        op.syncStatus = 'pending';
+        op.errorCode = null;
+        op.errorMessage = null;
+        op.serverVersion = null;
+        op.retryCount = 0;
+        op.lastAttemptAt = null;
         await store.put(op);
     }
     await tx.done;

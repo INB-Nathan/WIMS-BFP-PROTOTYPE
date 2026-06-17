@@ -3,6 +3,16 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-17] fix(#379) | sync failure reporting + admin retry/delete integration with IndexedDB
+
+- **PR #379 review fixes** — blocked integration issues found during security/quality review.
+- **Backend `sync.py`:** Changed `POST /admin/sync/report` auth dependency from `get_system_admin` to `get_current_wims_user` so the sync engine (running in the encoder's browser) can report failures. The report is one-way (client → server); `GET /sync/failed`, `POST /sync/{id}/retry`, and `DELETE /sync/{id}` remain `SYSTEM_ADMIN`-only.
+- **Frontend `syncEngine.ts`:** Added best-effort `fetch('/api/admin/sync/report', ...)` after `markOpFailed()` so max-retry failures are surfaced to the admin dashboard. Exported `computeBackoffDelay` and `isWithinBackoffWindow` with an optional `random` parameter for deterministic testing.
+- **Frontend `offlineStore.ts`:** Removed redundant `op.retryCount += 1` from `markOpFailed()` (retryCount is already at the MAX_RETRY ceiling).
+- **Frontend `system/page.tsx`:** Admin retry now calls the dedicated `resetFailedOp()` helper to reset the local IndexedDB op to `pending` while preserving the encrypted payload; admin delete calls `deleteOfflineOp()` to remove from IndexedDB. This local IndexedDB action works when the failed op exists in the same browser profile; cross-browser admin retry/delete currently clears the backend/admin queue and remains a follow-up architecture limit for encoder-side local queues.
+- **Tests:** New backend test suite `test_admin_sync.py` (9 tests: report auth, missing localId, list/report integration, retry 404, delete 404). Frontend: added `markOpFailed` assertions to both MAX_RETRY tests; added backoff window skip test and deterministic unit tests for `computeBackoffDelay`/`isWithinBackoffWindow`; added `markOpFailed` and `getFailedOps` tests to `offlineStore.ops.test.ts` (5 tests).
+- No FRS gap register change (integration fix of existing #302/#141 implementation).
+
 ## [2026-06-16] feat(#353) | scheduled reports human-friendly filter builder
 
 - **#353 (filter builder for Scheduled Reports):** Replaced raw JSON textarea on `/admin/system` Scheduled Reports create/edit form with a human-friendly filter builder as the primary UI. Common filter fields (`region_id`, `severity`, `start_date`, `end_date`, `incident_type`) use dropdown, date-picker, and text inputs. Raw JSON remains available via an "Expert" toggle button for advanced users. Filters are validated client-side before save with clear inline error messages; invalid filters block save. The create payload now sends structured filter objects directly (no more `JSON.parse` of a raw string).

@@ -37,6 +37,7 @@ import {
 } from '@/lib/api';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { getConnectivitySnapshot, subscribeConnectivity, probeConnectivity } from '@/lib/connectivity';
+import { resetFailedOp, deleteOfflineOp } from '@/lib/offlineStore';
 import { normalizeNarrative } from '@/lib/xaiNarrativeNormalizer';
 import { ActiveSession, Region } from '@/types/api';
 import ReportFilterBuilder from '@/components/admin/ReportFilterBuilder';
@@ -364,6 +365,10 @@ export default function AdminSystemPage() {
         setRetryingOpId(opId);
         try {
             await retrySyncOp(opId);
+            // Reset the local IndexedDB op to 'pending' when it exists in this browser.
+            // Cross-browser admin retry still clears the backend queue; the encoder's
+            // originating browser owns its own local IndexedDB retry state.
+            await resetFailedOp(opId);
             setFailedSyncs((prev) => prev.filter((op) => op.localId !== opId));
         } catch (e: unknown) {
             alert((e as { message?: string })?.message ?? 'Failed to retry sync op');
@@ -377,6 +382,8 @@ export default function AdminSystemPage() {
         setDeletingOpId(opId);
         try {
             await deleteSyncOp(opId);
+            // Remove from IndexedDB so it doesn't linger in the offline store
+            await deleteOfflineOp(opId);
             setFailedSyncs((prev) => prev.filter((op) => op.localId !== opId));
         } catch (e: unknown) {
             alert((e as { message?: string })?.message ?? 'Failed to delete sync op');
