@@ -94,6 +94,13 @@ def upload_incident_bundle(
     if not isinstance(incidents, list) or len(incidents) == 0:
         raise HTTPException(status_code=400, detail="No incidents provided")
 
+    _max_bundle = int(os.getenv("WIMS_MAX_BUNDLE_SIZE", "200"))
+    if len(incidents) > _max_bundle:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Bundle exceeds maximum of {_max_bundle} incidents per request.",
+        )
+
     user_id = user["user_id"]
     user_role = user.get("role", "")
 
