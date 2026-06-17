@@ -7,11 +7,13 @@ import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-lea
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-// Fix default marker icons for webpack/Next.js (unpkg.com/leaflet is cached by the SW for offline use)
+// Marker images are self-hosted in /leaflet/ (copied from node_modules at build time).
+// Avoids connect-src CSP violations: SW fetch() is governed by connect-src, not img-src,
+// so CDN URLs like unpkg.com are blocked unless explicitly listed in connect-src.
 const DefaultIcon = L.icon({
-    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-    iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+    iconUrl: '/leaflet/marker-icon.png',
+    iconRetinaUrl: '/leaflet/marker-icon-2x.png',
+    shadowUrl: '/leaflet/marker-shadow.png',
     iconSize: [25, 41],
     iconAnchor: [12, 41],
 });

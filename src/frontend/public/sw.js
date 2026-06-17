@@ -9,7 +9,7 @@
  *   it delegates to the page rather than POSTing directly.
  */
 
-const CACHE_NAME = 'wims-bfp-cache-v7';
+const CACHE_NAME = 'wims-bfp-cache-v8';
 // Separate long-lived cache for map tiles so they survive main-cache evictions.
 const TILE_CACHE_NAME = 'wims-tiles-v1';
 const SYNC_TAG = 'sync-pending-incidents';
@@ -92,10 +92,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // ── Map tiles (OpenStreetMap) and Leaflet CDN assets ─────────────────────
+  // ── Map tiles (OpenStreetMap) ─────────────────────────────────────────────
   // Cache-first with a dedicated tile cache so tiles survive main-cache evictions.
   // Falls back to a transparent placeholder on complete offline tile miss.
-  if (url.includes('tile.openstreetmap.org') || url.includes('unpkg.com/leaflet')) {
+  // Leaflet marker images are now self-hosted in /leaflet/ so no CDN fetch needed.
+  if (url.includes('tile.openstreetmap.org')) {
     event.respondWith(
       caches.open(TILE_CACHE_NAME).then(async (cache) => {
         const cached = await cache.match(request);
@@ -193,6 +194,12 @@ self.addEventListener('fetch', (event) => {
   }
 
   // ── Static assets (JS chunks, CSS, images, fonts) ───────────────────────
+  // Skip cross-origin requests — let the browser handle them natively.
+  // SW fetch() must satisfy connect-src CSP; intercepting fonts.googleapis.com
+  // or other external origins triggers CSP violations.
+  if (requestUrl.origin !== self.location.origin) {
+    return;
+  }
   event.respondWith(
     caches.match(request).then((response) => {
       if (response) return response;
