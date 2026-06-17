@@ -43,12 +43,18 @@ def test_otp_required_roles_are_configured():
 
     assert "otp-role-system-administrator" in role_condition_configs
     assert "otp-role-national-validator" in role_condition_configs
+    assert "otp-role-regional-encoder" in role_condition_configs
+    assert "otp-role-national-analyst" in role_condition_configs
 
     admin_cfg = _auth_config_by_alias(realm, "otp-role-system-administrator")
     validator_cfg = _auth_config_by_alias(realm, "otp-role-national-validator")
+    encoder_cfg = _auth_config_by_alias(realm, "otp-role-regional-encoder")
+    analyst_cfg = _auth_config_by_alias(realm, "otp-role-national-analyst")
 
-    assert admin_cfg.get("config", {}).get("condUserRole") == "system_administrator"
-    assert validator_cfg.get("config", {}).get("condUserRole") == "national_validator"
+    assert admin_cfg.get("config", {}).get("condUserRole") == "SYSTEM_ADMIN"
+    assert validator_cfg.get("config", {}).get("condUserRole") == "NATIONAL_VALIDATOR"
+    assert encoder_cfg.get("config", {}).get("condUserRole") == "REGIONAL_ENCODER"
+    assert analyst_cfg.get("config", {}).get("condUserRole") == "NATIONAL_ANALYST"
 
 
 def test_otp_trusted_device_window_is_7_days():
@@ -101,17 +107,70 @@ def test_import_realm_browser_otp_uses_temporary_demo_provider():
     assert otp_executions[0].get("authenticator") == "wims-demo-otp-form"
 
 
-def test_non_target_roles_not_forced_to_otp():
+def test_all_four_mfa_roles_are_enforced():
+    """All 4 privileged roles (SYSTEM_ADMIN, NATIONAL_VALIDATOR,
+    REGIONAL_ENCODER, NATIONAL_ANALYST) are present with uppercase
+    condUserRole values in both Browser and Direct Grant sub-flows."""
     realm = _load_realm()
-    target_roles = set()
 
-    for alias in ("otp-role-system-administrator", "otp-role-national-validator"):
+    target_roles: set[str] = set()
+    for alias in (
+        "otp-role-system-administrator",
+        "otp-role-national-validator",
+        "otp-role-regional-encoder",
+        "otp-role-national-analyst",
+    ):
         cfg = _auth_config_by_alias(realm, alias)
         target_roles.add(cfg.get("config", {}).get("condUserRole"))
 
-    assert "regional_encoder" not in target_roles
-    assert "national_analyst" not in target_roles
-    assert "citizen" not in target_roles
+    assert target_roles == {
+        "SYSTEM_ADMIN",
+        "NATIONAL_VALIDATOR",
+        "REGIONAL_ENCODER",
+        "NATIONAL_ANALYST",
+    }
+
+    # Verify Direct Grant flow also has all four role conditionals
+    direct_grant_flow = _flow_by_alias(realm, "Direct Grant - Conditional OTP")
+    dg_aliases = set()
+    for execution in direct_grant_flow.get("authenticationExecutions", []):
+        if execution.get("authenticator") == "conditional-user-role":
+            cfg_alias = execution.get("authenticatorConfig")
+            if cfg_alias:
+                dg_aliases.add(cfg_alias)
+    assert "otp-role-system-administrator" in dg_aliases
+    assert "otp-role-national-validator" in dg_aliases
+    assert "otp-role-regional-encoder" in dg_aliases
+    assert "otp-role-national-analyst" in dg_aliases
+
+
+def test_skip_mfa_bypass_present_in_forms_flow():
+    """SKIP_MFA conditional-user-role (ALTERNATIVE) is wired into the
+    forms flow at priority 20, and Browser - Conditional OTP follows as
+    ALTERNATIVE at priority 30 — users with SKIP_MFA role skip OTP."""
+    realm = _load_realm()
+    forms_flow = _flow_by_alias(realm, "forms")
+
+    skip_execs = [
+        e
+        for e in forms_flow.get("authenticationExecutions", [])
+        if e.get("authenticatorConfig") == "otp-skip-mfa"
+    ]
+    assert len(skip_execs) == 1, "SKIP_MFA conditional-user-role must be present in forms flow"
+    assert skip_execs[0].get("requirement") == "ALTERNATIVE"
+    assert skip_execs[0].get("authenticator") == "conditional-user-role"
+
+    # Browser - Conditional OTP must be ALTERNATIVE (not REQUIRED) so
+    # SKIP_MFA can short-circuit it.
+    otp_execs = [
+        e
+        for e in forms_flow.get("authenticationExecutions", [])
+        if e.get("flowAlias") == "Browser - Conditional OTP"
+    ]
+    assert len(otp_execs) == 1
+    assert otp_execs[0].get("requirement") == "ALTERNATIVE", (
+        "Browser - Conditional OTP must be ALTERNATIVE in forms flow for SKIP_MFA bypass"
+    )
 
 
 def test_keycloak_brute_force_lockout_policy():

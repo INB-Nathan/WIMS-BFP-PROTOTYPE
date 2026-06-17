@@ -3,6 +3,28 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-17] fix(#243,#225) | PR #380 review — security hardening and test fixes
+
+- **TOTP gap (#243):** `ChangeEmailRequest` now accepts optional `otp_code`; `_verify_password` passes it as `totp` to Keycloak's Direct Grant token endpoint. TOTP-enabled users can now verify their password during email changes. Error detail updated to "Incorrect current password or OTP code".
+- **Abuse protection (#225):** Per-user Redis-based rate limiting added to both `/change-email` (3 req/10 min) and `/verify-email` (5 req/10 min) via `_check_rate_limit()` helper. Returns 429 when exceeded.
+- **Redis concurrency/reconnect fix:** `_get_redis()` now uses `asyncio.Lock` with double-check pattern to prevent connection leaks and races under concurrent load, pings cached connections before reuse, and reconnects after a stale cached connection fails.
+- **Exception narrowing:** `_verify_password` now catches only `KeycloakError` in the admin-client username-resolution block instead of broad `Exception`, preventing Keycloak infrastructure failures from being silently masked as wrong-password errors.
+- **replyTo defaults restored:** Both `import/bfp-realm.json` and `bfp-realm.json` now use `${env.SMTP_REPLYTO:no-reply@wimsbfp.tech}` and `${env.SMTP_REPLYTO_DISPLAY:WIMS-BFP No Reply}` fallbacks instead of empty defaults.
+- **OTP policy tests fixed:** `test_otp_required_roles_are_configured` updated to use uppercase role names (`SYSTEM_ADMIN`, `NATIONAL_VALIDATOR`, `REGIONAL_ENCODER`, `NATIONAL_ANALYST`) and assert all 4 role conditionals in both Browser and Direct Grant sub-flows. Tautological `test_non_target_roles_not_forced_to_otp` replaced with `test_all_four_mfa_roles_are_enforced`. Added `test_skip_mfa_bypass_present_in_forms_flow` for SKIP_MFA ALTERNATIVE wiring. Direct Grant Conditional OTP remains REQUIRED in the parent flow as intentional #243 hardening to close direct-grant MFA bypass.
+- **SMTP env validation test:** `test_keycloak_smtp_env_vars_present` added to `test_infra_config.py` asserting all 11 SMTP_* env vars are present with non-None defaults in docker-compose.yml.
+- **Email verification tests:** Added 7 new tests: `test_success_with_otp_code_passed_to_verify`, `test_success_without_otp_code_omits_totp`, `test_incorrect_otp_returns_401`, change-email rate-limit test, verify-email rate-limit test, and two `_get_redis()` cache/reconnect tests.
+- **Wiki updates:** `security-baseline.md` updated to document the email verification flow; `infrastructure-config.md` updated to list all 4 MFA-required roles.
+- No FRS gap register change (hardening and test fixes to existing #243/#225 implementation).
+
+## [2026-06-17] test(#225) | align profile email tests with verification flow
+
+- **Test-only change:** Updated 6 failing tests in `tests/test_profile_email.py` to match the new email verification policy (introduced in parent commit). Direct email changes via `PATCH /api/user/me` now always return 400 with guidance to use `POST /api/auth/change-email` and `POST /api/auth/verify-email` instead. Tests now assert the 400 response and verify that no Keycloak/DB operations are triggered for direct email changes.
+- **New test file:** `tests/test_auth_email_verification.py` (18 tests) covers the full verification flow with mocks:
+  - `POST /api/auth/change-email`: success, password verification, incorrect password (401), missing/empty password (400), Redis unavailable (503), email send failure with Redis cleanup (502), schema validation (empty/invalid email).
+  - `POST /api/auth/verify-email`: success with Keycloak+DB update and Redis cleanup, missing/whitespace code (400), no pending change (404), wrong code (400, key preserved), Redis unavailable (503), Keycloak failure (502, key preserved), DB sync failure (200 partial, key cleaned), empty body (422).
+- All mocks used; no live Redis/Keycloak/SMTP required.
+- No FRS gap register change (test alignment only).
+
 ## [2026-06-16] feat(#353) | scheduled reports human-friendly filter builder
 
 - **#353 (filter builder for Scheduled Reports):** Replaced raw JSON textarea on `/admin/system` Scheduled Reports create/edit form with a human-friendly filter builder as the primary UI. Common filter fields (`region_id`, `severity`, `start_date`, `end_date`, `incident_type`) use dropdown, date-picker, and text inputs. Raw JSON remains available via an "Expert" toggle button for advanced users. Filters are validated client-side before save with clear inline error messages; invalid filters block save. The create payload now sends structured filter objects directly (no more `JSON.parse` of a raw string).
