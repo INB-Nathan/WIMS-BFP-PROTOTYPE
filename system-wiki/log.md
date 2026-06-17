@@ -3,6 +3,12 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-17] fix(deploy) | correct compose project label in stale container cleanup
+
+- **`deploy.yml`:** `cleanup_stale_compose_renames()` had label filter `com.docker.compose.project=wims_internal` but the actual compose project name is `src` (derived from working directory). The network is `wims_internal`, not the project — so stale renamed containers from interrupted deploys were never cleaned up, causing "container name already in use" errors on subsequent deploys.
+- Added second cleanup pass for fixed-name `wims-*` containers stuck in `created` state (never started — always from an interrupted deploy).
+- No FRS gap register change (CI/CD workflow fix).
+
 ## [2026-06-17] fix(#379) | sync failure reporting + admin retry/delete integration with IndexedDB
 
 - **PR #379 review fixes** — blocked integration issues found during security/quality review.
