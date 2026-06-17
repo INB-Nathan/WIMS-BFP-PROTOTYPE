@@ -3,6 +3,37 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-17] fix | FrontierCode review — dead code, test gaps, icons, timer cleanup
+
+- FrontierCode review found 20 verified findings across 5 axes. Fixed all major/minor items:
+- **Dead code removal**: Deleted `NearbyPublicReportAreas.tsx`, `NearbyPublicReportAreasInner.tsx`, `NearbyPublicReportAreas.test.tsx` (436 lines orphaned after page.tsx removal).
+- **Dead state removal**: Removed `FireLocation` interface and all `setFireLocation()` calls from page.tsx (4 call sites) — `fireLocation` was written but never read after NearbyPublicReportAreas removal.
+- **Duplicate marker icon**: `PublicFireMapInner.tsx` now imports `firePinIcon` from shared `leafletIcons.ts` instead of duplicating the SVG locally.
+- **debounceTimer cleanup**: Added unmount `useEffect` in `PublicFireMapInner.tsx` that clears pending viewport debounce timer.
+- **Banner overlap fix**: Moved geolocation status banner from `top-10` to `top-0` (above locate button) to prevent overlap with degraded backend banner at `top-12`.
+- **Geolocation status tests expanded**: Added 3 new tests (loading indicator, timeout fallback, generic error fallback). Updated `mockGeolocation` helper to use error code param (0=success, 1=denied, 2=unavailable, 3=timeout).
+- **Page-level regression test**: New `src/app/__tests__/page.test.tsx` (3 tests) verifies "Nearby fire activity" heading + disclaimer copy, absence of "Public Fire Report Areas" card, and Safety status card rendering.
+- **Test mock fix**: Added `firePinIcon` to `leafletIcons` mock in `PublicFireMapInner.test.tsx`. Silenced unused `icon` param lint warning.
+- Validation: ESLint 0 errors, TypeScript 0 errors, `npm run build` passes, 49/50 test files pass (1 pre-existing `fake-indexeddb` failure), 389 tests pass including 13 new tests.
+- No FRS gap register update (no FRS gap status change).
+
+## [2026-06-17] feat | public-report-safety-map-fix implemented
+
+- Branch `feat/public-report-safety-map-fix` created from spec `system-wiki/plans/public-report-nearby-fire-activity-map-placement.md`.
+- **page.tsx**: Removed `NearbyPublicReportAreas` import and its conditional render (`step !== 'safety'`). Safety-step `PublicFireMap` no longer passes `onGeolocationAvailable` — geolocation is display-only (no `handlePinChange`, no `geo`/`fireLocation`/`gpsSource`/`phoneGeo` mutation). Added required copy: "Based on nearby public reports awaiting review. Not yet confirmed by BFP."
+- **PublicFireMapInner.tsx**: Added display-only geolocation: `userLocation` state, `viewTarget` state with `MapRecenter` component (uses `useMap().setView()`, avoids loops via `useRef`), blue-dot user marker in non-selection mode (`userLocationIcon`), non-blocking fallback status text (denied/timedOut/error). `GeolocateButton` enhanced with `onStatusChange`, "Use my location" label, better a11y. `PinIcon` migrated from remote Leaflet URLs to local `L.divIcon` with BFP maroon SVG. Geolocation error codes use numeric values (1=PERMISSION_DENIED, 3=TIMEOUT) for cross-env compatibility.
+- **map/leafletIcons.ts** (new): `userLocationIcon` (blue/cyan dot with white center and ring) and `firePinIcon` (BFP maroon pin SVG) using `L.divIcon` with inline styles.
+- **Tests**: `PublicFireMapInner.test.tsx` updated — 7 tests cover: render, locate button a11y, user marker after geolocation, recenter via `setView`, geolocation deny fallback, no user marker in selection mode, cluster fetch on viewport load. `NearbyPublicReportAreas.test.tsx` unchanged.
+- Validation: ESLint 0 errors, TypeScript 0 errors, `git diff --check` clean, all 11 focused tests pass (7 PublicFireMapInner + 4 NearbyPublicReportAreas).
+- No FRS gap register update (no FRS gap status change).
+
+## [2026-06-17] spec | public report Nearby Fire Activity map placement
+
+- Added `system-wiki/plans/public-report-nearby-fire-activity-map-placement.md` to capture the refined implementation path for the public report Safety-step map.
+- Spec requires Nearby Fire Activity to be Safety-only, removes the visible Public Fire Report Areas card from later steps, keeps `PublicFireMap`/public cluster data source, and treats Safety-step geolocation as display-only situational awareness.
+- Security/privacy guardrails documented: no Safety-step mutation of incident/fire location, no implicit submitted `phoneGeo`, truthful public-report-awaiting-review copy, credentialless public reads, and FrontierCode-style review gates.
+- No FRS gap register update (spec/planning only; no gap status change).
+
 ## [2026-06-14] fix(deploy) | ollama CPU override for VPS in docker-compose.prod.yml
 
 - VPS has 2 CPUs but base `docker-compose.yml` sets `cpus: '4'` for ollama.

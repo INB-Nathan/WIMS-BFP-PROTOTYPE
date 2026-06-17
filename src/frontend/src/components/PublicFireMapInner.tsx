@@ -7,10 +7,12 @@ import {
   CircleMarker,
   Popup,
   useMapEvents,
+  useMap,
   Marker,
 } from 'react-leaflet';
 import L from 'leaflet';
 import { fetchClusters } from '@/lib/api';
+import { userLocationIcon, firePinIcon } from './map/leafletIcons';
 import type {
   MapClusterItem,
 } from '@/lib/api';
@@ -24,15 +26,11 @@ const INDIVIDUAL_ZOOM = 15;
 /** Debounce delay before re-fetching clusters after viewport change */
 const VIEWPORT_DEBOUNCE_MS = 400;
 
-// ── Marker icon ─────────────────────────────────────────────────────────────
+// ── Marker icons ───────────────────────────────────────────────────────────
 
-const PinIcon = L.icon({
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-});
+const PinIcon = firePinIcon;
+
+type LocationStatus = 'idle' | 'loading' | 'success' | 'denied' | 'timedOut' | 'error';
 
 // ── Props ───────────────────────────────────────────────────────────────────
 
@@ -94,51 +92,83 @@ function ViewportHandler({
   return null;
 }
 
+// ── Map recenter (avoids setView loops) ────────────────────────────────────
+
+function MapRecenter({ target, zoom }: { target: [number, number] | null; zoom: number }) {
+  const map = useMap();
+  const lastTarget = useRef<[number, number] | null>(null);
+
+  useEffect(() => {
+    if (!target) return;
+    if (lastTarget.current && lastTarget.current[0] === target[0] && lastTarget.current[1] === target[1]) {
+      return;
+    }
+    lastTarget.current = target;
+    map.setView(target, zoom, { animate: true });
+  }, [target, zoom, map]);
+
+  return null;
+}
+
 // ── Geolocation handler ─────────────────────────────────────────────────────
 
 function GeolocateButton({
   onLocation,
+  onStatusChange,
 }: {
   onLocation: (lat: number, lng: number) => void;
+  onStatusChange: (status: LocationStatus) => void;
 }) {
   const handleClick = useCallback(() => {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation) {
+      onStatusChange('error');
+      return;
+    }
+    onStatusChange('loading');
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        onStatusChange('success');
         onLocation(pos.coords.latitude, pos.coords.longitude);
       },
-      () => {
-        /* silent fail */
+      (err) => {
+        // Use numeric codes: PERMISSION_DENIED=1, TIMEOUT=3
+        if (err.code === 1) {
+          onStatusChange('denied');
+        } else if (err.code === 3) {
+          onStatusChange('timedOut');
+        } else {
+          onStatusChange('error');
+        }
       },
-      { timeout: 10_000 },
+      { timeout: 10_000, maximumAge: 30_000 },
     );
-  }, [onLocation]);
-
-  const buttonStyle: React.CSSProperties = {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    zIndex: 1000,
-    background: 'white',
-    border: '2px solid rgba(0,0,0,0.2)',
-    borderRadius: 4,
-    padding: '6px 10px',
-    cursor: 'pointer',
-    fontSize: 14,
-    lineHeight: '20px',
-    color: '#333',
-    boxShadow: '0 1px 5px rgba(0,0,0,0.3)',
-  };
+  }, [onLocation, onStatusChange]);
 
   return (
     <button
       type="button"
-      style={buttonStyle}
       onClick={handleClick}
-      title="Find my location"
-      aria-label="Find my location"
+      title="Use my location"
+      aria-label="Use my location / Gamitin ang lokasyon ko"
+      style={{
+        position: 'absolute',
+        top: 10,
+        right: 10,
+        zIndex: 1000,
+        background: 'white',
+        border: '2px solid rgba(0,0,0,0.15)',
+        borderRadius: 6,
+        padding: '5px 10px',
+        cursor: 'pointer',
+        fontSize: 12,
+        fontWeight: 600,
+        lineHeight: '18px',
+        color: '#333',
+        boxShadow: '0 1px 5px rgba(0,0,0,0.2)',
+      }}
     >
-      <span role="img" aria-label="locate">📍</span>
+      <span role="img" aria-hidden="true">📍</span>{' '}
+      Use my location
     </button>
   );
 }
@@ -160,6 +190,11 @@ export default function PublicFireMapInner({
     selectedLocation ?? null,
   );
   const [degraded, setDegraded] = useState(false);
+
+  // Display-only geolocation state (non-selection mode)
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const [viewTarget, setViewTarget] = useState<[number, number] | null>(null);
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>('idle');
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -215,6 +250,13 @@ export default function PublicFireMapInner({
     [loadClusters],
   );
 
+  // Clear debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, []);
+
   // ── Polling (60s when visible; paused when tab hidden) ──────────────────
   useEffect(() => {
     const startPolling = () => {
@@ -257,10 +299,15 @@ export default function PublicFireMapInner({
   // ── Handle geolocation ──────────────────────────────────────────────────
   const handleGeolocation = useCallback(
     (lat: number, lng: number) => {
+      // Call parent callback if provided (backward compat)
       onGeolocationAvailable?.(lat, lng);
       if (selectionMode) {
         setPinPosition([lat, lng]);
         onLocationSelect?.(lat, lng);
+      } else {
+        // Display-only: recenter map + show user marker
+        setUserLocation([lat, lng]);
+        setViewTarget([lat, lng]);
       }
     },
     [onGeolocationAvailable, onLocationSelect, selectionMode],
@@ -289,6 +336,9 @@ export default function PublicFireMapInner({
 
         <ViewportHandler onViewportChange={handleViewportChange} />
 
+        {/* Recenter map when viewTarget changes */}
+        <MapRecenter target={viewTarget} zoom={initialZoom >= 14 ? initialZoom : 14} />
+
         {/* Map click handler for selection mode */}
         {selectionMode && <MapClickHandler onClick={handleMapClick} />}
 
@@ -306,6 +356,15 @@ export default function PublicFireMapInner({
         {/* Static pin (non-selection mode) */}
         {!selectionMode && pinPosition && (
           <Marker position={pinPosition} icon={PinIcon} />
+        )}
+
+        {/* User location marker (display-only, non-selection mode) */}
+        {!selectionMode && userLocation && (
+          <Marker
+            position={userLocation}
+            icon={userLocationIcon}
+            interactive={false}
+          />
         )}
 
         {/* Cluster circles */}
@@ -344,7 +403,17 @@ export default function PublicFireMapInner({
       </MapContainer>
 
       {/* Geolocation button */}
-      <GeolocateButton onLocation={handleGeolocation} />
+      <GeolocateButton onLocation={handleGeolocation} onStatusChange={setLocationStatus} />
+
+      {/* Geolocation status (non-blocking) */}
+      {locationStatus !== 'idle' && locationStatus !== 'success' && (
+        <div className="absolute top-0 left-3 right-12 z-[1000] bg-white/95 border border-slate-200 rounded-b-md px-3 py-1.5 text-xs text-slate-500 shadow-sm">
+          {locationStatus === 'loading' && 'Locating...'}
+          {locationStatus === 'denied' && 'Location access denied. Showing national map.'}
+          {locationStatus === 'timedOut' && 'Location request timed out. Showing national map.'}
+          {locationStatus === 'error' && 'Could not get location. Showing national map.'}
+        </div>
+      )}
 
       {/* Loading indicator */}
       {loading && (

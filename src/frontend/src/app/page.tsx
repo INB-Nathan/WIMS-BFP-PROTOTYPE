@@ -31,7 +31,6 @@ import {
   Zap,
 } from 'lucide-react';
 import { CalmEmergencyBlock } from './CalmEmergencyBlock';
-import { NearbyPublicReportAreas } from '@/components/NearbyPublicReportAreas';
 import { EmergencyReferenceCard } from '@/components/EmergencyReferenceCard';
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -92,11 +91,6 @@ interface GeoState {
   source: 'gps' | 'pin' | null;
   denied: boolean;
   timedOut: boolean;
-}
-
-interface FireLocation {
-  latitude: number;
-  longitude: number;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -327,7 +321,6 @@ export default function ReportPage() {
   const [gpsWarningConfirmed, setGpsWarningConfirmed] = useState(false);
 
   const [geo, setGeo] = useState<GeoState>({ latitude: null, longitude: null, source: null, denied: false, timedOut: false });
-  const [fireLocation, setFireLocation] = useState<FireLocation | null>(null);
   const [phoneGeo, setPhoneGeo] = useState<{ lat: number; lng: number } | null>(null);
   // Tracks GPS permission/timeout state for phone — kept separate from the pin geo
   const [phoneGeoStatus, setPhoneGeoStatus] = useState<{ denied: boolean; timedOut: boolean }>({ denied: false, timedOut: false });
@@ -382,7 +375,6 @@ export default function ReportPage() {
           // Only overwrite geo if user is still on WITNESS and hasn't placed a manual pin yet
           setGeo((g) => {
             if (g.source === 'pin') return g; // never clobber a manual pin
-            setFireLocation({ latitude: lat, longitude: lng });
             return { latitude: lat, longitude: lng, source: 'gps', denied: false, timedOut: false };
           });
           setGpsSource('acquired');
@@ -425,7 +417,6 @@ export default function ReportPage() {
     // if the user has not already placed a manual pin (never clobber an existing pin).
     if (reportingContext !== 'WITNESS' && geo.source === 'gps') {
       setGeo({ latitude: null, longitude: null, source: null, denied: false, timedOut: false });
-      setFireLocation(null);
       setPhoneGeo(null);
     }
   }, [reportingContext]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -434,7 +425,6 @@ export default function ReportPage() {
   function handlePinChange(lat: number, lng: number) {
     setGpsWarningConfirmed(false);
     setGeo({ latitude: lat, longitude: lng, source: 'pin', denied: false, timedOut: false });
-    setFireLocation({ latitude: lat, longitude: lng });
     setGpsSource('manual');
     setPinClearedFromChallenge(false);
   }
@@ -1003,9 +993,6 @@ export default function ReportPage() {
         <div className="card overflow-hidden">
 
         <CalmEmergencyBlock />
-        {step !== 'safety' && (
-          <NearbyPublicReportAreas fireLat={fireLocation?.latitude ?? null} fireLon={fireLocation?.longitude ?? null} />
-        )}
 
         <div className="card-body space-y-5 px-6 pb-6">
           {currentStepIndex >= 0 && <ProgressBar current={currentStepIndex} total={stepOrder.length} />}
@@ -1053,7 +1040,6 @@ export default function ReportPage() {
                         onClick={() => {
                           setGpsChallengeOpen(false);
                           setGeo({ latitude: null, longitude: null, source: null, denied: false, timedOut: false });
-                          setFireLocation(null);
                           setGpsSource(null);
                           setPinClearedFromChallenge(true);
                         }}
@@ -1256,21 +1242,18 @@ export default function ReportPage() {
                 </div>
               )}
 
-              {/* ── Public map: show nearby fire clusters ───────────────── */}
+              {/* ── Public map: show nearby fire clusters (display-only) ── */}
               <div className="mt-2">
-                <p className="text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                <p className="text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
                   Nearby fire activity / Mga kalapit na sunog
+                </p>
+                <p className="text-xs mb-1.5" style={{ color: 'var(--text-muted)' }}>
+                  Based on nearby public reports awaiting review. Not yet confirmed by BFP.
                 </p>
                 <PublicFireMap
                   height={200}
                   zoom={11}
                   selectionMode={false}
-                  onGeolocationAvailable={(lat, lng) => {
-                    // Pass geolocation to parent report flow
-                    if (geo.latitude === null) {
-                      handlePinChange(lat, lng);
-                    }
-                  }}
                 />
               </div>
 
