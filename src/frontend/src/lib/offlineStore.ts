@@ -922,10 +922,11 @@ export async function getCachedIncidents(encoderId: string): Promise<CachedIncid
 /**
  * Get a single cached incident by server ID.
  */
-export async function getCachedIncident(serverId: number): Promise<CachedIncidentDecrypted | undefined> {
+export async function getCachedIncident(serverId: number, encoderId: string): Promise<CachedIncidentDecrypted | undefined> {
     const db = await getDB();
     const item: CachedIncident | undefined = await db.get(CACHE_STORE, serverId);
     if (!item) return undefined;
+    if (item.encoderId !== encoderId) return undefined;
     const data = await decryptPayload<Record<string, unknown>>(item.data);
     return { ...item, data };
 }

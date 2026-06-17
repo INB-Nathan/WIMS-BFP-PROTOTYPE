@@ -176,7 +176,7 @@ export async function fetchRegionalIncidentOfflineAware(
   }
 
   if (isOffline) {
-    const cached = await getCachedIncident(incidentId);
+    const cached = await getCachedIncident(incidentId, encoderId);
     if (cached) {
       return {
         response: cached.data as unknown as RegionalIncidentDetailResponse,
@@ -234,7 +234,7 @@ export async function fetchRegionalIncidentOfflineAware(
     if (isNetworkError(err)) {
       markConnectivityOffline();
       // Connection dropped mid-request — serve from cache if available.
-      const cached = await getCachedIncident(incidentId);
+      const cached = await getCachedIncident(incidentId, encoderId);
       if (cached) {
         return {
           response: cached.data as unknown as RegionalIncidentDetailResponse,

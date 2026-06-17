@@ -339,7 +339,7 @@ describe('encryption at rest — cached incidents', () => {
     const original = { description: 'cached test', status: 'PENDING' };
     await cacheIncident(7, original, ENCODER_ID);
 
-    const cached = await getCachedIncident(7);
+    const cached = await getCachedIncident(7, ENCODER_ID);
     expect(cached!.data).toEqual(original);
   });
 });
