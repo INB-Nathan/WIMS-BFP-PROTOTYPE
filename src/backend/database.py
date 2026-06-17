@@ -20,14 +20,30 @@ SQLALCHEMY_DATABASE_URL = os.environ.get(
     os.environ.get("DATABASE_URL", "postgresql://postgres:***@postgres:5432/wims"),
 )
 
-_engine: Engine = create_engine(SQLALCHEMY_DATABASE_URL)
+_engine: Engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    pool_size=5,
+    max_overflow=5,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+    pool_timeout=10,
+    connect_args={"options": "-c statement_timeout=30000"},
+)
 _SessionLocal: sessionmaker = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
 
 # Admin session — uses DATABASE_ADMIN_URL (postgres superuser) so test fixtures
 # and DDL helpers can query RLS-protected tables without a user context.
 # Application code must NOT use this; use get_db_with_rls() instead.
 _ADMIN_DATABASE_URL: str = os.environ.get("DATABASE_ADMIN_URL", SQLALCHEMY_DATABASE_URL)
-_admin_engine: Engine = create_engine(_ADMIN_DATABASE_URL)
+_admin_engine: Engine = create_engine(
+    _ADMIN_DATABASE_URL,
+    pool_size=5,
+    max_overflow=5,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+    pool_timeout=10,
+    connect_args={"options": "-c statement_timeout=30000"},
+)
 _AdminSessionLocal: sessionmaker = sessionmaker(
     autocommit=False, autoflush=False, bind=_admin_engine
 )
