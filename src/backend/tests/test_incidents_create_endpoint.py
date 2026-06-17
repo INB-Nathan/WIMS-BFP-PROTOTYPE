@@ -68,3 +68,53 @@ def test_create_incident_converts_uuid_encoder_id_to_string(monkeypatch):
     first_commit_index = next(i for i, call in enumerate(db.mock_calls) if call[0] == "commit")
     assert audit_execute_index < first_commit_index
     assert db.commit.call_count == 2
+
+
+def test_analytics_sync_failure_is_non_fatal(monkeypatch):
+    """When sync_incident_to_analytics raises, the endpoint still returns the
+    created incident — analytics failure is a soft error; the incident is
+    already committed by the primary db.commit()."""
+    user_id = uuid.uuid4()
+    created_at = datetime.now(timezone.utc)
+
+    region_result = MagicMock()
+    region_result.fetchone.return_value = (1,)
+
+    insert_result = MagicMock()
+    insert_result.fetchone.return_value = (123, "unused", user_id, "DRAFT", created_at)
+
+    coord_result = MagicMock()
+    coord_result.fetchone.return_value = (14.5995, 120.9842)
+
+    db = MagicMock()
+    db.execute.side_effect = [region_result, insert_result, MagicMock(), coord_result]
+
+    db.commit.side_effect = [None, RuntimeError("analytics commit failed")]
+
+    monkeypatch.setattr(
+        "api.routes.incidents.sync_incident_to_analytics",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("analytics sync failed")),
+    )
+    monkeypatch.setattr("api.routes.incidents.set_rls_context", lambda *_args: None)
+
+    request = SimpleNamespace(
+        headers={"x-forwarded-for": "10.0.0.1", "user-agent": "pytest"},
+        client=SimpleNamespace(host="172.18.0.5"),
+    )
+
+    response = create_incident(
+        IncidentCreate(latitude=14.5995, longitude=120.9842, description="Test"),
+        request,
+        {"user_id": user_id},
+        db,
+    )
+
+    # The incident was created (primary commit succeeded)
+    assert response.incident_id == 123
+    assert str(response.encoder_id) == str(user_id)
+    assert response.status == "DRAFT"
+
+    # First commit (incident INSERT) succeeded, second commit (analytics) failed
+    assert db.commit.call_count == 2
+    # rollback() called for the failed analytics commit
+    db.rollback.assert_called()

@@ -4,7 +4,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Annotated, Any, Optional
 
@@ -178,8 +178,6 @@ def upload_incident_bundle(
         if not raw or not isinstance(raw, str):
             return None
         try:
-            from datetime import datetime, timezone
-
             dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
             now_utc = datetime.now(timezone.utc)
             if dt > now_utc:
