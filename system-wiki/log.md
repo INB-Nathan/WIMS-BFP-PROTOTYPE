@@ -3,6 +3,10 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-17] fix | make civilian triage queue resilient to missing followups migration
+
+- **`src/backend/services/civilian_triage/queue_projection.py`:** Added `_table_exists()` helper and dynamic SQL construction so `get_queue()` degrades gracefully when `wims.citizen_report_followups` table hasn't been migrated yet. The `followup_aggs` CTE, SELECT columns, and LEFT JOIN are conditionally included only when the table exists; otherwise hardcoded defaults (`0`, `NULL::json`) are used. This fixes the civilian triage queue returning empty when the followups migration (`59_citizen_report_followups.sql`) hasn't been applied to an existing postgres volume.
+
 ## [2026-06-17] fix(deploy) | correct compose project label in stale container cleanup
 
 - **`deploy.yml`:** `cleanup_stale_compose_renames()` had label filter `com.docker.compose.project=wims_internal` but the actual compose project name is `src` (derived from working directory). The network is `wims_internal`, not the project — so stale renamed containers from interrupted deploys were never cleaned up, causing "container name already in use" errors on subsequent deploys.

@@ -28,6 +28,22 @@ from services.civilian_triage.policies import aging_flags, severity
 logger = logging.getLogger("wims.civilian_triage.queue_projection")
 
 
+def _table_exists(db: Session, schema: str, table: str) -> bool:
+    """Check whether a table exists in the given schema.
+
+    Used to gracefully handle optional migrations (e.g. citizen_report_followups)
+    that may not have been applied to the current deployment yet.
+    """
+    row = db.execute(
+        text(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = :schema AND table_name = :table"
+        ),
+        {"schema": schema, "table": table},
+    ).fetchone()
+    return row is not None
+
+
 def _build_trust_breakdown(
     has_category,
     has_sub_category,
@@ -172,6 +188,52 @@ def get_queue(
     # they are applied post-fetch.
     where_clause = " AND ".join(base_filters)
 
+    # ── Check if follow-up table exists (migration may not be applied yet) ────
+    has_followups = _table_exists(db, "wims", "citizen_report_followups")
+
+    followup_cte = (
+        """
+            followup_aggs AS (
+                -- Aggregate follow-up text and count per report
+                SELECT
+                    f.report_id,
+                    COUNT(*) AS followup_count,
+                    json_agg(
+                        json_build_object(
+                            'followup_id', f.followup_id,
+                            'followup_text', f.followup_text,
+                            'created_at', f.created_at
+                        )
+                        ORDER BY f.created_at ASC
+                    ) FILTER (WHERE f.followup_id IS NOT NULL) AS followups_json
+                FROM wims.citizen_report_followups f
+                GROUP BY f.report_id
+            ),"""
+        if has_followups
+        else ""
+    )
+
+    followup_select = (
+        """,
+
+                -- Follow-up data
+                COALESCE(fa.followup_count, 0) AS followup_count,
+                fa.followups_json"""
+        if has_followups
+        else """,
+
+                -- Follow-up data (table not yet migrated)
+                0 AS followup_count,
+                NULL::json AS followups_json"""
+    )
+
+    followup_join = (
+        """
+            LEFT JOIN followup_aggs fa ON fa.report_id = cr.report_id"""
+        if has_followups
+        else ""
+    )
+
     # ── Fetch active reports with cluster membership, station context, signals ─
     # Columns selected for trust breakdown + station context, NO privacy fields.
     rows = db.execute(
@@ -234,23 +296,7 @@ def get_queue(
                       AND cr2.report_id != cr.report_id
                 ) cr2 ON TRUE
                 GROUP BY cr.report_id
-            ),
-            followup_aggs AS (
-                -- Aggregate follow-up text and count per report
-                SELECT
-                    f.report_id,
-                    COUNT(*) AS followup_count,
-                    json_agg(
-                        json_build_object(
-                            'followup_id', f.followup_id,
-                            'followup_text', f.followup_text,
-                            'created_at', f.created_at
-                        )
-                        ORDER BY f.created_at ASC
-                    ) FILTER (WHERE f.followup_id IS NOT NULL) AS followups_json
-                FROM wims.citizen_report_followups f
-                GROUP BY f.report_id
-            )
+            ),{followup_cte}
             SELECT
                 cr.report_id,
                 ST_Y(cr.location::geometry) AS lat,
@@ -297,18 +343,13 @@ def get_queue(
                 si.phone,
 
                 -- Duplicate count
-                COALESCE(dc.dup_count_30m, 0) AS dup_count_30m,
-
-                -- Follow-up data
-                COALESCE(fa.followup_count, 0) AS followup_count,
-                fa.followups_json
+                COALESCE(dc.dup_count_30m, 0) AS dup_count_30m{followup_select}
 
             FROM wims.citizen_reports cr
             LEFT JOIN latest_clusters lc ON lc.report_id = cr.report_id
             LEFT JOIN related_counts rc ON rc.report_id = cr.report_id
             LEFT JOIN station_info si ON si.report_id = cr.report_id
-            LEFT JOIN dup_counts dc ON dc.report_id = cr.report_id
-            LEFT JOIN followup_aggs fa ON fa.report_id = cr.report_id
+            LEFT JOIN dup_counts dc ON dc.report_id = cr.report_id{followup_join}
             WHERE {where_clause}
             ORDER BY
                 cr.safety_status = 'I_NEED_HELP' DESC,
