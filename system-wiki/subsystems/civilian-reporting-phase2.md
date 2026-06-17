@@ -1,7 +1,7 @@
 ---
 title: Civilian Reporting Phase 2 — Subsystem Deep-Dive
 created: 2026-05-20
-updated: 2026-06-03
+updated: 2026-06-17
 type: subsystem
 tags: [wims-bfp, subsystem, civilian-reporting, triage, validation, public-dmz, cluster, merge, map]
 sources: [system-wiki/prd/civilian-reporting-phase-2.md, system-wiki/decisions/0001-civilian-reporting-overhaul.md, src/backend/api/routes/triage.py, src/backend/api/routes/civilian.py, src/backend/api/routes/ref.py, src/backend/api/routes/public_dmz.py, src/backend/tasks/civilian_reports.py, src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/app/page.tsx, src/frontend/src/app/tracking/page.tsx]
@@ -205,6 +205,8 @@ Returns clustered `citizen_reports` with cluster metadata.
 | `unreviewed` | no cluster membership |
 
 **Cluster discovery / related counts**: triage queue related-count/severity uses PostGIS `ST_DWithin(geography, geography, 100)` and a 1-hour window. Queue reads first materialize durable singleton clusters for active unclustered reports so every row returned to validators has a claimable cluster id.
+
+**RLS context note**: the queue projection uses `get_db_with_rls()` and materializes singleton clusters during the read. Because SQLAlchemy/PostgreSQL `SET LOCAL wims.current_user_id` is cleared by `db.commit()`, `src/backend/services/civilian_triage/queue_projection.py` re-establishes RLS context immediately after the materialization commit and before `_table_exists()` plus the main queue SELECT. Without this reset, production app-user sessions can see PENDING rows in lightweight widgets but receive an empty triage queue.
 
 **Returns per cluster**:
 ```

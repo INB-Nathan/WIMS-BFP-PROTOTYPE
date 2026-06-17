@@ -3,6 +3,12 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-17] fix | preserve RLS context after civilian triage queue materialization
+
+- **`src/backend/services/civilian_triage/queue_projection.py`:** Re-establishes `SET LOCAL wims.current_user_id` after the read-time singleton-cluster materialization commit and before `_table_exists()` plus the main queue SELECT. Root cause: `db.commit()` cleared the RLS context set by `get_db_with_rls()`, so production app-user sessions could see PENDING citizen report counts in lightweight widgets but the triage queue SELECT ran without user context and returned zero rows.
+- **`src/backend/tests/test_civilian_triage_module.py`:** Added a regression test that verifies `get_queue()` resets RLS context after materialization commit and before the main SELECT.
+- **`system-wiki/subsystems/civilian-reporting-phase2.md`:** Documented the RLS-context reset requirement for the queue projection.
+
 ## [2026-06-17] fix | make civilian triage queue resilient to missing followups migration
 
 - **`src/backend/services/civilian_triage/queue_projection.py`:** Added `_table_exists()` helper and dynamic SQL construction so `get_queue()` degrades gracefully when `wims.citizen_report_followups` table hasn't been migrated yet. The `followup_aggs` CTE, SELECT columns, and LEFT JOIN are conditionally included only when the table exists; otherwise hardcoded defaults (`0`, `NULL::json`) are used. This fixes the civilian triage queue returning empty when the followups migration (`59_citizen_report_followups.sql`) hasn't been applied to an existing postgres volume.

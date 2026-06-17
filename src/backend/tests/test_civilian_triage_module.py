@@ -1,8 +1,10 @@
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
 import pytest
 from fastapi import HTTPException
 
+from services.civilian_triage import queue_projection
 from services.civilian_triage.models import TriageQueueResponse
 from services.civilian_triage.policies import (
     aging_flags,
@@ -52,3 +54,66 @@ def test_triage_queue_contract_excludes_privacy_fields_from_schema():
     assert "fcm" not in serialized.lower()
     assert "notification_token" not in serialized
     assert "duplicate_device_count_30m" in serialized
+
+
+def test_get_queue_reestablishes_rls_context_after_materialization_commit(monkeypatch):
+    """SET LOCAL RLS context is cleared by commit and must be restored before SELECT."""
+
+    user_id = UUID("22222222-2222-4222-8222-222222222222")
+    events: list[object] = []
+
+    class EmptyRows:
+        def fetchall(self):
+            return []
+
+    class FakeDb:
+        committed = False
+        rls_reset_after_commit = False
+
+        def execute(self, statement, params=None):
+            sql = str(statement)
+            if "INSERT INTO wims.citizen_report_cluster_members" in sql:
+                events.append("materialize")
+                return EmptyRows()
+            if "WITH latest_clusters AS" in sql:
+                events.append(
+                    (
+                        "main_select",
+                        self.committed,
+                        self.rls_reset_after_commit,
+                    )
+                )
+                return EmptyRows()
+            raise AssertionError(f"Unexpected SQL in fake queue test: {sql[:120]}")
+
+        def commit(self):
+            self.committed = True
+            events.append("commit")
+
+    def fake_set_rls_context(db, restored_user_id):
+        events.append(("set_rls_context", restored_user_id, db.committed))
+        db.rls_reset_after_commit = True
+
+    monkeypatch.setattr(queue_projection, "_table_exists", lambda _db, _schema, _table: False)
+    monkeypatch.setattr(queue_projection, "set_rls_context", fake_set_rls_context)
+
+    queue_projection.get_queue(
+        {"user_id": user_id, "role": "NATIONAL_VALIDATOR"},
+        FakeDb(),
+        needs_help=False,
+        someone_else_needs_help=False,
+        aging=False,
+        timeout_risk=False,
+        confidence=None,
+        unreviewed=False,
+        claimed_by_me=False,
+        actioned_today=False,
+        rejected_today=False,
+    )
+
+    assert events == [
+        "materialize",
+        "commit",
+        ("set_rls_context", user_id, True),
+        ("main_select", True, True),
+    ]

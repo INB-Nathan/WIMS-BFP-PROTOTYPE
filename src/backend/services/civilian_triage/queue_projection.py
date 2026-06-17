@@ -15,6 +15,7 @@ from fastapi import Query
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from database import set_rls_context
 from services.civilian_triage.models import (
     FollowupSummary,
     StationContext,
@@ -182,6 +183,12 @@ def get_queue(
         """)
     )
     db.commit()
+
+    # Commit clears the SET LOCAL RLS context established by get_db_with_rls().
+    # Re-establish it before the queue SELECT; otherwise app-user production
+    # sessions see zero citizen_reports after materialization.
+    if user_id is not None:
+        set_rls_context(db, user_id)
 
     # Aging and timeout_risk are applied post-compute (age computed from created_at)
     # Confidence and claimed_by_me depend on computed severity / CTE aliases, so
