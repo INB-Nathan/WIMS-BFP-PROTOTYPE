@@ -85,6 +85,7 @@ def sync_incident_to_analytics(db: Session, incident_id: int) -> None:
             incident_id,
             e,
         )
+        db.rollback()
         return
 
     if row is None:

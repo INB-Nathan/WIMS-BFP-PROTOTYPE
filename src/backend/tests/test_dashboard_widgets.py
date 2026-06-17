@@ -28,6 +28,11 @@ def _reset_overrides():
 def _mock_db(rows_by_query_prefix: dict[str, list]):
     """Return a MagicMock Session whose execute().fetchall() returns the given rows
     based on the SQL query text prefix.
+
+    Prefixes are matched via substring containment on the first matching key.
+    To avoid collisions, callers should use prefixes that are unique to the
+    query they intend to stub (e.g. "assigned_region_id" for the user-lookup
+    query, not "region_id" which also matches widget WHERE clauses).
     """
     db = MagicMock()
 
@@ -118,13 +123,16 @@ class TestEmptyRequest:
 
 class TestValidatorWidgets:
     def test_validator_count_widgets(self, client: TestClient):
-        """NATIONAL_VALIDATOR gets count widgets."""
+        """NATIONAL_VALIDATOR gets count widgets with correct values."""
         app.dependency_overrides[get_current_wims_user] = _validator_user
         db = _mock_db(
             {
-                "PENDING": [(5,)],
+                # awaiting_validation: verification_status IN ('PENDING', 'PENDING_VALIDATION')
+                "PENDING_VALIDATION": [(5,)],
+                # citizen_reports: status = 'PENDING'
                 "citizen_reports": [(3,)],
-                "VERIFIED": [(12,)],
+                # verified_today: verification_status = 'VERIFIED'
+                "DATE(updated_at AT TIME ZONE": [(12,)],
             }
         )
         app.dependency_overrides[get_db_with_rls] = lambda: db
@@ -135,8 +143,11 @@ class TestValidatorWidgets:
         assert resp.status_code == 200
         data = resp.json()
         assert "awaiting_validation" in data
+        assert data["awaiting_validation"]["count"] == 5
         assert "citizen_reports" in data
+        assert data["citizen_reports"]["count"] == 3
         assert "verified_today" in data
+        assert data["verified_today"]["count"] == 12
 
     def test_validator_categorical_widget(self, client: TestClient):
         """by_category widget returns categories array."""
@@ -157,6 +168,10 @@ class TestValidatorWidgets:
         assert "by_category" in data
         assert "categories" in data["by_category"]
         assert len(data["by_category"]["categories"]) == 2
+        assert data["by_category"]["categories"][0]["label"] == "Structural"
+        assert data["by_category"]["categories"][0]["count"] == 8
+        assert data["by_category"]["categories"][1]["label"] == "Non-Structural"
+        assert data["by_category"]["categories"][1]["count"] == 3
 
     def test_validator_cannot_request_encoder_widget(self, client: TestClient):
         """NATIONAL_VALIDATOR cannot access REGIONAL_ENCODER widgets."""
@@ -175,13 +190,20 @@ class TestValidatorWidgets:
 
 class TestEncoderWidgets:
     def test_encoder_count_widgets(self, client: TestClient):
-        """REGIONAL_ENCODER gets encoder count widgets."""
+        """REGIONAL_ENCODER gets encoder count widgets with correct values."""
         app.dependency_overrides[get_current_wims_user] = _encoder_user
         db = _mock_db(
             {
-                "region_id": [(42,)],
-                "DRAFT": [(7,)],
-                "created_at": [(3,)],
+                # User lookup: SELECT assigned_region_id FROM wims.users
+                "assigned_region_id": [(42,)],
+                # total_incidents: uses {region_filter} → fi.region_id = :rid
+                "fi.region_id = :rid": [(15,)],
+                # drafts: verification_status = 'DRAFT'
+                "verification_status = 'DRAFT'": [(7,)],
+                # submitted_today: created_at AT TIME ZONE
+                "created_at AT TIME ZONE": [(3,)],
+                # pending_validation: PENDING_VALIDATION in IN clause
+                "PENDING_VALIDATION": [(4,)],
             }
         )
         app.dependency_overrides[get_db_with_rls] = lambda: db
@@ -192,8 +214,13 @@ class TestEncoderWidgets:
         assert resp.status_code == 200
         data = resp.json()
         assert "total_incidents" in data
+        assert data["total_incidents"]["count"] == 15
         assert "drafts" in data
+        assert data["drafts"]["count"] == 7
         assert "submitted_today" in data
+        assert data["submitted_today"]["count"] == 3
+        assert "pending_validation" in data
+        assert data["pending_validation"]["count"] == 4
 
     def test_encoder_categorical_widget(self, client: TestClient):
         """by_alarm_level returns categories for encoder."""
@@ -213,24 +240,34 @@ class TestEncoderWidgets:
         data = resp.json()
         assert "by_alarm_level" in data
         assert "categories" in data["by_alarm_level"]
+        assert len(data["by_alarm_level"]["categories"]) == 2
+        assert data["by_alarm_level"]["categories"][0]["label"] == "3"
+        assert data["by_alarm_level"]["categories"][0]["count"] == 5
+        assert data["by_alarm_level"]["categories"][1]["label"] == "5"
+        assert data["by_alarm_level"]["categories"][1]["count"] == 2
 
 
 class TestAnalystWidgets:
     def test_analyst_widgets(self, client: TestClient):
-        """NATIONAL_ANALYST gets analyst widgets."""
+        """NATIONAL_ANALYST gets analyst widgets with correct values."""
         app.dependency_overrides[get_current_wims_user] = _analyst_user
         db = _mock_db(
             {
-                "region_id": [(100,)],
-                "date_trunc": [(45,)],
-                "region_name": [
+                # total_incidents: only this count widget uses FROM wims.fire_incidents fi
+                # without a preceding JOIN, so the FROM+alias+WHERE is unique.
+                "FROM wims.fire_incidents fi\n        WHERE fi.verification_status": [(100,)],
+                # verified_month: updated_at >= date_trunc('month', CURRENT_DATE)
+                "date_trunc('month'": [(45,)],
+                # by_region: JOIN wims.ref_regions is unique to this widget
+                "JOIN wims.ref_regions": [
                     ("NCR", 30),
                     ("Region IV-A", 25),
                     ("Region III", 20),
                     ("Region VII", 15),
                     ("Region XI", 10),
                 ],
-                "total_response_time": [(12.5,)],
+                # avg_response_time: total_response_time_minutes IS NOT NULL is unique
+                "total_response_time_minutes IS NOT NULL": [(12.5,)],
             }
         )
         app.dependency_overrides[get_db_with_rls] = lambda: db
@@ -241,9 +278,15 @@ class TestAnalystWidgets:
         assert resp.status_code == 200
         data = resp.json()
         assert "total_incidents" in data
+        assert data["total_incidents"]["count"] == 100
         assert "verified_month" in data
+        assert data["verified_month"]["count"] == 45
         assert "by_region" in data
+        assert len(data["by_region"]["categories"]) == 5
+        assert data["by_region"]["categories"][0]["label"] == "NCR"
+        assert data["by_region"]["categories"][0]["count"] == 30
         assert "avg_response_time" in data
+        assert data["avg_response_time"]["count"] == 12.5
 
     def test_analyst_by_region_returns_top5(self, client: TestClient):
         """by_region widget returns at most 5 categories."""
@@ -274,7 +317,7 @@ class TestMixedIds:
         app.dependency_overrides[get_current_wims_user] = _validator_user
         db = _mock_db(
             {
-                "PENDING": [(10,)],
+                "PENDING_VALIDATION": [(10,)],
             }
         )
         app.dependency_overrides[get_db_with_rls] = lambda: db
@@ -285,6 +328,7 @@ class TestMixedIds:
         assert resp.status_code == 200
         data = resp.json()
         assert "awaiting_validation" in data
+        assert data["awaiting_validation"]["count"] == 10
         assert "invalid_widget" not in data
 
     def test_db_error_handled_gracefully(self, client: TestClient):
