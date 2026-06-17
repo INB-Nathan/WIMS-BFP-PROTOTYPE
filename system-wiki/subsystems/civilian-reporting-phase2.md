@@ -204,7 +204,7 @@ Returns clustered `citizen_reports` with cluster metadata.
 | `confidence` | min threshold |
 | `unreviewed` | no cluster membership |
 
-**Cluster discovery / related counts**: triage queue related-count/severity uses PostGIS `ST_DWithin(geography, geography, 100)` and a 1-hour window. Queue reads first materialize durable singleton clusters for active unclustered reports so every row returned to validators has a claimable cluster id.
+**Cluster discovery / related counts**: triage queue related-count/severity uses PostGIS `ST_DWithin(geography, geography, 100)` and a 1-hour window. Queue reads materialize durable clusters only for reports that have at least one related report within 100m/1hr (the `groupable` CTE filters `unclustered` reports with a correlated `EXISTS (SELECT 1 FROM ... WHERE ST_DWithin(...) AND ...)` subquery). Truly isolated reports remain unclustered (`cluster_id` is null) and appear in the Individual Reports table; related reports each get their own cluster and appear in the Clusters table for validator review, claim, and manual merge.
 
 **RLS context note**: the queue projection uses `get_db_with_rls()` and materializes singleton clusters during the read. Because SQLAlchemy/PostgreSQL `SET LOCAL wims.current_user_id` is cleared by `db.commit()`, `src/backend/services/civilian_triage/queue_projection.py` re-establishes RLS context immediately after the materialization commit and before `_table_exists()` plus the main queue SELECT. Without this reset, production app-user sessions can see PENDING rows in lightweight widgets but receive an empty triage queue.
 

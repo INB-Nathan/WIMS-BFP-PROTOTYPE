@@ -170,10 +170,25 @@ def get_queue(
                         AND cc.status != 'CLUSTER_CLOSED'
                   )
             ),
+            groupable AS (
+                SELECT u.report_id
+                FROM unclustered u
+                JOIN wims.citizen_reports cr ON cr.report_id = u.report_id
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM wims.citizen_reports r2
+                    WHERE r2.report_id != u.report_id
+                      AND r2.status NOT LIKE 'REJECTED_%'
+                      AND r2.status != 'ACTIONED'
+                      AND ST_DWithin(cr.location::geography, r2.location::geography, 100)
+                      AND r2.created_at >= cr.created_at - interval '1 hour'
+                      AND r2.created_at <= cr.created_at + interval '1 hour'
+                )
+            ),
             created AS (
                 INSERT INTO wims.citizen_report_clusters (anchor_report_id, status)
                 SELECT report_id, 'CLUSTER_MONITORING'
-                FROM unclustered
+                FROM groupable
                 RETURNING cluster_id, anchor_report_id
             )
             INSERT INTO wims.citizen_report_cluster_members (cluster_id, report_id)

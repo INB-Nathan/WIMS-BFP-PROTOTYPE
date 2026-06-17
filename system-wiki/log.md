@@ -3,6 +3,12 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-17] fix | stop auto-clustering isolated civilian reports in triage queue
+
+- **`src/backend/services/civilian_triage/queue_projection.py`:** Added `groupable` CTE between `unclustered` and `created` in the read-time materialization step. Only reports with at least one related report within 100m/1hr (`ST_DWithin` + time window) now get a durable cluster; truly isolated reports remain unclustered (`cluster_id` is null) and appear in the Individual Reports table instead of the Clusters table.
+- **`src/backend/tests/integration/test_triage_queue.py`:** Replaced `test_singleton_cluster_for_ungrouped_reports` with `test_isolated_report_stays_as_singleton` (asserts isolated report has no cluster and appears as singleton). Added `test_related_reports_auto_cluster` (asserts two nearby reports each get materialized clusters). Rewrote `test_queue_materializes_durable_cluster_for_unclustered_report` as `test_queue_materializes_cluster_only_for_related_reports` (DB-level assertion that isolated has no cluster, related do). Updated `test_terminal_action_updates_reports_and_audits` and `test_terminal_action_requires_explanation` to use explicit `make_cluster`/`add_to_cluster` instead of relying on auto-materialization. Fixed two F541 f-string lint issues.
+- **`system-wiki/subsystems/civilian-reporting-phase2.md`:** Documented the new groupable-materialization behavior.
+
 ## [2026-06-17] fix | stabilize civilian triage inspection modal
 
 - **`src/frontend/src/app/incidents/triage/page.tsx`:** Paused background 30-second queue polling while the inspection modal is open, removed modal-open `R` refresh behavior, locked body scroll, made the modal header sticky, added an explicit accessible Close button, and made Escape close the modal even when focus is inside an input/textarea/select.
