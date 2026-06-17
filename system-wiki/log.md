@@ -13,6 +13,28 @@ Format: `## [YYYY-MM-DD] action | subject`
 - **Tests:** New backend test suite `test_admin_sync.py` (9 tests: report auth, missing localId, list/report integration, retry 404, delete 404). Frontend: added `markOpFailed` assertions to both MAX_RETRY tests; added backoff window skip test and deterministic unit tests for `computeBackoffDelay`/`isWithinBackoffWindow`; added `markOpFailed` and `getFailedOps` tests to `offlineStore.ops.test.ts` (5 tests).
 - No FRS gap register change (integration fix of existing #302/#141 implementation).
 
+## [2026-06-17] fix(#243,#225) | PR #380 review — security hardening and test fixes
+
+- **TOTP gap (#243):** `ChangeEmailRequest` now accepts optional `otp_code`; `_verify_password` passes it as `totp` to Keycloak's Direct Grant token endpoint. TOTP-enabled users can now verify their password during email changes. Error detail updated to "Incorrect current password or OTP code".
+- **Abuse protection (#225):** Per-user Redis-based rate limiting added to both `/change-email` (3 req/10 min) and `/verify-email` (5 req/10 min) via `_check_rate_limit()` helper. Returns 429 when exceeded.
+- **Redis concurrency/reconnect fix:** `_get_redis()` now uses `asyncio.Lock` with double-check pattern to prevent connection leaks and races under concurrent load, pings cached connections before reuse, and reconnects after a stale cached connection fails.
+- **Exception narrowing:** `_verify_password` now catches only `KeycloakError` in the admin-client username-resolution block instead of broad `Exception`, preventing Keycloak infrastructure failures from being silently masked as wrong-password errors.
+- **replyTo defaults restored:** Both `import/bfp-realm.json` and `bfp-realm.json` now use `${env.SMTP_REPLYTO:no-reply@wimsbfp.tech}` and `${env.SMTP_REPLYTO_DISPLAY:WIMS-BFP No Reply}` fallbacks instead of empty defaults.
+- **OTP policy tests fixed:** `test_otp_required_roles_are_configured` updated to use uppercase role names (`SYSTEM_ADMIN`, `NATIONAL_VALIDATOR`, `REGIONAL_ENCODER`, `NATIONAL_ANALYST`) and assert all 4 role conditionals in both Browser and Direct Grant sub-flows. Tautological `test_non_target_roles_not_forced_to_otp` replaced with `test_all_four_mfa_roles_are_enforced`. Added `test_skip_mfa_bypass_present_in_forms_flow` for SKIP_MFA ALTERNATIVE wiring. Direct Grant Conditional OTP remains REQUIRED in the parent flow as intentional #243 hardening to close direct-grant MFA bypass.
+- **SMTP env validation test:** `test_keycloak_smtp_env_vars_present` added to `test_infra_config.py` asserting all 11 SMTP_* env vars are present with non-None defaults in docker-compose.yml.
+- **Email verification tests:** Added 7 new tests: `test_success_with_otp_code_passed_to_verify`, `test_success_without_otp_code_omits_totp`, `test_incorrect_otp_returns_401`, change-email rate-limit test, verify-email rate-limit test, and two `_get_redis()` cache/reconnect tests.
+- **Wiki updates:** `security-baseline.md` updated to document the email verification flow; `infrastructure-config.md` updated to list all 4 MFA-required roles.
+- No FRS gap register change (hardening and test fixes to existing #243/#225 implementation).
+
+## [2026-06-17] test(#225) | align profile email tests with verification flow
+
+- **Test-only change:** Updated 6 failing tests in `tests/test_profile_email.py` to match the new email verification policy (introduced in parent commit). Direct email changes via `PATCH /api/user/me` now always return 400 with guidance to use `POST /api/auth/change-email` and `POST /api/auth/verify-email` instead. Tests now assert the 400 response and verify that no Keycloak/DB operations are triggered for direct email changes.
+- **New test file:** `tests/test_auth_email_verification.py` (18 tests) covers the full verification flow with mocks:
+  - `POST /api/auth/change-email`: success, password verification, incorrect password (401), missing/empty password (400), Redis unavailable (503), email send failure with Redis cleanup (502), schema validation (empty/invalid email).
+  - `POST /api/auth/verify-email`: success with Keycloak+DB update and Redis cleanup, missing/whitespace code (400), no pending change (404), wrong code (400, key preserved), Redis unavailable (503), Keycloak failure (502, key preserved), DB sync failure (200 partial, key cleaned), empty body (422).
+- All mocks used; no live Redis/Keycloak/SMTP required.
+- No FRS gap register change (test alignment only).
+
 ## [2026-06-16] feat(#353) | scheduled reports human-friendly filter builder
 
 - **#353 (filter builder for Scheduled Reports):** Replaced raw JSON textarea on `/admin/system` Scheduled Reports create/edit form with a human-friendly filter builder as the primary UI. Common filter fields (`region_id`, `severity`, `start_date`, `end_date`, `incident_type`) use dropdown, date-picker, and text inputs. Raw JSON remains available via an "Expert" toggle button for advanced users. Filters are validated client-side before save with clear inline error messages; invalid filters block save. The create payload now sends structured filter objects directly (no more `JSON.parse` of a raw string).
@@ -77,6 +99,19 @@ Format: `## [YYYY-MM-DD] action | subject`
 - System wiki: api-route-map.md updated with new route and enhanced audit notes.
 - No FRS gap register change (enhancements to existing M10d implementation; no new FRS alignment).
 
+## [2026-06-16] feat(#364) | Suricata EVE log mtime heartbeat with 5-state health
+
+- `src/backend/api/routes/admin/monitoring.py`: Replaced binary HEALTHY/UNHEALTHY Suricata check with 5-state logic driven by EVE log mtime (`/var/log/suricata/eve.json`) + threat log presence:
+  - `HEALTHY`: recent threats detected in last 5 min
+  - `QUIET`: EVE log mtime < 60s, no recent threats, total > 0 (quiet network — not a failure)
+  - `FRESH`: total = 0 (fresh deployment, no data yet)
+  - `DEGRADED`: EVE log mtime 60–600s old, no recent threats, total > 0 (ingestion may be stalled)
+  - `UNHEALTHY`: EVE log mtime > 600s old, EVE log unreadable, or DB query failure
+  - Only DEGRADED/UNHEALTHY degrade the overall system health status. QUIET and FRESH are valid operational states.
+- `src/frontend/src/app/admin/system/page.tsx`: Added Suricata card to the System Health grid (4-card layout: DB, Redis, Keycloak, Suricata). Added `getComponentStatusColor()`, `getComponentStatusTextColor()`, `getOverallBadgeColor()` helpers with 5-state coloring (green/blue/slate/amber/red). Suricata card shows detail text below the status dot. Overall status badge uses amber for DEGRADED instead of red.
+- `src/backend/tests/test_system_monitoring.py`: Added 7 new tests covering all 5 Suricata states plus query-failure and EVE-log-unreadable edge cases. All 18 monitoring tests pass (excluding the pre-existing DB-dependent worker test).
+- No FRS gap register change (this is a monitoring UX/accuracy enhancement; no FRS gap status changed).
+
 ## [2026-06-14] fix(deploy) | ollama CPU override for VPS in docker-compose.prod.yml
 
 - VPS has 2 CPUs but base `docker-compose.yml` sets `cpus: '4'` for ollama.
@@ -100,7 +135,7 @@ Format: `## [YYYY-MM-DD] action | subject`
 - #304 (security): `_decrypt_sensitive_details` now sets `sd["decryption_failed"] = True` in the bare `except Exception` block, giving API consumers a sentinel to distinguish "no PII exists" from "decryption silently failed". The sentinel nests inside `incident_sensitive_details`; PII fields remain absent and blob columns stay stripped. New test `test_export_decrypt_failure_adds_sentinel` covers the failure path.
 - #316: Anonymize audit entries (`PII_ANONYMIZE`) now gated on `rowcount > 0` for all four tables. UPDATE WHERE clauses augmented with `IS DISTINCT FROM` / `IS NOT NULL` conditions so idempotent calls return `rowcount=0` and skip audit. User existence now checked with a separate SELECT before the conditional UPDATE.
 - Test `test_anonymize_idempotent` strengthened: second call returns `rowcount=0`, only one audit entry across two calls. All existing tests updated for the SELECT-existence + conditional-UPDATE flow.
-- No FRS gap register change (review fixes to existing M6 implementation; gap #165 remains CLOSED).
+- No FRS gap register change (review fixes to existing M10 implementation; gap #165 remains CLOSED).
 - Ruff check + format green. All 19 privacy tests pass.
 
 ## [2026-06-13] fix | anomaly detection cluster cleanups #284 #285 #286 #287
@@ -384,7 +419,7 @@ Format: `## [YYYY-MM-DD] action | subject`
 - Deferred: SSE real-time push (polling sufficient for v1), global sidebar unreviewed badge.
 - Gap register updated: M8 monitoring dashboard CLOSED.
 
-## [2026-06-12] feat | GH #73 — M6 RA 10173 PII export, anonymization, consent logging (feat/m6-privacy-rights)
+## [2026-06-12] feat | GH #73 — M10 RA 10173 PII export, anonymization, consent logging (feat/m6-privacy-rights)
 
 - `src/postgres-init/59_consent_log.sql`: new `wims.consent_log` table. RLS: INSERT WITH CHECK (TRUE) for public consent recording; SELECT/UPDATE/DELETE SYSTEM_ADMIN only.
 - `src/backend/schemas/privacy.py`: `ConsentRequest`, `ConsentRecord`, `ExportResponse`, `AnonymizeRequest` (confirm validator), `AnonymizeResponse`.
@@ -392,7 +427,7 @@ Format: `## [YYYY-MM-DD] action | subject`
 - `src/backend/api/routes/consent.py`: `POST /api/auth/consent` (public, no auth; inserts to consent_log; CONSENT_GRANT/CONSENT_WITHDRAW audit with user_id=None).
 - `src/backend/api/routes/admin/__init__.py` + `src/backend/main.py`: router registrations.
 - `src/backend/tests/test_privacy.py`: 18 unit tests covering all ACs + corrections A-G.
-- Gap register: M6 #73 CLOSED; full DPA compliance (PIA/retention/DPO) noted as out-of-scope separate initiative.
+- Gap register: M10 #73 CLOSED; full DPA compliance (PIA/retention/DPO) noted as out-of-scope separate initiative.
 ## [2026-06-11] fix | OpenBao token-file mounting for backend/celery
 
 - `src/openbao/init/bootstrap-openbao.sh`: after writing the `wims-app` policy, bootstrap now verifies any existing app token or creates a replacement policy-scoped orphan service token and persists the token value to `/vault/file/.wims-app-token` without logging it. This regenerates app auth after an OpenBao volume reset while avoiding token churn on normal restarts.
@@ -3333,3 +3368,11 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - **SQL:** Seed row `worker_heartbeat_retention_days = '7'` added to `49_system_config.sql`.
 - **Wiki:** `system-wiki/backend/api-route-map.md` — added prune endpoint and pagination note. `system-wiki/subsystems/admin-hub.md` — updated System Health & Monitoring panel and backend route table for #345.
 - No FRS gap register change (operational enhancement to existing worker heartbeat infrastructure).
+
+## [2026-06-16] fix(#364) | Suricata health displayed in consolidated system UI
+
+- **Gap:** Backend `GET /api/admin/health` returned 5-state Suricata component status (HEALTHY/QUIET/FRESH/DEGRADED/UNHEALTHY) with detail text, but the consolidated System Health & Monitoring UI only showed PostgreSQL, Redis, and Keycloak cards. The Suricata card was lost during conflict resolution of the original #364 implementation.
+- **Fix:** Added a "Suricata IDS" card to the health grid using the existing `getComponentStatusColor` and `getComponentStatusTextColor` 5-state helpers. The card shows latency, status dot (5-state colored), and detail text (e.g., "alerting — recent threats detected", "healthy, no recent alerts", "no threat data yet"). Updated overall status badge to use `getOverallBadgeColor` for proper DEGRADED (amber) coloring. Expanded health type to include optional `detail`/`error` fields. Changed health grid from 3 to 4 columns on desktop.
+- **Backend test cleanup:** Removed unused `from database import get_db` import in `test_system_monitoring.py`.
+- **Files:** `src/frontend/src/app/admin/system/page.tsx` (+18/-3), `src/backend/tests/test_system_monitoring.py` (+0/-1).
+- No FRS gap register change (UI completeness fix for already-implemented backend health check).

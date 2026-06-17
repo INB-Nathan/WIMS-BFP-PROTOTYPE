@@ -32,7 +32,9 @@ A deliberate per-user MFA exemption via the `SKIP_MFA` realm role (`bfp-realm.js
 
 **Config files:** `src/keycloak/import/bfp-realm.json` (source of truth) and `src/keycloak/bfp-realm.json` (sync copy) — both updated.
 
-Self-service profile email edits (`PATCH /api/user/me`) treat email as a login identity: users must provide `current_password`, which the backend verifies against Keycloak using the Direct Grant-enabled `bfp-client` before updating Keycloak email/username and local `wims.users.email`/`username`. Name/contact-only profile updates remain JWT-authenticated. Email verification after self-service changes is not yet triggered automatically; Keycloak remains configured with `verifyEmail: false` in the development realm.
+Self-service profile email edits (`PATCH /api/user/me`) treat email as a login identity: direct email changes via this endpoint are now blocked (400) with guidance redirecting users to the dedicated two-step verification flow (`POST /api/auth/change-email` → `POST /api/auth/verify-email`). Name/contact-only profile updates remain JWT-authenticated.
+
+**Email verification flow (2026-06-17, #225):** Users initiate an email change via `POST /api/auth/change-email` (password verified against Keycloak's Direct Grant with optional TOTP support), a 6-digit cryptographically-random code is stored in Redis with 10-minute TTL, and a verification email is sent. The user then confirms via `POST /api/auth/verify-email`. On success the email is updated in both Keycloak and `wims.users`. Both endpoints have per-user Redis-based rate limiting (3 requests/10 min for change-email, 5 requests/10 min for verify-email) to deter brute-force and email bombing. Keycloak remains configured with `verifyEmail: false` in the development realm (the custom flow replaces built-in verification).
 
 ## Fail-Closed Rule
 Any missing authentication context defaults to deny. Public unauthenticated behavior is limited to the explicit public DMZ submission route in `public_dmz.py`; all adjacent APIs should require valid role context.

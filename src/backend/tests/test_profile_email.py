@@ -137,45 +137,38 @@ class TestProfileEmailSchema:
 
 
 class TestProfileUpdateWithEmail:
-    def test_update_email_calls_keycloak(self, client: TestClient):
-        """Email should be passed through to update_user_profile."""
+    def test_email_change_blocked_directs_to_verification_flow(self, client: TestClient):
+        """Direct email change via PATCH /api/user/me is blocked — must use verification flow."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
         mock_db = _get_db_session()
         app.dependency_overrides[get_db_with_rls] = lambda: mock_db
 
         with (
-            _verified_current_password() as (_, mock_keycloak_openid, oidc),
             patch("api.routes.user.update_user_profile") as mock_kc_update,
             patch("api.routes.user.logger"),
         ):
-            mock_kc_update.return_value = None
             response = client.patch(
                 "/api/user/me",
                 json={"email": "new@bfp.gov.ph", "current_password": "CorrectPassword1!"},
             )
 
-            assert response.status_code == 200
-            mock_keycloak_openid.assert_called_once()
-            oidc.token.assert_called_once_with(
-                username="analyst@bfp.gov.ph", password="CorrectPassword1!"
-            )
-            mock_kc_update.assert_called_once()
-            call_kwargs = mock_kc_update.call_args.kwargs
-            assert call_kwargs.get("email") == "new@bfp.gov.ph"
-            assert "current_password" not in call_kwargs
+            assert response.status_code == 400
+            detail = response.json()["detail"]
+            assert "change-email" in detail.lower()
+            assert "verify-email" in detail.lower()
+            # Password verification and Keycloak update must be skipped
+            mock_kc_update.assert_not_called()
 
-    def test_update_email_syncs_to_db(self, client: TestClient):
-        """Email should be written to wims.users along with contact_number."""
+    def test_email_with_contact_number_blocked_by_verification_policy(self, client: TestClient):
+        """Even when other fields are present, email changes are blocked for verification flow."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
         mock_db = _get_db_session()
         app.dependency_overrides[get_db_with_rls] = lambda: mock_db
 
         with (
-            _verified_current_password(),
             patch("api.routes.user.update_user_profile") as mock_kc_update,
             patch("api.routes.user.logger"),
         ):
-            mock_kc_update.return_value = None
             response = client.patch(
                 "/api/user/me",
                 json={
@@ -185,27 +178,28 @@ class TestProfileUpdateWithEmail:
                 },
             )
 
-            assert response.status_code == 200
-            # DB execute calls are independent per field — contact_number first, then email
+            assert response.status_code == 400
+            detail = response.json()["detail"]
+            assert "change-email" in detail.lower()
+            # Neither Keycloak update nor DB sync should be triggered
+            mock_kc_update.assert_not_called()
+            # DB execute should not have been called for email
             calls = mock_db.execute.call_args_list
             db_sqls = [str(c[0][0]) for c in calls]
-            assert any("contact_number" in s for s in db_sqls), f"contact_number not in: {db_sqls}"
-            assert any("email" in s for s in db_sqls), f"email not in: {db_sqls}"
-            # S1: username must also be synced when email changes
-            assert any("username" in s for s in db_sqls), f"username not in: {db_sqls}"
+            assert not any("email" in s for s in db_sqls), (
+                f"email should not be in DB calls: {db_sqls}"
+            )
 
-    def test_update_email_without_other_fields(self, client: TestClient):
-        """Updating only email should work."""
+    def test_email_only_change_blocked_redirects_to_verification(self, client: TestClient):
+        """Updating only email is blocked — route directs to verification endpoints."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
         mock_db = _get_db_session()
         app.dependency_overrides[get_db_with_rls] = lambda: mock_db
 
         with (
-            _verified_current_password(),
             patch("api.routes.user.update_user_profile") as mock_kc_update,
             patch("api.routes.user.logger"),
         ):
-            mock_kc_update.return_value = None
             response = client.patch(
                 "/api/user/me",
                 json={
@@ -214,8 +208,10 @@ class TestProfileUpdateWithEmail:
                 },
             )
 
-            assert response.status_code == 200
-            assert mock_kc_update.call_args.kwargs.get("email") == "analyst-updated@bfp.gov.ph"
+            assert response.status_code == 400
+            detail = response.json()["detail"]
+            assert "change-email" in detail.lower()
+            mock_kc_update.assert_not_called()
 
     def test_get_profile_includes_email(self, client: TestClient):
         """GET /api/user/me/profile should include email in response."""
@@ -254,8 +250,8 @@ class TestProfileUpdateWithEmail:
             data = response.json()
             assert data.get("email") == "analyst@bfp.gov.ph"
 
-    def test_update_email_requires_current_password(self, client: TestClient):
-        """Email/login identity changes require step-up current-password verification."""
+    def test_email_change_blocked_even_without_password(self, client: TestClient):
+        """Email change is blocked even when current_password is omitted — verification required."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
         mock_db = _get_db_session()
         app.dependency_overrides[get_db_with_rls] = lambda: mock_db
@@ -264,28 +260,31 @@ class TestProfileUpdateWithEmail:
             response = client.patch("/api/user/me", json={"email": "new@bfp.gov.ph"})
 
             assert response.status_code == 400
-            assert "current password" in response.json()["detail"].lower()
+            detail = response.json()["detail"]
+            assert "change-email" in detail.lower()
+            assert "verify-email" in detail.lower()
             mock_kc_update.assert_not_called()
 
-    def test_update_email_invalid_current_password_returns_401(self, client: TestClient):
-        """Invalid current password should block email changes before Keycloak update."""
+    def test_email_change_blocked_before_password_verification(self, client: TestClient):
+        """Email change is blocked at the route level before any password check occurs."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
         mock_db = _get_db_session()
         app.dependency_overrides[get_db_with_rls] = lambda: mock_db
 
         with (
-            _verified_current_password() as (_, _, oidc),
             patch("api.routes.user.update_user_profile") as mock_kc_update,
             patch("api.routes.user.logger"),
         ):
-            oidc.token.side_effect = KeycloakError(error_message="invalid credentials")
             response = client.patch(
                 "/api/user/me",
                 json={"email": "new@bfp.gov.ph", "current_password": "WrongPassword1!"},
             )
 
-            assert response.status_code == 401
-            assert "current password" in response.json()["detail"].lower()
+            # Blocked at 400 (email changes require verification flow),
+            # not 401 (password not checked at all)
+            assert response.status_code == 400
+            detail = response.json()["detail"]
+            assert "change-email" in detail.lower()
             mock_kc_update.assert_not_called()
 
     def test_update_profile_keycloak_failure_returns_502(self, client: TestClient):
@@ -328,28 +327,27 @@ class TestProfileUpdateWithEmail:
 
         assert response.status_code == 422
 
-    def test_update_email_db_sync_failure_returns_partial(self, client: TestClient):
-        """When DB sync fails after Keycloak update, return partial status."""
+    def test_email_change_db_issue_irrelevant_email_blocked_first(self, client: TestClient):
+        """Route-level email block fires before DB is touched, so DB failures are irrelevant."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
         mock_db = _get_db_session()
         mock_db.execute.side_effect = Exception("DB connection lost")
         app.dependency_overrides[get_db_with_rls] = lambda: mock_db
 
         with (
-            _verified_current_password(),
             patch("api.routes.user.update_user_profile") as mock_kc_update,
             patch("api.routes.user.logger"),
         ):
-            mock_kc_update.return_value = None
             response = client.patch(
                 "/api/user/me",
                 json={"email": "new@bfp.gov.ph", "current_password": "CorrectPassword1!"},
             )
 
-            assert response.status_code == 200
-            data = response.json()
-            assert data["status"] == "partial"
-            assert "database sync failed" in data["message"].lower()
+            # Email changes are blocked with 400 regardless of DB state
+            assert response.status_code == 400
+            detail = response.json()["detail"]
+            assert "change-email" in detail.lower()
+            mock_kc_update.assert_not_called()
 
 
 class TestKeycloakProfileUpdate:

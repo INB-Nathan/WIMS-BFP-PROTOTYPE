@@ -1,4 +1,4 @@
-"""Tests for M6 RA 10173 privacy-rights endpoints.
+"""Tests for M10 RA 10173 privacy-rights endpoints.
 
 Covers:
   - GET  /api/admin/privacy/export  (user + report subjects)
@@ -1061,4 +1061,22 @@ class TestConsentEndpoint:
         insert_params = mock_db.execute.call_args_list[0][0][1]
         assert insert_params["ip"] == "198.51.100.1", (
             f"Expected first comma-separated IP, got {insert_params['ip']}"
+        )
+
+    # ── Issue #315: consent_type max_length validation ───────────────────
+
+    def test_consent_type_rejects_over_length(self, client: TestClient):
+        """consent_type > 100 chars → 422 (Field max_length=100)."""
+        long_type = "X" * 101
+        resp = client.post(
+            "/api/auth/consent",
+            json={
+                "subject_type": "USER",
+                "subject_id": "some-user-id",
+                "consent_type": long_type,
+                "action": "GRANTED",
+            },
+        )
+        assert resp.status_code == 422, (
+            f"Expected 422 for over-length consent_type, got {resp.status_code}"
         )

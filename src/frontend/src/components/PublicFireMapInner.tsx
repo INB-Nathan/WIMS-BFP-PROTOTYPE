@@ -26,10 +26,12 @@ const VIEWPORT_DEBOUNCE_MS = 400;
 
 // ── Marker icon ─────────────────────────────────────────────────────────────
 
+// Self-hosted marker images under /leaflet/ to avoid connect-src CSP violations
+// from CDN fetches (service-worker fetch() is governed by connect-src, not img-src).
 const PinIcon = L.icon({
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  iconUrl: '/leaflet/marker-icon.png',
+  iconRetinaUrl: '/leaflet/marker-icon-2x.png',
+  shadowUrl: '/leaflet/marker-shadow.png',
   iconSize: [25, 41],
   iconAnchor: [12, 41],
 });

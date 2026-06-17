@@ -7,10 +7,11 @@ import 'leaflet/dist/leaflet.css';
 import type { FireStation } from '@/lib/api';
 
 // Fix default marker icons in react-leaflet (webpack/Next.js)
+// Self-hosted under /leaflet/ to avoid connect-src CSP violations.
 const DefaultIcon = L.icon({
-    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-    iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+    iconUrl: '/leaflet/marker-icon.png',
+    iconRetinaUrl: '/leaflet/marker-icon-2x.png',
+    shadowUrl: '/leaflet/marker-shadow.png',
     iconSize: [25, 41],
     iconAnchor: [12, 41],
     popupAnchor: [1, -34],
@@ -19,7 +20,7 @@ const DefaultIcon = L.icon({
 const IncidentIcon = L.icon({
     iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
     iconRetinaUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+    shadowUrl: '/leaflet/marker-shadow.png',
     iconSize: [25, 41],
     iconAnchor: [12, 41],
     popupAnchor: [1, -34],

@@ -1,4 +1,4 @@
-"""System Admin API — RA 10173 data-subject privacy rights (M6).
+"""System Admin API — RA 10173 data-subject privacy rights (M10).
 
 Export:  GET  /api/admin/privacy/export?subject_type=USER|REPORT&subject_id=...
 Anonymize: POST /api/admin/privacy/anonymize
@@ -193,7 +193,7 @@ def export_subject_data(
             sd_row = db.execute(
                 text(
                     "SELECT incident_id, caller_name, caller_number, owner_name, occupant_name, "
-                    "narrative_report, street_address, landmark, prepared_by_officer, "
+                    "narrative_report, casualty_details, street_address, landmark, prepared_by_officer, "
                     "noted_by_officer, remarks, pii_blob_enc, encryption_iv, "
                     "crypto_provider, kms_key_name, key_version "
                     "FROM wims.incident_sensitive_details WHERE incident_id = :iid"
@@ -331,14 +331,14 @@ def anonymize_subject(
                 text(
                     "UPDATE wims.incident_sensitive_details SET "
                     "caller_name = NULL, caller_number = NULL, "
-                    "owner_name = NULL, occupant_name = NULL, narrative_report = NULL, "
+                    "owner_name = NULL, occupant_name = NULL, narrative_report = NULL, casualty_details = NULL, "
                     "pii_blob_enc = NULL, encryption_iv = NULL, "
                     "kms_key_name = NULL, crypto_provider = NULL, key_version = NULL "
                     "WHERE incident_id = :iid "
                     "AND (caller_name, caller_number, owner_name, occupant_name, "
-                    "narrative_report, pii_blob_enc, encryption_iv, kms_key_name, "
+                    "narrative_report, casualty_details, pii_blob_enc, encryption_iv, kms_key_name, "
                     "crypto_provider, key_version) "
-                    "IS DISTINCT FROM (NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)"
+                    "IS DISTINCT FROM (NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)"
                 ),
                 {"iid": incident_id},
             )

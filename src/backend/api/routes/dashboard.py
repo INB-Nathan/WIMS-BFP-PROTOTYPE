@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from auth import get_current_user, get_db_with_rls
+from auth import get_current_wims_user, get_db_with_rls
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -168,7 +168,7 @@ _W["by_region"] = {
     "query": """
         SELECT r.region_name AS label, COUNT(*) AS count
         FROM wims.fire_incidents fi
-        JOIN wims.regions r ON r.region_id = fi.region_id
+        JOIN wims.ref_regions r ON r.region_id = fi.region_id
         WHERE fi.verification_status = 'VERIFIED'
           AND fi.is_archived = FALSE
         GROUP BY r.region_name
@@ -206,7 +206,7 @@ def _format_widget_value(wdef: dict, rows) -> dict:
 
 @router.get("/widgets")
 def get_widget_data(
-    user: Annotated[dict, Depends(get_current_user)],
+    user: Annotated[dict, Depends(get_current_wims_user)],
     db: Annotated[Session, Depends(get_db_with_rls)],
     ids: str = Query(default="", description="Comma-separated widget IDs"),
 ):
@@ -226,7 +226,19 @@ def get_widget_data(
         # Return empty results — client uses defaults
         return {}
 
-    region_id = (user or {}).get("assigned_region_id")
+    # Look up assigned_region_id for encoder widgets that filter by region.
+    # get_current_wims_user doesn't include it, so we query it inline.
+    region_id: int | None = None
+    if role in ("REGIONAL_ENCODER", "ENCODER"):
+        try:
+            row = db.execute(
+                text("SELECT assigned_region_id FROM wims.users WHERE user_id = :uid"),
+                {"uid": user["user_id"]},
+            ).fetchone()
+            if row:
+                region_id = row[0]
+        except Exception:
+            pass  # region_id stays None; per-region queries with :rid will be skipped
 
     result: dict = {}
     for wid in requested:

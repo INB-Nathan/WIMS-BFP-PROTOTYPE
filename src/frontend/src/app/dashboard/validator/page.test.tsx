@@ -302,6 +302,8 @@ describe('Validator dashboard page — offline wiring', () => {
     await waitFor(() => {
       expect(screen.getByText('Offline')).toBeInTheDocument();
     });
-    expect(screen.getByText(/1\s+queued/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/1\s+queued/)).toBeInTheDocument();
+    });
   });
 });
