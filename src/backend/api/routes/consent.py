@@ -57,7 +57,6 @@ def record_consent(
             "ua": user_agent,
         },
     ).fetchone()
-    db.commit()
 
     audit_action = "CONSENT_GRANT" if body.action.value == "GRANTED" else "CONSENT_WITHDRAW"
     log_system_audit(db, None, audit_action, "wims.consent_log", row[0], request)

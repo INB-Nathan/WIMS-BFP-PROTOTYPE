@@ -1,5 +1,5 @@
 -- 59_consent_log.sql
--- RA 10173 (DPA) consent logging — M6 privacy rights
+-- RA 10173 (DPA) consent logging — M10 privacy rights
 -- Idempotent: YES
 -- Dependencies: 01_extensions_roles.sql, 03_users.sql
 
