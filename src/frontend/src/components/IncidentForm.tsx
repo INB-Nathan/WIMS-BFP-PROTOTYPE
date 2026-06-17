@@ -1248,7 +1248,10 @@ export function IncidentForm({
       if (await isReachable()) {
         const res = await edgeFunctions.uploadBundle(payload);
         const incidentId = res.incident_ids[0];
-        if (!incidentId) throw new Error('Upload succeeded but no incident ID was returned.');
+        if (!incidentId) {
+          showToast('Save failed: the server rejected all fields in this incident. Check required fields and try again.');
+          return;
+        }
         if (submitAfterSaveRef.current) {
           try {
             await submitIncidentForReview(incidentId);

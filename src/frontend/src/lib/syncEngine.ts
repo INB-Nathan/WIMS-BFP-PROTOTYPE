@@ -420,7 +420,7 @@ export async function syncPendingIncidents(encoderId?: string): Promise<SyncResu
     }
     // Submit/delete ops carry an empty payload — fall back to the cached incident.
     if (!category && !location) {
-      const cached = await getCachedIncident(serverId).catch(() => undefined);
+      const cached = await getCachedIncident(serverId, op.encoderId).catch(() => undefined);
       const cd = (cached?.data ?? {}) as Record<string, unknown>;
       const cns = (cd.nonsensitive as Record<string, unknown>) ?? cd;
       category = (cns.general_category || cns.classification_of_involved || '') as string;
