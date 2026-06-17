@@ -113,7 +113,7 @@ describe('Admin System — Analyze with AI in Threat Telemetry', () => {
         });
 
         // Log 1 has xai_narrative null → should show Analyze with AI
-        const analyzeButtons = screen.getAllByRole('button', { name: /Analyze with AI/i });
+        const analyzeButtons = await screen.findAllByRole('button', { name: /Analyze with AI/i });
         expect(analyzeButtons.length).toBeGreaterThanOrEqual(1);
     });
 
@@ -140,8 +140,8 @@ describe('Admin System — Analyze with AI in Threat Telemetry', () => {
             expect(screen.getByText('Threat Telemetry')).toBeInTheDocument();
         });
 
-        // Click View to open modal
-        const viewButtons = screen.getAllByRole('button', { name: /View/i });
+        // Click View to open modal after the telemetry row finishes loading.
+        const viewButtons = await screen.findAllByRole('button', { name: /^View$/i });
         fireEvent.click(viewButtons[0]);
 
         await waitFor(() => {

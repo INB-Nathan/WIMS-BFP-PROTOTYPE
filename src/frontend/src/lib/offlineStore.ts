@@ -71,7 +71,7 @@ interface QueuedRecord {
 }
 
 // ─── Offline operations types (offlineOps) ────────────────────────────────
-export type OfflineSyncStatus = 'draft' | 'pending' | 'syncing' | 'synced' | 'conflict' | 'error';
+export type OfflineSyncStatus = 'draft' | 'pending' | 'syncing' | 'synced' | 'conflict' | 'error' | 'failed';
 export type OfflineErrorCode = '409_duplicate' | '409_conflict' | '403' | '4xx' | 'network' | null;
 
 export interface OfflineOp {
@@ -552,13 +552,28 @@ export async function getConflictOps(encoderId: string): Promise<OfflineOpDecryp
 }
 
 /**
- * Count of pending + error + conflict ops for this encoder (for badge display).
+ * Get all ops in 'failed' state for this encoder — these have hit the retry ceiling.
+ */
+export async function getFailedOps(encoderId: string): Promise<OfflineOpDecrypted[]> {
+    const db = await getDB();
+    const all: OfflineOp[] = await db.getAllFromIndex(OPS_STORE, 'by_encoder', encoderId);
+    const failed = all.filter((op) => op.syncStatus === 'failed');
+    const result: OfflineOpDecrypted[] = [];
+    for (const op of failed) {
+        const payload = await decryptPayload<Record<string, unknown>>(op.payload);
+        result.push({ ...op, payload });
+    }
+    return result;
+}
+
+/**
+ * Count of pending + error + conflict + failed ops for this encoder (for badge display).
  */
 export async function getPendingOpsCount(encoderId: string): Promise<number> {
     const db = await getDB();
     const all: OfflineOp[] = await db.getAllFromIndex(OPS_STORE, 'by_encoder', encoderId);
     return all.filter(
-        (op) => op.syncStatus === 'pending' || op.syncStatus === 'error' || op.syncStatus === 'conflict'
+        (op) => op.syncStatus === 'pending' || op.syncStatus === 'error' || op.syncStatus === 'conflict' || op.syncStatus === 'failed'
     ).length;
 }
 
@@ -620,6 +635,29 @@ export async function markOpError(
 }
 
 /**
+ * Mark an op as permanently failed after exhausting all retries.
+ */
+export async function markOpFailed(
+    localId: string,
+    errorCode: OfflineErrorCode,
+    errorMessage: string
+): Promise<void> {
+    const db = await getDB();
+    const tx = db.transaction(OPS_STORE, 'readwrite');
+    const store = tx.objectStore(OPS_STORE);
+    const op: OfflineOp | undefined = await store.get(localId);
+    if (op) {
+        op.syncStatus = 'failed';
+        op.errorCode = errorCode;
+        op.errorMessage = errorMessage;
+        // retryCount already at MAX_RETRY ceiling — don't double-increment
+        op.lastAttemptAt = Date.now();
+        await store.put(op);
+    }
+    await tx.done;
+}
+
+/**
  * Resolve a conflict op — replace its payload with the merged result and
  * reset it to 'pending' so the sync engine picks it up again.
  */
@@ -638,6 +676,28 @@ export async function resolveConflictOp(
         op.errorMessage = null;
         op.serverVersion = null;
         op.retryCount = 0;
+        await store.put(op);
+    }
+    await tx.done;
+}
+
+/**
+ * Reset a failed op back to 'pending' for retry — preserves the original
+ * encrypted payload so the sync engine replays the same operation.
+ * Unlike resolveConflictOp, this does not replace the payload.
+ */
+export async function resetFailedOp(localId: string): Promise<void> {
+    const db = await getDB();
+    const tx = db.transaction(OPS_STORE, 'readwrite');
+    const store = tx.objectStore(OPS_STORE);
+    const op: OfflineOp | undefined = await store.get(localId);
+    if (op) {
+        op.syncStatus = 'pending';
+        op.errorCode = null;
+        op.errorMessage = null;
+        op.serverVersion = null;
+        op.retryCount = 0;
+        op.lastAttemptAt = null;
         await store.put(op);
     }
     await tx.done;

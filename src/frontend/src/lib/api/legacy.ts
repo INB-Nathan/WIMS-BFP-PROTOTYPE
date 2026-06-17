@@ -217,6 +217,32 @@ export async function pruneWorkers(): Promise<{
   return apiFetch('/admin/monitoring/workers/prune', { method: 'POST' });
 }
 
+export interface FailedSyncOp {
+  localId: string;
+  operation: string;
+  errorCode: string | null;
+  errorMessage: string;
+  encoderId: string;
+  regionId: number | null;
+  retryCount: number;
+  failed_at: string;
+}
+
+/** Fetch failed sync ops (admin) - GET /admin/sync/failed */
+export async function fetchFailedSyncOps(): Promise<{ items: FailedSyncOp[]; total: number }> {
+  return apiFetch<{ items: FailedSyncOp[]; total: number }>('/admin/sync/failed');
+}
+
+/** Retry a failed sync op (admin) - POST /admin/sync/{opId}/retry */
+export async function retrySyncOp(opId: string): Promise<{ status: string; opId: string }> {
+  return apiFetch<{ status: string; opId: string }>(`/admin/sync/${opId}/retry`, { method: 'POST' });
+}
+
+/** Delete a failed sync op (admin) - DELETE /admin/sync/{opId} */
+export async function deleteSyncOp(opId: string): Promise<{ status: string; opId: string }> {
+  return apiFetch<{ status: string; opId: string }>(`/admin/sync/${opId}`, { method: 'DELETE' });
+}
+
 /** Revoke user's sessions (admin) - POST /admin/users/{userId}/logout */
 export async function revokeUserSessions(userId: string): Promise<{ status: string }> {
   return apiFetch(`/admin/users/${userId}/logout`, { method: 'POST' });

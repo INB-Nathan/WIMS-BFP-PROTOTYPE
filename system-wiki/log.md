@@ -3,6 +3,16 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-17] fix(#379) | sync failure reporting + admin retry/delete integration with IndexedDB
+
+- **PR #379 review fixes** — blocked integration issues found during security/quality review.
+- **Backend `sync.py`:** Changed `POST /admin/sync/report` auth dependency from `get_system_admin` to `get_current_wims_user` so the sync engine (running in the encoder's browser) can report failures. The report is one-way (client → server); `GET /sync/failed`, `POST /sync/{id}/retry`, and `DELETE /sync/{id}` remain `SYSTEM_ADMIN`-only.
+- **Frontend `syncEngine.ts`:** Added best-effort `fetch('/api/admin/sync/report', ...)` after `markOpFailed()` so max-retry failures are surfaced to the admin dashboard. Exported `computeBackoffDelay` and `isWithinBackoffWindow` with an optional `random` parameter for deterministic testing.
+- **Frontend `offlineStore.ts`:** Removed redundant `op.retryCount += 1` from `markOpFailed()` (retryCount is already at the MAX_RETRY ceiling).
+- **Frontend `system/page.tsx`:** Admin retry now calls the dedicated `resetFailedOp()` helper to reset the local IndexedDB op to `pending` while preserving the encrypted payload; admin delete calls `deleteOfflineOp()` to remove from IndexedDB. This local IndexedDB action works when the failed op exists in the same browser profile; cross-browser admin retry/delete currently clears the backend/admin queue and remains a follow-up architecture limit for encoder-side local queues.
+- **Tests:** New backend test suite `test_admin_sync.py` (9 tests: report auth, missing localId, list/report integration, retry 404, delete 404). Frontend: added `markOpFailed` assertions to both MAX_RETRY tests; added backoff window skip test and deterministic unit tests for `computeBackoffDelay`/`isWithinBackoffWindow`; added `markOpFailed` and `getFailedOps` tests to `offlineStore.ops.test.ts` (5 tests).
+- No FRS gap register change (integration fix of existing #302/#141 implementation).
+
 ## [2026-06-17] fix(#243,#225) | PR #380 review — security hardening and test fixes
 
 - **TOTP gap (#243):** `ChangeEmailRequest` now accepts optional `otp_code`; `_verify_password` passes it as `totp` to Keycloak's Direct Grant token endpoint. TOTP-enabled users can now verify their password during email changes. Error detail updated to "Incorrect current password or OTP code".
