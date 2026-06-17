@@ -112,22 +112,25 @@ export default function TriagePage() {
     return params;
   }, [searchParams]);
 
+  const closeInspection = useCallback(() => {
+    setOpenCluster(null);
+    setSelected(new Set());
+    setMergeCandidates([]);
+    setActivity([]);
+  }, []);
+
   const loadQueue = useCallback(async () => {
     setError(null);
     try {
       const data = await fetchTriageQueue(filterParams);
       setQueue(data);
       setLastPolled(new Date());
-      if (openCluster) {
-        const refreshed = data.clusters.find((cluster) => cluster.cluster_id === openCluster.cluster_id);
-        if (refreshed) setOpenCluster(refreshed);
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load triage queue.');
     } finally {
       setLoading(false);
     }
-  }, [filterParams, openCluster]);
+  }, [filterParams]);
 
   const loadQueueRef = useRef(loadQueue);
   loadQueueRef.current = loadQueue;
@@ -143,25 +146,38 @@ export default function TriagePage() {
   }, [authLoading, canAccess, loadQueue]);
 
   useEffect(() => {
-    if (!canAccess || authLoading) return;
+    if (!canAccess || authLoading || openCluster) return;
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'visible') void loadQueueRef.current();
     }, 30000);
     return () => window.clearInterval(interval);
-  }, [authLoading, canAccess]);
+  }, [authLoading, canAccess, openCluster]);
 
-  // Keyboard navigation — safe when focus is not in input/textarea/select
+  useEffect(() => {
+    if (!openCluster) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [openCluster]);
+
+  // Keyboard navigation: Escape always closes the dialog; other shortcuts stay
+  // suppressed inside editable controls to avoid accidental actions while typing.
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (!openCluster) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeInspection();
+        return;
+      }
       const tag = (e.target as HTMLElement).tagName;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
-      if (e.key === 'Escape') { setOpenCluster(null); return; }
-      if (e.key === 'r' || e.key === 'R') { void loadQueue(); return; }
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [openCluster, loadQueue]);
+  }, [openCluster, closeInspection]);
 
   function toggleFilter(key: string) {
     const next = new URLSearchParams(searchParams.toString());
@@ -225,8 +241,7 @@ export default function TriagePage() {
         internal_note: internalNote || undefined,
       });
       setMessage(`Applied ${terminalStatus} to ${reportIds.length} report(s).`);
-      setOpenCluster(null);
-      setSelected(new Set());
+      closeInspection();
       await loadQueue();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to apply terminal action.');
@@ -253,7 +268,7 @@ export default function TriagePage() {
         correction_reason: correctionReason,
       });
       setMessage(`Corrected report ${correctionReportId}.`);
-      setOpenCluster(null);
+      closeInspection();
       await loadQueue();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to correct report.');
@@ -277,8 +292,7 @@ export default function TriagePage() {
         internal_note: splitNote,
       });
       setMessage(`Split ${reportIds.length} report(s) into a new cluster.`);
-      setOpenCluster(null);
-      setSelected(new Set());
+      closeInspection();
       await loadQueue();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to split cluster.');
@@ -302,7 +316,7 @@ export default function TriagePage() {
         internal_note: mergeNote,
       });
       setMessage(`Merged cluster ${sourceId} into cluster ${openCluster.cluster_id}.`);
-      setOpenCluster(null);
+      closeInspection();
       await loadQueue();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to merge clusters.');
@@ -549,20 +563,34 @@ export default function TriagePage() {
       {openCluster && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={() => setOpenCluster(null)}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeInspection();
+          }}
+          data-testid="triage-modal-backdrop"
         >
           <div
-            className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-md bg-white shadow-xl"
-            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="triage-modal-title"
+            className="isolate max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-md bg-white shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
           >
-            <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
+            <div className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-200 bg-white px-5 py-4">
               <div>
-                <h2 className="text-lg font-semibold text-slate-950">{openCluster.cluster_id ? `Cluster ${openCluster.cluster_id}` : 'Singleton report'}</h2>
+                <h2 id="triage-modal-title" className="text-lg font-semibold text-slate-950">{openCluster.cluster_id ? `Cluster ${openCluster.cluster_id}` : 'Singleton report'}</h2>
                 <p className="text-sm text-slate-600">Select non-terminal rows, preview the civilian-visible explanation, then apply a terminal action.</p>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-xs text-slate-400">Esc close · R refresh</span>
-                <button onClick={() => setOpenCluster(null)} className="rounded-md p-1 text-slate-500 hover:bg-slate-100"><XCircle className="h-5 w-5" /></button>
+                <span className="text-xs text-slate-400">Esc close</span>
+                <button
+                  type="button"
+                  aria-label="Close inspection modal"
+                  onClick={closeInspection}
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <XCircle className="h-4 w-4" />
+                  Close
+                </button>
               </div>
             </div>
 

@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-17
 Total synthesis pages: 33
-Last changes: Documented civilian triage queue RLS-context reset after read-time cluster materialization commit in [[subsystems/civilian-reporting-phase2]].
+Last changes: Documented civilian triage inspection modal stability behavior (paused background polling, scroll lock, explicit close, Escape close) in [[subsystems/civilian-reporting-phase2]].
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

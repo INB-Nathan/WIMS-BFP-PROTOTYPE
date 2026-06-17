@@ -328,11 +328,11 @@ Phase 2 validator UI:
   - Correction card: `NATIONAL_VALIDATOR` or `SYSTEM_ADMIN` only
   - Split card: select outlier reports, confirm
   - Merge card: source cluster ID (manual or from candidate list)
-- **Keyboard shortcuts** (navigation-only, focus-guarded):
-  - `Esc` → close modal
-  - `R` → refresh queue
-  - Shortcut hint shown in modal header: "Esc close · R refresh"
-- **Keyboard guard**: shortcuts are suppressed when focus is inside `INPUT`, `TEXTAREA`, or `SELECT` elements.
+  - Modal UX stability: background 30-second queue polling is paused while the dialog is open, body scroll is locked, the header is sticky, backdrop click closes only when the actual backdrop is targeted, and an explicit Close button is available.
+- **Keyboard shortcuts**:
+  - `Esc` → close modal, including when focus is inside a modal `INPUT`, `TEXTAREA`, or `SELECT`.
+  - Non-close shortcuts are suppressed inside editable controls to avoid accidental actions while typing.
+  - Shortcut hint shown in modal header: "Esc close".
 
 ### Map Components
 

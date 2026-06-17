@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import type {
   TriageQueueResponse,
   TriageClusterEntry,
-  MergeCandidateEntry,
 } from '@/lib/api';
 
 vi.mock('@/lib/api', () => {
@@ -262,7 +261,7 @@ describe('TriagePage', () => {
     );
     await userEvent.click(inspectBtn);
     await waitFor(() => {
-      expect(screen.getByText('Esc close · R refresh')).toBeInTheDocument();
+      expect(screen.getByText('Esc close')).toBeInTheDocument();
     });
   });
 
@@ -293,7 +292,7 @@ describe('TriagePage', () => {
     });
   });
 
-  it('does not fire Escape/R when focus is inside input', async () => {
+  it('closes modal on Escape even when focus is inside an input', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
     const inspectBtn = await waitFor(() =>
@@ -305,8 +304,35 @@ describe('TriagePage', () => {
     const input = screen.getByPlaceholderText('Source cluster id');
     await userEvent.click(input);
     await userEvent.keyboard('{Escape}');
-    // Modal should still be open — Escape was consumed by input guard
-    await waitFor(() => expect(screen.queryByText('Cluster 1')).toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText('Cluster 1')).not.toBeInTheDocument());
+  });
+
+  it('closes modal from the explicit Close button', async () => {
+    const { default: TriagePage } = await import('./page');
+    render(<TriagePage />);
+    const inspectBtn = await waitFor(() =>
+      screen.getAllByRole('button', { name: 'Inspect' })[0],
+    );
+    await userEvent.click(inspectBtn);
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Close inspection modal' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('closes modal from the backdrop and restores body scrolling', async () => {
+    const { default: TriagePage } = await import('./page');
+    render(<TriagePage />);
+    const inspectBtn = await waitFor(() =>
+      screen.getAllByRole('button', { name: 'Inspect' })[0],
+    );
+    await userEvent.click(inspectBtn);
+    const backdrop = await screen.findByTestId('triage-modal-backdrop');
+    expect(document.body.style.overflow).toBe('hidden');
+
+    fireEvent.mouseDown(backdrop);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(document.body.style.overflow).toBe('');
   });
 
   it('does not show Claim button for ENCODER role', async () => {

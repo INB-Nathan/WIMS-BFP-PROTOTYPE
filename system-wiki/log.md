@@ -3,6 +3,12 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-17] fix | stabilize civilian triage inspection modal
+
+- **`src/frontend/src/app/incidents/triage/page.tsx`:** Paused background 30-second queue polling while the inspection modal is open, removed modal-open `R` refresh behavior, locked body scroll, made the modal header sticky, added an explicit accessible Close button, and made Escape close the modal even when focus is inside an input/textarea/select.
+- **`src/frontend/src/app/incidents/triage/page.test.tsx`:** Updated modal tests and added coverage for explicit Close, backdrop close with body-scroll restoration, and Escape close from inside an input.
+- **`system-wiki/subsystems/civilian-reporting-phase2.md`:** Documented modal stability behavior and revised shortcut guidance.
+
 ## [2026-06-17] fix | preserve RLS context after civilian triage queue materialization
 
 - **`src/backend/services/civilian_triage/queue_projection.py`:** Re-establishes `SET LOCAL wims.current_user_id` after the read-time singleton-cluster materialization commit and before `_table_exists()` plus the main queue SELECT. Root cause: `db.commit()` cleared the RLS context set by `get_db_with_rls()`, so production app-user sessions could see PENDING citizen report counts in lightweight widgets but the triage queue SELECT ran without user context and returned zero rows.
