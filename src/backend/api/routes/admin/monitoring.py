@@ -89,10 +89,20 @@ def get_system_health(
         }
         health["status"] = "DEGRADED"
 
-    # Suricata: check if pipeline is flowing by probing wims.security_threat_logs
+    # Suricata: check pipeline health via EVE log mtime + threat log presence
     try:
+        import os as _os
+
+        _now = time.time()
+        eve_age = None  # seconds since EVE log last modified
+        eve_error = None
+        try:
+            eve_age = _now - _os.path.getmtime("/var/log/suricata/eve.json")
+        except OSError as e:
+            eve_error = str(e)
+
         t0 = time.time()
-        rows = (
+        recent = (
             db.execute(
                 text(
                     "SELECT COUNT(*) FROM wims.security_threat_logs "
@@ -101,26 +111,41 @@ def get_system_health(
             ).scalar()
             or 0
         )
+        total = db.execute(text("SELECT COUNT(*) FROM wims.security_threat_logs")).scalar() or 0
         latency = round((time.time() - t0) * 1000)
-        if rows > 0:
-            health["components"]["suricata"] = {
-                "status": "HEALTHY",
-                "latency_ms": latency,
-            }
-        else:
-            total = db.execute(text("SELECT COUNT(*) FROM wims.security_threat_logs")).scalar() or 0
-            if total == 0:
-                health["components"]["suricata"] = {
-                    "status": "HEALTHY",
-                    "latency_ms": latency,
-                    "detail": "fresh deployment — no threat logs yet",
-                }
+
+        if recent > 0:
+            suricata_status = "HEALTHY"
+            suricata_detail = "alerting — recent threats detected"
+        elif eve_age is not None and eve_age < 60:
+            if total > 0:
+                suricata_status = "QUIET"
+                suricata_detail = "healthy, no recent alerts"
             else:
-                health["components"]["suricata"] = {
-                    "status": "UNHEALTHY",
-                    "latency_ms": latency,
-                    "detail": f"no recent logs in 5 min ({total} total rows exist)",
-                }
+                suricata_status = "FRESH"
+                suricata_detail = "no threat data yet"
+        elif total == 0:
+            suricata_status = "FRESH"
+            suricata_detail = "no threat data yet"
+        elif eve_age is not None:
+            if eve_age < 600:
+                suricata_status = "DEGRADED"
+                suricata_detail = f"no recent alerts, EVE log is {eve_age:.0f}s old"
+            else:
+                suricata_status = "UNHEALTHY"
+                suricata_detail = f"ingestion may be stalled — EVE log is {eve_age:.0f}s old"
+        else:
+            suricata_status = "UNHEALTHY"
+            suricata_detail = f"cannot access EVE log: {eve_error}"
+
+        health["components"]["suricata"] = {
+            "status": suricata_status,
+            "latency_ms": latency,
+            "detail": suricata_detail,
+        }
+
+        if suricata_status in ("DEGRADED", "UNHEALTHY"):
+            if health["status"] == "HEALTHY":
                 health["status"] = "DEGRADED"
     except Exception as e:
         health["components"]["suricata"] = {

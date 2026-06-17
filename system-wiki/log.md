@@ -67,6 +67,19 @@ Format: `## [YYYY-MM-DD] action | subject`
 - System wiki: api-route-map.md updated with new route and enhanced audit notes.
 - No FRS gap register change (enhancements to existing M10d implementation; no new FRS alignment).
 
+## [2026-06-16] feat(#364) | Suricata EVE log mtime heartbeat with 5-state health
+
+- `src/backend/api/routes/admin/monitoring.py`: Replaced binary HEALTHY/UNHEALTHY Suricata check with 5-state logic driven by EVE log mtime (`/var/log/suricata/eve.json`) + threat log presence:
+  - `HEALTHY`: recent threats detected in last 5 min
+  - `QUIET`: EVE log mtime < 60s, no recent threats, total > 0 (quiet network — not a failure)
+  - `FRESH`: total = 0 (fresh deployment, no data yet)
+  - `DEGRADED`: EVE log mtime 60–600s old, no recent threats, total > 0 (ingestion may be stalled)
+  - `UNHEALTHY`: EVE log mtime > 600s old, EVE log unreadable, or DB query failure
+  - Only DEGRADED/UNHEALTHY degrade the overall system health status. QUIET and FRESH are valid operational states.
+- `src/frontend/src/app/admin/system/page.tsx`: Added Suricata card to the System Health grid (4-card layout: DB, Redis, Keycloak, Suricata). Added `getComponentStatusColor()`, `getComponentStatusTextColor()`, `getOverallBadgeColor()` helpers with 5-state coloring (green/blue/slate/amber/red). Suricata card shows detail text below the status dot. Overall status badge uses amber for DEGRADED instead of red.
+- `src/backend/tests/test_system_monitoring.py`: Added 7 new tests covering all 5 Suricata states plus query-failure and EVE-log-unreadable edge cases. All 18 monitoring tests pass (excluding the pre-existing DB-dependent worker test).
+- No FRS gap register change (this is a monitoring UX/accuracy enhancement; no FRS gap status changed).
+
 ## [2026-06-14] fix(deploy) | ollama CPU override for VPS in docker-compose.prod.yml
 
 - VPS has 2 CPUs but base `docker-compose.yml` sets `cpus: '4'` for ollama.
@@ -3323,3 +3336,11 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - **SQL:** Seed row `worker_heartbeat_retention_days = '7'` added to `49_system_config.sql`.
 - **Wiki:** `system-wiki/backend/api-route-map.md` — added prune endpoint and pagination note. `system-wiki/subsystems/admin-hub.md` — updated System Health & Monitoring panel and backend route table for #345.
 - No FRS gap register change (operational enhancement to existing worker heartbeat infrastructure).
+
+## [2026-06-16] fix(#364) | Suricata health displayed in consolidated system UI
+
+- **Gap:** Backend `GET /api/admin/health` returned 5-state Suricata component status (HEALTHY/QUIET/FRESH/DEGRADED/UNHEALTHY) with detail text, but the consolidated System Health & Monitoring UI only showed PostgreSQL, Redis, and Keycloak cards. The Suricata card was lost during conflict resolution of the original #364 implementation.
+- **Fix:** Added a "Suricata IDS" card to the health grid using the existing `getComponentStatusColor` and `getComponentStatusTextColor` 5-state helpers. The card shows latency, status dot (5-state colored), and detail text (e.g., "alerting — recent threats detected", "healthy, no recent alerts", "no threat data yet"). Updated overall status badge to use `getOverallBadgeColor` for proper DEGRADED (amber) coloring. Expanded health type to include optional `detail`/`error` fields. Changed health grid from 3 to 4 columns on desktop.
+- **Backend test cleanup:** Removed unused `from database import get_db` import in `test_system_monitoring.py`.
+- **Files:** `src/frontend/src/app/admin/system/page.tsx` (+18/-3), `src/backend/tests/test_system_monitoring.py` (+0/-1).
+- No FRS gap register change (UI completeness fix for already-implemented backend health check).
