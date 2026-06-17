@@ -4,7 +4,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Annotated, Any, Optional
 
@@ -172,6 +172,20 @@ def upload_incident_bundle(
         except (TypeError, ValueError):
             return default
 
+    # _parse_client_ts is defined once outside the loop so it isn't redefined on
+    # every iteration (which triggers a SyntaxWarning in some Python versions).
+    def _parse_client_ts(raw: Any) -> str | None:
+        if not raw or not isinstance(raw, str):
+            return None
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            now_utc = datetime.now(timezone.utc)
+            if dt > now_utc:
+                return now_utc.isoformat()
+            return dt.isoformat()
+        except (ValueError, OverflowError):
+            return None
+
     for item in incidents:
         if not isinstance(item, dict):
             continue
@@ -236,20 +250,6 @@ def upload_incident_bundle(
         # Accept optional client-supplied timestamps for offline-first sync.
         # These are ISO-8601 strings queued on the client when the device was offline.
         # We validate and clamp to current time to prevent far-future values.
-        def _parse_client_ts(raw: Any) -> str | None:
-            if not raw or not isinstance(raw, str):
-                return None
-            try:
-                from datetime import datetime, timezone
-
-                dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-                now_utc = datetime.now(timezone.utc)
-                if dt > now_utc:
-                    return now_utc.isoformat()
-                return dt.isoformat()
-            except (ValueError, OverflowError):
-                return None
-
         client_created_at = _parse_client_ts(item.get("created_at"))
         client_updated_at = _parse_client_ts(item.get("updated_at"))
         _ts_cols = ""
@@ -276,211 +276,244 @@ def upload_incident_bundle(
         if client_updated_at:
             inc_params["client_updated_at"] = client_updated_at
 
-        inc_row = db.execute(
-            text(
-                f"""
-                INSERT INTO wims.fire_incidents
-                    (import_batch_id, encoder_id, region_id, location, verification_status,
-                     incident_type_code, reference_number{_cid_col}{_ts_cols})
-                VALUES
-                    (:batch_id, CAST(:uid AS uuid), :region_id,
-                     ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
-                     'DRAFT', :incident_type_code, NULL{_cid_val}{_ts_vals})
-                RETURNING incident_id
-                """
-            ),
-            inc_params,
-        ).fetchone()
-
-        if not inc_row:
-            # Empty RETURNING means the ON CONFLICT path fired — retrieve the existing row.
-            if client_id_col_exists and item_client_id:
-                existing_row = db.execute(
-                    text(
-                        "SELECT incident_id FROM wims.fire_incidents"
-                        " WHERE client_id = CAST(:cid AS uuid) LIMIT 1"
-                    ),
-                    {"cid": item_client_id},
-                ).fetchone()
-                if existing_row:
-                    results["imported"].append(int(existing_row[0]))
-                    continue
-            results["failed"].append({"index": i, "reason": "Failed to insert incident row"})
-            continue
-
-        incident_id = int(inc_row[0])
-        results["imported"].append(incident_id)
-
-        db.execute(
-            text(
-                """
-                INSERT INTO wims.incident_nonsensitive_details (
-                    incident_id, city_id,
-                    notification_dt, alarm_level, general_category, sub_category,
-                    responder_type, fire_origin, extent_of_damage,
-                    structures_affected, households_affected, families_affected,
-                    individuals_affected, vehicles_affected,
-                    total_response_time_minutes, total_gas_consumed_liters,
-                    resources_deployed, alarm_timeline, problems_encountered,
-                    recommendations, fire_station_name, stage_of_fire,
-                    extent_total_floor_area_sqm, extent_total_land_area_hectares,
-                    distance_from_station_km,
-                    city_municipality, province_district, barangay,
-                    extent_description, extent_objects_count,
-                    general_description_of_involved
-                ) VALUES (
-                    :incident_id, :city_id,
-                    CAST(:notification_dt AS timestamptz), :alarm_level, :general_category, :sub_category,
-                    :responder_type, :fire_origin, :extent_of_damage,
-                    :structures_affected, :households_affected, :families_affected,
-                    :individuals_affected, :vehicles_affected,
-                    :total_response_time_minutes, :total_gas_consumed_liters,
-                    CAST(:resources_deployed AS jsonb), CAST(:alarm_timeline AS jsonb), CAST(:problems_encountered AS jsonb),
-                    :recommendations, :fire_station_name, :stage_of_fire,
-                    :floor_area, :land_area,
-                    :distance_from_station_km,
-                    :city_municipality, :province_district, :barangay,
-                    :extent_description, :extent_objects_count,
-                    :general_description_of_involved
-                )
-                """
-            ),
-            {
-                "incident_id": incident_id,
-                "city_id": city_id,
-                "notification_dt": ns.get("notification_dt"),
-                "alarm_level": ns.get("alarm_level", ""),
-                "general_category": _normalize_general_category(
-                    ns.get("general_category", "") or ""
-                ),
-                "sub_category": ns.get("incident_type") or ns.get("sub_category") or "",
-                "responder_type": ns.get("responder_type", ""),
-                "fire_origin": ns.get("fire_origin", ""),
-                "extent_of_damage": ns.get("extent_of_damage", ""),
-                "structures_affected": _safe_int(ns.get("structures_affected")),
-                "households_affected": _safe_int(ns.get("households_affected")),
-                "families_affected": _safe_int(ns.get("families_affected")),
-                "individuals_affected": _safe_int(ns.get("individuals_affected")),
-                "vehicles_affected": _safe_int(ns.get("vehicles_affected")),
-                "total_response_time_minutes": _safe_int(ns.get("total_response_time_minutes")),
-                "total_gas_consumed_liters": _safe_float(ns.get("total_gas_consumed_liters")),
-                "resources_deployed": json.dumps(ns.get("resources_deployed", {})),
-                "alarm_timeline": json.dumps(ns.get("alarm_timeline", {})),
-                "problems_encountered": json.dumps(ns.get("problems_encountered", [])),
-                "recommendations": ns.get("recommendations", ""),
-                "fire_station_name": ns.get("fire_station_name", ""),
-                "stage_of_fire": ns.get("stage_of_fire", ""),
-                "floor_area": _safe_float(ns.get("extent_total_floor_area_sqm")),
-                "land_area": _safe_float(ns.get("extent_total_land_area_hectares")),
-                "distance_from_station_km": _safe_float(
-                    ns.get("distance_to_fire_scene_km") or ns.get("distance_from_station_km")
-                ),
-                "city_municipality": ns.get("city_municipality") or "",
-                "province_district": ns.get("province_district") or "",
-                "barangay": ns.get("barangay") or "",
-                "extent_description": ns.get("extent_description") or None,
-                "extent_objects_count": _safe_int(ns.get("extent_objects_count")),
-                "general_description_of_involved": ns.get("general_description_of_involved")
-                or None,
-            },
-        )
-
-        # ── Encrypt sensitive fields before INSERT ──────────────────────────────
-        pii_for_blob = {
-            k: v
-            for k, v in (
-                ("caller_name", sens.get("caller_name")),
-                ("caller_number", sens.get("caller_number")),
-                ("owner_name", sens.get("owner_name")),
-                ("occupant_name", sens.get("occupant_name")),
-                ("narrative_report", sens.get("narrative_report")),
-                ("casualty_details", sens.get("casualty_details")),
-                ("estimated_damage_php", ns.get("estimated_damage_php")),
-            )
-            if v  # omit None and empty strings/empty dicts
-        }
-        aad = f"incident_id:{incident_id}".encode("utf-8")
-        nonce_b64: str | None = None
-        ct_b64: str | None = None
-        provider = get_crypto_provider()
-        crypto_provider_val: str = provider.crypto_provider
-        kms_key_name_val: str | None = provider.kms_key_name
-        pii_key_version: int = provider.current_version
+        # Use a savepoint so a failed INSERT for this incident rolls back only
+        # that incident, not the entire batch (including the batch header row).
+        # PostgreSQL leaves the connection in ABORTED state on any unhandled
+        # exception inside a transaction; without a savepoint we'd have to
+        # rollback the whole batch.
+        inc_row = None
+        incident_id = -1
+        db.execute(text("SAVEPOINT incident_sp"))
         try:
-            nonce_b64, ct_b64 = provider.encrypt_json(pii_for_blob, aad)
-        except (SecurityProviderError, Exception) as exc:
+            inc_row = db.execute(
+                text(
+                    f"""
+                    INSERT INTO wims.fire_incidents
+                        (import_batch_id, encoder_id, region_id, location, verification_status,
+                         incident_type_code, reference_number{_cid_col}{_ts_cols})
+                    VALUES
+                        (:batch_id, CAST(:uid AS uuid), :region_id,
+                         ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
+                         'DRAFT', :incident_type_code, NULL{_cid_val}{_ts_vals})
+                    RETURNING incident_id
+                    """
+                ),
+                inc_params,
+            ).fetchone()
+
+            if not inc_row:
+                # Empty RETURNING means the ON CONFLICT path fired — retrieve the existing row.
+                if client_id_col_exists and item_client_id:
+                    existing_row = db.execute(
+                        text(
+                            "SELECT incident_id FROM wims.fire_incidents"
+                            " WHERE client_id = CAST(:cid AS uuid) LIMIT 1"
+                        ),
+                        {"cid": item_client_id},
+                    ).fetchone()
+                    if existing_row:
+                        db.execute(text("RELEASE SAVEPOINT incident_sp"))
+                        results["imported"].append(int(existing_row[0]))
+                        continue
+                db.execute(text("ROLLBACK TO SAVEPOINT incident_sp"))
+                db.execute(text("RELEASE SAVEPOINT incident_sp"))
+                results["failed"].append({"index": i, "reason": "Failed to insert incident row"})
+                continue
+
+            incident_id = int(inc_row[0])
+            results["imported"].append(incident_id)
+
+            db.execute(
+                text(
+                    """
+                    INSERT INTO wims.incident_nonsensitive_details (
+                        incident_id, city_id,
+                        notification_dt, alarm_level, general_category, sub_category,
+                        responder_type, fire_origin, extent_of_damage,
+                        structures_affected, households_affected, families_affected,
+                        individuals_affected, vehicles_affected,
+                        total_response_time_minutes, total_gas_consumed_liters,
+                        resources_deployed, alarm_timeline, problems_encountered,
+                        recommendations, fire_station_name, stage_of_fire,
+                        extent_total_floor_area_sqm, extent_total_land_area_hectares,
+                        distance_from_station_km,
+                        city_municipality, province_district, barangay,
+                        extent_description, extent_objects_count,
+                        general_description_of_involved
+                    ) VALUES (
+                        :incident_id, :city_id,
+                        CAST(:notification_dt AS timestamptz), :alarm_level, :general_category, :sub_category,
+                        :responder_type, :fire_origin, :extent_of_damage,
+                        :structures_affected, :households_affected, :families_affected,
+                        :individuals_affected, :vehicles_affected,
+                        :total_response_time_minutes, :total_gas_consumed_liters,
+                        CAST(:resources_deployed AS jsonb), CAST(:alarm_timeline AS jsonb), CAST(:problems_encountered AS jsonb),
+                        :recommendations, :fire_station_name, :stage_of_fire,
+                        :floor_area, :land_area,
+                        :distance_from_station_km,
+                        :city_municipality, :province_district, :barangay,
+                        :extent_description, :extent_objects_count,
+                        :general_description_of_involved
+                    )
+                    """
+                ),
+                {
+                    "incident_id": incident_id,
+                    "city_id": city_id,
+                    "notification_dt": ns.get("notification_dt"),
+                    "alarm_level": ns.get("alarm_level", ""),
+                    "general_category": _normalize_general_category(
+                        ns.get("general_category", "") or ""
+                    ),
+                    "sub_category": ns.get("incident_type") or ns.get("sub_category") or "",
+                    "responder_type": ns.get("responder_type", ""),
+                    "fire_origin": ns.get("fire_origin", ""),
+                    "extent_of_damage": ns.get("extent_of_damage", ""),
+                    "structures_affected": _safe_int(ns.get("structures_affected")),
+                    "households_affected": _safe_int(ns.get("households_affected")),
+                    "families_affected": _safe_int(ns.get("families_affected")),
+                    "individuals_affected": _safe_int(ns.get("individuals_affected")),
+                    "vehicles_affected": _safe_int(ns.get("vehicles_affected")),
+                    "total_response_time_minutes": _safe_int(ns.get("total_response_time_minutes")),
+                    "total_gas_consumed_liters": _safe_float(ns.get("total_gas_consumed_liters")),
+                    "resources_deployed": json.dumps(ns.get("resources_deployed", {})),
+                    "alarm_timeline": json.dumps(ns.get("alarm_timeline", {})),
+                    "problems_encountered": json.dumps(ns.get("problems_encountered", [])),
+                    "recommendations": ns.get("recommendations", ""),
+                    "fire_station_name": ns.get("fire_station_name", ""),
+                    "stage_of_fire": ns.get("stage_of_fire", ""),
+                    "floor_area": _safe_float(ns.get("extent_total_floor_area_sqm")),
+                    "land_area": _safe_float(ns.get("extent_total_land_area_hectares")),
+                    "distance_from_station_km": _safe_float(
+                        ns.get("distance_to_fire_scene_km") or ns.get("distance_from_station_km")
+                    ),
+                    "city_municipality": ns.get("city_municipality") or "",
+                    "province_district": ns.get("province_district") or "",
+                    "barangay": ns.get("barangay") or "",
+                    "extent_description": ns.get("extent_description") or None,
+                    "extent_objects_count": _safe_int(ns.get("extent_objects_count")),
+                    "general_description_of_involved": ns.get("general_description_of_involved")
+                    or None,
+                },
+            )
+
+            # ── Encrypt sensitive fields before INSERT ──────────────────────────────
+            pii_for_blob = {
+                k: v
+                for k, v in (
+                    ("caller_name", sens.get("caller_name")),
+                    ("caller_number", sens.get("caller_number")),
+                    ("owner_name", sens.get("owner_name")),
+                    ("occupant_name", sens.get("occupant_name")),
+                    ("narrative_report", sens.get("narrative_report")),
+                    ("casualty_details", sens.get("casualty_details")),
+                    ("estimated_damage_php", ns.get("estimated_damage_php")),
+                )
+                if v  # omit None and empty strings/empty dicts
+            }
+            aad = f"incident_id:{incident_id}".encode("utf-8")
+            nonce_b64: str | None = None
+            ct_b64: str | None = None
+            provider = get_crypto_provider()
+            crypto_provider_val: str = provider.crypto_provider
+            kms_key_name_val: str | None = provider.kms_key_name
+            pii_key_version: int = provider.current_version
+            try:
+                nonce_b64, ct_b64 = provider.encrypt_json(pii_for_blob, aad)
+            except (SecurityProviderError, Exception) as exc:
+                logger.warning(
+                    "PII encryption unavailable for incident_id=%s during bundle upload; "
+                    "proceeding without encrypted blob (%s)",
+                    incident_id,
+                    exc,
+                )
+
+            enc_iv = nonce_b64 if crypto_provider_val == "env_aesgcm" else None
+
+            db.execute(
+                text(
+                    """
+                    INSERT INTO wims.incident_sensitive_details (
+                        incident_id, street_address, landmark,
+                        caller_name, caller_number, receiver_name,
+                        owner_name, establishment_name,
+                        narrative_report, disposition,
+                        disposition_prepared_by, disposition_noted_by,
+                        personnel_on_duty, other_personnel, casualty_details,
+                        is_icp_present, icp_location,
+                        pii_blob_enc, encryption_iv,
+                        crypto_provider, kms_key_name, key_version
+                    ) VALUES (
+                        :incident_id, :street_address, :landmark,
+                        NULL, NULL, :receiver_name,
+                        NULL, :establishment_name,
+                        NULL, :disposition,
+                        :disposition_prepared_by, :disposition_noted_by,
+                        CAST(:personnel_on_duty AS jsonb), CAST(:other_personnel AS jsonb),
+                        NULL::jsonb,
+                        :is_icp_present, :icp_location,
+                        :pii_blob_enc, :pii_nonce,
+                        :crypto_provider, :kms_key_name, :key_version
+                    )
+                    """
+                ),
+                {
+                    "incident_id": incident_id,
+                    "street_address": sens.get("street_address")
+                    or ns.get("incident_address")
+                    or "",
+                    "landmark": sens.get("landmark") or ns.get("nearest_landmark") or "",
+                    # Plaintext PII columns → NULL; only pii_blob_enc is authoritative
+                    "receiver_name": sens.get("receiver_name", ""),
+                    "establishment_name": sens.get("establishment_name", ""),
+                    # narrative_report → encrypted in blob; plaintext column NULL
+                    "disposition": sens.get("disposition", ""),
+                    "disposition_prepared_by": sens.get("prepared_by_officer")
+                    or sens.get("disposition_prepared_by", ""),
+                    "disposition_noted_by": sens.get("noted_by_officer")
+                    or sens.get("disposition_noted_by", ""),
+                    "personnel_on_duty": json.dumps(sens.get("personnel_on_duty", {})),
+                    "other_personnel": json.dumps(ns.get("other_personnel", [])),
+                    # casualty_details → encrypted in blob; plaintext column NULL
+                    "is_icp_present": bool(sens.get("is_icp_present", False)),
+                    "icp_location": sens.get("icp_location", ""),
+                    # Encrypted blob
+                    "pii_blob_enc": ct_b64,
+                    "pii_nonce": enc_iv,
+                    "crypto_provider": crypto_provider_val,
+                    "kms_key_name": kms_key_name_val,
+                    "key_version": pii_key_version,
+                },
+            )
+
+            _insert_incident_verification_history(
+                db,
+                incident_id=incident_id,
+                actor_user_id=str(user_id),
+                previous_status="DRAFT",
+                new_status="DRAFT",
+                notes="Encoder created new draft",
+                action_label="CREATED_DRAFT",
+            )
+
+            db.execute(text("RELEASE SAVEPOINT incident_sp"))
+
+        except Exception as exc:
+            # Roll back only this incident — the batch header and any previously
+            # committed incidents in this loop are preserved.
+            db.execute(text("ROLLBACK TO SAVEPOINT incident_sp"))
+            db.execute(text("RELEASE SAVEPOINT incident_sp"))
+            # Remove the optimistically-appended incident_id so it isn't returned
+            # as a successful import.
+            if results["imported"] and results["imported"][-1] == incident_id:
+                results["imported"].pop()
             logger.warning(
-                "PII encryption unavailable for incident_id=%s during bundle upload; "
-                "proceeding without encrypted blob (%s)",
+                "upload-bundle: failed to insert incident id=%d (loop index %d): %s",
                 incident_id,
+                i,
                 exc,
             )
-
-        enc_iv = nonce_b64 if crypto_provider_val == "env_aesgcm" else None
-
-        db.execute(
-            text(
-                """
-                INSERT INTO wims.incident_sensitive_details (
-                    incident_id, street_address, landmark,
-                    caller_name, caller_number, receiver_name,
-                    owner_name, establishment_name,
-                    narrative_report, disposition,
-                    disposition_prepared_by, disposition_noted_by,
-                    personnel_on_duty, other_personnel, casualty_details,
-                    is_icp_present, icp_location,
-                    pii_blob_enc, encryption_iv,
-                    crypto_provider, kms_key_name, key_version
-                ) VALUES (
-                    :incident_id, :street_address, :landmark,
-                    NULL, NULL, :receiver_name,
-                    NULL, :establishment_name,
-                    NULL, :disposition,
-                    :disposition_prepared_by, :disposition_noted_by,
-                    CAST(:personnel_on_duty AS jsonb), CAST(:other_personnel AS jsonb),
-                    NULL::jsonb,
-                    :is_icp_present, :icp_location,
-                    :pii_blob_enc, :pii_nonce,
-                    :crypto_provider, :kms_key_name, :key_version
-                )
-                """
-            ),
-            {
-                "incident_id": incident_id,
-                "street_address": sens.get("street_address") or ns.get("incident_address") or "",
-                "landmark": sens.get("landmark") or ns.get("nearest_landmark") or "",
-                # Plaintext PII columns → NULL; only pii_blob_enc is authoritative
-                "receiver_name": sens.get("receiver_name", ""),
-                "establishment_name": sens.get("establishment_name", ""),
-                # narrative_report → encrypted in blob; plaintext column NULL
-                "disposition": sens.get("disposition", ""),
-                "disposition_prepared_by": sens.get("prepared_by_officer")
-                or sens.get("disposition_prepared_by", ""),
-                "disposition_noted_by": sens.get("noted_by_officer")
-                or sens.get("disposition_noted_by", ""),
-                "personnel_on_duty": json.dumps(sens.get("personnel_on_duty", {})),
-                "other_personnel": json.dumps(ns.get("other_personnel", [])),
-                # casualty_details → encrypted in blob; plaintext column NULL
-                "is_icp_present": bool(sens.get("is_icp_present", False)),
-                "icp_location": sens.get("icp_location", ""),
-                # Encrypted blob
-                "pii_blob_enc": ct_b64,
-                "pii_nonce": enc_iv,
-                "crypto_provider": crypto_provider_val,
-                "kms_key_name": kms_key_name_val,
-                "key_version": pii_key_version,
-            },
-        )
-
-        _insert_incident_verification_history(
-            db,
-            incident_id=incident_id,
-            actor_user_id=str(user_id),
-            previous_status="DRAFT",
-            new_status="DRAFT",
-            notes="Encoder created new draft",
-            action_label="CREATED_DRAFT",
-        )
+            results["failed"].append({"index": i, "reason": "incident_insert_failed"})
 
     try:
         db.commit()
@@ -766,8 +799,17 @@ def create_incident(
     # SET LOCAL resets on commit; re-apply RLS context before the analytics sync.
     set_rls_context(db, user_id)
     incident_id = row[0]
-    sync_incident_to_analytics(db, incident_id)
-    db.commit()
+    try:
+        sync_incident_to_analytics(db, incident_id)
+    except Exception:
+        logger.warning("Analytics sync failed for incident %s in create_incident", incident_id)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.warning(
+            "Analytics sync commit failed for incident %s; incident already saved", incident_id
+        )
 
     # Extract lat/lon from PostGIS geography for response
     coord_row = db.execute(
