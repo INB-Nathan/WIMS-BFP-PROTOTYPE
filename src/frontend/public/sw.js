@@ -9,7 +9,7 @@
  *   it delegates to the page rather than POSTing directly.
  */
 
-const CACHE_NAME = 'wims-bfp-cache-v8';
+const CACHE_NAME = 'wims-bfp-cache-v9';
 // Separate long-lived cache for map tiles so they survive main-cache evictions.
 const TILE_CACHE_NAME = 'wims-tiles-v1';
 const SYNC_TAG = 'sync-pending-incidents';
@@ -137,7 +137,9 @@ self.addEventListener('fetch', (event) => {
     !requestUrl.pathname.startsWith('/auth/');
 
   if (isRsc) {
-    const cacheKey = 'rsc:' + requestUrl.origin + canonicalPath(requestUrl.pathname);
+    // Cache key must be a valid HTTP URL — the 'rsc:' prefix scheme is rejected
+    // by the Cache API. Use a synthetic same-origin path instead.
+    const cacheKey = requestUrl.origin + '/_rsc' + canonicalPath(requestUrl.pathname);
     event.respondWith(
       fetch(request)
         .then(async (response) => {
