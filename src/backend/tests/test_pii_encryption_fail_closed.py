@@ -15,6 +15,7 @@ from api.routes.incidents import (
     get_analyst_incident_sensitive_detail,
     upload_incident_bundle,
 )
+from schemas.incident_bundle import IncidentBundleCreate
 from utils.crypto import SecurityProviderError
 
 
@@ -146,8 +147,11 @@ class TestUploadBundlePIIFailClosed:
                 }
             ],
         }
+        request = MagicMock()
+        request.headers = {}
+        body_obj = IncidentBundleCreate(**body)
         res = upload_incident_bundle(
-            body,
+            body_obj,
             {"user_id": "11111111-1111-4111-8111-111111111111", "role": "REGIONAL_ENCODER"},
             db,
         )
@@ -184,8 +188,11 @@ class TestUploadBundlePIIFailClosed:
                 }
             ],
         }
+        request = MagicMock()
+        request.headers = {}
+        body_obj = IncidentBundleCreate(**body)
         res = upload_incident_bundle(
-            body,
+            body_obj,
             {"user_id": "11111111-1111-4111-8111-111111111111", "role": "REGIONAL_ENCODER"},
             db,
         )
@@ -237,8 +244,11 @@ class TestUploadBundlePIIFailClosed:
                 }
             ],
         }
+        request = MagicMock()
+        request.headers = {}
+        body_obj = IncidentBundleCreate(**body)
         res = upload_incident_bundle(
-            body,
+            body_obj,
             {"user_id": "11111111-1111-4111-8111-111111111111", "role": "REGIONAL_ENCODER"},
             db,
         )

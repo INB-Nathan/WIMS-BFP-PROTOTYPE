@@ -93,7 +93,6 @@ def _resolve_storage_dir() -> str:
 @router.post("/incidents/upload-bundle")
 def upload_incident_bundle(
     body: IncidentBundleCreate,
-    request: Request,
     user: Annotated[dict, Depends(get_current_wims_user)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
@@ -102,10 +101,14 @@ def upload_incident_bundle(
     Accepts a typed ``IncidentBundleCreate`` body with per-incident field
     validation.  Preserves backward compatibility with existing callers.
     """
-    # ── App-level JSON request byte limit ──────────────────────────────────
+    # ── App-level JSON request byte limit (defensive: check body size in MB) ─
     _max_bundle_bytes = int(os.getenv("WIMS_MAX_BUNDLE_BYTES", str(5 * 1024 * 1024)))
-    content_length = request.headers.get("content-length")
-    if content_length and int(content_length) > _max_bundle_bytes:
+    try:
+        # Estimate payload size from JSON-serialized body (best-effort app-level cap).
+        _serialized_size = len(json.dumps(body.model_dump(mode="json")))
+    except Exception:
+        _serialized_size = 0
+    if _serialized_size > _max_bundle_bytes:
         raise HTTPException(
             status_code=422,
             detail=f"Request body exceeds maximum size of {_max_bundle_bytes} bytes",
