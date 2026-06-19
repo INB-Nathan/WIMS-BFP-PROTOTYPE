@@ -21,6 +21,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from api.routes.incidents import upload_incident_bundle
+from schemas.incident_bundle import IncidentBundleCreate
 
 
 def test_upload_bundle_returns_existing_incident_for_duplicate_client_id(monkeypatch):
@@ -67,12 +68,13 @@ def test_upload_bundle_returns_existing_incident_for_duplicate_client_id(monkeyp
     }
     user = {"user_id": "encoder-uuid", "role": "REGIONAL_ENCODER"}
 
-    response = upload_incident_bundle(body, user, db)
+    body_obj = IncidentBundleCreate(**body)
+    response = upload_incident_bundle(body_obj, user, db)
 
     # Existing incident returned; no duplicate inserted.
     assert response["incident_ids"] == [existing_incident_id]
     assert response["imported"] == [existing_incident_id]
     assert response["failed"] == []
-    # Five executes: assigned-region, batch insert, column check, INSERT ON CONFLICT
-    # (returns None), fallback SELECT to resolve the conflicted client_id.
+    # Five executes: assigned-region, batch insert, column check, pg_advisory_xact_lock,
+    # fallback SELECT to resolve the conflicted client_id.
     assert db.execute.call_count == 5
