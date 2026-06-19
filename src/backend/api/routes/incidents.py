@@ -421,11 +421,14 @@ def upload_incident_bundle(
             aad = f"incident_id:{incident_id}".encode("utf-8")
             nonce_b64: str | None = None
             ct_b64: str | None = None
-            provider = get_crypto_provider()
-            crypto_provider_val: str = provider.crypto_provider
-            kms_key_name_val: str | None = provider.kms_key_name
-            pii_key_version: int = provider.current_version
+            crypto_provider_val: str = "env_aesgcm"
+            kms_key_name_val: str | None = None
+            pii_key_version: int = 1
             try:
+                provider = get_crypto_provider()
+                crypto_provider_val = provider.crypto_provider
+                kms_key_name_val = provider.kms_key_name
+                pii_key_version = provider.current_version
                 nonce_b64, ct_b64 = provider.encrypt_json(pii_for_blob, aad)
             except (SecurityProviderError, Exception) as exc:
                 logger.warning(

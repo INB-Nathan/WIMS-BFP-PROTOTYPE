@@ -327,6 +327,116 @@ def apply_schema_patches() -> None:
         logger.warning("Schema patch (client_id) failed (non-fatal): %s", exc)
         db.rollback()
 
+    # Migration 19: reference_number, incident_type_code on fire_incidents
+    try:
+        db.execute(
+            text(
+                "ALTER TABLE wims.fire_incidents"
+                " ADD COLUMN IF NOT EXISTS reference_number TEXT,"
+                " ADD COLUMN IF NOT EXISTS incident_type_code TEXT"
+            )
+        )
+        db.commit()
+        logger.info("Schema patch applied: reference_number / incident_type_code on fire_incidents")
+    except Exception as exc:
+        logger.warning("Schema patch (reference_number/incident_type_code) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    # Migrations 21 + 35: province_district, city_municipality, barangay text columns
+    # (incident_nonsensitive_details — added after initial VPS deploy)
+    try:
+        db.execute(
+            text(
+                "ALTER TABLE wims.incident_nonsensitive_details"
+                " ADD COLUMN IF NOT EXISTS province_district TEXT,"
+                " ADD COLUMN IF NOT EXISTS city_municipality TEXT,"
+                " ADD COLUMN IF NOT EXISTS barangay TEXT"
+            )
+        )
+        db.commit()
+        logger.info("Schema patch applied: province_district / city_municipality / barangay columns")
+    except Exception as exc:
+        logger.warning("Schema patch (province/city/barangay) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    # Migration 25: extent_description, extent_objects_count
+    try:
+        db.execute(
+            text(
+                "ALTER TABLE wims.incident_nonsensitive_details"
+                " ADD COLUMN IF NOT EXISTS extent_description TEXT,"
+                " ADD COLUMN IF NOT EXISTS extent_objects_count INT"
+            )
+        )
+        db.commit()
+        logger.info("Schema patch applied: extent_description / extent_objects_count columns")
+    except Exception as exc:
+        logger.warning("Schema patch (extent columns) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    # Migration 28: general_description_of_involved
+    try:
+        db.execute(
+            text(
+                "ALTER TABLE wims.incident_nonsensitive_details"
+                " ADD COLUMN IF NOT EXISTS general_description_of_involved TEXT"
+            )
+        )
+        db.commit()
+        logger.info("Schema patch applied: general_description_of_involved column")
+    except Exception as exc:
+        logger.warning("Schema patch (general_description_of_involved) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    # Migration 53: key_version on incident_sensitive_details
+    try:
+        db.execute(
+            text(
+                "ALTER TABLE wims.incident_sensitive_details"
+                " ADD COLUMN IF NOT EXISTS key_version SMALLINT NOT NULL DEFAULT 1"
+            )
+        )
+        db.commit()
+        logger.info("Schema patch applied: key_version column on incident_sensitive_details")
+    except Exception as exc:
+        logger.warning("Schema patch (key_version) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    # Migration 54: crypto_provider, kms_key_name + relaxed PII blob consistency constraint
+    try:
+        db.execute(
+            text(
+                "ALTER TABLE wims.incident_sensitive_details"
+                " ADD COLUMN IF NOT EXISTS crypto_provider TEXT NOT NULL DEFAULT 'env_aesgcm',"
+                " ADD COLUMN IF NOT EXISTS kms_key_name TEXT"
+            )
+        )
+        db.execute(
+            text(
+                "ALTER TABLE wims.incident_sensitive_details"
+                " DROP CONSTRAINT IF EXISTS incident_sensitive_details_pii_blob_consistency"
+            )
+        )
+        db.execute(
+            text(
+                "ALTER TABLE wims.incident_sensitive_details"
+                " ADD CONSTRAINT incident_sensitive_details_pii_blob_consistency CHECK ("
+                "   (crypto_provider = 'env_aesgcm' AND pii_blob_enc IS NOT NULL AND encryption_iv IS NOT NULL)"
+                "   OR (crypto_provider = 'env_aesgcm' AND pii_blob_enc IS NULL AND encryption_iv IS NULL)"
+                "   OR (crypto_provider = 'openbao_transit' AND pii_blob_enc IS NOT NULL)"
+                "   OR pii_blob_enc IS NULL"
+                ")"
+            )
+        )
+        db.commit()
+        logger.info(
+            "Schema patch applied: crypto_provider / kms_key_name columns"
+            " + relaxed pii_blob_consistency constraint"
+        )
+    except Exception as exc:
+        logger.warning("Schema patch (crypto_provider/kms_key_name) failed (non-fatal): %s", exc)
+        db.rollback()
+
     finally:
         db.close()
         with _schema_patches_lock:
