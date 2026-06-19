@@ -1,5 +1,6 @@
 """System Admin API — backup management routes."""
 
+import hashlib
 import logging
 import os
 import re
@@ -15,6 +16,7 @@ from sqlalchemy.orm import Session
 from auth import get_system_admin
 from auth import get_db_with_rls
 from utils.audit import log_system_audit
+from utils.upload_validation import safe_read_upload, sanitize_filename
 
 logger = logging.getLogger("wims.admin")
 router = APIRouter()
@@ -222,14 +224,39 @@ async def restore_backup(
     db: Session = Depends(get_db_with_rls),
 ):
     """Restore wims database from an encrypted backup file."""
-    filename = file.filename or ""
+    # ── Deep checks (#391): filename sanitization, size cap, header validation
+    filename = sanitize_filename(file.filename)
     if not re.match(r"^wims_\d{8}_\d{6}\.sql\.enc$", filename):
         raise HTTPException(status_code=400, detail="Invalid backup file format")
 
+    # App-level size cap (50 MB default for backup files).
+    _max_backup_bytes = int(os.getenv("WIMS_MAX_BACKUP_BYTES", str(50 * 1024 * 1024)))
+
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_enc = Path(tmpdir) / filename
-        content = await file.read()
+        # safe_read_upload enforces the cap while streaming from disk.
+        content = await safe_read_upload(file, _max_backup_bytes)
         tmp_enc.write_bytes(content)
+
+        # Header validation: WIMSBAO1 magic header for our encrypted backup format.
+        if not content.startswith(b"WIMSBAO1"):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Backup file header invalid: missing WIMSBAO1 magic. "
+                    "File may be corrupted or not a WIMS encrypted backup."
+                ),
+            )
+
+        # Pre-restore SHA-256 checksum stored for forensic completeness.
+        sha256_digest = hashlib.sha256(content).hexdigest()
+        logger.info(
+            "Backup restore initiated by user=%s, file=%s, sha256=%s, size=%d",
+            current_user.get("user_id"),
+            filename,
+            sha256_digest,
+            len(content),
+        )
 
         try:
             from utils.backup_crypto import decrypt_backup
@@ -301,6 +328,11 @@ async def restore_backup(
         table_affected="wims",
         record_id=None,
         request=request,
+        new_values={
+            "filename": filename,
+            "size_bytes": len(content),
+            "sha256": sha256_digest,
+        },
     )
     db.commit()
 

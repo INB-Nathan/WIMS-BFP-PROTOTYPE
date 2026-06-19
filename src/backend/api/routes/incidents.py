@@ -39,6 +39,13 @@ from services.regional_incidents.helpers import (
 from tasks.exports import export_analyst_incidents_task
 from utils.audit import log_system_audit
 from utils.crypto import SecurityProviderError
+from utils.upload_validation import (
+    check_magic_bytes,
+    safe_read_upload,
+    sanitize_filename,
+    strip_image_exif,
+    validate_extension,
+)
 
 router = APIRouter(prefix="/api", tags=["incidents"])
 logger = logging.getLogger("wims.incidents")
@@ -560,21 +567,33 @@ async def upload_attachment(
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
 
-    # Read into memory with hard size cap — AESGCM requires full plaintext at once
-    chunks: list[bytes] = []
-    total = 0
-    while chunk := await file.read(1024 * 1024):
-        total += len(chunk)
-        if total > MAX_ATTACHMENT_BYTES:
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    f"Attachment exceeds maximum allowed size of "
-                    f"{MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB"
-                ),
-            )
-        chunks.append(chunk)
-    plaintext = b"".join(chunks)
+    # ── Deep checks (#391): filename sanitization, extension allowlist, magic bytes
+    safe_name = sanitize_filename(file.filename)
+    ext = validate_extension(
+        safe_name,
+        [
+            "jpg",
+            "jpeg",
+            "png",
+            "pdf",
+            "xlsx",
+            "txt",
+            "doc",
+            "docx",
+            "bin",
+        ],
+    )
+
+    # Read into memory with hard size cap — AESGCM requires full plaintext at once.
+    # safe_read_upload enforces the cap as we stream.
+    plaintext = await safe_read_upload(file, MAX_ATTACHMENT_BYTES)
+
+    # Magic byte MIME sniff: ensure the file header matches the claimed extension.
+    check_magic_bytes(plaintext, ext)
+
+    # For image attachments, strip EXIF metadata to remove GPS / device info.
+    if ext in ("jpg", "jpeg", "png"):
+        plaintext = strip_image_exif(plaintext)
 
     # SHA-256 on plaintext (before encryption) — hash represents original content
     sha256_digest = hashlib.sha256(plaintext).hexdigest()
@@ -642,6 +661,27 @@ async def upload_attachment(
             os.remove(storage_path)
         logger.exception("Database error during attachment upload")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+    # Audit log upload (recon §7.2).
+    try:
+        log_system_audit(
+            db,
+            user.get("user_id"),
+            "UPLOAD_ATTACHMENT",
+            "wims.incident_attachments",
+            attachment_id,
+            request=None,
+            new_values={
+                "incident_id": incident_id,
+                "filename": safe_name,
+                "size_bytes": len(plaintext),
+                "sha256": sha256_digest,
+            },
+        )
+        db.commit()
+    except Exception:
+        # Audit failures are non-fatal (see log_system_audit docstring).
+        logger.exception("Failed to write attachment audit log")
 
     return {
         "status": "ok",

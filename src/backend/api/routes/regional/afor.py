@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
@@ -27,6 +28,14 @@ from services.regional_incidents.helpers import (
     region_text_matches as _region_text_matches,
 )
 from services.kms import get_crypto_provider
+from utils.audit import log_system_audit
+from utils.upload_validation import (
+    check_magic_bytes,
+    check_xlsx_decompression_bomb,
+    safe_read_upload,
+    sanitize_filename,
+    validate_extension,
+)
 
 logger = logging.getLogger("wims.regional")
 router = APIRouter()
@@ -49,16 +58,23 @@ async def import_afor_file(
     """
     region_id = user["assigned_region_id"]
 
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No file provided")
+    # ── Deep checks (#391): filename, extension, size cap, magic bytes, bomb defense
+    safe_name = sanitize_filename(file.filename)
+    ext = validate_extension(safe_name, ["xlsx", "csv"])
 
-    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
-    if ext not in ("xlsx",):
-        raise HTTPException(status_code=400, detail="Only .xlsx files are supported")
+    # App-level size cap (10 MB for AFOR per issue #391)
+    _max_afor_bytes = int(os.getenv("WIMS_MAX_AFOR_BYTES", str(10 * 1024 * 1024)))
+    content = await safe_read_upload(file, _max_afor_bytes)
 
-    content = await file.read()
-    if len(content) == 0:
+    if not content:
         raise HTTPException(status_code=400, detail="File is empty")
+
+    # Magic byte verification ensures claimed extension matches real content.
+    check_magic_bytes(content, ext)
+
+    # Decompression bomb defense (XLSX only — CSVs are plain text).
+    if ext == "xlsx":
+        check_xlsx_decompression_bomb(content)
 
     try:
         if ext == "csv":
@@ -99,6 +115,28 @@ async def import_afor_file(
                     )
 
     valid_count = sum(1 for r in rows if r.status == "VALID")
+
+    # Audit log (recon §7.2).
+    try:
+        log_system_audit(
+            db,
+            user.get("user_id"),
+            "IMPORT_AFOR",
+            "wims.afor_imports",
+            None,
+            request=None,
+            new_values={
+                "region_id": region_id,
+                "filename": safe_name,
+                "size_bytes": len(content),
+                "rows_total": len(rows),
+                "rows_valid": valid_count,
+            },
+        )
+        db.commit()
+    except Exception:
+        # Audit failures are non-fatal.
+        logger.exception("Failed to write AFOR import audit log")
 
     return AforParseResponse(
         total_rows=len(rows),
