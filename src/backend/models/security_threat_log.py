@@ -60,3 +60,6 @@ class SecurityThreatLog(Base):
     )
     admin_action_taken: Mapped[str | None] = mapped_column(nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    classification: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    suricata_signature: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    suricata_category: Mapped[str | None] = mapped_column(String(200), nullable=True)

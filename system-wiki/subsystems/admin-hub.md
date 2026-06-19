@@ -1,7 +1,7 @@
 ---
 title: System Admin Hub
 created: 2026-05-16
-updated: 2026-06-16
+updated: 2026-06-19
 type: operation
 tags: [wims-bfp, admin, system-admin, dashboard, identity, security, rate-limits, config]
 sources: [src/frontend/src/app/admin/system/page.tsx, src/backend/api/routes/admin.py, src/frontend/src/lib/api/legacy.ts, src/frontend/src/app/admin/system/rate-limits/page.tsx]
@@ -75,7 +75,7 @@ Only `DEGRADED` and `UNHEALTHY` Suricata states degrade the overall system healt
 
 | Method | Path | Function | Behavior |
 |---|---|---|---|
-| `GET` | `/api/admin/security-logs` | `get_security_logs` | Lists `wims.security_threat_logs` ordered by timestamp DESC; includes XAI fields (narrative, confidence); supports `limit`/`offset` query params and returns paginated envelope (`items`, `total`, `limit`, `offset`) |
+| `GET` | `/api/admin/security-logs` | `get_security_logs` | Lists `wims.security_threat_logs` ordered by timestamp DESC; includes XAI fields (narrative, confidence) and classification fields (classification, suricata_signature, suricata_category); supports `limit`/`offset`, `severity`, `source_ip`, `date_from`/`date_to`, `classification` (one or comma-separated values, rejected 400 if invalid), and full-text `q` filter params; returns paginated envelope (`items`, `total`, `limit`, `offset`) |
 | `POST` | `/api/admin/security-logs/{log_id}/analyze` | `analyze_security_log` | Runs `analyze_threat_log()` via Ollama AI service; updates xai_narrative and xai_confidence |
 | `PATCH` | `/api/admin/security-logs/{log_id}` | `update_security_log` | Updates threat log — structured HITL path (when `action` provided: maps to `admin_action_taken` label, writes `hitl_decision` JSONB with `action`, `note`, `reviewed_by`, `reviewed_at`; sets `resolved_at=now()` for CONFIRM_THREAT and FALSE_POSITIVE; leaves `resolved_at` null for REQUEST_MORE_INFO; invalid action → 400) or legacy free-text path (sets `admin_action_taken` and/or `resolved_at` directly) |
 

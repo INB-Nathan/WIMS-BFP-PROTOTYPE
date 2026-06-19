@@ -21,6 +21,10 @@ _ADMIN = {
     "role": "SYSTEM_ADMIN",
 }
 
+# Row tuple order: log_id(0), timestamp(1), source_ip(2), destination_ip(3),
+# suricata_sid(4), severity_level(5), raw_payload(6), xai_narrative(7),
+# xai_confidence(8), admin_action_taken(9), resolved_at(10), reviewed_by(11),
+# hitl_decision(12), classification(13), suricata_signature(14), suricata_category(15)
 _HIGH_ROW = (
     1,
     None,
@@ -35,6 +39,9 @@ _HIGH_ROW = (
     None,
     None,
     None,
+    None,  # classification
+    None,  # suricata_signature
+    None,  # suricata_category
 )
 _CRITICAL_ROW = (
     2,
@@ -50,8 +57,28 @@ _CRITICAL_ROW = (
     None,
     None,
     None,
+    None,  # classification
+    None,  # suricata_signature
+    None,  # suricata_category
 )
-_LOW_ROW = (3, None, "10.0.0.5", "10.0.0.6", 1003, "LOW", "{}", None, None, None, None, None, None)
+_LOW_ROW = (
+    3,
+    None,
+    "10.0.0.5",
+    "10.0.0.6",
+    1003,
+    "LOW",
+    "{}",
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+)
 
 
 @pytest.fixture
@@ -212,6 +239,9 @@ class TestCombinedSeveritySourceIpFilter:
         None,
         None,
         None,
+        None,
+        None,
+        None,
     )
     # Row 7: CRITICAL severity, source_ip=10.0.0.1 -> matches both filters
     _CRITICAL_MATCH = (
@@ -222,6 +252,9 @@ class TestCombinedSeveritySourceIpFilter:
         1007,
         "CRITICAL",
         "{}",
+        None,
+        None,
+        None,
         None,
         None,
         None,
@@ -244,6 +277,9 @@ class TestCombinedSeveritySourceIpFilter:
         None,
         None,
         None,
+        None,
+        None,
+        None,
     )
     # Row 9: LOW severity but source_ip=10.0.0.1 -> excluded by severity filter
     _LOW_MATCH_IP = (
@@ -254,6 +290,9 @@ class TestCombinedSeveritySourceIpFilter:
         1009,
         "LOW",
         "{}",
+        None,
+        None,
+        None,
         None,
         None,
         None,
@@ -510,3 +549,210 @@ class TestSecurityAlertEmail:
             assert context["dashboard_link"].endswith("/admin/monitoring"), (
                 f"dashboard_link must point to /admin/monitoring, got {context['dashboard_link']}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Classification response shape — tracer bullet (#410)
+# ---------------------------------------------------------------------------
+
+_VALID_CLASSIFICATIONS = frozenset(
+    {
+        "internet_background_noise",
+        "scanner",
+        "bot_probe",
+        "credential_probe",
+        "high_signal_threat",
+        "unclassified",
+    }
+)
+
+
+class TestClassificationResponseShape:
+    """Tracer bullet: ensure GET /api/admin/security-logs items expose the new
+    classification, suricata_signature, and suricata_category fields."""
+
+    def test_items_expose_classification_fields(self, client: TestClient):
+        """Mock one row with classification='scanner' and suricata signature/category;
+        assert the JSON item exposes those three fields."""
+        app.dependency_overrides[auth.get_current_wims_user] = lambda: _ADMIN
+        _CLASSIFIED_ROW = (
+            10,
+            None,
+            "203.0.113.44",
+            "10.10.0.15",
+            2024218,
+            "HIGH",
+            "{}",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "scanner",
+            "ET WEB_SERVER Possible SQL Injection Attempt UNION SELECT",
+            "Web Application Attack",
+        )
+        mock_db, _get_db = _make_list_db([_CLASSIFIED_ROW], total=1)
+        app.dependency_overrides[get_db_with_rls] = _get_db
+
+        resp = client.get("/api/admin/security-logs")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["items"]) == 1
+        item = data["items"][0]
+        assert item["classification"] == "scanner", (
+            f"Expected 'scanner', got {item.get('classification')!r}"
+        )
+        assert (
+            item["suricata_signature"]
+            == "ET WEB_SERVER Possible SQL Injection Attempt UNION SELECT"
+        )
+        assert item["suricata_category"] == "Web Application Attack"
+
+    def test_classification_null_when_not_set(self, client: TestClient):
+        """Existing rows with NULL classification/signature/category are still readable."""
+        app.dependency_overrides[auth.get_current_wims_user] = lambda: _ADMIN
+        mock_db, _get_db = _make_list_db([_HIGH_ROW], total=1)
+        app.dependency_overrides[get_db_with_rls] = _get_db
+
+        resp = client.get("/api/admin/security-logs")
+
+        assert resp.status_code == 200
+        item = resp.json()["items"][0]
+        assert item["classification"] is None
+        assert item["suricata_signature"] is None
+        assert item["suricata_category"] is None
+
+
+# ---------------------------------------------------------------------------
+# Classification filter (#410)
+# ---------------------------------------------------------------------------
+
+_SCANNER_ROW = (
+    10,
+    None,
+    "203.0.113.44",
+    "10.10.0.15",
+    2024218,
+    "HIGH",
+    "{}",
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    "scanner",
+    "ET WEB_SERVER Possible SQL Injection Attempt UNION SELECT",
+    "Web Application Attack",
+)
+_BOT_PROBE_ROW = (
+    11,
+    None,
+    "198.51.100.77",
+    "10.10.0.20",
+    2010935,
+    "HIGH",
+    "{}",
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    "bot_probe",
+    "ET SCAN Potential SSH Scan",
+    "Attempted Information Leak",
+)
+_UNCLASSIFIED_ROW = (
+    12,
+    None,
+    "192.0.2.55",
+    "10.10.0.31",
+    2013504,
+    "LOW",
+    "{}",
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    "unclassified",
+    "ET DNS Query for Suspicious TLD",
+    "Potentially Bad Traffic",
+)
+
+
+class TestClassificationFilter:
+    def test_single_classification_filter_returns_only_matching(self, client: TestClient):
+        """?classification=scanner returns only scanner rows."""
+        app.dependency_overrides[auth.get_current_wims_user] = lambda: _ADMIN
+        mock_db, _get_db = _make_list_db([_SCANNER_ROW], total=1)
+        app.dependency_overrides[get_db_with_rls] = _get_db
+
+        resp = client.get("/api/admin/security-logs?classification=scanner")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["items"][0]["classification"] == "scanner"
+
+    def test_single_classification_uses_bound_param(self, client: TestClient):
+        """?classification=scanner uses a bound parameter, not string interpolation."""
+        app.dependency_overrides[auth.get_current_wims_user] = lambda: _ADMIN
+        mock_db, _get_db = _make_list_db([_SCANNER_ROW], total=1)
+        app.dependency_overrides[get_db_with_rls] = _get_db
+
+        client.get("/api/admin/security-logs?classification=scanner")
+
+        bound_params_list = [c[0][1] for c in mock_db.execute.call_args_list if len(c[0]) > 1]
+        all_values = set()
+        for params in bound_params_list:
+            all_values.update(params.values())
+        assert "scanner" in all_values
+
+    def test_multi_classification_uses_in_clause_with_bound_params(self, client: TestClient):
+        """?classification=scanner,bot_probe uses individual bound params."""
+        app.dependency_overrides[auth.get_current_wims_user] = lambda: _ADMIN
+        mock_db, _get_db = _make_list_db([_SCANNER_ROW, _BOT_PROBE_ROW], total=2)
+        app.dependency_overrides[get_db_with_rls] = _get_db
+
+        client.get("/api/admin/security-logs?classification=scanner,bot_probe")
+
+        sqls = [str(c[0][0]) for c in mock_db.execute.call_args_list]
+        data_sql = sqls[0]
+        assert "classification IN" in data_sql, "Expected IN clause for multi-classification filter"
+
+        bound_params_list = [c[0][1] for c in mock_db.execute.call_args_list if len(c[0]) > 1]
+        all_values = set()
+        for params in bound_params_list:
+            all_values.update(params.values())
+        assert "scanner" in all_values
+        assert "bot_probe" in all_values
+
+    def test_invalid_classification_rejected_400(self, client: TestClient):
+        """Invalid classification values are rejected with 400 and a clear message,
+        documented choice: reject rather than silently ignore (differs from severity)."""
+        app.dependency_overrides[auth.get_current_wims_user] = lambda: _ADMIN
+        mock_db, _get_db = _make_list_db([_SCANNER_ROW], total=1)
+        app.dependency_overrides[get_db_with_rls] = _get_db
+
+        resp = client.get("/api/admin/security-logs?classification=BOGUS")
+
+        assert resp.status_code == 400
+        detail = resp.json().get("detail", "")
+        assert "classification" in detail.lower()
+
+    def test_valid_classification_no_filter_returns_all(self, client: TestClient):
+        """No classification param returns all rows regardless of classification."""
+        app.dependency_overrides[auth.get_current_wims_user] = lambda: _ADMIN
+        mock_db, _get_db = _make_list_db([_SCANNER_ROW, _BOT_PROBE_ROW, _UNCLASSIFIED_ROW], total=3)
+        app.dependency_overrides[get_db_with_rls] = _get_db
+
+        resp = client.get("/api/admin/security-logs")
+
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 3

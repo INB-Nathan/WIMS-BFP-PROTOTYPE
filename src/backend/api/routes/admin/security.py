@@ -26,6 +26,17 @@ VALID_HITL_ACTIONS = ("CONFIRM_THREAT", "FALSE_POSITIVE", "REQUEST_MORE_INFO")
 
 _VALID_SEVERITIES = frozenset({"LOW", "MEDIUM", "HIGH", "CRITICAL"})
 
+_VALID_CLASSIFICATIONS = frozenset(
+    {
+        "internet_background_noise",
+        "scanner",
+        "bot_probe",
+        "credential_probe",
+        "high_signal_threat",
+        "unclassified",
+    }
+)
+
 HITL_ACTION_LABELS: dict[str, str] = {
     "CONFIRM_THREAT": "Confirmed Threat",
     "FALSE_POSITIVE": "False Positive (Dismissed)",
@@ -51,6 +62,7 @@ def get_security_logs(
     date_from: Optional[str] = Query(default=None),
     date_to: Optional[str] = Query(default=None),
     q: Optional[str] = Query(default=None),
+    classification: Optional[str] = Query(default=None),
 ):
     """Fetch security threat logs with optional filters, full-text search, and pagination."""
     where_clauses: list[str] = []
@@ -71,6 +83,24 @@ def get_security_logs(
                 where_clauses.append(f"severity_level IN ({placeholders})")
                 for i, s in enumerate(valid_sevs):
                     params[f"sev{i}"] = s
+    if classification is not None:
+        requested = [c.strip() for c in classification.split(",") if c.strip()]
+        invalid = [c for c in requested if c not in _VALID_CLASSIFICATIONS]
+        if invalid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid classification value(s): {', '.join(invalid)}. "
+                f"Valid values: {', '.join(sorted(_VALID_CLASSIFICATIONS))}",
+            )
+        if requested:
+            if len(requested) == 1:
+                where_clauses.append("classification = :cls0")
+                params["cls0"] = requested[0]
+            else:
+                placeholders = ", ".join(f":cls{i}" for i in range(len(requested)))
+                where_clauses.append(f"classification IN ({placeholders})")
+                for i, c in enumerate(requested):
+                    params[f"cls{i}"] = c
     if date_from is not None:
         where_clauses.append("timestamp >= CAST(:date_from AS timestamptz)")
         params["date_from"] = date_from
@@ -97,7 +127,8 @@ def get_security_logs(
         text(f"""
             SELECT log_id, timestamp, source_ip, destination_ip, suricata_sid,
                    severity_level, raw_payload, xai_narrative, xai_confidence,
-                   admin_action_taken, resolved_at, reviewed_by, hitl_decision
+                   admin_action_taken, resolved_at, reviewed_by, hitl_decision,
+                   classification, suricata_signature, suricata_category
             FROM wims.security_threat_logs
             {where_sql}
             ORDER BY {order_by}
@@ -130,6 +161,9 @@ def get_security_logs(
                 "resolved_at": r[10].isoformat() if r[10] else None,
                 "reviewed_by": str(r[11]) if r[11] else None,
                 "hitl_decision": r[12],
+                "classification": r[13],
+                "suricata_signature": r[14],
+                "suricata_category": r[15],
             }
             for r in rows
         ],

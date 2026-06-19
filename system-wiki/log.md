@@ -3,6 +3,16 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-19] feat | security telemetry classification fields (#410)
+
+- **`src/postgres-init/62_security_threat_classification.sql`:** New idempotent migration adding `classification TEXT`, `suricata_signature TEXT`, and `suricata_category TEXT` columns to `wims.security_threat_logs`.
+- **`src/backend/models/security_threat_log.py`:** Added `classification`, `suricata_signature`, `suricata_category` mapped columns (all nullable).
+- **`src/backend/api/routes/admin/security.py`:** Added `classification` query param with bound-param filtering (single + multi-value). Added `_VALID_CLASSIFICATIONS` frozenset. New fields exposed in `GET /api/admin/security-logs` response items. Invalid values rejected with 400.
+- **`src/backend/tests/test_security_monitoring.py`:** Extended all row tuples from 13 to 16 elements. Added 7 new tests: 2 response-shape tests (tracer bullet), 4 classification filter tests (single value, multi-value IN clause with bound params, invalid rejection, no-filter-returns-all), 1 null-field test.
+- **`src/frontend/src/lib/api/legacy.ts`:** Added `classification` to `fetchAdminSecurityLogs` params type and URLSearchParams construction.
+- **`system-wiki/database/sql-init-files.md`:** Added 62_security_threat_classification.sql to the init files listing.
+- **`system-wiki/subsystems/admin-hub.md`:** Updated Security Telemetry route table to document the new `classification` filter param.
+
 ## [2026-06-19] refactor | DB CHECK constraints code review — NOT VALID, fail-fast, param tests
 
 - **`src/postgres-init/61_check_constraints.sql`:** Added `AND conrelid = 'wims.incident_nonsensitive_details'::regclass` to all 18 DO-block guards to prevent cross-schema collisions. Appended `NOT VALID` to all 18 ADD CONSTRAINT statements so existing data does not block the migration.
