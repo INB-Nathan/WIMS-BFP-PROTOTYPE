@@ -135,6 +135,7 @@ _SQL_FILE_SCHEMA_PATCHES = {
     "45_add_client_id_to_incidents.sql",
     "53_incident_pii_key_version.sql",
     "54_openbao_provider_metadata.sql",
+    "61_check_constraints.sql",
 }
 
 
@@ -195,6 +196,7 @@ def apply_schema_patches() -> None:
     - general_description_of_involved column (28_general_description_column.sql)
     - key_version column (53_incident_pii_key_version.sql)
     - crypto_provider / kms_key_name + relaxed PII constraint (54_openbao_provider_metadata.sql)
+    - non-negative CHECK constraints on incident_nonsensitive_details (61_check_constraints.sql)
 
     Uses DATABASE_ADMIN_URL (superuser) because CREATE RULE / CREATE POLICY /
     ALTER TABLE require the table owner; wims_app_user (the runtime role) is not
@@ -219,250 +221,229 @@ def apply_schema_patches() -> None:
             _schema_patches_in_progress = False
         raise
 
-    # Ensure wims_app_user exists — postgres-init only runs on first boot,
-    # so existing containers (e.g. VPS) won't have this role until this patch runs.
-    if _APP_USER_PASSWORD is None:
-        logger.warning(
-            "Schema patch (wims_app_user) skipped: WIMS_APP_USER_PASSWORD is not set "
-            "and could not be derived from DATABASE_URL. "
-            "Set WIMS_APP_USER_PASSWORD or ensure DATABASE_URL includes credentials."
-        )
-    else:
+    try:
+        # Ensure wims_app_user exists — postgres-init only runs on first boot,
+        # so existing containers (e.g. VPS) won't have this role until this patch runs.
+        if _APP_USER_PASSWORD is None:
+            logger.warning(
+                "Schema patch (wims_app_user) skipped: WIMS_APP_USER_PASSWORD is not set "
+                "and could not be derived from DATABASE_URL. "
+                "Set WIMS_APP_USER_PASSWORD or ensure DATABASE_URL includes credentials."
+            )
+        else:
+            try:
+                # Password comes from env/DATABASE_URL — escape PL/pgSQL string literal.
+                _escaped_pw = _APP_USER_PASSWORD.replace("'", "''")
+                db.execute(
+                    text(
+                        f"""
+                        DO $$
+                        BEGIN
+                          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'wims_app') THEN
+                            CREATE ROLE wims_app NOLOGIN;
+                          END IF;
+                          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'wims_app_user') THEN
+                            CREATE ROLE wims_app_user LOGIN PASSWORD '{_escaped_pw}' INHERIT;
+                            GRANT wims_app TO wims_app_user;
+                          END IF;
+                        END
+                        $$
+                        """
+                    )
+                )
+                db.execute(text("GRANT USAGE ON SCHEMA wims TO wims_app"))
+                db.execute(
+                    text(
+                        "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA wims TO wims_app"
+                    )
+                )
+                db.execute(
+                    text("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA wims TO wims_app")
+                )
+                db.commit()
+                logger.info("Schema patch applied: wims_app_user role ensured")
+            except Exception as exc:
+                logger.warning("Schema patch (wims_app_user) failed (non-fatal): %s", exc)
+                db.rollback()
+
         try:
-            # Password comes from env/DATABASE_URL — escape PL/pgSQL string literal (double quotes).
-            _escaped_pw = _APP_USER_PASSWORD.replace("'", "''")
+            db.execute(text("DROP RULE IF EXISTS no_update_verified ON wims.fire_incidents"))
             db.execute(
-                text(
-                    f"""
-                    DO $$
-                    BEGIN
-                      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'wims_app') THEN
-                        CREATE ROLE wims_app NOLOGIN;
-                      END IF;
-                      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'wims_app_user') THEN
-                        CREATE ROLE wims_app_user LOGIN PASSWORD '{_escaped_pw}' INHERIT;
-                        GRANT wims_app TO wims_app_user;
-                      END IF;
-                    END
-                    $$
-                    """
-                )
-            )
-            db.execute(text("GRANT USAGE ON SCHEMA wims TO wims_app"))
-            db.execute(
-                text(
-                    "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA wims TO wims_app"
-                )
-            )
-            db.execute(
-                text("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA wims TO wims_app")
+                text("""
+                    CREATE RULE no_update_verified AS
+                        ON UPDATE TO wims.fire_incidents
+                        WHERE (
+                            OLD.verification_status = 'VERIFIED'
+                            AND NEW.verification_status != 'REPLACED'
+                            AND NOT (NEW.is_archived = TRUE AND OLD.is_archived = FALSE)
+                            AND NOT (NEW.is_archived = FALSE AND OLD.is_archived = TRUE)
+                        )
+                        DO INSTEAD NOTHING
+                """)
             )
             db.commit()
-            logger.info("Schema patch applied: wims_app_user role ensured")
+            logger.info(
+                "Schema patch applied: no_update_verified rule updated to allow archival and unarchival"
+            )
         except Exception as exc:
-            logger.warning("Schema patch (wims_app_user) failed (non-fatal): %s", exc)
+            logger.warning("Schema patch (no_update_verified) failed (non-fatal): %s", exc)
             db.rollback()
 
-    try:
-        db.execute(text("DROP RULE IF EXISTS no_update_verified ON wims.fire_incidents"))
-        db.execute(
-            text("""
-                CREATE RULE no_update_verified AS
-                    ON UPDATE TO wims.fire_incidents
-                    WHERE (
-                        OLD.verification_status = 'VERIFIED'
-                        AND NEW.verification_status != 'REPLACED'
-                        AND NOT (NEW.is_archived = TRUE AND OLD.is_archived = FALSE)
-                        AND NOT (NEW.is_archived = FALSE AND OLD.is_archived = TRUE)
+        try:
+            _apply_ref_table_rls(db)
+            db.commit()
+            logger.info("Schema patch applied: ref_regions/ref_provinces/ref_cities RLS policies")
+        except Exception as exc:
+            logger.warning("Schema patch (ref RLS) failed (non-fatal): %s", exc)
+            db.rollback()
+
+        try:
+            _apply_users_rls(db)
+            db.commit()
+            logger.info(
+                "Schema patch applied: wims.users SELECT policy broadened for BFP staff roles"
+            )
+        except Exception as exc:
+            logger.warning("Schema patch (users RLS) failed (non-fatal): %s", exc)
+            db.rollback()
+
+        try:
+            db.execute(
+                text("""
+                    INSERT INTO wims.users (user_id, keycloak_id, username, role, is_active)
+                    VALUES (
+                        '00000000-0000-0000-0000-000000000002'::uuid,
+                        '00000000-0000-0000-0000-000000000002'::uuid,
+                        'svc_task',
+                        'SYSTEM_ADMIN',
+                        TRUE
                     )
-                    DO INSTEAD NOTHING
-            """)
-        )
-        db.commit()
-        logger.info(
-            "Schema patch applied: no_update_verified rule updated to allow archival and unarchival"
-        )
-    except Exception as exc:
-        logger.warning("Schema patch (no_update_verified) failed (non-fatal): %s", exc)
-        db.rollback()
+                    ON CONFLICT (user_id) DO NOTHING
+                """)
+            )
+            db.commit()
+            logger.info("Schema patch applied: svc_task system service account ensured")
+        except Exception as exc:
+            logger.warning("Schema patch (svc_task user) failed (non-fatal): %s", exc)
+            db.rollback()
 
-    try:
-        _apply_ref_table_rls(db)
-        db.commit()
-        logger.info("Schema patch applied: ref_regions/ref_provinces/ref_cities RLS policies")
-    except Exception as exc:
-        logger.warning("Schema patch (ref RLS) failed (non-fatal): %s", exc)
-        db.rollback()
+        try:
+            for mv in (
+                "wims.mv_incident_counts_daily",
+                "wims.mv_incident_by_region",
+                "wims.mv_incident_type_distribution",
+            ):
+                db.execute(text(f"ALTER MATERIALIZED VIEW IF EXISTS {mv} OWNER TO wims_app_user"))
+            db.commit()
+            logger.info(
+                "Schema patch applied: analytics materialized view ownership transferred to wims_app_user"
+            )
+        except Exception as exc:
+            logger.warning("Schema patch (MV ownership) failed (non-fatal): %s", exc)
+            db.rollback()
 
-    try:
-        _apply_users_rls(db)
-        db.commit()
-        logger.info("Schema patch applied: wims.users SELECT policy broadened for BFP staff roles")
-    except Exception as exc:
-        logger.warning("Schema patch (users RLS) failed (non-fatal): %s", exc)
-        db.rollback()
+        try:
+            _apply_analytics_facts_rls(db)
+            db.commit()
+            logger.info(
+                "Schema patch applied: analytics_incident_facts RLS policies rewritten "
+                "to use current_user_role() (removed incompatible TO <role> syntax)"
+            )
+        except Exception as exc:
+            logger.warning("Schema patch (analytics_facts RLS) failed (non-fatal): %s", exc)
+            db.rollback()
 
-    try:
-        db.execute(
-            text("""
-                INSERT INTO wims.users (user_id, keycloak_id, username, role, is_active)
-                VALUES (
-                    '00000000-0000-0000-0000-000000000002'::uuid,
-                    '00000000-0000-0000-0000-000000000002'::uuid,
-                    'svc_task',
-                    'SYSTEM_ADMIN',
-                    TRUE
-                )
-                ON CONFLICT (user_id) DO NOTHING
-            """)
-        )
-        db.commit()
-        logger.info("Schema patch applied: svc_task system service account ensured")
-    except Exception as exc:
-        logger.warning("Schema patch (svc_task user) failed (non-fatal): %s", exc)
-        db.rollback()
+        # Ensure RLS helper functions are SECURITY DEFINER to prevent infinite
+        # recursion: current_user_role() queries wims.users, which has RLS policies
+        # that call current_user_role(). Without SECURITY DEFINER this stack-overflows.
+        try:
+            db.execute(text("ALTER FUNCTION wims.current_user_role() SECURITY DEFINER"))
+            db.execute(text("ALTER FUNCTION wims.current_user_uuid() SECURITY DEFINER"))
+            db.execute(text("ALTER FUNCTION wims.current_user_region_id() SECURITY DEFINER"))
+            db.commit()
+            logger.info("Schema patch applied: RLS helper functions set to SECURITY DEFINER")
+        except Exception as exc:
+            logger.warning(
+                "Schema patch (RLS helpers SECURITY DEFINER) failed (non-fatal): %s", exc
+            )
+            db.rollback()
 
-    try:
-        for mv in (
-            "wims.mv_incident_counts_daily",
-            "wims.mv_incident_by_region",
-            "wims.mv_incident_type_distribution",
-        ):
-            db.execute(text(f"ALTER MATERIALIZED VIEW IF EXISTS {mv} OWNER TO wims_app_user"))
-        db.commit()
-        logger.info(
-            "Schema patch applied: analytics materialized view ownership transferred to wims_app_user"
-        )
-    except Exception as exc:
-        logger.warning("Schema patch (MV ownership) failed (non-fatal): %s", exc)
-        db.rollback()
-
-    try:
-        _apply_analytics_facts_rls(db)
-        db.commit()
-        logger.info(
-            "Schema patch applied: analytics_incident_facts RLS policies rewritten "
-            "to use current_user_role() (removed incompatible TO <role> syntax)"
-        )
-    except Exception as exc:
-        logger.warning("Schema patch (analytics_facts RLS) failed (non-fatal): %s", exc)
-        db.rollback()
-
-    # Ensure RLS helper functions are SECURITY DEFINER to prevent infinite
-    # recursion: current_user_role() queries wims.users, which has RLS policies
-    # that call current_user_role(). Without SECURITY DEFINER this stack-overflows.
-    try:
-        db.execute(text("ALTER FUNCTION wims.current_user_role() SECURITY DEFINER"))
-        db.execute(text("ALTER FUNCTION wims.current_user_uuid() SECURITY DEFINER"))
-        db.execute(text("ALTER FUNCTION wims.current_user_region_id() SECURITY DEFINER"))
-        db.commit()
-        logger.info("Schema patch applied: RLS helper functions set to SECURITY DEFINER")
-    except Exception as exc:
-        logger.warning("Schema patch (RLS helpers SECURITY DEFINER) failed (non-fatal): %s", exc)
-        db.rollback()
-
-    try:
         _apply_postgres_init_sql_patch(
             db,
             "45_add_client_id_to_incidents.sql",
             "client_id column + unique index on fire_incidents",
         )
-    except Exception as exc:
-        logger.warning("Schema patch (client_id) failed (non-fatal): %s", exc)
-        db.rollback()
 
-    try:
         _apply_postgres_init_sql_patch(
             db,
             "19_reference_number.sql",
             "reference_number / incident_type_code / reference_number index",
         )
-    except Exception as exc:
-        logger.warning("Schema patch (reference_number) failed (non-fatal): %s", exc)
-        db.rollback()
 
-    # province_district / city_municipality from 21_all_regions.sql
-    # (kept inline; source file mixes schema with region seed data + user assignments)
-    try:
-        db.execute(
-            text(
-                "ALTER TABLE wims.incident_nonsensitive_details"
-                " ADD COLUMN IF NOT EXISTS province_district TEXT,"
-                " ADD COLUMN IF NOT EXISTS city_municipality TEXT"
+        # province_district / city_municipality from 21_all_regions.sql
+        # (kept inline; source file mixes schema with region seed data + user assignments)
+        try:
+            db.execute(
+                text(
+                    "ALTER TABLE wims.incident_nonsensitive_details"
+                    " ADD COLUMN IF NOT EXISTS province_district TEXT,"
+                    " ADD COLUMN IF NOT EXISTS city_municipality TEXT"
+                )
             )
-        )
-        db.commit()
-        logger.info("Schema patch applied: province_district / city_municipality columns")
-    except Exception as exc:
-        logger.warning("Schema patch (province/city) failed (non-fatal): %s", exc)
-        db.rollback()
+            db.commit()
+            logger.info("Schema patch applied: province_district / city_municipality columns")
+        except Exception as exc:
+            logger.warning("Schema patch (province/city) failed (non-fatal): %s", exc)
+            db.rollback()
 
-    # barangay column from 35_barangay_text.sql (schema-only, idempotent)
-    try:
+        # barangay column from 35_barangay_text.sql (schema-only, idempotent)
         _apply_postgres_init_sql_patch(
             db,
             "35_barangay_text.sql",
             "barangay column on incident_nonsensitive_details",
         )
-    except Exception as exc:
-        logger.warning("Schema patch (barangay) failed (non-fatal): %s", exc)
-        db.rollback()
 
-    # Migration 25: extent_description, extent_objects_count
-    try:
+        # Migration 25: extent_description, extent_objects_count
         _apply_postgres_init_sql_patch(
             db,
             "25_extent_fields.sql",
             "extent_description / extent_objects_count columns",
         )
-    except Exception as exc:
-        logger.warning("Schema patch (extent columns) failed (non-fatal): %s", exc)
-        db.rollback()
 
-    # Migration 27: reference_sequence table for reference number generation
-    try:
+        # Migration 27: reference_sequence table for reference number generation
         _apply_postgres_init_sql_patch(
             db,
             "27_reference_sequence.sql",
             "reference_sequence table",
         )
-    except Exception as exc:
-        logger.warning("Schema patch (reference_sequence) failed (non-fatal): %s", exc)
-        db.rollback()
 
-    # Migration 28: general_description_of_involved
-    try:
+        # Migration 28: general_description_of_involved
         _apply_postgres_init_sql_patch(
             db,
             "28_general_description_column.sql",
             "general_description_of_involved column",
         )
-    except Exception as exc:
-        logger.warning("Schema patch (general_description_of_involved) failed (non-fatal): %s", exc)
-        db.rollback()
 
-    # Migration 53: key_version on incident_sensitive_details
-    try:
+        # Migration 53: key_version on incident_sensitive_details
         _apply_postgres_init_sql_patch(
             db,
             "53_incident_pii_key_version.sql",
             "key_version column on incident_sensitive_details",
         )
-    except Exception as exc:
-        logger.warning("Schema patch (key_version) failed (non-fatal): %s", exc)
-        db.rollback()
 
-    # Migration 54: crypto_provider, kms_key_name + relaxed PII blob consistency constraint
-    try:
+        # Migration 54: crypto_provider, kms_key_name + relaxed PII blob consistency constraint
         _apply_postgres_init_sql_patch(
             db,
             "54_openbao_provider_metadata.sql",
             "crypto_provider / kms_key_name columns + relaxed pii_blob_consistency constraint",
         )
-    except Exception as exc:
-        logger.warning("Schema patch (crypto_provider/kms_key_name) failed (non-fatal): %s", exc)
-        db.rollback()
 
+        # Migration 61: non-negative CHECK constraints on incident_nonsensitive_details
+        _apply_postgres_init_sql_patch(
+            db,
+            "61_check_constraints.sql",
+            "non-negative CHECK constraints on incident_nonsensitive_details",
+        )
     finally:
         db.close()
         with _schema_patches_lock:

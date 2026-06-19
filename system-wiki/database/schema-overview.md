@@ -27,6 +27,7 @@ As of 2026-06-19, eligible schema-only SQL files are executed directly from `src
 - `45_add_client_id_to_incidents.sql`
 - `53_incident_pii_key_version.sql`
 - `54_openbao_provider_metadata.sql`
+- `61_check_constraints.sql`
 
 **Kept inline** (mixed schema + seed data, RLS rewrites, or rule/policy patches):
 - `21_all_regions.sql` — province_district/city_municipality columns only; file also seeds regions/provinces/cities and assigns users
@@ -74,6 +75,40 @@ As of 2026-06-19, eligible schema-only SQL files are executed directly from `src
 - Analytics: `wims.analytics_incident_facts`, materialized view SQL, export/scheduled report tables. Migration `28_analytics_geography_denorm.sql` adds denormalized `municipality_name` and `province_name` fields for analyst filters/top-N views, plus export task/file metadata on `analytics_export_log`. Scheduled reports remain deferred outside the National Analyst dashboard phase.
 - Security: `wims.security_threat_logs`, `wims.system_audit_trails`, public keys.
 - Civilian reporting: `wims.citizen_reports` stores device-UUID-owned reports. The `location` column is a PostGIS `geography` type — when extracting latitude/longitude via `ST_Y`/`ST_X`, the column must be cast to `geometry`: `ST_Y(location::geometry)` or `ST_X(location::geometry)`. The Phase 2 update flow uses `GET /api/civilian/reports?device_id=` to enumerate a device's owned reports before allowing an append.
+
+## DB-Enforced vs App-Enforced Invariants
+
+As of migration `61_check_constraints.sql` (Issue #387 / D13), critical numeric
+non-negativity invariants on `incident_nonsensitive_details` are enforced at the
+database layer as CHECK constraints, providing defense-in-depth below the
+Pydantic app-layer validation.
+
+### DB-Enforced (CHECK constraints)
+
+**`wims.incident_nonsensitive_details`** — all 18 numeric columns have
+`chk_incident_nonsensitive_details_{column}_non_negative` CHECK constraints
+enforcing `col IS NULL OR col >= 0`:
+- Casualties: `civilian_deaths`, `civilian_injured`, `firefighter_deaths`, `firefighter_injured`
+- Damage: `estimated_damage_php`, `families_affected`
+- Resources: `water_tankers_used`, `foam_liters_used`, `breathing_apparatus_used`
+- Impact: `structures_affected`, `households_affected`, `individuals_affected`, `vehicles_affected`
+- Metrics: `total_response_time_minutes`, `total_gas_consumed_liters`
+- Extent: `extent_total_floor_area_sqm`, `extent_total_land_area_hectares`
+- Distance: `distance_from_station_km`
+
+**Other tables with existing CHECKs:**
+- `wims.fire_incidents`: `verification_status` enum values (includes DRAFT, PENDING, PENDING_VALIDATION, VERIFIED, REJECTED, REPLACED)
+- `wims.citizen_reports`: `status`, `trust_score`, `category`, `reporting_context`, `safety_status`, `reported_via` enums; `chk_actioned_requires_validator`
+- `wims.incident_sensitive_details`: `pii_blob_consistency` (pii_blob_enc ↔ encryption_iv)
+- `wims.security_threat_logs`: `suricata_sid` > 0
+
+### App-Enforced Only (Pydantic / application logic)
+
+- Locality hierarchy consistency (city → barangay → province → region) — cross-table CHECKs impractical in PostgreSQL
+- Monotonic workflow timestamps (`created_at ≤ submitted_at ≤ verified_at`) — cross-column CHECKs with nullable logic deferred to app
+- `casualty_details` JSONB structure validation — stays in Pydantic/application layer
+- Coordinate bounds (`latitude`, `longitude`) on `fire_incidents.location` — enforced via PostGIS geography type, not explicit CHECK
+- Percentage fields (0–100%) — no percentage columns currently exist within the incident-domain tables (excluding tables like `wims.system_metrics`)
 
 ## Related
 - [[backend/api-route-map]]
