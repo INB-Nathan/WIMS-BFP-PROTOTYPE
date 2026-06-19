@@ -4,13 +4,12 @@ import logging
 import os
 import re
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Optional
 
 from fastapi import (
     APIRouter,
-    Body,
     Depends,
     File,
     HTTPException,
@@ -28,6 +27,7 @@ from auth import get_current_wims_user, get_analyst_or_admin
 from auth import get_db_with_rls
 from database import set_rls_context
 from schemas.incident import IncidentCreate, IncidentResponse
+from schemas.incident_bundle import IncidentBundleCreate
 from services.analytics.filters import append_common_filters, build_analytics_filters
 from services.analytics_read_model import sync_incident_to_analytics
 from services.kms import get_crypto_provider
@@ -92,21 +92,26 @@ def _resolve_storage_dir() -> str:
 
 @router.post("/incidents/upload-bundle")
 def upload_incident_bundle(
-    body: Annotated[dict[str, Any], Body(...)],
+    body: IncidentBundleCreate,
+    request: Request,
     user: Annotated[dict, Depends(get_current_wims_user)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
-    """Compatibility endpoint used by existing frontend bundle submit flow."""
-    incidents = body.get("incidents")
-    if not isinstance(incidents, list) or len(incidents) == 0:
-        raise HTTPException(status_code=400, detail="No incidents provided")
+    """Compatibility endpoint used by existing frontend bundle submit flow.
 
-    _max_bundle = int(os.getenv("WIMS_MAX_BUNDLE_SIZE", "200"))
-    if len(incidents) > _max_bundle:
+    Accepts a typed ``IncidentBundleCreate`` body with per-incident field
+    validation.  Preserves backward compatibility with existing callers.
+    """
+    # ── App-level JSON request byte limit ──────────────────────────────────
+    _max_bundle_bytes = int(os.getenv("WIMS_MAX_BUNDLE_BYTES", str(5 * 1024 * 1024)))
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > _max_bundle_bytes:
         raise HTTPException(
-            status_code=413,
-            detail=f"Bundle exceeds maximum of {_max_bundle} incidents per request.",
+            status_code=422,
+            detail=f"Request body exceeds maximum size of {_max_bundle_bytes} bytes",
         )
+
+    incidents = body.incidents
 
     user_id = user["user_id"]
     user_role = user.get("role", "")
@@ -118,10 +123,10 @@ def upload_incident_bundle(
     ).fetchone()
     assigned_region_id = assigned_row[0] if assigned_row else None
 
-    region_id_raw = body.get("region_id")
-    try:
-        region_id = int(region_id_raw)
-    except (TypeError, ValueError):
+    region_id_raw = body.region_id
+    if region_id_raw is not None:
+        region_id = region_id_raw
+    else:
         # Fall back to assigned region (encoder) or first available region
         if assigned_region_id:
             region_id = int(assigned_region_id)
@@ -174,51 +179,13 @@ def upload_incident_bundle(
         is not None
     )
 
-    def _safe_int(v: Any, default: int = 0) -> int:
-        try:
-            return int(v)
-        except (TypeError, ValueError):
-            return default
-
-    def _safe_float(v: Any, default: float = 0.0) -> float:
-        try:
-            return float(v)
-        except (TypeError, ValueError):
-            return default
-
-    # _parse_client_ts is defined once outside the loop so it isn't redefined on
-    # every iteration (which triggers a SyntaxWarning in some Python versions).
-    def _parse_client_ts(raw: Any) -> str | None:
-        if not raw or not isinstance(raw, str):
-            return None
-        try:
-            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-            now_utc = datetime.now(timezone.utc)
-            if dt > now_utc:
-                return now_utc.isoformat()
-            return dt.isoformat()
-        except (ValueError, OverflowError):
-            return None
-
     for item in incidents:
-        if not isinstance(item, dict):
-            continue
-
         i += 1
-        ns = item.get("incident_nonsensitive_details") or {}
-        sens = item.get("incident_sensitive_details") or {}
-        if not isinstance(ns, dict):
-            ns = {}
-        if not isinstance(sens, dict):
-            sens = {}
+        ns = item.incident_nonsensitive_details
+        sens = item.incident_sensitive_details
 
-        item_client_id = str(item.get("client_id") or "").strip() or None
+        item_client_id = item.client_id
         if client_id_col_exists and item_client_id:
-            try:
-                uuid.UUID(item_client_id)
-            except (ValueError, AttributeError):
-                raise HTTPException(status_code=422, detail="client_id must be a valid UUID")
-
             # fire_incidents has immutable-record rules, and PostgreSQL rejects
             # INSERT ... ON CONFLICT on tables with INSERT/UPDATE rules. This
             # lock keeps same-client retries idempotent without using ON CONFLICT.
@@ -240,32 +207,28 @@ def upload_incident_bundle(
                 results["imported"].append(int(existing_row[0]))
                 continue
 
-        lon = _safe_float(item.get("longitude"), 0.0)
-        lat = _safe_float(item.get("latitude"), 0.0)
+        lon = item.longitude
+        lat = item.latitude
 
-        incident_type_code_val = (ns.get("incident_type_code") or "").strip().upper() or None
+        incident_type_code_val = (ns.incident_type_code or "").strip().upper() or None
 
         city_id: int | None = None
-        city_id_raw = ns.get("city_id")
-        try:
-            city_candidate = int(city_id_raw) if city_id_raw is not None else None
-        except (TypeError, ValueError):
-            city_candidate = None
-        if city_candidate and city_candidate > 0:
+        city_id_raw = ns.city_id
+        if city_id_raw is not None and city_id_raw > 0:
             city_exists = db.execute(
                 text("SELECT 1 FROM wims.ref_cities WHERE city_id = :cid LIMIT 1"),
-                {"cid": city_candidate},
+                {"cid": city_id_raw},
             ).fetchone()
-            city_id = city_candidate if city_exists else None
+            city_id = city_id_raw if city_exists else None
 
         _cid_col = ", client_id" if client_id_col_exists else ""
         _cid_val = ", CAST(:client_id AS uuid)" if client_id_col_exists else ""
 
         # Accept optional client-supplied timestamps for offline-first sync.
         # These are ISO-8601 strings queued on the client when the device was offline.
-        # We validate and clamp to current time to prevent far-future values.
-        client_created_at = _parse_client_ts(item.get("created_at"))
-        client_updated_at = _parse_client_ts(item.get("updated_at"))
+        # The Pydantic model validates format and clamps to current time.
+        client_created_at = item.created_at
+        client_updated_at = item.updated_at
         _ts_cols = ""
         _ts_vals = ""
         if client_created_at:
@@ -374,40 +337,36 @@ def upload_incident_bundle(
                 {
                     "incident_id": incident_id,
                     "city_id": city_id,
-                    "notification_dt": ns.get("notification_dt"),
-                    "alarm_level": ns.get("alarm_level", ""),
-                    "general_category": _normalize_general_category(
-                        ns.get("general_category", "") or ""
-                    ),
-                    "sub_category": ns.get("incident_type") or ns.get("sub_category") or "",
-                    "responder_type": ns.get("responder_type", ""),
-                    "fire_origin": ns.get("fire_origin", ""),
-                    "extent_of_damage": ns.get("extent_of_damage", ""),
-                    "structures_affected": _safe_int(ns.get("structures_affected")),
-                    "households_affected": _safe_int(ns.get("households_affected")),
-                    "families_affected": _safe_int(ns.get("families_affected")),
-                    "individuals_affected": _safe_int(ns.get("individuals_affected")),
-                    "vehicles_affected": _safe_int(ns.get("vehicles_affected")),
-                    "total_response_time_minutes": _safe_int(ns.get("total_response_time_minutes")),
-                    "total_gas_consumed_liters": _safe_float(ns.get("total_gas_consumed_liters")),
-                    "resources_deployed": json.dumps(ns.get("resources_deployed", {})),
-                    "alarm_timeline": json.dumps(ns.get("alarm_timeline", {})),
-                    "problems_encountered": json.dumps(ns.get("problems_encountered", [])),
-                    "recommendations": ns.get("recommendations", ""),
-                    "fire_station_name": ns.get("fire_station_name", ""),
-                    "stage_of_fire": ns.get("stage_of_fire", ""),
-                    "floor_area": _safe_float(ns.get("extent_total_floor_area_sqm")),
-                    "land_area": _safe_float(ns.get("extent_total_land_area_hectares")),
-                    "distance_from_station_km": _safe_float(
-                        ns.get("distance_to_fire_scene_km") or ns.get("distance_from_station_km")
-                    ),
-                    "city_municipality": ns.get("city_municipality") or "",
-                    "province_district": ns.get("province_district") or "",
-                    "barangay": ns.get("barangay") or "",
-                    "extent_description": ns.get("extent_description") or None,
-                    "extent_objects_count": _safe_int(ns.get("extent_objects_count")),
-                    "general_description_of_involved": ns.get("general_description_of_involved")
-                    or None,
+                    "notification_dt": ns.notification_dt,
+                    "alarm_level": ns.alarm_level,
+                    "general_category": _normalize_general_category(ns.general_category or ""),
+                    "sub_category": ns.sub_category or "",
+                    "responder_type": ns.responder_type,
+                    "fire_origin": ns.fire_origin,
+                    "extent_of_damage": ns.extent_of_damage,
+                    "structures_affected": ns.structures_affected,
+                    "households_affected": ns.households_affected,
+                    "families_affected": ns.families_affected,
+                    "individuals_affected": ns.individuals_affected,
+                    "vehicles_affected": ns.vehicles_affected,
+                    "total_response_time_minutes": ns.total_response_time_minutes,
+                    "total_gas_consumed_liters": ns.total_gas_consumed_liters,
+                    "resources_deployed": json.dumps(ns.resources_deployed),
+                    "alarm_timeline": json.dumps(ns.alarm_timeline),
+                    "problems_encountered": json.dumps(ns.problems_encountered),
+                    "recommendations": ns.recommendations,
+                    "fire_station_name": ns.fire_station_name,
+                    "stage_of_fire": ns.stage_of_fire,
+                    "floor_area": ns.extent_total_floor_area_sqm,
+                    "land_area": ns.extent_total_land_area_hectares,
+                    "distance_from_station_km": ns.distance_to_fire_scene_km
+                    or ns.distance_from_station_km,
+                    "city_municipality": ns.city_municipality,
+                    "province_district": ns.province_district,
+                    "barangay": ns.barangay,
+                    "extent_description": ns.extent_description or None,
+                    "extent_objects_count": ns.extent_objects_count,
+                    "general_description_of_involved": ns.general_description_of_involved or None,
                 },
             )
 
@@ -415,13 +374,13 @@ def upload_incident_bundle(
             pii_for_blob = {
                 k: v
                 for k, v in (
-                    ("caller_name", sens.get("caller_name")),
-                    ("caller_number", sens.get("caller_number")),
-                    ("owner_name", sens.get("owner_name")),
-                    ("occupant_name", sens.get("occupant_name")),
-                    ("narrative_report", sens.get("narrative_report")),
-                    ("casualty_details", sens.get("casualty_details")),
-                    ("estimated_damage_php", ns.get("estimated_damage_php")),
+                    ("caller_name", sens.caller_name),
+                    ("caller_number", sens.caller_number),
+                    ("owner_name", sens.owner_name),
+                    ("occupant_name", sens.occupant_name),
+                    ("narrative_report", sens.narrative_report),
+                    ("casualty_details", sens.casualty_details),
+                    ("estimated_damage_php", ns.estimated_damage_php),
                 )
                 if v  # omit None and empty strings/empty dicts
             }
@@ -477,24 +436,24 @@ def upload_incident_bundle(
                 ),
                 {
                     "incident_id": incident_id,
-                    "street_address": sens.get("street_address")
-                    or ns.get("incident_address")
-                    or "",
-                    "landmark": sens.get("landmark") or ns.get("nearest_landmark") or "",
+                    "street_address": sens.street_address or ns.incident_address or "",
+                    "landmark": sens.landmark or ns.nearest_landmark or "",
                     # Plaintext PII columns → NULL; only pii_blob_enc is authoritative
-                    "receiver_name": sens.get("receiver_name", ""),
-                    "establishment_name": sens.get("establishment_name", ""),
+                    "receiver_name": sens.receiver_name,
+                    "establishment_name": sens.establishment_name,
                     # narrative_report → encrypted in blob; plaintext column NULL
-                    "disposition": sens.get("disposition", ""),
-                    "disposition_prepared_by": sens.get("prepared_by_officer")
-                    or sens.get("disposition_prepared_by", ""),
-                    "disposition_noted_by": sens.get("noted_by_officer")
-                    or sens.get("disposition_noted_by", ""),
-                    "personnel_on_duty": json.dumps(sens.get("personnel_on_duty", {})),
-                    "other_personnel": json.dumps(ns.get("other_personnel", [])),
+                    "disposition": sens.disposition,
+                    "disposition_prepared_by": sens.prepared_by_officer
+                    or sens.disposition_prepared_by
+                    or "",
+                    "disposition_noted_by": sens.noted_by_officer
+                    or sens.disposition_noted_by
+                    or "",
+                    "personnel_on_duty": json.dumps(sens.personnel_on_duty),
+                    "other_personnel": json.dumps(ns.other_personnel),
                     # casualty_details → encrypted in blob; plaintext column NULL
-                    "is_icp_present": bool(sens.get("is_icp_present", False)),
-                    "icp_location": sens.get("icp_location", ""),
+                    "is_icp_present": bool(sens.is_icp_present),
+                    "icp_location": sens.icp_location,
                     # Encrypted blob
                     "pii_blob_enc": ct_b64,
                     "pii_nonce": enc_iv,
