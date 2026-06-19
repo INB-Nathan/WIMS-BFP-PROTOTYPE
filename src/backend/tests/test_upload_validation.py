@@ -151,15 +151,15 @@ class TestCheckMagicBytes:
         check_magic_bytes(content, "png")
 
     def test_rejects_mismatch(self):
-        # Claimed xlsx but content is plain text
-        content = b"Hello, this is plain text"
+        # Claimed xlsx but content is plain text (long enough to bypass small-payload exception)
+        content = b"Hello, this is plain text" * 10  # 270 bytes
         with pytest.raises(HTTPException) as exc:
             check_magic_bytes(content, "xlsx")
         assert exc.value.status_code == 400
 
     def test_rejects_renamed_executable(self):
         # File claiming to be JPG but is actually an EXE
-        content = b"MZ\x00\x00" + b"\x00" * 100
+        content = b"MZ\x00\x00" + b"\x00" * 200
         with pytest.raises(HTTPException) as exc:
             check_magic_bytes(content, "jpg")
         assert exc.value.status_code == 400

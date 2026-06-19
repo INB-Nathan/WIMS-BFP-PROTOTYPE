@@ -610,8 +610,15 @@ async def upload_attachment(
     ext = validate_extension(
         safe_name,
         [
-            "jpg", "jpeg", "png", "pdf", "xlsx",
-            "txt", "doc", "docx", "bin",
+            "jpg",
+            "jpeg",
+            "png",
+            "pdf",
+            "xlsx",
+            "txt",
+            "doc",
+            "docx",
+            "bin",
         ],
     )
 
