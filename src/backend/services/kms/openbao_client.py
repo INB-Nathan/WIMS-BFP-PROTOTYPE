@@ -11,7 +11,11 @@ import logging
 import os
 from typing import Any
 
-import httpx
+from utils.external_service import (
+    CircuitBreakerOpenError,
+    ExternalServiceClient,
+    ExternalServiceError,
+)
 
 logger = logging.getLogger("wims.kms")
 
@@ -88,6 +92,16 @@ class OpenBaoClient:
         except ValueError:
             self.timeout = 2.0
 
+        # Resilient wrapper — gains retry + circuit breaker (neither existed before)
+        self._wrapper = ExternalServiceClient(
+            service_name="openbao",
+            timeout=self.timeout,
+            max_retries=2,
+            base_delay=0.5,
+            cb_failure_threshold=5,
+            cb_recovery_timeout=30.0,
+        )
+
     # ── HTTP helpers ──────────────────────────────────────────────────────────
 
     @staticmethod
@@ -128,14 +142,13 @@ class OpenBaoClient:
     ) -> dict[str, Any]:
         url = self._url_for(path)
         try:
-            with httpx.Client(timeout=self.timeout) as c:
-                resp = c.request(method, url, headers=self._headers, json=json_body)
-        except httpx.TimeoutException as e:
+            resp = self._wrapper.request_sync(method, url, headers=self._headers, json=json_body)
+        except CircuitBreakerOpenError as e:
             raise OpenBaoClientError(
-                f"OpenBao request timed out after {self.timeout}s: {method} {path}",
+                f"OpenBao circuit breaker open: {method} {path}",
                 method=method,
             ) from e
-        except httpx.HTTPError as e:
+        except ExternalServiceError as e:
             raise OpenBaoClientError(
                 f"OpenBao request failed: {method} {path} — {e}",
                 method=method,

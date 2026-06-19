@@ -8,9 +8,16 @@ from __future__ import annotations
 
 import logging
 
-import httpx
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
+
+from utils.external_service import (
+    CircuitBreakerOpenError,
+    ConcurrencyLimitError,
+    ExternalServiceClient,
+    ExternalServiceError,
+    ResponseSizeExceededError,
+)
 
 router = APIRouter(prefix="/api/geocode", tags=["geocode"])
 logger = logging.getLogger("wims.geocode")
@@ -23,6 +30,19 @@ _HEADERS = {
 }
 _TIMEOUT = 10.0
 
+# Shared resilient wrapper for Nominatim — gains retry, circuit breaker, size cap,
+# and concurrency cap (none of which the old bare httpx.AsyncClient had).
+_nominatim_client = ExternalServiceClient(
+    service_name="nominatim",
+    timeout=_TIMEOUT,
+    max_retries=2,
+    base_delay=1.0,
+    response_size_limit=5 * 1024 * 1024,  # 5 MB
+    concurrency_limit=10,
+    cb_failure_threshold=5,
+    cb_recovery_timeout=30.0,
+)
+
 
 @router.get("/reverse")
 async def reverse_geocode(
@@ -31,19 +51,25 @@ async def reverse_geocode(
 ):
     """Reverse-geocode a coordinate pair via Nominatim (server-side proxy)."""
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.get(
-                f"{_NOMINATIM_BASE}/reverse",
-                params={"lat": lat, "lon": lon, "format": "json", "addressdetails": 1, "zoom": 18},
-                headers=_HEADERS,
-            )
-            resp.raise_for_status()
-            return JSONResponse(content=resp.json())
-    except httpx.TimeoutException:
-        logger.warning("Nominatim reverse geocode timed out lat=%s lon=%s", lat, lon)
-        raise HTTPException(status_code=504, detail="Geocode service timed out")
-    except httpx.HTTPStatusError as exc:
-        logger.warning("Nominatim reverse geocode error: %s", exc.response.status_code)
+        resp = await _nominatim_client.request_async(
+            "GET",
+            f"{_NOMINATIM_BASE}/reverse",
+            params={"lat": lat, "lon": lon, "format": "json", "addressdetails": 1, "zoom": 18},
+            headers=_HEADERS,
+        )
+        resp.raise_for_status()
+        return JSONResponse(content=resp.json())
+    except CircuitBreakerOpenError:
+        logger.warning("Nominatim circuit breaker open")
+        raise HTTPException(status_code=503, detail="Geocode service temporarily unavailable")
+    except ConcurrencyLimitError:
+        logger.warning("Nominatim concurrency limit reached")
+        raise HTTPException(status_code=503, detail="Geocode service is busy, try again later")
+    except ResponseSizeExceededError:
+        logger.warning("Nominatim response too large lat=%s lon=%s", lat, lon)
+        raise HTTPException(status_code=502, detail="Geocode service returned oversized response")
+    except ExternalServiceError as exc:
+        logger.warning("Nominatim reverse geocode error: %s", exc)
         raise HTTPException(status_code=502, detail="Geocode service error")
 
 
@@ -55,23 +81,29 @@ async def search_geocode(
 ):
     """Forward-geocode an address string via Nominatim (server-side proxy)."""
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.get(
-                f"{_NOMINATIM_BASE}/search",
-                params={
-                    "q": q,
-                    "format": "json",
-                    "countrycodes": "ph",
-                    "limit": limit,
-                    "addressdetails": addressdetails,
-                },
-                headers=_HEADERS,
-            )
-            resp.raise_for_status()
-            return JSONResponse(content=resp.json())
-    except httpx.TimeoutException:
-        logger.warning("Nominatim search timed out q=%r", q)
-        raise HTTPException(status_code=504, detail="Geocode service timed out")
-    except httpx.HTTPStatusError as exc:
-        logger.warning("Nominatim search error: %s", exc.response.status_code)
+        resp = await _nominatim_client.request_async(
+            "GET",
+            f"{_NOMINATIM_BASE}/search",
+            params={
+                "q": q,
+                "format": "json",
+                "countrycodes": "ph",
+                "limit": limit,
+                "addressdetails": addressdetails,
+            },
+            headers=_HEADERS,
+        )
+        resp.raise_for_status()
+        return JSONResponse(content=resp.json())
+    except CircuitBreakerOpenError:
+        logger.warning("Nominatim circuit breaker open")
+        raise HTTPException(status_code=503, detail="Geocode service temporarily unavailable")
+    except ConcurrencyLimitError:
+        logger.warning("Nominatim concurrency limit reached")
+        raise HTTPException(status_code=503, detail="Geocode service is busy, try again later")
+    except ResponseSizeExceededError:
+        logger.warning("Nominatim response too large q=%r", q)
+        raise HTTPException(status_code=502, detail="Geocode service returned oversized response")
+    except ExternalServiceError as exc:
+        logger.warning("Nominatim search error: %s", exc)
         raise HTTPException(status_code=502, detail="Geocode service error")
