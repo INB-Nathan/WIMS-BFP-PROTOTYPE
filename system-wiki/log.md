@@ -3475,3 +3475,10 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - **Backend test cleanup:** Removed unused `from database import get_db` import in `test_system_monitoring.py`.
 - **Files:** `src/frontend/src/app/admin/system/page.tsx` (+18/-3), `src/backend/tests/test_system_monitoring.py` (+0/-1).
 - No FRS gap register change (UI completeness fix for already-implemented backend health check).
+
+## [2026-06-19] fix(test) | realign test mock row width with 16-column SELECT (#422 CI fix)
+
+- **Gap:** PR #422 added `classification`, `suricata_signature`, and `suricata_category` columns to the `GET /api/admin/security-logs` SELECT (16 columns), but the test mock `_SECURITY_ROW` in `tests/test_log_fulltext_search.py` still had only 13 elements. All 7 `TestSecurityLogSearch` tests crashed with `IndexError: tuple index out of range` when the response builder accessed `r[13]`, `r[14]`, and `r[15]`.
+- **Fix:** Extended `_SECURITY_ROW` from 13 to 16 elements (3 trailing `None` for the new columns). All 12 tests in `test_log_fulltext_search.py` now pass.
+- **File:** `src/backend/tests/test_log_fulltext_search.py` (+3/-0).
+- **PR CI status:** Backend job passes; Merge Gate unblocked.
