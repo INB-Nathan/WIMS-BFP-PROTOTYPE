@@ -135,6 +135,7 @@ _SQL_FILE_SCHEMA_PATCHES = {
     "45_add_client_id_to_incidents.sql",
     "53_incident_pii_key_version.sql",
     "54_openbao_provider_metadata.sql",
+    "61_check_constraints.sql",
 }
 
 
@@ -195,6 +196,7 @@ def apply_schema_patches() -> None:
     - general_description_of_involved column (28_general_description_column.sql)
     - key_version column (53_incident_pii_key_version.sql)
     - crypto_provider / kms_key_name + relaxed PII constraint (54_openbao_provider_metadata.sql)
+    - non-negative CHECK constraints on incident_nonsensitive_details (61_check_constraints.sql)
 
     Uses DATABASE_ADMIN_URL (superuser) because CREATE RULE / CREATE POLICY /
     ALTER TABLE require the table owner; wims_app_user (the runtime role) is not
@@ -461,6 +463,17 @@ def apply_schema_patches() -> None:
         )
     except Exception as exc:
         logger.warning("Schema patch (crypto_provider/kms_key_name) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    # Migration 61: non-negative CHECK constraints on incident_nonsensitive_details
+    try:
+        _apply_postgres_init_sql_patch(
+            db,
+            "61_check_constraints.sql",
+            "non-negative CHECK constraints on incident_nonsensitive_details",
+        )
+    except Exception as exc:
+        logger.warning("Schema patch (check constraints) failed (non-fatal): %s", exc)
         db.rollback()
 
     finally:

@@ -3,6 +3,13 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-19] feat | DB CHECK constraints on incident_nonsensitive_details (Issue #387)
+
+- **`src/postgres-init/61_check_constraints.sql`:** New migration adding 18 non-negative CHECK constraints to `wims.incident_nonsensitive_details` numeric columns. Idempotent DO-block pattern per existing conventions. Constraint naming: `chk_incident_nonsensitive_details_{column}_non_negative`.
+- **`src/backend/main.py`:** Registered `61_check_constraints.sql` in `_SQL_FILE_SCHEMA_PATCHES` allowlist. Added non-fatal try/except block in `apply_schema_patches()` with rollback on failure. Updated docstring.
+- **`src/backend/tests/integration/test_check_constraints.py`:** 13 integration tests: 9 negative-value violation tests, 3 null-value acceptance tests, 1 migration idempotency test. Follows `test_database_schema.py` patterns.
+- **`system-wiki/database/schema-overview.md`:** Added "DB-Enforced vs App-Enforced Invariants" section documenting which invariants are enforced at DB layer vs app layer. Updated allowlist.
+
 ## [2026-06-19] fix | blob metadata stripping + analyst decrypt completeness (PR #385 review)
 
 - **`src/backend/api/routes/regional/encoder.py`:** Added `key_version` to the blob metadata stripping list (was missing — only 4 of 5 fields were stripped).
