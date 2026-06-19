@@ -962,6 +962,9 @@ ANALYST_LIST_SORT_COLUMNS = {
     "alarm_level",
     "estimated_damage_php",
     "total_response_time_minutes",
+    "incident_id",
+    "province_name",
+    "created_at",
 }
 
 
@@ -1053,7 +1056,12 @@ def get_analyst_incident_list(
     Requires: NATIONAL_ANALYST or SYSTEM_ADMIN.
     Always filters: verification_status = 'VERIFIED', is_archived = FALSE.
     """
-    sort_by_col = sort_by if sort_by and sort_by in ANALYST_LIST_SORT_COLUMNS else "notification_dt"
+    if sort_by and sort_by not in ANALYST_LIST_SORT_COLUMNS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid sort_by: {sort_by}",
+        )
+    sort_by_col = sort_by if sort_by else "notification_dt"
     sort_dir_val = sort_dir if sort_dir in ("asc", "desc") else "desc"
 
     where_clauses = ["fi.verification_status = 'VERIFIED'", "fi.is_archived = FALSE"]
