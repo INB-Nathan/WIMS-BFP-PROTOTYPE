@@ -3,6 +3,16 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-19] feat | security telemetry classification fields (#410)
+
+- **`src/postgres-init/62_security_threat_classification.sql`:** New idempotent migration adding `classification TEXT`, `suricata_signature TEXT`, and `suricata_category TEXT` columns to `wims.security_threat_logs`.
+- **`src/backend/models/security_threat_log.py`:** Added `classification`, `suricata_signature`, `suricata_category` mapped columns (all nullable).
+- **`src/backend/api/routes/admin/security.py`:** Added `classification` query param with bound-param filtering (single + multi-value). Added `_VALID_CLASSIFICATIONS` frozenset. New fields exposed in `GET /api/admin/security-logs` response items. Invalid values rejected with 400.
+- **`src/backend/tests/test_security_monitoring.py`:** Extended all row tuples from 13 to 16 elements. Added 7 new tests: 2 response-shape tests (tracer bullet), 4 classification filter tests (single value, multi-value IN clause with bound params, invalid rejection, no-filter-returns-all), 1 null-field test.
+- **`src/frontend/src/lib/api/legacy.ts`:** Added `classification` to `fetchAdminSecurityLogs` params type and URLSearchParams construction.
+- **`system-wiki/database/sql-init-files.md`:** Added 62_security_threat_classification.sql to the init files listing.
+- **`system-wiki/subsystems/admin-hub.md`:** Updated Security Telemetry route table to document the new `classification` filter param.
+
 ## [2026-06-19] refactor | DB CHECK constraints code review — NOT VALID, fail-fast, param tests
 
 - **`src/postgres-init/61_check_constraints.sql`:** Added `AND conrelid = 'wims.incident_nonsensitive_details'::regclass` to all 18 DO-block guards to prevent cross-schema collisions. Appended `NOT VALID` to all 18 ADD CONSTRAINT statements so existing data does not block the migration.
@@ -3465,3 +3475,10 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - **Backend test cleanup:** Removed unused `from database import get_db` import in `test_system_monitoring.py`.
 - **Files:** `src/frontend/src/app/admin/system/page.tsx` (+18/-3), `src/backend/tests/test_system_monitoring.py` (+0/-1).
 - No FRS gap register change (UI completeness fix for already-implemented backend health check).
+
+## [2026-06-19] fix(test) | realign test mock row width with 16-column SELECT (#422 CI fix)
+
+- **Gap:** PR #422 added `classification`, `suricata_signature`, and `suricata_category` columns to the `GET /api/admin/security-logs` SELECT (16 columns), but the test mock `_SECURITY_ROW` in `tests/test_log_fulltext_search.py` still had only 13 elements. All 7 `TestSecurityLogSearch` tests crashed with `IndexError: tuple index out of range` when the response builder accessed `r[13]`, `r[14]`, and `r[15]`.
+- **Fix:** Extended `_SECURITY_ROW` from 13 to 16 elements (3 trailing `None` for the new columns). All 12 tests in `test_log_fulltext_search.py` now pass.
+- **File:** `src/backend/tests/test_log_fulltext_search.py` (+3/-0).
+- **PR CI status:** Backend job passes; Merge Gate unblocked.

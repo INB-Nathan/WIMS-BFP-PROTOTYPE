@@ -51,6 +51,9 @@ _SECURITY_ROW = (
     None,
     None,
     None,
+    None,
+    None,
+    None,
 )
 
 _AUDIT_ROW = (
