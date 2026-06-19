@@ -385,6 +385,7 @@ def get_regional_incident_detail(
     sd_dict.pop("encryption_iv", None)
     sd_dict.pop("crypto_provider", None)
     sd_dict.pop("kms_key_name", None)
+    sd_dict.pop("key_version", None)
 
     nonsensitive = row_to_dict(ns)
     # Inject estimated_damage_php from encrypted blob if available

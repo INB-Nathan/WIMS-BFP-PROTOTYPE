@@ -349,6 +349,7 @@ def _fetch_incident_edit_fields(db: Session, incident_id: int) -> dict[str, Any]
     result.pop("encryption_iv", None)
     result.pop("crypto_provider", None)
     result.pop("kms_key_name", None)
+    result.pop("key_version", None)
 
     def _serialize_value(v: Any) -> Any:
         if v is None:

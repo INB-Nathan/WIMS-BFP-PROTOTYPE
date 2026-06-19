@@ -1,9 +1,9 @@
 ---
 title: Database Schema Overview
 created: 2026-05-14
-updated: 2026-06-14
+updated: 2026-06-19
 type: database
-tags: [wims-bfp, database, schema, rls, audit-log, implementation-map]
+tags: [wims-bfp, database, schema, rls, audit-log, implementation-map, startup-self-heal]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/postgres-init]
 status: draft
 ---
@@ -11,6 +11,28 @@ status: draft
 # Database Schema Overview
 
 PostgreSQL/PostGIS schema is bootstrapped by ordered SQL files in `src/postgres-init`.
+
+## Startup Self-Heal
+
+`src/postgres-init/` scripts only run on first container boot. For existing containers (e.g. VPS with a persistent Postgres volume), `src/backend/main.py::apply_schema_patches()` applies idempotent DDL on every restart.
+
+As of 2026-06-19, eligible schema-only SQL files are executed directly from `src/postgres-init/` via the `_apply_postgres_init_sql_patch()` loader, rather than hand-copying DDL into Python string literals. This reduces drift between the canonical SQL files and the runtime self-heal.
+
+**Allowlisted files** (schema-only, idempotent, executed by the loader):
+- `19_reference_number.sql`
+- `25_extent_fields.sql`
+- `27_reference_sequence.sql`
+- `28_general_description_column.sql`
+- `35_barangay_text.sql`
+- `45_add_client_id_to_incidents.sql`
+- `53_incident_pii_key_version.sql`
+- `54_openbao_provider_metadata.sql`
+
+**Kept inline** (mixed schema + seed data, RLS rewrites, or rule/policy patches):
+- `21_all_regions.sql` — province_district/city_municipality columns only; file also seeds regions/provinces/cities and assigns users
+- `41_fix_immutable_rule_for_archive.sql` — rule rewrite, already special-cased
+- `42_ref_table_rls.sql` — policy rewrite, already special-cased
+- Seed files (03, 14, 29, 38) never executed in startup self-heal
 
 | Table | Source file |
 |---|---|

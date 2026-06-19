@@ -43,6 +43,13 @@ from utils.crypto import SecurityProviderError
 router = APIRouter(prefix="/api", tags=["incidents"])
 logger = logging.getLogger("wims.incidents")
 
+
+class PiiEncryptionUnavailable(Exception):
+    """Raised when PII encryption fails and PII must not be silently lost."""
+
+    pass
+
+
 STORAGE_DIR = "/app/storage/attachments"
 
 # Maximum bytes read into memory per upload. AES-256-GCM requires the full
@@ -432,11 +439,12 @@ def upload_incident_bundle(
                 nonce_b64, ct_b64 = provider.encrypt_json(pii_for_blob, aad)
             except (SecurityProviderError, Exception) as exc:
                 logger.warning(
-                    "PII encryption unavailable for incident_id=%s during bundle upload; "
-                    "proceeding without encrypted blob (%s)",
+                    "PII encryption unavailable for incident_id=%s during bundle upload (%s)",
                     incident_id,
                     exc,
                 )
+                if pii_for_blob:
+                    raise PiiEncryptionUnavailable() from exc
 
             enc_iv = nonce_b64 if crypto_provider_val == "env_aesgcm" else None
 
@@ -517,13 +525,19 @@ def upload_incident_bundle(
             # as a successful import.
             if results["imported"] and results["imported"][-1] == incident_id:
                 results["imported"].pop()
+            reason = (
+                "pii_encryption_unavailable"
+                if isinstance(exc, PiiEncryptionUnavailable)
+                else "incident_insert_failed"
+            )
             logger.warning(
-                "upload-bundle: failed to insert incident id=%d (loop index %d): %s",
+                "upload-bundle: failed to insert incident id=%d (loop index %d): reason=%s (%s)",
                 incident_id,
                 i,
+                reason,
                 exc,
             )
-            results["failed"].append({"index": i, "reason": "incident_insert_failed"})
+            results["failed"].append({"index": i, "reason": reason})
 
     try:
         db.commit()
@@ -1385,7 +1399,13 @@ def get_analyst_incident_sensitive_detail(
                 sd.owner_name,
                 sd.establishment_name,
                 sd.occupant_name,
-                nd.alarm_timeline
+                nd.alarm_timeline,
+                sd.casualty_details,
+                nd.estimated_damage_php,
+                sd.pii_blob_enc,
+                sd.encryption_iv,
+                sd.crypto_provider,
+                sd.key_version
             FROM wims.incident_sensitive_details sd
             LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = sd.incident_id
             WHERE sd.incident_id = :iid
@@ -1393,22 +1413,80 @@ def get_analyst_incident_sensitive_detail(
         {"iid": incident_id},
     ).fetchone()
 
+    if not sd_row:
+        return {
+            "incident_id": incident_row[0],
+            "fire_origin": None,
+            "extent_of_damage": None,
+            "narrative_report": None,
+            "prepared_by_officer": None,
+            "noted_by_officer": None,
+            "disposition": None,
+            "caller_name": None,
+            "caller_number": None,
+            "owner_name": None,
+            "establishment_name": None,
+            "occupant_name": None,
+            "alarm_timeline": [],
+            "casualty_details": None,
+            "estimated_damage_php": None,
+            "pii_decryption_failed": False,
+        }
+
+    sd = dict(sd_row._mapping)
+    pii_decryption_failed = False
+
+    if sd.get("pii_blob_enc") and sd.get("incident_id"):
+        try:
+            aad = f"incident_id:{sd['incident_id']}".encode("utf-8")
+            provider = get_crypto_provider(sd)
+            enc_iv = sd.get("encryption_iv")
+            pii = provider.decrypt_json(
+                enc_iv if enc_iv else None,
+                sd["pii_blob_enc"],
+                aad,
+                sd.get("key_version", 1),
+            )
+            sd["caller_name"] = pii.get("caller_name")
+            sd["caller_number"] = pii.get("caller_number")
+            sd["owner_name"] = pii.get("owner_name")
+            sd["occupant_name"] = pii.get("occupant_name")
+            sd["narrative_report"] = pii.get("narrative_report")
+            sd["casualty_details"] = pii.get("casualty_details")
+            # estimated_damage_php lives in nonsensitive_details but is encrypted
+            # in the PII blob when encryption is active (plaintext column is NULL).
+            if pii.get("estimated_damage_php") is not None:
+                sd["estimated_damage_php"] = pii["estimated_damage_php"]
+        except Exception:
+            logger.error(
+                "PII blob decryption failed — incident_id=%s",
+                sd["incident_id"],
+            )
+            pii_decryption_failed = True
+
+    # Strip blob metadata from response
+    for col in ("pii_blob_enc", "encryption_iv", "crypto_provider", "kms_key_name", "key_version"):
+        sd.pop(col, None)
+
     return {
-        "incident_id": incident_row[0],
-        "fire_origin": sd_row[1] if sd_row else None,
-        "extent_of_damage": sd_row[2] if sd_row else None,
-        "narrative_report": sd_row[3] if sd_row else None,
-        "prepared_by_officer": sd_row[4] if sd_row else None,
-        "noted_by_officer": sd_row[5] if sd_row else None,
-        "disposition": sd_row[6] if sd_row else None,
-        "caller_name": sd_row[7] if sd_row else None,
-        "caller_number": sd_row[8] if sd_row else None,
-        "owner_name": sd_row[9] if sd_row else None,
-        "establishment_name": sd_row[10] if sd_row else None,
-        "occupant_name": sd_row[11] if sd_row else None,
-        "alarm_timeline": _analyst_json_value(sd_row[12])
-        if sd_row and sd_row[12] is not None
+        "incident_id": sd["incident_id"],
+        "fire_origin": sd.get("fire_origin"),
+        "extent_of_damage": sd.get("extent_of_damage"),
+        "narrative_report": sd.get("narrative_report"),
+        "prepared_by_officer": sd.get("prepared_by_officer"),
+        "noted_by_officer": sd.get("noted_by_officer"),
+        "disposition": sd.get("disposition"),
+        "caller_name": sd.get("caller_name"),
+        "caller_number": sd.get("caller_number"),
+        "owner_name": sd.get("owner_name"),
+        "establishment_name": sd.get("establishment_name"),
+        "occupant_name": sd.get("occupant_name"),
+        "alarm_timeline": _analyst_json_value(sd.get("alarm_timeline"))
+        if sd.get("alarm_timeline") is not None
         else [],
+        "casualty_details": sd.get("casualty_details"),
+        "estimated_damage_php": sd.get("estimated_damage_php"),
+        "pii_decryption_failed": pii_decryption_failed,
     }
 
 
