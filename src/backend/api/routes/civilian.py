@@ -204,7 +204,37 @@ def _response_from_row(row) -> CivilianReportResponse:
     )
 
 
-def _fetch_report_response(db: Session, report_id: int) -> CivilianReportResponse:
+def _require_device_ownership(db: Session, report_id: int, device_id: str | None) -> None:
+    """Require that a public report object belongs to the provided device token.
+
+    Civilian report routes are intentionally unauthenticated, so the device_id token
+    is the object-level authorization boundary. Missing, unknown, and wrong-device
+    accesses all return the same neutral 404 shape.
+    """
+    if not device_id:
+        raise HTTPException(status_code=404, detail="Report not found")
+    exists = db.execute(
+        text("""
+            SELECT 1
+            FROM wims.citizen_reports
+            WHERE report_id = :rid
+              AND device_id = :device_id
+            LIMIT 1
+        """),
+        {"rid": report_id, "device_id": device_id},
+    ).fetchone()
+    if not exists:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+
+def _fetch_report_response(
+    db: Session,
+    report_id: int,
+    device_id: str | None = None,
+) -> CivilianReportResponse:
+    if device_id is not None:
+        _require_device_ownership(db, report_id, device_id)
+
     row = db.execute(
         text("""
             SELECT cr.report_id,
@@ -377,6 +407,7 @@ def append_civilian_report(
     db: Annotated[Session, Depends(get_db)],
 ) -> CivilianReportResponse:
     """Append a child report to an active parent report."""
+    _require_device_ownership(db, report_id, body.device_id)
     parent = db.execute(
         text("SELECT report_id, status FROM wims.citizen_reports WHERE report_id = :rid"),
         {"rid": report_id},
@@ -473,6 +504,7 @@ def submit_civilian_followup(
     db: Annotated[Session, Depends(get_db)],
 ) -> CivilianFollowupResponse:
     """Public endpoint: submit text follow-up to an existing report. No auth."""
+    _require_device_ownership(db, report_id, body.device_id)
     parent = db.execute(
         text("SELECT report_id, status FROM wims.citizen_reports WHERE report_id = :rid"),
         {"rid": report_id},
@@ -601,24 +633,21 @@ def get_my_reports(
 @router.get("/reports/{report_id}", response_model=CivilianReportResponse)
 def get_civilian_report(
     report_id: int,
+    device_id: str,
     db: Annotated[Session, Depends(get_db)],
 ) -> CivilianReportResponse:
-    """Fetch status of a public report. No auth required."""
-    return _fetch_report_response(db, report_id)
+    """Fetch status of a public report. No auth required; scoped by device token."""
+    return _fetch_report_response(db, report_id, device_id)
 
 
 @router.get("/reports/{report_id}/timeline", response_model=CivilianReportTimelineResponse)
 def get_civilian_report_timeline(
     report_id: int,
+    device_id: str,
     db: Annotated[Session, Depends(get_db)],
 ) -> CivilianReportTimelineResponse:
     """Fetch parent report plus append children and follow-ups as a public tracking timeline."""
-    exists = db.execute(
-        text("SELECT 1 FROM wims.citizen_reports WHERE report_id = :rid"),
-        {"rid": report_id},
-    ).fetchone()
-    if not exists:
-        raise HTTPException(status_code=404, detail="Report not found")
+    _require_device_ownership(db, report_id, device_id)
 
     rows = db.execute(
         text("""
@@ -679,12 +708,7 @@ def register_notification(
     db: Annotated[Session, Depends(get_db)],
 ) -> NotifyRegisterResponse:
     """Register FCM token for push notifications on report status change. No auth."""
-    exists = db.execute(
-        text("SELECT 1 FROM wims.citizen_reports WHERE report_id = :rid"),
-        {"rid": report_id},
-    ).fetchone()
-    if not exists:
-        raise HTTPException(status_code=404, detail="Report not found")
+    _require_device_ownership(db, report_id, body.device_id)
 
     result = db.execute(
         text("""

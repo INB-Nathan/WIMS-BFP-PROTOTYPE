@@ -446,6 +446,8 @@ class TestCivilianFollowupEndpoint:
                 sql = str(statement)
                 self.last_sql.append(sql)
                 sql_flat = sql.replace("\n", " ")
+                if "FROM wims.citizen_reports" in sql_flat and "device_id = :device_id" in sql_flat:
+                    return _FakeResult(row=_FakeRow(one=1))
                 if "SELECT report_id, status FROM wims.citizen_reports" in sql_flat:
                     return _FakeResult(row=_EXISTING_REPORT)
                 if "INSERT INTO wims.citizen_report_followups" in sql_flat:
@@ -468,7 +470,7 @@ class TestCivilianFollowupEndpoint:
         try:
             resp = client.post(
                 "/api/civilian/reports/42/followup",
-                json={"followup_text": "More details about the fire."},
+                json={"device_id": "device-a", "followup_text": "More details about the fire."},
                 headers={"x-forwarded-for": "198.51.100.1"},
             )
             assert resp.status_code == 201, resp.text
@@ -490,7 +492,10 @@ class TestCivilianFollowupEndpoint:
         class _MockDB:
             def execute(self, statement, params=None):
                 sql = str(statement)
-                if "SELECT report_id, status FROM wims.citizen_reports" in sql.replace("\n", " "):
+                sql_flat = sql.replace("\n", " ")
+                if "FROM wims.citizen_reports" in sql_flat and "device_id = :device_id" in sql_flat:
+                    return _FakeResult(row=_FakeRow(one=1))
+                if "SELECT report_id, status FROM wims.citizen_reports" in sql_flat:
                     return _FakeResult(row=_TERMINAL_REPORT)
                 return _FakeResult(row=None)
 
@@ -504,7 +509,10 @@ class TestCivilianFollowupEndpoint:
         try:
             resp = client.post(
                 "/api/civilian/reports/42/followup",
-                json={"followup_text": "Trying to update terminal report."},
+                json={
+                    "device_id": "device-a",
+                    "followup_text": "Trying to update terminal report.",
+                },
                 headers={"x-forwarded-for": "198.51.100.1"},
             )
             assert resp.status_code == 409, resp.text
@@ -530,7 +538,7 @@ class TestCivilianFollowupEndpoint:
         try:
             resp = client.post(
                 "/api/civilian/reports/99999/followup",
-                json={"followup_text": "Updating nonexistent report."},
+                json={"device_id": "device-a", "followup_text": "Updating nonexistent report."},
                 headers={"x-forwarded-for": "198.51.100.1"},
             )
             assert resp.status_code == 404, resp.text
@@ -542,7 +550,7 @@ class TestCivilianFollowupEndpoint:
         """Empty followup_text is rejected by Pydantic validation."""
         resp = client.post(
             "/api/civilian/reports/42/followup",
-            json={"followup_text": ""},
+            json={"device_id": "device-a", "followup_text": ""},
             headers={"x-forwarded-for": "198.51.100.1"},
         )
         assert resp.status_code == 422, resp.text
@@ -551,7 +559,7 @@ class TestCivilianFollowupEndpoint:
         """Missing followup_text field is rejected by Pydantic validation."""
         resp = client.post(
             "/api/civilian/reports/42/followup",
-            json={},
+            json={"device_id": "device-a"},
             headers={"x-forwarded-for": "198.51.100.1"},
         )
         assert resp.status_code == 422, resp.text
@@ -560,7 +568,7 @@ class TestCivilianFollowupEndpoint:
         """Text exceeding 2000 characters is rejected."""
         resp = client.post(
             "/api/civilian/reports/42/followup",
-            json={"followup_text": "x" * 2001},
+            json={"device_id": "device-a", "followup_text": "x" * 2001},
             headers={"x-forwarded-for": "198.51.100.1"},
         )
         assert resp.status_code == 422, resp.text
@@ -578,6 +586,8 @@ class TestCivilianFollowupEndpoint:
             def execute(self, statement, params=None):
                 sql = str(statement)
                 sql_flat = sql.replace("\n", " ")
+                if "FROM wims.citizen_reports" in sql_flat and "device_id = :device_id" in sql_flat:
+                    return _FakeResult(row=_FakeRow(one=1))
                 if "SELECT report_id, status FROM wims.citizen_reports" in sql_flat:
                     return _FakeResult(row=_EXISTING_REPORT)
                 # Per-report COUNT — simulate 5 recent follow-ups from this IP
@@ -602,7 +612,7 @@ class TestCivilianFollowupEndpoint:
         try:
             resp = client.post(
                 "/api/civilian/reports/42/followup",
-                json={"followup_text": "Rate limit test."},
+                json={"device_id": "device-a", "followup_text": "Rate limit test."},
                 headers={"x-forwarded-for": "198.51.100.1"},
             )
             assert resp.status_code == 429, resp.text
@@ -624,6 +634,8 @@ class TestCivilianFollowupEndpoint:
             def execute(self, statement, params=None):
                 sql = str(statement)
                 sql_flat = sql.replace("\n", " ")
+                if "FROM wims.citizen_reports" in sql_flat and "device_id = :device_id" in sql_flat:
+                    return _FakeResult(row=_FakeRow(one=1))
                 if "SELECT report_id, status FROM wims.citizen_reports" in sql_flat:
                     return _FakeResult(row=_EXISTING_REPORT)
                 # Per-report COUNT — 0 on this specific report
@@ -648,11 +660,112 @@ class TestCivilianFollowupEndpoint:
         try:
             resp = client.post(
                 "/api/civilian/reports/42/followup",
-                json={"followup_text": "IP rate limit test."},
+                json={"device_id": "device-a", "followup_text": "IP rate limit test."},
                 headers={"x-forwarded-for": "198.51.100.1"},
             )
             assert resp.status_code == 429, resp.text
             data = resp.json()
             assert "Too many follow-ups from this network" in data["detail"]
+        finally:
+            app.dependency_overrides.clear()
+
+
+class TestCivilianDeviceIdScope:
+    """IDOR regressions for public civilian /{report_id} routes."""
+
+    def test_get_report_wrong_device_returns_neutral_404(self):
+        from database import get_db
+
+        class _MockDB:
+            def execute(self, statement, params=None):
+                return _FakeResult(row=None)
+
+        def override_get_db():
+            yield _MockDB()
+
+        app.dependency_overrides[get_db] = override_get_db
+        try:
+            resp = client.get("/api/civilian/reports/42?device_id=wrong-device")
+            assert resp.status_code == 404, resp.text
+            assert resp.json()["detail"] == "Report not found"
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_followup_wrong_device_returns_neutral_404(self):
+        from database import get_db
+
+        class _MockDB:
+            def execute(self, statement, params=None):
+                return _FakeResult(row=None)
+
+            def commit(self):
+                raise AssertionError("wrong-device follow-up must not commit")
+
+        def override_get_db():
+            yield _MockDB()
+
+        app.dependency_overrides[get_db] = override_get_db
+        try:
+            resp = client.post(
+                "/api/civilian/reports/42/followup",
+                json={"device_id": "wrong-device", "followup_text": "IDOR probe"},
+            )
+            assert resp.status_code == 404, resp.text
+            assert resp.json()["detail"] == "Report not found"
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_notify_wrong_device_returns_neutral_404(self):
+        from database import get_db
+
+        class _MockDB:
+            def execute(self, statement, params=None):
+                return _FakeResult(row=None)
+
+            def commit(self):
+                raise AssertionError("wrong-device notify must not commit")
+
+        def override_get_db():
+            yield _MockDB()
+
+        app.dependency_overrides[get_db] = override_get_db
+        try:
+            resp = client.post(
+                "/api/civilian/reports/42/notify",
+                json={"device_id": "wrong-device", "fcm_token": "token-1"},
+            )
+            assert resp.status_code == 404, resp.text
+            assert resp.json()["detail"] == "Report not found"
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_append_wrong_device_returns_neutral_404(self):
+        from database import get_db
+
+        class _MockDB:
+            def execute(self, statement, params=None):
+                return _FakeResult(row=None)
+
+            def commit(self):
+                raise AssertionError("wrong-device append must not commit")
+
+        def override_get_db():
+            yield _MockDB()
+
+        app.dependency_overrides[get_db] = override_get_db
+        try:
+            resp = client.patch(
+                "/api/civilian/reports/42/append",
+                json={
+                    "device_id": "wrong-device",
+                    "latitude": 14.5995,
+                    "longitude": 120.9842,
+                    "category": "STRUCTURAL",
+                    "reporting_context": "WITNESS",
+                    "safety_status": "I_AM_SAFE",
+                },
+            )
+            assert resp.status_code == 404, resp.text
+            assert resp.json()["detail"] == "Report not found"
         finally:
             app.dependency_overrides.clear()
