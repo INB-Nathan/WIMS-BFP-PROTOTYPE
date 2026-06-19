@@ -3478,6 +3478,13 @@ Made pending-sync offline incidents fully manageable through the normal regional
 
 ## [2026-06-19] fix(test) | realign test mock row width with 16-column SELECT (#422 CI fix)
 
+## [2026-06-19] fix(deploy) | mount postgres-init at /postgres-init in backend container
+
+- **Root cause:** `_POSTGRES_INIT_DIR = Path(__file__).resolve().parents[1] / "postgres-init"` resolves to `/postgres-init/` in the container, but that directory was never mounted. Since the #387 refactoring removed individual `try/except` from 9 `_apply_postgres_init_sql_patch` calls, the `FileNotFoundError` propagated unhandled, killing every Uvicorn worker during startup (perpetual crash loop → health check never passed → deploy timeout).
+- **`src/docker-compose.yml`:** Added `./postgres-init:/postgres-init:ro` bind mount to backend service.
+- **`src/backend/.dockerignore`:** New file excluding `.venv` (233 MB), `tests/`, `__pycache__`, `*.pyc`, `*.xlsx`, `storage`, `.git` from Docker build context.
+- **`.github/workflows/deploy.yml`:** Added `command_timeout: 20m` to the Deploy via SSH step (appleboy/ssh-action default is 10m, exceeded during frontend rebuild + migrations + health check).
+
 - **Gap:** PR #422 added `classification`, `suricata_signature`, and `suricata_category` columns to the `GET /api/admin/security-logs` SELECT (16 columns), but the test mock `_SECURITY_ROW` in `tests/test_log_fulltext_search.py` still had only 13 elements. All 7 `TestSecurityLogSearch` tests crashed with `IndexError: tuple index out of range` when the response builder accessed `r[13]`, `r[14]`, and `r[15]`.
 - **Fix:** Extended `_SECURITY_ROW` from 13 to 16 elements (3 trailing `None` for the new columns). All 12 tests in `test_log_fulltext_search.py` now pass.
 - **File:** `src/backend/tests/test_log_fulltext_search.py` (+3/-0).
