@@ -1,15 +1,27 @@
 from __future__ import annotations
 
 
+class FakeAdminConnection:
+    def __init__(self) -> None:
+        self.exec_driver_sql_count = 0
+
+    def exec_driver_sql(self, _statement) -> None:
+        self.exec_driver_sql_count += 1
+
+
 class FakeAdminSession:
     def __init__(self) -> None:
         self.execute_count = 0
         self.commit_count = 0
         self.rollback_count = 0
         self.close_count = 0
+        self.connection_obj = FakeAdminConnection()
 
     def execute(self, _statement) -> None:
         self.execute_count += 1
+
+    def connection(self) -> FakeAdminConnection:
+        return self.connection_obj
 
     def commit(self) -> None:
         self.commit_count += 1
