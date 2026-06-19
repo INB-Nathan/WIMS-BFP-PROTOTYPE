@@ -269,6 +269,42 @@ class TestRetry:
             assert call_count[0] == 4
 
     @pytest.mark.unit
+    def test_retry_attempts_count_as_one_breaker_failure_per_request(self):
+        """A retry-exhausted request increments breaker failure count once, not per attempt."""
+        client = ExternalServiceClient(
+            service_name="test-retry-breaker-count",
+            max_retries=3,
+            base_delay=0.01,
+            cb_failure_threshold=2,
+        )
+
+        call_count = [0]
+
+        async def failing_get(*args, **kwargs):
+            call_count[0] += 1
+            raise httpx.ConnectError("Connection refused")
+
+        with patch("utils.external_service.httpx.AsyncClient") as mock_client_cls:
+            mock_instance = _make_async_client_mock(get_fn=failing_get)
+            mock_client_cls.return_value = mock_instance
+
+            with pytest.raises(ExternalServiceError):
+                asyncio.run(client.request_async("GET", "http://example/first"))
+
+            # First logical request used all retry attempts but did not open the breaker yet.
+            assert call_count[0] == 4
+
+            with pytest.raises(ExternalServiceError):
+                asyncio.run(client.request_async("GET", "http://example/second"))
+
+            assert call_count[0] == 8
+
+            with pytest.raises(CircuitBreakerOpenError):
+                asyncio.run(client.request_async("GET", "http://example/blocked"))
+
+            assert call_count[0] == 8
+
+    @pytest.mark.unit
     def test_retry_succeeds_on_retryable_failure(self):
         """First attempts fail with ConnectError, then success."""
         client = ExternalServiceClient(

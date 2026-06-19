@@ -257,6 +257,8 @@ class ExternalServiceClient:
         """
         # Check circuit breaker before anything else
         self._check_open()
+        with self._lock:
+            half_open_probe = self._breaker_state == _BreakerState.HALF_OPEN
 
         # Acquire concurrency semaphore if configured
         semaphore = self._async_semaphore
@@ -277,22 +279,17 @@ class ExternalServiceClient:
                         http_method = getattr(client, method.lower())
                         resp = await http_method(url, **kwargs)
 
-                    # Check response size
                     if self.response_size_limit is not None:
                         self._check_size(resp.content)
 
                     if resp.status_code < 500:
-                        # Non-5xx is not a service failure from breaker perspective
                         self._on_success()
                         return resp
 
-                    # 5xx — service failure
                     last_exc = ExternalServiceError(
                         f"{self.service_name} returned {resp.status_code} on {method} {url}"
                     )
-                    self._on_failure()
-
-                    if attempt < max_attempts - 1:
+                    if attempt < max_attempts - 1 and not half_open_probe:
                         delay = self.base_delay * (2**attempt)
                         logger.warning(
                             "%s 5xx (attempt %d/%d, status=%d), retrying in %.1fs...",
@@ -304,18 +301,19 @@ class ExternalServiceClient:
                         )
                         await asyncio.sleep(delay)
                     else:
+                        self._on_failure()
                         raise last_exc
 
                 except httpx.TimeoutException as exc:
                     if not self.retry_on_timeout:
+                        self._on_failure()
                         raise ExternalServiceError(
                             f"{self.service_name} request timed out on {method} {url}"
                         ) from exc
                     last_exc = ExternalServiceError(
                         f"{self.service_name} request timed out on {method} {url}: {exc}"
                     )
-                    self._on_failure()
-                    if attempt < max_attempts - 1:
+                    if attempt < max_attempts - 1 and not half_open_probe:
                         delay = self.base_delay * (2**attempt)
                         logger.warning(
                             "%s timeout (attempt %d/%d), retrying in %.1fs...",
@@ -326,14 +324,13 @@ class ExternalServiceClient:
                         )
                         await asyncio.sleep(delay)
                     else:
+                        self._on_failure()
                         raise last_exc from exc
                 except (httpx.ConnectError, httpx.RemoteProtocolError) as exc:
                     last_exc = ExternalServiceError(
                         f"{self.service_name} request failed on {method} {url}: {exc}"
                     )
-                    self._on_failure()
-
-                    if attempt < max_attempts - 1:
+                    if attempt < max_attempts - 1 and not half_open_probe:
                         delay = self.base_delay * (2**attempt)
                         logger.warning(
                             "%s transport error (attempt %d/%d), retrying in %.1fs...",
@@ -344,9 +341,9 @@ class ExternalServiceClient:
                         )
                         await asyncio.sleep(delay)
                     else:
+                        self._on_failure()
                         raise last_exc from exc
 
-            # Should not reach here
             raise last_exc or ExternalServiceError(
                 f"{self.service_name} request failed after {max_attempts} attempts"
             )
@@ -376,6 +373,8 @@ class ExternalServiceClient:
         Raises ExternalServiceError or subclasses on failure.
         """
         self._check_open()
+        with self._lock:
+            half_open_probe = self._breaker_state == _BreakerState.HALF_OPEN
 
         semaphore = self._sync_semaphore
         if semaphore is not None:
@@ -404,9 +403,7 @@ class ExternalServiceClient:
                     last_exc = ExternalServiceError(
                         f"{self.service_name} returned {resp.status_code} on {method} {url}"
                     )
-                    self._on_failure()
-
-                    if attempt < max_attempts - 1:
+                    if attempt < max_attempts - 1 and not half_open_probe:
                         delay = self.base_delay * (2**attempt)
                         logger.warning(
                             "%s 5xx (attempt %d/%d, status=%d), retrying in %.1fs...",
@@ -418,18 +415,19 @@ class ExternalServiceClient:
                         )
                         time.sleep(delay)
                     else:
+                        self._on_failure()
                         raise last_exc
 
                 except httpx.TimeoutException as exc:
                     if not self.retry_on_timeout:
+                        self._on_failure()
                         raise ExternalServiceError(
                             f"{self.service_name} request timed out on {method} {url}"
                         ) from exc
                     last_exc = ExternalServiceError(
                         f"{self.service_name} request timed out on {method} {url}: {exc}"
                     )
-                    self._on_failure()
-                    if attempt < max_attempts - 1:
+                    if attempt < max_attempts - 1 and not half_open_probe:
                         delay = self.base_delay * (2**attempt)
                         logger.warning(
                             "%s timeout (attempt %d/%d), retrying in %.1fs...",
@@ -440,14 +438,13 @@ class ExternalServiceClient:
                         )
                         time.sleep(delay)
                     else:
+                        self._on_failure()
                         raise last_exc from exc
                 except (httpx.ConnectError, httpx.RemoteProtocolError) as exc:
                     last_exc = ExternalServiceError(
                         f"{self.service_name} request failed on {method} {url}: {exc}"
                     )
-                    self._on_failure()
-
-                    if attempt < max_attempts - 1:
+                    if attempt < max_attempts - 1 and not half_open_probe:
                         delay = self.base_delay * (2**attempt)
                         logger.warning(
                             "%s transport error (attempt %d/%d), retrying in %.1fs...",
@@ -458,6 +455,7 @@ class ExternalServiceClient:
                         )
                         time.sleep(delay)
                     else:
+                        self._on_failure()
                         raise last_exc from exc
 
             raise last_exc or ExternalServiceError(
