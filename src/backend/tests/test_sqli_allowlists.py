@@ -91,17 +91,23 @@ class TestAnalystListSortBy:
         "notification_dt" and return 200 — no SQL error leak, but no explicit
         rejection either. The fix must reject with 422 per acceptance criteria.
         """
-        _set_analyst(client)
+        mock_db = _set_analyst(client)
+        payload = "'; DROP TABLE fire_incidents--"
 
         response = client.get(
             "/api/incidents/analyst-list",
-            params={"sort_by": "'; DROP TABLE fire_incidents--"},
+            params={"sort_by": payload},
         )
 
         assert response.status_code == 422, (
             f"Expected 422 for non-allowlisted sort_by, got {response.status_code}. "
             f"Body: {response.text[:500]}"
         )
+        assert response.json()["detail"] == (
+            "Invalid sort_by. Must be one of the supported analyst-list sort keys."
+        )
+        assert payload not in response.text
+        mock_db.execute.assert_not_called()
 
     @pytest.mark.parametrize(
         "sort_by",
@@ -143,6 +149,20 @@ class TestAnalystListSortBy:
             f"Expected 200 when sort_by is omitted, got {response.status_code}."
         )
 
+    def test_allowlisted_sort_by_uses_server_owned_sql_expression(self, client):
+        """Allowlisted request keys map to server-owned SQL fragments before ORDER BY."""
+        mock_db = _set_analyst(client)
+
+        response = client.get(
+            "/api/incidents/analyst-list",
+            params={"sort_by": "region", "sort_dir": "asc"},
+        )
+
+        assert response.status_code == 200, response.text[:500]
+        list_sql = str(mock_db.execute.call_args_list[0].args[0])
+        assert "ORDER BY COALESCE(r.region_code, r.region_name, '') ASC" in list_sql
+        assert "ORDER BY region" not in list_sql
+
     @pytest.mark.parametrize(
         "payload",
         [
@@ -159,7 +179,7 @@ class TestAnalystListSortBy:
     )
     def test_sqli_payloads_rejected_422(self, client, payload):
         """Full SQLi payload suite: all attack classes must be rejected with 422."""
-        _set_analyst(client)
+        mock_db = _set_analyst(client)
 
         response = client.get(
             "/api/incidents/analyst-list",
@@ -170,6 +190,11 @@ class TestAnalystListSortBy:
             f"Expected 422 for SQLi payload sort_by={payload!r}, "
             f"got {response.status_code}. Body: {response.text[:500]}"
         )
+        assert response.json()["detail"] == (
+            "Invalid sort_by. Must be one of the supported analyst-list sort keys."
+        )
+        assert payload not in response.text
+        mock_db.execute.assert_not_called()
 
 
 class TestAdminAuditLogs:
