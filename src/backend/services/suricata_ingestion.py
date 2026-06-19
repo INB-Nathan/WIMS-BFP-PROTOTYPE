@@ -44,6 +44,59 @@ def parse_eve_alert_line(line: str) -> dict | None:
     return ev
 
 
+_VALID_CLASSIFICATIONS = frozenset(
+    {
+        "internet_background_noise",
+        "scanner",
+        "bot_probe",
+        "credential_probe",
+        "high_signal_threat",
+        "unclassified",
+    }
+)
+
+
+def _classify_alert(alert: dict, severity_level: str) -> str:
+    """Deterministic classifier for Suricata EVE alert dicts.
+
+    Rules (priority order):
+    1. HIGH/CRITICAL severity => high_signal_threat (wins over all text matches).
+    2. signature/category contains scan/scanner/nmap/masscan/zmap => scanner.
+    3. signature/category/payload contains curl/bot/crawler/spider/zgrab => bot_probe.
+    4. signature/category/payload contains ssh/login/password/bruteforce/credential/auth
+       => credential_probe (unless rule 1 already fired).
+    5. LOW/MEDIUM => internet_background_noise.
+    6. Missing or unrecognized => unclassified.
+
+    Pure function: no DB, no side effects, no time dependency.
+    """
+    # Rule 1: HIGH/CRITICAL always wins
+    if severity_level in ("HIGH", "CRITICAL"):
+        return "high_signal_threat"
+
+    signature = (alert.get("signature") or "").lower()
+    category = (alert.get("category") or "").lower()
+    combined = f"{signature} {category}"
+
+    # Rule 2: scanner detection
+    _SCANNER_TERMS = ("scan", "scanner", "nmap", "masscan", "zmap")
+    if any(t in combined for t in _SCANNER_TERMS):
+        return "scanner"
+
+    # Rule 3: bot probe detection
+    _BOT_TERMS = ("curl", "bot", "crawler", "spider", "zgrab")
+    if any(t in combined for t in _BOT_TERMS):
+        return "bot_probe"
+
+    # Rule 4: credential probe detection
+    _CRED_TERMS = ("ssh", "login", "password", "bruteforce", "credential", "auth")
+    if any(t in combined for t in _CRED_TERMS):
+        return "credential_probe"
+
+    # Rule 5: LOW/MEDIUM without specific signature => internet background noise
+    return "internet_background_noise"
+
+
 def eve_to_threat_log_row(ev: dict, *, raw_payload: str = "", high_threshold: int = 3) -> dict:
     """
     Map EVE alert fields to wims.security_threat_logs columns.
@@ -66,12 +119,19 @@ def eve_to_threat_log_row(ev: dict, *, raw_payload: str = "", high_threshold: in
     else:
         severity_level = "LOW"
 
+    classification = _classify_alert(alert, severity_level)
+    suricata_signature = alert.get("signature") or None
+    suricata_category = alert.get("category") or None
+
     return {
         "source_ip": ev.get("src_ip") or "",
         "destination_ip": ev.get("dest_ip") or "",
         "suricata_sid": int(sid) if sid is not None else None,
         "severity_level": severity_level,
         "raw_payload": raw_payload[:65535] if raw_payload else None,
+        "classification": classification,
+        "suricata_signature": suricata_signature,
+        "suricata_category": suricata_category,
     }
 
 

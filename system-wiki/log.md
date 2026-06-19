@@ -3,6 +3,12 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-19] feat | Suricata alert classifier (#411)
+
+- **`src/backend/services/suricata_ingestion.py`:** Added `_classify_alert()` — a deterministic, pure-function classifier for Suricata EVE alert dicts with 6 priority-ordered rules. Updated `eve_to_threat_log_row()` to return `classification`, `suricata_signature`, `suricata_category`. Added `_VALID_CLASSIFICATIONS` frozenset.
+- **`src/backend/tests/test_suricata_ingestion.py`:** Added `TestEveClassifier` with 6 new tests covering scanner, HIGH-override, bot_probe, credential_probe, missing metadata, and valid-set membership. All 12 unit tests pass (6 existing + 6 new).
+- **`system-wiki/subsystems/admin-hub.md`:** Documented the `_classify_alert()` function.
+
 ## [2026-06-19] refactor | DB CHECK constraints code review — NOT VALID, fail-fast, param tests
 
 - **`src/postgres-init/61_check_constraints.sql`:** Added `AND conrelid = 'wims.incident_nonsensitive_details'::regclass` to all 18 DO-block guards to prevent cross-schema collisions. Appended `NOT VALID` to all 18 ADD CONSTRAINT statements so existing data does not block the migration.
