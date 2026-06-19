@@ -94,6 +94,7 @@ def _insert_report(
     *,
     status: str = "PENDING",
     status_explanation: str | None = None,
+    device_id: str | None = None,
 ) -> int:
     validated_by = None
     if status == "ACTIONED":
@@ -124,7 +125,7 @@ def _insert_report(
             RETURNING report_id
         """),
         {
-            "device_id": str(uuid.uuid4()),
+            "device_id": device_id or str(uuid.uuid4()),
             "status": status,
             "status_explanation": status_explanation,
             "validated_by": validated_by,
@@ -214,10 +215,11 @@ class TestCivilianReportPublicSubmission:
         assert response.status_code == 422, response.text
 
     def test_append_creates_linked_child_and_increments_parent(self, client, db_session):
-        parent_id = _insert_report(db_session)
+        device_id = str(uuid.uuid4())
+        parent_id = _insert_report(db_session, device_id=device_id)
         response = client.patch(
             f"/api/civilian/reports/{parent_id}/append",
-            json=_payload(device_id=str(uuid.uuid4()), safety_status="SOMEONE_ELSE_NEEDS_HELP"),
+            json=_payload(device_id=device_id, safety_status="SOMEONE_ELSE_NEEDS_HELP"),
         )
 
         assert response.status_code == 201, response.text
@@ -232,15 +234,16 @@ class TestCivilianReportPublicSubmission:
         assert link_count == 1
 
     def test_tracking_timeline_returns_parent_and_appends(self, client, db_session):
-        parent_id = _insert_report(db_session)
+        device_id = str(uuid.uuid4())
+        parent_id = _insert_report(db_session, device_id=device_id)
         append_response = client.patch(
             f"/api/civilian/reports/{parent_id}/append",
-            json=_payload(device_id=str(uuid.uuid4()), safety_status="SOMEONE_ELSE_NEEDS_HELP"),
+            json=_payload(device_id=device_id, safety_status="SOMEONE_ELSE_NEEDS_HELP"),
         )
         assert append_response.status_code == 201, append_response.text
         child_id = append_response.json()["report_id"]
 
-        response = client.get(f"/api/civilian/reports/{parent_id}/timeline")
+        response = client.get(f"/api/civilian/reports/{parent_id}/timeline?device_id={device_id}")
 
         assert response.status_code == 200, response.text
         timeline = response.json()["timeline"]
@@ -256,17 +259,21 @@ class TestCivilianReportPublicSubmission:
         ],
     )
     def test_append_blocked_on_terminal_parent(self, client, db_session, status, explanation):
-        parent_id = _insert_report(db_session, status=status, status_explanation=explanation)
+        device_id = str(uuid.uuid4())
+        parent_id = _insert_report(
+            db_session, status=status, status_explanation=explanation, device_id=device_id
+        )
 
         response = client.patch(
             f"/api/civilian/reports/{parent_id}/append",
-            json=_payload(device_id=str(uuid.uuid4())),
+            json=_payload(device_id=device_id),
         )
 
         assert response.status_code == 409, response.text
         assert "Submit a new report" in response.json()["detail"]
 
     def test_tracking_returns_terminal_guidance_and_station_context(self, client, db_session):
+        device_id = str(uuid.uuid4())
         report_id = _insert_report(
             db_session,
             status="REJECTED_TIMEOUT",
@@ -274,9 +281,10 @@ class TestCivilianReportPublicSubmission:
                 "This report was not verified within the 2-hour emergency review window. "
                 "No validator action was recorded before timeout."
             ),
+            device_id=device_id,
         )
 
-        response = client.get(f"/api/civilian/reports/{report_id}")
+        response = client.get(f"/api/civilian/reports/{report_id}?device_id={device_id}")
 
         assert response.status_code == 200, response.text
         data = response.json()

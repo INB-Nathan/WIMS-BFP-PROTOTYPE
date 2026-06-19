@@ -842,8 +842,9 @@ export interface CivilianReportTimelineItem {
 /** Track civilian emergency report status — Zero-Trust, NO auth. GET /api/civilian/reports/{id} */
 export async function fetchReportStatus(
   reportId: string | number,
+  deviceId: string,
 ): Promise<CivilianReportTrackingResponse> {
-  return publicApiFetch(`/civilian/reports/${reportId}`);
+  return publicApiFetch(`/civilian/reports/${reportId}?device_id=${encodeURIComponent(deviceId)}`);
 }
 
 export interface CivilianFollowupItem {
@@ -866,8 +867,9 @@ export interface CivilianReportTimelineResult {
 
 export async function fetchReportTimeline(
   reportId: string | number,
+  deviceId: string,
 ): Promise<CivilianReportTimelineResult> {
-  const json = await publicApiFetch<{ timeline?: CivilianReportTimelineItem[]; followups?: CivilianFollowupItem[] }>(`/civilian/reports/${reportId}/timeline`);
+  const json = await publicApiFetch<{ timeline?: CivilianReportTimelineItem[]; followups?: CivilianFollowupItem[] }>(`/civilian/reports/${reportId}/timeline?device_id=${encodeURIComponent(deviceId)}`);
   return {
     timeline: json.timeline ?? [],
     followups: json.followups ?? [],
@@ -877,10 +879,11 @@ export async function fetchReportTimeline(
 export async function submitFollowup(
   reportId: string | number,
   followupText: string,
+  deviceId: string,
 ): Promise<CivilianFollowupResponse> {
   return publicApiFetch(`/civilian/reports/${reportId}/followup`, {
     method: 'POST',
-    body: JSON.stringify({ followup_text: followupText }),
+    body: JSON.stringify({ device_id: deviceId, followup_text: followupText }),
   });
 }
 
@@ -902,10 +905,11 @@ export async function fetchNearbyStations(lat: number, lon: number): Promise<Fir
 export async function registerNotification(
   reportId: number,
   fcmToken: string,
+  deviceId: string,
 ): Promise<{ status: string; report_id: number }> {
   return publicApiFetch(`/civilian/reports/${reportId}/notify`, {
     method: 'POST',
-    body: JSON.stringify({ fcm_token: fcmToken }),
+    body: JSON.stringify({ device_id: deviceId, fcm_token: fcmToken }),
   });
 }
 

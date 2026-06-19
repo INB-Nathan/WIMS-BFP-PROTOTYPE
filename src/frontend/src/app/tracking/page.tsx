@@ -196,15 +196,20 @@ export default function ReportTrackerPage() {
       setFetchError('Please enter a Report ID.');
       return;
     }
+    const currentDeviceId = deviceId ?? localStorage.getItem('wims_civilian_device_id');
+    if (!currentDeviceId) {
+      setFetchError('This report can only be viewed from the device that submitted it.');
+      return;
+    }
     setLoading(true);
     setData(null);
     setTimeline([]);
     setFollowups([]);
     try {
-      const result = await fetchReportStatus(id.trim());
+      const result = await fetchReportStatus(id.trim(), currentDeviceId);
       setData(result);
       try {
-        const timelineResult = await fetchReportTimeline(id.trim());
+        const timelineResult = await fetchReportTimeline(id.trim(), currentDeviceId);
         setTimeline(timelineResult.timeline);
         setFollowups(timelineResult.followups);
       } catch {
@@ -221,7 +226,7 @@ export default function ReportTrackerPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [deviceId]);
 
   // Load last report from localStorage on mount
   useEffect(() => {
@@ -256,7 +261,9 @@ export default function ReportTrackerPage() {
     try {
       const token = await getMessagingToken();
       if (!token) { setNotifyStatus('denied'); return; }
-      await registerNotification(data.report_id, token);
+      const currentDeviceId = deviceId ?? localStorage.getItem('wims_civilian_device_id');
+      if (!currentDeviceId) throw new Error('Missing device token');
+      await registerNotification(data.report_id, token, currentDeviceId);
       localStorage.setItem(notifyKey(data.report_id), 'true');
       setNotifyStatus('enabled');
     } catch {
@@ -273,7 +280,6 @@ export default function ReportTrackerPage() {
     fetchMyReports(deviceId!)
       .then((res) => setMyReports(res.reports))
       .catch(() => setMyReports([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceId]);
 
   const handleSubmitFollowup = async () => {
@@ -282,12 +288,14 @@ export default function ReportTrackerPage() {
     setFollowupError(null);
     setFollowupSuccess(false);
     try {
-      await submitFollowup(data.report_id, followupText.trim());
+      const currentDeviceId = deviceId ?? localStorage.getItem('wims_civilian_device_id');
+      if (!currentDeviceId) throw new Error('Missing device token');
+      await submitFollowup(data.report_id, followupText.trim(), currentDeviceId);
       setFollowupText('');
       setFollowupSuccess(true);
       // Refresh timeline to show the new follow-up
       try {
-        const timelineResult = await fetchReportTimeline(data.report_id);
+        const timelineResult = await fetchReportTimeline(data.report_id, currentDeviceId);
         setTimeline(timelineResult.timeline);
         setFollowups(timelineResult.followups);
       } catch {

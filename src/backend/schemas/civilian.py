@@ -115,6 +115,7 @@ class DuplicateSuggestionResponse(BaseModel):
 class NotifyRegisterRequest(BaseModel):
     """Body for POST /api/civilian/reports/{report_id}/notify."""
 
+    device_id: str = Field(..., min_length=1, max_length=128)
     fcm_token: str = Field(..., min_length=1, max_length=4096)
 
 
@@ -165,6 +166,7 @@ class ReportClusterArea(BaseModel):
 class CivilianFollowupCreate(BaseModel):
     """Request body for POST /api/civilian/reports/{report_id}/followup — no auth."""
 
+    device_id: str = Field(..., min_length=1, max_length=128)
     followup_text: str = Field(..., min_length=1, max_length=2000)
 
 
