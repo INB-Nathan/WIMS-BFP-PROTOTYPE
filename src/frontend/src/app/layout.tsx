@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider as AuthContextProvider } from "@/context/AuthContext";
-import { AuthProvider as UserProfileProvider } from "@/lib/auth";
 import { LayoutShell } from "@/components/LayoutShell";
 import { Toaster } from "sonner";
 
@@ -28,12 +27,10 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <AuthContextProvider>
-          <UserProfileProvider>
-            <LayoutShell>
-              {children}
-            </LayoutShell>
-            <Toaster position="top-right" richColors />
-          </UserProfileProvider>
+          <LayoutShell>
+            {children}
+          </LayoutShell>
+          <Toaster position="top-right" richColors />
         </AuthContextProvider>
       </body>
     </html>

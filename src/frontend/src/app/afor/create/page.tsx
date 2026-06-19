@@ -2,12 +2,13 @@
 import { useState, useEffect, Suspense } from 'react';
 import { IncidentForm } from '@/components/IncidentForm';
 import { WildlandAforManualForm } from '@/components/WildlandAforManualForm';
-import { useUserProfile } from '@/lib/auth';
+import { useAuth } from '@/context/AuthContext';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { AforFormKind } from '@/lib/api';
 
 function AforCreatePage() {
-    const { role } = useUserProfile();
+    const { user } = useAuth();
+    const role = (user as { role?: string } | null)?.role ?? null;
     const router = useRouter();
     const searchParams = useSearchParams();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

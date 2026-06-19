@@ -25,12 +25,15 @@ vi.mock('@/lib/api/operations', () => ({
   deleteOperation: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('@/lib/auth', () => ({
-  useUserProfile: vi.fn().mockReturnValue({
-    role: 'NATIONAL_VALIDATOR',
-    assignedRegionId: null,
+vi.mock('@/context/AuthContext', () => ({
+  useAuth: vi.fn().mockReturnValue({
+    user: { id: 'test-user', role: 'NATIONAL_VALIDATOR', assignedRegionId: null },
+    isAuthenticated: true,
     loading: false,
-    user: { id: 'test-user' },
+    loggingOut: false,
+    login: vi.fn(),
+    logout: vi.fn(),
+    refreshSession: vi.fn(),
   }),
 }));
 
@@ -110,12 +113,15 @@ describe('Operations Board', () => {
 
   it('hides New Operation button for non-validator', async () => {
     // Override the module mock to return encoder role for this test
-    vi.doMock('@/lib/auth', () => ({
-      useUserProfile: vi.fn().mockReturnValue({
-        role: 'REGIONAL_ENCODER',
-        assignedRegionId: 1,
+    vi.doMock('@/context/AuthContext', () => ({
+      useAuth: vi.fn().mockReturnValue({
+        user: { id: 'encoder-user', role: 'REGIONAL_ENCODER', assignedRegionId: 1 },
+        isAuthenticated: true,
         loading: false,
-        user: { id: 'encoder-user' },
+        loggingOut: false,
+        login: vi.fn(),
+        logout: vi.fn(),
+        refreshSession: vi.fn(),
       }),
     }));
 

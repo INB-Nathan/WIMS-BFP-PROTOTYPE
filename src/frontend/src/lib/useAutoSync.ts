@@ -15,7 +15,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNetworkStatus } from './useNetworkStatus';
 import { syncPendingIncidents, type SyncResult, type SyncedIncidentSummary } from './syncEngine';
 import { getPendingOpsCount, recoverStaleSyncingOps } from './offlineStore';
-import { useUserProfile } from './auth';
+import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
 
 export type { SyncedIncidentSummary };
@@ -33,7 +33,7 @@ const OFFLINE_TOAST_ID = 'wims-connection-offline';
 
 export function useAutoSync(): AutoSyncState {
   const { isOnline, isChecking, isReconnecting } = useNetworkStatus();
-  const { user } = useUserProfile();
+  const { user } = useAuth();
   const [syncing, setSyncing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [pendingCount, setPendingCount] = useState(0);

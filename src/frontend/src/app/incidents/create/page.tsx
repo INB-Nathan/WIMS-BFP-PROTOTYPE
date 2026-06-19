@@ -1,13 +1,14 @@
 'use client';
 
 import { IncidentForm } from '@/components/IncidentForm';
-import { useUserProfile } from '@/lib/auth';
+import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { FileText } from 'lucide-react';
 
 export default function CreateIncidentPage() {
-    const { role, loading } = useUserProfile();
+    const { user, loading } = useAuth();
+    const role = (user as { role?: string } | null)?.role ?? null;
     const router = useRouter();
 
     useEffect(() => {

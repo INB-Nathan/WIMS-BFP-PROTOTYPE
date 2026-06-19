@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useUserProfile } from '@/lib/auth';
+import { useAuth } from '@/context/AuthContext';
 import { edgeFunctions, Incident } from '@/lib/edgeFunctions';
 import { fetchProvinces, fetchCitiesByProvinces, fetchBarangays } from '@/lib/api';
 import type { City, Barangay } from '@/types/api';
@@ -18,7 +18,9 @@ interface MappedIncident extends Incident {
 }
 
 export default function ImportIncidentPage() {
-    const { role, assignedRegionId, loading } = useUserProfile();
+    const { user, loading } = useAuth();
+    const role = (user as { role?: string } | null)?.role ?? null;
+    const assignedRegionId = (user as { assignedRegionId?: number | null } | null)?.assignedRegionId ?? null;
     const router = useRouter();
 
     // File State

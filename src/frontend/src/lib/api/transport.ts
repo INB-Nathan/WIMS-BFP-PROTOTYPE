@@ -2,6 +2,7 @@
  * Authenticated API transport for cookie-based WIMS backend requests.
  */
 import { refreshToken } from '../auth-refresh';
+import { ApiParseError } from '@/lib/validation';
 
 export const API_BASE = typeof window !== 'undefined'
   ? (process.env.NEXT_PUBLIC_API_URL || '/api')
@@ -82,7 +83,30 @@ export async function apiFetch<T>(
     }
     throw new ApiRequestError('Session expired. Please log in again.', 401);
   }
-  const json = await res.json().catch(() => ({}));
+
+  // Read body as text first so we can throw a typed ApiParseError on malformed
+  // JSON instead of silently swallowing the error with `{}`.
+  const text = await res.text();
+  let json: unknown;
+  try {
+    json = JSON.parse(text) as unknown;
+  } catch (cause) {
+    if (!res.ok) {
+      // HTTP error with unparseable body — surface the status code.
+      throw new ApiRequestError(
+        `Request failed: ${res.status}`,
+        res.status,
+        text,
+      );
+    }
+    throw new ApiParseError(
+      `Failed to parse response body as JSON (status ${res.status})`,
+      res.status,
+      text,
+      cause,
+    );
+  }
+
   if (!res.ok) {
     throw new ApiRequestError(
       errorMessageFromJson(json, `Request failed: ${res.status}`),

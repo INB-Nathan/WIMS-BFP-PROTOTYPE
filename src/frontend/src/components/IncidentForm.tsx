@@ -13,7 +13,7 @@ import {
 import {
   queueOfflineOp, saveDraftOp, getDraftOps, deleteOfflineOp, updateOfflineOp,
 } from '@/lib/offlineStore';
-import { useUserProfile } from '@/lib/auth';
+import { useAuth } from '@/context/AuthContext';
 import { PH_REGIONS, getProvincesForRegion, getCitiesForProvince, getAforRegionIdentifier, getShortRegionName } from '@/lib/ph-regions';
 import { Loader2, Save, Shuffle, Send } from 'lucide-react';
 import dynamic from 'next/dynamic';
@@ -106,7 +106,9 @@ export function IncidentForm({
   onConflict?: (draft: Record<string, unknown>, serverVersion: Record<string, unknown>) => void;
 }) {
   const router = useRouter();
-  const { user, assignedRegionId, role, loading: profileLoading } = useUserProfile();
+  const { user, loading: profileLoading } = useAuth();
+  const role = (user as { role?: string } | null)?.role ?? null;
+  const assignedRegionId = (user as { assignedRegionId?: number | null } | null)?.assignedRegionId ?? null;
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
   const [loading, setLoading] = useState(false);
   const [selectedRegionId, setSelectedRegionId] = useState<number | null>(

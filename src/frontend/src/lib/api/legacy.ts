@@ -1191,7 +1191,14 @@ export async function importAforFile(file: File): Promise<AforImportPreviewRespo
     credentials: 'include',
     body: formData,
   });
-  const json = await res.json().catch(() => ({}));
+  const text = await res.text();
+  let json: AforImportPreviewResponse | Record<string, unknown> = {};
+  try {
+    json = JSON.parse(text);
+  } catch {
+    if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+    throw new Error(`Failed to parse preview response (status ${res.status})`);
+  }
   if (!res.ok) {
     throw new Error((json as { message?: string; detail?: string }).message ?? (json as { detail?: string }).detail ?? `Request failed: ${res.status}`);
   }
@@ -1706,7 +1713,13 @@ export async function downloadAnalyticsExport(taskId: string): Promise<Blob> {
   const url = `${API_BASE.replace(/\/$/, '')}${normalizedPath}`;
   const response = await fetch(url, { credentials: 'include' });
   if (!response.ok) {
-    const json = await response.json().catch(() => ({}));
+    const text = await response.text();
+    let json: unknown = {};
+    try {
+      json = JSON.parse(text);
+    } catch {
+      // error body is unparseable — surface the status code only
+    }
     throw new ApiRequestError(
       errorMessageFromJson(json, `Export download failed: ${response.status}`),
       response.status,

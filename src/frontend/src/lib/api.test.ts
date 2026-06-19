@@ -40,6 +40,7 @@ describe('apiFetch content-type handling', () => {
       ok: true,
       status: 200,
       json: () => Promise.resolve({ status: 'ok' }),
+      text: () => Promise.resolve(JSON.stringify({ status: 'ok' })),
     });
     vi.stubGlobal('fetch', fetchSpy);
     vi.mocked(refreshToken).mockResolvedValue({ ok: true });
@@ -80,6 +81,7 @@ describe('apiFetch content-type handling', () => {
       ok: false,
       status: 401,
       json: () => Promise.resolve({ detail: 'expired' }),
+      text: () => Promise.resolve(JSON.stringify({ detail: 'expired' })),
     });
 
     await expect(
@@ -105,15 +107,16 @@ describe('fetchAdminSecurityLogs response parsing', () => {
   });
 
   it('parses paginated admin envelope {items: [...], total} ', async () => {
+    const responseBody = {
+      items: [{ log_id: 101, severity_level: 'HIGH' }],
+      total: 1,
+      limit: 20,
+      offset: 0,
+    };
     const fetchSpy = vi.fn().mockResolvedValue({
       ok: true,
-      json: () =>
-        Promise.resolve({
-          items: [{ log_id: 101, severity_level: 'HIGH' }],
-          total: 1,
-          limit: 20,
-          offset: 0,
-        }),
+      json: () => Promise.resolve(responseBody),
+      text: () => Promise.resolve(JSON.stringify(responseBody)),
     });
     vi.stubGlobal('fetch', fetchSpy);
 
@@ -124,9 +127,11 @@ describe('fetchAdminSecurityLogs response parsing', () => {
   });
 
   it('keeps backward compatibility for {data: [...]} responses', async () => {
+    const responseBody = { data: [{ log_id: 7 }] };
     const fetchSpy = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ data: [{ log_id: 7 }] }),
+      json: () => Promise.resolve(responseBody),
+      text: () => Promise.resolve(JSON.stringify(responseBody)),
     });
     vi.stubGlobal('fetch', fetchSpy);
 
@@ -139,19 +144,21 @@ describe('fetchAdminSecurityLogs response parsing', () => {
 describe('submitCivilianReport', () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
 
+  const civilianReportResponse = {
+    report_id: 1,
+    latitude: 14.5995,
+    longitude: 120.9842,
+    description: 'Fire in building',
+    trust_score: 0,
+    status: 'PENDING',
+    created_at: '2025-01-01T00:00:00Z',
+  };
+
   beforeEach(() => {
     fetchSpy = vi.fn().mockResolvedValue({
       ok: true,
-      json: () =>
-        Promise.resolve({
-          report_id: 1,
-          latitude: 14.5995,
-          longitude: 120.9842,
-          description: 'Fire in building',
-          trust_score: 0,
-          status: 'PENDING',
-          created_at: '2025-01-01T00:00:00Z',
-        }),
+      json: () => Promise.resolve(civilianReportResponse),
+      text: () => Promise.resolve(JSON.stringify(civilianReportResponse)),
     });
     vi.stubGlobal('fetch', fetchSpy);
   });
@@ -249,16 +256,18 @@ describe('regional incidents query & pagination helpers', () => {
 describe('fetchRegionalIncidents / fetchRegionalIncident', () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
 
+  const regionalIncidentsResponse = {
+    items: [],
+    total: 0,
+    limit: 10,
+    offset: 0,
+  };
+
   beforeEach(() => {
     fetchSpy = vi.fn().mockResolvedValue({
       ok: true,
-      json: () =>
-        Promise.resolve({
-          items: [],
-          total: 0,
-          limit: 10,
-          offset: 0,
-        }),
+      json: () => Promise.resolve(regionalIncidentsResponse),
+      text: () => Promise.resolve(JSON.stringify(regionalIncidentsResponse)),
     });
     vi.stubGlobal('fetch', fetchSpy);
   });
@@ -295,17 +304,18 @@ describe('fetchRegionalIncidents / fetchRegionalIncident', () => {
   });
 
   it('GET /regional/incidents/{id}', async () => {
+    const incidentResponse = {
+      incident_id: 7,
+      verification_status: 'DRAFT',
+      created_at: '2025-01-01T00:00:00Z',
+      region_id: 1,
+      nonsensitive: { alarm_level: 'First Alarm' },
+      sensitive: { caller_name: 'A' },
+    };
     fetchSpy.mockResolvedValue({
       ok: true,
-      json: () =>
-        Promise.resolve({
-          incident_id: 7,
-          verification_status: 'DRAFT',
-          created_at: '2025-01-01T00:00:00Z',
-          region_id: 1,
-          nonsensitive: { alarm_level: 'First Alarm' },
-          sensitive: { caller_name: 'A' },
-        }),
+      json: () => Promise.resolve(incidentResponse),
+      text: () => Promise.resolve(JSON.stringify(incidentResponse)),
     });
 
     const row = await fetchRegionalIncident(7);
@@ -321,16 +331,18 @@ describe('fetchRegionalIncidents / fetchRegionalIncident', () => {
 describe('commitAforImport', () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
 
+  const commitResponse = {
+    status: 'ok',
+    batch_id: 1,
+    incident_ids: [42],
+    total_committed: 1,
+  };
+
   beforeEach(() => {
     fetchSpy = vi.fn().mockResolvedValue({
       ok: true,
-      json: () =>
-        Promise.resolve({
-          status: 'ok',
-          batch_id: 1,
-          incident_ids: [42],
-          total_committed: 1,
-        }),
+      json: () => Promise.resolve(commitResponse),
+      text: () => Promise.resolve(JSON.stringify(commitResponse)),
     });
     vi.stubGlobal('fetch', fetchSpy);
   });
@@ -363,6 +375,7 @@ describe('Analytics API wrappers', () => {
     fetchSpy = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({}),
+      text: () => Promise.resolve('{}'),
     });
     vi.stubGlobal('fetch', fetchSpy);
   });
@@ -373,13 +386,11 @@ describe('Analytics API wrappers', () => {
 
   describe('fetchHeatmapData', () => {
     it('calls GET /api/analytics/heatmap and resolves to correct URL', async () => {
+      const responseBody = { type: 'FeatureCollection', features: [] };
       fetchSpy.mockResolvedValue({
         ok: true,
-        json: () =>
-          Promise.resolve({
-            type: 'FeatureCollection',
-            features: [],
-          }),
+        json: () => Promise.resolve(responseBody),
+        text: () => Promise.resolve(JSON.stringify(responseBody)),
       });
 
       await fetchHeatmapData({});
@@ -390,10 +401,11 @@ describe('Analytics API wrappers', () => {
     });
 
     it('serializes query params: start_date, end_date, region_id, alarm_level, incident_type', async () => {
+      const responseBody = { type: 'FeatureCollection', features: [] };
       fetchSpy.mockResolvedValue({
         ok: true,
-        json: () =>
-          Promise.resolve({ type: 'FeatureCollection', features: [] }),
+        json: () => Promise.resolve(responseBody),
+        text: () => Promise.resolve(JSON.stringify(responseBody)),
       });
 
       await fetchHeatmapData({
@@ -429,7 +441,7 @@ describe('Analytics API wrappers', () => {
           },
         ],
       };
-      fetchSpy.mockResolvedValue({ ok: true, json: () => Promise.resolve(sample) });
+      fetchSpy.mockResolvedValue({ ok: true, json: () => Promise.resolve(sample), text: () => Promise.resolve(JSON.stringify(sample)) });
 
       const result = await fetchHeatmapData({});
       expect(result.type).toBe('FeatureCollection');
@@ -439,21 +451,24 @@ describe('Analytics API wrappers', () => {
     });
 
     it('surfaces 403 error with detail', async () => {
+      const errDetail = { detail: 'NATIONAL_ANALYST or SYSTEM_ADMIN required' };
       fetchSpy.mockResolvedValue({
         ok: false,
         status: 403,
-        json: () =>
-          Promise.resolve({ detail: 'NATIONAL_ANALYST or SYSTEM_ADMIN required' }),
+        json: () => Promise.resolve(errDetail),
+        text: () => Promise.resolve(JSON.stringify(errDetail)),
       });
 
       await expect(fetchHeatmapData({})).rejects.toThrow(/403|NATIONAL_ANALYST|required/i);
     });
 
     it('surfaces 500 error', async () => {
+      const errDetail = { detail: 'Internal server error' };
       fetchSpy.mockResolvedValue({
         ok: false,
         status: 500,
-        json: () => Promise.resolve({ detail: 'Internal server error' }),
+        json: () => Promise.resolve(errDetail),
+        text: () => Promise.resolve(JSON.stringify(errDetail)),
       });
 
       await expect(fetchHeatmapData({})).rejects.toThrow();
@@ -462,9 +477,11 @@ describe('Analytics API wrappers', () => {
 
   describe('fetchTrendData', () => {
     it('calls GET /api/analytics/trends and resolves to correct URL', async () => {
+      const responseBody = { data: [] };
       fetchSpy.mockResolvedValue({
         ok: true,
-        json: () => Promise.resolve({ data: [] }),
+        json: () => Promise.resolve(responseBody),
+        text: () => Promise.resolve(JSON.stringify(responseBody)),
       });
 
       await fetchTrendData({});
@@ -474,9 +491,11 @@ describe('Analytics API wrappers', () => {
     });
 
     it('serializes query params including interval and alarm_level', async () => {
+      const responseBody = { data: [] };
       fetchSpy.mockResolvedValue({
         ok: true,
-        json: () => Promise.resolve({ data: [] }),
+        json: () => Promise.resolve(responseBody),
+        text: () => Promise.resolve(JSON.stringify(responseBody)),
       });
 
       await fetchTrendData({
@@ -505,7 +524,7 @@ describe('Analytics API wrappers', () => {
           { bucket: null, count: 2 },
         ],
       };
-      fetchSpy.mockResolvedValue({ ok: true, json: () => Promise.resolve(sample) });
+      fetchSpy.mockResolvedValue({ ok: true, json: () => Promise.resolve(sample), text: () => Promise.resolve(JSON.stringify(sample)) });
 
       const result = await fetchTrendData({});
       expect(result.data).toHaveLength(2);
@@ -517,14 +536,15 @@ describe('Analytics API wrappers', () => {
 
   describe('fetchComparativeData', () => {
     it('calls GET /api/analytics/comparative and resolves to correct URL', async () => {
+      const responseBody = {
+        range_a: { start: '2024-01-01', end: '2024-01-31', count: 10 },
+        range_b: { start: '2024-02-01', end: '2024-02-29', count: 12 },
+        variance_percent: 20,
+      };
       fetchSpy.mockResolvedValue({
         ok: true,
-        json: () =>
-          Promise.resolve({
-            range_a: { start: '2024-01-01', end: '2024-01-31', count: 10 },
-            range_b: { start: '2024-02-01', end: '2024-02-29', count: 12 },
-            variance_percent: 20,
-          }),
+        json: () => Promise.resolve(responseBody),
+        text: () => Promise.resolve(JSON.stringify(responseBody)),
       });
 
       await fetchComparativeData({
@@ -539,14 +559,15 @@ describe('Analytics API wrappers', () => {
     });
 
     it('serializes range and filter params including alarm_level', async () => {
+      const responseBody = {
+        range_a: { start: '2024-01-01', end: '2024-01-31', count: 10 },
+        range_b: { start: '2024-02-01', end: '2024-02-29', count: 12 },
+        variance_percent: 20,
+      };
       fetchSpy.mockResolvedValue({
         ok: true,
-        json: () =>
-          Promise.resolve({
-            range_a: { start: '2024-01-01', end: '2024-01-31', count: 10 },
-            range_b: { start: '2024-02-01', end: '2024-02-29', count: 12 },
-            variance_percent: 20,
-          }),
+        json: () => Promise.resolve(responseBody),
+        text: () => Promise.resolve(JSON.stringify(responseBody)),
       });
 
       await fetchComparativeData({
@@ -576,7 +597,7 @@ describe('Analytics API wrappers', () => {
         range_b: { start: '2024-02-01', end: '2024-02-29', count: 12 },
         variance_percent: 20,
       };
-      fetchSpy.mockResolvedValue({ ok: true, json: () => Promise.resolve(sample) });
+      fetchSpy.mockResolvedValue({ ok: true, json: () => Promise.resolve(sample), text: () => Promise.resolve(JSON.stringify(sample)) });
 
       const result = await fetchComparativeData({
         range_a_start: '2024-01-01',

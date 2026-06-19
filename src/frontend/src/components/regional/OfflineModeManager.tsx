@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CloudDownload, Check, Trash2, Loader2, WifiOff } from 'lucide-react';
 import { toast } from 'sonner';
-import { useUserProfile } from '@/lib/auth';
+import { useAuth } from '@/context/AuthContext';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import {
   enableOfflineMode,
@@ -28,7 +28,8 @@ import { clearAllOfflineData, setActiveOfflineUser } from '@/lib/offlineStore';
  */
 export function OfflineModeManager({ variant = 'panel' }: { variant?: 'banner' | 'panel' }) {
   const router = useRouter();
-  const { user, role } = useUserProfile();
+  const { user } = useAuth();
+  const role = (user as { role?: string } | null)?.role ?? null;
   const { isOnline } = useNetworkStatus();
   const encoderId = (user as { id?: string })?.id ?? '';
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';

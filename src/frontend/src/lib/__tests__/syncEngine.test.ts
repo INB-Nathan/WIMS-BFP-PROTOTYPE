@@ -61,6 +61,7 @@ const sessionOkResponse = {
   ok: true,
   status: 200,
   json: () => Promise.resolve({ user: { id: ENCODER_ID } }),
+  text: () => Promise.resolve(JSON.stringify({ user: { id: ENCODER_ID } })),
 };
 
 function mockSessionOkWithApiResponses(...responses: Array<Record<string, unknown>>) {
@@ -68,7 +69,7 @@ function mockSessionOkWithApiResponses(...responses: Array<Record<string, unknow
   fetchSpy.mockImplementation((url: string) => {
     if (url === '/api/auth/session') return Promise.resolve(sessionOkResponse);
     if (url === '/api/admin/sync/report') {
-      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ status: 'logged' }) });
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ status: 'logged' }), text: () => Promise.resolve(JSON.stringify({ status: 'logged' })) });
     }
     const next = queue.shift();
     if (!next) throw new Error(`Unexpected fetch call: ${url}`);
@@ -81,6 +82,7 @@ function mockSessionStatus(status: number) {
     ok: status >= 200 && status < 300,
     status,
     json: () => Promise.resolve({}),
+    text: () => Promise.resolve('{}'),
   });
 }
 
@@ -160,7 +162,7 @@ describe('syncPendingIncidents', () => {
     vi.mocked(getPendingOps).mockResolvedValue([makeOp()]);
     mockSessionOkWithApiResponses({
       ok: true, status: 200,
-      json: () => Promise.resolve({ status: 'ok', incident_ids: [42], failed: [] }),
+      json: () => Promise.resolve({ status: 'ok', incident_ids: [42], failed: [] }), text: () => Promise.resolve(JSON.stringify({ status: 'ok', incident_ids: [42], failed: [] })),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
@@ -173,7 +175,7 @@ describe('syncPendingIncidents', () => {
     vi.mocked(getPendingOps).mockResolvedValue([makeOp()]);
     mockSessionOkWithApiResponses({
       ok: true, status: 200,
-      json: () => Promise.resolve({ status: 'ok', incident_ids: [42], failed: [] }),
+      json: () => Promise.resolve({ status: 'ok', incident_ids: [42], failed: [] }), text: () => Promise.resolve(JSON.stringify({ status: 'ok', incident_ids: [42], failed: [] })),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
@@ -197,7 +199,7 @@ describe('syncPendingIncidents', () => {
     vi.mocked(getPendingOps).mockResolvedValue([makeOp({ localId: 'op-empty' })]);
     mockSessionOkWithApiResponses({
       ok: true, status: 200,
-      json: () => Promise.resolve({ status: 'ok', incident_ids: [], failed: [{ index: 1, reason: 'bad row' }] }),
+      json: () => Promise.resolve({ status: 'ok', incident_ids: [], failed: [{ index: 1, reason: 'bad row' }] }), text: () => Promise.resolve(JSON.stringify({ status: 'ok', incident_ids: [], failed: [{ index: 1, reason: 'bad row' }] })),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
@@ -216,11 +218,11 @@ describe('syncPendingIncidents', () => {
     mockSessionOkWithApiResponses(
       {
         ok: true, status: 200,
-        json: () => Promise.resolve({ incident_ids: [99], failed: [] }),
+        json: () => Promise.resolve({ incident_ids: [99], failed: [] }), text: () => Promise.resolve(JSON.stringify({ incident_ids: [99], failed: [] })),
       },
       {
         ok: true, status: 200,
-        json: () => Promise.resolve({ incident_ids: [99], failed: [] }),
+        json: () => Promise.resolve({ incident_ids: [99], failed: [] }), text: () => Promise.resolve(JSON.stringify({ incident_ids: [99], failed: [] })),
       }
     );
 
@@ -238,8 +240,8 @@ describe('syncPendingIncidents', () => {
       makeOp({ localId: 'op-good' }),
     ]);
     mockSessionOkWithApiResponses(
-      { ok: false, status: 422, json: () => Promise.resolve({ detail: 'Validation error' }) },
-      { ok: true, status: 200, json: () => Promise.resolve({ incident_ids: [77], failed: [] }) }
+      { ok: false, status: 422, json: () => Promise.resolve({ detail: 'Validation error' }), text: () => Promise.resolve(JSON.stringify({ detail: 'Validation error' })) },
+      { ok: true, status: 200, json: () => Promise.resolve({ incident_ids: [77], failed: [] }), text: () => Promise.resolve(JSON.stringify({ incident_ids: [77], failed: [] })) }
     );
 
     const result = await syncPendingIncidents(ENCODER_ID);
@@ -256,7 +258,7 @@ describe('syncPendingIncidents', () => {
     vi.mocked(getPendingOps).mockResolvedValue([makeOp()]);
     mockSessionOkWithApiResponses({
       ok: false, status: 409,
-      json: () => Promise.resolve({ detail: 'Conflict', server_version: { incident_id: 1 } }),
+      json: () => Promise.resolve({ detail: 'Conflict', server_version: { incident_id: 1 } }), text: () => Promise.resolve(JSON.stringify({ detail: 'Conflict', server_version: { incident_id: 1 } })),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
@@ -294,7 +296,7 @@ describe('syncPendingIncidents', () => {
     mockSessionOkWithApiResponses({
       ok: false,
       status: 401,
-      json: () => Promise.resolve({ detail: 'Not authenticated' }),
+      json: () => Promise.resolve({ detail: 'Not authenticated' }), text: () => Promise.resolve(JSON.stringify({ detail: 'Not authenticated' })),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
@@ -312,7 +314,7 @@ describe('syncPendingIncidents', () => {
     vi.mocked(getPendingOps).mockResolvedValue([makeOp()]);
     mockSessionOkWithApiResponses({
       ok: true, status: 200,
-      json: () => Promise.resolve({ incident_ids: [5], failed: [] }),
+      json: () => Promise.resolve({ incident_ids: [5], failed: [] }), text: () => Promise.resolve(JSON.stringify({ incident_ids: [5], failed: [] })),
     });
 
     await syncPendingIncidents(ENCODER_ID);
@@ -361,7 +363,7 @@ describe('op-type dispatch — verify ops', () => {
     fetchSpy.mockResolvedValue({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ previous_status: 'PENDING_VALIDATION', new_status: 'VERIFIED' }),
+      json: () => Promise.resolve({ previous_status: 'PENDING_VALIDATION', new_status: 'VERIFIED' }), text: () => Promise.resolve(JSON.stringify({ previous_status: 'PENDING_VALIDATION', new_status: 'VERIFIED' })),
     });
     vi.mocked(markSynced).mockResolvedValue(undefined);
 
@@ -406,7 +408,7 @@ describe('op-type dispatch — verify ops', () => {
     fetchSpy.mockResolvedValue({
       ok: false,
       status: 409,
-      json: () => Promise.resolve({ detail: 'Incident already in VERIFIED status' }),
+      json: () => Promise.resolve({ detail: 'Incident already in VERIFIED status' }), text: () => Promise.resolve(JSON.stringify({ detail: 'Incident already in VERIFIED status' })),
     });
 
     const result = await syncPendingIncidents();
@@ -437,7 +439,7 @@ describe('op-type dispatch — archive_action ops', () => {
     fetchSpy.mockResolvedValue({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ status: 'already_applied', incident_id: 55 }),
+      json: () => Promise.resolve({ status: 'already_applied', incident_id: 55 }), text: () => Promise.resolve(JSON.stringify({ status: 'already_applied', incident_id: 55 })),
     });
     vi.mocked(markSynced).mockResolvedValue(undefined);
 
@@ -472,7 +474,7 @@ describe('op-type dispatch — archive_action ops', () => {
     fetchSpy.mockResolvedValue({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ status: 'already_applied', incident_id: 77 }),
+      json: () => Promise.resolve({ status: 'already_applied', incident_id: 77 }), text: () => Promise.resolve(JSON.stringify({ status: 'already_applied', incident_id: 77 })),
     });
     vi.mocked(markSynced).mockResolvedValue(undefined);
 
@@ -489,7 +491,7 @@ describe('backward compatibility — legacy items (no opType)', () => {
     vi.mocked(getPendingIncidents).mockResolvedValue([
       { id: 1, payload: { description: 'Legacy public report' }, createdAt: Date.now(), status: 'pending' },
     ]);
-    fetchSpy.mockResolvedValue({ ok: true, status: 201, json: () => Promise.resolve({ report_id: 42 }) });
+    fetchSpy.mockResolvedValue({ ok: true, status: 201, json: () => Promise.resolve({ report_id: 42 }), text: () => Promise.resolve(JSON.stringify({ report_id: 42 })) });
     vi.mocked(markSynced).mockResolvedValue(undefined);
 
     const result = await syncPendingIncidents();
@@ -529,8 +531,8 @@ describe('network error abort', () => {
     ]);
 
     fetchSpy
-      .mockResolvedValueOnce({ ok: false, status: 422, json: () => Promise.resolve({ detail: 'Validation error' }) })
-      .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve({}) });
+      .mockResolvedValueOnce({ ok: false, status: 422, json: () => Promise.resolve({ detail: 'Validation error' }), text: () => Promise.resolve(JSON.stringify({ detail: 'Validation error' })) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve({}), text: () => Promise.resolve('{}') });
     vi.mocked(markSynced).mockResolvedValue(undefined);
 
     const result = await syncPendingIncidents();
@@ -564,7 +566,7 @@ describe('offlineOps dispatch — verify ops', () => {
 
     mockSessionOkWithApiResponses({
       ok: true, status: 200,
-      json: () => Promise.resolve({ previous_status: 'PENDING_VALIDATION', new_status: 'VERIFIED' }),
+      json: () => Promise.resolve({ previous_status: 'PENDING_VALIDATION', new_status: 'VERIFIED' }), text: () => Promise.resolve(JSON.stringify({ previous_status: 'PENDING_VALIDATION', new_status: 'VERIFIED' })),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
@@ -605,7 +607,7 @@ describe('offlineOps dispatch — verify ops', () => {
 
     mockSessionOkWithApiResponses({
       ok: true, status: 200,
-      json: () => Promise.resolve({ previous_status: 'PENDING_VALIDATION', new_status: 'VERIFIED' }),
+      json: () => Promise.resolve({ previous_status: 'PENDING_VALIDATION', new_status: 'VERIFIED' }), text: () => Promise.resolve(JSON.stringify({ previous_status: 'PENDING_VALIDATION', new_status: 'VERIFIED' })),
     });
 
     await syncPendingIncidents(ENCODER_ID);
@@ -628,7 +630,7 @@ describe('offlineOps dispatch — verify ops', () => {
 
     mockSessionOkWithApiResponses({
       ok: false, status: 409,
-      json: () => Promise.resolve({ detail: { code: 'DUPLICATE_DETECTED' } }),
+      json: () => Promise.resolve({ detail: { code: 'DUPLICATE_DETECTED' } }), text: () => Promise.resolve(JSON.stringify({ detail: { code: 'DUPLICATE_DETECTED' } })),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
@@ -685,7 +687,7 @@ describe('backoff window skip', () => {
     ]);
     mockSessionOkWithApiResponses({
       ok: true, status: 200,
-      json: () => Promise.resolve({ incident_ids: [10], failed: [] }),
+      json: () => Promise.resolve({ incident_ids: [10], failed: [] }), text: () => Promise.resolve(JSON.stringify({ incident_ids: [10], failed: [] })),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
@@ -772,7 +774,7 @@ describe('offlineOps dispatch — archive_action ops', () => {
 
     mockSessionOkWithApiResponses({
       ok: true, status: 200,
-      json: () => Promise.resolve({ status: 'already_applied', incident_id: 55 }),
+      json: () => Promise.resolve({ status: 'already_applied', incident_id: 55 }), text: () => Promise.resolve(JSON.stringify({ status: 'already_applied', incident_id: 55 })),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
@@ -804,7 +806,7 @@ describe('offlineOps dispatch — archive_action ops', () => {
 
     mockSessionOkWithApiResponses({
       ok: true, status: 200,
-      json: () => Promise.resolve({ status: 'already_applied', incident_id: 77 }),
+      json: () => Promise.resolve({ status: 'already_applied', incident_id: 77 }), text: () => Promise.resolve(JSON.stringify({ status: 'already_applied', incident_id: 77 })),
     });
 
     await syncPendingIncidents(ENCODER_ID);
@@ -826,7 +828,7 @@ describe('offlineOps dispatch — archive_action ops', () => {
 
     mockSessionOkWithApiResponses({
       ok: false, status: 409,
-      json: () => Promise.resolve({ detail: { code: 'DUPLICATE_DETECTED' } }),
+      json: () => Promise.resolve({ detail: { code: 'DUPLICATE_DETECTED' } }), text: () => Promise.resolve(JSON.stringify({ detail: { code: 'DUPLICATE_DETECTED' } })),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);

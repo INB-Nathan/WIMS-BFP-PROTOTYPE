@@ -1,3 +1,4 @@
+// @deprecated Use @/context/AuthContext instead. Do not add new imports.
 'use client';
 
 import {
