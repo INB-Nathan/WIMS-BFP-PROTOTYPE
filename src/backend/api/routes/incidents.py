@@ -953,15 +953,20 @@ def get_incidents(
 # -----------------------------------------------------------------------
 # National Analyst — Incident List (p5a)
 # -----------------------------------------------------------------------
-ANALYST_LIST_SORT_COLUMNS = {
-    "notification_dt",
-    "region",
-    "municipality_name",
-    "general_category",
-    "sub_category",
-    "alarm_level",
-    "estimated_damage_php",
-    "total_response_time_minutes",
+ANALYST_LIST_SORT_EXPRESSIONS = {
+    "notification_dt": "nd.notification_dt",
+    "region": "COALESCE(r.region_code, r.region_name, '')",
+    "municipality_name": "COALESCE(aif.municipality_name, '')",
+    "general_category": "COALESCE(nd.general_category, '')",
+    "sub_category": "COALESCE(nd.sub_category, '')",
+    "alarm_level": "COALESCE(nd.alarm_level, '')",
+    "estimated_damage_php": "COALESCE(aif.estimated_damage_php, nd.estimated_damage_php)",
+    "total_response_time_minutes": (
+        "COALESCE(aif.total_response_time_minutes, nd.total_response_time_minutes)"
+    ),
+    "incident_id": "fi.incident_id",
+    "province_name": "COALESCE(aif.province_name, '')",
+    "created_at": "fi.created_at",
 }
 
 
@@ -1053,7 +1058,13 @@ def get_analyst_incident_list(
     Requires: NATIONAL_ANALYST or SYSTEM_ADMIN.
     Always filters: verification_status = 'VERIFIED', is_archived = FALSE.
     """
-    sort_by_col = sort_by if sort_by and sort_by in ANALYST_LIST_SORT_COLUMNS else "notification_dt"
+    if sort_by and sort_by not in ANALYST_LIST_SORT_EXPRESSIONS:
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid sort_by. Must be one of the supported analyst-list sort keys.",
+        )
+    sort_by_key = sort_by if sort_by else "notification_dt"
+    sort_by_expression = ANALYST_LIST_SORT_EXPRESSIONS[sort_by_key]
     sort_dir_val = sort_dir if sort_dir in ("asc", "desc") else "desc"
 
     where_clauses = ["fi.verification_status = 'VERIFIED'", "fi.is_archived = FALSE"]
@@ -1107,7 +1118,7 @@ def get_analyst_incident_list(
     params["limit"] = page_size
     params["offset"] = offset
 
-    order_sql = f"ORDER BY {sort_by_col} {'ASC' if sort_dir_val == 'asc' else 'DESC'}"
+    order_sql = f"ORDER BY {sort_by_expression} {'ASC' if sort_dir_val == 'asc' else 'DESC'}"
 
     list_sql = f"""
         SELECT
@@ -1132,9 +1143,6 @@ def get_analyst_incident_list(
         {order_sql}
         LIMIT :limit OFFSET :offset
     """
-    params["sort_by"] = sort_by_col
-    params["sort_dir"] = sort_dir_val
-
     rows = db.execute(text(list_sql), params).fetchall()
 
     # Count
@@ -1148,11 +1156,7 @@ def get_analyst_incident_list(
     total = (
         db.execute(
             text(count_sql),
-            {
-                k: v
-                for k, v in params.items()
-                if k not in ("limit", "offset", "sort_by", "sort_dir")
-            },
+            {k: v for k, v in params.items() if k not in ("limit", "offset")},
         ).scalar()
         or 0
     )
