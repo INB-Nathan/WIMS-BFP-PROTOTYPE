@@ -339,7 +339,9 @@ def apply_schema_patches() -> None:
         db.commit()
         logger.info("Schema patch applied: reference_number / incident_type_code on fire_incidents")
     except Exception as exc:
-        logger.warning("Schema patch (reference_number/incident_type_code) failed (non-fatal): %s", exc)
+        logger.warning(
+            "Schema patch (reference_number/incident_type_code) failed (non-fatal): %s", exc
+        )
         db.rollback()
 
     # Migrations 21 + 35: province_district, city_municipality, barangay text columns
@@ -354,7 +356,9 @@ def apply_schema_patches() -> None:
             )
         )
         db.commit()
-        logger.info("Schema patch applied: province_district / city_municipality / barangay columns")
+        logger.info(
+            "Schema patch applied: province_district / city_municipality / barangay columns"
+        )
     except Exception as exc:
         logger.warning("Schema patch (province/city/barangay) failed (non-fatal): %s", exc)
         db.rollback()
