@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -17,6 +16,11 @@ from sqlalchemy.orm import Session
 
 from services.event_bus import publish_security_event
 from utils.config import get_config
+from utils.external_service import (
+    CircuitBreakerOpenError,
+    ExternalServiceClient,
+    ExternalServiceError,
+)
 from utils.metrics import AI_INFERENCE_DURATION
 
 logger = logging.getLogger("wims.ai_service")
@@ -30,6 +34,34 @@ _OLLAMA_DEFAULT_TIMEOUT = 120.0
 # Retry: 3 attempts, exponential backoff 2s/4s/8s, only on ConnectError + 5xx.
 _OLLAMA_MAX_RETRIES = 3
 _OLLAMA_RETRY_BASE_DELAY = 2.0
+
+# Shared resilient wrapper for Ollama — gains circuit breaker, size cap,
+# and concurrency cap. Retry is handled by the wrapper (matches existing behavior
+# except TimeoutException is NOT retried, preserving the existing contract).
+_ollama_client: ExternalServiceClient | None = None
+
+
+def _get_ollama_client(timeout: float) -> ExternalServiceClient:
+    """Return a shared ExternalServiceClient for Ollama, lazily created."""
+    global _ollama_client
+    if _ollama_client is None:
+        # _OLLAMA_MAX_RETRIES=3 in the legacy code meant 3 total attempts
+        # (range(3) loop), i.e. 1 initial + 2 retries. Translate to the
+        # wrapper convention where max_retries counts retries only.
+        _ollama_client = ExternalServiceClient(
+            service_name="ollama",
+            timeout=timeout,
+            max_retries=_OLLAMA_MAX_RETRIES - 1,  # 2 retries → 3 total attempts
+            base_delay=_OLLAMA_RETRY_BASE_DELAY,
+            response_size_limit=10 * 1024 * 1024,  # 10 MB
+            concurrency_limit=5,
+            cb_failure_threshold=5,
+            cb_recovery_timeout=60.0,
+            retry_on_timeout=False,  # Preserve existing Ollama contract
+        )
+    # Update timeout in case env changed between calls
+    _ollama_client.timeout = timeout
+    return _ollama_client
 
 
 def _get_metrics_redis() -> aioredis.Redis:
@@ -84,63 +116,42 @@ def _ollama_timeout(db=None) -> float:
 
 
 async def _ollama_post_with_retry(payload: dict, call_label: str = "", db=None) -> httpx.Response:
-    """POST to Ollama with retry on ConnectError and 5xx (exponential backoff).
+    """POST to Ollama through the resilient wrapper.
 
-    Does NOT retry on TimeoutException — inference is CPU-bound and retrying
-    would double the load on an already-busy Ollama instance.
+    Delegates retry, circuit breaker, size cap, and concurrency to
+    ExternalServiceClient. TimeoutException is NOT retried (preserving
+    the existing contract — inference is CPU-bound).
     """
     timeout = _ollama_timeout(db)
-    last_exc: Exception | None = None
+    client = _get_ollama_client(timeout)
+    url = f"{_ollama_url()}/api/generate"
 
-    for attempt in range(_OLLAMA_MAX_RETRIES):
-        try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                resp = await client.post(f"{_ollama_url()}/api/generate", json=payload)
-            if resp.status_code == 200:
-                return resp
-            if resp.status_code >= 500 and attempt < _OLLAMA_MAX_RETRIES - 1:
-                delay = _OLLAMA_RETRY_BASE_DELAY * (2**attempt)
-                logger.warning(
-                    "Ollama %s 5xx (attempt %d/%d, status=%d), retrying in %.1fs...",
-                    call_label,
-                    attempt + 1,
-                    _OLLAMA_MAX_RETRIES,
-                    resp.status_code,
-                    delay,
-                )
-                await asyncio.sleep(delay)
-                continue
-            # Non-retryable status (4xx, or final 5xx)
+    try:
+        resp = await client.request_async("POST", url, json=payload)
+
+        if resp.status_code == 200:
+            return resp
+        if resp.status_code >= 500:
             raise HTTPException(
                 status_code=502,
-                detail=f"Ollama request failed: {resp.status_code}",
+                detail=f"Ollama request failed after retries: {resp.status_code}",
             )
-        except httpx.ConnectError as exc:
-            last_exc = exc
-            if attempt < _OLLAMA_MAX_RETRIES - 1:
-                delay = _OLLAMA_RETRY_BASE_DELAY * (2**attempt)
-                logger.warning(
-                    "Ollama %s connect failed (attempt %d/%d), retrying in %.1fs...",
-                    call_label,
-                    attempt + 1,
-                    _OLLAMA_MAX_RETRIES,
-                    delay,
-                )
-                await asyncio.sleep(delay)
-            else:
-                logger.warning(
-                    "Ollama %s connect failed after %d retries", call_label, _OLLAMA_MAX_RETRIES
-                )
-                raise HTTPException(status_code=502, detail="Ollama service unavailable") from exc
-        except httpx.TimeoutException as exc:
-            logger.warning("Ollama %s timed out after %.0fs", call_label, timeout)
+        # Non-retryable status (4xx)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Ollama request failed: {resp.status_code}",
+        )
+    except CircuitBreakerOpenError:
+        logger.warning("Ollama %s circuit breaker open", call_label)
+        raise HTTPException(status_code=503, detail="Ollama service temporarily unavailable")
+    except ExternalServiceError as exc:
+        msg = str(exc)
+        logger.warning("Ollama %s error: %s", call_label, msg)
+        if "timed out" in msg.lower():
             raise HTTPException(status_code=502, detail="Ollama request timed out") from exc
-        except httpx.HTTPError as exc:
-            logger.warning("Ollama %s transport error: %s", call_label, exc)
-            raise HTTPException(status_code=502, detail="Ollama transport error") from exc
-
-    # Should not reach here, but safety net
-    raise HTTPException(status_code=502, detail="Ollama request failed after retries") from last_exc
+        if "connect" in msg.lower() or "unavailable" in msg.lower():
+            raise HTTPException(status_code=502, detail="Ollama service unavailable") from exc
+        raise HTTPException(status_code=502, detail="Ollama transport error") from exc
 
 
 async def analyze_threat_log(log_id: int, db: Session) -> dict:

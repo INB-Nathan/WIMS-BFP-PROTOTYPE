@@ -440,6 +440,7 @@ class TestAiTimeoutConsumer:
 
         class FakeResponse:
             status_code = 200
+            content = b'{"response":"{\\"narrative\\": \\"test\\", \\"confidence\\": 0.9}"}'
 
             def json(self):
                 return {"response": '{"narrative": "test", "confidence": 0.9}'}

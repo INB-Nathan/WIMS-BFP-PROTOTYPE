@@ -11,12 +11,18 @@ from fastapi import HTTPException
 
 
 @pytest.fixture(autouse=True)
-def _clear_ollama_env():
-    """Clear env vars that affect timeout, then restore."""
+def _clear_ollama_env_and_client():
+    """Clear env vars and shared Ollama client state that affect retry tests."""
     saved = os.environ.get("OLLAMA_TIMEOUT")
     if "OLLAMA_TIMEOUT" in os.environ:
         del os.environ["OLLAMA_TIMEOUT"]
+
+    import services.ai_service as ai_service
+
+    ai_service._ollama_client = None
     yield
+    ai_service._ollama_client = None
+
     if saved is not None:
         os.environ["OLLAMA_TIMEOUT"] = saved
     elif "OLLAMA_TIMEOUT" in os.environ:
