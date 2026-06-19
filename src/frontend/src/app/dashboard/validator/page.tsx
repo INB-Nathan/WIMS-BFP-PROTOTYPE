@@ -20,7 +20,7 @@ import {
 import { useNetworkStatus } from "@/lib/useNetworkStatus";
 import { useAutoSync } from "@/lib/useAutoSync";
 import { getPendingIncidents } from "@/lib/offlineStore";
-import { useUserProfile } from "@/lib/auth";
+import { useAuth } from "@/context/AuthContext";
 import { formatClassification } from "@/lib/afor-utils";
 import { PH_REGIONS, getShortRegionName } from "@/lib/ph-regions";
 import { isDateOnly, getDateBounds, categoryCount as sharedCategoryCount } from "@/lib/incident-utils";
@@ -88,7 +88,7 @@ export default function ValidatorDashboard() {
   const router = useRouter();
   const networkStatus = useNetworkStatus();
   const autoSync = useAutoSync();
-  const { user } = useUserProfile();
+  const { user } = useAuth();
   const [incidents, setIncidents] = useState<ValidatorIncident[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);

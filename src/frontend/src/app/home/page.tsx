@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useUserProfile } from '@/lib/auth';
+import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import { Search, Loader2, Pencil, Plus, Trash2, Link2, Map as MapIcon, List } from 'lucide-react';
 import { MapPickerInner } from '@/components/MapPickerInner';
@@ -27,7 +27,8 @@ const STATUS_BADGE: Record<FireStatus, { label: string; className: string }> = {
 };
 
 export default function HomePage() {
-  const { role, loading: authLoading } = useUserProfile();
+  const { user, loading: authLoading } = useAuth();
+  const role = (user as { role?: string } | null)?.role ?? null;
   const isValidator = role === 'NATIONAL_VALIDATOR';
 
   const [ops, setOps] = useState<Operation[]>([]);

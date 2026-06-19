@@ -111,7 +111,8 @@ type AuthCheckResult = 'authenticated' | 'auth' | 'offline';
 
 type ApiFetchResult =
   | { ok: boolean; status: number; body: Record<string, unknown> }
-  | { ok: false; status: 0; error: string };
+  | { ok: false; status: 0; error: string }
+  | { ok: false; status: number; body: Record<string, unknown>; error: string };
 
 async function apiFetch(
   path: string,
@@ -123,7 +124,19 @@ async function apiFetch(
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) },
     });
-    const body = await res.json().catch(() => ({})) as Record<string, unknown>;
+
+    const text = await res.text();
+    let body: Record<string, unknown> = {};
+    try {
+      body = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      // Malformed response body — return an error result with the status
+      if (!res.ok) {
+        return { ok: false, status: res.status, body: {} };
+      }
+      return { ok: false, status: res.status, body: {}, error: 'ParseError' };
+    }
+
     return { ok: res.ok, status: res.status, body };
   } catch (err) {
     // Network error — connectivity lost

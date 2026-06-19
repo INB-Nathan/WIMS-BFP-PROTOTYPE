@@ -25,8 +25,8 @@ vi.mock('../offlineStore', () => ({
 }));
 
 // Mock auth
-vi.mock('../auth', () => ({
-  useUserProfile: vi.fn(),
+vi.mock('@/context/AuthContext', () => ({
+  useAuth: vi.fn(),
 }));
 
 // Mock sonner
@@ -49,7 +49,7 @@ vi.mock('../useNetworkStatus', () => ({
 import { useAutoSync } from '../useAutoSync';
 import { syncPendingIncidents } from '../syncEngine';
 import { getPendingOpsCount, recoverStaleSyncingOps } from '../offlineStore';
-import { useUserProfile } from '../auth';
+import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
 
 const ENCODER_ID = 'test-encoder-uuid';
@@ -60,7 +60,7 @@ beforeEach(() => {
   mockNetworkStatus.isOnline = true;
   mockNetworkStatus.isReconnecting = false;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  vi.mocked(useUserProfile).mockReturnValue({ user: { id: ENCODER_ID } as any, loading: false } as any);
+  vi.mocked(useAuth).mockReturnValue({ user: { id: ENCODER_ID } as any, loading: false } as any);
   vi.mocked(getPendingOpsCount).mockResolvedValue(0);
   vi.mocked(recoverStaleSyncingOps).mockResolvedValue(0);
   vi.mocked(syncPendingIncidents).mockResolvedValue(OK_RESULT);

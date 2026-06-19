@@ -23,7 +23,7 @@ import {
   ALL_PROBLEM_OPTIONS,
   normalizeProblemLabel,
 } from '@/lib/afor-utils';
-import { useUserProfile } from '@/lib/auth';
+import { useAuth } from '@/context/AuthContext';
 import { queueOfflineOp } from '@/lib/offlineStore';
 import { PH_REGIONS } from '@/lib/ph-regions';
 import { searchGeocode } from '@/lib/geocode';
@@ -446,7 +446,8 @@ function useGeocoding(address: string, city: string, province = '') {
 function AforImportPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, assignedRegionId } = useUserProfile();
+  const { user } = useAuth();
+  const assignedRegionId = (user as { assignedRegionId?: number | null } | null)?.assignedRegionId ?? null;
   const { isOnline } = useNetworkStatus();
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);

@@ -54,7 +54,7 @@ const ENCODER_ID = 'encoder-conflict-test';
 const sessionOkResponse = {
   ok: true,
   status: 200,
-  json: () => Promise.resolve({ user: { id: ENCODER_ID } }),
+  json: () => Promise.resolve({ user: { id: ENCODER_ID } }), text: () => Promise.resolve(JSON.stringify({ user: { id: ENCODER_ID } })),
 };
 
 function mockSessionAndApi(...responses: Array<Record<string, unknown>>) {
@@ -62,7 +62,7 @@ function mockSessionAndApi(...responses: Array<Record<string, unknown>>) {
   fetchSpy.mockImplementation((url: string) => {
     if (url === '/api/auth/session') return Promise.resolve(sessionOkResponse);
     if (url === '/api/admin/sync/report') {
-      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ status: 'logged' }) });
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ status: 'logged' }), text: () => Promise.resolve(JSON.stringify({ status: 'logged' })) });
     }
     const next = queue.shift();
     if (!next) throw new Error(`Unexpected fetch call: ${url}`);
@@ -110,7 +110,7 @@ describe('409 DUPLICATE_DETECTED — conflict handling', () => {
     vi.mocked(getPendingOps).mockResolvedValue([makeOp({ localId: 'dup-create' })]);
     mockSessionAndApi({
       ok: false, status: 409,
-      json: () => Promise.resolve({ detail: { code: 'DUPLICATE_DETECTED' }, code: 'DUPLICATE_DETECTED' }),
+      json: () => Promise.resolve({ detail: { code: 'DUPLICATE_DETECTED' }, code: 'DUPLICATE_DETECTED' }), text: () => Promise.resolve(JSON.stringify({ detail: { code: 'DUPLICATE_DETECTED' }, code: 'DUPLICATE_DETECTED' })),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
@@ -129,7 +129,7 @@ describe('409 DUPLICATE_DETECTED — conflict handling', () => {
     })]);
     mockSessionAndApi({
       ok: false, status: 409,
-      json: () => Promise.resolve({ detail: { code: 'DUPLICATE_DETECTED' }, code: 'DUPLICATE_DETECTED' }),
+      json: () => Promise.resolve({ detail: { code: 'DUPLICATE_DETECTED' }, code: 'DUPLICATE_DETECTED' }), text: () => Promise.resolve(JSON.stringify({ detail: { code: 'DUPLICATE_DETECTED' }, code: 'DUPLICATE_DETECTED' })),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
@@ -144,7 +144,7 @@ describe('409 DUPLICATE_DETECTED — conflict handling', () => {
     })]);
     mockSessionAndApi({
       ok: false, status: 409,
-      json: () => Promise.resolve({ detail: { code: 'DUPLICATE_DETECTED' }, code: 'DUPLICATE_DETECTED' }),
+      json: () => Promise.resolve({ detail: { code: 'DUPLICATE_DETECTED' }, code: 'DUPLICATE_DETECTED' }), text: () => Promise.resolve(JSON.stringify({ detail: { code: 'DUPLICATE_DETECTED' }, code: 'DUPLICATE_DETECTED' })),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
@@ -159,7 +159,7 @@ describe('409 DUPLICATE_DETECTED — conflict handling', () => {
     })]);
     mockSessionAndApi({
       ok: false, status: 409,
-      json: () => Promise.resolve({ detail: { code: 'DUPLICATE_DETECTED' }, code: 'DUPLICATE_DETECTED' }),
+      json: () => Promise.resolve({ detail: { code: 'DUPLICATE_DETECTED' }, code: 'DUPLICATE_DETECTED' }), text: () => Promise.resolve(JSON.stringify({ detail: { code: 'DUPLICATE_DETECTED' }, code: 'DUPLICATE_DETECTED' })),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
@@ -176,7 +176,7 @@ describe('409 CONFLICT (OCC) — version conflict handling', () => {
     vi.mocked(getPendingOps).mockResolvedValue([makeOp({ localId: 'occ-create' })]);
     mockSessionAndApi({
       ok: false, status: 409,
-      json: () => Promise.resolve({ detail: 'Version conflict', server_version: serverVersion }),
+      json: () => Promise.resolve({ detail: 'Version conflict', server_version: serverVersion }), text: () => Promise.resolve(JSON.stringify({ detail: 'Version conflict', server_version: serverVersion })),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
@@ -193,7 +193,7 @@ describe('409 CONFLICT (OCC) — version conflict handling', () => {
     })]);
     mockSessionAndApi({
       ok: false, status: 409,
-      json: () => Promise.resolve({ detail: 'Version conflict', server_version: serverVersion }),
+      json: () => Promise.resolve({ detail: 'Version conflict', server_version: serverVersion }), text: () => Promise.resolve(JSON.stringify({ detail: 'Version conflict', server_version: serverVersion })),
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
@@ -207,7 +207,7 @@ describe('409 CONFLICT (OCC) — version conflict handling', () => {
     vi.mocked(getPendingOps).mockResolvedValue([makeOp({ localId: 'occ-meta' })]);
     mockSessionAndApi({
       ok: false, status: 409,
-      json: () => Promise.resolve({ detail: 'Conflict', server_version: serverVersion }),
+      json: () => Promise.resolve({ detail: 'Conflict', server_version: serverVersion }), text: () => Promise.resolve(JSON.stringify({ detail: 'Conflict', server_version: serverVersion })),
     });
 
     await syncPendingIncidents(ENCODER_ID);
@@ -260,7 +260,7 @@ describe('auth abort during replay', () => {
     mockSessionAndApi({
       ok: false,
       status: 401,
-      json: () => Promise.resolve({ detail: 'Not authenticated' }),
+      json: () => Promise.resolve({ detail: 'Not authenticated' }), text: () => Promise.resolve(JSON.stringify({ detail: 'Not authenticated' })),
     });
     const { markOpPending } = await import('../offlineStore');
 

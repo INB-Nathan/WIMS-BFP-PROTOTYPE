@@ -15,9 +15,9 @@ vi.mock('next/navigation', () => ({
 }));
 
 // ── User profile mock ────────────────────────────────────────────────────
-const mockUseUserProfile = vi.fn();
-vi.mock('@/lib/auth', () => ({
-  useUserProfile: () => mockUseUserProfile(),
+const mockUseAuth = vi.fn();
+vi.mock('@/context/AuthContext', () => ({
+  useAuth: () => mockUseAuth(),
 }));
 
 // ── Network status — default online, overridden per test ─────────────────
@@ -132,13 +132,14 @@ describe('Validator dashboard page — offline wiring', () => {
     networkStatusOverride = { isOnline: true, isReconnecting: false };
     pendingIncidentsOverride = [];
 
-    mockUseUserProfile.mockReturnValue({
-      user: { id: 'validator-1', email: 'v@test.local' },
-      role: 'NATIONAL_VALIDATOR',
-      assignedRegionId: null,
+    mockUseAuth.mockReturnValue({
+      user: { id: 'validator-1', email: 'v@test.local', role: 'NATIONAL_VALIDATOR', assignedRegionId: null },
+      isAuthenticated: true,
       loading: false,
-      signOut: vi.fn(),
-      refreshProfile: vi.fn(),
+      loggingOut: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshSession: vi.fn(),
     });
 
     mockFetchValidatorQueue.mockResolvedValue(validQueueResponse());

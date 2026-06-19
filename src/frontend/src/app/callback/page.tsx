@@ -4,14 +4,12 @@ import { Suspense, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createUserManager } from '@/lib/oidc';
 import { useAuth } from '@/context/AuthContext';
-import { useUserProfile } from '@/lib/auth';
 import { resolvePostLoginRedirect } from '@/lib/roleRedirect';
 import { Loader2 } from 'lucide-react';
 
 function CallbackContent() {
     const router = useRouter();
     const { refreshSession } = useAuth();
-    const { refreshProfile } = useUserProfile();
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -45,13 +43,13 @@ function CallbackContent() {
                     router.replace('/login');
                     return;
                 }
-                // CRITICAL: Refresh BOTH auth providers BEFORE navigating.
-                // The cookie is now set, but both fetchSession() and fetchProfile()
-                // already ran on mount before the cookie existed. Without this,
-                // AuthContext stays null (LayoutShell redirects back to Keycloak)
-                // and UserProfileProvider keeps assignedRegionId=null (region lock
-                // in IncidentForm never fires, bypassing RBAC enforcement).
-                await Promise.all([refreshSession(), refreshProfile()]);
+                // CRITICAL: Refresh auth state BEFORE navigating.
+                // The cookie is now set, but fetchSession() already ran on mount
+                // before the cookie existed. Without this, AuthContext stays null
+                // (LayoutShell redirects back to Keycloak) and assignedRegionId
+                // remains null (region lock in IncidentForm never fires, bypassing
+                // RBAC enforcement).
+                await refreshSession();
                 const session = await fetch('/api/auth/session')
                     .then((r) => (r.ok ? r.json() : null))
                     .catch(() => null);
@@ -66,7 +64,7 @@ function CallbackContent() {
             }
         };
         run();
-    }, [router, refreshSession, refreshProfile]);
+    }, [router, refreshSession]);
 
     return (
         <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--content-bg)' }}>
