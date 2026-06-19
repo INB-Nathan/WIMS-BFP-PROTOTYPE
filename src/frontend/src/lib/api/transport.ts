@@ -87,6 +87,12 @@ export async function apiFetch<T>(
   // Read body as text first so we can throw a typed ApiParseError on malformed
   // JSON instead of silently swallowing the error with `{}`.
   const text = await res.text();
+  if (res.status === 204 || res.status === 205 || text.trim() === '') {
+    if (!res.ok) {
+      throw new ApiRequestError(`Request failed: ${res.status}`, res.status, text);
+    }
+    return undefined as unknown as T;
+  }
   let json: unknown;
   try {
     json = JSON.parse(text) as unknown;
