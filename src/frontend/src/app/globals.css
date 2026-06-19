@@ -201,18 +201,7 @@ body {
   font-family: 'Inter', sans-serif !important;
   font-size: 0.95rem;
   color: rgba(255,255,255,0.75) !important;
-  margin: 0 0 1.5rem 0;
-}
-
-.wims-brand-tagline {
-  font-family: 'Inter', sans-serif !important;
-  font-size: 0.8rem;
-  color: rgba(255,255,255,0.55) !important;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  display: flex !important;
-  align-items: center;
-  gap: 0.5rem;
+  margin: 0;
 }
 
 /* Right panel */
@@ -321,31 +310,46 @@ body {
 @media (max-width: 768px) {
   .login-page {
     flex-direction: column !important;
+    /* Allow page to scroll when stacked content exceeds viewport height */
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    min-height: 100vh !important;
+    height: auto !important;
   }
 
   .wims-login-branding {
     width: 100% !important;
-    min-height: 260px !important;
-    clip-path: polygon(0 0, 100% 0, 100% 85%, 0 100%) !important;
+    min-height: 220px !important;
+    height: 220px !important;
+    flex-shrink: 0 !important;
+    clip-path: polygon(0 0, 100% 0, 100% 88%, 0 100%) !important;
   }
 
   .wims-branding-content {
     margin-right: 0 !important;
-    padding: 2rem 1rem !important;
+    padding: 1.5rem 1rem !important;
   }
 
   .wims-logo-wrap {
-    width: 80px !important;
-    height: 80px !important;
-    margin-bottom: 1rem !important;
+    width: 72px !important;
+    height: 72px !important;
+    margin-bottom: 0.75rem !important;
   }
 
   .wims-brand-title {
-    font-size: 1.25rem !important;
+    font-size: 1.2rem !important;
   }
 
   .wims-login-form {
-    padding: 2rem 1.5rem !important;
+    flex: 1 1 auto !important;
+    padding: 1.75rem 1.25rem !important;
+    align-items: flex-start !important;
+    justify-content: center !important;
+  }
+
+  .wims-form-container {
+    gap: 1.25rem !important;
+    transform: none !important;
   }
 
   .wims-form-title {
@@ -354,6 +358,32 @@ body {
 
   .wims-form-subtitle {
     text-align: center !important;
+  }
+}
+
+/* Extra-small phones (≤ 480px) */
+@media (max-width: 480px) {
+  .wims-login-branding {
+    min-height: 190px !important;
+    height: 190px !important;
+  }
+
+  .wims-logo-wrap {
+    width: 60px !important;
+    height: 60px !important;
+    margin-bottom: 0.5rem !important;
+  }
+
+  .wims-brand-title {
+    font-size: 1.05rem !important;
+  }
+
+  .wims-login-form {
+    padding: 1.25rem 1rem !important;
+  }
+
+  .wims-form-container {
+    gap: 1rem !important;
   }
 }
 

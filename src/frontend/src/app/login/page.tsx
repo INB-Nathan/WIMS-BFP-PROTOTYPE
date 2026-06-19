@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { defaultRouteForRole } from '@/lib/roleRedirect';
-import { ArrowRight, CheckCircle, Lock } from 'lucide-react';
+import { ArrowRight, Lock } from 'lucide-react';
 
 export default function LoginPage() {
     const router = useRouter();
@@ -48,10 +48,6 @@ export default function LoginPage() {
                     </h1>
                     <p className="wims-brand-subtitle">Bureau of Fire Protection</p>
 
-                    <div className="wims-brand-tagline">
-                        <CheckCircle className="w-4 h-4" aria-hidden />
-                        <span>Secured &bull; Monitored &bull; Explainable</span>
-                    </div>
                 </div>
             </div>
 
