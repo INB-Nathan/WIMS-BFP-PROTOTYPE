@@ -609,7 +609,10 @@ async def upload_attachment(
     safe_name = sanitize_filename(file.filename)
     ext = validate_extension(
         safe_name,
-        ["jpg", "jpeg", "png", "pdf", "xlsx", "txt", "doc", "docx"],
+        [
+            "jpg", "jpeg", "png", "pdf", "xlsx",
+            "txt", "doc", "docx", "bin",
+        ],
     )
 
     # Read into memory with hard size cap — AESGCM requires full plaintext at once.
