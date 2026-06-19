@@ -19,10 +19,9 @@ def _clear_ollama_env_and_client():
 
     import services.ai_service as ai_service
 
-    saved_client = ai_service._ollama_client
     ai_service._ollama_client = None
     yield
-    ai_service._ollama_client = saved_client
+    ai_service._ollama_client = None
 
     if saved is not None:
         os.environ["OLLAMA_TIMEOUT"] = saved

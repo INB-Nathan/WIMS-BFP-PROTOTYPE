@@ -73,6 +73,25 @@ def flush_public_rate_limit():
 
 
 # =============================================================================
+# AI service wrapper test isolation
+# =============================================================================
+
+
+@pytest.fixture(autouse=True)
+def _reset_shared_ollama_client():
+    """Prevent Ollama circuit-breaker state leaking across unrelated tests."""
+    try:
+        import services.ai_service as ai_service
+    except ImportError:
+        yield
+        return
+
+    ai_service._ollama_client = None
+    yield
+    ai_service._ollama_client = None
+
+
+# =============================================================================
 # CSRF middleware: disabled by default in test suite
 # =============================================================================
 # Existing tests send POST/PUT/PATCH/DELETE without Origin/Referer headers.
