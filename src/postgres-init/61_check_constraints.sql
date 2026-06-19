@@ -23,10 +23,11 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_civilian_deaths_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT chk_incident_nonsensitive_details_civilian_deaths_non_negative
-            CHECK (civilian_deaths IS NULL OR civilian_deaths >= 0);
+            CHECK (civilian_deaths IS NULL OR civilian_deaths >= 0) NOT VALID;
         RAISE NOTICE 'Added CHECK: chk_incident_nonsensitive_details_civilian_deaths_non_negative.';
     ELSE
         RAISE NOTICE
@@ -42,10 +43,11 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_civilian_injured_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT chk_incident_nonsensitive_details_civilian_injured_non_negative
-            CHECK (civilian_injured IS NULL OR civilian_injured >= 0);
+            CHECK (civilian_injured IS NULL OR civilian_injured >= 0) NOT VALID;
         RAISE NOTICE 'Added CHECK: chk_incident_nonsensitive_details_civilian_injured_non_negative.';
     ELSE
         RAISE NOTICE
@@ -61,10 +63,11 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_firefighter_deaths_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT chk_incident_nonsensitive_details_firefighter_deaths_non_negative
-            CHECK (firefighter_deaths IS NULL OR firefighter_deaths >= 0);
+            CHECK (firefighter_deaths IS NULL OR firefighter_deaths >= 0) NOT VALID;
         RAISE NOTICE
             'Added CHECK: chk_incident_nonsensitive_details_firefighter_deaths_non_negative.';
     ELSE
@@ -81,10 +84,11 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_firefighter_injured_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT chk_incident_nonsensitive_details_firefighter_injured_non_negative
-            CHECK (firefighter_injured IS NULL OR firefighter_injured >= 0);
+            CHECK (firefighter_injured IS NULL OR firefighter_injured >= 0) NOT VALID;
         RAISE NOTICE
             'Added CHECK: chk_incident_nonsensitive_details_firefighter_injured_non_negative.';
     ELSE
@@ -101,10 +105,11 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_estimated_damage_php_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT chk_incident_nonsensitive_details_estimated_damage_php_non_negative
-            CHECK (estimated_damage_php IS NULL OR estimated_damage_php >= 0);
+            CHECK (estimated_damage_php IS NULL OR estimated_damage_php >= 0) NOT VALID;
         RAISE NOTICE
             'Added CHECK: chk_incident_nonsensitive_details_estimated_damage_php_non_negative.';
     ELSE
@@ -121,10 +126,11 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_families_affected_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT chk_incident_nonsensitive_details_families_affected_non_negative
-            CHECK (families_affected IS NULL OR families_affected >= 0);
+            CHECK (families_affected IS NULL OR families_affected >= 0) NOT VALID;
         RAISE NOTICE
             'Added CHECK: chk_incident_nonsensitive_details_families_affected_non_negative.';
     ELSE
@@ -141,10 +147,11 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_water_tankers_used_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT chk_incident_nonsensitive_details_water_tankers_used_non_negative
-            CHECK (water_tankers_used IS NULL OR water_tankers_used >= 0);
+            CHECK (water_tankers_used IS NULL OR water_tankers_used >= 0) NOT VALID;
         RAISE NOTICE
             'Added CHECK: chk_incident_nonsensitive_details_water_tankers_used_non_negative.';
     ELSE
@@ -161,10 +168,11 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_foam_liters_used_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT chk_incident_nonsensitive_details_foam_liters_used_non_negative
-            CHECK (foam_liters_used IS NULL OR foam_liters_used >= 0);
+            CHECK (foam_liters_used IS NULL OR foam_liters_used >= 0) NOT VALID;
         RAISE NOTICE
             'Added CHECK: chk_incident_nonsensitive_details_foam_liters_used_non_negative.';
     ELSE
@@ -181,10 +189,11 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_breathing_apparatus_used_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT chk_incident_nonsensitive_details_breathing_apparatus_used_non_negative
-            CHECK (breathing_apparatus_used IS NULL OR breathing_apparatus_used >= 0);
+            CHECK (breathing_apparatus_used IS NULL OR breathing_apparatus_used >= 0) NOT VALID;
         RAISE NOTICE
             'Added CHECK: chk_incident_nonsensitive_details_breathing_apparatus_used_non_negative.';
     ELSE
@@ -201,10 +210,11 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_structures_affected_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT chk_incident_nonsensitive_details_structures_affected_non_negative
-            CHECK (structures_affected IS NULL OR structures_affected >= 0);
+            CHECK (structures_affected IS NULL OR structures_affected >= 0) NOT VALID;
         RAISE NOTICE
             'Added CHECK: chk_incident_nonsensitive_details_structures_affected_non_negative.';
     ELSE
@@ -221,10 +231,11 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_households_affected_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT chk_incident_nonsensitive_details_households_affected_non_negative
-            CHECK (households_affected IS NULL OR households_affected >= 0);
+            CHECK (households_affected IS NULL OR households_affected >= 0) NOT VALID;
         RAISE NOTICE
             'Added CHECK: chk_incident_nonsensitive_details_households_affected_non_negative.';
     ELSE
@@ -241,10 +252,11 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_individuals_affected_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT chk_incident_nonsensitive_details_individuals_affected_non_negative
-            CHECK (individuals_affected IS NULL OR individuals_affected >= 0);
+            CHECK (individuals_affected IS NULL OR individuals_affected >= 0) NOT VALID;
         RAISE NOTICE
             'Added CHECK: chk_incident_nonsensitive_details_individuals_affected_non_negative.';
     ELSE
@@ -261,10 +273,11 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_vehicles_affected_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT chk_incident_nonsensitive_details_vehicles_affected_non_negative
-            CHECK (vehicles_affected IS NULL OR vehicles_affected >= 0);
+            CHECK (vehicles_affected IS NULL OR vehicles_affected >= 0) NOT VALID;
         RAISE NOTICE
             'Added CHECK: chk_incident_nonsensitive_details_vehicles_affected_non_negative.';
     ELSE
@@ -281,11 +294,12 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_total_response_time_minutes_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT
                 chk_incident_nonsensitive_details_total_response_time_minutes_non_negative
-            CHECK (total_response_time_minutes IS NULL OR total_response_time_minutes >= 0);
+            CHECK (total_response_time_minutes IS NULL OR total_response_time_minutes >= 0) NOT VALID;
         RAISE NOTICE
             'Added CHECK: chk_incident_nonsensitive_details_total_response_time_minutes_non_negative.';
     ELSE
@@ -302,11 +316,12 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_total_gas_consumed_liters_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT
                 chk_incident_nonsensitive_details_total_gas_consumed_liters_non_negative
-            CHECK (total_gas_consumed_liters IS NULL OR total_gas_consumed_liters >= 0);
+            CHECK (total_gas_consumed_liters IS NULL OR total_gas_consumed_liters >= 0) NOT VALID;
         RAISE NOTICE
             'Added CHECK: chk_incident_nonsensitive_details_total_gas_consumed_liters_non_negative.';
     ELSE
@@ -323,11 +338,12 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_extent_total_floor_area_sqm_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT
                 chk_incident_nonsensitive_details_extent_total_floor_area_sqm_non_negative
-            CHECK (extent_total_floor_area_sqm IS NULL OR extent_total_floor_area_sqm >= 0);
+            CHECK (extent_total_floor_area_sqm IS NULL OR extent_total_floor_area_sqm >= 0) NOT VALID;
         RAISE NOTICE
             'Added CHECK: chk_incident_nonsensitive_details_extent_total_floor_area_sqm_non_negative.';
     ELSE
@@ -344,12 +360,13 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_extent_total_land_area_hectares_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT
                 chk_incident_nonsensitive_details_extent_total_land_area_hectares_non_negative
             CHECK (extent_total_land_area_hectares IS NULL
-                   OR extent_total_land_area_hectares >= 0);
+                   OR extent_total_land_area_hectares >= 0) NOT VALID;
         RAISE NOTICE
             'Added CHECK: chk_incident_nonsensitive_details_extent_total_land_area_hectares_non_negative.';
     ELSE
@@ -366,11 +383,12 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'chk_incident_nonsensitive_details_distance_from_station_km_non_negative'
+        AND conrelid = 'wims.incident_nonsensitive_details'::regclass
     ) THEN
         ALTER TABLE wims.incident_nonsensitive_details
             ADD CONSTRAINT
                 chk_incident_nonsensitive_details_distance_from_station_km_non_negative
-            CHECK (distance_from_station_km IS NULL OR distance_from_station_km >= 0);
+            CHECK (distance_from_station_km IS NULL OR distance_from_station_km >= 0) NOT VALID;
         RAISE NOTICE
             'Added CHECK: chk_incident_nonsensitive_details_distance_from_station_km_non_negative.';
     ELSE

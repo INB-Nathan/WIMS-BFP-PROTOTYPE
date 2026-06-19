@@ -9,10 +9,12 @@ numeric columns raises a constraint violation, and that NULL values are accepted
 from __future__ import annotations
 
 import os
+import shutil
+
 import pytest
 from sqlalchemy import text
-from sqlalchemy.exc import DataError, IntegrityError, InternalError, ProgrammingError
-from sqlalchemy.engine import create_engine, Engine
+from sqlalchemy.engine import create_engine, Engine, make_url
+from sqlalchemy.exc import IntegrityError
 
 
 def _get_engine() -> Engine:
@@ -65,155 +67,87 @@ def incident_id(engine):
 class TestNonNegativeCheckConstraints:
     """CHECK constraints must reject negative values on incident_nonsensitive_details."""
 
-    # -- Tracer bullet (casualties group) --
-
-    def test_civilian_deaths_negative_fails(self, engine, incident_id):
-        """Insert civilian_deaths = -1 must raise a constraint violation."""
+    @pytest.mark.parametrize(
+        "column, constraint_name",
+        [
+            ("civilian_deaths", "chk_incident_nonsensitive_details_civilian_deaths_non_negative"),
+            ("civilian_injured", "chk_incident_nonsensitive_details_civilian_injured_non_negative"),
+            (
+                "firefighter_deaths",
+                "chk_incident_nonsensitive_details_firefighter_deaths_non_negative",
+            ),
+            (
+                "firefighter_injured",
+                "chk_incident_nonsensitive_details_firefighter_injured_non_negative",
+            ),
+            (
+                "estimated_damage_php",
+                "chk_incident_nonsensitive_details_estimated_damage_php_non_negative",
+            ),
+            (
+                "families_affected",
+                "chk_incident_nonsensitive_details_families_affected_non_negative",
+            ),
+            (
+                "water_tankers_used",
+                "chk_incident_nonsensitive_details_water_tankers_used_non_negative",
+            ),
+            ("foam_liters_used", "chk_incident_nonsensitive_details_foam_liters_used_non_negative"),
+            (
+                "breathing_apparatus_used",
+                "chk_incident_nonsensitive_details_breathing_apparatus_used_non_negative",
+            ),
+            (
+                "structures_affected",
+                "chk_incident_nonsensitive_details_structures_affected_non_negative",
+            ),
+            (
+                "households_affected",
+                "chk_incident_nonsensitive_details_households_affected_non_negative",
+            ),
+            (
+                "individuals_affected",
+                "chk_incident_nonsensitive_details_individuals_affected_non_negative",
+            ),
+            (
+                "vehicles_affected",
+                "chk_incident_nonsensitive_details_vehicles_affected_non_negative",
+            ),
+            (
+                "total_response_time_minutes",
+                "chk_incident_nonsensitive_details_total_response_time_minutes_non_negative",
+            ),
+            (
+                "total_gas_consumed_liters",
+                "chk_incident_nonsensitive_details_total_gas_consumed_liters_non_negative",
+            ),
+            (
+                "extent_total_floor_area_sqm",
+                "chk_incident_nonsensitive_details_extent_total_floor_area_sqm_non_negative",
+            ),
+            (
+                "extent_total_land_area_hectares",
+                "chk_incident_nonsensitive_details_extent_total_land_area_hectares_non_negative",
+            ),
+            (
+                "distance_from_station_km",
+                "chk_incident_nonsensitive_details_distance_from_station_km_non_negative",
+            ),
+        ],
+    )
+    def test_negative_value_fails(self, engine, incident_id, column, constraint_name):
+        """Insert {column} = -1 must raise IntegrityError mentioning {constraint_name}."""
         with engine.connect() as conn:
-            with pytest.raises(
-                (DataError, IntegrityError, InternalError, ProgrammingError)
-            ) as exc_info:
+            with pytest.raises(IntegrityError) as exc_info:
                 conn.execute(
-                    text("""
+                    text(f"""
                         INSERT INTO wims.incident_nonsensitive_details
-                        (incident_id, civilian_deaths)
+                        (incident_id, {column})
                         VALUES (:iid, -1)
                     """),
                     {"iid": incident_id},
                 )
-        assert exc_info.value is not None
-
-    def test_civilian_injured_negative_fails(self, engine, incident_id):
-        """Insert civilian_injured = -1 must raise a constraint violation."""
-        with engine.connect() as conn:
-            with pytest.raises(
-                (DataError, IntegrityError, InternalError, ProgrammingError)
-            ) as exc_info:
-                conn.execute(
-                    text("""
-                        INSERT INTO wims.incident_nonsensitive_details
-                        (incident_id, civilian_injured)
-                        VALUES (:iid, -1)
-                    """),
-                    {"iid": incident_id},
-                )
-        assert exc_info.value is not None
-
-    def test_firefighter_deaths_negative_fails(self, engine, incident_id):
-        """Insert firefighter_deaths = -1 must raise a constraint violation."""
-        with engine.connect() as conn:
-            with pytest.raises(
-                (DataError, IntegrityError, InternalError, ProgrammingError)
-            ) as exc_info:
-                conn.execute(
-                    text("""
-                        INSERT INTO wims.incident_nonsensitive_details
-                        (incident_id, firefighter_deaths)
-                        VALUES (:iid, -1)
-                    """),
-                    {"iid": incident_id},
-                )
-        assert exc_info.value is not None
-
-    def test_firefighter_injured_negative_fails(self, engine, incident_id):
-        """Insert firefighter_injured = -1 must raise a constraint violation."""
-        with engine.connect() as conn:
-            with pytest.raises(
-                (DataError, IntegrityError, InternalError, ProgrammingError)
-            ) as exc_info:
-                conn.execute(
-                    text("""
-                        INSERT INTO wims.incident_nonsensitive_details
-                        (incident_id, firefighter_injured)
-                        VALUES (:iid, -1)
-                    """),
-                    {"iid": incident_id},
-                )
-        assert exc_info.value is not None
-
-    # -- Damage / financial group --
-
-    def test_estimated_damage_php_negative_fails(self, engine, incident_id):
-        """Insert estimated_damage_php = -1 must raise a constraint violation."""
-        with engine.connect() as conn:
-            with pytest.raises(
-                (DataError, IntegrityError, InternalError, ProgrammingError)
-            ) as exc_info:
-                conn.execute(
-                    text("""
-                        INSERT INTO wims.incident_nonsensitive_details
-                        (incident_id, estimated_damage_php)
-                        VALUES (:iid, -1)
-                    """),
-                    {"iid": incident_id},
-                )
-        assert exc_info.value is not None
-
-    def test_families_affected_negative_fails(self, engine, incident_id):
-        """Insert families_affected = -1 must raise a constraint violation."""
-        with engine.connect() as conn:
-            with pytest.raises(
-                (DataError, IntegrityError, InternalError, ProgrammingError)
-            ) as exc_info:
-                conn.execute(
-                    text("""
-                        INSERT INTO wims.incident_nonsensitive_details
-                        (incident_id, families_affected)
-                        VALUES (:iid, -1)
-                    """),
-                    {"iid": incident_id},
-                )
-        assert exc_info.value is not None
-
-    # -- Logistics group --
-
-    def test_water_tankers_used_negative_fails(self, engine, incident_id):
-        """Insert water_tankers_used = -1 must raise a constraint violation."""
-        with engine.connect() as conn:
-            with pytest.raises(
-                (DataError, IntegrityError, InternalError, ProgrammingError)
-            ) as exc_info:
-                conn.execute(
-                    text("""
-                        INSERT INTO wims.incident_nonsensitive_details
-                        (incident_id, water_tankers_used)
-                        VALUES (:iid, -1)
-                    """),
-                    {"iid": incident_id},
-                )
-        assert exc_info.value is not None
-
-    def test_structures_affected_negative_fails(self, engine, incident_id):
-        """Insert structures_affected = -1 must raise a constraint violation."""
-        with engine.connect() as conn:
-            with pytest.raises(
-                (DataError, IntegrityError, InternalError, ProgrammingError)
-            ) as exc_info:
-                conn.execute(
-                    text("""
-                        INSERT INTO wims.incident_nonsensitive_details
-                        (incident_id, structures_affected)
-                        VALUES (:iid, -1)
-                    """),
-                    {"iid": incident_id},
-                )
-        assert exc_info.value is not None
-
-    def test_distance_from_station_km_negative_fails(self, engine, incident_id):
-        """Insert distance_from_station_km = -1 must raise a constraint violation."""
-        with engine.connect() as conn:
-            with pytest.raises(
-                (DataError, IntegrityError, InternalError, ProgrammingError)
-            ) as exc_info:
-                conn.execute(
-                    text("""
-                        INSERT INTO wims.incident_nonsensitive_details
-                        (incident_id, distance_from_station_km)
-                        VALUES (:iid, -1)
-                    """),
-                    {"iid": incident_id},
-                )
-        assert exc_info.value is not None
+        assert constraint_name in str(exc_info.value)
 
     # -- NULL-value acceptance tests (nullable columns must accept NULL) --
 
@@ -270,6 +204,7 @@ class TestNonNegativeCheckConstraints:
             )
 
 
+@pytest.mark.skipif(shutil.which("psql") is None, reason="psql binary not installed")
 class TestMigrationIdempotency:
     """The 61_check_constraints migration must be safe to run more than once."""
 
@@ -284,29 +219,21 @@ class TestMigrationIdempotency:
         if not sql_file.exists():
             pytest.skip("Migration SQL file not found")
 
-        db_url = os.environ.get(
-            "DATABASE_URL",
-            "postgresql://postgres:password@postgres:5432/wims",
+        url = make_url(
+            os.environ.get("DATABASE_URL", "postgresql://postgres:password@postgres:5432/wims")
         )
-        # Parse connection params from URL
-        # postgresql://user:password@host:port/dbname
-        parsed = db_url.replace("postgresql://", "")
-        user_pass, rest = parsed.split("@")
-        user, password = user_pass.split(":")
-        host_port, dbname = rest.split("/")
-        host = host_port.split(":")[0]
 
         env = os.environ.copy()
-        env["PGPASSWORD"] = password
+        env["PGPASSWORD"] = url.password
         result = subprocess.run(
             [
                 "psql",
                 "-h",
-                host,
+                url.host,
                 "-U",
-                user,
+                url.username,
                 "-d",
-                dbname,
+                url.database,
                 "-v",
                 "ON_ERROR_STOP=1",
                 "-f",

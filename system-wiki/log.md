@@ -3,6 +3,13 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-19] refactor | DB CHECK constraints code review — NOT VALID, fail-fast, param tests
+
+- **`src/postgres-init/61_check_constraints.sql`:** Added `AND conrelid = 'wims.incident_nonsensitive_details'::regclass` to all 18 DO-block guards to prevent cross-schema collisions. Appended `NOT VALID` to all 18 ADD CONSTRAINT statements so existing data does not block the migration.
+- **`src/backend/main.py`:** Removed try/except/warning/rollback wrappers from all 9 SQL-file-backed schema patches in `apply_schema_patches()`. DDL failures now propagate and crash startup (fail-fast). Wrapped the entire patch sequence in a try/finally to guarantee db.close() and state reset on any exception.
+- **`src/backend/tests/integration/test_check_constraints.py`:** Replaced 9 individual negative-value test methods with a single `@pytest.mark.parametrize` covering all 18 columns. Replaced brittle `.split("@")` URL parsing with `sqlalchemy.engine.make_url`. Added `@pytest.mark.skipif(shutil.which('psql') is None, ...)` to the migration idempotency test class. Narrowed expected exception from `(DataError, IntegrityError, InternalError, ProgrammingError)` to `IntegrityError`. Assert constraint name is mentioned in the error.
+- **`system-wiki/database/schema-overview.md`:** Clarified scope of "no percentage columns" sentence to incident-domain tables only.
+
 ## [2026-06-19] feat | DB CHECK constraints on incident_nonsensitive_details (Issue #387)
 
 - **`src/postgres-init/61_check_constraints.sql`:** New migration adding 18 non-negative CHECK constraints to `wims.incident_nonsensitive_details` numeric columns. Idempotent DO-block pattern per existing conventions. Constraint naming: `chk_incident_nonsensitive_details_{column}_non_negative`.

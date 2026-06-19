@@ -108,7 +108,7 @@ enforcing `col IS NULL OR col >= 0`:
 - Monotonic workflow timestamps (`created_at ≤ submitted_at ≤ verified_at`) — cross-column CHECKs with nullable logic deferred to app
 - `casualty_details` JSONB structure validation — stays in Pydantic/application layer
 - Coordinate bounds (`latitude`, `longitude`) on `fire_incidents.location` — enforced via PostGIS geography type, not explicit CHECK
-- Percentage fields (0–100%) — no percentage columns currently exist in the schema
+- Percentage fields (0–100%) — no percentage columns currently exist within the incident-domain tables (excluding tables like `wims.system_metrics`)
 
 ## Related
 - [[backend/api-route-map]]
