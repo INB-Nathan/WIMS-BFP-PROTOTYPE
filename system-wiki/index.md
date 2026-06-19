@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-06-17
+Last updated: 2026-06-19
 Total synthesis pages: 33
-Last changes: Documented civilian triage inspection modal stability behavior (paused background polling, scroll lock, explicit close, Escape close) in [[subsystems/civilian-reporting-phase2]].
+Last changes: SQL-file-backed startup schema self-heal (Option C) in main.py; blob metadata stripping (key_version) fixed in encoder/field_updates/privacy; analyst endpoint now decrypts casualty_details + estimated_damage_php from PII blob.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
@@ -53,7 +53,7 @@ Purpose: project-local knowledgebase for agents routing themselves to relevant W
 - [[subsystems/civilian-reporting-phase2]] — Civilian Reporting Phase 2 full subsystem record: public API, triage queue, merge-candidate discovery, cluster map, keyboard shortcuts, timeout job, test coverage.
 
 ## Database
-- [[database/schema-overview]] — PostgreSQL/PostGIS tables and migration source files.
+- [[database/schema-overview]] — PostgreSQL/PostGIS tables, migration source files, and startup self-heal (SQL-file-backed loader for existing containers).
 - [[database/sql-init-files]] — Complete documentation of SQL init files: RLS policies, helper functions, analytics materialized views, immutable records, seed data, demo threat telemetry, and migration intent.
 
 ## Security

@@ -14,6 +14,7 @@ import os
 import re
 import threading
 import time
+from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlparse
 
@@ -124,6 +125,48 @@ def _get_admin_session():
     return _startup_admin_session_factory()
 
 
+_POSTGRES_INIT_DIR = Path(__file__).resolve().parents[1] / "postgres-init"
+_SQL_FILE_SCHEMA_PATCHES = {
+    "19_reference_number.sql",
+    "25_extent_fields.sql",
+    "27_reference_sequence.sql",
+    "28_general_description_column.sql",
+    "35_barangay_text.sql",
+    "45_add_client_id_to_incidents.sql",
+    "53_incident_pii_key_version.sql",
+    "54_openbao_provider_metadata.sql",
+}
+
+
+def _strip_sql_transaction_wrapper(sql: str) -> str:
+    lines = []
+    for line in sql.splitlines():
+        normalized = line.strip().upper()
+        if normalized in {"BEGIN;", "COMMIT;"}:
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _read_postgres_init_sql(filename: str) -> str:
+    if filename not in _SQL_FILE_SCHEMA_PATCHES:
+        raise ValueError(f"SQL startup patch is not allowlisted: {filename}")
+
+    base = _POSTGRES_INIT_DIR.resolve()
+    path = (base / filename).resolve()
+    if base not in path.parents:
+        raise ValueError(f"Refusing to read SQL outside postgres-init: {filename}")
+
+    return _strip_sql_transaction_wrapper(path.read_text(encoding="utf-8"))
+
+
+def _apply_postgres_init_sql_patch(db: Session, filename: str, label: str) -> None:
+    sql = _read_postgres_init_sql(filename)
+    db.connection().exec_driver_sql(sql)
+    db.commit()
+    logger.info("Schema patch applied: %s", label)
+
+
 @app.on_event("startup")
 def apply_schema_patches() -> None:
     """Idempotent schema patches for containers that predate specific init migrations.
@@ -132,19 +175,26 @@ def apply_schema_patches() -> None:
     that shipped after a container was first created are applied on every restart
     without requiring a manual docker exec or down -v.
 
-    Currently patches:
-    - no_update_verified rule: allows is_archived FALSE→TRUE and TRUE→FALSE on VERIFIED rows
-      (migration 41_fix_immutable_rule_for_archive.sql — may not have run on
-      existing containers).
-    - ref_regions / ref_provinces / ref_cities RLS policies: REGIONAL_ENCODER sees only
-      their assigned region; NATIONAL_VALIDATOR/ANALYST/ADMIN see all
-      (migration 42_ref_table_rls.sql — may not have run on existing containers).
-    - svc_task system service account: background Celery task service account with
-      SYSTEM_ADMIN role for cross-table RLS access (seeded in 03_users.sql for new installs).
-    - Analytics MV ownership: transfers wims.mv_* materialized view ownership to
-      wims_app_user so the non-superuser can run REFRESH MATERIALIZED VIEW.
-    - analytics_incident_facts RLS: rewrites policies from TO <role> (PG database roles) to
-      wims.current_user_role() IN (...) so wims_app_user is subject to the correct policies.
+    Currently patches (inline or SQL-file-backed via _POSTGRES_INIT_DIR):
+    - wims_app_user role + grants (inline — derived from 01/03_users)
+    - no_update_verified rule: allows archival/unarchival on VERIFIED rows
+      (inline — rewrite of 41_fix_immutable_rule_for_archive.sql)
+    - ref_regions/ref_provinces/ref_cities RLS policies (inline via _apply_ref_table_rls)
+    - wims.users SELECT policy broadened for BFP staff roles (inline via _apply_users_rls)
+    - svc_task system service account (inline — derived from 03_users.sql)
+    - analytics MV ownership transfer (inline)
+    - analytics_incident_facts RLS policy rewrite (inline via _apply_analytics_facts_rls)
+    - RLS helper SECURITY DEFINER (inline)
+    - client_id + unique index (45_add_client_id_to_incidents.sql)
+    - reference_number / incident_type_code + unique index (19_reference_number.sql)
+    - province_district / city_municipality columns (inline — from 21_all_regions.sql,
+      which is mixed with seed data and cannot be loaded whole)
+    - barangay column (35_barangay_text.sql)
+    - extent_description / extent_objects_count columns (25_extent_fields.sql)
+    - reference_sequence table (27_reference_sequence.sql)
+    - general_description_of_involved column (28_general_description_column.sql)
+    - key_version column (53_incident_pii_key_version.sql)
+    - crypto_provider / kms_key_name + relaxed PII constraint (54_openbao_provider_metadata.sql)
 
     Uses DATABASE_ADMIN_URL (superuser) because CREATE RULE / CREATE POLICY /
     ALTER TABLE require the table owner; wims_app_user (the runtime role) is not
@@ -311,20 +361,106 @@ def apply_schema_patches() -> None:
         logger.warning("Schema patch (RLS helpers SECURITY DEFINER) failed (non-fatal): %s", exc)
         db.rollback()
 
-    # Migration 45: client_id column for offline-first idempotency
     try:
-        db.execute(text("ALTER TABLE wims.fire_incidents ADD COLUMN IF NOT EXISTS client_id UUID"))
+        _apply_postgres_init_sql_patch(
+            db,
+            "45_add_client_id_to_incidents.sql",
+            "client_id column + unique index on fire_incidents",
+        )
+    except Exception as exc:
+        logger.warning("Schema patch (client_id) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    try:
+        _apply_postgres_init_sql_patch(
+            db,
+            "19_reference_number.sql",
+            "reference_number / incident_type_code / reference_number index",
+        )
+    except Exception as exc:
+        logger.warning("Schema patch (reference_number) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    # province_district / city_municipality from 21_all_regions.sql
+    # (kept inline; source file mixes schema with region seed data + user assignments)
+    try:
         db.execute(
             text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_fire_incidents_client_id"
-                " ON wims.fire_incidents (client_id)"
-                " WHERE client_id IS NOT NULL"
+                "ALTER TABLE wims.incident_nonsensitive_details"
+                " ADD COLUMN IF NOT EXISTS province_district TEXT,"
+                " ADD COLUMN IF NOT EXISTS city_municipality TEXT"
             )
         )
         db.commit()
-        logger.info("Schema patch applied: client_id column + unique index on fire_incidents")
+        logger.info("Schema patch applied: province_district / city_municipality columns")
     except Exception as exc:
-        logger.warning("Schema patch (client_id) failed (non-fatal): %s", exc)
+        logger.warning("Schema patch (province/city) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    # barangay column from 35_barangay_text.sql (schema-only, idempotent)
+    try:
+        _apply_postgres_init_sql_patch(
+            db,
+            "35_barangay_text.sql",
+            "barangay column on incident_nonsensitive_details",
+        )
+    except Exception as exc:
+        logger.warning("Schema patch (barangay) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    # Migration 25: extent_description, extent_objects_count
+    try:
+        _apply_postgres_init_sql_patch(
+            db,
+            "25_extent_fields.sql",
+            "extent_description / extent_objects_count columns",
+        )
+    except Exception as exc:
+        logger.warning("Schema patch (extent columns) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    # Migration 27: reference_sequence table for reference number generation
+    try:
+        _apply_postgres_init_sql_patch(
+            db,
+            "27_reference_sequence.sql",
+            "reference_sequence table",
+        )
+    except Exception as exc:
+        logger.warning("Schema patch (reference_sequence) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    # Migration 28: general_description_of_involved
+    try:
+        _apply_postgres_init_sql_patch(
+            db,
+            "28_general_description_column.sql",
+            "general_description_of_involved column",
+        )
+    except Exception as exc:
+        logger.warning("Schema patch (general_description_of_involved) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    # Migration 53: key_version on incident_sensitive_details
+    try:
+        _apply_postgres_init_sql_patch(
+            db,
+            "53_incident_pii_key_version.sql",
+            "key_version column on incident_sensitive_details",
+        )
+    except Exception as exc:
+        logger.warning("Schema patch (key_version) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    # Migration 54: crypto_provider, kms_key_name + relaxed PII blob consistency constraint
+    try:
+        _apply_postgres_init_sql_patch(
+            db,
+            "54_openbao_provider_metadata.sql",
+            "crypto_provider / kms_key_name columns + relaxed pii_blob_consistency constraint",
+        )
+    except Exception as exc:
+        logger.warning("Schema patch (crypto_provider/kms_key_name) failed (non-fatal): %s", exc)
         db.rollback()
 
     finally:

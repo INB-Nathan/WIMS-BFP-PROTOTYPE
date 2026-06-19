@@ -49,6 +49,9 @@ Thumbs.db
 .ai-context/
 .claude/
 
+# Local dev workspace (not for version control)
+local-docs/
+
 # Office temp/lock files
 **/.~lock.*
 

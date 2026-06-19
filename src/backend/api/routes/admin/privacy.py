@@ -102,7 +102,7 @@ def _decrypt_sensitive_details(sd_row) -> dict:
             )
             sd["decryption_failed"] = True
     # Never expose raw blob columns
-    for col in ("pii_blob_enc", "encryption_iv", "crypto_provider", "kms_key_name"):
+    for col in ("pii_blob_enc", "encryption_iv", "crypto_provider", "kms_key_name", "key_version"):
         sd.pop(col, None)
     return sd
 

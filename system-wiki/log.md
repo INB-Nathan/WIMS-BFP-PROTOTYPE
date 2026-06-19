@@ -3,6 +3,21 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-19] fix | blob metadata stripping + analyst decrypt completeness (PR #385 review)
+
+- **`src/backend/api/routes/regional/encoder.py`:** Added `key_version` to the blob metadata stripping list (was missing — only 4 of 5 fields were stripped).
+- **`src/backend/api/routes/regional/field_updates.py`:** Added `key_version` to the blob metadata stripping list (same pattern as encoder).
+- **`src/backend/api/routes/admin/privacy.py`:** Added `key_version` to the blob metadata stripping tuple (same pattern).
+- **`src/backend/api/routes/incidents.py`:** Analyst sensitive detail endpoint now decrypts and returns `casualty_details` and `estimated_damage_php` from the PII blob (previously only restored 5 of 7 encrypted fields). Added `sd.casualty_details` and `nd.estimated_damage_php` to the SELECT query so legacy plaintext rows also work.
+- **`src/backend/tests/test_pii_encryption_fail_closed.py`:** Updated all analyst endpoint test mocks and assertions to cover `casualty_details` and `estimated_damage_php` in both legacy plaintext and encrypted-blob paths.
+- **`system-wiki/index.md`:** Updated last-updated date, last-changes summary, and schema-overview description.
+
+## [2026-06-19] refactor | SQL-file-backed startup schema self-heal (Option C, PR #385)
+
+- **`src/backend/main.py`:** Added `_POSTGRES_INIT_DIR`, `_SQL_FILE_SCHEMA_PATCHES` allowlist, `_strip_sql_transaction_wrapper()`, `_read_postgres_init_sql()`, and `_apply_postgres_init_sql_patch()` helpers. Eight previously hand-copied inline DDL patches now read and execute their source SQL files directly from `src/postgres-init/`, reducing drift between the init scripts and the runtime self-heal. The province_district/city_municipality columns remain inline (their source file `21_all_regions.sql` mixes schema with seed data and user assignments). All RLS/rule/special-case patches remain inline. Unsafe/mixed files (seed data, RLS rewrites) are excluded from the allowlist.
+- **`src/backend/tests/test_startup_schema_patch_sql_loader.py`:** 16 unit tests covering `_strip_sql_transaction_wrapper` (7 tests), `_read_postgres_init_sql` (7 tests), and allowlist boundary checks (2 tests). All tests are unit-level; no live Postgres required.
+- **`system-wiki/database/schema-overview.md`:** Updated to document the SQL-loader-backed self-heal and the allowlist.
+
 ## [2026-06-17] fix | stop auto-clustering isolated civilian reports in triage queue
 
 - **`src/backend/services/civilian_triage/queue_projection.py`:** Added `groupable` CTE between `unclustered` and `created` in the read-time materialization step. Only reports with at least one related report within 100m/1hr (`ST_DWithin` + time window) now get a durable cluster; truly isolated reports remain unclustered (`cluster_id` is null) and appear in the Individual Reports table instead of the Clusters table.
