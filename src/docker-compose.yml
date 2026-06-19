@@ -222,7 +222,7 @@ services:
       - WIMS_CRYPTO_PROVIDER=${WIMS_CRYPTO_PROVIDER:-env_aesgcm}
     volumes:
       - incident_attachments_data:/app/storage
-      - ./postgres-init:/app/postgres-init:ro
+      - ./postgres-init:/postgres-init:ro
       - openbao_data:/openbao-creds:ro
     networks:
       - wims_internal
@@ -265,6 +265,7 @@ services:
       - WIMS_CRYPTO_PROVIDER=${WIMS_CRYPTO_PROVIDER:-env_aesgcm}
     volumes:
       - ./suricata/logs:/var/log/suricata:ro
+      - ./postgres-init:/postgres-init:ro
       - incident_attachments_data:/app/storage
       - openbao_data:/openbao-creds:ro
       # SECURITY NOTE: Docker socket mount is required for live Suricata rule
