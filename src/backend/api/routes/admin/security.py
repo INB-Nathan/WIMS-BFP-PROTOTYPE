@@ -337,7 +337,10 @@ def update_security_log(
             text(
                 "INSERT INTO wims.breach_notifications"
                 " (threat_log_id, detected_at, npc_deadline_at, status, reported_by)"
-                " VALUES (:log_id, :detected_at, :npc_deadline_at, 'DETECTED', CAST(:reported_by AS uuid))"
+                " VALUES ("
+                " :log_id, :detected_at, :npc_deadline_at, 'DETECTED',"
+                " (SELECT user_id FROM wims.users WHERE user_id = CAST(:reported_by AS uuid))"
+                ")"
                 " RETURNING breach_id"
             ),
             {

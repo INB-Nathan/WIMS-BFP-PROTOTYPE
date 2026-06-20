@@ -93,6 +93,25 @@ interface SecurityLog {
     admin_action_taken: string | null;
     resolved_at: string | null;
     reviewed_by: string | null;
+    hitl_decision?: { action?: string; note?: string | null; reviewed_at?: string | null; reviewed_by?: string | null } | null;
+}
+
+const HITL_ACTION_LABELS: Record<string, string> = {
+    CONFIRM_THREAT: 'Confirmed Threat',
+    FALSE_POSITIVE: 'False Positive',
+    REQUEST_MORE_INFO: 'More Info Requested',
+};
+
+function formatHitlAction(action: string): string {
+    return HITL_ACTION_LABELS[action] ?? action.replaceAll('_', ' ').toLowerCase();
+}
+
+function hitlErrorMessage(error: unknown): string {
+    const message = (error as { message?: string })?.message ?? 'Request failed';
+    if (/Request failed:\s*500/i.test(message)) {
+        return 'Server failed while applying the threat decision. The alert was not updated; please retry or check backend logs.';
+    }
+    return message;
 }
 
 interface AuditItem {
@@ -809,11 +828,17 @@ export default function AdminSystemPage() {
         setHitlMessage(null);
         try {
             await updateAdminSecurityLog(selectedLog.log_id, { action, note });
-            setHitlMessage({ type: 'success', text: `Action \u201c${action}\u201d applied to alert #${selectedLog.log_id}.` });
-            setSelectedLog(null);
+            const label = formatHitlAction(action);
+            setHitlMessage({ type: 'success', text: `${label} applied to alert #${selectedLog.log_id}.` });
+            setSelectedLog({
+                ...selectedLog,
+                admin_action_taken: label,
+                resolved_at: action === 'REQUEST_MORE_INFO' ? null : new Date().toISOString(),
+                hitl_decision: { action, note: note ?? null },
+            });
             await loadSecurityLogs();
         } catch (e: unknown) {
-            setHitlMessage({ type: 'error', text: (e as { message?: string })?.message ?? 'Update failed' });
+            setHitlMessage({ type: 'error', text: hitlErrorMessage(e) });
         } finally {
             setIsSubmitting(false);
         }
@@ -2285,75 +2310,85 @@ export default function AdminSystemPage() {
                                     <pre className="mt-1 bg-gray-100 dark:bg-gray-950 text-gray-800 dark:text-gray-200 p-2 rounded text-xs overflow-x-auto font-mono max-h-40 overflow-y-auto">{selectedLog.raw_payload}</pre>
                                 </div>
                             )}
-                            {!selectedLog.admin_action_taken && (
-                                <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-                                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-3">Take a decision</p>
-                                    <div className="mb-3">
-                                        <button
-                                            onClick={() => handleCreateIncident()}
-                                            disabled={isSubmitting}
-                                            className="px-4 py-2 bg-orange-600 text-white rounded font-medium hover:bg-orange-700 disabled:opacity-50 w-full"
-                                        >
-                                            Create Incident from Alert
-                                        </button>
+                            <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                                {selectedLog.admin_action_taken ? (
+                                    <div className="mb-3 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-800 dark:bg-green-950/40 dark:text-green-200">
+                                        <div className="font-semibold">Reviewed: {selectedLog.admin_action_taken}</div>
+                                        {selectedLog.resolved_at && (
+                                            <div className="text-xs opacity-80">Resolved {new Date(selectedLog.resolved_at).toLocaleString()}</div>
+                                        )}
                                     </div>
-                                    <div className="flex flex-wrap gap-2 mb-3">
-                                        <button
-                                            onClick={() => handleHitlDecision('CONFIRM_THREAT')}
-                                            disabled={isSubmitting}
-                                            className="px-4 py-2 bg-red-600 text-white rounded font-medium hover:bg-red-700 disabled:opacity-50"
-                                        >
-                                            Confirm Threat
-                                        </button>
-                                        <button
-                                            onClick={() => handleHitlDecision('FALSE_POSITIVE')}
-                                            disabled={isSubmitting}
-                                            className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 rounded font-medium hover:bg-gray-300 dark:hover:bg-gray-500 disabled:opacity-50"
-                                        >
-                                            False Positive
-                                        </button>
-                                        <button
-                                            onClick={() => handleViewRelatedEvidence()}
-                                            disabled={loadingRelatedEvidence}
-                                            className="px-4 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 disabled:opacity-50"
-                                        >
-                                            {loadingRelatedEvidence ? 'Loading\u2026' : 'View Related Evidence'}
-                                        </button>
-                                    </div>
-
-                                    {/* Related Evidence sub-panel */}
-                                    {(relatedEvidence !== null || loadingRelatedEvidence || relatedEvidenceError) && (
-                                        <div className="border border-gray-200 dark:border-gray-700 rounded-md p-3 mt-3 bg-gray-50 dark:bg-gray-900/50">
-                                            <h4 className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-2">Related Audit Evidence</h4>
-                                            {loadingRelatedEvidence && (
-                                                <p className="text-sm text-gray-500 italic">Loading related evidence\u2026</p>
-                                            )}
-                                            {relatedEvidenceError && (
-                                                <p className="text-sm text-red-600">{relatedEvidenceError}</p>
-                                            )}
-                                            {relatedEvidence && relatedEvidence.length === 0 && (
-                                                <p className="text-sm text-gray-500">No related audit records found in the \u00b11 hour window.</p>
-                                            )}
-                                            {relatedEvidence && relatedEvidence.length > 0 && (
-                                                <div className="max-h-48 overflow-y-auto space-y-1">
-                                                    {relatedEvidence.map((item) => (
-                                                        <div key={item.audit_id} className="text-xs p-2 bg-white dark:bg-gray-800 rounded border border-gray-100 dark:border-gray-700">
-                                                            <div className="flex justify-between">
-                                                                <span className="font-semibold text-blue-700 dark:text-blue-300">{item.action_type ?? '\u2014'}</span>
-                                                                <span className="text-gray-400">{item.timestamp ? new Date(item.timestamp).toLocaleString() : '\u2014'}</span>
-                                                            </div>
-                                                            <div className="text-gray-500 mt-0.5">
-                                                                {item.ip_address && <span className="mr-2 font-mono">{item.ip_address}</span>}
-                                                                {item.user_agent && <span className="truncate block">{item.user_agent.substring(0, 80)}</span>}
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
+                                ) : (
+                                    <>
+                                        <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-3">Take a decision</p>
+                                        <div className="mb-3">
+                                            <button
+                                                onClick={() => handleCreateIncident()}
+                                                disabled={isSubmitting}
+                                                className="px-4 py-2 bg-orange-600 text-white rounded font-medium hover:bg-orange-700 disabled:opacity-50 w-full"
+                                            >
+                                                Create Incident from Alert
+                                            </button>
                                         </div>
-                                    )}
-                                </div>
-                            )}
+                                        <div className="flex flex-wrap gap-2 mb-3">
+                                            <button
+                                                onClick={() => handleHitlDecision('CONFIRM_THREAT')}
+                                                disabled={isSubmitting}
+                                                className="px-4 py-2 bg-red-600 text-white rounded font-medium hover:bg-red-700 disabled:opacity-50"
+                                            >
+                                                {isSubmitting ? 'Applying\u2026' : 'Confirm Threat'}
+                                            </button>
+                                            <button
+                                                onClick={() => handleHitlDecision('FALSE_POSITIVE')}
+                                                disabled={isSubmitting}
+                                                className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 rounded font-medium hover:bg-gray-300 dark:hover:bg-gray-500 disabled:opacity-50"
+                                            >
+                                                {isSubmitting ? 'Applying\u2026' : 'False Positive'}
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+
+                                <button
+                                    onClick={() => handleViewRelatedEvidence()}
+                                    disabled={loadingRelatedEvidence}
+                                    className="px-4 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 disabled:opacity-50"
+                                >
+                                    {loadingRelatedEvidence ? 'Loading\u2026' : 'View Related Evidence'}
+                                </button>
+
+                                {/* Related Evidence sub-panel */}
+                                {(relatedEvidence !== null || loadingRelatedEvidence || relatedEvidenceError) && (
+                                    <div className="border border-gray-200 dark:border-gray-700 rounded-md p-3 mt-3 bg-gray-50 dark:bg-gray-900/50">
+                                        <h4 className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-2">Related Audit Evidence</h4>
+                                        {loadingRelatedEvidence && (
+                                            <p className="text-sm text-gray-500 italic">Loading related evidence\u2026</p>
+                                        )}
+                                        {relatedEvidenceError && (
+                                            <p className="text-sm text-red-600">{relatedEvidenceError}</p>
+                                        )}
+                                        {relatedEvidence && relatedEvidence.length === 0 && (
+                                            <p className="text-sm text-gray-500">No related audit records found in the \u00b11 hour window.</p>
+                                        )}
+                                        {relatedEvidence && relatedEvidence.length > 0 && (
+                                            <div className="max-h-48 overflow-y-auto space-y-1">
+                                                {relatedEvidence.map((item) => (
+                                                    <div key={item.audit_id} className="text-xs p-2 bg-white dark:bg-gray-800 rounded border border-gray-100 dark:border-gray-700">
+                                                        <div className="flex justify-between">
+                                                            <span className="font-semibold text-blue-700 dark:text-blue-300">{item.action_type ?? '\u2014'}</span>
+                                                            <span className="text-gray-400">{item.timestamp ? new Date(item.timestamp).toLocaleString() : '\u2014'}</span>
+                                                        </div>
+                                                        <div className="text-gray-500 mt-0.5">
+                                                            {item.ip_address && <span className="mr-2 font-mono">{item.ip_address}</span>}
+                                                            {item.user_agent && <span className="truncate block">{item.user_agent.substring(0, 80)}</span>}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>

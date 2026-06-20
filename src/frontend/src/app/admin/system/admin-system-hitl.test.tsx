@@ -6,7 +6,7 @@
  * - "Confirm Threat" calls updateAdminSecurityLog with { action: 'CONFIRM_THREAT' }
  * - "False Positive" calls updateAdminSecurityLog with { action: 'FALSE_POSITIVE' }
  * - "View Related Evidence" calls fetchRelatedAuditLogs and renders results
- * - Logs WITH admin_action_taken show read-only display (no buttons)
+ * - Logs WITH admin_action_taken show read-only display while keeping related evidence accessible
  * - HITL success shows inline success message (not alert())
  * - Create Incident success shows incident ID link (not alert())
  */
@@ -151,8 +151,8 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         await waitFor(() => {
             expect(mockUpdateAdminSecurityLog).toHaveBeenCalledWith(1, { action: 'CONFIRM_THREAT', note: undefined });
         });
-        // Inline success message should appear (modal closes after success but message is set first)
-        // Since modal closes on success, we check the mock was called
+        expect(await screen.findByText(/Confirmed Threat applied to alert #1/i)).toBeInTheDocument();
+        expect(screen.getByText(/Reviewed: Confirmed Threat/i)).toBeInTheDocument();
     });
 
     it('clicking "False Positive" calls updateAdminSecurityLog with action FALSE_POSITIVE', async () => {
@@ -216,7 +216,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         });
     });
 
-    it('shows read-only display for already-actioned logs (no buttons)', async () => {
+    it('shows reviewed display for already-actioned logs while keeping related evidence available', async () => {
         mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogActioned], total: 1 });
         render(<AdminSystemPage />);
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
@@ -225,9 +225,23 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         await waitFor(() => {
             expect(screen.getByText('Suricata Alert #2')).toBeInTheDocument();
         });
+        expect(screen.getByText(/Reviewed: Confirmed Threat/i)).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /Confirm Threat/i })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /False Positive/i })).not.toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: /View Related Evidence/i })).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /View Related Evidence/i })).toBeInTheDocument();
+    });
+
+    it('shows a clearer inline error when a HITL decision returns a backend 500', async () => {
+        mockUpdateAdminSecurityLog.mockRejectedValue(new Error('Request failed: 500'));
+        mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogUnactioned], total: 1 });
+        render(<AdminSystemPage />);
+        await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
+        const viewButtons = await screen.findAllByRole('button', { name: /View/i });
+        fireEvent.click(viewButtons[0]);
+        await waitFor(() => expect(screen.getByText('Suricata Alert #1')).toBeInTheDocument());
+        fireEvent.click(screen.getByRole('button', { name: /Confirm Threat/i }));
+        expect(await screen.findByText(/Server failed while applying the threat decision/i)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Confirm Threat/i })).toBeInTheDocument();
     });
 
     it('clicking "Create Incident from Alert" calls createIncidentFromAlert and shows success link', async () => {

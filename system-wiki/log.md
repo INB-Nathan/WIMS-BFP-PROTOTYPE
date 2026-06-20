@@ -3538,3 +3538,14 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - **Wiki:** Updated `system-wiki/subsystems/admin-hub.md` and `system-wiki/architecture/infrastructure-config.md`.
 - Validation: `pytest -q tests/test_system_monitoring.py tests/test_infra_config.py -k 'suricata or backend_can_read_suricata_eve_log_for_health'`, `ruff check`, and `ruff format --check` passed for touched backend files.
 - No FRS gap register change; this fixes the deployment wiring for an already-documented M9/M7 health integration.
+
+## [2026-06-20] fix | System Admin threat telemetry HITL confirmation and evidence UX
+
+- **Root cause diagnosed:** HIGH/CRITICAL `CONFIRM_THREAT` creates a `wims.breach_notifications` row with `reported_by` referencing `wims.users(user_id)`. If the authenticated Keycloak admin lacks a matching local `wims.users` row, the FK can fail and turn the HITL decision into a 500.
+- **Backend:** `src/backend/api/routes/admin/security.py` now populates breach `reported_by` through a nullable local-user lookup (`SELECT user_id FROM wims.users WHERE user_id = CAST(:reported_by AS uuid)`) so the breach record and HITL decision can proceed even when the local user row is missing.
+- **Backend tests:** Added regression coverage in `src/backend/tests/test_admin_new_routes.py` for high-severity confirm-threat breach insert using nullable `reported_by` lookup.
+- **Frontend:** `src/frontend/src/app/admin/system/page.tsx` keeps the threat modal open after HITL success, shows reviewed state immediately, keeps View Related Evidence available for reviewed and unreviewed alerts, and replaces generic `Request failed: 500` copy with a decision-specific retry/backend-log message.
+- **Frontend tests:** Expanded `admin-system-hitl.test.tsx` to assert reviewed-state display, related-evidence availability for actioned alerts, and clearer inline 500 messaging.
+- **Wiki:** Updated admin hub, backend API route map, and frontend route map.
+- Validation: focused backend HITL tests, frontend HITL Vitest, backend ruff check/format, and full frontend lint passed (lint warnings remain pre-existing/no new errors).
+- No FRS gap register change; this is an implementation robustness/UX fix for existing M8/M10/M9 admin telemetry behavior.

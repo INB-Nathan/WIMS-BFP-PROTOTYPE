@@ -1122,6 +1122,32 @@ class TestSecurityAuditRequestParam:
         assert nv["incident_id"] == 42
         assert nv["outcome"] == "SUCCESS"
 
+    def test_confirm_threat_high_severity_nullable_reported_by_when_local_user_missing(
+        self, client: TestClient
+    ):
+        """Breach insert must not 500 if Keycloak admin lacks a matching wims.users row."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_security_log_db()
+        mock_db.execute.return_value.fetchone.side_effect = [
+            ("HIGH", "suspicious activity", None),
+            (99,),
+        ]
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        with patch("api.routes.admin.security.log_system_audit"):
+            response = client.patch(
+                "/api/admin/security-logs/1",
+                json={"action": "CONFIRM_THREAT"},
+            )
+
+        assert response.status_code == 200
+        breach_call = next(
+            c for c in mock_db.execute.call_args_list if "breach_notifications" in str(c[0][0])
+        )
+        breach_sql = str(breach_call[0][0])
+        assert "SELECT user_id FROM wims.users" in breach_sql
+        assert "CAST(:reported_by AS uuid)" in breach_sql
+
     def test_confirm_threat_high_severity_writes_breach_audit(self, client: TestClient):
         """HIGH severity CONFIRM_THREAT triggers BREACH_DETECTED audit with request."""
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
