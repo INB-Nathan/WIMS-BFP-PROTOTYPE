@@ -1,7 +1,7 @@
 ---
 title: System Admin Hub
 created: 2026-05-16
-updated: 2026-06-19
+updated: 2026-06-20
 type: operation
 tags: [wims-bfp, admin, system-admin, dashboard, identity, security, rate-limits, config]
 sources: [src/frontend/src/app/admin/system/page.tsx, src/backend/api/routes/admin.py, src/frontend/src/lib/api/legacy.ts, src/frontend/src/app/admin/system/rate-limits/page.tsx]
@@ -54,7 +54,7 @@ All in `src/backend/api/routes/admin.py` (~935 lines). Every endpoint is gated b
 
 | Method | Path | Function | Behavior |
 |---|---|---|---|
-| `GET` | `/api/admin/health` | `get_system_health` | Checks DB (`SELECT 1`), Redis (`PING`), Keycloak (admin API connectivity), Suricata (EVE log mtime + threat log presence), Ollama (`/api/tags`); returns component-level `HEALTHY`/`QUIET`/`FRESH`/`DEGRADED`/`UNHEALTHY` with latency and detail text; overall status `HEALTHY` or `DEGRADED` |
+| `GET` | `/api/admin/health` | `get_system_health` | Checks DB (`SELECT 1`), Redis (`PING`), Keycloak (admin API connectivity), Suricata (`SURICATA_EVE_PATH` mtime + threat log presence), Ollama (`/api/tags`); returns component-level `HEALTHY`/`QUIET`/`FRESH`/`DEGRADED`/`UNHEALTHY` with latency and detail text; overall status `HEALTHY` or `DEGRADED` |
 | `GET` | `/api/admin/monitoring/workers` | `get_worker_status` | Lists Celery worker heartbeats (paginated: `limit` default 20, max 200; `offset` default 0); returns `{ items, total, limit, offset }` sorted by `last_seen DESC` |
 | `POST` | `/api/admin/monitoring/workers/prune` | `prune_offline_workers` | Deletes OFFLINE workers older than retention threshold (default 7d, configurable via `worker_heartbeat_retention_days`); ACTIVE/STALE/recent OFFLINE protected; audit-logged; returns `{ status, deleted_count, retention_days, message }` (#345) |
 | `GET` | `/api/admin/monitoring/system` | `get_system_metrics` | Returns CPU/Memory/Disk/AI-Inference/Network metrics via psutil + Redis |
@@ -69,7 +69,7 @@ All in `src/backend/api/routes/admin.py` (~935 lines). Every endpoint is gated b
 | `DEGRADED` | EVE log mtime 60–600s old, no recent threats, total > 0 | "no recent alerts, EVE log is Ns old" |
 | `UNHEALTHY` | EVE log mtime > 600s old OR EVE log unreadable OR query failure | varies by cause |
 
-Only `DEGRADED` and `UNHEALTHY` Suricata states degrade the overall system health status. `QUIET` and `FRESH` are valid operational states.
+Only `DEGRADED` and `UNHEALTHY` Suricata states degrade the overall system health status. `QUIET` and `FRESH` are valid operational states. The FastAPI backend service must mount `./suricata/logs:/var/log/suricata:ro` and set `SURICATA_EVE_PATH=/var/log/suricata/eve.json`; otherwise the admin health route cannot evaluate the EVE heartbeat from inside the backend container.
 
 ### Security Telemetry (`admin.py` lines 555–626)
 

@@ -211,6 +211,18 @@ def test_keycloak_master_realm_bootstrap_service() -> None:
 
 
 @pytest.mark.skipif(_IN_DOCKER, reason="compose/config files not mounted in Docker container")
+@pytest.mark.skipif(_IN_DOCKER, reason="compose/config files not mounted in Docker container")
+def test_backend_can_read_suricata_eve_log_for_health() -> None:
+    """Admin health runs in backend, so backend must see the EVE log path it checks."""
+    compose = _load_compose()
+    backend = _service(compose, "backend")
+    backend_env = _service_env(compose, "backend")
+    backend_volumes = [str(volume) for volume in backend.get("volumes", [])]
+
+    assert backend_env.get("SURICATA_EVE_PATH") == "/var/log/suricata/eve.json"
+    assert "./suricata/logs:/var/log/suricata:ro" in backend_volumes
+
+
 def test_non_edge_services_bind_host_ports_to_loopback() -> None:
     compose = _load_compose()
 

@@ -212,6 +212,7 @@ services:
       - KEYCLOAK_ADMIN_USER=${KEYCLOAK_ADMIN:-admin}
       - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD:?error}
       - OLLAMA_URL=http://ollama:11434
+      - SURICATA_EVE_PATH=/var/log/suricata/eve.json
       - AFOR_TEMPLATE_PATH=/app/AFOR-FORMATTED.xlsx
       - CSRF_TRUSTED_ORIGINS=http://localhost,https://localhost,http://127.0.0.1,http://127.0.0.1:3000
       - NEXT_PUBLIC_APP_URL=http://localhost
@@ -222,6 +223,7 @@ services:
       - WIMS_CRYPTO_PROVIDER=${WIMS_CRYPTO_PROVIDER:-env_aesgcm}
     volumes:
       - incident_attachments_data:/app/storage
+      - ./suricata/logs:/var/log/suricata:ro
       - ./postgres-init:/postgres-init:ro
       - openbao_data:/openbao-creds:ro
     networks:

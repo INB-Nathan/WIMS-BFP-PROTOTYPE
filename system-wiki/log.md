@@ -3528,3 +3528,13 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - **Wiki:** Updated `system-wiki/backend/services.md` and `system-wiki/frontend/route-map.md`.
 - Validation: backend regression + Top-N integration subset passed (`pytest -q tests/test_analytics_top_n_metrics.py tests/integration/test_analyst_dashboard_queue.py -k 'top_n'`); frontend ESLint passed for touched files; backend `ruff check` and `ruff format --check` passed for touched backend files.
 - No FRS gap register change; this clarifies/aligns analytics metric semantics for an existing analyst API.
+
+## [2026-06-20] fix | System Admin Suricata EVE health path visibility
+
+- **Root cause:** `GET /api/admin/health` runs in the FastAPI backend container but hardcoded `/var/log/suricata/eve.json`; only the Celery worker had `./suricata/logs:/var/log/suricata:ro` and `SURICATA_EVE_PATH=/var/log/suricata/eve.json`. The System Health & Monitoring UI could therefore show `cannot access EVE log: [Errno 2] No such file or directory` even when the Suricata log directory existed for other services.
+- **`src/docker-compose.yml`:** Added `SURICATA_EVE_PATH=/var/log/suricata/eve.json` and the read-only Suricata log mount to the backend service.
+- **`src/backend/api/routes/admin/monitoring.py`:** Admin health now reads the EVE heartbeat path from `SURICATA_EVE_PATH`, defaulting to `/var/log/suricata/eve.json`.
+- **Tests:** Added compose regression coverage that backend can read the EVE health path and API regression coverage that `/api/admin/health` honors `SURICATA_EVE_PATH`.
+- **Wiki:** Updated `system-wiki/subsystems/admin-hub.md` and `system-wiki/architecture/infrastructure-config.md`.
+- Validation: `pytest -q tests/test_system_monitoring.py tests/test_infra_config.py -k 'suricata or backend_can_read_suricata_eve_log_for_health'`, `ruff check`, and `ruff format --check` passed for touched backend files.
+- No FRS gap register change; this fixes the deployment wiring for an already-documented M9/M7 health integration.

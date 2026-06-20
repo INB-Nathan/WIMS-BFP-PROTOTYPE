@@ -94,10 +94,11 @@ def get_system_health(
         import os as _os
 
         _now = time.time()
+        eve_path = _os.getenv("SURICATA_EVE_PATH", "/var/log/suricata/eve.json")
         eve_age = None  # seconds since EVE log last modified
         eve_error = None
         try:
-            eve_age = _now - _os.path.getmtime("/var/log/suricata/eve.json")
+            eve_age = _now - _os.path.getmtime(eve_path)
         except OSError as e:
             eve_error = str(e)
 

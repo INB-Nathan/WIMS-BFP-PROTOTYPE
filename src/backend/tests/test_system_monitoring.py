@@ -918,6 +918,33 @@ def test_suricata_unhealthy_query_failure():
     assert data["status"] == "DEGRADED"
 
 
+def test_suricata_health_uses_configured_eve_log_path(monkeypatch):
+    """SURICATA_EVE_PATH controls the EVE heartbeat path used by admin health."""
+    from unittest import mock
+
+    app.dependency_overrides[get_current_wims_user] = _admin_override
+    client = TestClient(app)
+
+    mock_db = _make_mock_db(recent=0, total=100)
+    monkeypatch.setenv("SURICATA_EVE_PATH", "/mounted/suricata/eve.json")
+    patches = _health_mocks(mock_db, mtime=170.0, time_now=200.0)
+    getmtime = mock.MagicMock(return_value=170.0)
+    patches[0] = mock.patch("os.path.getmtime", getmtime)
+    for p in patches:
+        p.start()
+
+    try:
+        resp = client.get("/api/admin/health")
+    finally:
+        for p in reversed(patches):
+            p.stop()
+
+    assert resp.status_code == 200
+    getmtime.assert_called_once_with("/mounted/suricata/eve.json")
+    suricata = resp.json()["components"]["suricata"]
+    assert suricata["status"] == "QUIET"
+
+
 def test_suricata_unhealthy_eve_log_unreadable():
     """EVE log file not accessible → UNHEALTHY with OS error detail."""
     app.dependency_overrides[get_current_wims_user] = _admin_override

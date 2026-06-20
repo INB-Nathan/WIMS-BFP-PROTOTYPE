@@ -148,7 +148,7 @@ Changing `.env.production` does not update database roles already stored in the 
 - `src/suricata/logs/` → `/var/log/suricata/` — EVE JSON output, fast.log, stats.log
 - `src/suricata/rules/` → `/var/lib/suricata/rules/` — only `classification.config` present (no .rules files)
 
-**EVE output** is consumed by the backend service via `SURICATA_EVE_PATH=/var/log/suricata/eve.json`. The backend reads `eve.json` for real-time event ingestion via `services/suricata_ingestion.py`.
+**EVE output** is shared into both `backend` and `celery-worker` via `./suricata/logs:/var/log/suricata`. `celery-worker` uses `SURICATA_EVE_PATH=/var/log/suricata/eve.json` for fallback file-tail ingestion (`tasks.suricata.ingest_suricata_eve` → `services/suricata_ingestion.py`), while `backend` uses the same env var for `/api/admin/health` EVE mtime heartbeat checks.
 
 The container exposes the running process as `Suricata-Main`; the Compose health check matches that process name with `pgrep`.
 
