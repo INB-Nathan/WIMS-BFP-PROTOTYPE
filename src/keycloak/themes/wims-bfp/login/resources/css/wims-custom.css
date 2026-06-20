@@ -1038,3 +1038,32 @@ p {
         line-height: 38px !important;
     }
 }
+
+/* === Fix: in-field status icon positioning ===
+ * display:block (line ~272) collapses __utilities below the input.
+ * Override to flex so the icon rides inside the field on the right. */
+.pf-v5-c-form-control {
+    display: flex !important;
+    align-items: center !important;
+}
+
+.pf-v5-c-form-control input[type="text"],
+.pf-v5-c-form-control input[type="password"],
+.pf-v5-c-form-control input[type="email"] {
+    flex: 1 1 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+}
+
+.pf-v5-c-form-control__utilities {
+    display: flex !important;
+    align-items: center !important;
+    flex-shrink: 0 !important;
+    padding-right: 8px !important;
+}
+
+.pf-v5-c-form-control__icon.pf-m-status {
+    color: #c9302c !important;
+    font-size: 14px !important;
+    line-height: 1 !important;
+}

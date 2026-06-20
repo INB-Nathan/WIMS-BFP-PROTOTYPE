@@ -20,6 +20,7 @@
                     </#if>
                     <#if messagesPerField.existsError('username','password')>
                         <div class="${properties.kcAlertClass!} pf-m-danger" id="input-error" aria-live="polite">
+                            <div class="pf-v5-c-alert__icon"><span class="${properties.kcFeedbackErrorIcon!}"></span></div>
                             <span class="${properties.kcAlertTitleClass!}">
                                 ${kcSanitize(messagesPerField.getFirstError('username','password'))?no_esc}
                             </span>
