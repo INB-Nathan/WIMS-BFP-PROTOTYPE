@@ -1,4 +1,5 @@
 import { openDB, IDBPDatabase } from 'idb';
+import { validateOfflinePayloadBeforeEncrypt } from './validation/offlineIncident';
 
 const DB_NAME = 'wims-bfp-db';
 const DB_VERSION = 5;
@@ -500,6 +501,10 @@ export async function queueOfflineOp(
     }
 ): Promise<void> {
     const db = await getDB();
+    // Validate payload before encrypting (D10)
+    if (op.operation === 'create' || op.operation === 'update') {
+        validateOfflinePayloadBeforeEncrypt(op.operation, op.payload);
+    }
     const encrypted = await encryptPayload(op.payload);
     const record: OfflineOp = {
         ...op,
@@ -529,6 +534,10 @@ export async function updateOfflineOp(
     if (!existing || existing.syncStatus !== 'pending') {
         await tx.done;
         return;
+    }
+    // Validate payload before encrypting (D10)
+    if (existing.operation === 'create' || existing.operation === 'update') {
+        validateOfflinePayloadBeforeEncrypt(existing.operation, payload);
     }
     existing.payload = await encryptPayload(payload);
     await store.put(existing);

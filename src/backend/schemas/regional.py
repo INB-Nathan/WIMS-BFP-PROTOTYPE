@@ -3,10 +3,48 @@
 from __future__ import annotations
 
 import uuid as _uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
+
+# ─── Shared helpers (D4 string length tiers, D11 tolerance) ──────────────
+
+_LABEL_MAX = 255  # D4: short labels / names / titles
+_DESC_MAX = 2000  # D4: descriptions / notes / recommendations
+_NARRATIVE_MAX = 10000  # D4: narratives / detailed reports
+_ISO_DT_MAX = 40  # generous cap for ISO-8601 datetime strings
+
+_D11_TOLERANCE_MINUTES = 5  # D11: clock-skew tolerance for occurrence/report dates
+
+
+def _validate_not_future_date(value: str | None, field_name: str) -> str | None:
+    """Validate that an ISO datetime string is not beyond `now() + tolerance` UTC.
+
+    Per D11: occurrence/report dates cannot exceed now() + 5 minutes UTC.
+    Scheduling/planning fields are whitelisted (handled per-schema).
+    """
+    if value is None:
+        return value
+    try:
+        dt = datetime.fromisoformat(value)
+    except (ValueError, TypeError):
+        raise ValueError(f"{field_name} must be a valid ISO-8601 datetime string, got: {value!r}")
+    # Naive datetimes are treated as UTC (per D11 canonical time semantics)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    cutoff = datetime.now(timezone.utc) + timedelta(minutes=_D11_TOLERANCE_MINUTES)
+    if dt > cutoff:
+        raise ValueError(
+            f"{field_name} must not be more than {_D11_TOLERANCE_MINUTES} minutes in the "
+            f"future (got {value!r})"
+        )
+    return value
+
+
+# =====================================================================
+# Response schemas
+# =====================================================================
 
 
 class RegionalStatsResponse(BaseModel):
@@ -24,114 +62,189 @@ class RegionalStatsResponse(BaseModel):
     vehicles_affected: int = 0
 
 
-class IncidentCreateRequest(BaseModel):
-    """Create a new fire incident with nonsensitive + optional sensitive details."""
+# =====================================================================
+# IncidentCreateRequest
+# =====================================================================
 
-    latitude: float
-    longitude: float
+
+class IncidentCreateRequest(BaseModel):
+    """Create a new fire incident with nonsensitive + optional sensitive details.
+
+    Validation per D3 (byte limits), D4 (string max_length), D11 (time semantics).
+    """
+
+    # ── Coordinates (required, bounded) ────────────────────────────────────
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+    # ── Numeric identifiers ────────────────────────────────────────────────
     region_id: int | None = None
-    notification_dt: str | None = None
-    alarm_level: str | None = None
-    general_category: str | None = None
-    sub_category: str | None = None
-    specific_type: str | None = None
-    occupancy_type: str | None = None
     city_id: int | None = None
-    distance_from_station_km: float | None = None
-    estimated_damage_php: float | None = None
-    civilian_injured: int = 0
-    civilian_deaths: int = 0
-    firefighter_injured: int = 0
-    firefighter_deaths: int = 0
-    families_affected: int = 0
-    structures_affected: int = 0
-    households_affected: int = 0
-    individuals_affected: int = 0
-    responder_type: str | None = None
-    fire_origin: str | None = None
-    extent_of_damage: str | None = None
-    stage_of_fire: str | None = None
-    fire_station_name: str | None = None
-    total_response_time_minutes: int | None = None
-    recommendations: str | None = None
-    province_district: str | None = None
-    city_municipality: str | None = None
-    barangay: str | None = None
-    incident_type_code: str | None = None
     parent_incident_id: int | None = None
-    street_address: str | None = None
-    landmark: str | None = None
-    caller_name: str | None = None
-    caller_number: str | None = None
-    narrative_report: str | None = None
-    owner_name: str | None = None
-    occupant_name: str | None = None
-    establishment_name: str | None = None
-    receiver_name: str | None = None
-    prepared_by_officer: str | None = None
-    noted_by_officer: str | None = None
-    remarks: str | None = None
-    client_id: str | None = None  # UUID from offline queue — idempotency key
+
+    # ── Date / time (D11 — semantic future-date rejection) ─────────────────
+    notification_dt: str | None = Field(None, max_length=_ISO_DT_MAX)
+
+    # ── String labels (D4: 255) ────────────────────────────────────────────
+    alarm_level: str | None = Field(None, max_length=_LABEL_MAX)
+    general_category: str | None = Field(None, max_length=_LABEL_MAX)
+    sub_category: str | None = Field(None, max_length=_LABEL_MAX)
+    specific_type: str | None = Field(None, max_length=_LABEL_MAX)
+    occupancy_type: str | None = Field(None, max_length=_LABEL_MAX)
+    responder_type: str | None = Field(None, max_length=_LABEL_MAX)
+    fire_origin: str | None = Field(None, max_length=_LABEL_MAX)
+    extent_of_damage: str | None = Field(None, max_length=_LABEL_MAX)
+    stage_of_fire: str | None = Field(None, max_length=_LABEL_MAX)
+    fire_station_name: str | None = Field(None, max_length=_LABEL_MAX)
+    province_district: str | None = Field(None, max_length=_LABEL_MAX)
+    city_municipality: str | None = Field(None, max_length=_LABEL_MAX)
+    barangay: str | None = Field(None, max_length=_LABEL_MAX)
+    incident_type_code: str | None = Field(None, max_length=_LABEL_MAX)
+    street_address: str | None = Field(None, max_length=_LABEL_MAX)
+    landmark: str | None = Field(None, max_length=_LABEL_MAX)
+    caller_name: str | None = Field(None, max_length=_LABEL_MAX)
+    caller_number: str | None = Field(None, max_length=_LABEL_MAX)
+    establishment_name: str | None = Field(None, max_length=_LABEL_MAX)
+    owner_name: str | None = Field(None, max_length=_LABEL_MAX)
+    occupant_name: str | None = Field(None, max_length=_LABEL_MAX)
+    receiver_name: str | None = Field(None, max_length=_LABEL_MAX)
+    prepared_by_officer: str | None = Field(None, max_length=_LABEL_MAX)
+    noted_by_officer: str | None = Field(None, max_length=_LABEL_MAX)
+
+    # ── String descriptions / notes (D4: 2000) ────────────────────────────
+    recommendations: str | None = Field(None, max_length=_DESC_MAX)
+    remarks: str | None = Field(None, max_length=_DESC_MAX)
+
+    # ── String narrative (D4: 10000) ──────────────────────────────────────
+    narrative_report: str | None = Field(None, max_length=_NARRATIVE_MAX)
+
+    # ── Non-negative numerics (counts) ─────────────────────────────────────
+    civilian_injured: int = Field(default=0, ge=0)
+    civilian_deaths: int = Field(default=0, ge=0)
+    firefighter_injured: int = Field(default=0, ge=0)
+    firefighter_deaths: int = Field(default=0, ge=0)
+    families_affected: int = Field(default=0, ge=0)
+    structures_affected: int = Field(default=0, ge=0)
+    households_affected: int = Field(default=0, ge=0)
+    individuals_affected: int = Field(default=0, ge=0)
+
+    # ── Non-negative numerics (floats / optional) ──────────────────────────
+    distance_from_station_km: float | None = Field(None, ge=0)
+    estimated_damage_php: float | None = Field(None, ge=0)
+    total_response_time_minutes: int | None = Field(None, ge=0)
+
+    # ── Idempotency ───────────────────────────────────────────────────────
+    client_id: str | None = Field(None, max_length=_LABEL_MAX)
+
+    # ── Validators ─────────────────────────────────────────────────────────
+
+    @field_validator("notification_dt")
+    @classmethod
+    def validate_notification_dt(cls, v: str | None) -> str | None:
+        """D11: notification/report date must not exceed now() + 5 min UTC."""
+        return _validate_not_future_date(v, "notification_dt")
+
+
+# =====================================================================
+# IncidentUpdateRequest
+# =====================================================================
 
 
 class IncidentUpdateRequest(BaseModel):
-    """Update an existing DRAFT/PENDING incident."""
+    """Update an existing DRAFT/PENDING incident.
 
-    notification_dt: str | None = None
-    alarm_level: str | None = None
-    general_category: str | None = None
-    sub_category: str | None = None
-    specific_type: str | None = None
-    occupancy_type: str | None = None
-    city_id: int | None = None
-    distance_from_station_km: float | None = None
-    estimated_damage_php: float | None = None
-    civilian_injured: int | None = None
-    civilian_deaths: int | None = None
-    firefighter_injured: int | None = None
-    firefighter_deaths: int | None = None
-    families_affected: int | None = None
-    structures_affected: int | None = None
-    households_affected: int | None = None
-    individuals_affected: int | None = None
-    responder_type: str | None = None
-    fire_origin: str | None = None
-    extent_of_damage: str | None = None
+    All fields optional — partial updates are the norm.
+    Validation per D3/D4/D11, mirroring IncidentCreateRequest bounds.
+    """
+
+    # ── Date / time (D11) ─────────────────────────────────────────────────
+    notification_dt: str | None = Field(None, max_length=_ISO_DT_MAX)
+
+    # ── String labels (D4: 255) ────────────────────────────────────────────
+    alarm_level: str | None = Field(None, max_length=_LABEL_MAX)
+    general_category: str | None = Field(None, max_length=_LABEL_MAX)
+    sub_category: str | None = Field(None, max_length=_LABEL_MAX)
+    specific_type: str | None = Field(None, max_length=_LABEL_MAX)
+    occupancy_type: str | None = Field(None, max_length=_LABEL_MAX)
+    responder_type: str | None = Field(None, max_length=_LABEL_MAX)
+    fire_origin: str | None = Field(None, max_length=_LABEL_MAX)
+    extent_of_damage: str | None = Field(None, max_length=_LABEL_MAX)
+    stage_of_fire: str | None = Field(None, max_length=_LABEL_MAX)
+    general_description_of_involved: str | None = Field(None, max_length=_DESC_MAX)
+    fire_station_name: str | None = Field(None, max_length=_LABEL_MAX)
+    province_district: str | None = Field(None, max_length=_LABEL_MAX)
+    city_municipality: str | None = Field(None, max_length=_LABEL_MAX)
+    barangay: str | None = Field(None, max_length=_LABEL_MAX)
+    incident_type_code: str | None = Field(None, max_length=_LABEL_MAX)
+    street_address: str | None = Field(None, max_length=_LABEL_MAX)
+    landmark: str | None = Field(None, max_length=_LABEL_MAX)
+    caller_name: str | None = Field(None, max_length=_LABEL_MAX)
+    caller_number: str | None = Field(None, max_length=_LABEL_MAX)
+    establishment_name: str | None = Field(None, max_length=_LABEL_MAX)
+    owner_name: str | None = Field(None, max_length=_LABEL_MAX)
+    occupant_name: str | None = Field(None, max_length=_LABEL_MAX)
+    receiver_name: str | None = Field(None, max_length=_LABEL_MAX)
+    prepared_by_officer: str | None = Field(None, max_length=_LABEL_MAX)
+    noted_by_officer: str | None = Field(None, max_length=_LABEL_MAX)
+    disposition: str | None = Field(None, max_length=_LABEL_MAX)
+
+    # ── String descriptions / notes (D4: 2000) ────────────────────────────
+    recommendations: str | None = Field(None, max_length=_DESC_MAX)
+    remarks: str | None = Field(None, max_length=_DESC_MAX)
+
+    # ── String narrative (D4: 10000) ──────────────────────────────────────
+    narrative_report: str | None = Field(None, max_length=_NARRATIVE_MAX)
+
+    # ── Non-negative numerics (counts, optional) ───────────────────────────
+    civilian_injured: int | None = Field(None, ge=0)
+    civilian_deaths: int | None = Field(None, ge=0)
+    firefighter_injured: int | None = Field(None, ge=0)
+    firefighter_deaths: int | None = Field(None, ge=0)
+    families_affected: int | None = Field(None, ge=0)
+    structures_affected: int | None = Field(None, ge=0)
+    households_affected: int | None = Field(None, ge=0)
+    individuals_affected: int | None = Field(None, ge=0)
+    vehicles_affected: int | None = Field(None, ge=0)
+
+    # ── Non-negative numerics (floats / optional) ──────────────────────────
+    distance_from_station_km: float | None = Field(None, ge=0)
+    estimated_damage_php: float | None = Field(None, ge=0)
     extent_total_floor_area_sqm: float | None = None
     extent_total_land_area_hectares: float | None = None
-    stage_of_fire: str | None = None
-    general_description_of_involved: str | None = None
-    fire_station_name: str | None = None
-    total_response_time_minutes: int | None = None
-    vehicles_affected: int | None = None
-    recommendations: str | None = None
-    province_district: str | None = None
-    city_municipality: str | None = None
-    barangay: str | None = None
-    incident_type_code: str | None = None
-    street_address: str | None = None
-    landmark: str | None = None
-    caller_name: str | None = None
-    caller_number: str | None = None
-    narrative_report: str | None = None
-    owner_name: str | None = None
-    occupant_name: str | None = None
-    establishment_name: str | None = None
-    receiver_name: str | None = None
-    prepared_by_officer: str | None = None
-    noted_by_officer: str | None = None
-    remarks: str | None = None
+    total_response_time_minutes: int | None = Field(None, ge=0)
+
+    # ── Numeric identifiers ────────────────────────────────────────────────
+    city_id: int | None = None
+    parent_incident_id: int | None = None  # not present on Update, but kept for symmetry
+
+    # ── Coordinates (optional on update) ───────────────────────────────────
+    latitude: float | None = Field(None, ge=-90, le=90)
+    longitude: float | None = Field(None, ge=-180, le=180)
+
+    # ── Structured blobs (no deep validation — trusted server merge) ───────
     alarm_timeline: dict | None = None
     resources_deployed: dict | None = None
     problems_encountered: list | None = None
     other_personnel: list | None = None
     personnel_on_duty: dict | None = None
     casualty_details: dict | None = None
-    disposition: str | None = None
-    latitude: float | None = None
-    longitude: float | None = None
+
+    # ── Sync / idempotency ─────────────────────────────────────────────────
     client_updated_at: datetime | None = None
     force_update: bool = False
+
+    # ── Validators ─────────────────────────────────────────────────────────
+
+    @field_validator("notification_dt")
+    @classmethod
+    def validate_notification_dt(cls, v: str | None) -> str | None:
+        """D11: notification/report date must not exceed now() + 5 min UTC."""
+        return _validate_not_future_date(v, "notification_dt")
+
+
+# =====================================================================
+# Verification / correction / admin schemas
+# =====================================================================
 
 
 class VerificationActionRequest(BaseModel):
