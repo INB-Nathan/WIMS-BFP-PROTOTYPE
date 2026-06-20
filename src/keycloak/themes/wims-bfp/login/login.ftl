@@ -7,7 +7,7 @@
           <div id="kc-form-wrapper">
             <#if (message?has_content && (message.type != 'warning' || !isAppInitiatedAction??)) || messagesPerField.existsError('username','password')>
                 <div class="wims-login-alerts">
-                    <#if message?has_content && (message.type != 'warning' || !isAppInitiatedAction??)>
+                    <#if message?has_content && (message.type != 'warning' || !isAppInitiatedAction??) && !messagesPerField.existsError('username','password')>
                         <div class="${properties.kcAlertClass!} pf-m-${(message.type = 'error')?then('danger', message.type)}">
                             <div class="pf-v5-c-alert__icon">
                                 <#if message.type = 'success'><span class="${properties.kcFeedbackSuccessIcon!}"></span></#if>
