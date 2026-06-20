@@ -267,7 +267,9 @@ def _fetch_report_response(
         {"rid": report_id},
     ).fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail="Report not found")
+        from utils.public_abuse import neutral_404
+
+        raise neutral_404()
     return _response_from_row(row)
 
 
@@ -438,7 +440,9 @@ def append_civilian_report(
         {"rid": report_id},
     ).fetchone()
     if not parent:
-        raise HTTPException(status_code=404, detail="Report not found")
+        from utils.public_abuse import neutral_404
+
+        raise neutral_404()
     if parent.status == "ACTIONED" or str(parent.status).startswith("REJECTED_"):
         raise HTTPException(
             status_code=409,
@@ -535,7 +539,9 @@ def submit_civilian_followup(
         {"rid": report_id},
     ).fetchone()
     if not parent:
-        raise HTTPException(status_code=404, detail="Report not found")
+        from utils.public_abuse import neutral_404
+
+        raise neutral_404()
     if parent.status == "ACTIONED" or str(parent.status).startswith("REJECTED_"):
         raise HTTPException(
             status_code=409,
@@ -730,10 +736,38 @@ def get_civilian_report_timeline(
 def register_notification(
     report_id: int,
     body: NotifyRegisterRequest,
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
 ) -> NotifyRegisterResponse:
-    """Register FCM token for push notifications on report status change. No auth."""
+    """Register FCM token for push notifications on report status change. No auth.
+
+    Rate limited: max 10 FCM tokens per report, max 5 registrations per IP per hour.
+    """
     _require_device_ownership(db, report_id, body.device_id)
+
+    # Max FCM tokens per report (limit 10)
+    token_count = db.execute(
+        text("SELECT COUNT(*) FROM wims.report_notification_tokens WHERE report_id = :rid"),
+        {"rid": report_id},
+    ).scalar()
+    if token_count is not None and int(token_count) >= 10:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many notification registrations for this report",
+        )
+
+    # Per-IP token registration cap (5 per IP per hour, Redis fail-closed)
+    forwarded = request.headers.get("x-forwarded-for")
+    client_ip = (
+        forwarded.split(",")[0].strip()
+        if forwarded
+        else (request.client.host if request.client else "unknown")
+    )
+    from utils.public_abuse import rate_limit_public
+
+    rate_limit_public(
+        _get_redis(), client_ip, "public_notify", limit=5, window=3600, fail_closed=True
+    )
 
     result = db.execute(
         text("""
