@@ -204,6 +204,10 @@ export default function ValidatorDashboard() {
   const selectStatusFilter = useCallback((nextStatus: string) => {
     updateFiltersWithoutScrollShift(() => {
       setStatusFilter(nextStatus);
+      const autoAllTime = nextStatus === STATUS_FILTER_QUEUE || nextStatus === "REJECTED";
+      setDateFilter(autoAllTime ? "all" : "today");
+      setSpecificDate("");
+      setSpecificDateDraft("");
       setPage(0);
     });
   }, [updateFiltersWithoutScrollShift]);

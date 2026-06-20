@@ -5,7 +5,6 @@ import { searchGeocode } from '@/lib/geocode';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 import { firePinIcon } from './map/leafletIcons';
 
 // Default marker uses the centralized BFP maroon SVG divIcon (see leafletIcons.ts).
