@@ -407,6 +407,27 @@ async def get_current_wims_user(
                         "role": jit_role,
                     },
                 )
+                # REGIONAL_ENCODER/ENCODER need assigned_region_id or the RLS
+                # WITH CHECK on data_import_batches will reject their first bundle.
+                if jit_role in ("REGIONAL_ENCODER", "ENCODER"):
+                    try:
+                        region_row = db.execute(
+                            text(
+                                "SELECT region_id FROM wims.ref_regions ORDER BY region_id ASC LIMIT 1"
+                            )
+                        ).fetchone()
+                        if region_row:
+                            db.execute(
+                                text(
+                                    "UPDATE wims.users SET assigned_region_id = :rid "
+                                    "WHERE user_id = :uid"
+                                ),
+                                {"rid": int(region_row[0]), "uid": jit_user_id},
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            "JIT: could not auto-assign region for %s: %s", preferred_username, e
+                        )
                 db.commit()
                 logger.info(
                     f"JIT provisioned user {preferred_username} "
@@ -419,20 +440,21 @@ async def get_current_wims_user(
 
             row = (jit_user_id, jit_role, preferred_username)
 
-        existing_keycloak_id = row_by_username[2]
-        if existing_keycloak_id is not None and str(existing_keycloak_id) != keycloak_sub:
-            # UUID drift — update to current Keycloak identity (JIT repair)
-            logger.warning(
-                f"Identity drift for {preferred_username}: "
-                f"DB has {existing_keycloak_id}, token has {keycloak_sub}. Updating."
-            )
-            db.execute(
-                text("UPDATE wims.users SET keycloak_id = :new_kid WHERE username = :uname"),
-                {"new_kid": keycloak_sub, "uname": preferred_username},
-            )
-            db.commit()
+        else:
+            existing_keycloak_id = row_by_username[2]
+            if existing_keycloak_id is not None and str(existing_keycloak_id) != keycloak_sub:
+                # UUID drift — update to current Keycloak identity (JIT repair)
+                logger.warning(
+                    f"Identity drift for {preferred_username}: "
+                    f"DB has {existing_keycloak_id}, token has {keycloak_sub}. Updating."
+                )
+                db.execute(
+                    text("UPDATE wims.users SET keycloak_id = :new_kid WHERE username = :uname"),
+                    {"new_kid": keycloak_sub, "uname": preferred_username},
+                )
+                db.commit()
 
-        row = (row_by_username[0], row_by_username[1], row_by_username[3])
+            row = (row_by_username[0], row_by_username[1], row_by_username[3])
 
     user_dict = {
         "user_id": row[0],

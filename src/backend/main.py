@@ -371,6 +371,19 @@ def apply_schema_patches() -> None:
             )
             db.rollback()
 
+        # Re-grant EXECUTE on all wims functions every restart. postgres-init only ran
+        # this at first boot; functions added or replaced since then (e.g. by CREATE OR
+        # REPLACE FUNCTION in startup patches) lose their grants on recreation.
+        try:
+            db.execute(text("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA wims TO wims_app"))
+            db.commit()
+            logger.info(
+                "Schema patch applied: GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA wims TO wims_app"
+            )
+        except Exception as exc:
+            logger.warning("Schema patch (function EXECUTE grants) failed (non-fatal): %s", exc)
+            db.rollback()
+
         _apply_postgres_init_sql_patch(
             db,
             "45_add_client_id_to_incidents.sql",
@@ -448,6 +461,32 @@ def apply_schema_patches() -> None:
             "non-negative CHECK constraints on incident_nonsensitive_details",
         )
 
+        # Ensure REGIONAL_ENCODER users all have an assigned_region_id.
+        # JIT-provisioned users (auto-created on first login) are inserted without
+        # assigned_region_id, which causes the RLS WITH CHECK on data_import_batches
+        # to fail when they try to submit incidents. Auto-assign the first region as
+        # a safe default; admins can refine via the user management UI.
+        try:
+            db.execute(
+                text(
+                    """
+                    UPDATE wims.users
+                    SET assigned_region_id = (
+                        SELECT region_id FROM wims.ref_regions ORDER BY region_id ASC LIMIT 1
+                    )
+                    WHERE role IN ('REGIONAL_ENCODER', 'ENCODER')
+                      AND assigned_region_id IS NULL
+                      AND is_active = TRUE
+                    """
+                )
+            )
+            db.commit()
+            logger.info(
+                "Schema patch applied: auto-assigned default region to REGIONAL_ENCODER users with NULL assigned_region_id"
+            )
+        except Exception as exc:
+            logger.warning("Schema patch (auto-assign encoder region) failed (non-fatal): %s", exc)
+            db.rollback()
         # Migration 62: standardized audit shape — correlation_id, result, ip_hash
         _apply_postgres_init_sql_patch(
             db,

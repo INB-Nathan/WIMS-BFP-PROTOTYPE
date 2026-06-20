@@ -125,13 +125,29 @@ def upload_incident_bundle(
 
     user_id = user["user_id"]
     user_role = user.get("role", "")
+    logger.info(
+        "upload-bundle: user_id=%s role=%s incidents=%d",
+        user_id,
+        user_role,
+        len(incidents),
+    )
 
     # Resolve the user's assigned region from the DB (not available in the base JWT payload)
-    assigned_row = db.execute(
-        text("SELECT assigned_region_id FROM wims.users WHERE user_id = CAST(:uid AS uuid)"),
-        {"uid": user_id},
-    ).fetchone()
-    assigned_region_id = assigned_row[0] if assigned_row else None
+    try:
+        assigned_row = db.execute(
+            text("SELECT assigned_region_id FROM wims.users WHERE user_id = CAST(:uid AS uuid)"),
+            {"uid": user_id},
+        ).fetchone()
+        assigned_region_id = assigned_row[0] if assigned_row else None
+    except Exception as exc:
+        logger.error(
+            "upload-bundle: failed to resolve assigned_region_id for user %s: %s", user_id, exc
+        )
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to resolve user region assignment. Please try again.",
+        ) from None
 
     region_id_raw = body.region_id
     if region_id_raw is not None:
@@ -141,31 +157,52 @@ def upload_incident_bundle(
         if assigned_region_id:
             region_id = int(assigned_region_id)
         else:
-            region_row = db.execute(
-                text("SELECT region_id FROM wims.ref_regions LIMIT 1")
-            ).fetchone()
+            try:
+                region_row = db.execute(
+                    text("SELECT region_id FROM wims.ref_regions LIMIT 1")
+                ).fetchone()
+            except Exception as exc:
+                logger.error("upload-bundle: ref_regions query failed: %s", exc)
+                db.rollback()
+                raise HTTPException(status_code=500, detail="No region available") from None
             if not region_row:
                 raise HTTPException(status_code=500, detail="No region available")
             region_id = int(region_row[0])
 
     # Enforce REGIONAL_ENCODER can only submit for their assigned region
-    if user_role in ("REGIONAL_ENCODER", "ENCODER") and assigned_region_id is not None:
+    if user_role in ("REGIONAL_ENCODER", "ENCODER"):
+        if assigned_region_id is None:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "REGION_NOT_ASSIGNED: Your account has no assigned region. "
+                    "Contact a system administrator to assign your region before submitting incidents."
+                ),
+            )
         if region_id != int(assigned_region_id):
             raise HTTPException(
                 status_code=403,
                 detail="REGION_MISMATCH: You can only submit incidents for your assigned region.",
             )
 
-    batch_row = db.execute(
-        text(
-            """
-            INSERT INTO wims.data_import_batches (region_id, uploaded_by, record_count)
-            VALUES (:region_id, CAST(:uid AS uuid), :count)
-            RETURNING batch_id
-            """
-        ),
-        {"region_id": region_id, "uid": user_id, "count": len(incidents)},
-    ).fetchone()
+    try:
+        batch_row = db.execute(
+            text(
+                """
+                INSERT INTO wims.data_import_batches (region_id, uploaded_by, record_count)
+                VALUES (:region_id, CAST(:uid AS uuid), :count)
+                RETURNING batch_id
+                """
+            ),
+            {"region_id": region_id, "uid": user_id, "count": len(incidents)},
+        ).fetchone()
+    except Exception as exc:
+        db.rollback()
+        logger.warning("upload-bundle: data_import_batches insert failed: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create import batch. Check encoder region assignment and permissions.",
+        ) from None
 
     if not batch_row:
         raise HTTPException(status_code=500, detail="Failed to create import batch")
@@ -178,16 +215,21 @@ def upload_incident_bundle(
     # offline sync engine retries a create that already succeeded server-side (network
     # timeout masked the 201), the duplicate client_id lets us return the existing row
     # instead of inserting a second incident. See migration 45 + main.py self-heal.
-    client_id_col_exists = (
-        db.execute(
-            text(
-                "SELECT 1 FROM information_schema.columns"
-                " WHERE table_schema='wims' AND table_name='fire_incidents'"
-                " AND column_name='client_id'"
-            )
-        ).fetchone()
-        is not None
-    )
+    try:
+        client_id_col_exists = (
+            db.execute(
+                text(
+                    "SELECT 1 FROM information_schema.columns"
+                    " WHERE table_schema='wims' AND table_name='fire_incidents'"
+                    " AND column_name='client_id'"
+                )
+            ).fetchone()
+            is not None
+        )
+    except Exception as exc:
+        logger.warning("upload-bundle: client_id column probe failed (defaulting False): %s", exc)
+        db.rollback()
+        client_id_col_exists = False
 
     for item in incidents:
         i += 1
@@ -329,7 +371,7 @@ def upload_incident_bundle(
                         general_description_of_involved
                     ) VALUES (
                         :incident_id, :city_id,
-                        CAST(:notification_dt AS timestamptz), :alarm_level, :general_category, :sub_category,
+                        CAST(NULLIF(:notification_dt, '') AS timestamptz), :alarm_level, :general_category, :sub_category,
                         :responder_type, :fire_origin, :extent_of_damage,
                         :structures_affected, :households_affected, :families_affected,
                         :individuals_affected, :vehicles_affected,
