@@ -75,8 +75,13 @@ vi.mock('react-leaflet', () => ({
 }));
 
 // Mock MapPicker (used in Context step)
+let mapPickerChange: ((lat: number, lng: number) => void) | null = null;
 vi.mock('@/components/MapPicker', () => ({
-  MapPicker: () => <div data-testid="map-picker" />,
+  MapPicker: ({ onChange }: { onChange?: (lat: number, lng: number) => void }) => {
+    // Store the onChange callback so tests can simulate pin drop
+    mapPickerChange = onChange ?? null;
+    return <div data-testid="map-picker" />;
+  },
 }));
 
 // Mock CalmEmergencyBlock
@@ -89,6 +94,70 @@ vi.mock('@/components/EmergencyReferenceCard', () => ({
   EmergencyReferenceCard: ({ compact }: { compact?: boolean }) =>
     <div data-testid="emergency-card">{compact ? 'compact' : 'full'}</div>,
 }));
+
+describe('ReportPage — submitted-screen append', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    mockSearchParams = new URLSearchParams();
+    mapPickerChange = null;
+  });
+
+  it('submits an update from the submitted success screen', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem('wims_civilian_device_id', 'device-a');
+
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+
+    // Safety step — select 'I am safe', then Continue
+    fireEvent.click(screen.getByText('I am safe'));
+    fireEvent.click(screen.getByText('Continue'));
+
+    // Context step — select WITNESS, simulate pin via mapPickerChange
+    await screen.findByText('How did you learn about this fire?');
+    fireEvent.click(screen.getByText('I saw it happen'));
+    await waitFor(() => expect(mapPickerChange).not.toBeNull());
+    mapPickerChange!(14.5, 121);
+    fireEvent.click(screen.getByText('Continue'));
+
+    // Category step
+    await screen.findByText('What type of fire is this?');
+    fireEvent.click(screen.getByText('Structural'));
+    fireEvent.click(screen.getByText('Continue'));
+
+    // Details step — has Review & Submit button
+    await screen.findByText('Observed time (optional)');
+    fireEvent.click(screen.getByText('Review & Submit'));
+
+    // Review step
+    await screen.findByText('Review Your Report');
+    fireEvent.click(screen.getByText('Submit Report'));
+
+    // Submitted screen
+    await screen.findByText('Report Submitted');
+    expect(screen.getByText(/Report #1 has been received/)).toBeInTheDocument();
+
+    // Append from the submitted screen
+    await user.type(
+      screen.getByPlaceholderText('Describe any new information... / Ilarawan ang anumang bagong impormasyon...'),
+      'Fire seems to be spreading northwards.',
+    );
+    fireEvent.click(screen.getByText('Submit Update / Magsumite ng Update'));
+
+    await waitFor(() => {
+      expect(appendCivilianReport).toHaveBeenCalledWith(1, expect.objectContaining({
+        latitude: 14.5,
+        longitude: 121,
+        category: 'STRUCTURAL',
+        reporting_context: 'WITNESS',
+        safety_status: 'I_AM_SAFE',
+        device_id: 'device-a',
+        description: 'Fire seems to be spreading northwards.',
+      }));
+    });
+  });
+});
 
 describe('ReportPage — Safety step', () => {
   beforeEach(() => {
