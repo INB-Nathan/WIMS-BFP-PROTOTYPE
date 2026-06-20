@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-06-19
+Last updated: 2026-06-20
 Total synthesis pages: 33
-Last changes: SQL-file-backed startup schema self-heal (Option C) in main.py; blob metadata stripping (key_version) fixed in encoder/field_updates/privacy; analyst endpoint now decrypts casualty_details + estimated_damage_php from PII blob.
+Last changes: Civilian report update-mode fix: `/` update flow now loads parent report fields/device_id for append submissions and cancel clears update state back to the main safety screen.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

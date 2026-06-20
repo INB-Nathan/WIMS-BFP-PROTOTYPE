@@ -3,11 +3,11 @@
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { MapPicker } from '@/components/MapPicker';
 import { PublicFireMap } from '@/components/PublicFireMap';
-import { fetchCivilianDuplicateSuggestions, submitCivilianReportV2, appendCivilianReport } from '@/lib/api';
-import type { CivilianCategory, CivilianDuplicateSuggestion, CivilianReportV2Payload, ReportingContext, SafetyStatus } from '@/lib/api';
+import { fetchCivilianDuplicateSuggestions, submitCivilianReportV2, appendCivilianReport, fetchReportStatus } from '@/lib/api';
+import type { CivilianCategory, CivilianDuplicateSuggestion, CivilianReportTrackingResponse, CivilianReportV2Payload, ReportingContext, SafetyStatus } from '@/lib/api';
 import React from 'react';
 
 import {
@@ -306,6 +306,7 @@ function GpsMismatchModal({ pinDist, onConfirm, onCancel }: { pinDist: number; o
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 export default function ReportPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const updateReportIdParam = searchParams.get('update_report_id');
 
@@ -341,6 +342,8 @@ export default function ReportPage() {
   const [appending, setAppending] = useState(false);
   const [appendError, setAppendError] = useState<string | null>(null);
   const [appendSubmitted, setAppendSubmitted] = useState(false);
+  const [updateParentReport, setUpdateParentReport] = useState<CivilianReportTrackingResponse | null>(null);
+  const [updateLoading, setUpdateLoading] = useState(false);
 
   const geoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -483,17 +486,81 @@ export default function ReportPage() {
 
   // ── Submit ──────────────────────────────────────────────────────────────────
 
+  function getStoredDeviceId(): string | null {
+    return window.localStorage.getItem('wims_civilian_device_id');
+  }
+
   function getDeviceId(): string {
     const key = 'wims_civilian_device_id';
-    const existing = window.localStorage.getItem(key);
+    const existing = getStoredDeviceId();
     if (existing) return existing;
     const generated = window.crypto?.randomUUID?.() ?? '00000000-0000-4000-8000-000000000000';
     window.localStorage.setItem(key, generated);
     return generated;
   }
 
+  useEffect(() => {
+    const nextIsUpdateMode = Boolean(updateReportIdParam);
+    setIsUpdateMode(nextIsUpdateMode);
+    if (!nextIsUpdateMode) {
+      setSubmittedReportId(null);
+      setUpdateParentReport(null);
+      setAppendError(null);
+      return;
+    }
+
+    const parsedReportId = Number.parseInt(updateReportIdParam!, 10);
+    if (!Number.isFinite(parsedReportId)) {
+      setAppendError('Invalid report ID. Please return to tracking and try again.');
+      return;
+    }
+
+    const deviceId = getStoredDeviceId();
+    if (!deviceId) {
+      setAppendError('This report can only be updated from the browser used to submit it.');
+      return;
+    }
+
+    let cancelled = false;
+    setUpdateLoading(true);
+    setAppendError(null);
+    fetchReportStatus(parsedReportId, deviceId)
+      .then((report) => {
+        if (cancelled) return;
+        setUpdateParentReport(report);
+        setSubmittedReportId(report.report_id);
+        setGeo({ latitude: report.latitude, longitude: report.longitude, source: 'pin', denied: false, timedOut: false });
+        setCategory(report.category as CivilianCategory | null);
+        setSubCategory(report.sub_category ?? null);
+        setReportingContext(report.reporting_context as ReportingContext | null);
+        setSafetyStatus((report.safety_status as SafetyStatus | null) ?? 'UNKNOWN');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setAppendError(err instanceof Error ? err.message : 'Could not load report details. Please return to tracking and try again.');
+      })
+      .finally(() => {
+        if (!cancelled) setUpdateLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [updateReportIdParam]);
+
+  function handleCancelUpdate() {
+    setIsUpdateMode(false);
+    setAppendDescription('');
+    setAppendTimestamp('');
+    setAppendError(null);
+    setAppendSubmitted(false);
+    setUpdateParentReport(null);
+    setSubmittedReportId(null);
+    router.replace('/');
+  }
+
   function buildPayload(): CivilianReportV2Payload | null {
-    if (!geo.latitude || !reportingContext || !safetyStatus || !category) return null;
+    if (geo.latitude == null || geo.longitude == null || !reportingContext || !safetyStatus || !category) return null;
     return {
       latitude: geo.latitude,
       longitude: geo.longitude!,
@@ -530,17 +597,40 @@ export default function ReportPage() {
   }
 
   async function handleAppend() {
-    if (!submittedReportId || !appendDescription.trim()) return;
+    const parsedUpdateReportId = updateReportIdParam ? Number.parseInt(updateReportIdParam, 10) : null;
+    const targetReportId = submittedReportId ?? (parsedUpdateReportId && Number.isFinite(parsedUpdateReportId) ? parsedUpdateReportId : null);
+    const deviceId = getStoredDeviceId();
+    const nextLatitude = geo.latitude ?? updateParentReport?.latitude;
+    const nextLongitude = geo.longitude ?? updateParentReport?.longitude;
+    const nextCategory = category ?? (updateParentReport?.category as CivilianCategory | null | undefined);
+    const nextReportingContext = reportingContext ?? (updateParentReport?.reporting_context as ReportingContext | null | undefined);
+    const nextSafetyStatus = safetyStatus ?? (updateParentReport?.safety_status as SafetyStatus | null | undefined) ?? 'UNKNOWN';
+
+    if (!appendDescription.trim()) return;
+    if (!targetReportId || !Number.isFinite(targetReportId)) {
+      setAppendError('Could not identify the report to update. Please return to tracking and try again.');
+      return;
+    }
+    if (!deviceId) {
+      setAppendError('This report can only be updated from the browser used to submit it.');
+      return;
+    }
+    if (nextLatitude == null || nextLongitude == null || !nextCategory || !nextReportingContext) {
+      setAppendError('Report details are still loading. Please wait and try again.');
+      return;
+    }
+
     setAppending(true);
     setAppendError(null);
     try {
-      await appendCivilianReport(submittedReportId, {
-        latitude: geo.latitude ?? undefined,
-        longitude: geo.longitude ?? undefined,
-        category: category ?? undefined,
-        reporting_context: reportingContext ?? undefined,
-        safety_status: safetyStatus ?? undefined,
-        reported_at: appendTimestamp || undefined,
+      await appendCivilianReport(targetReportId, {
+        latitude: nextLatitude,
+        longitude: nextLongitude,
+        category: nextCategory,
+        reporting_context: nextReportingContext,
+        safety_status: nextSafetyStatus,
+        device_id: deviceId,
+        reported_at: appendTimestamp ? new Date(appendTimestamp).toISOString() : undefined,
         description: appendDescription.trim(),
       });
       setAppendSubmitted(true);
@@ -759,10 +849,11 @@ export default function ReportPage() {
               </p>
 
               <div>
-                <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-primary)' }}>
+                <label htmlFor="civilian-update-description" className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-primary)' }}>
                   Additional Information *
                 </label>
                 <textarea
+                  id="civilian-update-description"
                   value={appendDescription}
                   onChange={(e) => setAppendDescription(e.target.value)}
                   placeholder="Describe any new details, changes, or additional observations…"
@@ -773,10 +864,11 @@ export default function ReportPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-primary)' }}>
+                <label htmlFor="civilian-update-timestamp" className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-primary)' }}>
                   Revised / Additional Timestamp
                 </label>
                 <input
+                  id="civilian-update-timestamp"
                   type="datetime-local"
                   value={appendTimestamp}
                   onChange={(e) => setAppendTimestamp(e.target.value)}
@@ -788,6 +880,12 @@ export default function ReportPage() {
                 </p>
               </div>
 
+              {updateLoading && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
+                  Loading report details…
+                </div>
+              )}
+
               {appendError && (
                 <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600">
                   {appendError}
@@ -795,17 +893,18 @@ export default function ReportPage() {
               )}
 
               <div className="flex gap-3 pt-2">
-                <Link
-                  href="/"
+                <button
+                  type="button"
+                  onClick={handleCancelUpdate}
                   className="flex-1 flex items-center justify-center py-2.5 rounded-xl border text-sm font-medium"
                   style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
                 >
                   Cancel
-                </Link>
+                </button>
                 <button
                   type="button"
                   onClick={handleAppend}
-                  disabled={appending || !appendDescription.trim()}
+                  disabled={appending || updateLoading || !appendDescription.trim()}
                   className="flex-1 flex items-center justify-center py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-50"
                   style={{ background: 'var(--bfp-gradient)' }}
                 >

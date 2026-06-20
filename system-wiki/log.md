@@ -3501,3 +3501,12 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - **Fix:** Extended `_SECURITY_ROW` from 13 to 16 elements (3 trailing `None` for the new columns). All 12 tests in `test_log_fulltext_search.py` now pass.
 - **File:** `src/backend/tests/test_log_fulltext_search.py` (+3/-0).
 - **PR CI status:** Backend job passes; Merge Gate unblocked.
+
+## [2026-06-20] fix | civilian public update mode submit/cancel
+
+- `src/frontend/src/app/page.tsx`: fixed `?update_report_id=<id>` update mode so it loads the parent report via `fetchReportStatus(report_id, stored_device_id)`, reuses parent location/category/reporting-context/safety fields required by `PATCH /api/civilian/reports/{report_id}/append`, includes the stored `device_id`, and submits the civilian's additional description/timestamp against the query-string report ID.
+- `src/frontend/src/app/page.tsx`: replaced the update-mode Cancel link with a client button that clears update state and calls `router.replace('/')`, returning the user to the main safety screen even though the pathname stays `/`.
+- `src/frontend/src/app/__tests__/page.test.tsx`: added regression coverage for update submission payload and cancel returning to the main screen.
+- `system-wiki/subsystems/civilian-reporting-phase2.md`: documented the frontend update-mode contract.
+- Validation: `cd src/frontend && npx vitest run src/app/__tests__/page.test.tsx` passed 5 tests. Focused ESLint on `src/app/page.tsx` and `src/app/__tests__/page.test.tsx` returned 0 errors with 7 pre-existing warnings in `page.tsx`.
+- No FRS gap register change; this fixes existing frontend behavior against the documented append API.

@@ -1,7 +1,7 @@
 ---
 title: Civilian Reporting Phase 2 — Subsystem Deep-Dive
 created: 2026-05-20
-updated: 2026-06-17
+updated: 2026-06-20
 type: subsystem
 tags: [wims-bfp, subsystem, civilian-reporting, triage, validation, public-dmz, cluster, merge, map]
 sources: [system-wiki/prd/civilian-reporting-phase-2.md, system-wiki/decisions/0001-civilian-reporting-overhaul.md, src/backend/api/routes/triage.py, src/backend/api/routes/civilian.py, src/backend/api/routes/ref.py, src/backend/api/routes/public_dmz.py, src/backend/tasks/civilian_reports.py, src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/app/page.tsx, src/frontend/src/app/tracking/page.tsx]
@@ -128,6 +128,8 @@ Ordered oldest-first. Follows `linked_to_report_id` chain.
 Append new signal to an existing report (new row with `linked_to_report_id`). Requires device_id match and non-terminal status.
 
 **Request body**: `{ device_id, category, sub_category, latitude, longitude, safety_status, reporting_context, observed_time, description?, eyewitness_name?, eyewitness_contact? }`
+
+**Frontend update mode**: the public `/` report page enters update mode via `?update_report_id=<id>` from `/tracking`. It fetches the parent report with the stored `wims_civilian_device_id`, reuses the parent location/category/context/safety fields required by the append schema, sends the stored `device_id`, and lets the civilian add a description/timestamp. Cancel is a client button that clears update state and `router.replace('/')` so the main safety screen appears even when the route pathname is unchanged.
 
 **Rate limit**: 1 append per device per 5 minutes across all linked reports.
 

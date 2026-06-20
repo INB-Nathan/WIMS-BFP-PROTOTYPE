@@ -1,10 +1,15 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { appendCivilianReport } from '@/lib/api';
+
+const mockRouterReplace = vi.fn();
+let mockSearchParams = new URLSearchParams();
 
 // Mock next/navigation
 vi.mock('next/navigation', () => ({
-  useSearchParams: () => new URLSearchParams(),
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => mockSearchParams,
+  useRouter: () => ({ push: vi.fn(), replace: mockRouterReplace }),
 }));
 
 // Mock next/image
@@ -29,6 +34,17 @@ vi.mock('@/lib/api', () => ({
   fetchCivilianDuplicateSuggestions: vi.fn().mockResolvedValue([]),
   submitCivilianReportV2: vi.fn().mockResolvedValue({ report_id: 1 }),
   appendCivilianReport: vi.fn().mockResolvedValue({}),
+  fetchReportStatus: vi.fn().mockResolvedValue({
+    report_id: 42,
+    latitude: 14.5,
+    longitude: 121,
+    category: 'STRUCTURAL',
+    sub_category: null,
+    reporting_context: 'WITNESS',
+    safety_status: 'I_AM_SAFE',
+    status: 'PENDING',
+    created_at: '2026-06-20T08:00:00Z',
+  }),
   fetchReportClusters: vi.fn().mockResolvedValue({ areas: [], mode: 'national', stale: false, degraded: false }),
   fetchEmergencyServices: vi.fn().mockResolvedValue({ emergency_number: '911' }),
 }));
@@ -77,6 +93,8 @@ vi.mock('@/components/EmergencyReferenceCard', () => ({
 describe('ReportPage — Safety step', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+    mockSearchParams = new URLSearchParams();
   });
 
   it('renders Nearby fire activity heading and disclaimer in Safety step', async () => {
@@ -110,5 +128,44 @@ describe('ReportPage — Safety step', () => {
     expect(screen.getByText('I am safe')).toBeInTheDocument();
     expect(screen.getByText('I need help')).toBeInTheDocument();
     expect(screen.getByText('I am not sure')).toBeInTheDocument();
+  });
+
+  it('submits an update against the report id from the query string', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem('wims_civilian_device_id', 'device-a');
+    mockSearchParams = new URLSearchParams('update_report_id=42');
+
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+
+    await screen.findByText('Update Report #42');
+    await user.type(screen.getByLabelText('Additional Information *'), 'Smoke is getting heavier.');
+    await user.click(screen.getByRole('button', { name: 'Submit Update' }));
+
+    await waitFor(() => {
+      expect(appendCivilianReport).toHaveBeenCalledWith(42, expect.objectContaining({
+        latitude: 14.5,
+        longitude: 121,
+        category: 'STRUCTURAL',
+        reporting_context: 'WITNESS',
+        safety_status: 'I_AM_SAFE',
+        device_id: 'device-a',
+        description: 'Smoke is getting heavier.',
+      }));
+    });
+  });
+
+  it('cancel exits update mode and returns to the main safety screen', async () => {
+    localStorage.setItem('wims_civilian_device_id', 'device-a');
+    mockSearchParams = new URLSearchParams('update_report_id=42');
+
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+
+    await screen.findByText('Update Report #42');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(mockRouterReplace).toHaveBeenCalledWith('/');
+    expect(screen.getByText('Are you or anyone else in danger?')).toBeInTheDocument();
   });
 });
