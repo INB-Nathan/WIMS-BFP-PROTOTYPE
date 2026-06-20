@@ -21,7 +21,7 @@ A `REGIONAL_ENCODER` encodes official fire incident records for one assigned Phi
 | `/dashboard/regional` | `src/frontend/src/app/dashboard/regional/page.tsx` | Summary dashboard (stats cards, incident list) |
 | `/dashboard/regional/audit` | `src/frontend/src/app/dashboard/regional/audit/page.tsx` | Encoder's own action log |
 | `/dashboard/regional/incidents/[id]` | `src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx` | Incident detail / edit / submit |
-| `/afor/create` | `src/frontend/src/app/afor/create/page.tsx` | Manual AFOR entry (structural + wildland) |
+| `/afor/create` | `src/frontend/src/app/afor/create/page.tsx` | Manual AFOR entry (structural only) |
 | `/afor/import` | `src/frontend/src/app/afor/import/page.tsx` | Bulk AFOR import from .xlsx |
 
 ### Backend API Endpoints
@@ -41,7 +41,6 @@ A `REGIONAL_ENCODER` encodes official fire incident records for one assigned Phi
 
 ### Key Components
 - `src/frontend/src/components/IncidentForm.tsx` — structural fire incident form (also handles edit mode)
-- `src/frontend/src/components/WildlandAforManualForm.tsx` — wildland AFOR manual entry
 - `src/frontend/src/components/MapPicker.tsx` → `MapPickerInner.tsx` — coordinate picker (Leaflet, loaded client-only via `dynamic` + `ssr: false`)
 - `src/frontend/src/lib/offlineStore.ts` — IndexedDB queue for offline incident drafts
 - `src/frontend/src/lib/edgeFunctions.ts` — upload-bundle offline sync
@@ -91,8 +90,7 @@ A `NATIONAL_VALIDATOR` reviews, accepts, or rejects PENDING_VALIDATION incidents
 ### Incident Creation Flow (Manual Entry)
 ```
 Encoder navigates to /afor/create
-  → chooses Structural or Wildland form type
-  → fills IncidentForm / WildlandAforManualForm
+  → fills IncidentForm (structural AFOR only)
   → POST /api/regional/incidents → status: DRAFT
   → can edit (PUT /api/regional/incidents/{id})
   → PATCH /api/regional/incidents/{id}/submit → status: PENDING_VALIDATION

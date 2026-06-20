@@ -113,7 +113,7 @@ Source: `src/frontend/src/app/`
 | `/incidents/new` | Map-assisted new incident submission route for authenticated users. |
 | `/incidents/[id]` | Incident detail page. |
 | `/afor/import` | Regional AFOR file upload: parses file, shows `form_kind` (structural vs wildland), preview table, commit; links to structural and wildland `.xlsx` templates under `/templates/`. |
-| `/afor/create` | Manual AFOR entry: toggle structural (`IncidentForm`) vs wildland (`WildlandAforManualForm`); can load a preview row from import via `sessionStorage` (`temp_afor_review`, `temp_afor_form_kind`). |
+| `/afor/create` | Manual AFOR entry: structural AFOR only (`IncidentForm`); can load a preview row from import via `sessionStorage` (`temp_afor_review`). |
 | `/admin` | Redirect route to system admin page. |
 | `/admin/system` | SYSTEM_ADMIN operations hub (users, security logs, audit logs, AI analyze action). |
 

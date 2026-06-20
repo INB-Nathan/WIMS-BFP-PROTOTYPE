@@ -72,7 +72,6 @@ export function dismissOfflineBanner(): void {
 async function warmChunks(): Promise<void> {
   await Promise.allSettled([
     import('@/components/IncidentForm'),
-    import('@/components/WildlandAforManualForm'),
     import('@/components/MapPicker'),
     import('@/components/MapPickerInner'),
   ]);

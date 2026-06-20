@@ -14,7 +14,6 @@ export default function RegionalLayout({ children }: { children: ReactNode }) {
     // navigation to /afor/create succeeds even when the user is later offline.
     useEffect(() => {
         void import('@/components/IncidentForm').catch(() => {});
-        void import('@/components/WildlandAforManualForm').catch(() => {});
     }, []);
 
     return (
