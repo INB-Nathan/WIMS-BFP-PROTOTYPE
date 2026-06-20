@@ -147,8 +147,6 @@ class TestUploadBundlePIIFailClosed:
                 }
             ],
         }
-        request = MagicMock()
-        request.headers = {}
         body_obj = IncidentBundleCreate(**body)
         res = upload_incident_bundle(
             body_obj,
@@ -188,8 +186,6 @@ class TestUploadBundlePIIFailClosed:
                 }
             ],
         }
-        request = MagicMock()
-        request.headers = {}
         body_obj = IncidentBundleCreate(**body)
         res = upload_incident_bundle(
             body_obj,
@@ -244,8 +240,6 @@ class TestUploadBundlePIIFailClosed:
                 }
             ],
         }
-        request = MagicMock()
-        request.headers = {}
         body_obj = IncidentBundleCreate(**body)
         res = upload_incident_bundle(
             body_obj,
