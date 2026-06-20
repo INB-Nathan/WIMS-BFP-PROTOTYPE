@@ -3571,9 +3571,9 @@ Made pending-sync offline incidents fully manageable through the normal regional
 ## [2026-06-20] fix | AFOR import row-level coordinates for operational map
 
 - Diagnosed validator Operational Map clustering all imported incidents around Parañaque as an upstream persistence issue: AFOR commit accepted one top-level WGS84 pin and reused it for every row, so `fire_incidents.location` was identical even when rows represented different cities/stations.
-- Updated `src/backend/services/afor_import/commit.py` with `_resolve_row_wgs84()`: exact `ref_fire_stations.station_name` match first, then `_city_text` against station name/address, falling back to the user-provided manual pin only when no row reference match exists.
+- Updated `src/backend/services/afor_import/commit.py` with `_resolve_row_wgs84()`: exact `ref_fire_stations.station_name` matches override the fallback pin; city text alone does not override the user-provided manual pin because integration coverage expects explicit WGS84 coordinates to persist when station matching is not authoritative.
 - Updated AFOR duplicate pre-check and insert paths to use row-specific coordinates.
-- Added fast regression tests in `src/backend/tests/test_afor_import_commit_coordinates.py` for exact station, city fallback, and manual-pin fallback behavior.
+- Added fast regression tests in `src/backend/tests/test_afor_import_commit_coordinates.py` for exact station override, city-only manual-pin preservation, and no-match manual-pin fallback behavior.
 - Updated regional dashboard and backend route-map wiki notes.
 - Validation: `pytest -q tests/test_afor_import_commit_coordinates.py`, `ruff check .`, and `ruff format --check .` passed after formatting.
 - No FRS gap register change; this corrects implementation behavior for existing official incident geospatial storage.

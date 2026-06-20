@@ -44,13 +44,13 @@ def test_afor_commit_resolves_exact_row_station_coordinates_before_fallback():
     assert (lon, lat) == (121.0244, 14.5547)
 
 
-def test_afor_commit_uses_city_station_coordinates_when_station_name_missing():
+def test_afor_commit_keeps_manual_pin_when_only_city_matches_reference():
     db = _FakeDb()
     row = {"_city_text": "Makati City", "incident_nonsensitive_details": {}}
 
     lon, lat = _resolve_row_wgs84(db, row, region_id=1, fallback_lon=120.9822, fallback_lat=14.4793)
 
-    assert (lon, lat) == (121.0244, 14.5547)
+    assert (lon, lat) == (120.9822, 14.4793)
 
 
 def test_afor_commit_keeps_manual_pin_when_row_has_no_reference_match():

@@ -349,7 +349,6 @@ def _resolve_row_wgs84(
     """
     ns = row_data.get("incident_nonsensitive_details", {}) or {}
     station_name = str(ns.get("fire_station_name") or "").strip()
-    city_text = str(row_data.get("_city_text") or "").strip()
 
     if station_name:
         row = db.execute(
@@ -361,24 +360,6 @@ def _resolve_row_wgs84(
                 LIMIT 1
             """),
             {"region_id": region_id, "station_name": station_name},
-        ).fetchone()
-        if row:
-            return float(row[0]), float(row[1])
-
-    if city_text:
-        row = db.execute(
-            text("""
-                SELECT ST_X(location::geometry), ST_Y(location::geometry)
-                FROM wims.ref_fire_stations
-                WHERE region_id = :region_id
-                  AND (
-                    LOWER(station_name) LIKE '%' || LOWER(:city_text) || '%'
-                    OR LOWER(address) LIKE '%' || LOWER(:city_text) || '%'
-                  )
-                ORDER BY station_id
-                LIMIT 1
-            """),
-            {"region_id": region_id, "city_text": city_text},
         ).fetchone()
         if row:
             return float(row[0]), float(row[1])
