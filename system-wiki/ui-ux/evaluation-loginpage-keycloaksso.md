@@ -1,7 +1,7 @@
 ---
 title: Login Page + Keycloak SSO - UI/UX Evaluation
 created: 2026-05-14
-updated: 2026-05-31
+updated: 2026-06-20
 type: ui-ux
 tags: [wims-bfp, ui-ux, auth, login, keycloak, hci]
 sources: [raw/ui-ux/evaluation-loginpage+keycloaksso.md, raw/frs/frs-auth.md, src/frontend/src/app/login/page.tsx, src/frontend/src/app/globals.css, src/keycloak/themes/wims-bfp/login/template.ftl, src/keycloak/themes/wims-bfp/login/login-otp.ftl, src/keycloak/themes/wims-bfp/login/login-config-totp.ftl, src/keycloak/themes/wims-bfp/login/resources/css/wims-custom.css]
@@ -45,6 +45,8 @@ The current TOTP input treats the 6-digit code as a single undifferentiated fiel
 Authentication alerts previously rendered in the shared template before the login form card, causing warnings/errors to appear detached in the empty area between the BFP branding panel and the form.
 
 **Implementation status (2026-05-31):** fixed for `login.ftl` by disabling shared template message rendering on the login page and rendering global auth messages plus username/password validation errors inside `#kc-form`, above the username field. Alerts now match the login card width, stack in `.wims-login-alerts`, and push the form down naturally.
+
+**Containment update (2026-06-20):** the in-field status icon fix is now scoped to the login username error state via `.wims-login-username-control.pf-m-error`, so the flex/layout tweak no longer affects registration/profile/OTP controls that reuse `pf-v5-c-form-control`.
 
 ## FRS Module Alignment
 - [[raw/frs/frs-auth]] Module 1.a.ii: MFA via TOTP required for System Administrators and National Validators
