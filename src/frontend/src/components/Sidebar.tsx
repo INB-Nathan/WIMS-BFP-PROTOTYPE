@@ -1,9 +1,10 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useAuth } from '@/context/AuthContext';
+import { isFormDirty, setFormDirty } from '@/lib/formDirty';
 import {
     LayoutDashboard,
     Home,
@@ -39,6 +40,23 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     const { user } = useAuth();
     const role = (user as { role?: string })?.role ?? null;
     const pathname = usePathname();
+    const router = useRouter();
+
+    const handleNavClick = (
+        e: React.MouseEvent<HTMLAnchorElement>,
+        href: string,
+    ) => {
+        if (isFormDirty()) {
+            e.preventDefault();
+            if (window.confirm('You have unsaved changes. Are you sure you want to leave without saving?')) {
+                setFormDirty(false);
+                onClose();
+                router.push(href);
+            }
+            return;
+        }
+        onClose();
+    };
 
     const isActive = (path: string) => {
         // /incidents/triage has its own nav item — don't also highlight /incidents
@@ -77,7 +95,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
             >
                 {/* Logo area */}
                 <div className="flex items-center justify-between px-5 py-5 border-b border-white/10 flex-shrink-0">
-                    <Link href="/dashboard" className="flex items-center gap-3 min-w-0">
+                    <Link href="/dashboard" onClick={(e) => handleNavClick(e, '/dashboard')} className="flex items-center gap-3 min-w-0">
                         <div className="relative w-9 h-9 flex-shrink-0">
                             <Image
                                 src="/bfp-logo.svg"
@@ -118,7 +136,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                                     <Link
                                         key={item.href}
                                         href={item.href}
-                                        onClick={onClose}
+                                        onClick={(e) => handleNavClick(e, item.href)}
                                         className={`
                                             flex items-center gap-3 mx-3 px-3 py-2.5 text-sm font-medium rounded-lg
                                             transition-all duration-150 relative group

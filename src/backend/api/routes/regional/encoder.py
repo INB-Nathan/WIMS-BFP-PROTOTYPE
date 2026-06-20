@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,7 @@ from services.regional_incidents.helpers import (
     _ivh_uses_target_columns as _incident_verification_history_uses_target_columns,
     verify_incident_hash_chain as _verify_incident_hash_chain,
 )
+from utils.audit import get_client_ip, log_system_audit
 from utils.crypto import SecurityProviderError
 
 logger = logging.getLogger("wims.regional")
@@ -530,7 +531,8 @@ def get_encoder_audit_log(
             SELECT
                 ivh.history_id, ivh.target_id,
                 ivh.action_label, ivh.previous_status, ivh.new_status,
-                ivh.notes, ivh.action_timestamp
+                ivh.notes, ivh.action_timestamp,
+                ivh.ip_address
             FROM wims.incident_verification_history ivh
             {nd_join}
             WHERE {where_sql}
@@ -556,20 +558,87 @@ def get_encoder_audit_log(
         or 0
     )
 
+    # Also fetch login events from system_audit_trails
+    login_rows = db.execute(
+        text("""
+            SELECT sat.audit_id, sat.action_type, sat.ip_address, sat.timestamp
+            FROM wims.system_audit_trails sat
+            WHERE sat.user_id = CAST(:encoder_id AS uuid)
+              AND sat.action_type = 'USER_LOGIN'
+            ORDER BY sat.timestamp DESC
+            LIMIT :limit OFFSET :offset
+        """),
+        {"encoder_id": encoder_id, "limit": limit, "offset": offset},
+    ).fetchall()
+
+    login_total = (
+        db.execute(
+            text("""
+                SELECT COUNT(*) FROM wims.system_audit_trails
+                WHERE user_id = CAST(:encoder_id AS uuid) AND action_type = 'USER_LOGIN'
+            """),
+            {"encoder_id": encoder_id},
+        ).scalar()
+        or 0
+    )
+
+    incident_items = [
+        {
+            "history_id": r[0],
+            "incident_id": r[1],
+            "action_label": r[2],
+            "previous_status": r[3],
+            "new_status": r[4],
+            "notes": r[5],
+            "action_timestamp": r[6].isoformat() if r[6] else None,
+            "ip_address": r[7],
+        }
+        for r in rows
+    ]
+
+    login_items = [
+        {
+            "history_id": f"login_{lr[0]}",
+            "incident_id": None,
+            "action_label": "LOGIN",
+            "previous_status": None,
+            "new_status": None,
+            "notes": None,
+            "action_timestamp": lr[3].isoformat() if lr[3] else None,
+            "ip_address": lr[2],
+        }
+        for lr in login_rows
+    ]
+
+    # Merge and sort by timestamp descending, apply pagination window
+    all_items = sorted(
+        incident_items + login_items,
+        key=lambda x: x["action_timestamp"] or "",
+        reverse=True,
+    )
+
     return {
-        "items": [
-            {
-                "history_id": r[0],
-                "incident_id": r[1],
-                "action_label": r[2],
-                "previous_status": r[3],
-                "new_status": r[4],
-                "notes": r[5],
-                "action_timestamp": r[6].isoformat() if r[6] else None,
-            }
-            for r in rows
-        ],
-        "total": total,
+        "items": all_items[:limit],
+        "total": total + login_total,
         "limit": limit,
         "offset": offset,
     }
+
+
+@router.post("/login-event", status_code=200)
+def record_login_event(
+    request: Request,
+    user: Annotated[dict, Depends(get_regional_encoder)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Record a user login event in the system audit trail for the activity log."""
+    log_system_audit(
+        db=db,
+        user_id=user["user_id"],
+        action_type="USER_LOGIN",
+        table_affected="auth",
+        record_id=None,
+        request=request,
+    )
+    db.commit()
+    return {"status": "logged"}

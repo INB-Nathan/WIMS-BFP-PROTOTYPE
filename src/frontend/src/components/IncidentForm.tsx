@@ -33,6 +33,7 @@ import {
 } from './IncidentFormSections';
 import { SectionDotNav, type SectionDotNavLink } from '@/components/SectionDotNav';
 import { isReachable, markConnectivityOffline } from '@/lib/connectivity';
+import { setFormDirty, isFormDirty } from '@/lib/formDirty';
 
 const MapPicker = dynamic(
   () => import('./MapPicker').then((m) => m.MapPicker),
@@ -391,6 +392,23 @@ export function IncidentForm({
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
+  // Clear unsaved-changes flag when the form unmounts (successful navigation away).
+  useEffect(() => {
+    return () => { setFormDirty(false); };
+  }, []);
+
+  // Warn the user before a hard browser navigation (back button, F5, tab close) when
+  // unsaved changes exist. SPA navigations are intercepted by Sidebar.tsx instead.
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (!isFormDirty()) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, []);
+
   // Lock encoder to their assigned region always — also clears province/city if import brought wrong-region data
   useEffect(() => {
     if (!assignedRegionId) return;
@@ -742,6 +760,7 @@ export function IncidentForm({
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
+    setFormDirty(true);
     setFormState((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -979,6 +998,7 @@ export function IncidentForm({
         barangay: formState.barangay || '',
         // B
         general_category: formState.classification_of_involved,
+        sub_category: formState.type_of_involved_general_category,
         incident_type: formState.type_of_involved_general_category,
         classification_of_involved: formState.classification_of_involved,
         type_of_involved_general_category: formState.type_of_involved_general_category,

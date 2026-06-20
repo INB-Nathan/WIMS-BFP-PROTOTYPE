@@ -124,7 +124,7 @@ export default function HomePage() {
             <Search className="w-4 h-4 text-gray-400" />
           </div>
           <Link
-            href="/incidents"
+            href={isValidator ? '/dashboard/validator/audit' : '/dashboard/regional/audit'}
             className="text-sm font-bold text-white px-5 py-2 rounded-lg transition-colors"
             style={{ backgroundColor: '#16a34a' }}
           >

@@ -68,8 +68,25 @@ export function SectionDotNav({ links, ariaLabel = 'Page sections' }: SectionDot
     );
 
     sections.forEach((section) => observer.observe(section));
+
+    // When the user has scrolled to (or near) the very bottom of the page, activate
+    // the last nav dot. The IntersectionObserver's rootMargin clips the bottom 50% of
+    // the viewport, so the final section never enters the detection zone when it sits
+    // at the absolute bottom with little content below it.
+    const lastId = links[links.length - 1].id;
+    const handleScroll = () => {
+      if (suppressRef.current) return;
+      const { scrollY, innerHeight } = window;
+      const { scrollHeight } = document.documentElement;
+      if (scrollHeight - scrollY - innerHeight < 120) {
+        setActiveId(lastId);
+      }
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
     return () => {
       observer.disconnect();
+      window.removeEventListener('scroll', handleScroll);
       if (suppressTimerRef.current) clearTimeout(suppressTimerRef.current);
     };
   }, [links]);

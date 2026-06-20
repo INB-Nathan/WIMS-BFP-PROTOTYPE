@@ -273,6 +273,7 @@ def insert_incident_verification_history(
     data_hash: str | None = None,
     sync_status: str = "SYNCED",
     client_id: str | None = None,
+    request_ip: str | None = None,
 ) -> None:
     """Insert IVH row with compatibility for both legacy and migrated schemas.
 
@@ -292,6 +293,7 @@ def insert_incident_verification_history(
             data_hash=data_hash,
             sync_status=sync_status,
             client_id=client_id,
+            request_ip=request_ip,
         )
     except SAIntegrityError as e:
         if client_id is not None:
@@ -315,12 +317,14 @@ def _insert_ivh_impl(
     data_hash: str | None = None,
     sync_status: str = "SYNCED",
     client_id: str | None = None,
+    request_ip: str | None = None,
 ) -> None:
     """Implementation detail — same body as original insert_incident_verification_history."""
     has_action_label = _ivh_has_column(db, "action_label")
     has_data_hash = _ivh_has_column(db, "data_hash")
     has_sync_status = _ivh_has_column(db, "sync_status")
     has_client_id = _ivh_has_column(db, "client_id")
+    has_ip_address = _ivh_has_column(db, "ip_address")
 
     if _ivh_uses_target_columns(db):
         if has_action_label and has_data_hash and has_sync_status:
@@ -348,6 +352,10 @@ def _insert_ivh_impl(
                 _ivh_columns += ", client_id"
                 _ivh_values += ", CAST(:client_id AS uuid)"
                 _ivh_params["client_id"] = client_id
+            if has_ip_address and request_ip:
+                _ivh_columns += ", ip_address"
+                _ivh_values += ", :ip_address"
+                _ivh_params["ip_address"] = request_ip
             db.execute(
                 text(
                     f"INSERT INTO wims.incident_verification_history ({_ivh_columns})"
@@ -376,6 +384,10 @@ def _insert_ivh_impl(
                 _ivh_columns += ", client_id"
                 _ivh_values += ", CAST(:client_id AS uuid)"
                 _ivh_params["client_id"] = client_id
+            if has_ip_address and request_ip:
+                _ivh_columns += ", ip_address"
+                _ivh_values += ", :ip_address"
+                _ivh_params["ip_address"] = request_ip
             db.execute(
                 text(
                     f"INSERT INTO wims.incident_verification_history ({_ivh_columns})"
@@ -407,6 +419,10 @@ def _insert_ivh_impl(
                 _ivh_columns += ", client_id"
                 _ivh_values += ", CAST(:client_id AS uuid)"
                 _ivh_params["client_id"] = client_id
+            if has_ip_address and request_ip:
+                _ivh_columns += ", ip_address"
+                _ivh_values += ", :ip_address"
+                _ivh_params["ip_address"] = request_ip
             db.execute(
                 text(
                     f"INSERT INTO wims.incident_verification_history ({_ivh_columns})"
@@ -430,6 +446,10 @@ def _insert_ivh_impl(
                 _ivh_columns += ", client_id"
                 _ivh_values += ", CAST(:client_id AS uuid)"
                 _ivh_params["client_id"] = client_id
+            if has_ip_address and request_ip:
+                _ivh_columns += ", ip_address"
+                _ivh_values += ", :ip_address"
+                _ivh_params["ip_address"] = request_ip
             db.execute(
                 text(
                     f"INSERT INTO wims.incident_verification_history ({_ivh_columns})"

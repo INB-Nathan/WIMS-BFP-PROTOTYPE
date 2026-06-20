@@ -433,7 +433,6 @@ def submit_incident_for_review_command(
                     WHERE nd.incident_id = fi.incident_id
                 )
                 WHERE fi.incident_id = :iid
-                  AND fi.submitted_snapshot IS NULL
                 """
             ),
             {"iid": incident_id},

@@ -2,18 +2,19 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { FileText, WifiOff } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
-import { WifiOff } from 'lucide-react';
 
 interface EncoderAuditEntry {
-  history_id: number;
-  incident_id: number;
+  history_id: number | string;
+  incident_id: number | null;
   action_label: string | null;
   previous_status: string | null;
   new_status: string | null;
   notes: string | null;
   action_timestamp: string | null;
+  ip_address: string | null;
 }
 
 interface EncoderAuditResponse {
@@ -25,6 +26,7 @@ interface EncoderAuditResponse {
 
 const ACTION_OPTIONS = [
   { value: '', label: 'Any action' },
+  { value: 'LOGIN', label: 'Login' },
   { value: 'CREATED_DRAFT', label: 'Created Draft' },
   { value: 'EDITED', label: 'Edited' },
   { value: 'SUBMITTED', label: 'Submitted for Review' },
@@ -34,12 +36,23 @@ const ACTION_OPTIONS = [
 ];
 
 const ACTION_LABEL_MAP: Record<string, string> = {
+  LOGIN: 'Login',
   CREATED_DRAFT: 'Created Draft',
   EDITED: 'Edited',
   DELETED_DRAFT: 'Deleted Draft',
-  DELETED_PENDING: 'Deleted Pending Submission',
+  DELETED_PENDING: 'Deleted Pending',
   SUBMITTED: 'Submitted for Review',
   WITHDRAWN: 'Withdrawn',
+};
+
+const ACTION_BADGE_STYLE: Record<string, React.CSSProperties> = {
+  LOGIN: { backgroundColor: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' },
+  SUBMITTED: { backgroundColor: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0' },
+  CREATED_DRAFT: { backgroundColor: '#f9fafb', color: '#374151', border: '1px solid #d1d5db' },
+  EDITED: { backgroundColor: '#fefce8', color: '#854d0e', border: '1px solid #fef08a' },
+  WITHDRAWN: { backgroundColor: '#fff7ed', color: '#9a3412', border: '1px solid #fed7aa' },
+  DELETED_DRAFT: { backgroundColor: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca' },
+  DELETED_PENDING: { backgroundColor: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca' },
 };
 
 const PAGE_SIZE = 15;
@@ -106,140 +119,170 @@ export default function EncoderAuditPage() {
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="mb-2">
-        <h1 className="text-2xl font-bold">My Activity Log</h1>
-      </div>
-      <p className="text-sm text-gray-500 mb-6">
-        A record of every action you have taken on your incidents.
-      </p>
-
-      {/* Filters */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4 text-sm">
-        <label className="flex flex-col">
-          <span className="text-xs text-gray-600">From</span>
-          <input
-            type="date"
-            className="border rounded px-2 py-1.5"
-            value={dateFrom}
-            onChange={(e) => { setDateFrom(e.target.value); setPage(0); }}
-          />
-        </label>
-        <label className="flex flex-col">
-          <span className="text-xs text-gray-600">To</span>
-          <input
-            type="date"
-            className="border rounded px-2 py-1.5"
-            value={dateTo}
-            onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
-          />
-        </label>
-        <label className="flex flex-col">
-          <span className="text-xs text-gray-600">Action</span>
-          <select
-            className="border rounded px-2 py-1.5"
-            value={actionFilter}
-            onChange={(e) => { setActionFilter(e.target.value); setPage(0); }}
-          >
-            {ACTION_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col">
-          <span className="text-xs text-gray-600">City / Municipality</span>
-          <input
-            type="text"
-            className="border rounded px-2 py-1.5"
-            placeholder="partial match"
-            value={cityFilter}
-            onChange={(e) => { setCityFilter(e.target.value); setPage(0); }}
-          />
-        </label>
-      </div>
-
-      <button
-        onClick={() => { setPage(0); load(); }}
-        className="bg-gray-100 hover:bg-gray-200 border rounded px-4 py-2 text-sm mb-4"
-      >
-        ↺ Refresh
-      </button>
-
-      {loading && (
-        <div className="text-gray-400 text-sm py-12 text-center">Loading…</div>
-      )}
-      {error && !loading && (
-        <div className="bg-red-50 border border-red-200 rounded p-3 text-red-700 text-sm mb-4">
-          {error}
-        </div>
-      )}
-      {!loading && !error && items.length === 0 && (
-        <div className="text-gray-400 text-sm py-12 text-center border border-dashed rounded">
-          No activity recorded yet.
-        </div>
-      )}
-
-      {!loading && items.length > 0 && (
-        <div className="overflow-x-auto rounded border">
-          <table className="w-full text-xs">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="text-left px-3 py-2 font-medium">Date &amp; Time</th>
-                <th className="text-left px-3 py-2 font-medium">Incident</th>
-                <th className="text-left px-3 py-2 font-medium">Action</th>
-                <th className="text-left px-3 py-2 font-medium">Notes</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {items.map((it) => (
-                <tr key={it.history_id} className="hover:bg-gray-50">
-                  <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
-                    {it.action_timestamp
-                      ? new Date(it.action_timestamp).toLocaleString('en-PH', {
-                          timeZone: 'Asia/Manila',
-                          year: 'numeric', month: '2-digit', day: '2-digit',
-                          hour: '2-digit', minute: '2-digit', hour12: false,
-                        })
-                      : '—'}
-                  </td>
-                  <td className="px-3 py-2 font-mono">
-                    <Link
-                      href={`/dashboard/regional/incidents/${it.incident_id}`}
-                      className="text-blue-700 hover:underline"
-                    >
-                      #{it.incident_id}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2 font-medium">
-                    {ACTION_LABEL_MAP[it.action_label ?? ''] ?? it.action_label ?? '—'}
-                  </td>
-                  <td className="px-3 py-2 text-gray-500">{it.notes ?? '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <div className="flex items-center gap-4 mt-4 text-sm text-gray-600">
-        <button
-          onClick={() => setPage((p) => Math.max(0, p - 1))}
-          disabled={page === 0}
-          className="px-3 py-1 border rounded disabled:opacity-40"
+    <div className="space-y-6">
+      <section className="card overflow-hidden">
+        <div
+          className="card-header flex items-center gap-2"
+          style={{ borderLeft: '4px solid var(--sidebar-bg)' }}
         >
-          ← Prev
-        </button>
-        <span>
-          Page {page + 1} of {totalPages} ({total} entries)
-        </span>
-        <button
-          onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-          disabled={page >= totalPages - 1}
-          className="px-3 py-1 border rounded disabled:opacity-40"
-        >
-          Next →
-        </button>
-      </div>
+          <FileText className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+          <span>My Activity Log</span>
+        </div>
+
+        <div className="card-body">
+          <p className="text-sm mb-6" style={{ color: 'var(--text-secondary)' }}>
+            Every action you have taken on your incidents, including logins.
+          </p>
+
+          {/* Filters */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4 text-sm">
+            <label className="flex flex-col">
+              <span className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>From</span>
+              <input
+                type="date"
+                className="border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
+                style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                value={dateFrom}
+                onChange={(e) => { setDateFrom(e.target.value); setPage(0); }}
+              />
+            </label>
+            <label className="flex flex-col">
+              <span className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>To</span>
+              <input
+                type="date"
+                className="border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
+                style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                value={dateTo}
+                onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
+              />
+            </label>
+            <label className="flex flex-col">
+              <span className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>Action</span>
+              <select
+                className="border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
+                style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                value={actionFilter}
+                onChange={(e) => { setActionFilter(e.target.value); setPage(0); }}
+              >
+                {ACTION_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col">
+              <span className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>City / Municipality</span>
+              <input
+                type="text"
+                className="border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
+                style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                placeholder="partial match"
+                value={cityFilter}
+                onChange={(e) => { setCityFilter(e.target.value); setPage(0); }}
+              />
+            </label>
+          </div>
+
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => { setPage(0); load(); }}
+              className="flex items-center gap-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
+            >
+              ↺ Refresh
+            </button>
+          </div>
+
+          {loading && (
+            <div className="text-sm py-12 text-center" style={{ color: 'var(--text-muted)' }}>Loading…</div>
+          )}
+          {error && !loading && (
+            <div className="rounded-md p-3 text-sm mb-4" style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c' }}>
+              {error}
+            </div>
+          )}
+          {!loading && !error && items.length === 0 && (
+            <div className="text-sm py-12 text-center" style={{ color: 'var(--text-muted)' }}>
+              No activity recorded yet.
+            </div>
+          )}
+
+          {!loading && items.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date &amp; Time</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Incident</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IP Address</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {items.map((it) => (
+                    <tr key={String(it.history_id)} className="hover:bg-gray-50">
+                      <td className="px-6 py-3 text-sm whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
+                        {it.action_timestamp
+                          ? new Date(it.action_timestamp).toLocaleString('en-PH', {
+                              timeZone: 'Asia/Manila',
+                              year: 'numeric', month: '2-digit', day: '2-digit',
+                              hour: '2-digit', minute: '2-digit', hour12: false,
+                            })
+                          : '—'}
+                      </td>
+                      <td className="px-6 py-3 text-sm font-mono">
+                        {it.incident_id != null ? (
+                          <Link
+                            href={`/dashboard/regional/incidents/${it.incident_id}`}
+                            className="hover:underline"
+                            style={{ color: 'var(--bfp-maroon)' }}
+                          >
+                            #{it.incident_id}
+                          </Link>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)' }}>—</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-3 text-sm">
+                        <span
+                          className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
+                          style={ACTION_BADGE_STYLE[it.action_label ?? ''] ?? { backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db' }}
+                        >
+                          {ACTION_LABEL_MAP[it.action_label ?? ''] ?? it.action_label ?? '—'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3 text-sm font-mono" style={{ color: 'var(--text-secondary)' }}>
+                        {it.ip_address ?? '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="flex items-center gap-4 mt-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="px-3 py-1 border rounded disabled:opacity-40"
+              style={{ borderColor: 'var(--border-color)' }}
+            >
+              ← Prev
+            </button>
+            <span>
+              Page {page + 1} of {totalPages} ({total} entries)
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1}
+              className="px-3 py-1 border rounded disabled:opacity-40"
+              style={{ borderColor: 'var(--border-color)' }}
+            >
+              Next →
+            </button>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

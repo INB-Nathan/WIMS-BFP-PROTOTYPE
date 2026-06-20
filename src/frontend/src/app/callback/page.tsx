@@ -54,6 +54,10 @@ function CallbackContent() {
                     .then((r) => (r.ok ? r.json() : null))
                     .catch(() => null);
                 const role = session?.role ?? session?.user?.role ?? null;
+                // Record login event in audit trail for encoder activity log.
+                if (role === 'REGIONAL_ENCODER') {
+                    fetch('/api/regional/login-event', { method: 'POST' }).catch(() => {});
+                }
                 const savedRedirect = sessionStorage.getItem('wims:redirect_after_login');
                 if (savedRedirect) sessionStorage.removeItem('wims:redirect_after_login');
                 router.push(resolvePostLoginRedirect(role, savedRedirect, window.location.origin));

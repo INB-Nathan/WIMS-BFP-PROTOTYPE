@@ -265,8 +265,8 @@ class BundleSensitiveDetails(BaseModel):
     @field_validator("narrative_report", "disposition", "street_address", "landmark")
     @classmethod
     def _long_string(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None and len(v) > 2000:
-            raise ValueError("String exceeds max length of 2000 chars")
+        if v is not None and len(v) > 10000:
+            raise ValueError("String exceeds max length of 10000 chars")
         return v
 
 

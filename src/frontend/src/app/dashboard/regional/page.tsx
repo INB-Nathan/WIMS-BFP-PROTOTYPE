@@ -124,13 +124,13 @@ export default function RegionalDashboardPage() {
   const [cachedDetailIds, setCachedDetailIds] = useState<Set<number>>(new Set());
   const [syncNotification, setSyncNotification] = useState<SyncedIncidentSummary[] | null>(null);
 
-  // Stats visibility — persisted so the user's preference survives page reload.
+  // Stats visibility — hidden by default each login; persisted across page navigations.
   // Auto-collapsed when offline (stats can't refresh and would be misleading).
   const [showStats, setShowStats] = useState<boolean>(() => {
     try {
-      const stored = localStorage.getItem('wims:regional_show_stats');
-      return stored !== null ? stored === 'true' : true;
-    } catch { return true; }
+      const stored = sessionStorage.getItem('wims:regional_show_stats');
+      return stored === 'true';
+    } catch { return false; }
   });
   useEffect(() => {
     if (!isOnline) setShowStats(false);
@@ -157,7 +157,7 @@ export default function RegionalDashboardPage() {
   const toggleStats = () => {
     setShowStats((prev) => {
       const next = !prev;
-      try { localStorage.setItem('wims:regional_show_stats', String(next)); } catch {}
+      try { sessionStorage.setItem('wims:regional_show_stats', String(next)); } catch {}
       return next;
     });
   };
@@ -587,6 +587,28 @@ export default function RegionalDashboardPage() {
         onRefreshAll={refreshAll}
       />
 
+      {/* ── Stats section (collapsible, auto-hidden when offline) ── */}
+      {showStats && (
+        <>
+          {/* Period filter */}
+          <StatsDateFilterChips value={statsDateFilter} onChange={setStatsDateFilter} />
+
+          {/* Incident type stats */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            {incidentCards.map((card) => (
+              <StatCard key={card.key} card={card} />
+            ))}
+          </div>
+
+          {/* Affected count stats */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            {affectedCards.map((card) => (
+              <StatCard key={card.key} card={card} />
+            ))}
+          </div>
+        </>
+      )}
+
       {/* ── Customizable widget grid ── */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
@@ -611,28 +633,6 @@ export default function RegionalDashboardPage() {
         role={role}
         onRemoveWidget={widgetConfig.removeWidget}
       />
-
-      {/* ── Stats section (collapsible, auto-hidden when offline) ── */}
-      {showStats && (
-        <>
-          {/* Period filter */}
-          <StatsDateFilterChips value={statsDateFilter} onChange={setStatsDateFilter} />
-
-          {/* Incident type stats */}
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-            {incidentCards.map((card) => (
-              <StatCard key={card.key} card={card} />
-            ))}
-          </div>
-
-          {/* Affected count stats */}
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-            {affectedCards.map((card) => (
-              <StatCard key={card.key} card={card} />
-            ))}
-          </div>
-        </>
-      )}
 
       {/* ── Stale cache banner — only shown when confirmed offline ── */}
       {isFromCache && !isOnline && (

@@ -35,6 +35,7 @@ _W["awaiting_validation"] = {
         FROM wims.fire_incidents
         WHERE verification_status IN ('PENDING', 'PENDING_VALIDATION')
           AND is_archived = FALSE
+          AND encoder_id IS NOT NULL
     """,
     "value_key": "count",
 }

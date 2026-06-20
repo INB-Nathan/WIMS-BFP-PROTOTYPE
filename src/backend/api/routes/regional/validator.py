@@ -33,7 +33,7 @@ from services.regional_incidents.helpers import (
     build_audit_log_query as _build_audit_log_query,
     verify_incident_hash_chain as _verify_incident_hash_chain,
 )
-from utils.audit import log_system_audit
+from utils.audit import get_client_ip, log_system_audit
 from schemas.regional import (
     VerificationActionRequest,
     ClientIdRequest,
@@ -312,7 +312,7 @@ def verify_incident(
         validator_user_id=validator_user_id,
         request=request,
         force=force,
-        deps=_regional_lifecycle_dependencies(),
+        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
         client_id=body.client_id,
     )
 
@@ -570,6 +570,7 @@ async def correct_verified_incident(
 
 @router.post("/validator/incidents/bulk-approve")
 def bulk_approve_incidents(
+    request: Request,
     body: BulkApproveRequest,
     user: Annotated[dict, Depends(get_national_validator)],
     db: Annotated[Session, Depends(get_db_with_rls)],
@@ -585,7 +586,7 @@ def bulk_approve_incidents(
         incident_ids=body.incident_ids,
         notes=body.notes,
         validator_user_id=validator_user_id,
-        deps=_regional_lifecycle_dependencies(),
+        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
     )
     logger.info(
         "Validator user_id=%s bulk-approved %d incidents: %s; held: %d",
@@ -599,6 +600,7 @@ def bulk_approve_incidents(
 
 @router.patch("/validator/incidents/{incident_id}/archive")
 def archive_incident(
+    request: Request,
     incident_id: int,
     user: Annotated[dict, Depends(get_national_validator)],
     db: Annotated[Session, Depends(get_db_with_rls)],
@@ -642,13 +644,14 @@ def archive_incident(
         db,
         incident_id=incident_id,
         validator_user_id=validator_user_id,
-        deps=_regional_lifecycle_dependencies(),
+        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
         client_id=resolved_client_id,
     )
 
 
 @router.patch("/validator/incidents/{incident_id}/unarchive")
 def unarchive_incident(
+    request: Request,
     incident_id: int,
     user: Annotated[dict, Depends(get_national_validator)],
     db: Annotated[Session, Depends(get_db_with_rls)],
@@ -690,7 +693,7 @@ def unarchive_incident(
         db,
         incident_id=incident_id,
         actor_user_id=validator_user_id,
-        deps=_regional_lifecycle_dependencies(),
+        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
         client_id=resolved_client_id,
     )
 
