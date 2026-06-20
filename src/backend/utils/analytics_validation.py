@@ -6,7 +6,7 @@ Implements D15 (CSV/Excel formula injection) from docs/specs/api-validation-hard
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date
 
 from fastapi import HTTPException, status
 

@@ -13,7 +13,7 @@ from typing import Annotated, Any, Optional
 from celery.result import AsyncResult
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy.orm import Session
 
 from celery_config import celery_app
@@ -32,7 +32,10 @@ from services.analytics_read_model import (
     verify_indexed_access,
 )
 
+from utils.analytics_validation import validate_iso_date, validate_date_range
+
 from tasks.exports import (
+    ALLOWED_EXPORT_COLUMNS,
     export_incidents_csv_task,
     export_incidents_pdf_task,
     export_incidents_excel_task,
@@ -71,6 +74,9 @@ def get_heatmap(
     GeoJSON-compatible heatmap data for verified incidents.
     Uses wims.analytics_incident_facts (indexed access).
     """
+    validate_iso_date(start_date, "start_date")
+    validate_iso_date(end_date, "end_date")
+    validate_date_range(start_date, end_date)
     try:
         filters = build_analytics_filters(
             start_date=start_date,
@@ -131,6 +137,9 @@ def get_trends_route(
     Time-series counts for line/bar charts.
     Uses wims.analytics_incident_facts (indexed access).
     """
+    validate_iso_date(start_date, "start_date")
+    validate_iso_date(end_date, "end_date")
+    validate_date_range(start_date, end_date)
     try:
         filters = build_analytics_filters(
             start_date=start_date,
@@ -179,6 +188,12 @@ def get_comparative(
     Comparative counts for two date ranges with percentage variance.
     Uses wims.analytics_incident_facts (indexed access).
     """
+    validate_iso_date(range_a_start, "range_a_start")
+    validate_iso_date(range_a_end, "range_a_end")
+    validate_date_range(range_a_start, range_a_end)
+    validate_iso_date(range_b_start, "range_b_start")
+    validate_iso_date(range_b_end, "range_b_end")
+    validate_date_range(range_b_start, range_b_end)
     count_a = count_in_range(
         db,
         range_a_start,
@@ -232,6 +247,13 @@ def get_execution_plans(
 class ExportCsvRequest(BaseModel):
     filters: dict[str, Any] = {}
     columns: list[str] = []
+
+    @model_validator(mode="after")
+    def validate_columns(self):
+        invalid = [c for c in self.columns if c not in ALLOWED_EXPORT_COLUMNS]
+        if invalid:
+            raise ValueError(f"Invalid column(s): {', '.join(invalid)}")
+        return self
 
 
 @router.post("/export/csv")
@@ -323,6 +345,9 @@ def filter_options_route(
     end_date: Optional[str] = None,
 ):
     """Cascading geography filter options for analyst dashboards."""
+    validate_iso_date(start_date, "start_date")
+    validate_iso_date(end_date, "end_date")
+    validate_date_range(start_date, end_date)
     try:
         return get_filter_options(
             db,
@@ -351,6 +376,9 @@ def get_type_distribution_route(
     damage_max: Optional[float] = Query(None, ge=0),
 ):
     """Incident count by type (for pie chart)."""
+    validate_iso_date(start_date, "start_date")
+    validate_iso_date(end_date, "end_date")
+    validate_date_range(start_date, end_date)
     data = get_type_distribution(
         db,
         start_date=start_date,
@@ -382,6 +410,9 @@ def get_response_time_by_region_route(
     damage_max: Optional[float] = Query(None, ge=0),
 ):
     """Average/min/max response time grouped by region."""
+    validate_iso_date(start_date, "start_date")
+    validate_iso_date(end_date, "end_date")
+    validate_date_range(start_date, end_date)
     data = get_response_time_by_region(
         db,
         start_date=start_date,
@@ -414,6 +445,9 @@ def compare_regions_route(
     damage_max: Optional[float] = Query(None, ge=0),
 ):
     """Cross-region comparison. Requires at least 2 region IDs."""
+    validate_iso_date(start_date, "start_date")
+    validate_iso_date(end_date, "end_date")
+    validate_date_range(start_date, end_date)
     try:
         parsed = [int(x.strip()) for x in region_ids.split(",") if x.strip()]
     except ValueError:
@@ -455,6 +489,9 @@ def top_n_route(
     damage_max: Optional[float] = Query(None, ge=0),
 ):
     """Configurable top-N analysis by metric and dimension."""
+    validate_iso_date(start_date, "start_date")
+    validate_iso_date(end_date, "end_date")
+    validate_date_range(start_date, end_date)
     data = get_top_n(
         db,
         metric=metric,

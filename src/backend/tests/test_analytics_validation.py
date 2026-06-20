@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from unittest.mock import MagicMock, patch
 
 from main import app
 
@@ -229,9 +230,9 @@ class TestAnalyticsDateValidation:
         app.dependency_overrides[get_analyst_or_admin] = override_user
         app.dependency_overrides[get_db_with_rls] = override_db
         try:
-            resp = client.get("/api/analytics/heatmap?start_date=2024-01-15")
+            with patch("api.routes.analytics.get_heatmap_points", return_value=[]):
+                resp = client.get("/api/analytics/heatmap?start_date=2024-01-15")
             # Should NOT be 422 — the date format is valid
-            # (May be 500 due to mock DB issues, but not 422)
             assert resp.status_code != 422, (
                 f"Valid date should not return 422: {resp.status_code} {resp.text}"
             )
@@ -297,9 +298,7 @@ class TestAnalyticsDateValidation:
         app.dependency_overrides[get_analyst_or_admin] = override_user
         app.dependency_overrides[get_db_with_rls] = override_db
         try:
-            resp = client.get(
-                "/api/analytics/heatmap?start_date=2024-12-31&end_date=2024-01-01"
-            )
+            resp = client.get("/api/analytics/heatmap?start_date=2024-12-31&end_date=2024-01-01")
             assert resp.status_code == 422, (
                 f"Expected 422 for inverted range, got {resp.status_code}: {resp.text}"
             )
@@ -350,11 +349,14 @@ class TestExportColumnValidation:
 
         app.dependency_overrides[get_analyst_or_admin] = override_user
         try:
-            resp = client.post(
-                "/api/analytics/export/csv",
-                json={"filters": {}, "columns": allowed},
-            )
-            # Should not be 422 — may be 202 (async task queued) or 500 (no Celery)
+            mock_task = MagicMock()
+            mock_task.delay.return_value = MagicMock(id="mock-task-id-123")
+            with patch("api.routes.analytics.export_incidents_csv_task", mock_task):
+                resp = client.post(
+                    "/api/analytics/export/csv",
+                    json={"filters": {}, "columns": allowed},
+                )
+            # Should not be 422 — may be 200/202 depending on queue stub
             assert resp.status_code != 422, (
                 f"Allowed columns should not return 422: {resp.status_code} {resp.text}"
             )
