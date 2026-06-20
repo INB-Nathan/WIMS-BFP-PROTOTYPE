@@ -79,6 +79,8 @@ Only `DEGRADED` and `UNHEALTHY` Suricata states degrade the overall system healt
 | `POST` | `/api/admin/security-logs/{log_id}/analyze` | `analyze_security_log` | Runs `analyze_threat_log()` via Ollama AI service; updates xai_narrative and xai_confidence |
 | `PATCH` | `/api/admin/security-logs/{log_id}` | `update_security_log` | Updates threat log — structured HITL path (when `action` provided: maps to `admin_action_taken` label, writes `hitl_decision` JSONB with `action`, `note`, `reviewed_by`, `reviewed_at`; sets `resolved_at=now()` for CONFIRM_THREAT and FALSE_POSITIVE; leaves `resolved_at` null for REQUEST_MORE_INFO; invalid action → 400) or legacy free-text path (sets `admin_action_taken` and/or `resolved_at` directly) |
 
+**Suricata classifier** (`services/suricata_ingestion.py`): `_classify_alert()` — deterministic, pure-function classification of EVE alert dicts into normalized values (`internet_background_noise`/`scanner`/`bot_probe`/`credential_probe`/`high_signal_threat`/`unclassified`). Priority rules: (1) HIGH/CRITICAL → high_signal_threat (overrides all text matches), (2) scan/scanner/nmap/masscan/zmap → scanner, (3) curl/bot/crawler/spider/zgrab → bot_probe, (4) ssh/login/password/bruteforce/credential/auth → credential_probe, (5) LOW/MEDIUM → internet_background_noise, (6) missing metadata → unclassified (#411).
+
 ### Analytics Read Model (`admin.py` lines 633–641)
 
 | Method | Path | Function | Behavior |

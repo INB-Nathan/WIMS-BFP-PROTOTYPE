@@ -163,6 +163,140 @@ class TestEveToThreatLogRow:
         assert row["raw_payload"] == raw
 
 
+class TestEveClassifier:
+    """eve_to_threat_log_row now returns classification/suricata_signature/suricata_category."""
+
+    def test_scanner_detected_from_signature(self):
+        """Tracer bullet: LOW EVE alert with 'ET SCAN Potential SSH Scan' signature
+        returns classification='scanner' and copies signature/category."""
+        ev = {
+            "event_type": "alert",
+            "src_ip": "198.51.100.77",
+            "dest_ip": "10.10.0.20",
+            "alert": {
+                "signature_id": 2010935,
+                "signature": "ET SCAN Potential SSH Scan",
+                "category": "Attempted Information Leak",
+                "severity": 1,
+            },
+        }
+        row = eve_to_threat_log_row(ev, raw_payload=json.dumps(ev))
+        assert row["classification"] == "scanner", (
+            f"Expected 'scanner', got {row.get('classification')!r}"
+        )
+        assert row["suricata_signature"] == "ET SCAN Potential SSH Scan"
+        assert row["suricata_category"] == "Attempted Information Leak"
+
+    def test_high_signal_wins_over_text_matches(self):
+        """HIGH SQL injection alert returns high_signal_threat even though
+        signature contains probe-like words (e.g. 'Attempt')."""
+        ev = {
+            "event_type": "alert",
+            "src_ip": "203.0.113.44",
+            "dest_ip": "10.10.0.15",
+            "alert": {
+                "signature_id": 2024218,
+                "signature": "ET WEB_SERVER Possible SQL Injection Attempt UNION SELECT",
+                "category": "Web Application Attack",
+                "severity": 3,
+            },
+        }
+        row = eve_to_threat_log_row(ev, raw_payload=json.dumps(ev))
+        # severity 3 => HIGH (default high_threshold=3)
+        assert row["severity_level"] == "HIGH"
+        # Rule 1: HIGH must win over all text matches
+        assert row["classification"] == "high_signal_threat"
+
+    def test_bot_probe_from_user_agent(self):
+        """curl/user-agent policy alert returns bot_probe."""
+        ev = {
+            "event_type": "alert",
+            "src_ip": "198.51.100.23",
+            "dest_ip": "10.10.0.15",
+            "alert": {
+                "signature_id": 2027758,
+                "signature": "ET POLICY curl User-Agent Outbound",
+                "category": "Potential Corporate Privacy Violation",
+                "severity": 2,
+            },
+        }
+        row = eve_to_threat_log_row(ev, raw_payload=json.dumps(ev))
+        assert row["severity_level"] == "MEDIUM"
+        assert row["classification"] == "bot_probe"
+
+    def test_credential_probe_when_low_medium(self):
+        """SSH/login/password probe returns credential_probe when LOW/MEDIUM
+        and not caught by scanner detection first."""
+        ev = {
+            "event_type": "alert",
+            "src_ip": "10.0.0.55",
+            "dest_ip": "10.10.0.17",
+            "alert": {
+                "signature_id": 2500050,
+                "signature": "ET POLICY SSH Brute Force Login Attempt",
+                "category": "Attempted Administrator Privilege Gain",
+                "severity": 2,
+            },
+        }
+        row = eve_to_threat_log_row(ev, raw_payload=json.dumps(ev))
+        assert row["severity_level"] == "MEDIUM"
+        # This signature contains 'ssh' but not scan/scanner/nmap/masscan/zmap => so
+        # scanner rule 2 does NOT match; credential rule 4 matches via 'ssh' + 'login'
+        assert row["classification"] == "credential_probe"
+
+    def test_missing_alert_metadata_returns_unclassified(self):
+        """Missing alert.signature and alert.category returns unclassified without raising."""
+        ev = {
+            "event_type": "alert",
+            "src_ip": "10.0.0.1",
+            "dest_ip": "10.0.0.2",
+            "alert": {
+                "signature_id": 9999999,
+                "severity": 1,
+            },
+        }
+        row = eve_to_threat_log_row(ev, raw_payload=json.dumps(ev))
+        assert row["severity_level"] == "LOW"
+        assert row["classification"] == "internet_background_noise"
+        assert row["suricata_signature"] is None
+        assert row["suricata_category"] is None
+
+    def test_classification_in_valid_set(self):
+        """Every classification returned is one of the valid normalized values."""
+        from services.suricata_ingestion import _VALID_CLASSIFICATIONS
+
+        cases = [
+            # (alert dict, expected_classification)
+            ({"signature": "ET SCAN Nmap", "category": "Scan", "severity": 1}, "scanner"),
+            ({"signature": "ET POLICY curl", "category": "Policy", "severity": 2}, "bot_probe"),
+            ({"signature": "SSH login", "category": "Admin", "severity": 2}, "credential_probe"),
+            (
+                {"signature": "SQL Injection", "category": "Web Attack", "severity": 3},
+                "high_signal_threat",
+            ),
+            (
+                {"signature": "Generic alert", "category": "Misc", "severity": 1},
+                "internet_background_noise",
+            ),
+            (
+                {"signature": "SQL Injection", "category": "Web Attack", "severity": 4},
+                "high_signal_threat",
+            ),
+        ]
+        for alert_override, expected in cases:
+            ev = {
+                "event_type": "alert",
+                "src_ip": "10.0.0.1",
+                "dest_ip": "10.0.0.2",
+                "alert": {"signature_id": 1, **alert_override},
+            }
+            row = eve_to_threat_log_row(ev, raw_payload="")
+            assert row["classification"] == expected, (
+                f"Alert {alert_override} => expected {expected}, got {row['classification']}"
+            )
+            assert row["classification"] in _VALID_CLASSIFICATIONS
+
+
 @pytest.mark.skipif(
     os.environ.get("SKIP_DB_TESTS") == "1",
     reason="Skip when DB not available (e.g. CI without compose)",
