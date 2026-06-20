@@ -14,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import get_db
+from utils.audit import log_system_audit
 
 from schemas.civilian import (
     CivilianFollowupCreate,
@@ -344,10 +345,34 @@ def submit_civilian_report(
         },
     )
     row = result.fetchone()
-    db.commit()
 
     if row is None:
         raise HTTPException(status_code=500, detail="Failed to create report")
+
+    # ---------------------------------------------------------------------------
+    # Audit log entry (D20 / issue #394). The INSERT and the audit are kept
+    # in a SINGLE transaction so that fail-closed semantics hold: if the
+    # audit INSERT raises, the report INSERT is rolled back too and the
+    # caller sees a 500 rather than an unaudited civilian record.
+    # ---------------------------------------------------------------------------
+    try:
+        log_system_audit(
+            db=db,
+            user_id=None,
+            action_type="CIVILIAN_REPORT_SUBMIT",
+            table_affected="wims.citizen_reports",
+            record_id=int(row[0]),
+            request=request,
+            ip_hash=ip_hash,
+            sensitive=True,
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to commit civilian report + audit; rolling back")
+        raise HTTPException(
+            status_code=500, detail="Failed to record civilian report audit trail"
+        ) from exc
 
     return _fetch_report_response(db, row[0])
 

@@ -574,6 +574,27 @@ def upload_incident_bundle(
         db.rollback()
         logger.warning("Analytics sync commit failed; incidents already saved in first commit")
 
+    # ---------------------------------------------------------------------------
+    # Audit log entry (D20 / issue #394) — one row per uploaded bundle.
+    # sensitive=False: the bundle header + incident rows have already been
+    # committed; the audit row is forensic metadata, not a gate on the write.
+    # ---------------------------------------------------------------------------
+    try:
+        log_system_audit(
+            db=db,
+            user_id=user_id,
+            action_type="UPLOAD_BUNDLE",
+            table_affected="wims.data_import_batches",
+            record_id=batch_id,
+            request=None,
+            new_values={"region_id": region_id, "record_count": len(incidents)},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.warning("Audit log commit failed; incidents already saved")
+        # Non-fatal — the audit row is forensic metadata, not a gate on the write.
+
     return {
         "status": "ok",
         "batch_id": batch_id,
@@ -590,6 +611,7 @@ async def upload_attachment(
     file: UploadFile = File(...),
     user: Annotated[dict, Depends(get_current_wims_user)] = None,
     db: Annotated[Session, Depends(get_db_with_rls)] = None,
+    request: Request = None,
 ):
     """Upload an attachment for an incident.
 
@@ -694,6 +716,26 @@ async def upload_attachment(
         if att_row is None:
             raise HTTPException(status_code=500, detail="Attachment insert returned no row")
         attachment_id = int(att_row[0])
+
+        # Audit row shares the transaction with the attachment INSERT so that
+        # fail-closed semantics hold (D20 / issue #394): if the audit INSERT
+        # raises, the attachment row + on-disk ciphertext are both rolled back
+        # (the ciphertext is also removed by the outer except handler).
+        log_system_audit(
+            db=db,
+            user_id=user["user_id"],
+            action_type="UPLOAD_ATTACHMENT",
+            table_affected="wims.incident_attachments",
+            record_id=attachment_id,
+            request=request,
+            new_values={
+                "incident_id": incident_id,
+                "file_name": file.filename,
+                "file_hash_sha256": sha256_digest,
+                "mime_type": file.content_type,
+            },
+            sensitive=True,
+        )
         db.commit()
     except HTTPException:
         raise
@@ -738,6 +780,7 @@ async def serve_attachment(
     attachment_id: int,
     user: Annotated[dict, Depends(get_current_wims_user)] = None,
     db: Annotated[Session, Depends(get_db_with_rls)] = None,
+    request: Request = None,
 ):
     """Download and transparently decrypt an incident attachment.
 
@@ -813,6 +856,20 @@ async def serve_attachment(
     # Sanitize: strip control chars, double quotes, and DEL to prevent
     # header injection via crafted filenames (Q1 review finding).
     safe_name = re.sub(r'[\x00-\x1f\x7f"]', "_", safe_name)
+
+    # Audit log entry (D20 / issue #394). Downloads are a read-side audit
+    # trail — sensitive=False because the file has already been streamed
+    # to the client and the audit gap is acceptable for forensic reads.
+    log_system_audit(
+        db=db,
+        user_id=user["user_id"],
+        action_type="DOWNLOAD_ATTACHMENT",
+        table_affected="wims.incident_attachments",
+        record_id=attachment_id,
+        request=request,
+        new_values={"incident_id": incident_id, "file_name": file_name},
+    )
+
     return Response(
         content=plaintext,
         media_type=mime_type or "application/octet-stream",

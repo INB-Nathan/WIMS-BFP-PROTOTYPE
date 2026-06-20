@@ -51,6 +51,7 @@ async def import_afor_file(
     file: UploadFile = File(...),
     user: dict = Depends(get_regional_encoder),
     db: Session = Depends(get_db_with_rls),
+    request: Request = None,
 ):
     """
     Upload and parse an AFOR file (.xlsx or .csv).
@@ -116,21 +117,23 @@ async def import_afor_file(
 
     valid_count = sum(1 for r in rows if r.status == "VALID")
 
-    # Audit log (recon §7.2).
+    # Audit log entry (D20 / issue #394) — preview / parse phase. The actual
+    # mutations happen in commit_afor_import, which writes its own audit row.
+    # sensitive=False: parse does not mutate any data, so audit gaps are
+    # acceptable forensic noise.
     try:
         log_system_audit(
-            db,
-            user.get("user_id"),
-            "IMPORT_AFOR",
-            "wims.afor_imports",
-            None,
-            request=None,
+            db=db,
+            user_id=user["user_id"],
+            action_type="AFOR_IMPORT_PARSE",
+            table_affected="wims.afor_imports",
+            record_id=None,
+            request=request,
             new_values={
-                "region_id": region_id,
-                "filename": safe_name,
-                "size_bytes": len(content),
-                "rows_total": len(rows),
-                "rows_valid": valid_count,
+                "file_name": file.filename,
+                "form_kind": form_kind,
+                "total_rows": len(rows),
+                "valid_rows": valid_count,
             },
         )
         db.commit()
@@ -170,6 +173,33 @@ async def commit_afor_import(
             get_security_provider=_get_security_provider,
         ),
     )
+
+    # Audit log entry (D20 / issue #394) — commit phase. The actual
+    # mutations are performed by commit_afor_import_command above; we
+    # write the audit row after it returns. sensitive=False: this is a
+    # batch write, the commit has already succeeded, and the audit gap
+    # is acceptable forensic noise (matches the upload_bundle pattern).
+    if result.get("status") != "DUPLICATE_CHECK_REQUIRED":
+        inserted = (
+            result.get("inserted") or result.get("incident_ids") or result.get("imported") or []
+        )
+        log_system_audit(
+            db=db,
+            user_id=user["user_id"],
+            action_type="AFOR_IMPORT_COMMIT",
+            table_affected="wims.afor_imports",
+            record_id=None,
+            request=request,
+            new_values={
+                "form_kind": body.form_kind,
+                "region_id": user["assigned_region_id"],
+                "row_count": len(body.rows) if hasattr(body, "rows") else None,
+                "inserted_count": len(inserted) if isinstance(inserted, list) else 0,
+                "batch_id": result.get("batch_id"),
+            },
+        )
+        db.commit()
+
     if result.get("status") == "DUPLICATE_CHECK_REQUIRED":
         return result
     return AforCommitResponse.model_validate(result)

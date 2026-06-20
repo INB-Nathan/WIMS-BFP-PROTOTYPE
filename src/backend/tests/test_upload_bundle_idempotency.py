@@ -75,6 +75,7 @@ def test_upload_bundle_returns_existing_incident_for_duplicate_client_id(monkeyp
     assert response["incident_ids"] == [existing_incident_id]
     assert response["imported"] == [existing_incident_id]
     assert response["failed"] == []
-    # Five executes: assigned-region, batch insert, column check, pg_advisory_xact_lock,
-    # fallback SELECT to resolve the conflicted client_id.
-    assert db.execute.call_count == 5
+    # Six executes: assigned-region, batch insert, column check, pg_advisory_xact_lock,
+    # fallback SELECT to resolve the conflicted client_id,
+    # plus system_audit_trails INSERT from log_system_audit().
+    assert db.execute.call_count == 6

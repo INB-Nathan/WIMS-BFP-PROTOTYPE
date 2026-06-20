@@ -3,6 +3,12 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-20] fix | login field icon scope containment (#427)
+
+- **`src/keycloak/themes/wims-bfp/login/login.ftl`:** Added a `wims-login-username-control` marker class to the login username wrapper so the in-field error icon can be styled without touching unrelated Keycloak forms.
+- **`src/keycloak/themes/wims-bfp/login/resources/css/wims-custom.css`:** Scoped the flex/alignment override to `.wims-login-username-control.pf-m-error`, preserving registration/profile/OTP control layouts while keeping the username status icon inline on failed login.
+- **`system-wiki/ui-ux/evaluation-loginpage-keycloaksso.md`:** Added a containment note documenting the login-only scope of the username status icon fix.
+
 ## [2026-06-19] feat | security telemetry classification fields (#410)
 
 - **`src/postgres-init/62_security_threat_classification.sql`:** New idempotent migration adding `classification TEXT`, `suricata_signature TEXT`, and `suricata_category TEXT` columns to `wims.security_threat_logs`.
@@ -12,6 +18,12 @@ Format: `## [YYYY-MM-DD] action | subject`
 - **`src/frontend/src/lib/api/legacy.ts`:** Added `classification` to `fetchAdminSecurityLogs` params type and URLSearchParams construction.
 - **`system-wiki/database/sql-init-files.md`:** Added 62_security_threat_classification.sql to the init files listing.
 - **`system-wiki/subsystems/admin-hub.md`:** Updated Security Telemetry route table to document the new `classification` filter param.
+
+## [2026-06-19] feat | Suricata alert classifier (#411)
+
+- **`src/backend/services/suricata_ingestion.py`:** Added `_classify_alert()` — a deterministic, pure-function classifier for Suricata EVE alert dicts with 6 priority-ordered rules. Updated `eve_to_threat_log_row()` to return `classification`, `suricata_signature`, `suricata_category`. Added `_VALID_CLASSIFICATIONS` frozenset.
+- **`src/backend/tests/test_suricata_ingestion.py`:** Added `TestEveClassifier` with 6 new tests covering scanner, HIGH-override, bot_probe, credential_probe, missing metadata, and valid-set membership. All 12 unit tests pass (6 existing + 6 new).
+- **`system-wiki/subsystems/admin-hub.md`:** Documented the `_classify_alert()` function.
 
 ## [2026-06-19] refactor | DB CHECK constraints code review — NOT VALID, fail-fast, param tests
 

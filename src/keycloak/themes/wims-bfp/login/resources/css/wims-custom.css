@@ -1038,3 +1038,31 @@ p {
         line-height: 38px !important;
     }
 }
+
+/* === Fix: in-field status icon positioning ===
+ * Scope to the login username field so other Keycloak forms keep their layout. */
+.wims-login-username-control.pf-m-error {
+    display: flex !important;
+    align-items: center !important;
+}
+
+.wims-login-username-control.pf-m-error input[type="text"],
+.wims-login-username-control.pf-m-error input[type="password"],
+.wims-login-username-control.pf-m-error input[type="email"] {
+    flex: 1 1 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+}
+
+.wims-login-username-control.pf-m-error .pf-v5-c-form-control__utilities {
+    display: flex !important;
+    align-items: center !important;
+    flex-shrink: 0 !important;
+    padding-right: 8px !important;
+}
+
+.wims-login-username-control.pf-m-error .pf-v5-c-form-control__icon.pf-m-status {
+    color: #c9302c !important;
+    font-size: 14px !important;
+    line-height: 1 !important;
+}

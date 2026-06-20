@@ -7,7 +7,7 @@
           <div id="kc-form-wrapper">
             <#if (message?has_content && (message.type != 'warning' || !isAppInitiatedAction??)) || messagesPerField.existsError('username','password')>
                 <div class="wims-login-alerts">
-                    <#if message?has_content && (message.type != 'warning' || !isAppInitiatedAction??)>
+                    <#if message?has_content && (message.type != 'warning' || !isAppInitiatedAction??) && !messagesPerField.existsError('username','password')>
                         <div class="${properties.kcAlertClass!} pf-m-${(message.type = 'error')?then('danger', message.type)}">
                             <div class="pf-v5-c-alert__icon">
                                 <#if message.type = 'success'><span class="${properties.kcFeedbackSuccessIcon!}"></span></#if>
@@ -20,6 +20,7 @@
                     </#if>
                     <#if messagesPerField.existsError('username','password')>
                         <div class="${properties.kcAlertClass!} pf-m-danger" id="input-error" aria-live="polite">
+                            <div class="pf-v5-c-alert__icon"><span class="${properties.kcFeedbackErrorIcon!}"></span></div>
                             <span class="${properties.kcAlertTitleClass!}">
                                 ${kcSanitize(messagesPerField.getFirstError('username','password'))?no_esc}
                             </span>
@@ -37,7 +38,7 @@
                                 </span>
                             </label>
 
-                            <span class="${properties.kcInputClass!} ${messagesPerField.existsError('username','password')?then('pf-m-error', '')}">
+                            <span class="${properties.kcInputClass!} ${messagesPerField.existsError('username','password')?then('pf-m-error', '')} wims-login-username-control">
                                 <input tabindex="1" id="username" name="username" value="${(login.username!'')}" type="text" autofocus autocomplete="off"
                                        aria-invalid="<#if messagesPerField.existsError('username','password')>true</#if>"
                                 />
