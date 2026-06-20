@@ -374,7 +374,9 @@ def apply_schema_patches() -> None:
         try:
             db.execute(text("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA wims TO wims_app"))
             db.commit()
-            logger.info("Schema patch applied: GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA wims TO wims_app")
+            logger.info(
+                "Schema patch applied: GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA wims TO wims_app"
+            )
         except Exception as exc:
             logger.warning("Schema patch (function EXECUTE grants) failed (non-fatal): %s", exc)
             db.rollback()
@@ -480,9 +482,7 @@ def apply_schema_patches() -> None:
                 "Schema patch applied: auto-assigned default region to REGIONAL_ENCODER users with NULL assigned_region_id"
             )
         except Exception as exc:
-            logger.warning(
-                "Schema patch (auto-assign encoder region) failed (non-fatal): %s", exc
-            )
+            logger.warning("Schema patch (auto-assign encoder region) failed (non-fatal): %s", exc)
             db.rollback()
     finally:
         db.close()
