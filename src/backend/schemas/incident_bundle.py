@@ -132,6 +132,15 @@ class BundleNonsensitiveDetails(BaseModel):
     nearest_landmark: DefaultBlankStr = ""
     estimated_damage_php: Optional[float] = None
 
+    # ── Coerce empty notification_dt strings to None ────────────────────
+    @field_validator("notification_dt")
+    @classmethod
+    def _coerce_notification_dt(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        stripped = v.strip()
+        return stripped if stripped else None
+
     # ── JSON depth guard ────────────────────────────────────────────────
     @field_validator("resources_deployed", "alarm_timeline")
     @classmethod
@@ -173,8 +182,8 @@ class BundleNonsensitiveDetails(BaseModel):
         "incident_type_code",
     )
     @classmethod
-    def _short_string(cls, v: str) -> str:
-        if len(v) > 100:
+    def _short_string(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v) > 100:
             raise ValueError("String exceeds max length of 100 chars")
         return v
 
@@ -200,8 +209,8 @@ class BundleNonsensitiveDetails(BaseModel):
         "general_description_of_involved",
     )
     @classmethod
-    def _long_string(cls, v: str) -> str:
-        if len(v) > 2000:
+    def _long_string(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v) > 2000:
             raise ValueError("String exceeds max length of 2000 chars")
         return v
 

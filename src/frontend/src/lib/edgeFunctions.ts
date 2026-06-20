@@ -124,6 +124,7 @@ export const edgeFunctions = {
         apiFetch<UploadBundleResponse>('/incidents/upload-bundle', {
             method: 'POST',
             body: JSON.stringify(payload),
+            skipAuthRedirect: true,
         }),
 
     runConflictDetection: (incidentId: number) =>
