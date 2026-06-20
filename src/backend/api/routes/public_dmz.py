@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from schemas.public_incident import PublicIncidentCreate, PublicIncidentResponse
+from utils.audit import get_client_ip, log_system_audit, hash_client_ip
 
 router = APIRouter(prefix="/api/v1/public", tags=["public-dmz"])
 
@@ -158,6 +159,7 @@ async def rate_limit_public_dmz(request: Request) -> None:
 )
 def submit_public_incident(
     body: PublicIncidentCreate,
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
 ) -> PublicIncidentResponse:
     """
@@ -205,6 +207,9 @@ def submit_public_incident(
 
     # ---------------------------------------------------------------------------
     # Step 2: Insert into fire_incidents — encoder_id intentionally NULL.
+    # The INSERT and the audit row below share a single transaction so that
+    # fail-closed semantics hold (D20 / issue #394): if the audit INSERT
+    # raises, the fire_incidents row is rolled back and the caller sees 500.
     # ---------------------------------------------------------------------------
     result = db.execute(
         text("""
@@ -217,15 +222,42 @@ def submit_public_incident(
         {"wkt": wkt, "region_id": region_id},
     )
     row = result.fetchone()
-    db.commit()
 
     if row is None:
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to insert public incident",
         )
 
     incident_id, verification_status, created_at = row
+
+    # ---------------------------------------------------------------------------
+    # Step 2.5: Audit log entry (D20 / issue #394).
+    # No authenticated user — the public DMZ has no encoder_id. sensitive=True
+    # means: if the audit INSERT fails, the fire_incidents row above is rolled
+    # back and the caller sees a 500. The IP is salted-hashed, not stored raw.
+    # ---------------------------------------------------------------------------
+    ip_hash_value = hash_client_ip(get_client_ip(request))
+    try:
+        log_system_audit(
+            db=db,
+            user_id=None,
+            action_type="PUBLIC_INCIDENT_SUBMIT",
+            table_affected="wims.fire_incidents",
+            record_id=incident_id,
+            request=request,
+            ip_hash=ip_hash_value,
+            sensitive=True,
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to commit public incident + audit; rolling back")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to record public incident audit trail",
+        ) from exc
 
     # ---------------------------------------------------------------------------
     # Step 3: Extract coordinates back from PostGIS for the response.

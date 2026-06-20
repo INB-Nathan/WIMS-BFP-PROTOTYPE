@@ -253,8 +253,10 @@ class TestUploadBundleAnalyticsCommit:
         assert data["status"] == "ok"
         assert len(data["imported"]) == 1
 
-        # db.commit() called twice: once for incidents, once for analytics
-        assert db.commit.call_count == 2
+        # db.commit() called three times: incidents, analytics, audit.
+        # The analytics commit raises RuntimeError (swallowed) and the
+        # exhausted side_effect (StopIteration) is caught by the audit guard.
+        assert db.commit.call_count == 3
         # db.rollback() called for the failed analytics commit
         db.rollback.assert_called()
 
