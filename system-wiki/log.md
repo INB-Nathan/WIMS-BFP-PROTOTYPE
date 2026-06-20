@@ -3,6 +3,12 @@
 Chronological record of system-wiki changes. Append-only.
 Format: `## [YYYY-MM-DD] action | subject`
 
+## [2026-06-20] fix | login field icon scope containment (#427)
+
+- **`src/keycloak/themes/wims-bfp/login/login.ftl`:** Added a `wims-login-username-control` marker class to the login username wrapper so the in-field error icon can be styled without touching unrelated Keycloak forms.
+- **`src/keycloak/themes/wims-bfp/login/resources/css/wims-custom.css`:** Scoped the flex/alignment override to `.wims-login-username-control.pf-m-error`, preserving registration/profile/OTP control layouts while keeping the username status icon inline on failed login.
+- **`system-wiki/ui-ux/evaluation-loginpage-keycloaksso.md`:** Added a containment note documenting the login-only scope of the username status icon fix.
+
 ## [2026-06-19] feat | security telemetry classification fields (#410)
 
 - **`src/postgres-init/62_security_threat_classification.sql`:** New idempotent migration adding `classification TEXT`, `suricata_signature TEXT`, and `suricata_category TEXT` columns to `wims.security_threat_logs`.
