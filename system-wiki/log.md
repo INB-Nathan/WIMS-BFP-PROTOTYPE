@@ -3517,3 +3517,14 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - Added a module-scoped `mapPickerChange` variable to capture the MapPicker `onChange` callback for pin simulation.
 - Reset `mapPickerChange` in `beforeEach` for isolation.
 - Validation: `cd src/frontend && npx vitest run src/app/__tests__/page.test.tsx` passed 6 tests. ESLint on the test file returned 0 errors.
+
+## [2026-06-20] fix | national analyst Top-N response-time sample context
+
+- **Root cause:** `/api/analytics/top-n?metric=response_time` used `AVG(a.total_response_time_minutes)`, which correctly ignores null response-time values, but the API returned only `{name, value}`. The dashboard and Top-N workflow displayed values like `1.0 min` without showing that the average may be based on a smaller timed sample than the Incident Analysis Set total for the same municipality.
+- **`src/backend/services/analytics_read_model.py`:** `get_top_n` now returns `incident_count` and `metric_count` for every row. Response-time Top-N excludes zero-sample groups with `HAVING COUNT(a.total_response_time_minutes) > 0`.
+- **`src/frontend/src/lib/api/legacy.ts`:** Extended `TopNItem` with optional `incident_count` and `metric_count`.
+- **`src/frontend/src/app/dashboard/analyst/page.tsx` and `src/frontend/src/app/dashboard/analyst/[workflow]/page.tsx`:** Response-time Top-N rows now display sample context such as `1 of 5 incidents have response-time data` below the minutes value.
+- **`src/backend/tests/test_analytics_top_n_metrics.py`:** Added regression coverage for Makati-style multi-incident/one-timed-incident data.
+- **Wiki:** Updated `system-wiki/backend/services.md` and `system-wiki/frontend/route-map.md`.
+- Validation: backend regression + Top-N integration subset passed (`pytest -q tests/test_analytics_top_n_metrics.py tests/integration/test_analyst_dashboard_queue.py -k 'top_n'`); frontend ESLint passed for touched files; backend `ruff check` and `ruff format --check` passed for touched backend files.
+- No FRS gap register change; this clarifies/aligns analytics metric semantics for an existing analyst API.

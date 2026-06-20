@@ -1193,10 +1193,16 @@ export default function AnalystDashboardPage() {
                         } else {
                           displayValue = d.value.toLocaleString('en-PH', { maximumFractionDigits: 0 });
                         }
+                        const sampleDetail = topNMetric === 'response_time' && d.incident_count != null && d.metric_count != null
+                          ? `${d.metric_count.toLocaleString()} of ${d.incident_count.toLocaleString()} incidents have response-time data`
+                          : null;
                         return (
-                          <div key={d.name} className="flex justify-between py-1 text-sm border-b border-gray-200">
+                          <div key={d.name} className="flex justify-between gap-3 py-1 text-sm border-b border-gray-200">
                             <span>{d.name}</span>
-                            <span className="font-bold">{displayValue}</span>
+                            <span className="text-right">
+                              <span className="block font-bold">{displayValue}</span>
+                              {sampleDetail && <span className="block text-[11px] font-medium leading-tight text-gray-500">{sampleDetail}</span>}
+                            </span>
                           </div>
                         );
                       })}

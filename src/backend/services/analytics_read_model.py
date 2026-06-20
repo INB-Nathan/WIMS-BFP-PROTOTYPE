@@ -1007,14 +1007,20 @@ def get_top_n(
         )
 
     dim_col = VALID_TOP_N_DIMENSIONS[dimension]
+    having_sql = ""
     if metric == "incidents":
         agg_expr = "COUNT(*) AS value"
+        metric_count_expr = "COUNT(*) AS metric_count"
     elif metric == "response_time":
         agg_expr = "AVG(a.total_response_time_minutes) AS value"
+        metric_count_expr = "COUNT(a.total_response_time_minutes) AS metric_count"
+        having_sql = "HAVING COUNT(a.total_response_time_minutes) > 0"
     elif metric == "damage_cost":
         agg_expr = "SUM(a.estimated_damage_php) AS value"
+        metric_count_expr = "COUNT(a.estimated_damage_php) AS metric_count"
     else:  # casualties
         agg_expr = "SUM(a.civilian_deaths + a.civilian_injured + a.firefighter_deaths + a.firefighter_injured) AS value"
+        metric_count_expr = "COUNT(*) AS metric_count"
 
     clauses = [f"{dim_col} IS NOT NULL"]
     params: dict[str, Any] = {"limit": min(limit, 50)}
@@ -1036,16 +1042,32 @@ def get_top_n(
     where_sql = " AND ".join(clauses)
     rows = db.execute(
         text(f"""
-            SELECT {dim_col} AS name, {agg_expr}
+            SELECT {dim_col} AS name,
+                   {agg_expr},
+                   COUNT(*) AS incident_count,
+                   {metric_count_expr}
             FROM wims.analytics_incident_facts a
             WHERE {where_sql}
             GROUP BY {dim_col}
+            {having_sql}
             ORDER BY value DESC
             LIMIT :limit
         """),
         params,
     ).fetchall()
-    return [{"name": r[0], "value": float(r[1]) if r[1] is not None else 0} for r in rows]
+    result: list[dict[str, Any]] = []
+    for r in rows:
+        incident_count = int(r[2] or 0) if len(r) > 2 else 0
+        metric_count = int(r[3] or 0) if len(r) > 3 else incident_count
+        result.append(
+            {
+                "name": r[0],
+                "value": float(r[1]) if r[1] is not None else 0,
+                "incident_count": incident_count,
+                "metric_count": metric_count,
+            }
+        )
+    return result
 
 
 def get_incident_export_data(

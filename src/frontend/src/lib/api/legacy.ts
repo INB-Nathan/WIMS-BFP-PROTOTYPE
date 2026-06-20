@@ -1422,6 +1422,8 @@ export interface CompareRegionItem {
 export interface TopNItem {
   name: string;
   value: number;
+  incident_count?: number;
+  metric_count?: number;
 }
 
 export type AnalyticsFilterOptionsField = 'province' | 'municipality';

@@ -156,7 +156,7 @@ Cross-region comparison. Passes region_ids to _append_common_filters. Uses MODE(
 
 #### `get_top_n(db, metric, dimension, limit=10, **filters) -> list[dict]`
 
-Configurable top-N. Valid metric: "incidents"/"response_time"/"casualties". Valid dimension: "barangay"/"fire_station"/"region"/"municipality". Raises ValueError on invalid. Returns `[{name, value}]`.
+Configurable top-N. Valid metric: "incidents"/"response_time"/"casualties"/"damage_cost". Valid dimension: "barangay"/"fire_station"/"region"/"municipality". Raises ValueError on invalid. Returns `[{name, value, incident_count, metric_count}]`. For `response_time`, `value` is the average over incidents with non-null `total_response_time_minutes`; zero-sample groups are excluded and `metric_count` shows how many of the dimension's `incident_count` contributed to the average.
 
 #### `verify_indexed_access(db) -> dict[str, str]`
 

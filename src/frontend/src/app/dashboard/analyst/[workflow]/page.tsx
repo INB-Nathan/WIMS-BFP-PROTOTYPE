@@ -215,8 +215,11 @@ function TopNTable({ data, metric }: { data: TopNItem[]; metric: string }) {
         } else {
           displayValue = item.value.toLocaleString('en-PH', { maximumFractionDigits: 0 });
         }
+        const sampleDetail = metric === 'response_time' && item.incident_count != null && item.metric_count != null
+          ? `${item.metric_count.toLocaleString()} of ${item.incident_count.toLocaleString()} incidents have response-time data`
+          : null;
         return (
-          <div key={`${item.name}-${index}`} className="grid grid-cols-[2rem_1fr_5rem] items-center gap-3 text-sm">
+          <div key={`${item.name}-${index}`} className="grid grid-cols-[2rem_1fr_9rem] items-center gap-3 text-sm">
             <span className="font-semibold text-gray-500">{index + 1}</span>
             <div className="min-w-0">
               <div className="mb-1 flex items-center justify-between gap-3">
@@ -226,7 +229,10 @@ function TopNTable({ data, metric }: { data: TopNItem[]; metric: string }) {
                 <div className="h-full rounded-full bg-red-700" style={{ width: `${width}%` }} />
               </div>
             </div>
-            <span className="text-right font-bold text-gray-900">{displayValue}</span>
+            <span className="text-right">
+              <span className="block font-bold text-gray-900">{displayValue}</span>
+              {sampleDetail && <span className="block text-[11px] font-medium leading-tight text-gray-500">{sampleDetail}</span>}
+            </span>
           </div>
         );
       })}
