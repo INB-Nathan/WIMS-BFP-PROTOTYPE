@@ -20,7 +20,7 @@ Next.js App Router pages detected under `src/frontend/src/app`.
 | `/admin/system/rate-limits` | `admin/system/rate-limits/page.tsx` | Auth-flow rate-limit configuration UI with validation, explanatory copy, and success/failure states (#363) |
 | `/admin/monitoring` | `admin/monitoring/page.tsx` | Security monitoring with auth loading guard (#358) |
 | `/admin/anomalies` | `admin/anomalies/page.tsx` | Anomaly detection with aggregate counts, dynamic type/severity filters, seed-data empty state (#356, #358, #362) |
-| `/admin/audit` | `admin/audit/page.tsx` | Dedicated system audit page with advanced filters, pagination, offline caching (#352) |
+| `/admin/audit` | `admin/audit/page.tsx` | Dedicated system audit page with advanced filters, pagination, offline caching, and action-type suggestions including `UPLOAD_BUNDLE` and `CIVILIAN_FOLLOWUP` (#352) |
 | `/admin/breach` | `admin/breach/page.tsx` | Breach notifications with NPC contact card (#355), status confirmation modal with notes (#361), auth loading guard (#358) |
 | `/afor/create` | `afor/create/page.tsx` |
 | `/afor/import` | `afor/import/page.tsx` |

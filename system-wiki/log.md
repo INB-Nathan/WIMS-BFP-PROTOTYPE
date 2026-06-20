@@ -3549,3 +3549,11 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - **Wiki:** Updated admin hub, backend API route map, and frontend route map.
 - Validation: focused backend HITL tests, frontend HITL Vitest, backend ruff check/format, and full frontend lint passed (lint warnings remain pre-existing/no new errors).
 - No FRS gap register change; this is an implementation robustness/UX fix for existing M8/M10/M9 admin telemetry behavior.
+
+## [2026-06-20] fix | System audit action filter suggestions include upload and civilian follow-up
+
+- Verified `UPLOAD_BUNDLE` is emitted by `src/backend/api/routes/incidents.py` for incident bundle uploads and `CIVILIAN_FOLLOWUP` is emitted by `src/backend/api/routes/civilian.py` for public report follow-ups.
+- Updated `/admin/audit` action-type datalist suggestions in `src/frontend/src/app/admin/audit/page.tsx` to include `UPLOAD_BUNDLE` and `CIVILIAN_FOLLOWUP`.
+- Added frontend regression coverage in `admin-audit.test.tsx` so both action types remain present in the filter suggestion list.
+- Updated admin hub and frontend route-map wiki pages.
+- No FRS gap register change; this aligns an existing UI filter helper with already-emitted audit action types.

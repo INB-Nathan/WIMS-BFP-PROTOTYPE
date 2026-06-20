@@ -107,6 +107,19 @@ describe('Admin Audit page', () => {
     expect(screen.getByText('Apply Filters')).toBeInTheDocument();
   });
 
+  it('includes incident upload and civilian follow-up action types in filter suggestions', async () => {
+    render(<AdminAuditPage />);
+    await waitFor(() => {
+      expect(screen.getByLabelText('Filter by action type')).toBeInTheDocument();
+    });
+
+    const options = Array.from(document.querySelectorAll('#action-type-list option')).map(
+      (option) => option.getAttribute('value'),
+    );
+    expect(options).toContain('UPLOAD_BUNDLE');
+    expect(options).toContain('CIVILIAN_FOLLOWUP');
+  });
+
   it('submits filters as query params on Apply Filters click', async () => {
     const user = userEvent.setup();
     render(<AdminAuditPage />);
