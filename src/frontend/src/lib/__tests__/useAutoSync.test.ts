@@ -116,6 +116,7 @@ describe('useAutoSync', () => {
     });
 
     expect(syncPendingIncidents).toHaveBeenCalledTimes(1);
+    expect(syncPendingIncidents).toHaveBeenCalledWith(ENCODER_ID);
 
     vi.useRealTimers();
   });
@@ -132,7 +133,7 @@ describe('useAutoSync', () => {
     });
 
     expect(syncPendingIncidents).toHaveBeenCalledTimes(1);
-    expect(syncPendingIncidents).toHaveBeenCalledWith(ENCODER_ID);
+    expect(syncPendingIncidents).toHaveBeenCalledWith(ENCODER_ID, { bypassBackoff: true });
     expect(result.current.lastSyncedAt).toBeInstanceOf(Date);
   });
 

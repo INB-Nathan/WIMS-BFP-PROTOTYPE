@@ -3557,3 +3557,13 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - Added frontend regression coverage in `admin-audit.test.tsx` so both action types remain present in the filter suggestion list.
 - Updated admin hub and frontend route-map wiki pages.
 - No FRS gap register change; this aligns an existing UI filter helper with already-emitted audit action types.
+
+## [2026-06-20] fix | Encoder Sync Now bypasses retry backoff
+
+- Diagnosed Regional Encoder Sync Now as using the same sync path as background/auto-sync; queued ops inside exponential retry backoff were skipped, returning zero synced/failed and making the button appear non-functional.
+- Updated `src/frontend/src/lib/syncEngine.ts` so `syncPendingIncidents(encoderId, { bypassBackoff: true })` retries pending ops even when they are still inside the backoff window.
+- Updated `src/frontend/src/lib/useAutoSync.ts` so manual `syncNow()` passes `bypassBackoff: true`, while reconnect/service-worker/mount auto-sync continues respecting backoff.
+- Added regression coverage in `syncEngine.test.ts` and `useAutoSync.test.ts`; retained `SyncStatusBar.test.tsx` click coverage.
+- Updated PWA/offline-first architecture wiki.
+- Validation: focused sync Vitest suite passed (59 tests) and frontend lint passed with pre-existing warnings only.
+- No FRS gap register change; this fixes existing FRS M2/FR-3 offline sync retry behavior.

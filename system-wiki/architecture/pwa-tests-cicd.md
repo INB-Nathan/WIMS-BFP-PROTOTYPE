@@ -48,7 +48,7 @@ Reads pending encoder operations from IndexedDB and replays them against the aut
 
 | Export | Signature | Description |
 |---|---|---|
-| `syncPendingIncidents(encoderId)` | `(string) => Promise<SyncResult>` | Verifies app reachability, refreshes auth, replays queued create/update/submit/delete ops oldest-first, returns `{ synced, conflicts, failed, errors, abortReason? }` |
+| `syncPendingIncidents(encoderId, options?)` | `(string, { bypassBackoff?: boolean }) => Promise<SyncResult>` | Verifies app reachability, refreshes auth, replays queued create/update/submit/delete ops oldest-first, returns `{ synced, conflicts, failed, errors, abortReason? }`. Auto/background sync respects exponential backoff; manual Sync Now passes `bypassBackoff: true` so an encoder can immediately retry queued failures. |
 
 **Failure behavior:** offline/unreachable aborts with `abortReason: 'offline'` and keeps the queue intact; expired auth aborts with `abortReason: 'auth'`; network loss during a batch marks the current op `network` and stops; 409 moves the op to conflict state.
 
@@ -84,7 +84,7 @@ Adds offline-aware write wrappers for the National Validator dashboard: queue fe
 
 | Export | Signature | Description |
 |---|---|---|
-| `useAutoSync()` | `() => AutoSyncState` | Returns `{ syncing, lastSyncedAt, pendingCount, conflictCount, authFailed, syncNow }`. Uses a mutex to prevent concurrent syncs, runs once on reconnect/re-login when pending ops exist, suppresses repeated auth-expired toasts, and listens for SW `run-sync` messages. |
+| `useAutoSync()` | `() => AutoSyncState` | Returns `{ syncing, lastSyncedAt, pendingCount, conflictCount, authFailed, syncNow }`. Uses a mutex to prevent concurrent syncs, runs once on reconnect/re-login when pending ops exist, suppresses repeated auth-expired toasts, and listens for SW `run-sync` messages. `syncNow()` bypasses the retry backoff window so the visible encoder button performs an immediate retry. |
 
 ### `swRegistration.ts` — Service Worker Registration (FR-3D)
 

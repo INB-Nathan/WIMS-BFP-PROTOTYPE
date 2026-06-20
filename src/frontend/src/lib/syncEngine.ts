@@ -387,7 +387,10 @@ async function processLegacyArchiveAction(item: PendingIncident): Promise<{ ok: 
  * @param encoderId - The Keycloak sub/id of the currently logged-in encoder.
  *                    Operations from other encoders are skipped (shared device safety).
  */
-export async function syncPendingIncidents(encoderId?: string): Promise<SyncResult> {
+export async function syncPendingIncidents(
+  encoderId?: string,
+  options: { bypassBackoff?: boolean } = {}
+): Promise<SyncResult> {
   if (!(await isReachable())) {
     return { synced: 0, conflicts: 0, failed: 0, errors: [], syncedIncidents: [], abortReason: 'offline' };
   }
@@ -482,7 +485,7 @@ export async function syncPendingIncidents(encoderId?: string): Promise<SyncResu
       continue;
     }
     // Skip ops within exponential backoff window
-    if (isWithinBackoffWindow(op)) {
+    if (!options.bypassBackoff && isWithinBackoffWindow(op)) {
       continue;
     }
 

@@ -51,14 +51,16 @@ export function useAutoSync(): AutoSyncState {
     setPendingCount(count);
   }, [user?.id]);
 
-  const doSync = useCallback(async () => {
+  const doSync = useCallback(async (options: { bypassBackoff?: boolean } = {}) => {
     if (!user?.id) return;
     if (syncMutex.current) return;
     syncMutex.current = true;
     setSyncing(true);
 
     try {
-      const result: SyncResult = await syncPendingIncidents(user.id);
+      const result: SyncResult = options.bypassBackoff
+        ? await syncPendingIncidents(user.id, options)
+        : await syncPendingIncidents(user.id);
 
       setLastSyncedAt(new Date());
 
@@ -113,7 +115,7 @@ export function useAutoSync(): AutoSyncState {
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current);
     }
-    await doSync();
+    await doSync({ bypassBackoff: true });
   }, [doSync]);
 
   // Show a persistent "You're offline" toast when connection is lost; dismiss on recovery.

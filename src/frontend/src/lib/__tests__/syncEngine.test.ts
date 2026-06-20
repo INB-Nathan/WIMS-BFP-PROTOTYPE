@@ -681,6 +681,21 @@ describe('backoff window skip', () => {
     expect(result.synced).toBe(0);
   });
 
+  it('bypasses the backoff window for manual Sync Now', async () => {
+    vi.mocked(getPendingOps).mockResolvedValue([
+      makeOp({ localId: 'op-manual-backoff', retryCount: 1, lastAttemptAt: Date.now() - 100 }),
+    ]);
+    mockSessionOkWithApiResponses({
+      ok: true, status: 200,
+      json: () => Promise.resolve({ incident_ids: [11], failed: [] }), text: () => Promise.resolve(JSON.stringify({ incident_ids: [11], failed: [] })),
+    });
+
+    const result = await syncPendingIncidents(ENCODER_ID, { bypassBackoff: true });
+
+    expect(markOpSyncing).toHaveBeenCalledWith('op-manual-backoff');
+    expect(result.synced).toBe(1);
+  });
+
   it('retries op that is past its backoff window', async () => {
     vi.mocked(getPendingOps).mockResolvedValue([
       makeOp({ localId: 'op-past-backoff', retryCount: 1, lastAttemptAt: Date.now() - 10000 }),
