@@ -3567,3 +3567,13 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - Updated PWA/offline-first architecture wiki.
 - Validation: focused sync Vitest suite passed (59 tests) and frontend lint passed with pre-existing warnings only.
 - No FRS gap register change; this fixes existing FRS M2/FR-3 offline sync retry behavior.
+
+## [2026-06-20] fix | AFOR import row-level coordinates for operational map
+
+- Diagnosed validator Operational Map clustering all imported incidents around Parañaque as an upstream persistence issue: AFOR commit accepted one top-level WGS84 pin and reused it for every row, so `fire_incidents.location` was identical even when rows represented different cities/stations.
+- Updated `src/backend/services/afor_import/commit.py` with `_resolve_row_wgs84()`: exact `ref_fire_stations.station_name` match first, then `_city_text` against station name/address, falling back to the user-provided manual pin only when no row reference match exists.
+- Updated AFOR duplicate pre-check and insert paths to use row-specific coordinates.
+- Added fast regression tests in `src/backend/tests/test_afor_import_commit_coordinates.py` for exact station, city fallback, and manual-pin fallback behavior.
+- Updated regional dashboard and backend route-map wiki notes.
+- Validation: `pytest -q tests/test_afor_import_commit_coordinates.py`, `ruff check .`, and `ruff format --check .` passed after formatting.
+- No FRS gap register change; this corrects implementation behavior for existing official incident geospatial storage.

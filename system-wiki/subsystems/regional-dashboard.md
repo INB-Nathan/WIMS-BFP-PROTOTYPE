@@ -122,7 +122,7 @@ All in `src/backend/api/routes/regional.py` (~5050 lines). This is the largest r
 | Method | Path | Function | Behavior |
 |---|---|---|---|
 | `POST` | `/api/afor/import` | `import_afor_file` | Parses structural/wildland AFOR XLSX/CSV; validates rows; returns parse result with VALID/INVALID per row; handles Excel serial date conversion |
-| `POST` | `/api/afor/commit` | `commit_afor_import` | Commits pre-validated rows as fire_incidents; optional per-row duplicate resolution on second call; requires valid WGS84 coordinates; creates nonsensitive/sensitive details; writes audit; syncs analytics |
+| `POST` | `/api/afor/commit` | `commit_afor_import` | Commits pre-validated rows as fire_incidents; optional per-row duplicate resolution on second call; requires valid WGS84 coordinates as a fallback pin; for multi-row imports, resolves row-specific coordinates from `wims.ref_fire_stations` by exact `fire_station_name` then `_city_text` against station name/address so operational-map markers do not collapse to one fallback location; creates nonsensitive/sensitive details; writes audit; syncs analytics |
 
 ### Incident CRUD (`regional.py` lines ~1066–2800)
 

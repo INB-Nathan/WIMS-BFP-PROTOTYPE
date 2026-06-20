@@ -145,7 +145,7 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `public_dmz.py` | `POST` | `/` | `submit_public_incident` |
 | `map.py` | `GET` | `/api/public/clusters` | `get_incident_clusters` | Public clustered incident markers, Redis-cached |
 | `map.py` | `GET` | `/api/public/emergency-services` | `get_emergency_services` | Public emergency contacts + nearby stations |
-| `map.py` | `GET` | `/api/validator/operational-map` | `get_operational_map` | Auth-protected operational map for validators |
+| `map.py` | `GET` | `/api/validator/operational-map` | `get_operational_map` | Auth-protected operational map for validators; reads `fire_incidents.location`, so AFOR commit/import must persist accurate row-level WGS84 geometry |
 | `events.py` | `GET` | `/events/stream` | `event_stream` | SSE real-time notification stream (Redis pub/sub) |
 
 ## Routing Notes

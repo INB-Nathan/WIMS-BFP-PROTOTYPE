@@ -333,6 +333,59 @@ def _extract_row_match_fields(row_data: dict[str, Any], form_kind: AforFormKind)
     }
 
 
+def _resolve_row_wgs84(
+    db: Session,
+    row_data: dict[str, Any],
+    region_id: int,
+    fallback_lon: float,
+    fallback_lat: float,
+) -> tuple[float, float]:
+    """Resolve per-row AFOR coordinates from reference stations when possible.
+
+    AFOR commit receives a manual map pin as a fallback, but multi-row imports can
+    contain incidents from different cities/stations. `ref_cities` has no geometry,
+    while `ref_fire_stations` does, so prefer an exact station match and then a
+    city-name match against station name/address.
+    """
+    ns = row_data.get("incident_nonsensitive_details", {}) or {}
+    station_name = str(ns.get("fire_station_name") or "").strip()
+    city_text = str(row_data.get("_city_text") or "").strip()
+
+    if station_name:
+        row = db.execute(
+            text("""
+                SELECT ST_X(location::geometry), ST_Y(location::geometry)
+                FROM wims.ref_fire_stations
+                WHERE region_id = :region_id
+                  AND LOWER(station_name) = LOWER(:station_name)
+                LIMIT 1
+            """),
+            {"region_id": region_id, "station_name": station_name},
+        ).fetchone()
+        if row:
+            return float(row[0]), float(row[1])
+
+    if city_text:
+        row = db.execute(
+            text("""
+                SELECT ST_X(location::geometry), ST_Y(location::geometry)
+                FROM wims.ref_fire_stations
+                WHERE region_id = :region_id
+                  AND (
+                    LOWER(station_name) LIKE '%' || LOWER(:city_text) || '%'
+                    OR LOWER(address) LIKE '%' || LOWER(:city_text) || '%'
+                  )
+                ORDER BY station_id
+                LIMIT 1
+            """),
+            {"region_id": region_id, "city_text": city_text},
+        ).fetchone()
+        if row:
+            return float(row[0]), float(row[1])
+
+    return fallback_lon, fallback_lat
+
+
 def _find_duplicates(
     db: Session,
     rows: list[dict[str, Any]],
@@ -347,36 +400,42 @@ def _find_duplicates(
     """
     duplicates: list[dict[str, Any]] = []
 
-    candidates = db.execute(
-        text("""
-            SELECT
-                fi.incident_id,
-                ST_Distance(
-                    fi.location::geography,
-                    ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography
-                ) AS distance_m,
-                nd.alarm_level,
-                nd.general_category,
-                nd.notification_dt,
-                nd.fire_station_name
-            FROM wims.fire_incidents fi
-            LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
-            WHERE fi.region_id = :region_id
-              AND fi.is_archived = FALSE
-              AND fi.verification_status != 'REJECTED'
-              AND ST_DWithin(
-                  fi.location::geography,
-                  ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
-                  :radius
-              )
-        """),
-        {"lon": lon, "lat": lat, "region_id": region_id, "radius": DUPLICATE_RADIUS_METERS},
-    ).fetchall()
-
-    if not candidates:
-        return duplicates
-
     for row_index, row_data in enumerate(rows):
+        row_lon, row_lat = _resolve_row_wgs84(db, row_data, region_id, lon, lat)
+        candidates = db.execute(
+            text("""
+                SELECT
+                    fi.incident_id,
+                    ST_Distance(
+                        fi.location::geography,
+                        ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography
+                    ) AS distance_m,
+                    nd.alarm_level,
+                    nd.general_category,
+                    nd.notification_dt,
+                    nd.fire_station_name
+                FROM wims.fire_incidents fi
+                LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+                WHERE fi.region_id = :region_id
+                  AND fi.is_archived = FALSE
+                  AND fi.verification_status != 'REJECTED'
+                  AND ST_DWithin(
+                      fi.location::geography,
+                      ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
+                      :radius
+                  )
+            """),
+            {
+                "lon": row_lon,
+                "lat": row_lat,
+                "region_id": region_id,
+                "radius": DUPLICATE_RADIUS_METERS,
+            },
+        ).fetchall()
+
+        if not candidates:
+            continue
+
         incoming = _extract_row_match_fields(row_data, form_kind)
         best_match: dict[str, Any] | None = None
         for cand in candidates:
@@ -494,6 +553,8 @@ def commit_afor_import_command(
         return _safe_int(bucket.get("m")) + _safe_int(bucket.get("f"))
 
     for idx, row_data in enumerate(body.rows):
+        row_lon, row_lat = _resolve_row_wgs84(db, row_data, region_id, lon, lat)
+
         # M4-D: skip rows the encoder explicitly chose to skip
         resolution = resolution_map.get(idx)
         if resolution is not None and resolution.action == "skip":
@@ -508,8 +569,8 @@ def commit_afor_import_command(
                 user_id,
                 region_id,
                 incident_ids,
-                lon,
-                lat,
+                row_lon,
+                row_lat,
                 source=wildland_source,
             )
             continue
@@ -590,8 +651,8 @@ def commit_afor_import_command(
                 "batch_id": batch_id,
                 "uid": user_id,
                 "region_id": region_id,
-                "lon": lon,
-                "lat": lat,
+                "lon": row_lon,
+                "lat": row_lat,
             },
         ).fetchone()
 
