@@ -28,7 +28,7 @@ from services.regional_incidents.helpers import (
     region_text_matches as _region_text_matches,
 )
 from services.kms import get_crypto_provider
-from utils.audit import log_system_audit
+from utils.audit import get_client_ip, log_system_audit
 from utils.upload_validation import (
     check_magic_bytes,
     check_xlsx_decompression_bomb,
@@ -163,13 +163,18 @@ async def commit_afor_import(
         raise HTTPException(status_code=400, detail="Invalid JSON body") from None
 
     body = AforCommitRequest.model_validate(raw_body)
+    _request_ip = get_client_ip(request)
+
+    def _ivh_with_ip(db, **kwargs):  # type: ignore[no-untyped-def]
+        return _insert_incident_verification_history(db, request_ip=_request_ip, **kwargs)
+
     result = commit_afor_import_command(
         db,
         user,
         body,
         raw_body,
         AforCommitDependencies(
-            insert_incident_verification_history=_insert_incident_verification_history,
+            insert_incident_verification_history=_ivh_with_ip,
             get_security_provider=_get_security_provider,
         ),
     )

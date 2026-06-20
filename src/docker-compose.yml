@@ -214,7 +214,7 @@ services:
       - OLLAMA_URL=http://ollama:11434
       - SURICATA_EVE_PATH=/var/log/suricata/eve.json
       - AFOR_TEMPLATE_PATH=/app/AFOR-FORMATTED.xlsx
-      - CSRF_TRUSTED_ORIGINS=http://localhost,https://localhost,http://127.0.0.1,http://127.0.0.1:3000
+      - CSRF_TRUSTED_ORIGINS=http://localhost,https://localhost,http://127.0.0.1,http://127.0.0.1:3000,http://localhost:8090,http://localhost:3000,http://localhost:8000
       - NEXT_PUBLIC_APP_URL=http://localhost
       - OPENBAO_ADDR=${OPENBAO_ADDR:-http://openbao:8200}
       - OPENBAO_TOKEN=

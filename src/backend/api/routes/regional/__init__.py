@@ -50,8 +50,10 @@ def _regional_lifecycle_dependencies(
 ) -> RegionalIncidentLifecycleDependencies:
     """Build the lifecycle dependency bundle shared by encoder and validator flows."""
     if request_ip:
+
         def _ivh_with_ip(db, **kwargs):  # type: ignore[no-untyped-def]
             return _insert_incident_verification_history(db, request_ip=request_ip, **kwargs)
+
         ivh_callable = _ivh_with_ip
     else:
         ivh_callable = _insert_incident_verification_history

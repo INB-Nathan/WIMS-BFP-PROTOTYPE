@@ -18,7 +18,7 @@ from services.regional_incidents.helpers import (
     _ivh_uses_target_columns as _incident_verification_history_uses_target_columns,
     verify_incident_hash_chain as _verify_incident_hash_chain,
 )
-from utils.audit import get_client_ip, log_system_audit
+from utils.audit import log_system_audit
 from utils.crypto import SecurityProviderError
 
 logger = logging.getLogger("wims.regional")
