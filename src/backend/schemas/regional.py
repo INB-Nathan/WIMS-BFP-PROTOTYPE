@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import uuid as _uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class RegionalStatsResponse(BaseModel):
@@ -137,9 +137,11 @@ class IncidentUpdateRequest(BaseModel):
 class VerificationActionRequest(BaseModel):
     """Body for PATCH /api/regional/incidents/{incident_id}/verification."""
 
-    action: str  # "accept" | "accept_replace" | "pending" | "reject"
-    notes: str | None = None
-    original_incident_id: int | None = None  # For accept_replace: ID to supersede
+    action: Literal["accept", "accept_replace", "pending", "reject"]
+    notes: str | None = Field(default=None, max_length=2000)
+    original_incident_id: int | None = Field(
+        default=None, ge=0
+    )  # For accept_replace: ID to supersede
     client_id: str | None = None  # UUID from offline queue — idempotency key (#267)
 
     @field_validator("client_id")
@@ -176,10 +178,21 @@ class ClientIdRequest(BaseModel):
 class CorrectionRequest(BaseModel):
     """Body for PATCH /api/regional/incidents/{incident_id}/correct."""
 
-    corrections: dict
-    notes: str | None = None
+    corrections: dict[str, Any]
+    notes: str | None = Field(default=None, max_length=2000)
 
 
 class BulkApproveRequest(BaseModel):
     incident_ids: list[int]
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("incident_ids")
+    @classmethod
+    def validate_incident_ids(cls, v: list[int]) -> list[int]:
+        """Ensure incident_ids is a non-empty list of positive integers."""
+        if not v:
+            raise ValueError("incident_ids must be a non-empty list")
+        for i, val in enumerate(v):
+            if not isinstance(val, int) or val < 1:
+                raise ValueError(f"incident_ids[{i}] must be a positive integer, got: {val!r}")
+        return v
