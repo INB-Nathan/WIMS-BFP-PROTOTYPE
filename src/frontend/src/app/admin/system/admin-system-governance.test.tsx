@@ -196,8 +196,10 @@ describe('Identity Governance filters and pagination (#346)', () => {
     it('region filter narrows by assigned region', async () => {
         render(<AdminSystemPage />);
 
+        // Wait for regions to load (async fetchRegions) — the select starts
+        // disabled with only "All Regions" and gets populated after fetch resolves.
         await waitFor(() => {
-            expect(governanceSection().getByLabelText('Filter by region')).toBeInTheDocument();
+            expect(governanceSection().getByLabelText('Filter by region')).not.toBeDisabled();
         });
 
         const regionSelect = governanceSection().getByLabelText('Filter by region');
