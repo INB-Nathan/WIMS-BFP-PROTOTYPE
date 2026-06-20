@@ -55,8 +55,9 @@ def test_create_incident_returns_existing_for_known_client_id():
 
     body = _make_body(client_id=client_id)
     user = _make_user()
+    request = MagicMock()
 
-    result = create_incident(body, user, db)
+    result = create_incident(request, body, user, db)
 
     assert result["incident_id"] == existing_id
     assert result["status"] == "created"
@@ -102,8 +103,9 @@ def test_create_incident_inserts_new_client_id_without_on_conflict(monkeypatch):
 
     body = _make_body(client_id=client_id)
     user = _make_user()
+    request = MagicMock()
 
-    result = create_incident(body, user, db)
+    result = create_incident(request, body, user, db)
 
     assert result["incident_id"] == created_id
     assert result["status"] == "created"
@@ -120,9 +122,10 @@ def test_create_incident_rejects_malformed_client_id():
     db = MagicMock()
     body = _make_body(client_id="not-a-valid-uuid")
     user = _make_user()
+    request = MagicMock()
 
     with pytest.raises(HTTPException) as exc_info:
-        create_incident(body, user, db)
+        create_incident(request, body, user, db)
 
     assert exc_info.value.status_code == 422
     assert "UUID" in exc_info.value.detail
