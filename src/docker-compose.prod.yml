@@ -8,10 +8,12 @@ services:
       - KEYCLOAK_ISSUER=${PUBLIC_BASE_URL}/auth/realms/bfp
       - CSRF_TRUSTED_ORIGINS=${PUBLIC_BASE_URL}
       - NEXT_PUBLIC_APP_URL=${PUBLIC_BASE_URL}
+      - WIMS_MASTER_KEY=${WIMS_MASTER_KEY}
 
   celery-worker:
     environment:
       - NEXT_PUBLIC_APP_URL=${PUBLIC_BASE_URL}
+      - WIMS_MASTER_KEY=${WIMS_MASTER_KEY}
 
   frontend:
     build:
