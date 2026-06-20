@@ -3510,3 +3510,10 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - `system-wiki/subsystems/civilian-reporting-phase2.md`: documented the frontend update-mode contract.
 - Validation: `cd src/frontend && npx vitest run src/app/__tests__/page.test.tsx` passed 5 tests. Focused ESLint on `src/app/page.tsx` and `src/app/__tests__/page.test.tsx` returned 0 errors with 7 pre-existing warnings in `page.tsx`.
 - No FRS gap register change; this fixes existing frontend behavior against the documented append API.
+
+## [2026-06-20] test | regression test for submitted-screen append (#343)
+
+- `src/frontend/src/app/__tests__/page.test.tsx`: added `submitted-screen append` describe block with a test that navigates the full form flow (safety→context→category→details→review→submitted) then submits an update from the submitted-success screen, asserting all required fields (`device_id`, `latitude`, `longitude`, `category`, `reporting_context`, `safety_status`, `description`) are passed to `appendCivilianReport`.
+- Added a module-scoped `mapPickerChange` variable to capture the MapPicker `onChange` callback for pin simulation.
+- Reset `mapPickerChange` in `beforeEach` for isolation.
+- Validation: `cd src/frontend && npx vitest run src/app/__tests__/page.test.tsx` passed 6 tests. ESLint on the test file returned 0 errors.
