@@ -94,6 +94,14 @@
 - **`src/backend/tests/integration/test_check_constraints.py`:** 13 integration tests: 9 negative-value violation tests, 3 null-value acceptance tests, 1 migration idempotency test. Follows `test_database_schema.py` patterns.
 - **`system-wiki/database/schema-overview.md`:** Added "DB-Enforced vs App-Enforced Invariants" section documenting which invariants are enforced at DB layer vs app layer. Updated allowlist.
 
+## [2026-06-20] feat | public abuse controls — throttles + neutral responses + audit (PR #428, issue #392)
+
+- **`src/backend/utils/public_abuse.py`:** New shared helpers: `rate_limit_public()` (Redis sliding-window ZSET Lua throttle, fail-closed), `neutral_404()` (consistent 404 shape for public /{id} routes), `log_public_audit()` (IP hash with rotating salt, user-agent hash, no plaintext PII).
+- **`src/backend/api/routes/consent.py`:** Added Redis sliding-window throttle (5/IP/hr, fail-closed per D6). Added module-level Redis client singleton.
+- **`src/backend/api/routes/civilian.py`:** All 5 public /{id} routes now return neutral 404 ("Not found") via `neutral_404()` helper. Notification endpoint: added max 10 FCM tokens/report cap (DB COUNT check) + 5 registrations/IP/hour Redis rate limit.
+- **`src/backend/api/routes/public_dmz.py`:** Rate limiter changed from fail-open to fail-closed (503 when Redis down). Added privacy-preserving audit log call after incident creation.
+- **`src/backend/tests/test_public_abuse_controls.py`:** 12 new TDD tests covering consent throttle, neutral 404 (5 endpoints), notification spam limits, existing rate limits, and audit log privacy.
+
 ## [2026-06-19] fix | blob metadata stripping + analyst decrypt completeness (PR #385 review)
 
 - **`src/backend/api/routes/regional/encoder.py`:** Added `key_version` to the blob metadata stripping list (was missing — only 4 of 5 fields were stripped).
