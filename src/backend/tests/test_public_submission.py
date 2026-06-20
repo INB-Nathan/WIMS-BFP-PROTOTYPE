@@ -96,6 +96,9 @@ def _mock_db_factory(
         def commit(self):
             pass
 
+        def rollback(self):
+            pass
+
     return _MockDB()
 
 

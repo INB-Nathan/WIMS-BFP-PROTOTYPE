@@ -14,6 +14,7 @@ import os
 import re
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlparse
@@ -136,6 +137,7 @@ _SQL_FILE_SCHEMA_PATCHES = {
     "53_incident_pii_key_version.sql",
     "54_openbao_provider_metadata.sql",
     "61_check_constraints.sql",
+    "62_audit_correlation_columns.sql",
 }
 
 
@@ -197,6 +199,7 @@ def apply_schema_patches() -> None:
     - key_version column (53_incident_pii_key_version.sql)
     - crypto_provider / kms_key_name + relaxed PII constraint (54_openbao_provider_metadata.sql)
     - non-negative CHECK constraints on incident_nonsensitive_details (61_check_constraints.sql)
+    - system_audit_trails correlation_id / result / ip_hash columns (62_audit_correlation_columns.sql)
 
     Uses DATABASE_ADMIN_URL (superuser) because CREATE RULE / CREATE POLICY /
     ALTER TABLE require the table owner; wims_app_user (the runtime role) is not
@@ -443,6 +446,13 @@ def apply_schema_patches() -> None:
             db,
             "61_check_constraints.sql",
             "non-negative CHECK constraints on incident_nonsensitive_details",
+        )
+
+        # Migration 62: standardized audit shape — correlation_id, result, ip_hash
+        _apply_postgres_init_sql_patch(
+            db,
+            "62_audit_correlation_columns.sql",
+            "correlation_id / result / ip_hash columns on system_audit_trails",
         )
     finally:
         db.close()
@@ -777,6 +787,45 @@ async def prometheus_metrics_middleware(request: Request, call_next):
         status_code=str(response.status_code),
     ).observe(duration)
 
+    return response
+
+
+# ---------------------------------------------------------------------------
+# X-Request-ID correlation middleware (D20 audit integrity — issue #394)
+# ---------------------------------------------------------------------------
+# Generates or propagates a per-request correlation ID, attaches it to the
+# response header, and stashes it in ``request.state.correlation_id`` so the
+# audit layer (utils.audit.log_system_audit) and structured logs can join
+# audit rows to a specific inbound HTTP request.
+#
+# Incoming IDs are accepted only if they look like a UUID / short opaque
+# token (≤ 64 ASCII alnum/-/_).  This prevents an attacker from injecting
+# CRLF into a response header via a crafted X-Request-ID.
+# ---------------------------------------------------------------------------
+_VALID_REQUEST_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _normalize_request_id(raw: str | None) -> str:
+    """Return a safe correlation ID — accept incoming, else mint a UUID4."""
+    if raw and _VALID_REQUEST_ID.match(raw):
+        return raw
+    return str(uuid.uuid4())
+
+
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    """Propagate / generate X-Request-ID for end-to-end request tracing.
+
+    Registered AFTER csrf_middleware / prometheus_metrics_middleware so that,
+    by Starlette's LIFO middleware ordering, this runs FIRST — every other
+    middleware (and the route handler) sees ``request.state.correlation_id``
+    populated, including the CSRF and rate-limit middlewares.
+    """
+    correlation_id = _normalize_request_id(request.headers.get("x-request-id"))
+    request.state.correlation_id = correlation_id
+
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = correlation_id
     return response
 
 
