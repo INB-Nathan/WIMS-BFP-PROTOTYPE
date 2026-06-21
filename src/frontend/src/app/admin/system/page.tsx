@@ -13,7 +13,7 @@ import {
     fetchAuditLogsOfflineAware,
     fetchRelatedAuditLogs,
     analyzeSecurityLog,
-    fetchRegions,
+    fetchRegionsOfflineAware,
     fetchUserSessions,
     terminateUserSessions,
     KeycloakSession,
@@ -508,8 +508,9 @@ export default function AdminSystemPage() {
 
     const loadRegions = async () => {
         try {
-            const data = await fetchRegions();
-            setRegions(data);
+            if (!user?.id) return;
+            const { response } = await fetchRegionsOfflineAware(user.id);
+            setRegions(response as Region[]);
         } catch {
             setRegions([]);
         }

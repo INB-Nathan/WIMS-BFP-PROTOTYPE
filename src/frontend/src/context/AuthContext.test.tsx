@@ -12,7 +12,7 @@
  *       of SW state and that the logout path exists in the rendered tree.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import React from 'react';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
@@ -44,6 +44,8 @@ vi.mock('@/lib/connectivity', () => ({
 
 // Dynamic import so vi.mock hoisting resolves before the real module loads.
 const { AuthProvider, useAuth } = await import('@/context/AuthContext');
+
+type User = { id: string; role?: string };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -177,5 +179,170 @@ describe('AuthContext logout → SW cache-clear (component smoke)', () => {
     }
 
     expect(mountError).toBeNull();
+  });
+});
+
+// ── Task 14: Post-login role prefetch message to service worker ─────────────
+//
+// AuthContext.fetchSession resolves the user (with role) after a successful
+// login. At that point we post { type: 'PREFETCH_ROLE', role } to the active
+// service worker so it can pre-warm the role's routes (per ROLE_PREFETCH_ROUTES
+// in public/sw.js). The wiring MUST be best-effort: a missing SW, a null
+// controller, or a postMessage throw must NOT block login or crash render.
+
+describe('AuthContext login → SW role prefetch (unit)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('sends { type: "PREFETCH_ROLE", role: "encoder" } when SW controller is available', () => {
+    const postMessage = vi.fn();
+    const controller = { postMessage } as unknown as ServiceWorker;
+    const nav = navigator as unknown as { serviceWorker?: ServiceWorkerContainerPartial };
+    nav.serviceWorker = { controller };
+
+    // Replicate the guard + postMessage from AuthContext.fetchSession()
+    // (only when a role is known and the SW + controller are present).
+    const role = 'encoder';
+    if (role && typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'PREFETCH_ROLE', role });
+    }
+
+    expect(postMessage).toHaveBeenCalledWith({ type: 'PREFETCH_ROLE', role: 'encoder' });
+  });
+
+  it('does NOT call postMessage when serviceWorker is undefined', () => {
+    const postMessage = vi.fn();
+    const nav = navigator as unknown as { serviceWorker?: ServiceWorkerContainerPartial };
+    nav.serviceWorker = undefined;
+
+    const role = 'encoder';
+    let threw = false;
+    try {
+      if (role && typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'PREFETCH_ROLE', role });
+      }
+    } catch {
+      threw = true;
+    }
+
+    expect(threw).toBe(false);
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  it('does NOT call postMessage when serviceWorker.controller is null', () => {
+    const postMessage = vi.fn();
+    const nav = navigator as unknown as { serviceWorker?: ServiceWorkerContainerPartial };
+    nav.serviceWorker = { controller: null };
+
+    const role = 'encoder';
+    let threw = false;
+    try {
+      if (role && typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'PREFETCH_ROLE', role });
+      }
+    } catch {
+      threw = true;
+    }
+
+    expect(threw).toBe(false);
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthContext login → SW role prefetch (component smoke)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function Probe({ onCapture }: { onCapture: (s: { loading: boolean; user: User | null }) => void }) {
+    const { user, loading } = useAuth();
+    onCapture({ loading, user });
+    return <span data-testid="loading">{String(loading)}</span>;
+  }
+
+  it('posts PREFETCH_ROLE on successful login (user with role "encoder")', async () => {
+    const postMessage = vi.fn();
+    const controller = { postMessage } as unknown as ServiceWorker;
+    const nav = navigator as unknown as { serviceWorker?: ServiceWorkerContainerPartial };
+    nav.serviceWorker = { controller };
+
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ user: { id: 'u1', role: 'encoder' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    let capture: { loading: boolean; user: User | null } = { loading: true, user: null };
+
+    render(
+      <AuthProvider>
+        <Probe onCapture={(s) => (capture = s)} />
+      </AuthProvider>,
+    );
+
+    // Wait for fetchSession to resolve (loading → false) and the user to populate.
+    await waitFor(() => expect(capture.loading).toBe(false));
+
+    expect(capture.user).toEqual({ id: 'u1', role: 'encoder' });
+    expect(postMessage).toHaveBeenCalledWith({ type: 'PREFETCH_ROLE', role: 'encoder' });
+  });
+
+  it('does NOT post PREFETCH_ROLE when SW controller is null', async () => {
+    const postMessage = vi.fn();
+    const nav = navigator as unknown as { serviceWorker?: ServiceWorkerContainerPartial };
+    nav.serviceWorker = { controller: null };
+
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ user: { id: 'u1', role: 'encoder' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    let capture: { loading: boolean; user: User | null } = { loading: true, user: null };
+
+    render(
+      <AuthProvider>
+        <Probe onCapture={(s) => (capture = s)} />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(capture.loading).toBe(false));
+
+    expect(capture.user).toEqual({ id: 'u1', role: 'encoder' });
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  it('does NOT crash when serviceWorker is undefined and user has a role', async () => {
+    const postMessage = vi.fn();
+    const nav = navigator as unknown as { serviceWorker?: ServiceWorkerContainerPartial };
+    nav.serviceWorker = undefined;
+
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ user: { id: 'u1', role: 'validator' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    let capture: { loading: boolean; user: User | null } = { loading: true, user: null };
+
+    let renderError: Error | null = null;
+    try {
+      render(
+        <AuthProvider>
+          <Probe onCapture={(s) => (capture = s)} />
+        </AuthProvider>,
+      );
+    } catch (e) {
+      renderError = e as Error;
+    }
+
+    expect(renderError).toBeNull();
+    await waitFor(() => expect(capture.loading).toBe(false));
+    expect(capture.user).toEqual({ id: 'u1', role: 'validator' });
+    expect(postMessage).not.toHaveBeenCalled();
   });
 });

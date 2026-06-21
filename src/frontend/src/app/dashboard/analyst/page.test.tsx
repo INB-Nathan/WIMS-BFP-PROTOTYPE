@@ -44,6 +44,7 @@ const mockFetchHeatmapData = vi.fn();
 const mockFetchTrendData = vi.fn();
 const mockFetchComparativeData = vi.fn();
 const mockFetchRegions = vi.fn();
+const mockFetchRegionsOfflineAware = vi.fn();
 const mockFetchTypeDistribution = vi.fn();
 const mockFetchTopBarangays = vi.fn();
 const mockFetchResponseTimeByRegion = vi.fn();
@@ -57,6 +58,8 @@ vi.mock('@/lib/api', () => ({
   fetchTrendDataOfflineAware: async (f: object) => ({ response: await mockFetchTrendData(f), fromCache: analystOfflineMocks.fromCache, cachedAt: analystOfflineMocks.cachedAt }),
   fetchComparativeDataOfflineAware: async (f: object) => ({ response: await mockFetchComparativeData(f), fromCache: analystOfflineMocks.fromCache, cachedAt: analystOfflineMocks.cachedAt }),
   fetchRegions: () => mockFetchRegions(),
+  // Plan T13 (Phase B) — offline-aware reference reads.
+  fetchRegionsOfflineAware: (userId: string) => mockFetchRegionsOfflineAware(userId),
   fetchTypeDistributionOfflineAware: async (f: object) => ({ response: await mockFetchTypeDistribution(f), fromCache: analystOfflineMocks.fromCache, cachedAt: analystOfflineMocks.cachedAt }),
   fetchTopBarangays: (f: object) => mockFetchTopBarangays(f),
   fetchResponseTimeByRegionOfflineAware: async (f: object) => ({ response: await mockFetchResponseTimeByRegion(f), fromCache: analystOfflineMocks.fromCache, cachedAt: analystOfflineMocks.cachedAt }),
@@ -103,6 +106,10 @@ describe('Analyst dashboard page', () => {
     mockFetchRegions.mockResolvedValue([
       { region_id: 1, region_name: 'NCR', region_code: 'NCR' },
     ]);
+    mockFetchRegionsOfflineAware.mockResolvedValue({
+      response: [{ region_id: 1, region_name: 'NCR', region_code: 'NCR' }],
+      fromCache: false,
+    });
     mockFetchHeatmapData.mockResolvedValue({
       type: 'FeatureCollection',
       features: [
@@ -143,6 +150,14 @@ describe('Analyst dashboard page', () => {
       total: 0,
       page: 1,
       page_size: 25,
+    });
+  });
+
+  it('calls fetchRegionsOfflineAware with the active user id (Plan T13 reference rewire)', async () => {
+    render(<AnalystDashboardPage />);
+
+    await waitFor(() => {
+      expect(mockFetchRegionsOfflineAware).toHaveBeenCalledWith('test-user');
     });
   });
 

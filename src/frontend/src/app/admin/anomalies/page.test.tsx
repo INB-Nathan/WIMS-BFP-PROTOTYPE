@@ -33,12 +33,21 @@ vi.mock('@/context/AuthContext', () => ({
   useAuth: () => mockUseAuth(),
 }));
 
+vi.mock('@/lib/useNetworkStatus', () => ({
+  useNetworkStatus: () => ({ isOnline: true, isChecking: false, isReconnecting: false, state: 'online' }),
+}));
+
 const mockFetchAnomalies = vi.fn();
 const mockUpdateAnomalyStatus = vi.fn();
+const mockFetchAnomaliesOfflineAware = vi.fn();
 
 vi.mock('@/lib/api/legacy', () => ({
   fetchAnomalies: (params?: unknown) => mockFetchAnomalies(params),
   updateAnomalyStatus: (id: number, status: string) => mockUpdateAnomalyStatus(id, status),
+}));
+
+vi.mock('@/lib/api/offlineAdmin', () => ({
+  fetchAnomaliesOfflineAware: (params?: unknown) => mockFetchAnomaliesOfflineAware(params),
 }));
 
 function mockAdminUser() {
@@ -113,6 +122,12 @@ describe('M8: Anomaly Detection ACK/RESOLVE page', () => {
       previous_status: 'NEW',
       new_status: 'ACKNOWLEDGED',
     });
+    // Default online mock — delegates to legacy so existing tests pass.
+    // The T11 test overrides to return fromCache=true.
+    mockFetchAnomaliesOfflineAware.mockImplementation(async (params?: unknown) => ({
+      response: await mockFetchAnomalies(params),
+      fromCache: false,
+    }));
   });
 
   afterEach(() => {
@@ -461,5 +476,42 @@ describe('M8: Anomaly Detection ACK/RESOLVE page', () => {
 
     const nextButton = screen.getByText('Next');
     expect(nextButton).not.toBeDisabled();
+  });
+});
+
+// ── T11: offline-aware read cache (T11 rewire) ──────────────────────────────
+
+describe('M8: Anomaly Detection page — offline-aware read caching (T11)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    mockAdminUser();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it('renders StaleCacheBanner when offline-aware wrapper returns fromCache=true', async () => {
+    const cachedAt = Date.now() - 60_000;
+    mockFetchAnomaliesOfflineAware.mockResolvedValue({
+      response: DEFAULT_ANOMALIES,
+      fromCache: true,
+      cachedAt,
+    });
+
+    vi.useRealTimers();
+    render(<AnomalyDetectionPage />);
+
+    await waitFor(() => {
+      expect(mockFetchAnomaliesOfflineAware).toHaveBeenCalled();
+    });
+    // Stale cache banner should be visible
+    expect(screen.getByText(/Showing cached data/i)).toBeInTheDocument();
+    // Underlying data should still render from the cached response
+    await waitFor(() => {
+      expect(screen.getByText('BULK DELETE')).toBeInTheDocument();
+    });
   });
 });

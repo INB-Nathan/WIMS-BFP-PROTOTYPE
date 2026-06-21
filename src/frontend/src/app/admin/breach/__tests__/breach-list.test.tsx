@@ -68,6 +68,7 @@ vi.mock('next/link', () => ({
 
 const mockFetchBreaches = vi.fn();
 const mockUpdateBreach = vi.fn();
+const mockFetchBreachesOfflineAware = vi.fn();
 
 vi.mock('@/lib/api/breach', () => ({
     fetchBreaches: () => mockFetchBreaches(),
@@ -76,14 +77,24 @@ vi.mock('@/lib/api/breach', () => ({
 
 const mockFetchAdminConfig = vi.fn();
 const mockUpdateAdminConfig = vi.fn();
+const mockFetchAdminConfigOfflineAware = vi.fn();
 
 vi.mock('@/lib/api/legacy', () => ({
     fetchAdminConfig: () => mockFetchAdminConfig(),
     updateAdminConfig: (...args: unknown[]) => mockUpdateAdminConfig(...args),
 }));
 
+vi.mock('@/lib/api/offlineAdmin', () => ({
+    fetchBreachesOfflineAware: () => mockFetchBreachesOfflineAware(),
+    fetchAdminConfigOfflineAware: () => mockFetchAdminConfigOfflineAware(),
+}));
+
 vi.mock('@/context/AuthContext', () => ({
     useAuth: vi.fn(),
+}));
+
+vi.mock('@/lib/useNetworkStatus', () => ({
+    useNetworkStatus: () => ({ isOnline: true, isChecking: false, isReconnecting: false, state: 'online' }),
 }));
 
 function setRole(role: string) {
@@ -107,6 +118,16 @@ describe('Breach Notifications Page', () => {
         mockUpdateBreach.mockResolvedValue({ ...mockBreachActive, status: 'DPO_NOTIFIED' });
         mockFetchAdminConfig.mockResolvedValue(mockNpcConfig);
         mockFetchBreaches.mockResolvedValue([mockBreachActive, mockBreachClosed]);
+        // Default online mocks for the offline-aware wrappers — delegate to legacy.
+        // The T11 test overrides to return fromCache=true.
+        mockFetchBreachesOfflineAware.mockImplementation(async () => ({
+            response: await mockFetchBreaches(),
+            fromCache: false,
+        }));
+        mockFetchAdminConfigOfflineAware.mockImplementation(async () => ({
+            response: await mockFetchAdminConfig(),
+            fromCache: false,
+        }));
     });
 
     // ─── Existing tests ────────────────────────────────────────────────────
@@ -369,5 +390,43 @@ describe('Breach Notifications Page', () => {
         });
         expect(screen.getByTestId('npc-name-display')).toHaveTextContent('Not configured');
         expect(screen.getByTestId('npc-phone-display')).toHaveTextContent('Not configured');
+    });
+});
+
+// ── T11: offline-aware read cache (T11 rewire) ──────────────────────────────
+
+describe('Breach Notifications Page — offline-aware read caching (T11)', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        setRole('SYSTEM_ADMIN');
+        mockUpdateBreach.mockResolvedValue({ ...mockBreachActive, status: 'DPO_NOTIFIED' });
+        mockFetchAdminConfig.mockResolvedValue(mockNpcConfig);
+        mockFetchBreaches.mockResolvedValue([mockBreachActive, mockBreachClosed]);
+    });
+
+    it('renders StaleCacheBanner when offline-aware wrappers return fromCache=true', async () => {
+        const cachedAt = Date.now() - 60_000;
+        mockFetchBreachesOfflineAware.mockResolvedValue({
+            response: [mockBreachActive, mockBreachClosed],
+            fromCache: true,
+            cachedAt,
+        });
+        mockFetchAdminConfigOfflineAware.mockResolvedValue({
+            response: mockNpcConfig,
+            fromCache: true,
+            cachedAt,
+        });
+
+        render(<BreachNotificationsPage />);
+
+        await waitFor(() => {
+            expect(mockFetchBreachesOfflineAware).toHaveBeenCalled();
+        });
+        // Stale cache banner should be visible
+        expect(screen.getByText(/Showing cached data/i)).toBeInTheDocument();
+        // Underlying data should still render from the cached response
+        await waitFor(() => {
+            expect(screen.getByText('#1')).toBeInTheDocument();
+        });
     });
 });

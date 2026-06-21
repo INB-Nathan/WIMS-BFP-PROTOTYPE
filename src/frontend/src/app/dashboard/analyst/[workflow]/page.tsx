@@ -23,7 +23,7 @@ import {
   fetchAnalyticsFilterOptionsOfflineAware,
   fetchComparativeDataOfflineAware,
   fetchHeatmapDataOfflineAware,
-  fetchRegions,
+  fetchRegionsOfflineAware,
   fetchResponseTimeByRegionOfflineAware,
   fetchTopNOfflineAware,
   fetchTrendDataOfflineAware,
@@ -267,8 +267,9 @@ export default function AnalystWorkflowPage() {
 
   useEffect(() => {
     if (loading) return;
-    fetchRegions().then((r) => setRegions(Array.isArray(r) ? r : []));
-  }, [loading]);
+    if (!user?.id) return;
+    fetchRegionsOfflineAware(user.id).then((r) => setRegions(Array.isArray(r.response) ? r.response : []));
+  }, [loading, user?.id]);
 
   useEffect(() => {
     if (!ANALYST_ROLES.includes(role ?? '')) return;

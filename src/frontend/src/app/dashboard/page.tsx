@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { fetchRegions, fetchProvinces, fetchCities } from '@/lib/api';
+import { fetchRegionsOfflineAware, fetchProvincesOfflineAware, fetchCitiesOfflineAware } from '@/lib/api';
 import { defaultRouteForRole } from '@/lib/roleRedirect';
 import type { Region, Province, City } from '@/types/api';
 import { edgeFunctions, AnalyticsSummaryResponse } from '@/lib/edgeFunctions';
@@ -107,19 +107,24 @@ export default function DashboardPage() {
         }
     }, [authorizedForAnalytics, fromDate, toDate, selectedRegion, selectedProvince, selectedCity]);
 
-    useEffect(() => { fetchRegions().then(setRegions); }, []);
+    useEffect(() => {
+        if (!user?.id) return;
+        fetchRegionsOfflineAware(user.id).then((r) => setRegions(r.response));
+    }, [user?.id]);
 
     useEffect(() => {
+        if (!user?.id) return;
         if (!selectedRegion) { setProvinces([]); setSelectedProvince(''); return; }
-        fetchProvinces(selectedRegion).then(setProvinces);
+        fetchProvincesOfflineAware(user.id, selectedRegion).then((r) => setProvinces(r.response));
         setSelectedProvince(''); setSelectedCity('');
-    }, [selectedRegion]);
+    }, [user?.id, selectedRegion]);
 
     useEffect(() => {
+        if (!user?.id) return;
         if (!selectedProvince) { setCities([]); setSelectedCity(''); return; }
-        fetchCities(selectedProvince).then(setCities);
+        fetchCitiesOfflineAware(user.id, selectedProvince).then((r) => setCities(r.response));
         setSelectedCity('');
-    }, [selectedProvince]);
+    }, [user?.id, selectedProvince]);
 
     useEffect(() => {
         // eslint-disable react-hooks/set-state-in-effect

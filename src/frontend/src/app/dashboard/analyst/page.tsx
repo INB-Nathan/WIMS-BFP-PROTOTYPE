@@ -10,7 +10,7 @@ import {
   fetchHeatmapDataOfflineAware,
   fetchTrendDataOfflineAware,
   fetchComparativeDataOfflineAware,
-  fetchRegions,
+  fetchRegionsOfflineAware,
   fetchTypeDistributionOfflineAware,
   fetchResponseTimeByRegionOfflineAware,
   fetchCompareRegions,
@@ -413,8 +413,9 @@ export default function AnalystDashboardPage() {
 
   useEffect(() => {
     if (loading) return;
-    fetchRegions().then((r) => setRegions(Array.isArray(r) ? r : []));
-  }, [loading]);
+    if (!user?.id) return;
+    fetchRegionsOfflineAware(user.id).then((r) => setRegions(Array.isArray(r.response) ? r.response : []));
+  }, [loading, user?.id]);
 
   // Cascade: load province options when region changes
   useEffect(() => {

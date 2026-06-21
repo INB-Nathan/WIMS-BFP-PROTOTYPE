@@ -3,14 +3,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { AuditLogEntry } from '@/types/api';
 import { useAuth } from '@/context/AuthContext';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { normalizeNarrative } from '@/lib/xaiNarrativeNormalizer';
 import {
-  fetchAdminSecurityLogs,
-  fetchSecurityLogsSummary,
-  fetchAuditLogs,
   type SecurityLogsSummary,
 } from '@/lib/api/legacy';
-import { ShieldAlert, RefreshCw, AlertTriangle, Info } from 'lucide-react';
+import {
+  fetchAdminSecurityLogsOfflineAware,
+  fetchSecurityLogsSummaryOfflineAware,
+  fetchAuditLogsOfflineAware,
+} from '@/lib/api/offlineAdmin';
+import { StaleCacheBanner } from '@/components/ui/StaleCacheBanner';
+import { ShieldAlert, RefreshCw, AlertTriangle, Info, WifiOff } from 'lucide-react';
 
 type SeverityLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
@@ -51,6 +55,7 @@ function formatTime(iso: string): string {
 
 export default function SecurityMonitoringPage() {
   const { user, loading: authLoading } = useAuth();
+  const { isOnline } = useNetworkStatus();
   const role = (user as { role?: string })?.role ?? null;
   const isAdmin = role === 'SYSTEM_ADMIN';
 
@@ -64,6 +69,12 @@ export default function SecurityMonitoringPage() {
   const [error, setError] = useState<string | null>(null);
   const [totalThreats, setTotalThreats] = useState<number>(0);
   const [expandedNarratives, setExpandedNarratives] = useState<Set<number>>(new Set());
+  // T11: cache freshness tracking
+  const [summaryCachedAt, setSummaryCachedAt] = useState<number | undefined>(undefined);
+  const [threatsCachedAt, setThreatsCachedAt] = useState<number | undefined>(undefined);
+  const [auditCachedAt, setAuditCachedAt] = useState<number | undefined>(undefined);
+  // T11: friendly offline state when wrapper throws and we're offline
+  const [offlineUnavailable, setOfflineUnavailable] = useState<boolean>(false);
 
   const PAGE_SIZE = 20;
 
@@ -71,21 +82,29 @@ export default function SecurityMonitoringPage() {
     if (!isAdmin) return;
 
     setError(null);
+    setOfflineUnavailable(false);
     try {
-      const [summaryData, auditData] = await Promise.all([
-        fetchSecurityLogsSummary(),
-        fetchAuditLogs({ limit: 50 }),
+      const [summaryRes, auditRes] = await Promise.all([
+        fetchSecurityLogsSummaryOfflineAware(),
+        fetchAuditLogsOfflineAware({ limit: 50 }),
       ]);
 
-      setSummary(summaryData);
-      setAuditLogs(auditData.items);
+      setSummary(summaryRes.response);
+      setAuditLogs(auditRes.response.items);
+      setSummaryCachedAt(summaryRes.fromCache ? summaryRes.cachedAt : undefined);
+      setAuditCachedAt(auditRes.fromCache ? auditRes.cachedAt : undefined);
       setLastRefresh(new Date());
     } catch (err) {
       console.error('loadMonitoring error', err);
       setSummary(null);
-      setError(err instanceof Error ? err.message : 'Failed to load monitoring data');
+      setAuditLogs([]);
+      if (!isOnline) {
+        setOfflineUnavailable(true);
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to load monitoring data');
+      }
     }
-  }, [isAdmin]);
+  }, [isAdmin, isOnline]);
 
   const loadThreats = useCallback(async () => {
     if (!isAdmin) return;
@@ -93,20 +112,27 @@ export default function SecurityMonitoringPage() {
     setLoading(true);
     try {
       const severityParam = activeSeverities.size > 0 ? Array.from(activeSeverities).join(',') : undefined;
-      const result = await fetchAdminSecurityLogs({
+      const result = await fetchAdminSecurityLogsOfflineAware({
         severity: severityParam,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       });
-      setThreatLogs(result.items as ThreatLogItem[]);
-      setTotalThreats(result.total);
+      setThreatLogs(result.response.items as ThreatLogItem[]);
+      setTotalThreats(result.response.total);
+      setThreatsCachedAt(result.fromCache ? result.cachedAt : undefined);
     } catch (err) {
       console.error('loadThreats error', err);
-      setError(err instanceof Error ? err.message : 'Failed to load threat data');
+      if (!isOnline) {
+        setOfflineUnavailable(true);
+        setThreatLogs([]);
+        setTotalThreats(0);
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to load threat data');
+      }
     } finally {
       setLoading(false);
     }
-  }, [isAdmin, activeSeverities, page]);
+  }, [isAdmin, isOnline, activeSeverities, page]);
 
   useEffect(() => {
     loadMonitoring();
@@ -208,6 +234,37 @@ export default function SecurityMonitoringPage() {
 
   return (
     <div className="space-y-6">
+      {/* T11: Friendly offline-unavailable banner when wrapper throws + we're offline */}
+      {offlineUnavailable && (
+        <div
+          className="card"
+          data-testid="offline-unavailable"
+          style={{ borderLeft: '4px solid #f59e0b', backgroundColor: '#fffbeb' }}
+        >
+          <div className="card-body flex items-center gap-3">
+            <WifiOff className="w-5 h-5 text-amber-700 flex-shrink-0" />
+            <div>
+              <div className="text-sm font-semibold text-amber-800">
+                Security monitoring data is unavailable offline
+              </div>
+              <div className="text-xs text-amber-700 mt-1">
+                Reconnect to the network to load threat feeds, XAI narratives, and audit highlights.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* T11: Stale cache banner — pick the most recent cachedAt across all three feeds */}
+      {(() => {
+        const cachedAts = [summaryCachedAt, threatsCachedAt, auditCachedAt].filter(
+          (v): v is number => typeof v === 'number',
+        );
+        if (cachedAts.length === 0) return null;
+        const latest = Math.max(...cachedAts);
+        return <StaleCacheBanner freshness={{ cachedAt: latest, isOnline }} />;
+      })()}
+
       {/* Header */}
       <div className="card">
         <div className="card-body flex items-center justify-between">

@@ -52,7 +52,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/context/AuthContext', () => ({
     useAuth: () => ({
-        user: { role: 'SYSTEM_ADMIN' },
+        user: { id: 'admin-1', role: 'SYSTEM_ADMIN' },
         loading: false,
         logout: vi.fn(),
     }),
@@ -60,6 +60,7 @@ vi.mock('@/context/AuthContext', () => ({
 
 const mockFetchAdminUsers = vi.fn();
 const mockFetchRegions = vi.fn();
+const mockFetchRegionsOfflineAware = vi.fn();
 const mockFetchActiveSessions = vi.fn();
 const mockUpdateAdminUser = vi.fn();
 
@@ -84,6 +85,8 @@ vi.mock('@/lib/api', () => ({
     analyzeSecurityLog: vi.fn(),
     createIncidentFromAlert: vi.fn(),
     fetchRegions: () => mockFetchRegions(),
+    // Plan T13 (Phase B) — offline-aware reference reads (regions).
+    fetchRegionsOfflineAware: (userId: string) => mockFetchRegionsOfflineAware(userId),
     fetchUserSessions: vi.fn().mockResolvedValue({ sessions: [] }),
     terminateUserSessions: vi.fn(),
     KeycloakSession: {},
@@ -113,6 +116,7 @@ describe('Identity Governance filters and pagination (#346)', () => {
         vi.clearAllMocks();
         mockFetchAdminUsers.mockResolvedValue(mockUsers);
         mockFetchRegions.mockResolvedValue(mockRegions);
+        mockFetchRegionsOfflineAware.mockResolvedValue({ response: mockRegions, fromCache: false });
         mockFetchActiveSessions.mockResolvedValue(mockSessions);
         mockUpdateAdminUser.mockResolvedValue({});
     });
