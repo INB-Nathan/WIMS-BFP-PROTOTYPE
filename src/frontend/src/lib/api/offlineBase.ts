@@ -17,6 +17,7 @@ import {
   cacheReferenceData,
   getCachedReferenceData,
   getReadCachedResponse,
+  incrementCacheWriteCount,
 } from '../offlineStore';
 import {
   getConnectivitySnapshot,
@@ -206,6 +207,18 @@ export async function offlineAware<T>(
       return readFreshCacheOrThrow<T>(key, ttlMs, errorMessage);
     }
     throw err;
+  } finally {
+    // Task 10: best-effort write counter — runs on success and on failure
+    // (a successful online fetch is the common case, but a network-error
+    // fallback that hits the cache also means we wrote nothing this round,
+    // so incrementing is harmless). The counter itself is best-effort.
+    try {
+      await incrementCacheWriteCount();
+    } catch (writeCountErr) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[offlineBase] incrementCacheWriteCount failed:', writeCountErr);
+      }
+    }
   }
 }
 
@@ -257,5 +270,14 @@ export async function offlineAwareReference<T>(
       return readFreshReferenceCacheOrThrow<T>(key, ttlMs, errorMessage);
     }
     throw err;
+  } finally {
+    // Task 10: best-effort write counter — see offlineAware above.
+    try {
+      await incrementCacheWriteCount();
+    } catch (writeCountErr) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[offlineBase] incrementCacheWriteCount failed:', writeCountErr);
+      }
+    }
   }
 }

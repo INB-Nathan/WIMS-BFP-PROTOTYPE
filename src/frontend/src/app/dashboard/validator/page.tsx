@@ -19,7 +19,7 @@ import {
 } from "@/lib/api";
 import { useNetworkStatus } from "@/lib/useNetworkStatus";
 import { useAutoSync } from "@/lib/useAutoSync";
-import { getPendingIncidents } from "@/lib/offlineStore";
+import { getPendingIncidents, maybePruneCaches } from "@/lib/offlineStore";
 import { useAuth } from "@/context/AuthContext";
 import { formatClassification } from "@/lib/afor-utils";
 import { PH_REGIONS, getShortRegionName } from "@/lib/ph-regions";
@@ -477,6 +477,15 @@ export default function ValidatorDashboard() {
   // successful reconnect sync. Refreshes the queue and pending-ops badge.
   useEffect(() => {
     const handler = () => {
+      // Task 10: sync-completion eviction trigger. Self-gated by an internal
+      // 1h timestamp so this is cheap to call on every sync event. Wrapped
+      // in try/catch + void — eviction is best-effort and must never block
+      // the sync-complete handler's UI refresh.
+      try {
+        void maybePruneCaches();
+      } catch {
+        // noop
+      }
       setSyncNotification('Offline validator actions synced. Refreshing queue…');
       void refreshQueuedValidatorOpsCount();
       fetchQueue();

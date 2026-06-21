@@ -15,7 +15,7 @@ import {
 } from '@/lib/api/offlineRegionalActions';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { getConnectivitySnapshot } from '@/lib/connectivity';
-import { getPendingOps, getCachedIncidents, type OfflineOpDecrypted } from '@/lib/offlineStore';
+import { getPendingOps, getCachedIncidents, maybePruneCaches, type OfflineOpDecrypted } from '@/lib/offlineStore';
 import { type SyncedIncidentSummary } from '@/lib/useAutoSync';
 import {
   REGIONAL_INCIDENT_GENERAL_CATEGORIES,
@@ -287,6 +287,15 @@ export default function RegionalDashboardPage() {
   useEffect(() => {
     const handler = (e: Event) => {
       const { incidents } = (e as CustomEvent<{ incidents: SyncedIncidentSummary[] }>).detail;
+      // Task 10: sync-completion eviction trigger. Self-gated by an internal
+      // 1h timestamp so this is cheap to call on every sync event. Wrapped
+      // in try/catch + void — eviction is best-effort and must never block
+      // the sync-complete handler's UI refresh.
+      try {
+        void maybePruneCaches();
+      } catch {
+        // noop
+      }
       if (incidents.length > 0) {
         setSyncNotification(incidents);
         loadIncidents();

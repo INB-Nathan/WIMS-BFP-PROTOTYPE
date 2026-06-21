@@ -690,6 +690,117 @@ export async function evictExpiredReferenceData(): Promise<number> {
     }
 }
 
+// ─── Eviction triggers (Task 10) ──────────────────────────────────────
+//
+// Two best-effort helpers wire `evictExpiredReadCache` + `evictExpiredReferenceData`
+// into the four user-facing triggers called out in the offline-cache-every-role
+// spec (boot guard, every-25-writes, sync completion, user-switch):
+//
+//   - `incrementCacheWriteCount()` is called after every successful cache write
+//     in `offlineBase.offlineAware` / `offlineAwareReference`. Once the counter
+//     crosses the threshold, both eviction passes run and the counter resets.
+//
+//   - `maybePruneCaches()` is called on app boot (LayoutShell mount) and after
+//     every successful sync-completion event. A localStorage timestamp
+//     (`wims:cachePruneAt`) ensures the boot guard fires at most once per hour.
+//
+// The user-switch trigger is handled inside `setActiveOfflineUser` (T1) via
+// `clearReferenceDataForUser` — see the pushback-P1 paragraph there.
+//
+// All failures are caught and warned — eviction must never break the caller.
+
+const CACHE_WRITE_COUNT_LS_KEY = 'wims:cacheWriteCount';
+const CACHE_PRUNE_AT_LS_KEY = 'wims:cachePruneAt';
+const CACHE_WRITE_PRUNE_THRESHOLD = 25;
+const CACHE_PRUNE_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+
+function safeLocalStorageGet(key: string): string | null {
+    try {
+        return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+    } catch {
+        return null; // private mode / disabled storage
+    }
+}
+
+function safeLocalStorageSet(key: string, value: string): void {
+    try {
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(key, value);
+        }
+    } catch {
+        // private mode / disabled storage — best-effort, never block
+    }
+}
+
+/**
+ * Best-effort wrapper around the read+reference eviction pair. Each call is
+ * isolated in its own try/catch so one failing store cannot prevent the other
+ * from running. Failures are warned (dev only) but never re-thrown.
+ */
+async function runBothEvictions(): Promise<void> {
+    try {
+        await evictExpiredReadCache();
+    } catch (err) {
+        if (process.env.NODE_ENV !== 'production') {
+            console.warn('[offlineStore] evictExpiredReadCache (trigger) failed:', err);
+        }
+    }
+    try {
+        await evictExpiredReferenceData();
+    } catch (err) {
+        if (process.env.NODE_ENV !== 'production') {
+            console.warn('[offlineStore] evictExpiredReferenceData (trigger) failed:', err);
+        }
+    }
+}
+
+/**
+ * Increment the write counter (stored at `wims:cacheWriteCount`). On hitting
+ * `CACHE_WRITE_PRUNE_THRESHOLD` (25), reset the counter to 0 and run both
+ * eviction passes best-effort. Called from `offlineBase.offlineAware` and
+ * `offlineAwareReference` after every successful cache write.
+ *
+ * Best-effort: a failing read of the counter or a failing setItem is silently
+ * absorbed (no-op). A failing eviction is caught inside `runBothEvictions`
+ * and does not propagate. The counter is reset to 0 in all cases once the
+ * threshold is reached, so a transient eviction failure does not re-fire the
+ * prune on the very next write.
+ */
+export async function incrementCacheWriteCount(): Promise<void> {
+    const raw = safeLocalStorageGet(CACHE_WRITE_COUNT_LS_KEY);
+    const current = raw == null ? 0 : Number.parseInt(raw, 10);
+    const next = (Number.isFinite(current) ? current : 0) + 1;
+    safeLocalStorageSet(CACHE_WRITE_COUNT_LS_KEY, String(next));
+
+    if (next >= CACHE_WRITE_PRUNE_THRESHOLD) {
+        // Reset BEFORE the eviction call so a slow or failing eviction does not
+        // cause the next write to also be at 25. Best-effort set.
+        safeLocalStorageSet(CACHE_WRITE_COUNT_LS_KEY, '0');
+        await runBothEvictions();
+    }
+}
+
+/**
+ * Boot-guard / sync-completion prune. Reads `wims:cachePruneAt` (default 0).
+ * If the timestamp is older than `CACHE_PRUNE_INTERVAL_MS` (1h) — or absent —
+ * run both eviction passes best-effort and stamp the current time.
+ *
+ * Best-effort: a missing/invalid timestamp is treated as "never pruned". A
+ * failing eviction does not propagate (caught in `runBothEvictions`).
+ */
+export async function maybePruneCaches(): Promise<void> {
+    const raw = safeLocalStorageGet(CACHE_PRUNE_AT_LS_KEY);
+    const last = raw == null ? 0 : Number.parseInt(raw, 10);
+    const lastValid = Number.isFinite(last) ? last : 0;
+
+    if (Date.now() - lastValid <= CACHE_PRUNE_INTERVAL_MS) {
+        return;
+    }
+
+    safeLocalStorageSet(CACHE_PRUNE_AT_LS_KEY, String(Date.now()));
+    await runBothEvictions();
+}
+
 // ─── Offline Operations API (offlineOps) — Phase 1B+ ─────────────────────
 
 /**
