@@ -183,8 +183,8 @@ class TestBundleSensitiveDetails:
             BundleSensitiveDetails(caller_name="x" * 501)
 
     def test_long_string_rejects_too_long(self):
-        with pytest.raises(ValidationError, match="max length of 2000"):
-            BundleSensitiveDetails(narrative_report="x" * 2001)
+        with pytest.raises(ValidationError, match="max length of 10000"):
+            BundleSensitiveDetails(narrative_report="x" * 10001)
 
     def test_optional_fields_accept_none(self):
         d = BundleSensitiveDetails(

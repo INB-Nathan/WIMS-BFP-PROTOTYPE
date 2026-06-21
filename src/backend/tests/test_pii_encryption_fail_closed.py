@@ -151,6 +151,7 @@ class TestUploadBundlePIIFailClosed:
         request.headers = {}
         body_obj = IncidentBundleCreate(**body)
         res = upload_incident_bundle(
+            request,
             body_obj,
             {"user_id": "11111111-1111-4111-8111-111111111111", "role": "REGIONAL_ENCODER"},
             db,
@@ -192,6 +193,7 @@ class TestUploadBundlePIIFailClosed:
         request.headers = {}
         body_obj = IncidentBundleCreate(**body)
         res = upload_incident_bundle(
+            request,
             body_obj,
             {"user_id": "11111111-1111-4111-8111-111111111111", "role": "REGIONAL_ENCODER"},
             db,
@@ -248,6 +250,7 @@ class TestUploadBundlePIIFailClosed:
         request.headers = {}
         body_obj = IncidentBundleCreate(**body)
         res = upload_incident_bundle(
+            request,
             body_obj,
             {"user_id": "11111111-1111-4111-8111-111111111111", "role": "REGIONAL_ENCODER"},
             db,

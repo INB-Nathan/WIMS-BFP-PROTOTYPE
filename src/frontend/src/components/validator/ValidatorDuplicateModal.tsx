@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { apiFetch } from "@/lib/api";
 import { UpdateRequestDiffPanel } from "@/components/UpdateRequestDiffPanel";
 import { IncidentRevisionHistory } from "@/components/IncidentRevisionHistory";
@@ -26,6 +26,16 @@ export function ValidatorDuplicateModal({
   const [showDupHistory, setShowDupHistory] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [matchedStatus, setMatchedStatus] = useState<string | null>(null);
+
+  // Fetch the matched incident's status to show contextual warnings.
+  useEffect(() => {
+    apiFetch<{ verification_status?: string }>(`/regional/incidents/${matchedId}`)
+      .then((data) => setMatchedStatus(data.verification_status ?? null))
+      .catch(() => { /* status unknown, no warning shown */ });
+  }, [matchedId]);
+
+  const matchedIsPending = matchedStatus === 'PENDING' || matchedStatus === 'PENDING_VALIDATION';
 
   const handleReject = () => {
     onClose();
@@ -83,6 +93,17 @@ export function ValidatorDuplicateModal({
             </div>
           )}
         </div>
+        {matchedIsPending && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 mb-3">
+            <p className="text-sm font-semibold text-amber-800">Both incidents are currently Pending</p>
+            <p className="text-xs text-amber-700 mt-1">
+              <strong>Replace Existing</strong> will archive incident #{matchedId} (REPLACED) and immediately{' '}
+              <strong>verify</strong> incident #{target.incident_id}. Use this only if #{target.incident_id}{' '}
+              is the authoritative record. If you are unsure, choose <strong>Reject</strong> or{' '}
+              <strong>Verify as New</strong> instead.
+            </p>
+          </div>
+        )}
         {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
         <div className="flex flex-wrap gap-2 justify-end mt-4">
           <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-40">Cancel</button>

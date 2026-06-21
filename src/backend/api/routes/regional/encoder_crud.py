@@ -7,7 +7,7 @@ import uuid as _uuid_mod
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -27,6 +27,7 @@ from services.regional_incidents.helpers import (
     insert_incident_verification_history as _insert_incident_verification_history,
     normalize_general_category as _normalize_general_category,
 )
+from utils.audit import get_client_ip
 from utils.crypto import SecurityProviderError
 from schemas.regional import IncidentCreateRequest, IncidentUpdateRequest
 
@@ -42,6 +43,7 @@ from . import _regional_lifecycle_dependencies  # noqa: E402
 
 @router.post("/incidents", status_code=201)
 def create_incident(
+    request: Request,
     body: IncidentCreateRequest,
     user: Annotated[dict, Depends(get_regional_encoder)],
     db: Annotated[Session, Depends(get_db_with_rls)],
@@ -298,6 +300,7 @@ def create_incident(
         new_status="DRAFT",
         notes="Encoder created new draft",
         action_label="CREATED_DRAFT",
+        request_ip=get_client_ip(request),
     )
 
     db.commit()
@@ -318,6 +321,7 @@ def create_incident(
 
 @router.put("/incidents/{incident_id}")
 def update_incident(
+    request: Request,
     incident_id: int,
     body: IncidentUpdateRequest,
     user: Annotated[dict, Depends(get_regional_encoder)],
@@ -391,6 +395,7 @@ def update_incident(
             new_status=incident[1],
             notes="Encoder edit — fields updated",
             action_label="EDITED",
+            request_ip=get_client_ip(request),
         )
         db.commit()
     except Exception:
@@ -413,6 +418,7 @@ def update_incident(
 
 @router.post("/incidents/{incident_id}/force-replace")
 def force_replace_incident(
+    request: Request,
     incident_id: int,
     body: IncidentUpdateRequest,
     user: Annotated[dict, Depends(get_regional_encoder)],
@@ -431,7 +437,7 @@ def force_replace_incident(
         incident_id=incident_id,
         body=body,
         encoder_id=encoder_id,
-        deps=_regional_lifecycle_dependencies(),
+        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
     )
     logger.info("Force-replaced PENDING incident %s by encoder %s", incident_id, encoder_id)
     return result
@@ -439,6 +445,7 @@ def force_replace_incident(
 
 @router.patch("/incidents/draft/{incident_id}")
 def update_draft(
+    request: Request,
     incident_id: int,
     body: IncidentUpdateRequest,
     user: Annotated[dict, Depends(get_regional_encoder)],
@@ -499,6 +506,7 @@ def update_draft(
             new_status="DRAFT",
             notes="Encoder updated draft fields",
             action_label="EDITED",
+            request_ip=get_client_ip(request),
         )
         db.commit()
     except Exception:
@@ -511,6 +519,7 @@ def update_draft(
 
 @router.delete("/incidents/draft/{incident_id}", status_code=200)
 def delete_draft(
+    request: Request,
     incident_id: int,
     user: Annotated[dict, Depends(get_regional_encoder)],
     db: Annotated[Session, Depends(get_db_with_rls)],
@@ -521,7 +530,7 @@ def delete_draft(
         db,
         incident_id=incident_id,
         encoder_id=encoder_id,
-        deps=_regional_lifecycle_dependencies(),
+        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
         draft_only=True,
     )
     logger.info("Draft deleted (archived) incident %s by encoder %s", incident_id, encoder_id)
@@ -530,6 +539,7 @@ def delete_draft(
 
 @router.patch("/incidents/{incident_id}/unpend")
 def unpend_incident(
+    request: Request,
     incident_id: int,
     user: Annotated[dict, Depends(get_regional_encoder)],
     db: Annotated[Session, Depends(get_db_with_rls)],
@@ -540,7 +550,7 @@ def unpend_incident(
         db,
         incident_id=incident_id,
         encoder_id=encoder_id,
-        deps=_regional_lifecycle_dependencies(),
+        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
     )
     logger.info("Unpended incident %s by encoder %s", incident_id, encoder_id)
     return result
@@ -548,6 +558,7 @@ def unpend_incident(
 
 @router.delete("/incidents/{incident_id}")
 def delete_incident(
+    request: Request,
     incident_id: int,
     user: Annotated[dict, Depends(get_regional_encoder)],
     db: Annotated[Session, Depends(get_db_with_rls)],
@@ -558,7 +569,7 @@ def delete_incident(
         db,
         incident_id=incident_id,
         encoder_id=encoder_id,
-        deps=_regional_lifecycle_dependencies(),
+        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
     )
     logger.info("Soft-deleted incident %s by encoder %s", incident_id, encoder_id)
     return result
@@ -624,6 +635,7 @@ def encoder_archive_incident(
 
 @router.patch("/incidents/{incident_id}/unarchive", status_code=200)
 def encoder_unarchive_incident(
+    request: Request,
     incident_id: int,
     user: Annotated[dict, Depends(get_regional_encoder)],
     db: Annotated[Session, Depends(get_db_with_rls)],
@@ -653,12 +665,13 @@ def encoder_unarchive_incident(
         db,
         incident_id=incident_id,
         actor_user_id=encoder_id,
-        deps=_regional_lifecycle_dependencies(),
+        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
     )
 
 
 @router.patch("/incidents/{incident_id}/submit", status_code=200)
 def submit_incident_for_review(
+    request: Request,
     incident_id: int,
     user: Annotated[dict, Depends(get_regional_encoder)],
     db: Annotated[Session, Depends(get_db_with_rls)],
@@ -684,7 +697,7 @@ def submit_incident_for_review(
         encoder_id=encoder_id,
         ack_duplicate=ack_duplicate,
         force=force,
-        deps=_regional_lifecycle_dependencies(),
+        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
     )
     logger.info(
         "Encoder user_id=%s submitted incident_id=%s for review",

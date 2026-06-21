@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,7 @@ from services.regional_incidents.helpers import (
     _ivh_uses_target_columns as _incident_verification_history_uses_target_columns,
     verify_incident_hash_chain as _verify_incident_hash_chain,
 )
+from utils.audit import log_system_audit
 from utils.crypto import SecurityProviderError
 
 logger = logging.getLogger("wims.regional")
@@ -524,17 +525,62 @@ def get_encoder_audit_log(
         else ""
     )
 
-    rows = db.execute(
-        text(
-            f"""
+    login_where_clauses = [
+        "sat.user_id = CAST(:encoder_id AS uuid)",
+        "sat.action_type = 'USER_LOGIN'",
+    ]
+    if date_from:
+        login_where_clauses.append("sat.timestamp >= CAST(:date_from AS timestamptz)")
+    if date_to:
+        login_where_clauses.append("sat.timestamp <= CAST(:date_to AS timestamptz)")
+    if action:
+        login_where_clauses.append(":action IN ('LOGIN', 'USER_LOGIN')")
+    if city_municipality:
+        # Login events are not incident-scoped and have no city; a city filter should
+        # not leak unrelated login rows into the incident activity result set.
+        login_where_clauses.append("FALSE")
+    login_where_sql = " AND ".join(login_where_clauses)
+
+    activity_cte_sql = f"""
+        WITH activity_items AS (
             SELECT
-                ivh.history_id, ivh.target_id,
-                ivh.action_label, ivh.previous_status, ivh.new_status,
-                ivh.notes, ivh.action_timestamp
+                ivh.history_id::text AS history_id,
+                ivh.target_id AS incident_id,
+                ivh.action_label::text AS action_label,
+                ivh.previous_status::text AS previous_status,
+                ivh.new_status::text AS new_status,
+                ivh.notes::text AS notes,
+                ivh.action_timestamp AS action_timestamp,
+                ivh.ip_address::text AS ip_address
             FROM wims.incident_verification_history ivh
             {nd_join}
             WHERE {where_sql}
-            ORDER BY ivh.action_timestamp DESC
+
+            UNION ALL
+
+            SELECT
+                ('login_' || sat.audit_id::text) AS history_id,
+                NULL::integer AS incident_id,
+                'LOGIN' AS action_label,
+                NULL::text AS previous_status,
+                NULL::text AS new_status,
+                NULL::text AS notes,
+                sat.timestamp AS action_timestamp,
+                sat.ip_address::text AS ip_address
+            FROM wims.system_audit_trails sat
+            WHERE {login_where_sql}
+        )
+    """
+
+    rows = db.execute(
+        text(
+            f"""
+            {activity_cte_sql}
+            SELECT
+                history_id, incident_id, action_label, previous_status, new_status,
+                notes, action_timestamp, ip_address
+            FROM activity_items
+            ORDER BY action_timestamp DESC
             LIMIT :limit OFFSET :offset
             """
         ),
@@ -545,10 +591,8 @@ def get_encoder_audit_log(
         db.execute(
             text(
                 f"""
-                SELECT COUNT(*)
-                FROM wims.incident_verification_history ivh
-                {nd_join}
-                WHERE {where_sql}
+                {activity_cte_sql}
+                SELECT COUNT(*) FROM activity_items
                 """
             ),
             params,
@@ -566,6 +610,7 @@ def get_encoder_audit_log(
                 "new_status": r[4],
                 "notes": r[5],
                 "action_timestamp": r[6].isoformat() if r[6] else None,
+                "ip_address": r[7],
             }
             for r in rows
         ],
@@ -573,3 +618,22 @@ def get_encoder_audit_log(
         "limit": limit,
         "offset": offset,
     }
+
+
+@router.post("/login-event", status_code=200)
+def record_login_event(
+    request: Request,
+    user: Annotated[dict, Depends(get_regional_encoder)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Record a user login event in the system audit trail for the activity log."""
+    log_system_audit(
+        db=db,
+        user_id=user["user_id"],
+        action_type="USER_LOGIN",
+        table_affected="auth",
+        record_id=None,
+        request=request,
+    )
+    db.commit()
+    return {"status": "logged"}

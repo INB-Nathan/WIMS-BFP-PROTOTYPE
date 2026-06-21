@@ -62,7 +62,7 @@ Source of truth: `src/backend/main.py` and `src/backend/api/routes/*.py`
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| POST | `/api/regional/afor/import` | `get_regional_encoder` | Uploads AFOR `.xlsx/.xls/.csv`, detects template kind (`STRUCTURAL_AFOR` or `WILDLAND_AFOR`), returns preview rows plus `form_kind` and `requires_location` (typically `true` when the file does not supply reliable WGS84 coordinates). CSV path supports official structural layout or flat tabular structural rows only. |
+| POST | `/api/regional/afor/import` | `get_regional_encoder` | Uploads structural AFOR `.xlsx/.xls/.csv`, returns preview rows plus `form_kind` and `requires_location` (typically `true` when the file does not supply reliable WGS84 coordinates). `WILDLAND_AFOR` files are rejected because the dedicated wildland AFOR import/manual workflow is deprecated; wildland remains a standard incident category/sub-category. CSV path supports official structural layout or flat tabular structural rows only. |
 | POST | `/api/regional/afor/commit` | `get_regional_encoder` | Commits preview rows: structural → `fire_incidents` + structural detail tables; wildland → `fire_incidents` + `wims.incident_wildland_afor`. Body: `form_kind`, `rows`, **`latitude` and `longitude` (JSON numbers, WGS84 / SRID 4326, required)** — PostGIS stores `POINT(longitude latitude)`; do not confuse with GeoJSON `[lat, lon]`. Optional `wildland_row_source` (`MANUAL` vs `AFOR_IMPORT`). Missing or invalid coordinates return **400** with `detail.code` **`AFOR_WGS84_INVALID`**. |
 | GET | `/api/regional/incidents` | `get_regional_encoder` | Lists incidents scoped to assigned region. Query: `limit`, `offset`, optional `category` (matches `incident_nonsensitive_details.general_category`), optional `status` (matches `fire_incidents.verification_status`). Response includes `items`, `total`, `limit`, `offset`. |
 | GET | `/api/regional/incidents/{incident_id}` | `get_regional_encoder` | Fetches single incident detail scoped to assigned region; JSON includes top-level metadata plus `nonsensitive` and `sensitive` row objects. |
@@ -113,7 +113,7 @@ Source: `src/frontend/src/app/`
 | `/incidents/new` | Map-assisted new incident submission route for authenticated users. |
 | `/incidents/[id]` | Incident detail page. |
 | `/afor/import` | Regional AFOR file upload: parses file, shows `form_kind` (structural vs wildland), preview table, commit; links to structural and wildland `.xlsx` templates under `/templates/`. |
-| `/afor/create` | Manual AFOR entry: toggle structural (`IncidentForm`) vs wildland (`WildlandAforManualForm`); can load a preview row from import via `sessionStorage` (`temp_afor_review`, `temp_afor_form_kind`). |
+| `/afor/create` | Manual AFOR entry: structural AFOR only (`IncidentForm`); can load a preview row from import via `sessionStorage` (`temp_afor_review`). |
 | `/admin` | Redirect route to system admin page. |
 | `/admin/system` | SYSTEM_ADMIN operations hub (users, security logs, audit logs, AI analyze action). |
 

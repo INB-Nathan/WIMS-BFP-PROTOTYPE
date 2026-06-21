@@ -431,7 +431,7 @@ noise. The recheck now uses a self-scheduling timeout with **exponential backoff
 - `MapPickerInner.tsx`: Marker icons now from `leaflet/dist/images/` (bundled by Next.js, cached by SW); offline amber banner overlay
 - `offlineStore.ts`: Added `getOfflineOpByServerId` for offline detail reconstruction of synced incidents
 - `offlineRegional.ts`: Added `offlineOps` fallback in detail fetch — reconstructs `RegionalIncidentDetailResponse` from create payload when `cachedIncidents` has no entry
-- `dashboard/regional/layout.tsx`: Eager-imports `WildlandAforManualForm` in addition to `IncidentForm`
+- `dashboard/regional/layout.tsx`: Eager-imports `IncidentForm` so `/afor/create` succeeds offline
 
 ### Security / correctness fixes (post-review)
 - `main.py`: Removed hardcoded `wimsapp` DB credential; password now derived from `DATABASE_URL` env var (or explicit `WIMS_APP_USER_PASSWORD`)

@@ -45,10 +45,20 @@ def _fi_has_resubmitted_column(db: Session) -> bool:
 _fi_resubmitted_col_exists: bool | None = None
 
 
-def _regional_lifecycle_dependencies() -> RegionalIncidentLifecycleDependencies:
+def _regional_lifecycle_dependencies(
+    request_ip: str | None = None,
+) -> RegionalIncidentLifecycleDependencies:
     """Build the lifecycle dependency bundle shared by encoder and validator flows."""
+    if request_ip:
+
+        def _ivh_with_ip(db, **kwargs):  # type: ignore[no-untyped-def]
+            return _insert_incident_verification_history(db, request_ip=request_ip, **kwargs)
+
+        ivh_callable = _ivh_with_ip
+    else:
+        ivh_callable = _insert_incident_verification_history
     return RegionalIncidentLifecycleDependencies(
-        insert_incident_verification_history=_insert_incident_verification_history,
+        insert_incident_verification_history=ivh_callable,
         apply_incident_field_updates=_apply_incident_field_updates,
         generate_reference_number=_generate_reference_number,
     )

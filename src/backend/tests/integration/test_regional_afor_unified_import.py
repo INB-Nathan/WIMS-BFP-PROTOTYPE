@@ -229,7 +229,7 @@ def test_regional_import_preview_structural_form_kind(
     assert data.get("requires_location") is True
 
 
-def test_regional_import_preview_wildland_form_kind(
+def test_regional_import_rejects_deprecated_wildland_afor(
     client_regional_encoder: TestClient,
 ):
     response = client_regional_encoder.post(
@@ -238,92 +238,19 @@ def test_regional_import_preview_wildland_form_kind(
             "file": (
                 "wild.xlsx",
                 _build_wildland_afor_xlsx_bytes(),
-                "application/octet-stream",
-            )
-        },
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert data.get("form_kind") == "WILDLAND_AFOR"
-    assert data.get("requires_location") is True
-
-
-def test_regional_import_ambiguous_returns_400(client_regional_encoder: TestClient):
-    response = client_regional_encoder.post(
-        "/api/regional/afor/import",
-        files={
-            "file": (
-                "bad.xlsx",
-                _build_ambiguous_xlsx_bytes(),
                 "application/octet-stream",
             )
         },
     )
     assert response.status_code == 400
     detail = response.json().get("detail", "")
-    assert "could not determine AFOR type" in detail
-    assert "template" in detail.lower()
+    assert "Wildland-specific AFOR import is deprecated" in detail
 
 
-def test_commit_wildland_persists_incident_wildland_afor(
+def test_commit_rejects_deprecated_wildland_afor(
     require_wildland_schema,
     client_regional_encoder: TestClient,
-    db_session: Session,
 ):
-    prev = client_regional_encoder.post(
-        "/api/regional/afor/import",
-        files={
-            "file": (
-                "wild.xlsx",
-                _build_wildland_afor_xlsx_bytes(),
-                "application/octet-stream",
-            )
-        },
-    )
-    assert prev.status_code == 200
-    preview = prev.json()
-    assert preview["form_kind"] == "WILDLAND_AFOR"
-    rows = [r["data"] for r in preview["rows"] if r["status"] == "VALID"]
-    assert rows
-
-    commit = client_regional_encoder.post(
-        "/api/regional/afor/commit",
-        json={
-            "form_kind": "WILDLAND_AFOR",
-            "rows": rows,
-            **_commit_coords_body(),
-        },
-    )
-    assert commit.status_code == 200, commit.text
-    incident_ids = commit.json()["incident_ids"]
-    assert incident_ids
-
-    lon, lat = _fetch_incident_wgs84(db_session, incident_ids[0])
-    assert abs(lon - SAMPLE_LON) < 1e-5
-    assert abs(lat - SAMPLE_LAT) < 1e-5
-    assert not (abs(lon - 121.0) < 1e-9 and abs(lat - 14.5) < 1e-9)
-
-    src = db_session.execute(
-        text(
-            """
-            SELECT iwa.source, iwa.wildland_fire_type
-            FROM wims.incident_wildland_afor iwa
-            WHERE iwa.incident_id = :iid
-            """
-        ),
-        {"iid": incident_ids[0]},
-    ).fetchone()
-    assert src is not None
-    assert src[0] == "AFOR_IMPORT"
-    assert src[1] is not None
-
-
-def test_commit_wildland_manual_source_sets_manual(
-    require_wildland_schema,
-    client_regional_encoder: TestClient,
-    db_session: Session,
-):
-    """Manual wildland entry via commit sets incident_wildland_afor.source = MANUAL."""
     row = {
         "_form_kind": "WILDLAND_AFOR",
         "_city_text": "",
@@ -334,142 +261,13 @@ def test_commit_wildland_manual_source_sets_manual(
             "wildland_fire_type": "brush fire",
         },
     }
-    commit = client_regional_encoder.post(
-        "/api/regional/afor/commit",
-        json={
-            "form_kind": "WILDLAND_AFOR",
-            "wildland_row_source": "MANUAL",
-            "rows": [row],
-            **_commit_coords_body(),
-        },
-    )
-    assert commit.status_code == 200, commit.text
-    incident_ids = commit.json()["incident_ids"]
-    assert incident_ids
-
-    lon, lat = _fetch_incident_wgs84(db_session, incident_ids[0])
-    assert abs(lon - SAMPLE_LON) < 1e-5
-    assert abs(lat - SAMPLE_LAT) < 1e-5
-
-    src = db_session.execute(
-        text(
-            """
-            SELECT iwa.source
-            FROM wims.incident_wildland_afor iwa
-            WHERE iwa.incident_id = :iid
-            """
-        ),
-        {"iid": incident_ids[0]},
-    ).fetchone()
-    assert src is not None
-    assert src[0] == "MANUAL"
-
-
-def test_commit_wildland_invalid_payload_returns_400(
-    require_wildland_schema,
-    client_regional_encoder: TestClient,
-):
-    """Commit rejects wildland rows that fail parse_wildland_afor_report_data (no minimum content)."""
-    row = {
-        "_form_kind": "WILDLAND_AFOR",
-        "_city_text": "",
-        "region_id": 1,
-        "wildland": {
-            "primary_action_taken": "",
-            "engine_dispatched": "",
-            "narration": "",
-            "call_received_at": None,
-            "wildland_fire_type": None,
-        },
-    }
     res = client_regional_encoder.post(
         "/api/regional/afor/commit",
         json={"form_kind": "WILDLAND_AFOR", "rows": [row], **_commit_coords_body()},
     )
     assert res.status_code == 400
     detail = res.json().get("detail", "")
-    assert isinstance(detail, str)
-    assert "Missing wildland content" in detail or "wildland" in detail.lower()
-
-
-def test_commit_missing_coordinates_returns_400(
-    require_wildland_schema,
-    client_regional_encoder: TestClient,
-):
-    prev = client_regional_encoder.post(
-        "/api/regional/afor/import",
-        files={
-            "file": (
-                "wild.xlsx",
-                _build_wildland_afor_xlsx_bytes(),
-                "application/octet-stream",
-            )
-        },
-    )
-    assert prev.status_code == 200
-    rows = [r["data"] for r in prev.json()["rows"] if r["status"] == "VALID"]
-    assert rows
-    res = client_regional_encoder.post(
-        "/api/regional/afor/commit",
-        json={"form_kind": "WILDLAND_AFOR", "rows": rows},
-    )
-    _assert_wgs84_error(res)
-
-
-def test_commit_invalid_latitude_returns_400(
-    require_wildland_schema,
-    client_regional_encoder: TestClient,
-):
-    prev = client_regional_encoder.post(
-        "/api/regional/afor/import",
-        files={
-            "file": (
-                "wild.xlsx",
-                _build_wildland_afor_xlsx_bytes(),
-                "application/octet-stream",
-            )
-        },
-    )
-    assert prev.status_code == 200
-    rows = [r["data"] for r in prev.json()["rows"] if r["status"] == "VALID"]
-    res = client_regional_encoder.post(
-        "/api/regional/afor/commit",
-        json={
-            "form_kind": "WILDLAND_AFOR",
-            "rows": rows,
-            "latitude": 91.0,
-            "longitude": 121.0,
-        },
-    )
-    _assert_wgs84_error(res)
-
-
-def test_commit_invalid_longitude_returns_400(
-    require_wildland_schema,
-    client_regional_encoder: TestClient,
-):
-    prev = client_regional_encoder.post(
-        "/api/regional/afor/import",
-        files={
-            "file": (
-                "wild.xlsx",
-                _build_wildland_afor_xlsx_bytes(),
-                "application/octet-stream",
-            )
-        },
-    )
-    assert prev.status_code == 200
-    rows = [r["data"] for r in prev.json()["rows"] if r["status"] == "VALID"]
-    res = client_regional_encoder.post(
-        "/api/regional/afor/commit",
-        json={
-            "form_kind": "WILDLAND_AFOR",
-            "rows": rows,
-            "latitude": 14.5,
-            "longitude": 200.0,
-        },
-    )
-    _assert_wgs84_error(res)
+    assert "Wildland-specific AFOR commit is deprecated" in detail
 
 
 def test_commit_structural_persists_wgs84_coordinates(
@@ -528,11 +326,5 @@ def test_commit_rejects_form_kind_mismatch(
             )
         },
     )
-    assert prev.status_code == 200
-    rows = [r["data"] for r in prev.json()["rows"] if r["status"] == "VALID"]
-
-    res = client_regional_encoder.post(
-        "/api/regional/afor/commit",
-        json={"form_kind": "STRUCTURAL_AFOR", "rows": rows, **_commit_coords_body()},
-    )
-    assert res.status_code == 400
+    assert prev.status_code == 400
+    assert "Wildland-specific AFOR import is deprecated" in prev.json().get("detail", "")

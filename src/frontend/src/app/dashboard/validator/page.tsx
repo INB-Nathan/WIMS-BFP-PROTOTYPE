@@ -108,6 +108,21 @@ export default function ValidatorDashboard() {
   const specificDateDraftIsValid = isDateOnly(specificDateDraft);
 
   const [statsDateFilter, setStatsDateFilter] = useState<StatsDateFilterValue>("week" as StatsDateFilterValue);
+
+  // Stats visibility — hidden by default each login; persisted across page navigations.
+  const [showStats, setShowStats] = useState<boolean>(() => {
+    try {
+      const stored = sessionStorage.getItem('wims:validator_show_stats');
+      return stored === 'true';
+    } catch { return false; }
+  });
+  const toggleStats = () => {
+    setShowStats((prev) => {
+      const next = !prev;
+      try { sessionStorage.setItem('wims:validator_show_stats', String(next)); } catch {}
+      return next;
+    });
+  };
   const statsDateBounds = useMemo(
     () => getDateBounds(statsDateFilter, ""),
     [statsDateFilter],
@@ -189,6 +204,10 @@ export default function ValidatorDashboard() {
   const selectStatusFilter = useCallback((nextStatus: string) => {
     updateFiltersWithoutScrollShift(() => {
       setStatusFilter(nextStatus);
+      const autoAllTime = nextStatus === STATUS_FILTER_QUEUE || nextStatus === "REJECTED";
+      setDateFilter(autoAllTime ? "all" : "today");
+      setSpecificDate("");
+      setSpecificDateDraft("");
       setPage(0);
     });
   }, [updateFiltersWithoutScrollShift]);
@@ -663,6 +682,39 @@ export default function ValidatorDashboard() {
         onBulkApprove={() => setShowBulkConfirmModal(true)}
       />
 
+      {/* ── Stats toggle + date filter chips ── */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          onClick={toggleStats}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors"
+          style={showStats
+            ? { backgroundColor: 'var(--bfp-maroon)', color: '#fff', borderColor: 'var(--bfp-maroon)' }
+            : { backgroundColor: 'var(--card-bg)', color: 'var(--text-secondary)', borderColor: 'var(--border-color)' }
+          }
+        >
+          {showStats ? '▲ Hide Stats' : '▼ Show Stats'}
+        </button>
+        {showStats && <StatsDateFilterChips value={statsDateFilter} onChange={setStatsDateFilter} />}
+      </div>
+
+      {/* ── Incident stats cards ── */}
+      {showStats && incidentCards.length > 0 && (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+          {incidentCards.map((card) => (
+            <StatCard key={card.key} card={card} />
+          ))}
+        </div>
+      )}
+
+      {/* ── Affected count cards ── */}
+      {showStats && affectedCards.length > 0 && (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+          {affectedCards.map((card) => (
+            <StatCard key={card.key} card={card} />
+          ))}
+        </div>
+      )}
+
       {/* ── Customizable widget grid ── */}
       <WidgetToolbar
         role="NATIONAL_VALIDATOR"
@@ -686,27 +738,6 @@ export default function ValidatorDashboard() {
       )}
       {deleteError && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">Delete failed: {deleteError}</div>
-      )}
-
-      {/* ── Stats date filter chips ── */}
-      <StatsDateFilterChips value={statsDateFilter} onChange={setStatsDateFilter} />
-
-      {/* ── Incident stats cards ── */}
-      {incidentCards.length > 0 && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          {incidentCards.map((card) => (
-            <StatCard key={card.key} card={card} />
-          ))}
-        </div>
-      )}
-
-      {/* ── Affected count cards ── */}
-      {affectedCards.length > 0 && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          {affectedCards.map((card) => (
-            <StatCard key={card.key} card={card} />
-          ))}
-        </div>
       )}
 
       {/* ── Incident table section ── */}

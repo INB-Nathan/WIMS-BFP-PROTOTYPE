@@ -104,11 +104,6 @@ status: draft
 **Renders:** Sticky header. Left: hamburger (mobile only), breadcrumb trail from pathname. Right: PST clock (updates every second), `NetworkStatusIndicator`, user section with role badge (color-coded: red=ADMIN, amber=ADMIN, blue=VALIDATOR, purple=ANALYST, green=ENCODER, gray=default), logout button (red hover, disabled during loggingOut).
 **Helpers:** `getBreadcrumbs(pathname)` using labelMap; `getRoleBadgeColor(role)` returns bg/text color pairs.
 
-### `WildlandAforManualForm.tsx`
+### Deprecated: dedicated Wildland AFOR manual form
 
-**Props:** `{ initialWildland?, showDebugJson? }`  
-**Purpose:** Comprehensive manual entry form for Wildland AFOR (~927 lines). 11 sections.
-**Renders:** Card with red header. Sections: (1) Location with MapPicker, (2) Dates/Times (4 datetime-local), (3) Caller info, (4) Location description + distance, (5) Response details, (6) Property/Area + wildland type select, (7) Narrative/Problems/Recommendations, (8) Fire Behavior (elevation, flame length, rate of spread), (9) Alarm Status Timeline (dynamic rows, 15 status options), (10) Assistance (dynamic rows), (11) Prepared/Noted by. Submit button with spinner.
-**State:** `state` (30+ fields), loading, error, coordsReady.
-**Helpers:** `wildlandFromInitial()` maps backend object to form state. `buildWildlandPayload()` converts back for API. `isValidWgs84()` validates coordinates.
-**API calls:** `commitAforImport()` with wildlandRowSource='MANUAL'.
+`src/frontend/src/components/WildlandAforManualForm.tsx` has been removed. Wildland remains available as a standard incident category/sub-category in `IncidentForm.tsx`, but there is no separate wildland AFOR manual/import-correction workflow.

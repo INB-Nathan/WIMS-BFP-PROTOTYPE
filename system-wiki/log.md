@@ -1,3 +1,21 @@
+## [2026-06-21] fix | deprecate dedicated wildland AFOR import workflow (PR #443)
+
+- **`src/backend/api/routes/regional/afor.py`:** `POST /api/regional/afor/import` now rejects detected `WILDLAND_AFOR` files with 400, and `POST /api/regional/afor/commit` rejects `form_kind: WILDLAND_AFOR`. Wildland remains available through standard incident category/sub-category fields rather than a dedicated wildland AFOR import/manual workflow.
+- **`src/frontend/src/app/afor/import/page.tsx`:** Removed the wildland template download and wildland-specific offline/commit messaging from the AFOR import UI.
+- **`src/backend/tests/integration/test_regional_afor_unified_import.py`:** Replaced wildland import/commit persistence expectations with rejection tests.
+- **Docs/wiki:** Updated API/PR notes and regional/frontend wiki pages to mark the dedicated wildland AFOR workflow deprecated while preserving ordinary wildland category support.
+
+## [2026-06-21] fix | encoder audit-log unified pagination (PR #443)
+
+- **`src/backend/api/routes/regional/encoder.py`:** Replaced independent IVH/login audit queries with a single `activity_items` CTE that `UNION ALL`s incident lifecycle rows and `USER_LOGIN` rows, applies date/action/city filters per source, and performs one final `ORDER BY action_timestamp DESC LIMIT/OFFSET` pagination window plus a matching CTE count. City filters intentionally exclude login-only rows because login events are not incident-scoped.
+- **`src/backend/tests/test_encoder_audit_log_query.py`:** Added a regression test for unified CTE pagination/filter SQL shape.
+- **`system-wiki/subsystems/regional-dashboard.md`:** Updated encoder audit-log behavior notes.
+
+## [2026-06-21] fix | migration 63 startup self-heal wiring (PR #443)
+
+- **`src/backend/main.py`:** Added `63_ivh_ip_address.sql` to `_SQL_FILE_SCHEMA_PATCHES`, documented it in the startup patch list, and applied it from `apply_schema_patches()` after migration 62 so existing persistent Postgres volumes receive `wims.incident_verification_history.ip_address` on backend startup.
+- **`system-wiki/database/schema-overview.md`:** Updated the startup self-heal allowlist and `incident_verification_history` table source notes to include migration 63.
+
 ## [2026-06-21] diagnosis | cluster inspection map renders tinted blue pin instead of red pin
 
 - **Symptom:** Validators opening the triage inspection modal see "a red square on the mark" on the cluster map. Only the triage modal is affected; all other maps in the app use the centralized SVG `divIcon` pattern and render correctly.

@@ -1,10 +1,8 @@
 'use client';
 import { useState, useEffect, Suspense } from 'react';
 import { IncidentForm } from '@/components/IncidentForm';
-import { WildlandAforManualForm } from '@/components/WildlandAforManualForm';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter, useSearchParams } from 'next/navigation';
-import type { AforFormKind } from '@/lib/api';
 
 function AforCreatePage() {
     const { user } = useAuth();
@@ -13,8 +11,6 @@ function AforCreatePage() {
     const searchParams = useSearchParams();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [initialData, setInitialData] = useState<any | null>(null);
-    /** Structural vs wildland when not fixed by import handoff */
-    const [formKind, setFormKind] = useState<AforFormKind>('STRUCTURAL_AFOR');
     const cameFromImport = searchParams.get('from') === 'import';
 
     useEffect(() => {
@@ -23,19 +19,11 @@ function AforCreatePage() {
             router.push('/dashboard');
         }
 
-        const storedKind = sessionStorage.getItem('temp_afor_form_kind') as AforFormKind | null;
-        if (storedKind === 'STRUCTURAL_AFOR' || storedKind === 'WILDLAND_AFOR') {
-            setFormKind(storedKind);
-        }
-
         const stored = sessionStorage.getItem('temp_afor_review');
         if (stored) {
             try {
                 const parsed = JSON.parse(stored);
                 setInitialData(parsed);
-                if (parsed?._form_kind === 'STRUCTURAL_AFOR' || parsed?._form_kind === 'WILDLAND_AFOR') {
-                    setFormKind(parsed._form_kind);
-                }
                 sessionStorage.removeItem('temp_afor_review');
                 sessionStorage.removeItem('temp_afor_form_kind');
             } catch (e) {
@@ -43,8 +31,6 @@ function AforCreatePage() {
             }
         }
     }, [role, router]);
-
-    const showToggle = !initialData;
 
     return (
         <div className="p-6">
@@ -79,67 +65,7 @@ function AforCreatePage() {
                 </div>
             </div>
 
-            {showToggle && (
-                <div className="max-w-4xl mx-auto mb-8">
-                    <p className="text-sm font-medium text-gray-700 mb-2">AFOR type</p>
-                    <div className="inline-flex rounded-lg border border-gray-200 p-1 bg-gray-50">
-                        <button
-                            type="button"
-                            onClick={() => setFormKind('STRUCTURAL_AFOR')}
-                            className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${
-                                formKind === 'STRUCTURAL_AFOR'
-                                    ? 'bg-white shadow text-gray-900'
-                                    : 'text-gray-500 hover:text-gray-800'
-                            }`}
-                        >
-                            Structural
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setFormKind('WILDLAND_AFOR')}
-                            className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${
-                                formKind === 'WILDLAND_AFOR'
-                                    ? 'bg-white shadow text-gray-900'
-                                    : 'text-gray-500 hover:text-gray-800'
-                            }`}
-                        >
-                            Wildland
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {formKind === 'STRUCTURAL_AFOR' && (
-                <IncidentForm initialData={initialData} />
-            )}
-
-            {formKind === 'WILDLAND_AFOR' && (
-                <>
-                    <p className="max-w-4xl mx-auto mb-4 text-sm text-gray-600">
-                        Wildland entries use the same validation as file import. For bulk upload, use{' '}
-                        <a href="/afor/import" className="text-blue-600 hover:underline font-medium">
-                            Regional AFOR Import
-                        </a>
-                        {' · '}
-                        <a
-                            href="/templates/wildland_afor_template.xlsx"
-                            download
-                            className="text-blue-600 hover:underline font-medium"
-                        >
-                            Wildland template (.xlsx)
-                        </a>
-                    </p>
-                    <WildlandAforManualForm
-                        initialWildland={
-                            initialData?.wildland &&
-                            typeof initialData.wildland === 'object'
-                                ? (initialData.wildland as Record<string, unknown>)
-                                : null
-                        }
-                        showDebugJson={false}
-                    />
-                </>
-            )}
+            <IncidentForm initialData={initialData} />
         </div>
     );
 }

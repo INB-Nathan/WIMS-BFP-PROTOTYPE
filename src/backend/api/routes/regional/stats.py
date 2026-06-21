@@ -52,12 +52,16 @@ def get_validator_stats(
         date_params,
     ).fetchall()
 
-    # Pending count is always current (not date-filtered)
+    # Pending count is always current (not date-filtered).
+    # Exclude DMZ/anonymous incidents (encoder_id IS NULL) which never appear
+    # in the validator queue — counting them causes "ghost" pending badges.
     pending_count = (
         db.execute(
             text("""
             SELECT COUNT(*) FROM wims.fire_incidents
-            WHERE verification_status IN ('PENDING', 'PENDING_VALIDATION') AND is_archived = FALSE
+            WHERE verification_status IN ('PENDING', 'PENDING_VALIDATION')
+              AND is_archived = FALSE
+              AND encoder_id IS NOT NULL
             """),
         ).scalar()
         or 0
@@ -68,10 +72,13 @@ def get_validator_stats(
             text(
                 f"""
                 SELECT COUNT(*)
-                FROM wims.incident_wildland_afor iwa
-                JOIN wims.fire_incidents fi ON fi.incident_id = iwa.incident_id
+                FROM wims.fire_incidents fi
                 LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
                 WHERE fi.verification_status = 'VERIFIED' AND fi.is_archived = FALSE
+                  AND (
+                    EXISTS (SELECT 1 FROM wims.incident_wildland_afor iwa WHERE iwa.incident_id = fi.incident_id)
+                    OR nd.general_category = 'WILDLAND'
+                  )
                   {date_clause}
                 """
             ),

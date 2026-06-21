@@ -21,6 +21,7 @@ import { toast as sonnerToast } from 'sonner';
 import dynamic from 'next/dynamic';
 import { UpdateRequestDiffPanel } from '@/components/UpdateRequestDiffPanel';
 import { IncidentDiffPanel } from '@/components/IncidentDiffPanel';
+import { IncidentRevisionHistory } from '@/components/IncidentRevisionHistory';
 import { IncidentConflictMergePanel } from '@/components/IncidentConflictMergePanel';
 import type { Incident } from '@/lib/edgeFunctions';
 import { getShortRegionName } from '@/lib/ph-regions';
@@ -504,6 +505,7 @@ export default function RegionalIncidentDetailPage() {
   const [validatorError, setValidatorError] = useState<string | null>(null);
   const [showAcceptConfirm, setShowAcceptConfirm] = useState(false);
   const [showAcceptConfirmDiff, setShowAcceptConfirmDiff] = useState(false);
+  const [showRevisionHistory, setShowRevisionHistory] = useState(false);
   const [validatorDupMatchedId, setValidatorDupMatchedId] = useState<number | null>(null);
   const dupAutoShownRef = useRef(false);
   const pendingSubmitOnceRef = useRef(false);
@@ -1796,6 +1798,13 @@ export default function RegionalIncidentDetailPage() {
                       </button>
                     </>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => setShowRevisionHistory((v) => !v)}
+                    className="px-4 py-2 text-sm rounded border border-blue-300 text-blue-700 hover:bg-blue-50"
+                  >
+                    {showRevisionHistory ? 'Hide' : 'View'} Revision History
+                  </button>
                   <Link
                     href="/dashboard/validator"
                     className="ml-auto px-4 py-2 text-sm rounded bg-yellow-400 text-gray-900 hover:bg-yellow-500 font-medium"
@@ -1803,6 +1812,11 @@ export default function RegionalIncidentDetailPage() {
                     Back to Dashboard
                   </Link>
                 </div>
+                {showRevisionHistory && (
+                  <div className="mt-2 pt-3 border-t border-gray-100">
+                    <IncidentRevisionHistory incidentId={incidentId} />
+                  </div>
+                )}
                 {validatorAction === 'reject' && (
                   <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
                     <span className="text-sm text-gray-600">

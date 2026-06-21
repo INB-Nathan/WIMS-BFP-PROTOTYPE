@@ -69,7 +69,8 @@ def test_upload_bundle_returns_existing_incident_for_duplicate_client_id(monkeyp
     user = {"user_id": "encoder-uuid", "role": "REGIONAL_ENCODER"}
 
     body_obj = IncidentBundleCreate(**body)
-    response = upload_incident_bundle(body_obj, user, db)
+    request = MagicMock()
+    response = upload_incident_bundle(request, body_obj, user, db)
 
     # Existing incident returned; no duplicate inserted.
     assert response["incident_ids"] == [existing_incident_id]
