@@ -3,16 +3,15 @@
 import { useEffect, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
+import { firePinIcon } from '@/components/map/leafletIcons';
 import type { EmergencyServiceStation } from '@/lib/api';
 
-const StationIcon = L.icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
-    iconRetinaUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
-    shadowUrl: '/leaflet/marker-shadow.png',
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
-    popupAnchor: [1, -34],
-});
+// Marker uses the centralized BFP maroon `firePinIcon` from `leafletIcons.ts`.
+// Replaces the previous hardcoded third-party PNG URL so the icon matches every
+// other map in the app (public fire map, map picker, validator/analyst maps),
+// stays self-hosted (no CSP / raw.githubusercontent.com dependency), and follows
+// the project's `divIcon`-first convention for fire/incident markers.
+const StationIcon = firePinIcon;
 
 function FitBounds({ points }: { points: [number, number][] }) {
     const map = useMap();

@@ -16,6 +16,15 @@
 - **`src/backend/main.py`:** Added `63_ivh_ip_address.sql` to `_SQL_FILE_SCHEMA_PATCHES`, documented it in the startup patch list, and applied it from `apply_schema_patches()` after migration 62 so existing persistent Postgres volumes receive `wims.incident_verification_history.ip_address` on backend startup.
 - **`system-wiki/database/schema-overview.md`:** Updated the startup self-heal allowlist and `incident_verification_history` table source notes to include migration 63.
 
+## [2026-06-21] fix | fire-stations map uses BFP maroon SVG pin (matches other maps)
+
+- **Symptom:** User reported "the mark in https://wimsbfp.tech/fire-stations is not formatted properly as to marks in other maps." The fire-stations page was rendering a third-party red PNG pin from `raw.githubusercontent.com/pointhi/leaflet-color-markers`, while every other map in the app uses the centralized BFP maroon SVG `divIcon` from `src/frontend/src/components/map/leafletIcons.ts`.
+- **`src/frontend/src/app/fire-stations/FireStationsMapInner.tsx`:** Replaced the inline `L.icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/...', ... })` (third-party remote PNG) with `firePinIcon` imported from `@/components/map/leafletIcons.ts`. Side effect: removed a remote CDN dependency (CSP / supply-chain risk) and a `connect-src` hole. The `L` import is kept for `L.latLngBounds` inside `FitBounds`. The per-file `import 'leaflet/dist/leaflet.css'` is also dropped because PR #443 already moved it into `src/frontend/src/app/globals.css` as a global `@import`, so the file no longer needs its own copy.
+- **`src/frontend/src/app/fire-stations/FireStationsMapInner.test.tsx`:** Added `vi.mock('@/components/map/leafletIcons', ...)` mirroring the pattern already in `src/components/__tests__/PublicFireMapInner.test.tsx` so jsdom does not load the real `L.divIcon` factory.
+- **CI preflight (local):** `npx vitest run src/app/fire-stations/FireStationsMapInner.test.tsx src/components/__tests__/PublicFireMapInner.test.tsx src/components/__tests__/NearbyStationsMapInner.test.tsx` → 12 passed / 0 failed. `npx eslint src/app/fire-stations/` → 0 issues. `npx next build` → compiled successfully (0 errors), `/fire-stations` route statically prerendered.
+- **`system-wiki/frontend/route-map.md`:** not updated — `/fire-stations` is not in the route table at all (pre-existing omission, out of scope for this fix).
+- **Cluster map (`src/frontend/src/components/ClusterMapInner.tsx`):** still has the tinted-default-Leaflet-pin bug (separate issue). See prior diagnosis log entry on 2026-06-21.
+
 ## [2026-06-21] diagnosis | cluster inspection map renders tinted blue pin instead of red pin
 
 - **Symptom:** Validators opening the triage inspection modal see "a red square on the mark" on the cluster map. Only the triage modal is affected; all other maps in the app use the centralized SVG `divIcon` pattern and render correctly.

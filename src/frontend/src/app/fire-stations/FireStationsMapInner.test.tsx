@@ -16,6 +16,11 @@ vi.mock('react-leaflet', () => ({
   useMap: () => ({ setView: vi.fn(), fitBounds: vi.fn(), getBounds: vi.fn() }),
 }));
 
+vi.mock('@/components/map/leafletIcons', () => ({
+  firePinIcon: { options: { className: 'leaflet-fire-pin' } },
+  userLocationIcon: { options: { className: 'leaflet-user-location' } },
+}));
+
 describe('FireStationsMapInner', () => {
   it('renders TileLayer and MapContainer with required props', () => {
     render(<FireStationsMapInner stations={[]} />);
