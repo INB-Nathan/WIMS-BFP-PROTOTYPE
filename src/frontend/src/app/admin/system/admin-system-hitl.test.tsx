@@ -132,7 +132,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         const viewButtons = await screen.findAllByRole('button', { name: /View/i });
         fireEvent.click(viewButtons[0]);
         await waitFor(() => {
-            expect(screen.getByText('Suricata Alert #1')).toBeInTheDocument();
+            expect(screen.getByText(/Suricata Alert.*#1/)).toBeInTheDocument();
         });
         expect(screen.getByRole('button', { name: /Confirm Threat/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /False Positive/i })).toBeInTheDocument();
@@ -146,7 +146,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
         const viewButtons = await screen.findAllByRole('button', { name: /View/i });
         fireEvent.click(viewButtons[0]);
-        await waitFor(() => expect(screen.getByText('Suricata Alert #1')).toBeInTheDocument());
+        await waitFor(() => expect(screen.getByText(/Suricata Alert.*#1/)).toBeInTheDocument());
         fireEvent.click(screen.getByRole('button', { name: /Confirm Threat/i }));
         await waitFor(() => {
             expect(mockUpdateAdminSecurityLog).toHaveBeenCalledWith(1, { action: 'CONFIRM_THREAT', note: undefined });
@@ -161,7 +161,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
         const viewButtons = await screen.findAllByRole('button', { name: /View/i });
         fireEvent.click(viewButtons[0]);
-        await waitFor(() => expect(screen.getByText('Suricata Alert #1')).toBeInTheDocument());
+        await waitFor(() => expect(screen.getByText(/Suricata Alert.*#1/)).toBeInTheDocument());
         fireEvent.click(screen.getByRole('button', { name: /False Positive/i }));
         await waitFor(() => {
             expect(mockUpdateAdminSecurityLog).toHaveBeenCalledWith(1, { action: 'FALSE_POSITIVE', note: undefined });
@@ -191,7 +191,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
         const viewButtons = await screen.findAllByRole('button', { name: /View/i });
         fireEvent.click(viewButtons[0]);
-        await waitFor(() => expect(screen.getByText('Suricata Alert #1')).toBeInTheDocument());
+        await waitFor(() => expect(screen.getByText(/Suricata Alert.*#1/)).toBeInTheDocument());
         fireEvent.click(screen.getByRole('button', { name: /View Related Evidence/i }));
         await waitFor(() => {
             expect(mockFetchRelatedAuditLogs).toHaveBeenCalledWith(1);
@@ -209,7 +209,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
         const viewButtons = await screen.findAllByRole('button', { name: /View/i });
         fireEvent.click(viewButtons[0]);
-        await waitFor(() => expect(screen.getByText('Suricata Alert #1')).toBeInTheDocument());
+        await waitFor(() => expect(screen.getByText(/Suricata Alert.*#1/)).toBeInTheDocument());
         fireEvent.click(screen.getByRole('button', { name: /View Related Evidence/i }));
         await waitFor(() => {
             expect(screen.getByText(/No related audit records found/i)).toBeInTheDocument();
@@ -223,7 +223,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         const viewButtons = await screen.findAllByRole('button', { name: /View/i });
         fireEvent.click(viewButtons[0]);
         await waitFor(() => {
-            expect(screen.getByText('Suricata Alert #2')).toBeInTheDocument();
+            expect(screen.getByText(/Suricata Alert.*#2/)).toBeInTheDocument();
         });
         expect(screen.getByText(/Reviewed: Confirmed Threat/i)).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /Confirm Threat/i })).not.toBeInTheDocument();
@@ -238,7 +238,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
         const viewButtons = await screen.findAllByRole('button', { name: /View/i });
         fireEvent.click(viewButtons[0]);
-        await waitFor(() => expect(screen.getByText('Suricata Alert #1')).toBeInTheDocument());
+        await waitFor(() => expect(screen.getByText(/Suricata Alert.*#1/)).toBeInTheDocument());
         fireEvent.click(screen.getByRole('button', { name: /Confirm Threat/i }));
         expect(await screen.findByText(/Server failed while applying the threat decision/i)).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /Confirm Threat/i })).toBeInTheDocument();
@@ -251,7 +251,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
         const viewButtons = await screen.findAllByRole('button', { name: /View/i });
         fireEvent.click(viewButtons[0]);
-        await waitFor(() => expect(screen.getByText('Suricata Alert #1')).toBeInTheDocument());
+        await waitFor(() => expect(screen.getByText(/Suricata Alert.*#1/)).toBeInTheDocument());
         fireEvent.click(screen.getByRole('button', { name: /Create Incident from Alert/i }));
         await waitFor(() => {
             expect(mockCreateIncidentFromAlert).toHaveBeenCalledWith(1);

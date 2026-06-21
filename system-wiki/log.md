@@ -4200,3 +4200,16 @@ automatically when they reconnect.
 - **Regression test:** `tests/test_admin_new_routes.py::TestPatchSecurityLogHitl::test_confirm_threat_with_uuid_user_id_serializes_hitl_decision` — mocks `user_id` as a real `uuid.UUID` (not a string). Verified red-capable: fails on the old code with the exact production `TypeError: Object of type UUID is not JSON serializable`, passes on the fix.
 - **Validation:** `ruff check` clean, `ruff format --check` clean (both files). `pytest tests/test_admin_new_routes.py::TestPatchSecurityLogHitl tests/test_breach_notifications.py` — 26/26 pass (incl. new regression case).
 - **Deployment:** commit + push to master; automatic deploy rebuilds backend + celery-worker. No DB migration, no schema change, no frontend change, no other services touched.
+
+## [2026-06-21] ui | Suricata alert inspection modal — formalized to match admin modal patterns
+
+- **`src/frontend/src/app/admin/system/page.tsx`:** Rewrote the selectedLog (Suricata alert detail) modal to match the consistent admin modal pattern:
+  - **Header:** Matches Sessions/Create User modal layout (`bg-gray-50`, `p-5`, icon + title, clean close button). Added `ShieldAlert` icon. Title uses `&mdash;` em dash separator for formality.
+  - **AI Threat Analysis section:** Added `Sparkles` icon + formal uppercase section header label. Kept purple theme.
+  - **Alert Details section:** New card with `AlertTriangle` icon header, gray border container, labeled grid with consistent `text-xs font-semibold text-gray-500 uppercase tracking-wider` pattern for Source IP, Destination IP, Suricata SID, Severity Level.
+  - **Raw Payload section:** Added `FileText` icon, formal header, border-around pre block.
+  - **Threat Decision section:** Changed "Take a decision" to formal "Threat Decision" section with `ShieldAlert` icon. Buttons now include icons (`CheckCircle` for Confirm Threat, `XCircle` for False Positive, `FileText` for Create Incident). View Related Evidence uses outline/secondary button style with `Search` icon.
+  - **Related Evidence sub-panel:** Improved spacing, card styling, consistent label.
+- **`src/frontend/src/app/admin/system/admin-system-hitl.test.tsx`:** Updated Suricata Alert header assertions from exact string match `'Suricata Alert #1'` to regex `/Suricata Alert.*#1/` to tolerate em dash in header.
+- **`src/frontend/src/app/admin/system/admin-system-analyze-ai.test.tsx`:** Same regex fix.
+- **Validation:** `npx vitest run src/app/admin/system/` — 61 tests pass (1 previously failing regex fixed). `npx tsc --noEmit` — no new errors (all pre-existing).

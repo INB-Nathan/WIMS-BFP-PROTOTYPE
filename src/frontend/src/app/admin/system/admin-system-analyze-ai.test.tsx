@@ -145,7 +145,7 @@ describe('Admin System — Analyze with AI in Threat Telemetry', () => {
         fireEvent.click(viewButtons[0]);
 
         await waitFor(() => {
-            expect(screen.getByText(/Suricata Alert #1/)).toBeInTheDocument();
+            expect(screen.getByText(/Suricata Alert.*#1/)).toBeInTheDocument();
         });
 
         // In modal: click Analyze with AI (use getAllByRole since both table row and modal have the button)
