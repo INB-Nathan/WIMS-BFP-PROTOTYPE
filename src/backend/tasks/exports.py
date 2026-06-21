@@ -13,6 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from celery_config import celery_app
+from utils.analytics_validation import escape_csv_cell
 from database import get_session, set_rls_context
 from services.analytics_read_model import (
     get_analyst_export_rows,
@@ -90,7 +91,9 @@ def _write_csv(path: str, rows: list[dict[str, Any]], columns: list[str]) -> Non
         writer = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
-            writer.writerow({col: _serialize_value(row.get(col)) for col in columns})
+            writer.writerow(
+                {col: escape_csv_cell(_serialize_value(row.get(col))) for col in columns}
+            )
 
 
 def _write_xlsx(path: str, rows: list[dict[str, Any]], columns: list[str]) -> None:
@@ -101,7 +104,7 @@ def _write_xlsx(path: str, rows: list[dict[str, Any]], columns: list[str]) -> No
     worksheet.title = "Incidents"
     worksheet.append(columns)
     for row in rows:
-        worksheet.append([_serialize_value(row.get(col)) for col in columns])
+        worksheet.append([escape_csv_cell(_serialize_value(row.get(col))) for col in columns])
     workbook.save(path)
 
 
@@ -230,7 +233,7 @@ def _write_afor_excel(path: str, data: dict[str, Any]) -> None:
         value = data.get(field, "")
         if value is None:
             value = ""
-        ws.cell(row, col, str(value))
+        ws.cell(row, col, escape_csv_cell(str(value)))
 
     wb.save(path)
 
@@ -687,7 +690,7 @@ def _write_afor_csv(path: str, data: dict[str, Any]) -> None:
             writer.writerow([section_name])
             writer.writerow(["Field", "Value"])
             for field, val in rows:
-                writer.writerow([field, val])
+                writer.writerow([field, escape_csv_cell(str(val))])
             writer.writerow([])
 
 

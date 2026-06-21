@@ -4115,3 +4115,27 @@ automatically when they reconnect.
 - **`src/backend/api/routes/civilian.py`:** File size reduced from 997 LoC to 969 LoC (net −28 lines). One more endpoint and it would have crossed the 1000-line threshold for the project.
 - **Tests:** `tests/test_civilian_triage_module.py` — 4/4 pass. `tests/test_public_submission.py` — 12 pass / 13 fail (all failures are pre-existing Redis infrastructure issues, not regressions from this change). `tests/test_public_abuse_controls.py` — 6 pass / 6 fail (same Redis baseline).
 - **Validation:** `ruff check` clean, `ruff format --check` clean, `ast.parse` clean.
+
+## [2026-06-21] fix | analytics_validation escape_csv_cell hardening (PR #429 blockers B1, B2, H1)
+
+- **`src/backend/utils/analytics_validation.py` — `escape_csv_cell()`:**
+  - *(B1)* Signature changed from `value: str` to `value: object`; coerces with `str(value)` at top of body to prevent crash on numeric/None inputs.
+  - *(B2)* Formula trigger check now strips leading whitespace: `cleaned.lstrip()[:1] in _FORMULA_TRIGGERS` closes the common `" =cmd"` whitespace bypass.
+  - *(H1)* Control-character stripping replaced per-character loop with `value.translate(str.maketrans('', '', '\t\r\n'))`.
+- **`src/backend/tests/test_analytics_validation.py`:**
+  - Added B1 tests: `test_int_input_coerced_no_crash`, `test_float_input_coerced_no_crash`, `test_none_input_coerced_no_crash`.
+  - Added B2 tests: `test_leading_whitespace_equals_escaped`, `test_leading_whitespace_plus_escaped`, `test_leading_whitespace_minus_escaped`, `test_leading_whitespace_at_escaped`.
+- **`system-wiki/security/security-baseline.md`:** Added "Export Sanitization (CSV/Excel Formula Injection)" section documenting D15 implementation details.
+- **Validation:** 44/44 pytest pass, `ruff check` clean, `ruff format --check` clean.
+
+## [2026-06-21] fix | analytics export routes — date validation on filters dict (PR #429 blocker B3)
+
+- **`src/backend/api/routes/analytics.py` — `export_csv` / `export_pdf` / `export_excel`:**
+  - *(B3)* Each route now extracts `start_date` / `end_date` from `body.filters` via `.get()` (Optional[str], default `None`) and calls `validate_iso_date(...)` + `validate_date_range(...)` before dispatching the Celery task. Error handling matches the seven other analytics routes — no `try/except`; the helpers raise `HTTPException(422)` directly.
+  - Closes the H3 contract inconsistency where the same malformed `filters` payload would 422 on read endpoints but 500 on export endpoints (PostgreSQL `CAST('not-a-date' AS date)` failure in the worker).
+- **`src/backend/tests/test_analytics_validation.py` — `TestExportDateValidation` (new, 10 tests):**
+  - `test_export_invalid_start_date_returns_422` — parametrized over csv/pdf/excel; asserts 422 + ISO 8601 / `start_date` message.
+  - `test_export_inverted_date_range_returns_422` — parametrized over csv/pdf/excel; asserts 422 + range message.
+  - `test_export_valid_dates_pass_validation` — parametrized over csv/pdf/excel; mocks the Celery task; asserts not-422.
+  - `test_export_no_dates_in_filters_passes` — empty filters dict, mock CSV task; asserts not-422.
+- **Validation:** 46/46 pytest pass (including the 10 new B3 cases), `ruff check` clean, `ruff format --check` clean.
