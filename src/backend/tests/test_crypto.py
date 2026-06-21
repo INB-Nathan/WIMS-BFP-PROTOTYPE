@@ -143,7 +143,7 @@ class TestAPI:
         nonce_b64, ct_b64 = sp.encrypt_json(pii, aad=b"incident_id:1")
         ct_bytes = _b64_to_bytes(ct_b64)
         # flip one bit in the middle
-        tampered = bytes(ct_bytes[0] ^ 1) + ct_bytes[1:]
+        tampered = bytes([ct_bytes[0] ^ 1]) + ct_bytes[1:]
         tampered_b64 = base64.b64encode(tampered).decode()
         with pytest.raises(SecurityProviderError, match="authentication"):
             sp.decrypt_json(nonce_b64, tampered_b64, aad=b"incident_id:1")
