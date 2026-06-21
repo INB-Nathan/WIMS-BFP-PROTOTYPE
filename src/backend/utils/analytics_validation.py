@@ -21,27 +21,32 @@ _CONTROL_CHARS = {"\t", "\r", "\n"}
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-def escape_csv_cell(value: str) -> str:
+def escape_csv_cell(value: object) -> str:
     """Escape a single cell value to prevent CSV/Excel formula injection.
 
-    Prefixes cells starting with =, +, -, @ with a single quote ('),
-    which neutralizes formula execution in Excel, Google Sheets, and
-    LibreOffice Calc. Strips tab, carriage return, and newline characters
-    which can be used to inject additional rows/formulas.
+    Accepts any type and coerces to str internally, so callers can pass
+    numeric / None values without crashing (B1, H1).
+
+    Prefixes cells starting with =, +, -, @ (including after leading
+    whitespace) with a single quote ('), which neutralizes formula
+    execution in Excel, Google Sheets, and LibreOffice Calc (B2).
+    Strips tab, carriage return, and newline characters which can be
+    used to inject additional rows/formulas.
 
     Per D15, this is applied at the export layer. PDF exports are exempt
     (not spreadsheet-parsed). The sanitization does not alter stored data.
     """
+    value = str(value)
+
     if not value:
         return value
 
     # Strip control characters (tab, CR, LF) that can inject rows
-    cleaned = value
-    for ch in _CONTROL_CHARS:
-        cleaned = cleaned.replace(ch, "")
+    cleaned = value.translate(str.maketrans("", "", "\t\r\n"))
 
-    # Escape formula triggers at start of cell
-    if cleaned and cleaned[0] in _FORMULA_TRIGGERS:
+    # Escape formula triggers at start of cell — strip leading
+    # whitespace first to close the common " =cmd" bypass (B2).
+    if cleaned and cleaned.lstrip()[:1] in _FORMULA_TRIGGERS:
         return "'" + cleaned
 
     return cleaned

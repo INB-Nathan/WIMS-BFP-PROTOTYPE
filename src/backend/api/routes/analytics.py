@@ -267,6 +267,11 @@ def export_csv(
     The task runs with the requesting user's RLS context so that
     exported data is filtered by their role and assigned region.
     """
+    start_date = body.filters.get("start_date")
+    end_date = body.filters.get("end_date")
+    validate_iso_date(start_date, "start_date")
+    validate_iso_date(end_date, "end_date")
+    validate_date_range(start_date, end_date)
     result = export_incidents_csv_task.delay(
         user_id=str(current_user["user_id"]),
         filters=body.filters,
@@ -281,6 +286,11 @@ def export_pdf(
     current_user: Annotated[dict, Depends(get_analyst_or_admin)],
 ):
     """Dispatch Celery task for PDF export. Returns task_id."""
+    start_date = body.filters.get("start_date")
+    end_date = body.filters.get("end_date")
+    validate_iso_date(start_date, "start_date")
+    validate_iso_date(end_date, "end_date")
+    validate_date_range(start_date, end_date)
     result = export_incidents_pdf_task.delay(
         user_id=str(current_user["user_id"]),
         filters=body.filters,
@@ -295,6 +305,11 @@ def export_excel(
     current_user: Annotated[dict, Depends(get_analyst_or_admin)],
 ):
     """Dispatch Celery task for Excel export. Returns task_id."""
+    start_date = body.filters.get("start_date")
+    end_date = body.filters.get("end_date")
+    validate_iso_date(start_date, "start_date")
+    validate_iso_date(end_date, "end_date")
+    validate_date_range(start_date, end_date)
     result = export_incidents_excel_task.delay(
         user_id=str(current_user["user_id"]),
         filters=body.filters,

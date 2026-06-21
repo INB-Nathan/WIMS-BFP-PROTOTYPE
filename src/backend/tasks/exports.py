@@ -690,7 +690,7 @@ def _write_afor_csv(path: str, data: dict[str, Any]) -> None:
             writer.writerow([section_name])
             writer.writerow(["Field", "Value"])
             for field, val in rows:
-                writer.writerow([field, escape_csv_cell(val)])
+                writer.writerow([field, escape_csv_cell(str(val))])
             writer.writerow([])
 
 

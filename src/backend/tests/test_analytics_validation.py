@@ -7,6 +7,7 @@ Run: cd src/backend && python -m pytest tests/test_analytics_validation.py -v
 
 from __future__ import annotations
 
+import csv
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock, patch
@@ -84,6 +85,61 @@ class TestEscapeCsvCell:
         assert escape_csv_cell("42") == "42"
         assert escape_csv_cell("0") == "0"
 
+    # --- B1: numeric / non-string input (type contract) ---
+
+    def test_int_input_coerced_no_crash(self):
+        """B1: escape_csv_cell(42) must not crash; coerces via str()."""
+        from utils.analytics_validation import escape_csv_cell
+
+        assert escape_csv_cell(42) == "42"
+        assert escape_csv_cell(0) == "0"
+        # -5 starts with '-' (a formula trigger) → escaped with leading quote
+        assert escape_csv_cell(-5) == "'-5"
+
+    def test_float_input_coerced_no_crash(self):
+        """B1: escape_csv_cell(3.14) must not crash; coerces via str()."""
+        from utils.analytics_validation import escape_csv_cell
+
+        assert escape_csv_cell(3.14) == "3.14"
+        assert escape_csv_cell(0.0) == "0.0"
+
+    def test_none_input_coerced_no_crash(self):
+        """B1: escape_csv_cell(None) must not crash; str(None) → 'None'."""
+        from utils.analytics_validation import escape_csv_cell
+
+        result = escape_csv_cell(None)
+        # str(None) == "None" — not a formula trigger, passes through
+        assert result == "None"
+
+    # --- B2: leading whitespace bypass ---
+
+    def test_leading_whitespace_equals_escaped(self):
+        """B2: ' =CMD' with leading space must be escaped."""
+        from utils.analytics_validation import escape_csv_cell
+
+        # Leading space preserved; quote at position 0 neutralizes formula
+        assert escape_csv_cell(" =cmd") == "' =cmd"
+
+    def test_leading_whitespace_plus_escaped(self):
+        """B2: '  +1+2' with leading spaces must be escaped."""
+        from utils.analytics_validation import escape_csv_cell
+
+        # Leading spaces preserved; quote at position 0 neutralizes formula
+        assert escape_csv_cell("  +1+2") == "'  +1+2"
+
+    def test_leading_whitespace_minus_escaped(self):
+        """B2: '\t-1+2' with leading tab must be escaped."""
+        from utils.analytics_validation import escape_csv_cell
+
+        assert escape_csv_cell("\t-1+2") == "'-1+2"
+
+    def test_leading_whitespace_at_escaped(self):
+        """B2: leading spaces before @ function call must be escaped."""
+        from utils.analytics_validation import escape_csv_cell
+
+        # Leading spaces preserved; quote at position 0 neutralizes formula
+        assert escape_csv_cell("   @SUM(A1:A10)") == "'   @SUM(A1:A10)"
+
 
 class TestValidateIsoDate:
     """Unit tests for validate_iso_date."""
@@ -149,45 +205,60 @@ class TestValidateDateRange:
 
 
 # ---------------------------------------------------------------------------
-# Integration tests — analytics endpoint validation
+# _write_afor_csv — end-to-end CSV writer used by the AFOR export task
 # ---------------------------------------------------------------------------
 
 
-class _FakeRow:
-    def __init__(self, **fields):
-        object.__setattr__(self, "_fields", fields)
+class TestWriteAforCsv:
+    """Tests for the AFOR CSV writer in tasks/exports.py.
 
-    def __getattr__(self, name):
-        try:
-            return self._fields[name]
-        except KeyError:
-            raise AttributeError(name)
+    Covers B1 (numeric dict values must not crash) and the escaped-value
+    contract applied at the cell level.
+    """
 
-    def __getitem__(self, i):
-        return list(self._fields.values())[i]
+    def test_write_afor_csv_with_numeric_data_does_not_crash_and_contains_escaped_values(
+        self, tmp_path
+    ):
+        """B1: numeric dict values must not crash _write_afor_csv and escape rules apply."""
+        from tasks.exports import _write_afor_csv
 
-    def __len__(self):
-        return len(self._fields)
+        csv_path = tmp_path / "afor.csv"
+        data = {
+            "bfp_fire_trucks": 5,  # numeric — must not crash
+            "region_name": "=NCR",  # formula trigger — must be escaped to "'=NCR"
+        }
+
+        # Must not raise — numeric values get coerced via str() in escape_csv_cell
+        _write_afor_csv(str(csv_path), data)
+
+        assert csv_path.exists(), "CSV file should be created"
+        assert csv_path.stat().st_size > 0, "CSV file should be non-empty"
+
+        with open(csv_path, "r", encoding="utf-8", newline="") as f:
+            rows = list(csv.reader(f))
+
+        # Locate the "BFP Fire Trucks" row and assert numeric value rendered as "5"
+        bfp_row = next(
+            (r for r in rows if len(r) == 2 and r[0] == "BFP Fire Trucks"),
+            None,
+        )
+        assert bfp_row is not None, "BFP Fire Trucks row should be present"
+        assert bfp_row[1] == "5", f"Expected '5' as value, got {bfp_row[1]!r}"
+
+        # Locate the "Region" row and assert the formula trigger was escaped
+        region_row = next(
+            (r for r in rows if len(r) == 2 and r[0] == "Region"),
+            None,
+        )
+        assert region_row is not None, "Region row should be present"
+        assert region_row[1] == "'=NCR", (
+            f"Expected formula trigger to be escaped to ''=NCR', got {region_row[1]!r}"
+        )
 
 
-class _FakeResult:
-    def __init__(self, row=None, rows=None):
-        self._row = row
-        self._rows = rows or []
-
-    def fetchone(self):
-        return self._row
-
-    def fetchall(self):
-        return self._rows
-
-    def scalar(self):
-        if self._row and hasattr(self._row, "_fields"):
-            return list(self._row._fields.values())[0] if self._row._fields else None
-        return None
-
-    def mappings(self):
-        return self
+# ---------------------------------------------------------------------------
+# Integration tests — analytics endpoint validation
+# ---------------------------------------------------------------------------
 
 
 class TestAnalyticsDateValidation:
@@ -356,9 +427,140 @@ class TestExportColumnValidation:
                     "/api/analytics/export/csv",
                     json={"filters": {}, "columns": allowed},
                 )
-            # Should not be 422 — may be 200/202 depending on queue stub
+            # Strengthened: assert exact 200 + task_id in JSON response
+            assert resp.status_code == 200, (
+                f"Allowed columns should return 200, got {resp.status_code}: {resp.text}"
+            )
+            body = resp.json()
+            assert "task_id" in body, f"Response JSON should include task_id, got: {body}"
+            assert body["task_id"] == "mock-task-id-123", (
+                f"Expected task_id 'mock-task-id-123', got {body['task_id']!r}"
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+
+class TestExportDateValidation:
+    """POST /api/analytics/export/* — date validation on filters dict (PR #429 blocker B3)."""
+
+    @pytest.mark.parametrize(
+        "route",
+        ["/api/analytics/export/csv", "/api/analytics/export/pdf", "/api/analytics/export/excel"],
+    )
+    def test_export_invalid_start_date_returns_422(self, route):
+        """Non-ISO start_date in filters → 422 on all three export routes."""
+        from auth import get_analyst_or_admin
+
+        _USER = {"user_id": "test-analyst-uuid"}
+
+        def override_user():
+            return _USER
+
+        app.dependency_overrides[get_analyst_or_admin] = override_user
+        try:
+            resp = client.post(
+                route,
+                json={
+                    "filters": {"start_date": "not-a-date"},
+                    "columns": ["incident_id"],
+                },
+            )
+            assert resp.status_code == 422, (
+                f"Expected 422 for invalid start_date on {route}, got {resp.status_code}: {resp.text}"
+            )
+            assert "ISO 8601" in resp.text or "start_date" in resp.text, (
+                f"Error should mention date format: {resp.text}"
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.parametrize(
+        "route",
+        ["/api/analytics/export/csv", "/api/analytics/export/pdf", "/api/analytics/export/excel"],
+    )
+    def test_export_inverted_date_range_returns_422(self, route):
+        """start_date > end_date in filters → 422 on all three export routes."""
+        from auth import get_analyst_or_admin
+
+        _USER = {"user_id": "test-analyst-uuid"}
+
+        def override_user():
+            return _USER
+
+        app.dependency_overrides[get_analyst_or_admin] = override_user
+        try:
+            resp = client.post(
+                route,
+                json={
+                    "filters": {"start_date": "2024-12-31", "end_date": "2024-01-01"},
+                    "columns": ["incident_id"],
+                },
+            )
+            assert resp.status_code == 422, (
+                f"Expected 422 for inverted range on {route}, got {resp.status_code}: {resp.text}"
+            )
+            assert "must be before" in resp.text or "start_date" in resp.text, (
+                f"Error should mention date range: {resp.text}"
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.parametrize(
+        "route",
+        ["/api/analytics/export/csv", "/api/analytics/export/pdf", "/api/analytics/export/excel"],
+    )
+    def test_export_valid_dates_pass_validation(self, route):
+        """Valid ISO dates (or absent) in filters should pass validation (not 422)."""
+        from auth import get_analyst_or_admin
+
+        _USER = {"user_id": "test-analyst-uuid"}
+
+        def override_user():
+            return _USER
+
+        app.dependency_overrides[get_analyst_or_admin] = override_user
+        try:
+            mock_task = MagicMock()
+            mock_task.delay.return_value = MagicMock(id="mock-task-id-123")
+            task_patch_path = {
+                "/api/analytics/export/csv": "api.routes.analytics.export_incidents_csv_task",
+                "/api/analytics/export/pdf": "api.routes.analytics.export_incidents_pdf_task",
+                "/api/analytics/export/excel": "api.routes.analytics.export_incidents_excel_task",
+            }[route]
+            with patch(task_patch_path, mock_task):
+                resp = client.post(
+                    route,
+                    json={
+                        "filters": {"start_date": "2024-01-01", "end_date": "2024-06-30"},
+                        "columns": ["incident_id"],
+                    },
+                )
             assert resp.status_code != 422, (
-                f"Allowed columns should not return 422: {resp.status_code} {resp.text}"
+                f"Valid dates should not return 422 on {route}: {resp.status_code} {resp.text}"
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_export_no_dates_in_filters_passes(self):
+        """Empty filters dict (no dates) should pass validation."""
+        from auth import get_analyst_or_admin
+
+        _USER = {"user_id": "test-analyst-uuid"}
+
+        def override_user():
+            return _USER
+
+        app.dependency_overrides[get_analyst_or_admin] = override_user
+        try:
+            mock_task = MagicMock()
+            mock_task.delay.return_value = MagicMock(id="mock-task-id-123")
+            with patch("api.routes.analytics.export_incidents_csv_task", mock_task):
+                resp = client.post(
+                    "/api/analytics/export/csv",
+                    json={"filters": {}, "columns": ["incident_id"]},
+                )
+            assert resp.status_code != 422, (
+                f"Empty filters should not return 422: {resp.status_code} {resp.text}"
             )
         finally:
             app.dependency_overrides.clear()

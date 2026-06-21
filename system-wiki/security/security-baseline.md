@@ -215,6 +215,24 @@ FRS Module 11b requires Cross-Site Request Forgery testing. The following layers
 - **Pen-test checklist:** `docs/pentest/CSRF-CHECKLIST.md` documents all manual verification procedures.
 - **Test coverage:** `src/backend/tests/test_csrf_middleware.py` covers safe methods, invalid/missing Origin, valid Origin, Referer fallback, PUT/PATCH/DELETE variants, and VPS production origin scenarios.
 
+## Export Sanitization (CSV/Excel Formula Injection)
+
+D15 (CSV/Excel formula injection hardening) is implemented in
+`src/backend/utils/analytics_validation.py` via `escape_csv_cell()`.
+
+- **Type safety (B1, H1):** Signature `value: object` with `str(value)`
+  coercion at top of body — prevents crashes on numeric/None inputs from
+  export callers.
+- **Leading whitespace bypass (B2):** Formula trigger detection strips
+  leading whitespace via `cleaned.lstrip()[:1]` before checking against
+  `_FORMULA_TRIGGERS` (`=`, `+`, `-`, `@`). The escaped cell preserves
+  original whitespace content; the prepended `'` at position 0 neutralizes
+  formula execution regardless.
+- **Control character stripping:** Uses `str.translate()` instead of a
+  per-character replace loop to remove `\t`, `\r`, `\n`.
+- Applied at the export layer (`tasks/exports.py` for CSV, Excel); PDF
+  exports are exempt (not spreadsheet-parsed). Does not alter stored data.
+
 ## Related
 - [[database/schema-overview]]
 - [[backend/api-route-map]]
