@@ -1,3 +1,33 @@
+## [2026-06-21] ops: VPS deployment debugging guide + deploy failure diagnosis
+
+- **Context:** diagnosed why master CI deploys to VPS were failing —
+  the last deploy (`6e4e8567`, `feat(#392): public abuse controls`)
+  failed mid-way.
+- **Root causes found:**
+  1. **Stale Docker container name collision** — celery-worker
+     couldn't recreate because a stale `<hex>_wims-celery-worker`
+     container was left from a previous interrupted deploy.
+  2. **Backend+frontend stuck in "Created"** — compose aborted after
+     celery-worker failure, leaving built containers never started.
+  3. **Nginx DNS cache stale** — after manually starting services,
+     nginx still had old IPs for keycloak/backend/frontend, causing
+     502s and "no live upstreams". Fixed with `nginx -s reload`.
+- **Created:** `system-wiki/operations/vps-deploy-debug-guide.md`
+  covering all 9 failure modes, SSH access, cleanup commands, nginx
+  fixes, endpoint checks, CI troubleshooting, and deploy script gaps.
+- **Index updated:** `system-wiki/index.md` — incremented page count
+  to 34, added link.
+- **FRS gap register:** unchanged (no FRS impact).
+- **deploy.yml hardened:**
+  - `compose up` now wrapped in a retry loop (max 2 attempts) — re-runs
+    `cleanup_stale_compose_renames` before each retry to clear stale
+    container name collisions.
+  - `nginx -s reload` moved to run BEFORE the post-deploy health check
+    (with a 3-second sleep), so DNS cache is fresh when nginx resolves
+    upstream container names.
+  - `stderr` of `compose up` suppressed during retry (`2>/dev/null`), full
+    visibility only on final failure.
+
 ## [2026-06-21] perf(civilian): eager prefetch of MapPickerInner chunk on /report mount
 
 - **Symptom:** the user reported the offline chunk-load fallback is

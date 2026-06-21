@@ -1,14 +1,15 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-06-20
-Total synthesis pages: 33
-Last changes: Civilian report update-mode fix: `/` update flow now loads parent report fields/device_id for append submissions and cancel clears update state back to the main safety screen.
+Last updated: 2026-06-21
+Total synthesis pages: 34
+Last changes: Added VPS deployment debugging guide with SSH, Docker, nginx DNS cache, and stale container recovery procedures.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
 - [[mocs/system-map]] — primary map of content and routing entry point.
 - [[operations/agent-routing-guide]] — which page an agent should read before touching each subsystem.
 - [[operations/local-dev-deploy-guide]] — clean-slate local deployment on Windows: local HTTP-only nginx override, known pitfalls (CRLF scripts, accidental production TLS config, password policy), seed users, verification.
+- [[operations/vps-deploy-debug-guide]] — VPS deployment debugging: SSH access, stale container cleanup, nginx DNS cache, stuck containers, endpoint checks, CI troubleshooting.
 - [[operations/manual-smoke-testing]] — role-based manual smoke-test runbook for Admin, Validator, and Analyst issue intake.
 
 ## Architecture
