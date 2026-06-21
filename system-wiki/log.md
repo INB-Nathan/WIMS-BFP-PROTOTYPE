@@ -1,3 +1,37 @@
+## [2026-06-21] refactor(analyst): white page header, workflows moved to top, standardize chart cards
+
+- **Diagnosis:** the analyst dashboard used a maroon `#991B1B` brand band as the page header — distinctive, but inconsistent with the clean white `PageHeader` pattern used by `ValidatorPageHeader` and `RegionalPageHeader`. The Analyst Workflows cards sat at the *bottom* of the page (after charts and the incident list), making them a discovery dead-end. Three chart cards used inconsistent treatments: Comparative Summary used hand-rolled 2-up tiles, Top-N Analysis rendered as text rows with no bars, and Cross-Region Comparison had a bare `<table>` outside the standard card chrome.
+- **Fix — Page header (matches validator/regional):**
+  - Replaced the maroon `bg-[#991B1B]` band with a white `rounded-md border bg-white shadow-sm` card.
+  - Title now uses `var(--text-primary)` at 28px, description uses `var(--text-secondary)`, matching `ValidatorPageHeader` / `RegionalPageHeader` byte-for-byte.
+  - KPI strip (`Incidents`, `Scope`, `Avg Response`, `Filters`) moved to a *separate* 4-column card directly below the header, using `var(--text-primary)` / `var(--text-muted)` tokens.
+  - Refresh button uses the same `border-gray-200 bg-white text-gray-600` style as the other role dashboards.
+- **Fix — Workflows at the top:**
+  - Moved the `Analyst Workflows` section to position 4 (right after KPI strip, before widgets). As primary entry points to the dedicated workflow pages, they now lead the page instead of trailing it.
+  - Widget grid moves down one slot (it remains customizable and lower-priority than the workflow entry points).
+- **Fix — Standardize chart cards:**
+  - Extracted `MetricTile` (`src/frontend/src/components/analytics/MetricTile.tsx`) and `TopNTable` (`src/frontend/src/components/analytics/TopNTable.tsx`) from the workflow page so the main dashboard can use the same primitives.
+  - **Comparative Summary** now uses a 4-up `MetricTile` grid (Range A, Range B, Difference, Variance) — variance value gets red/green color class via the new `valueClassName` prop. Matches the workflow page's "Calculation Detail" panel.
+  - **Top-N Analysis** now renders the shared `TopNTable` with actual horizontal bars (was a text-row list with `data-testid="bar-chart"` and no visible bars). Same visualization as the workflow page's "Ranked Results".
+  - **Cross-Region Comparison** now wraps the table in a bordered rounded container, uses the same uppercase tracking-wide header style as the rest of the dashboard, adds `tabular-nums` for numeric alignment, and turns the "—" placeholders into a consistent null guard.
+- **Tests:** `src/frontend/src/app/dashboard/analyst/page.test.tsx` (11) and `src/frontend/src/app/dashboard/analyst/queue-baseline.test.tsx` (22) pass unchanged. `npx next lint` and `npx next build` clean. `npx tsc --noEmit` clean for analyst files.
+- **Wiki:** this log only.
+
+## [2026-06-21] style(analyst): remove MVP/Phase copy from analyst UI, formalize workflow header and cards
+
+- **Diagnosis:** the analyst workflow page exposed internal phasing language ("MVP page", "Phase 2 backend work", "MVP labels the export scope") in production UI, breaking the formal BFP voice. The workflow page header was a one-off card while the workflow cards on the dashboard were rainbow-accented, neither matching the validator/regional `PageHeader` pattern.
+- **Fix (`src/frontend/src/app/dashboard/analyst/[workflow]/page.tsx`):**
+  - Replaced "Workflow Filters" with "Analysis Filters" to match the dashboard.
+  - Replaced the selected-set status copy ("Aggregate charts on this MVP page…") with a formal status message ("Selected set active · N incidents. Charts and calculations reflect the active filters…").
+  - Replaced the export panel description and body to drop MVP/Phase 2 wording; structured the panel as a `<dl>` with "Current filtered result" and "Selected incidents" tiles for clear HCI scope labeling.
+  - Rewrote the page header to use the BFP design tokens (`var(--text-primary)`, `var(--text-secondary)`, `var(--text-muted)`) and the same `Refresh` button style as `ValidatorPageHeader` / `RegionalPageHeader`.
+- **Fix (`src/frontend/src/app/dashboard/analyst/page.tsx`):**
+  - Dropped the multi-color `accentBorder` / `iconBg` accent system in `WORKFLOW_LINKS`; switched to a single BFP maroon (#991B1B) icon tile, left-aligned title + description layout, and an explicit `ChevronRight` affordance so the cards read as navigation, not decoration.
+  - Lengthened workflow card titles ("Comparative Analysis", "Heatmap & Geospatial Review", etc.) and descriptions to match the formal tone used in `WORKFLOWS` on the workflow page.
+- **Tests:** `src/frontend/src/app/dashboard/analyst/page.test.tsx` (11) and `src/frontend/src/app/dashboard/analyst/queue-baseline.test.tsx` (22) pass. `npx next lint` and `npx next build` clean.
+- **Verification:** no MVP / Phase references remain in `src/frontend/src/app/dashboard/analyst/` outside of test-file comments.
+- **Wiki:** this log only — the `system-wiki/ui-ux/evaluation-national-analyst.md` historical implementation note (2026-05-16) is left intact because it is a dated decision record, not user-facing copy.
+
 ## [2026-06-21] fix(offline): read pending draft id from live pathname
 
 - **Diagnosis:** after the service worker served the cached `/dashboard/regional/incidents/1` detail shell offline, App Router params could still resolve to the shell's numeric id. The page then requested incident `1` via `fetchRegionalIncidentOfflineAware` and showed `This incident is not available offline...` instead of loading the clicked UUID draft from `offlineOps`.

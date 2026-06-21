@@ -37,7 +37,9 @@ import {
 import type { Region } from '@/types/api';
 import { AnalystIncidentList } from '@/components/analytics/AnalystIncidentList';
 import { ExportPreviewModal, type ExportFormat } from '@/components/analytics/ExportPreviewModal';
+import { MetricTile } from '@/components/analytics/MetricTile';
 import { ResponseTimeChart } from '@/components/analytics/ResponseTimeChart';
+import { TopNTable } from '@/components/analytics/TopNTable';
 import { TrendCharts } from '@/components/analytics/TrendCharts';
 import { readAnalystWorkflowTransfer } from '@/lib/analyst-workflow-transfer';
 import { useAutoSync } from '@/lib/useAutoSync';
@@ -175,16 +177,6 @@ function Panel({
   );
 }
 
-function MetricTile({ label, value, detail }: { label: string; value: string; detail: string }) {
-  return (
-    <div className="rounded-md border border-gray-200 bg-white px-4 py-3">
-      <div className="text-xs font-semibold uppercase text-gray-500">{label}</div>
-      <div className="mt-2 text-2xl font-bold text-gray-900">{value}</div>
-      <p className="mt-1 text-xs text-gray-500">{detail}</p>
-    </div>
-  );
-}
-
 function formatCachedAt(cachedAt?: number): string | null {
   if (!cachedAt) return null;
   return `Last updated ${new Date(cachedAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}`;
@@ -194,50 +186,6 @@ function CacheMetaText({ cachedAt }: { cachedAt?: number }) {
   const label = formatCachedAt(cachedAt);
   if (!label) return null;
   return <p className="mb-3 text-xs font-medium text-amber-700">Showing cached data — {label}</p>;
-}
-
-function TopNTable({ data, metric }: { data: TopNItem[]; metric: string }) {
-  if (data.length === 0) {
-    return <p className="text-sm text-gray-500">No ranked data matches the active filters.</p>;
-  }
-  const max = Math.max(...data.map((item) => Number(item.value || 0)), 1);
-  return (
-    <div className="space-y-3">
-      {data.map((item, index) => {
-        const width = Math.max(6, (Number(item.value || 0) / max) * 100);
-        let displayValue: string;
-        if (typeof item.value !== 'number') {
-          displayValue = String(item.value ?? '—');
-        } else if (metric === 'damage_cost') {
-          displayValue = `₱${item.value.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-        } else if (metric === 'response_time') {
-          displayValue = `${item.value.toFixed(1)} min`;
-        } else {
-          displayValue = item.value.toLocaleString('en-PH', { maximumFractionDigits: 0 });
-        }
-        const sampleDetail = metric === 'response_time' && item.incident_count != null && item.metric_count != null
-          ? `${item.metric_count.toLocaleString()} of ${item.incident_count.toLocaleString()} incidents have response-time data`
-          : null;
-        return (
-          <div key={`${item.name}-${index}`} className="grid grid-cols-[2rem_1fr_9rem] items-center gap-3 text-sm">
-            <span className="font-semibold text-gray-500">{index + 1}</span>
-            <div className="min-w-0">
-              <div className="mb-1 flex items-center justify-between gap-3">
-                <span className="truncate font-medium text-gray-900">{item.name || 'Unspecified'}</span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-                <div className="h-full rounded-full bg-red-700" style={{ width: `${width}%` }} />
-              </div>
-            </div>
-            <span className="text-right">
-              <span className="block font-bold text-gray-900">{displayValue}</span>
-              {sampleDetail && <span className="block text-[11px] font-medium leading-tight text-gray-500">{sampleDetail}</span>}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
 }
 
 export default function AnalystWorkflowPage() {
@@ -515,45 +463,69 @@ export default function AnalystWorkflowPage() {
       )}
       <CacheMetaText cachedAt={cacheMeta} />
       <div className="rounded-md border border-gray-200 bg-white px-5 py-4 shadow-sm">
-        <Link href="/dashboard/analyst" className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-red-700">
+        <Link
+          href="/dashboard/analyst"
+          className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold text-red-700 transition-colors hover:text-red-800"
+        >
           <ArrowLeft className="h-4 w-4" /> Analyst dashboard
         </Link>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="flex min-w-0 items-start gap-3">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-red-50 text-red-700">
               <WorkflowIcon className="h-6 w-6" />
             </div>
-            <div>
-              <div className="text-xs font-semibold uppercase text-gray-500">{config.kicker}</div>
-              <h1 className="text-2xl font-bold text-gray-900">{config.title}</h1>
-              <p className="mt-1 text-sm text-gray-500">{config.description}</p>
+            <div className="min-w-0">
+              <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                {config.kicker}
+              </div>
+              <h1
+                className="font-bold leading-tight"
+                style={{ fontSize: "28px", color: "var(--text-primary)" }}
+              >
+                {config.title}
+              </h1>
+              <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+                {config.description}
+              </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => void loadData()}
-            disabled={loadingData}
-            className="inline-flex items-center justify-center gap-2 rounded-md border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-          >
-            <RefreshCw className={`h-4 w-4 ${loadingData ? 'animate-spin' : ''}`} />
-            Refresh workflow
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => void loadData()}
+              disabled={loadingData}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${loadingData ? 'animate-spin' : ''}`}
+                aria-hidden="true"
+              />
+              Refresh
+            </button>
+          </div>
         </div>
       </div>
 
       {selectedSetActive && selectedIncidentIds.length > 0 && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
-          <div className="font-semibold">
-            Analyzing {selectedIncidentIds.length.toLocaleString()} selected incidents
+        <div
+          className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 px-5 py-4"
+          role="status"
+          aria-live="polite"
+        >
+          <ListChecks className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-700" aria-hidden="true" />
+          <div className="text-sm text-amber-900">
+            <div className="font-semibold">
+              Selected set active &middot; {selectedIncidentIds.length.toLocaleString()} incidents
+            </div>
+            <p className="mt-1">
+              Charts and calculations reflect the active filters. The selected set drives the evidence table and the selected-record export below.
+            </p>
           </div>
-          <p className="mt-1">
-            Aggregate charts on this MVP page use the current filters. The selected incident set is preserved for the evidence table and Phase 2 selected-record exports.
-          </p>
         </div>
       )}
 
       <Panel
-        title="Workflow Filters"
+        title="Analysis Filters"
         icon={<Filter className="h-5 w-5" />}
         description="The same filter contract drives calculations, exports, and the incident evidence table."
         action={<span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-600">{activeFilterCount} active</span>}
@@ -701,9 +673,9 @@ export default function AnalystWorkflowPage() {
       )}
 
       <Panel
-        title="Export This Workflow"
+        title="Export Workflow Results"
         icon={<FileDown className="h-5 w-5" />}
-        description="MVP labels the export scope clearly; selected-record and full-AFOR file generation are Phase 2 backend work."
+        description="Export the current filtered result, the selected incident set, or the full AFOR record. Each format previews scope, filters, and columns before download."
         action={
           <div className="flex flex-wrap gap-2">
             {(['csv', 'pdf', 'excel'] as ExportFormat[]).map((format) => (
@@ -713,21 +685,45 @@ export default function AnalystWorkflowPage() {
                 onClick={() => setExportModal({ format, open: true })}
                 disabled={exportUnavailableOffline}
                 title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
-                className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                aria-label={`Export ${format === 'excel' ? 'Excel' : format.toUpperCase()}`}
+                className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
                 style={{ backgroundColor: '#991B1B' }}
+                onMouseEnter={(e) => {
+                  if (!exportUnavailableOffline) {
+                    (e.currentTarget as HTMLElement).style.backgroundColor = '#7f1d1d';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.backgroundColor = '#991B1B';
+                }}
               >
-                <Download className="h-4 w-4" />
+                <Download className="h-4 w-4" aria-hidden="true" />
                 {format === 'excel' ? 'Excel' : format.toUpperCase()}
               </button>
             ))}
           </div>
         }
       >
-        <div className="space-y-2 text-sm text-gray-600">
-          <p><span className="font-semibold text-gray-800">Current filtered result:</span> {filtersSummary}</p>
-          <p><span className="font-semibold text-gray-800">Selected incidents:</span> {selectedIncidentIds.length.toLocaleString()} selected</p>
-          <p className="text-xs text-gray-500">Charts use current filters in MVP. Selected incidents are carried forward for table review and the modular export backend in Phase 2.</p>
-        </div>
+        <dl className="space-y-3 text-sm">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-md border border-gray-200 bg-white p-3">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">Current filtered result</dt>
+              <dd className="mt-1 break-words text-gray-900">{filtersSummary}</dd>
+            </div>
+            <div className="rounded-md border border-gray-200 bg-white p-3">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">Selected incidents</dt>
+              <dd className="mt-1 text-gray-900">
+                <span className="text-base font-bold">{selectedIncidentIds.length.toLocaleString()}</span>
+                <span className="ml-1.5 text-gray-500">
+                  {selectedIncidentIds.length === 1 ? 'incident' : 'incidents'} on the evidence table
+                </span>
+              </dd>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">
+            Charts and calculations use the active filters. The selected set drives the evidence table and the selected-record export.
+          </p>
+        </dl>
       </Panel>
 
       {workflow === 'comparative' && (

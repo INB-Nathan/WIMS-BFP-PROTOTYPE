@@ -29,6 +29,8 @@ import { TrendCharts } from '@/components/analytics/TrendCharts';
 import { TypeDistributionChart } from '@/components/analytics/TypeDistributionChart';
 import { ResponseTimeChart } from '@/components/analytics/ResponseTimeChart';
 import { AnalystIncidentList } from '@/components/analytics/AnalystIncidentList';
+import { MetricTile } from '@/components/analytics/MetricTile';
+import { TopNTable } from '@/components/analytics/TopNTable';
 import {
   AlertTriangle,
   BarChart3,
@@ -85,66 +87,54 @@ const INTERVALS = [
 
 const ANALYST_ROLES = ['NATIONAL_ANALYST', 'SYSTEM_ADMIN'];
 
-const WORKFLOW_LINKS = [
+const WORKFLOW_LINKS: ReadonlyArray<{
+  slug: AnalystWorkflowSlug;
+  href: string;
+  title: string;
+  description: string;
+  icon: ReactNode;
+}> = [
   {
     slug: 'comparative',
     href: '/dashboard/analyst/comparative',
-    title: 'Comparative',
-    description: 'Period variance, calculations, export, and evidence table',
+    title: 'Comparative Analysis',
+    description: 'Compare incident counts between two review windows with variance, calculations, and the matching evidence table.',
     icon: <BarChart3 className="h-5 w-5" />,
-    accentBorder: 'border-t-blue-500',
-    iconBg: 'bg-blue-50 text-blue-700',
-    hoverBorder: 'hover:border-blue-300',
   },
   {
     slug: 'heatmap',
     href: '/dashboard/analyst/heatmap',
-    title: 'Heatmap',
-    description: 'Map-first geographic review with filtered records',
+    title: 'Heatmap & Geospatial Review',
+    description: 'Map-first geographic clustering of verified incidents with filtered record drill-down.',
     icon: <MapPinned className="h-5 w-5" />,
-    accentBorder: 'border-t-emerald-500',
-    iconBg: 'bg-emerald-50 text-emerald-700',
-    hoverBorder: 'hover:border-emerald-300',
   },
   {
     slug: 'trends',
     href: '/dashboard/analyst/trends',
-    title: 'Trends',
-    description: 'Interval controls, bucket totals, and incident table',
+    title: 'Trend Analysis',
+    description: 'Interval bucketed incident volume with calculation context and incident evidence.',
     icon: <TrendingUp className="h-5 w-5" />,
-    accentBorder: 'border-t-purple-500',
-    iconBg: 'bg-purple-50 text-purple-700',
-    hoverBorder: 'hover:border-purple-300',
   },
   {
     slug: 'response-time',
     href: '/dashboard/analyst/response-time',
-    title: 'Response Time',
-    description: 'Regional min, max, average detail, and export',
+    title: 'Response Time Analysis',
+    description: 'Regional response-time averages with minimum and maximum bounds, and export.',
     icon: <Clock className="h-5 w-5" />,
-    accentBorder: 'border-t-amber-500',
-    iconBg: 'bg-amber-50 text-amber-700',
-    hoverBorder: 'hover:border-amber-300',
   },
   {
     slug: 'top-n',
     href: '/dashboard/analyst/top-n',
-    title: 'Top-N Hotspots',
-    description: 'Metric and dimension controls for hotspot ranking',
+    title: 'Top-N Hotspot Analysis',
+    description: 'Switch metric and dimension to rank hotspots by incident volume, response time, casualties, or damage.',
     icon: <ListChecks className="h-5 w-5" />,
-    accentBorder: 'border-t-[#991B1B]',
-    iconBg: 'bg-red-50 text-red-700',
-    hoverBorder: 'hover:border-red-300',
   },
   {
     slug: 'incident-explorer',
     href: '/dashboard/analyst/incident-explorer',
     title: 'Incident Explorer',
-    description: 'Dedicated verified incident table and detail drawer',
+    description: 'Dedicated verified incident table with selection, sort, and detail drawer for dense record review.',
     icon: <Search className="h-5 w-5" />,
-    accentBorder: 'border-t-slate-500',
-    iconBg: 'bg-slate-50 text-slate-700',
-    hoverBorder: 'hover:border-slate-300',
   },
 ];
 
@@ -617,69 +607,131 @@ export default function AnalystDashboardPage() {
         </div>
       )}
 
-      {/* ── Phase 1: Redesigned maroon header with integrated KPI strip ── */}
-      <div className="rounded-lg bg-[#991B1B] px-5 py-5 shadow-md sm:px-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      {/* ── Page header (matches ValidatorPageHeader / RegionalPageHeader pattern) ── */}
+      <div className="rounded-md border border-gray-200 bg-white px-5 py-4 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-bold text-white sm:text-2xl">
+              <h1
+                className="font-bold leading-tight"
+                style={{ fontSize: "28px", color: "var(--text-primary)" }}
+              >
                 National Analyst Dashboard
               </h1>
               <FreshnessDot minutesAgo={headerMinutesAgo} isOnline={networkStatus.isOnline} />
             </div>
-            <p className="mt-1 text-sm text-white/70">
+            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
               Bureau of Fire Protection &mdash; Nationwide verified incident intelligence for trend review, geographic monitoring, and AFOR export.
             </p>
           </div>
           <button
             onClick={handleApplyFilters}
             disabled={loadingData}
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/20 disabled:opacity-50"
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
           >
-            <RefreshCw className={`h-4 w-4 ${loadingData ? 'animate-spin' : ''}`} /> Refresh data
+            <RefreshCw className={`h-3.5 w-3.5 ${loadingData ? 'animate-spin' : ''}`} aria-hidden="true" />
+            Refresh data
           </button>
         </div>
+      </div>
 
-        {/* ── KPI strip inside header ── */}
-        <div className="mt-5 flex flex-wrap items-stretch divide-x divide-white/20 rounded-lg bg-black/15 overflow-hidden">
-          <div className="flex-1 min-w-[130px] px-4 py-3">
-            <div className="flex items-center gap-1.5">
-              <ListChecks className="h-3.5 w-3.5 text-white/60" />
-              <span className="text-xs font-medium uppercase tracking-wide text-white/60">Incidents</span>
-            </div>
-            <div className="mt-1 text-2xl font-bold text-white">{visibleIncidentCount.toLocaleString()}</div>
-            <div className="mt-0.5 text-xs text-white/50">Under applied filters</div>
+      {/* ── KPI strip ── */}
+      <div
+        className="grid grid-cols-2 gap-3 rounded-md border border-gray-200 bg-white p-4 shadow-sm lg:grid-cols-4"
+        role="group"
+        aria-label="National analyst KPIs"
+      >
+        <div className="rounded-md border border-gray-100 bg-gray-50 px-4 py-3">
+          <div className="flex items-center gap-1.5">
+            <ListChecks className="h-3.5 w-3.5 text-gray-400" aria-hidden="true" />
+            <span className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+              Incidents
+            </span>
           </div>
-          <div className="flex-1 min-w-[130px] px-4 py-3">
-            <div className="flex items-center gap-1.5">
-              <MapPinned className="h-3.5 w-3.5 text-white/60" />
-              <span className="text-xs font-medium uppercase tracking-wide text-white/60">Scope</span>
-            </div>
-            <div className="mt-1 text-2xl font-bold text-white">{activeRegionName}</div>
-            <div className="mt-0.5 text-xs text-white/50">
-              {province || municipality ? [province, municipality].filter(Boolean).join(' / ') : 'National coverage'}
-            </div>
+          <div className="mt-1 text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+            {visibleIncidentCount.toLocaleString()}
           </div>
-          <div className="flex-1 min-w-[130px] px-4 py-3">
-            <div className="flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5 text-white/60" />
-              <span className="text-xs font-medium uppercase tracking-wide text-white/60">Avg Response</span>
-            </div>
-            <div className="mt-1 text-2xl font-bold text-white">
-              {averageResponseTime == null ? 'N/A' : `${averageResponseTime.toFixed(1)} min`}
-            </div>
-            <div className="mt-0.5 text-xs text-white/50">Mean of regional averages</div>
+          <div className="mt-0.5 text-xs" style={{ color: "var(--text-muted)" }}>
+            Under applied filters
           </div>
-          <div className="flex-1 min-w-[130px] px-4 py-3">
-            <div className="flex items-center gap-1.5">
-              <Filter className="h-3.5 w-3.5 text-white/60" />
-              <span className="text-xs font-medium uppercase tracking-wide text-white/60">Filters</span>
-            </div>
-            <div className="mt-1 text-2xl font-bold text-white">{activeFilterCount}</div>
-            <div className="mt-0.5 text-xs text-white/50">
-              {activeFilterCount === 0 ? 'Showing all incidents' : 'Active'}
-            </div>
+        </div>
+        <div className="rounded-md border border-gray-100 bg-gray-50 px-4 py-3">
+          <div className="flex items-center gap-1.5">
+            <MapPinned className="h-3.5 w-3.5 text-gray-400" aria-hidden="true" />
+            <span className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+              Scope
+            </span>
           </div>
+          <div className="mt-1 text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+            {activeRegionName}
+          </div>
+          <div className="mt-0.5 text-xs" style={{ color: "var(--text-muted)" }}>
+            {province || municipality ? [province, municipality].filter(Boolean).join(' / ') : 'National coverage'}
+          </div>
+        </div>
+        <div className="rounded-md border border-gray-100 bg-gray-50 px-4 py-3">
+          <div className="flex items-center gap-1.5">
+            <Clock className="h-3.5 w-3.5 text-gray-400" aria-hidden="true" />
+            <span className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+              Avg Response
+            </span>
+          </div>
+          <div className="mt-1 text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+            {averageResponseTime == null ? 'N/A' : `${averageResponseTime.toFixed(1)} min`}
+          </div>
+          <div className="mt-0.5 text-xs" style={{ color: "var(--text-muted)" }}>
+            Mean of regional averages
+          </div>
+        </div>
+        <div className="rounded-md border border-gray-100 bg-gray-50 px-4 py-3">
+          <div className="flex items-center gap-1.5">
+            <Filter className="h-3.5 w-3.5 text-gray-400" aria-hidden="true" />
+            <span className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+              Filters
+            </span>
+          </div>
+          <div className="mt-1 text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+            {activeFilterCount}
+          </div>
+          <div className="mt-0.5 text-xs" style={{ color: "var(--text-muted)" }}>
+            {activeFilterCount === 0 ? 'Showing all incidents' : 'Active'}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Analyst Workflows (moved up — primary entry points) ── */}
+      <div className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
+        <PanelHeader
+          icon={<BarChart3 className="h-5 w-5" />}
+          title="Analyst Workflows"
+          description="Open a dedicated workspace for calculations, export actions, and the matching incident table. The active filter set is carried forward."
+        />
+        <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-2 xl:grid-cols-3">
+          {WORKFLOW_LINKS.map((workflow) => (
+            <Link
+              key={workflow.href}
+              href={workflow.href}
+              onClick={(event) => openWorkflow(event, workflow.slug)}
+              aria-label={`Open ${workflow.title} workflow`}
+              className="group flex items-start gap-3 rounded-md border border-gray-200 bg-white p-4 shadow-sm transition-all hover:border-red-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2"
+            >
+              <span
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-white transition-transform group-hover:scale-105"
+                style={{ backgroundColor: '#991B1B' }}
+                aria-hidden="true"
+              >
+                {workflow.icon}
+              </span>
+              <div className="min-w-0 flex-1">
+                <span className="block text-sm font-bold text-gray-900">{workflow.title}</span>
+                <span className="mt-0.5 block text-xs leading-snug text-gray-500">{workflow.description}</span>
+              </div>
+              <ChevronRight
+                className="h-4 w-4 shrink-0 text-gray-400 transition-transform group-hover:translate-x-0.5 group-hover:text-red-700"
+                aria-hidden="true"
+              />
+            </Link>
+          ))}
         </div>
       </div>
 
@@ -711,7 +763,7 @@ export default function AnalystDashboardPage() {
         </>
       )}
 
-      {/* ── Phase 1: Filter bar with progressive disclosure ── */}
+      {/* ── Filter bar with progressive disclosure ── */}
       <div className="overflow-hidden rounded-md border border-gray-200 bg-gray-50">
         <PanelHeader
           icon={<Filter className="h-5 w-5" />}
@@ -984,7 +1036,7 @@ export default function AnalystDashboardPage() {
 
       {!loadingData && heatmap !== null && (
         <>
-          {/* ── Phase 1: Charts BEFORE incident list (reorganized) ── */}
+          {/* ── Charts group, then incident list ── */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
             <div className="space-y-6">
               {/* Charts: Trend + Comparative */}
@@ -1010,23 +1062,28 @@ export default function AnalystDashboardPage() {
                       freshness={{ cachedAt: cacheMeta.comparative, isOnline: networkStatus.isOnline }}
                     />
                     <div className="p-5">
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div className="rounded border border-gray-200 p-3">
-                          <div className="text-xs font-semibold uppercase text-gray-500 mb-1">Range A</div>
-                          <div>{comparative.range_a.start} to {comparative.range_a.end}</div>
-                          <div className="text-xl font-bold text-gray-900">{comparative.range_a.count}</div>
-                        </div>
-                        <div className="rounded border border-gray-200 p-3">
-                          <div className="text-xs font-semibold uppercase text-gray-500 mb-1">Range B</div>
-                          <div>{comparative.range_b.start} to {comparative.range_b.end}</div>
-                          <div className="text-xl font-bold text-gray-900">{comparative.range_b.count}</div>
-                        </div>
-                        <div className="col-span-2 rounded bg-gray-50 p-3">
-                          <span className="text-gray-600">Variance: </span>
-                          <span className={`font-bold ${comparative.variance_percent >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                            {comparative.variance_percent >= 0 ? '+' : ''}{comparative.variance_percent}%
-                          </span>
-                        </div>
+                      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                        <MetricTile
+                          label="Range A"
+                          value={comparative.range_a.count.toLocaleString()}
+                          detail={`${comparative.range_a.start} to ${comparative.range_a.end}`}
+                        />
+                        <MetricTile
+                          label="Range B"
+                          value={comparative.range_b.count.toLocaleString()}
+                          detail={`${comparative.range_b.start} to ${comparative.range_b.end}`}
+                        />
+                        <MetricTile
+                          label="Difference"
+                          value={(comparative.range_b.count - comparative.range_a.count).toLocaleString()}
+                          detail="Range B minus Range A"
+                        />
+                        <MetricTile
+                          label="Variance"
+                          value={`${comparative.variance_percent >= 0 ? '+' : ''}${comparative.variance_percent}%`}
+                          detail="Percent change between periods"
+                          valueClassName={comparative.variance_percent >= 0 ? 'text-red-600' : 'text-green-600'}
+                        />
                       </div>
                     </div>
                   </div>
@@ -1048,36 +1105,28 @@ export default function AnalystDashboardPage() {
                     </div>
                   </div>
                   <div className="flex flex-col gap-2 sm:flex-row">
-                    <button
-                      onClick={() => setExportModal({ format: 'csv', open: true })}
-                      disabled={exportUnavailableOffline}
-                      title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
-                      aria-label="Export CSV"
-                      className="inline-flex items-center justify-center gap-2 rounded-md bg-[#991B1B] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                    >
-                      <Download className="h-4 w-4" />
-                      CSV
-                    </button>
-                    <button
-                      onClick={() => setExportModal({ format: 'pdf', open: true })}
-                      disabled={exportUnavailableOffline}
-                      title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
-                      aria-label="Export PDF"
-                      className="inline-flex items-center justify-center gap-2 rounded-md bg-[#991B1B] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                    >
-                      <Download className="h-4 w-4" />
-                      PDF
-                    </button>
-                    <button
-                      onClick={() => setExportModal({ format: 'excel', open: true })}
-                      disabled={exportUnavailableOffline}
-                      title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
-                      aria-label="Export Excel"
-                      className="inline-flex items-center justify-center gap-2 rounded-md bg-[#991B1B] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                    >
-                      <Download className="h-4 w-4" />
-                      Excel
-                    </button>
+                    {(['csv', 'pdf', 'excel'] as ExportFormat[]).map((format) => (
+                      <button
+                        key={format}
+                        onClick={() => setExportModal({ format, open: true })}
+                        disabled={exportUnavailableOffline}
+                        title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
+                        aria-label={`Export ${format === 'excel' ? 'Excel' : format.toUpperCase()}`}
+                        className="inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
+                        style={{ backgroundColor: '#991B1B' }}
+                        onMouseEnter={(e) => {
+                          if (!exportUnavailableOffline) {
+                            (e.currentTarget as HTMLElement).style.backgroundColor = '#7f1d1d';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          (e.currentTarget as HTMLElement).style.backgroundColor = '#991B1B';
+                        }}
+                      >
+                        <Download className="h-4 w-4" aria-hidden="true" />
+                        {format === 'excel' ? 'Excel' : format.toUpperCase()}
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -1118,26 +1167,56 @@ export default function AnalystDashboardPage() {
                     description="Compare incident volume, response time, and top type by region"
                   />
                   <div className="p-5">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-gray-200">
-                          <th className="text-left py-2">Region</th>
-                          <th className="text-right py-2">Total Incidents</th>
-                          <th className="text-right py-2">Avg Response Time</th>
-                          <th className="text-right py-2">Top Type</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {compareRegions.map((r) => (
-                          <tr key={r.region_id} className="border-b border-gray-200">
-                            <td className="py-2">{getShortRegionName(r.region_id)}</td>
-                            <td className="text-right py-2 font-bold">{r.total_incidents}</td>
-                            <td className="text-right py-2">{r.avg_response_time ?? '—'}</td>
-                            <td className="text-right py-2">{r.top_type ?? '—'}</td>
+                    <div className="overflow-x-auto rounded-md border border-gray-200">
+                      <table className="w-full text-sm" aria-label="Cross-region comparison">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th
+                              scope="col"
+                              className="border-b border-gray-200 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
+                            >
+                              Region
+                            </th>
+                            <th
+                              scope="col"
+                              className="border-b border-gray-200 px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600"
+                            >
+                              Total Incidents
+                            </th>
+                            <th
+                              scope="col"
+                              className="border-b border-gray-200 px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600"
+                            >
+                              Avg Response Time
+                            </th>
+                            <th
+                              scope="col"
+                              className="border-b border-gray-200 px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-600"
+                            >
+                              Top Type
+                            </th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {compareRegions.map((r) => (
+                            <tr key={r.region_id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                              <td className="px-3 py-2 font-medium text-gray-900">
+                                {getShortRegionName(r.region_id)}
+                              </td>
+                              <td className="px-3 py-2 text-right font-bold tabular-nums text-gray-900">
+                                {r.total_incidents.toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2 text-right tabular-nums text-gray-700">
+                                {r.avg_response_time == null ? '—' : `${Number(r.avg_response_time).toFixed(1)} min`}
+                              </td>
+                              <td className="px-3 py-2 text-right text-gray-700">
+                                {r.top_type ?? '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1193,39 +1272,14 @@ export default function AnalystDashboardPage() {
                     </div>
                   </div>
                   {topNData && topNData.length > 0 ? (
-                    <div data-testid="bar-chart">
-                      {topNData.map((d) => {
-                        let displayValue: string;
-                        if (typeof d.value !== 'number') {
-                          displayValue = String(d.value ?? '—');
-                        } else if (topNMetric === 'damage_cost') {
-                          displayValue = `₱${d.value.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-                        } else if (topNMetric === 'response_time') {
-                          displayValue = `${d.value.toFixed(1)} min`;
-                        } else {
-                          displayValue = d.value.toLocaleString('en-PH', { maximumFractionDigits: 0 });
-                        }
-                        const sampleDetail = topNMetric === 'response_time' && d.incident_count != null && d.metric_count != null
-                          ? `${d.metric_count.toLocaleString()} of ${d.incident_count.toLocaleString()} incidents have response-time data`
-                          : null;
-                        return (
-                          <div key={d.name} className="flex justify-between gap-3 py-1 text-sm border-b border-gray-200">
-                            <span>{d.name}</span>
-                            <span className="text-right">
-                              <span className="block font-bold">{displayValue}</span>
-                              {sampleDetail && <span className="block text-[11px] font-medium leading-tight text-gray-500">{sampleDetail}</span>}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <TopNTable data={topNData} metric={topNMetric} emptyMessage="No top-N data." />
                   ) : (
                     <p className="text-sm text-gray-500">No top-N data.</p>
                   )}
                 </div>
               </div>
 
-              {/* ── Phase 1: Incident list MOVED BELOW charts ── */}
+              {/* ── Incident list ── */}
               <AnalystIncidentList
                 filters={appliedIncidentFilters}
                 prominent
@@ -1249,33 +1303,6 @@ export default function AnalystDashboardPage() {
           </div>
         </>
       )}
-
-      {/* ── Phase 1: Workflow cards — color-coded, larger icons, hover lift ── */}
-      <div className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
-        <PanelHeader
-          icon={<BarChart3 className="h-5 w-5" />}
-          title="Analyst Workflows"
-          description="Open a dedicated workspace for calculations, export actions, and the matching incident table."
-        />
-        <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-2 xl:grid-cols-3">
-          {WORKFLOW_LINKS.map((workflow) => (
-            <Link
-              key={workflow.href}
-              href={workflow.href}
-              onClick={(event) => openWorkflow(event, workflow.slug as AnalystWorkflowSlug)}
-              className={`group rounded-md border border-gray-200 bg-white p-4 border-t-[3px] ${workflow.accentBorder} ${workflow.hoverBorder} shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5`}
-            >
-              <div className="flex flex-col items-center gap-2 text-center">
-                <span className={`flex h-12 w-12 items-center justify-center rounded-full ${workflow.iconBg} group-hover:scale-110 transition-transform`}>
-                  {workflow.icon}
-                </span>
-                <span className="text-sm font-bold text-gray-900">{workflow.title}</span>
-                <span className="text-xs text-gray-500 leading-snug">{workflow.description}</span>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </div>
 
       {exportModal?.open && (
         <ExportPreviewModal
