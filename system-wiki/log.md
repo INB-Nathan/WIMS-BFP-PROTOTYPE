@@ -28,6 +28,66 @@
   - `stderr` of `compose up` suppressed during retry (`2>/dev/null`), full
     visibility only on final failure.
 
+## [2026-06-21] feat(civilian): auto-retry on reconnect + clickable tracking link on /report
+
+- **Symptom (user-reported):** when the user was on the "Connect to
+  continue" screen (review blocked because offline), they were stuck
+  there with no automatic recovery when connectivity returned. They
+  also noted the "Track your report at /tracking?id=478" text on
+  the submitted step was plain text — it should be a clickable link
+  to the proper tracking page. The same auto-retry pattern was
+  needed for the submit error (network) and append error screens.
+- **Fix (`src/frontend/src/app/page.tsx`):**
+  1. **Auto-retry useEffects.** Three new `useEffect` blocks watch
+     `isOnline` from `useNetworkStatus` and auto-fire the failed
+     action when connectivity returns:
+     - Review blocked: `handleReviewBeforeSubmit()` re-runs
+       `checkReviewEligibility()` and advances past the
+       "Connect to continue" screen if the check now succeeds.
+     - Submit failed with `submitErrorType === 'network'`: re-runs
+       `handleSubmit()` so the report is retried transparently.
+     - Append failed on the submitted screen: re-runs
+       `handleAppend()` so the update is retried.
+     All three use `void` (fire-and-forget); the retry function
+     updates the page state on its own.
+  2. **Visible feedback.** Each stuck screen now shows a
+     "Waiting for connection... / Naghihintay ng koneksyon..."
+     indicator with an animated spinner while `isOnline` is false,
+     so the user knows the system is listening for connectivity
+     (not just sitting idle). The indicator is removed the moment
+     the retry fires.
+  3. **Clickable tracking link.** The plain-text "Track your
+     report at /tracking?id=N" is now a `<Link href="/tracking?id=N">`
+     so the user can click straight through to the tracking page
+     from the submitted step. English + Filipino versions both
+     converted.
+- **TDD (`src/frontend/src/app/__tests__/page.test.tsx`):**
+  - Added a `vi.mock('@/lib/useNetworkStatus', ...)` so tests can
+    flip `isOnline` via `setNetworkOnline(true|false)`.
+  - Added a `vi.mock('@/components/MapPickerInner', ...)` no-op
+    so the eager prefetch in `page.tsx` doesn't try to load the
+    real (heavy: react-leaflet + leaflet) module during test render.
+  - New `describe('ReportPage — auto-retry on reconnect + tracking link')`
+    block with 3 tests:
+    1. "shows a Waiting for connection indicator on the
+       Connect-to-continue screen while offline" — drives to the
+       review block, asserts the indicator + 1 checkReviewEligibility
+       call.
+    2. "auto-retries handleReviewBeforeSubmit when connectivity
+       returns" — flips `isOnline` true, rerenders, asserts
+       `checkReviewEligibility` is called again and the
+       waiting-for-connection indicator is gone.
+    3. "shows a clickable tracking link to /tracking?id=<id> on
+       the submitted step" — drives the full non-life-safety
+       flow, asserts the link tag is `A` with the correct href.
+- **Test summary:** 16/16 page tests pass (was 13; +3 new). 0 new
+  ESLint errors. Build succeeds. (Note: the full-suite vitest run
+  shows pre-existing failures from other files due to a test
+  isolation issue where `localStorage` is missing for some files
+  when run together; this is unrelated to this change — confirmed
+  by stashing and re-running. Each test file passes in isolation.)
+- **System wiki updates:** `system-wiki/log.md` (this entry).
+
 ## [2026-06-21] perf(civilian): eager prefetch of MapPickerInner chunk on /report mount
 
 - **Symptom:** the user reported the offline chunk-load fallback is

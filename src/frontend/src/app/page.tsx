@@ -13,6 +13,7 @@ import {
   checkReviewEligibility,
 } from '@/lib/api/offlineCivilian';
 import { usePublicAutoSync } from '@/lib/usePublicAutoSync';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import type { CivilianCategory, CivilianDuplicateSuggestion, CivilianReportTrackingResponse, CivilianReportV2Payload, ReportingContext, SafetyStatus } from '@/lib/api';
 import React from 'react';
 
@@ -504,6 +505,63 @@ export default function ReportPage() {
   // prompts for desktop notifications on persistent failures.
   usePublicAutoSync();
 
+  // Verified network status (isOnline only flips true after a /health probe
+  // succeeds, not just on the browser online/offline event). Used to auto-
+  // retry stuck submit/review/append flows when the user comes back online,
+  // so they don't have to manually click "Try again" on every offline
+  // submission.
+  const { isOnline } = useNetworkStatus();
+
+  // ── Auto-retry on reconnect ─────────────────────────────────────────────
+  // When the user lands on a "stuck" screen because they were offline (review
+  // blocked, submit failed with network error, or append failed with network
+  // error), we want to automatically retry the failed action as soon as
+  // connectivity returns — rather than making the user watch a "Try again"
+  // button and click it themselves. Each useEffect below fires the retry
+  // exactly once when isOnline transitions to true while we're on the
+  // corresponding stuck screen.
+  //
+  // The retry functions are referenced via the latest closure of the page
+  // component; because we depend on isOnline (a primitive from the React
+  // store) and step / error state, the effect re-binds when those change,
+  // so the closures see the freshest retry functions.
+
+  // Auto-retry: review blocked (Connect to continue screen)
+  useEffect(() => {
+    if (step === 'review' && reviewBlockedReason && isOnline) {
+      // Fire-and-forget; handleReviewBeforeSubmit updates reviewBlockedReason
+      // and the step on its own.
+      void handleReviewBeforeSubmit();
+    }
+  }, [isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-retry: submit failed with network error on the review step
+  useEffect(() => {
+    if (
+      step === 'review' &&
+      submitErrorType === 'network' &&
+      submitError &&
+      isOnline &&
+      !submitting
+    ) {
+      void handleSubmit();
+    }
+  }, [isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-retry: append (update) failed on the submitted screen
+  useEffect(() => {
+    if (
+      step === 'submitted' &&
+      appendError &&
+      isOnline &&
+      !appending &&
+      !appendSubmitted &&
+      appendDescription.trim().length > 0
+    ) {
+      void handleAppend();
+    }
+  }, [isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Eager prefetch: MapPickerInner chunk ─────────────────────────────────
   // The context step renders <MapPicker />, which is a `next/dynamic()` import
   // of MapPickerInner. Without this prefetch, the dynamic import only fires
@@ -908,7 +966,9 @@ export default function ReportPage() {
     // Review was attempted while offline. The duplicate-suggestion check
     // requires a network round-trip; we don't queue duplicate fetches because
     // the user needs fresh data to decide. Show a clear "connect" message
-    // and a retry button that re-runs handleReviewBeforeSubmit.
+    // and a retry button that re-runs handleReviewBeforeSubmit. When
+    // isOnline becomes true the useEffect above auto-fires the retry so the
+    // user doesn't have to click.
     return (
       <div className="min-h-screen" style={{ background: 'var(--content-bg)' }}>
         <div className="text-center py-6 px-4" style={{ background: 'var(--bfp-gradient)' }}>
@@ -922,6 +982,16 @@ export default function ReportPage() {
                 <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
                 <p>{reviewBlockedReason}</p>
               </div>
+              {!isOnline && (
+                <div
+                  className="flex items-center gap-2 p-3 rounded-lg border text-sm"
+                  data-testid="waiting-for-connection"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)', backgroundColor: 'var(--content-bg)' }}
+                >
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Waiting for connection... / Naghihintay ng koneksyon...
+                </div>
+              )}
               <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
@@ -1060,6 +1130,16 @@ export default function ReportPage() {
                     </p>
                   </div>
                 </div>
+                {submitErrorType === 'network' && !isOnline && (
+                  <div
+                    className="flex items-center gap-2 text-xs"
+                    data-testid="waiting-for-connection"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Waiting for connection... / Naghihintay ng koneksyon...
+                  </div>
+                )}
               </div>
             )}
 
@@ -1180,6 +1260,16 @@ export default function ReportPage() {
               {appendError && (
                 <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600">
                   {appendError}
+                  {!isOnline && (
+                    <div
+                      className="flex items-center gap-2 mt-2 text-xs"
+                      data-testid="waiting-for-connection"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Waiting for connection... / Naghihintay ng koneksyon...
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1348,9 +1438,24 @@ export default function ReportPage() {
             )}
 
             <div className="text-xs p-3 rounded-lg mb-4" style={{ backgroundColor: 'var(--content-bg)', color: 'var(--text-secondary)' }}>
-              Track your report at <strong>/tracking?id={submittedReportId}</strong>
+              Track your report at{' '}
+              <Link
+                href={`/tracking?id=${submittedReportId}`}
+                className="font-semibold underline break-all"
+                style={{ color: 'var(--bfp-red, #dc2626)' }}
+                data-testid="tracking-link"
+              >
+                /tracking?id={submittedReportId}
+              </Link>
               <br />
-              Subaybayan ang iyong report sa <strong>/tracking?id={submittedReportId}</strong>
+              Subaybayan ang iyong report sa{' '}
+              <Link
+                href={`/tracking?id=${submittedReportId}`}
+                className="font-semibold underline break-all"
+                style={{ color: 'var(--bfp-red, #dc2626)' }}
+              >
+                /tracking?id={submittedReportId}
+              </Link>
             </div>
 
             {/* ── Update Report ─────────────────────────────────────── */}
@@ -1389,9 +1494,21 @@ export default function ReportPage() {
                 </div>
 
                 {appendError && (
-                  <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 text-red-700 text-sm mb-3">
-                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                    {appendError}
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 text-red-700 text-sm mb-3">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <div>
+                      {appendError}
+                      {!isOnline && (
+                        <div
+                          className="flex items-center gap-2 mt-2 text-xs"
+                          data-testid="waiting-for-connection"
+                          style={{ color: 'var(--text-secondary)' }}
+                        >
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          Waiting for connection... / Naghihintay ng koneksyon...
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 

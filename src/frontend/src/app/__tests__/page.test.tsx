@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { appendCivilianReportOfflineAware } from '@/lib/api/offlineCivilian';
 
 const mockRouterReplace = vi.fn();
@@ -348,6 +348,31 @@ vi.mock('@/lib/usePublicAutoSync', () => ({
   usePublicAutoSync: publicAutoSyncMocks.usePublicAutoSync,
 }));
 
+// useNetworkStatus is read by the auto-retry-on-reconnect useEffects. Tests
+// can flip `networkStatusMocks.isOnline` to simulate reconnect.
+const networkStatusMocks = vi.hoisted(() => ({
+  isOnline: true as boolean,
+  isReconnecting: false,
+  state: 'online' as 'online' | 'offline' | 'checking' | 'reconnecting',
+  isChecking: false,
+  lastCheckedAt: null as number | null,
+}));
+
+vi.mock('@/lib/useNetworkStatus', () => ({
+  useNetworkStatus: () => ({
+    isOnline: networkStatusMocks.isOnline,
+    isReconnecting: networkStatusMocks.isReconnecting,
+    state: networkStatusMocks.state,
+    isChecking: networkStatusMocks.isChecking,
+    lastCheckedAt: networkStatusMocks.lastCheckedAt,
+  }),
+}));
+
+function setNetworkOnline(isOnline: boolean) {
+  networkStatusMocks.isOnline = isOnline;
+  networkStatusMocks.state = isOnline ? 'online' : 'offline';
+}
+
 function setConnectivity(state: 'online' | 'offline') {
   connectivityMocks.state = state;
   connectivityMocks.isOnline = state === 'online';
@@ -573,5 +598,136 @@ describe('ReportPage — context step map chunk-load fallback', () => {
     // Continue should now be enabled (lat/lng are valid numbers).
     const continueBtn = screen.getByRole('button', { name: /Continue/ });
     expect(continueBtn).not.toBeDisabled();
+  });
+});
+
+describe('ReportPage — auto-retry on reconnect + tracking link', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    try { localStorage.clear(); } catch {}
+    mockSearchParams = new URLSearchParams();
+    mapPickerChange = null;
+    mapPickerBehaviour.throwOnRender = false;
+    setConnectivity('online');
+    setNetworkOnline(true);
+    offlineMocks.checkReviewEligibility.mockImplementation(() => undefined);
+    offlineMocks.submitCivilianReportOfflineAware.mockResolvedValue({
+      queued: false,
+      response: { report_id: 478, status: 'PENDING' },
+    } as Parameters<typeof offlineMocks.submitCivilianReportOfflineAware.mockResolvedValue>[0]);
+    offlineMocks.appendCivilianReportOfflineAware.mockResolvedValue({
+      queued: false,
+      response: { report_id: 478, status: 'PENDING' },
+    } as Parameters<typeof offlineMocks.appendCivilianReportOfflineAware.mockResolvedValue>[0]);
+    publicAutoSyncMocks.usePublicAutoSync.mockReturnValue({
+      syncing: false,
+      lastSyncedAt: null,
+      pendingCount: 0,
+      failedCount: 0,
+      syncNow: vi.fn(),
+    });
+  });
+  afterEach(() => {
+    mapPickerBehaviour.throwOnRender = false;
+    setNetworkOnline(true);
+  });
+
+  it('shows a Waiting for connection indicator on the Connect-to-continue screen while offline', async () => {
+    // Land on the Connect-to-continue screen: offline, review blocked.
+    setNetworkOnline(false);
+    offlineMocks.checkReviewEligibility.mockImplementation(() => {
+      throw new Error('Connect to the internet to check for similar reports.');
+    });
+    try { localStorage.setItem('wims_civilian_device_id', 'd-1'); } catch {}
+
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+
+    // Drive through to the review step and trigger the review block.
+    fireEvent.click(screen.getByText('I am safe'));
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('How did you learn about this fire?');
+    fireEvent.click(screen.getByText('I saw it happen'));
+    await waitFor(() => expect(mapPickerChange).not.toBeNull());
+    mapPickerChange!(14.5, 121);
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('What type of fire is this?');
+    fireEvent.click(screen.getByText('Structural'));
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('Observed time (optional)');
+    fireEvent.click(screen.getByText('Review & Submit'));
+
+    // Stuck on Connect to continue with a Waiting-for-connection indicator.
+    await screen.findByText('Connect to continue');
+    expect(screen.getByTestId('waiting-for-connection')).toBeInTheDocument();
+    // checkReviewEligibility was called once (the initial attempt).
+    expect(offlineMocks.checkReviewEligibility).toHaveBeenCalledTimes(1);
+  });
+
+  it('auto-retries handleReviewBeforeSubmit when connectivity returns on the Connect-to-continue screen', async () => {
+    setNetworkOnline(false);
+    offlineMocks.checkReviewEligibility.mockImplementation(() => {
+      throw new Error('Connect to the internet to check for similar reports.');
+    });
+    try { localStorage.setItem('wims_civilian_device_id', 'd-1'); } catch {}
+
+    const { default: ReportPage } = await import('../page');
+    const { rerender } = render(<ReportPage />);
+
+    // Drive to the review step and trigger the block.
+    fireEvent.click(screen.getByText('I am safe'));
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('How did you learn about this fire?');
+    fireEvent.click(screen.getByText('I saw it happen'));
+    await waitFor(() => expect(mapPickerChange).not.toBeNull());
+    mapPickerChange!(14.5, 121);
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('What type of fire is this?');
+    fireEvent.click(screen.getByText('Structural'));
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('Observed time (optional)');
+    fireEvent.click(screen.getByText('Review & Submit'));
+    await screen.findByText('Connect to continue');
+    expect(offlineMocks.checkReviewEligibility).toHaveBeenCalledTimes(1);
+
+    // Simulate reconnect: isOnline flips true and the mock now resolves cleanly.
+    // Rerender to flush the new isOnline value into the useEffect.
+    offlineMocks.checkReviewEligibility.mockImplementation(() => undefined);
+    setNetworkOnline(true);
+    rerender(<ReportPage />);
+    await waitFor(() => {
+      expect(offlineMocks.checkReviewEligibility).toHaveBeenCalledTimes(2);
+    });
+    // Waiting-for-connection indicator should be gone now (we're online).
+    expect(screen.queryByTestId('waiting-for-connection')).not.toBeInTheDocument();
+  });
+
+  it('shows a clickable tracking link to /tracking?id=<id> on the submitted step', async () => {
+    try { localStorage.setItem('wims_civilian_device_id', 'd-1'); } catch {}
+
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+
+    // Drive the full non-life-safety flow up to the submitted screen.
+    fireEvent.click(screen.getByText('I am safe'));
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('How did you learn about this fire?');
+    fireEvent.click(screen.getByText('I saw it happen'));
+    await waitFor(() => expect(mapPickerChange).not.toBeNull());
+    mapPickerChange!(14.5, 121);
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('What type of fire is this?');
+    fireEvent.click(screen.getByText('Structural'));
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('Observed time (optional)');
+    fireEvent.click(screen.getByText('Review & Submit'));
+    await screen.findByText('Review Your Report');
+    fireEvent.click(screen.getByText('Submit Report'));
+    await screen.findByText('Report Submitted');
+
+    // The tracking link should be a real <a> with the correct href.
+    const trackingLink = screen.getByTestId('tracking-link');
+    expect(trackingLink.tagName).toBe('A');
+    expect(trackingLink.getAttribute('href')).toBe('/tracking?id=478');
   });
 });
