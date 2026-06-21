@@ -1,7 +1,7 @@
 ---
 title: Database Schema Overview
 created: 2026-05-14
-updated: 2026-06-19
+updated: 2026-06-21
 type: database
 tags: [wims-bfp, database, schema, rls, audit-log, implementation-map, startup-self-heal]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/postgres-init]
@@ -28,6 +28,8 @@ As of 2026-06-19, eligible schema-only SQL files are executed directly from `src
 - `53_incident_pii_key_version.sql`
 - `54_openbao_provider_metadata.sql`
 - `61_check_constraints.sql`
+- `62_audit_correlation_columns.sql`
+- `63_ivh_ip_address.sql`
 
 **Kept inline** (mixed schema + seed data, RLS rewrites, or rule/policy patches):
 - `21_all_regions.sql` — province_district/city_municipality columns only; file also seeds regions/provinces/cities and assigns users
@@ -49,7 +51,7 @@ As of 2026-06-19, eligible schema-only SQL files are executed directly from `src
 | `wims.incident_attachments` | `06_incident_details.sql` |
 | `wims.incident_nonsensitive_details` | `06_incident_details.sql` |
 | `wims.incident_sensitive_details` | `06_incident_details.sql` |
-| `wims.incident_verification_history` | `06_incident_details.sql` |
+| `wims.incident_verification_history` | `06_incident_details.sql`; `ip_address` column added in `63_ivh_ip_address.sql` |
 | `wims.involved_parties` | `06_incident_details.sql` |
 | `wims.operational_challenges` | `06_incident_details.sql` |
 | `wims.responding_units` | `06_incident_details.sql` |

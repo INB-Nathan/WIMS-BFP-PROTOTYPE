@@ -138,6 +138,7 @@ _SQL_FILE_SCHEMA_PATCHES = {
     "54_openbao_provider_metadata.sql",
     "61_check_constraints.sql",
     "62_audit_correlation_columns.sql",
+    "63_ivh_ip_address.sql",
 }
 
 
@@ -200,6 +201,7 @@ def apply_schema_patches() -> None:
     - crypto_provider / kms_key_name + relaxed PII constraint (54_openbao_provider_metadata.sql)
     - non-negative CHECK constraints on incident_nonsensitive_details (61_check_constraints.sql)
     - system_audit_trails correlation_id / result / ip_hash columns (62_audit_correlation_columns.sql)
+    - incident_verification_history ip_address column (63_ivh_ip_address.sql)
 
     Uses DATABASE_ADMIN_URL (superuser) because CREATE RULE / CREATE POLICY /
     ALTER TABLE require the table owner; wims_app_user (the runtime role) is not
@@ -492,6 +494,12 @@ def apply_schema_patches() -> None:
             db,
             "62_audit_correlation_columns.sql",
             "correlation_id / result / ip_hash columns on system_audit_trails",
+        )
+        # Migration 63: IVH client IP capture for audit-log rows
+        _apply_postgres_init_sql_patch(
+            db,
+            "63_ivh_ip_address.sql",
+            "ip_address column on incident_verification_history",
         )
     finally:
         db.close()

@@ -1,3 +1,8 @@
+## [2026-06-21] fix | migration 63 startup self-heal wiring (PR #443)
+
+- **`src/backend/main.py`:** Added `63_ivh_ip_address.sql` to `_SQL_FILE_SCHEMA_PATCHES`, documented it in the startup patch list, and applied it from `apply_schema_patches()` after migration 62 so existing persistent Postgres volumes receive `wims.incident_verification_history.ip_address` on backend startup.
+- **`system-wiki/database/schema-overview.md`:** Updated the startup self-heal allowlist and `incident_verification_history` table source notes to include migration 63.
+
 ## [2026-06-21] diagnosis | cluster inspection map renders tinted blue pin instead of red pin
 
 - **Symptom:** Validators opening the triage inspection modal see "a red square on the mark" on the cluster map. Only the triage modal is affected; all other maps in the app use the centralized SVG `divIcon` pattern and render correctly.
