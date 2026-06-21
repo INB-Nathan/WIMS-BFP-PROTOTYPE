@@ -3599,3 +3599,16 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - **`.pi/prompts/vps.md` (new):** Project-level pi prompt template invoked via `/vps`. Captures the safe VPS workflow distilled from `.github/ci/deploy.yml:152-154` and the 2026-06-20 auth-loop post-mortem: always use `docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production` (never the local `.env`); tag `src-backend-rollback:latest` before any rebuild; run the 5-step verification (`/health`, OIDC discovery, `/login`, public DMZ, frontend ECONNREFUSED scan); rollback procedure; special-case subsystems (Keycloak realm, SQL init, nginx, frontend build args). The template points local validation back to the running `wims-postgres` container and the `pytest` env block from `AGENTS.md`.
 - **Trigger:** 2026-06-20 backend crash loop from a local `docker compose up -d --build backend` that interpolated `DATABASE_ADMIN_URL` from `src/.env` (`POSTGRES_PASSWORD=postgres`) instead of `src/.env.production` (`POSTGRES_PASSWORD=wims-postgres-secure-2026`). The backend's startup DDL patches (`_apply_postgres_init_sql_patch` in `src/backend/main.py:166`) failed with `password authentication failed for user "postgres"`, the backend entered a crash loop, and `/api/auth/session` got `ECONNREFUSED` from the frontend session route — producing the auth loop. Fixed by re-creating the backend with the production compose + env file. No source-code change.
 - **Related existing wiki:** `system-wiki/operations/auth-loop-debug-guide.md` documents the `BACKEND_URL`/`NEXT_PUBLIC_AUTH_API_URL` server-side probe failure class; the new prompt template covers the broader "how to do anything on the VPS without breaking it" workflow, of which auth-loop-debug is one symptom.
+
+## [2026-06-21] fix | Analyst Top-N dimension refresh and region labels
+- `src/frontend/src/app/dashboard/analyst/page.tsx`: dashboard Top-N metric/dimension dropdown changes now immediately reload analytics using the newly selected value instead of waiting for a later refresh/apply cycle with potentially stale state.
+- `src/backend/services/analytics_read_model.py`: Top-N `dimension=region` now joins `wims.ref_regions` and returns analyst-readable region names with id fallback.
+- `src/backend/tests/test_analytics_top_n_metrics.py`: added regression coverage for region-name lookup.
+- Updated `system-wiki/frontend/route-map.md` and `system-wiki/backend/remaining-routes.md`.
+
+## [2026-06-21] fix | Civilian triage queue appended update visibility
+- `src/backend/services/civilian_triage/queue_projection.py`: queue materialization now groups explicit civilian append chains (`linked_to_report_id`) with their parent reports before spatial clustering, and queue rows now expose `description` plus `linked_to_report_id`.
+- `src/backend/services/civilian_triage/models.py` and `src/frontend/src/lib/api/legacy.ts`: triage report contracts now include appended-update context fields.
+- `src/frontend/src/app/incidents/triage/page.tsx`: validator inspection modal now displays appended-update badges, parent linked-update counts, report descriptions, and follow-up text.
+- Validation: `pytest tests/test_civilian_triage_module.py -q` passed; `npm run lint` passed with existing warnings.
+- Updated `system-wiki/subsystems/civilian-reporting-phase2.md`.

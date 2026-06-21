@@ -121,6 +121,8 @@ class TriageReportEntry(BaseModel):
     safety_status: str | None
     status: str
     status_explanation: str | None
+    description: str | None = None
+    linked_to_report_id: int | None = None
     trust_breakdown: TrustBreakdown
     severity: str  # HIGH | MEDIUM | LOW
     related_count: int  # reports within 100m / 1hr (excl. self)

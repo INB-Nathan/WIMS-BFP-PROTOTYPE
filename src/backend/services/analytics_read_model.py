@@ -976,7 +976,7 @@ def get_compare_regions(
 VALID_TOP_N_METRICS = ("incidents", "response_time", "casualties", "damage_cost")
 VALID_TOP_N_DIMENSIONS = {
     "fire_station": "a.fire_station_name",
-    "region": "a.region_id::text",
+    "region": "COALESCE(r.region_name, a.region_id::text)",
     "municipality": "a.municipality_name",
     "barangay": "a.barangay_name",
 }
@@ -1047,6 +1047,7 @@ def get_top_n(
                    COUNT(*) AS incident_count,
                    {metric_count_expr}
             FROM wims.analytics_incident_facts a
+            LEFT JOIN wims.ref_regions r ON r.region_id = a.region_id
             WHERE {where_sql}
             GROUP BY {dim_col}
             {having_sql}

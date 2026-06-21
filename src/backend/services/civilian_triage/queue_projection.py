@@ -153,6 +153,60 @@ def get_queue(
     if unreviewed:
         base_filters.append("cr.status = 'PENDING'")
 
+    # Ensure appended public updates are grouped with their parent report even
+    # when the update is outside the spatial/time suggestion window.
+    db.execute(
+        text("""
+            WITH linked_edges AS (
+                SELECT child.linked_to_report_id AS parent_id, child.report_id AS child_id
+                FROM wims.citizen_reports child
+                JOIN wims.citizen_reports parent ON parent.report_id = child.linked_to_report_id
+                WHERE child.linked_to_report_id IS NOT NULL
+                  AND child.status NOT IN ('ACTIONED','REJECTED_BOGUS','REJECTED_DUPLICATE','REJECTED_INSUFFICIENT','REJECTED_TIMEOUT')
+                  AND parent.status NOT IN ('ACTIONED','REJECTED_BOGUS','REJECTED_DUPLICATE','REJECTED_INSUFFICIENT','REJECTED_TIMEOUT')
+            ),
+            existing_targets AS (
+                SELECT DISTINCT ON (le.parent_id, le.child_id)
+                       le.parent_id,
+                       le.child_id,
+                       cc.cluster_id
+                FROM linked_edges le
+                JOIN wims.citizen_report_cluster_members cm
+                  ON cm.report_id IN (le.parent_id, le.child_id)
+                JOIN wims.citizen_report_clusters cc ON cc.cluster_id = cm.cluster_id
+                WHERE cc.status != 'CLUSTER_CLOSED'
+                ORDER BY le.parent_id, le.child_id, cc.updated_at DESC NULLS LAST, cc.cluster_id DESC
+            ),
+            created_targets AS (
+                INSERT INTO wims.citizen_report_clusters (anchor_report_id, status)
+                SELECT DISTINCT le.parent_id, 'CLUSTER_MONITORING'
+                FROM linked_edges le
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM existing_targets et
+                    WHERE et.parent_id = le.parent_id AND et.child_id = le.child_id
+                )
+                RETURNING cluster_id, anchor_report_id AS parent_id
+            ),
+            targets AS (
+                SELECT parent_id, child_id, cluster_id FROM existing_targets
+                UNION ALL
+                SELECT ct.parent_id, le.child_id, ct.cluster_id
+                FROM created_targets ct
+                JOIN linked_edges le ON le.parent_id = ct.parent_id
+            ),
+            memberships AS (
+                SELECT cluster_id, parent_id AS report_id FROM targets
+                UNION
+                SELECT cluster_id, child_id AS report_id FROM targets
+            )
+            INSERT INTO wims.citizen_report_cluster_members (cluster_id, report_id)
+            SELECT cluster_id, report_id
+            FROM memberships
+            ON CONFLICT DO NOTHING
+        """)
+    )
+
     # Ensure active public signal rows have a durable cluster workflow record.
     # Read-time spatial grouping is still used for suggestions/severity, but
     # validators need a cluster id before they can claim and apply actions.
@@ -330,6 +384,8 @@ def get_queue(
                 cr.safety_status,
                 cr.status,
                 cr.status_explanation,
+                cr.description,
+                cr.linked_to_report_id,
                 cr.trust_score,
                 cr.gps_distance_m,
                 cr.link_count,
@@ -397,27 +453,29 @@ def get_queue(
 
     for row in rows:
         # Column indices:
-        #  0: report_id          12: created_at          24: cluster_id
-        #  1: lat                13: reported_at          25: cluster_status
-        #  2: lon                14: previous_report_id   26: assigned_to
-        #  3: category            15: has_category         27: review_started_at
-        #  4: sub_category        16: has_sub_category     28: anchor_report_id
-        #  5: reporting_context  17: has_reported_at      29: related_count
-        #  6: safety_status       18: has_device_id        30: station_name
-        #  7: status             19: has_witness_name     31: distance_m
-        #  8: status_explanation 20: has_witness_phone     32: phone
-        #  9: trust_score        21: nearest_500m          33: dup_count_30m
-        # 10: gps_distance_m     22: nearest_2km           34: followup_count
-        # 11: link_count         23: nearest_5km           35: followups_json
-        cluster_id = row[24]
-        cluster_status = row[25]
-        assigned_to_uuid = row[26]
-        review_started_at = row[27]
-        anchor_report_id = row[28]
+        #  0: report_id          14: created_at          26: cluster_id
+        #  1: lat                15: reported_at          27: cluster_status
+        #  2: lon                16: previous_report_id   28: assigned_to
+        #  3: category            17: has_category         29: review_started_at
+        #  4: sub_category        18: has_sub_category     30: anchor_report_id
+        #  5: reporting_context  19: has_reported_at      31: related_count
+        #  6: safety_status       20: has_device_id        32: station_name
+        #  7: status             21: has_witness_name     33: distance_m
+        #  8: status_explanation 22: has_witness_phone     34: phone
+        #  9: description        23: nearest_500m          35: dup_count_30m
+        # 10: linked_to_report_id 24: nearest_2km          36: followup_count
+        # 11: trust_score        25: nearest_5km           37: followups_json
+        # 12: gps_distance_m
+        # 13: link_count
+        cluster_id = row[26]
+        cluster_status = row[27]
+        assigned_to_uuid = row[28]
+        review_started_at = row[29]
+        anchor_report_id = row[30]
 
         # Parse follow-up JSON
         followups = []
-        followups_json = row[35]
+        followups_json = row[37]
         if followups_json is not None:
             try:
                 if isinstance(followups_json, str):
@@ -441,16 +499,16 @@ def get_queue(
                     exc_info=True,
                 )
 
-        # Trust breakdown from signal boolean columns (indices 15-20)
-        has_category = row[15]
-        has_sub_category = row[16]
-        has_reported_at = row[17]
-        has_device_id = row[18]
-        has_witness_name = row[19]
-        has_witness_phone = row[20]
-        nearest_500m = row[21]
-        nearest_2km = row[22]
-        nearest_5km = row[23]
+        # Trust breakdown from signal boolean columns (indices 17-22)
+        has_category = row[17]
+        has_sub_category = row[18]
+        has_reported_at = row[19]
+        has_device_id = row[20]
+        has_witness_name = row[21]
+        has_witness_phone = row[22]
+        nearest_500m = row[23]
+        nearest_2km = row[24]
+        nearest_5km = row[25]
 
         tb = _build_trust_breakdown(
             has_category,
@@ -463,14 +521,14 @@ def get_queue(
             nearest_2km,
             nearest_5km,
         )
-        tb.duplicate_device_count_30m = int(row[33] or 0)
-        gps_distance_m = row[10]
+        tb.duplicate_device_count_30m = int(row[35] or 0)
+        gps_distance_m = row[12]
         tb.gps_mismatch = bool(gps_distance_m is not None and float(gps_distance_m) > 200)
-        tb.score = int(row[9] or 0)
+        tb.score = int(row[11] or 0)
 
-        created_at_val = row[12]
+        created_at_val = row[14]
         is_aging, is_timeout_risk, is_danger = aging_flags(created_at_val)
-        sev = severity(int(row[29] or 0), tb.score)
+        sev = severity(int(row[31] or 0), tb.score)
 
         if aging and not is_aging:
             continue
@@ -482,9 +540,9 @@ def get_queue(
             continue
 
         station = StationContext(
-            name=row[30],
-            distance_m=float(row[31]) if row[31] is not None else None,
-            phone_available=bool(row[32] and str(row[32]).strip()),
+            name=row[32],
+            distance_m=float(row[33]) if row[33] is not None else None,
+            phone_available=bool(row[34] and str(row[34]).strip()),
         )
 
         entry = TriageReportEntry(
@@ -497,20 +555,22 @@ def get_queue(
             safety_status=row[6],
             status=row[7],
             status_explanation=row[8],
+            description=row[9],
+            linked_to_report_id=row[10],
             trust_breakdown=tb,
             severity=sev,
-            related_count=int(row[29] or 0),
-            linked_count=int(row[11] or 0),
+            related_count=int(row[31] or 0),
+            linked_count=int(row[13] or 0),
             created_at=created_at_val.replace(tzinfo=timezone.utc)
             if created_at_val.tzinfo is None
             else created_at_val,
-            reported_at=row[13].replace(tzinfo=timezone.utc)
-            if row[13] and row[13].tzinfo is None
-            else row[13],
+            reported_at=row[15].replace(tzinfo=timezone.utc)
+            if row[15] and row[15].tzinfo is None
+            else row[15],
             is_aging=is_aging,
             is_timeout_risk=is_timeout_risk,
             is_danger=is_danger,
-            previous_report_id=row[14],
+            previous_report_id=row[16],
             station=station,
             followups=followups,
         )

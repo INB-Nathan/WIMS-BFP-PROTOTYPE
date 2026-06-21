@@ -206,9 +206,9 @@ Returns clustered `citizen_reports` with cluster metadata.
 | `confidence` | min threshold |
 | `unreviewed` | no cluster membership |
 
-**Cluster discovery / related counts**: triage queue related-count/severity uses PostGIS `ST_DWithin(geography, geography, 100)` and a 1-hour window. Queue reads materialize durable clusters only for **connected components of unclustered reports** that contain at least two members within 100m/1hr of each other (transitive closure over the spatial adjacency). The materialization uses a recursive CTE that builds each component and inserts one cluster row per component with all of its members; components with a single member are skipped, so the report is left as a singleton (`cluster_id` is null) and appears in the Individual Reports table. Clusters created by the explicit split workflow or by manual merge still work as before; the auto-materialization only acts on reports not already in any open cluster. Truly isolated reports (no unclustered neighbors within 100m/1hr) also remain unclustered and appear in the Individual Reports table.
+**Cluster discovery / related counts**: triage queue related-count/severity uses PostGIS `ST_DWithin(geography, geography, 100)` and a 1-hour window. Queue reads materialize durable clusters for explicit civilian append chains (`linked_to_report_id`) before spatial grouping so validator inspection shows parent reports together with appended updates even when the update falls outside the 100m/1hr suggestion window. Spatial grouping then materializes durable clusters only for reports that have at least one related report within 100m/1hr (the `groupable` CTE filters `unclustered` reports with a correlated `EXISTS (SELECT 1 FROM ... WHERE ST_DWithin(...) AND ...)` subquery). Truly isolated reports remain unclustered (`cluster_id` is null) and appear in the Individual Reports table; related reports each get their own cluster and appear in the Clusters table for validator review, claim, and manual merge.
 
-**RLS context note**: the queue projection uses `get_db_with_rls()` and materializes singleton clusters during the read. Because SQLAlchemy/PostgreSQL `SET LOCAL wims.current_user_id` is cleared by `db.commit()`, `src/backend/services/civilian_triage/queue_projection.py` re-establishes RLS context immediately after the materialization commit and before `_table_exists()` plus the main queue SELECT. Without this reset, production app-user sessions can see PENDING rows in lightweight widgets but receive an empty triage queue.
+**RLS context note**: the queue projection uses `get_db_with_rls()` and materializes clusters during the read. Because SQLAlchemy/PostgreSQL `SET LOCAL wims.current_user_id` is cleared by `db.commit()`, `src/backend/services/civilian_triage/queue_projection.py` re-establishes RLS context immediately after the materialization commit and before `_table_exists()` plus the main queue SELECT. Without this reset, production app-user sessions can see PENDING rows in lightweight widgets but receive an empty triage queue.
 
 **Returns per cluster**:
 ```
@@ -221,7 +221,7 @@ Returns clustered `citizen_reports` with cluster metadata.
 }
 ```
 
-`link_count` is the primary severity signal — derived at read time from the number of 100m/1hr related reports (including appends).
+`link_count` is the primary severity signal — derived at read time from the number of 100m/1hr related reports (including appends). Triage report entries expose `description`, `linked_to_report_id`, `previous_report_id`, and follow-up summaries; `/incidents/triage` renders appended-update badges, parent link counts, descriptions, and follow-up text inside the inspection modal.
 
 ### `POST /api/triage/clusters/{cluster_id}/claim`
 Claim a cluster before review. Claims older than 15 minutes without activity are considered stale.

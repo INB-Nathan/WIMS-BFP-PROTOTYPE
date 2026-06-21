@@ -113,6 +113,7 @@ def test_get_queue_reestablishes_rls_context_after_materialization_commit(monkey
 
     assert events == [
         "materialize",
+        "materialize",
         "commit",
         ("set_rls_context", user_id, True),
         ("main_select", True, True),

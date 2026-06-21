@@ -312,6 +312,8 @@ export default function AnalystDashboardPage() {
     casualtySeverity?: string;
     damageMin?: string;
     damageMax?: string;
+    topNMetric?: string;
+    topNDimension?: string;
   };
 
   const loadData = useCallback(async (overrides?: FilterOverrides) => {
@@ -329,6 +331,8 @@ export default function AnalystDashboardPage() {
     const cs = overrides?.casualtySeverity ?? casualtySeverity;
     const dm = overrides?.damageMin ?? damageMin;
     const dx = overrides?.damageMax ?? damageMax;
+    const tnMetric = overrides?.topNMetric ?? topNMetric;
+    const tnDimension = overrides?.topNDimension ?? topNDimension;
 
     setLoadingData(true);
     setError(null);
@@ -371,7 +375,7 @@ export default function AnalystDashboardPage() {
               region_ids: comparisonRegionIds.join(','),
             }).catch(() => [])
           : Promise.resolve([]),
-        fetchTopNOfflineAware({ metric: topNMetric, dimension: topNDimension, ...filters }),
+        fetchTopNOfflineAware({ metric: tnMetric, dimension: tnDimension, ...filters }),
       ]);
       setHeatmap(heatmapRes.response);
       setTrends(trendsRes.response);
@@ -1154,7 +1158,11 @@ export default function AnalystDashboardPage() {
                       </label>
                       <select
                         value={topNMetric}
-                        onChange={(e) => setTopNMetric(e.target.value)}
+                        onChange={(e) => {
+                          const metric = e.target.value;
+                          setTopNMetric(metric);
+                          void loadData({ topNMetric: metric });
+                        }}
                         className="w-full rounded-md border border-gray-300 bg-white py-2.5 px-3 text-sm text-gray-900 cursor-pointer"
                         aria-label="Metric"
                       >
@@ -1170,7 +1178,11 @@ export default function AnalystDashboardPage() {
                       </label>
                       <select
                         value={topNDimension}
-                        onChange={(e) => setTopNDimension(e.target.value)}
+                        onChange={(e) => {
+                          const dimension = e.target.value;
+                          setTopNDimension(dimension);
+                          void loadData({ topNDimension: dimension });
+                        }}
                         className="w-full rounded-md border border-gray-300 bg-white py-2.5 px-3 text-sm text-gray-900 cursor-pointer"
                         aria-label="Dimension"
                       >

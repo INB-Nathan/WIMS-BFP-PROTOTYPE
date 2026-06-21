@@ -533,6 +533,8 @@ export interface TriageReportEntry {
   safety_status: string | null;
   status: string;
   status_explanation: string | null;
+  description?: string | null;
+  linked_to_report_id?: number | null;
   trust_breakdown: {
     score: number;
     included_signals: string[];
