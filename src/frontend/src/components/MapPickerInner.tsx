@@ -6,18 +6,13 @@ import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { firePinIcon } from './map/leafletIcons';
 
-// Marker images are self-hosted in /leaflet/ (copied from node_modules at build time).
-// Avoids connect-src CSP violations: SW fetch() is governed by connect-src, not img-src,
-// so CDN URLs like unpkg.com are blocked unless explicitly listed in connect-src.
-const DefaultIcon = L.icon({
-    iconUrl: '/leaflet/marker-icon.png',
-    iconRetinaUrl: '/leaflet/marker-icon-2x.png',
-    shadowUrl: '/leaflet/marker-shadow.png',
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
-});
-L.Marker.prototype.options.icon = DefaultIcon;
+// Default marker uses the centralized BFP maroon SVG divIcon (see leafletIcons.ts).
+// The previous L.icon() over the self-hosted Leaflet blue pin PNG was replaced because
+// (a) the blue pin doesn't match BFP branding for incident/operation creation and
+// (b) L.Marker.prototype.options.icon = DefaultIcon leaked the icon globally into
+// every other Leaflet map on the same page. firePinIcon is self-contained and styled.
 
 export interface MapPickerInnerProps {
     center?: [number, number];
@@ -27,6 +22,13 @@ export interface MapPickerInnerProps {
     mapHeight?: string;
     /** Pre-fill the search box and auto-pin to this address (forward geocode). */
     searchQuery?: string;
+    /**
+     * Optional Leaflet icon to use for the drop pin. Defaults to the BFP maroon
+     * `firePinIcon` from `./map/leafletIcons`. Pass a different `L.Icon` /
+     * `L.DivIcon` to override per-caller (e.g. the public report flow can use a
+     * neutral `userLocationIcon`).
+     */
+    icon?: L.Icon | L.DivIcon;
 }
 
 const DEFAULT_CENTER: [number, number] = [14.5995, 120.9842]; // Manila area
@@ -106,7 +108,9 @@ export function MapPickerInner({
     onChange,
     mapHeight = DEFAULT_INCIDENT_MAP_HEIGHT,
     searchQuery,
+    icon: markerIconProp,
 }: MapPickerInnerProps) {
+    const markerIcon = markerIconProp ?? firePinIcon;
     const readOnly = !onChange;
     const autoSearchedRef = useRef<string | null>(null);
     const { state: connectivityState } = useNetworkStatus();
@@ -317,7 +321,7 @@ export function MapPickerInner({
                 />
                 <RecenterMap center={mapCenter} />
                 <ClickHandler onChange={handleChange} />
-                {displayPosition && <Marker position={[displayPosition.lat, displayPosition.lng]} />}
+                {displayPosition && <Marker position={[displayPosition.lat, displayPosition.lng]} icon={markerIcon} />}
             </MapContainer>
             {isOffline && (
                 <div

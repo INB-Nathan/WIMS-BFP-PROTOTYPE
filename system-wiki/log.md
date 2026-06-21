@@ -8,6 +8,15 @@
 - **`system-wiki/subsystems/civilian-reporting-phase2.md`:** updated the `ClusterMapInner.tsx` description to reflect the actual implementation (tinted default Leaflet pin) and recorded the known UI gap.
 - **`system-wiki/gaps/frs-codebase-gap-register.md`:** added gap entry for triage cluster map marker rendering.
 
+## [2026-06-21] fix | MapPicker uses BFP maroon SVG pin instead of default Leaflet blue pin
+
+- **`src/frontend/src/components/MapPickerInner.tsx`:** Replaced the local `L.icon({ iconUrl: '/leaflet/marker-icon.png', ... })` + `L.Marker.prototype.options.icon = DefaultIcon` global override with `firePinIcon` imported from `src/components/map/leafletIcons.ts` (BFP maroon SVG `divIcon`). The previous approach had two problems: (a) the default Leaflet blue pin did not match BFP branding for incident/operation creation; (b) `L.Marker.prototype.options.icon = DefaultIcon` was a global override that leaked the icon into every other Leaflet map on the same page (latent side-effect bug). The SVG `divIcon` is self-contained and renders as a proper BFP maroon teardrop pin with a white center dot.
+- **`src/frontend/src/components/MapPickerInner.tsx` + `MapPicker.tsx`:** Added optional `icon?: L.Icon | L.DivIcon` prop so callers can override the default pin per-flow (e.g. the public report flow can later pass `userLocationIcon` if a different color is preferred).
+- **Callers affected (all now render a BFP maroon pin by default):** `src/app/home/page.tsx` (New Operation modal), `src/app/incidents/new/page.tsx`, `src/app/afor/import/page.tsx`, `src/components/IncidentForm.tsx`, `src/components/WildlandAforManualForm.tsx`, `src/app/page.tsx` (public report), `src/app/dashboard/regional/incidents/[id]/page.tsx` (read-only detail). Per-flow override is supported via the new `icon` prop.
+- **CI preflight (local, against the same node_modules the VPS uses):** `npm run lint` → 0 errors (18 pre-existing warnings in untouched files). `npx tsc --noEmit` → no new errors from this change (pre-existing `sonner` module resolution errors in untouched files remain). `npx vitest run` → `MapPickerInner.test.tsx` and `ClusterMapInner.test.tsx` pass; 22 pre-existing failures are `sonner`/`fake-indexeddb` module resolution issues in untouched files, unrelated.
+- **`system-wiki/gaps/frs-codebase-gap-register.md`:** recorded MapPicker pin as fixed.
+- **Cluster map (`src/frontend/src/components/ClusterMapInner.tsx`):** still has the same broken `className: 'bg-red-600'`/`className: 'bg-blue-500'` pattern (tinted default Leaflet blue pin); diagnosed 2026-06-21, **not yet fixed**. See prior log entry. The same SVG `divIcon` pattern now applied to `MapPickerInner` is the recommended fix.
+
 ## [2026-06-20] fix | login field icon scope containment (#427)
 
 ## [2026-06-20] fix | login field icon scope containment (#427)
