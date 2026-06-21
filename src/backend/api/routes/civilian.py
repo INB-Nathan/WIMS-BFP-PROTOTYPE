@@ -6,6 +6,7 @@ import logging
 import math
 import os
 import threading
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 import redis
@@ -14,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import get_db
-from utils.audit import get_client_ip, hash_client_ip, log_system_audit
+from utils.audit import hash_client_ip, log_system_audit
 from utils.public_abuse import rate_limit_public
 
 from schemas.civilian import (
@@ -268,21 +269,42 @@ def submit_civilian_report(
 ) -> CivilianReportResponse:
     """Public endpoint: submit emergency report with no auth."""
     wkt = f"SRID=4326;POINT({body.longitude} {body.latitude})"
-    ip_hash = hash_client_ip(get_client_ip(request))
+    # Read from X-Real-IP, which nginx sets to $realip_remote_addr (the actual TCP socket
+    # address before real-IP-module processing) for /api/civilian/ locations.  Clients
+    # cannot spoof this — nginx always overwrites the header.  get_client_ip() is NOT used
+    # here because it reads X-Forwarded-For first, which is client-controlled (gap #14).
+    ip_hash = hash_client_ip(
+        request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")
+    )
     _require_previous_report(db, body.previous_report_id)
-    rate_count = db.execute(
+    rate_row = db.execute(
         text("""
-            SELECT COUNT(*)
+            SELECT COUNT(*) AS rate_count,
+                   MIN(created_at) AS oldest_created_at
             FROM wims.citizen_reports
             WHERE ip_hash = :ip_hash
               AND linked_to_report_id IS NULL
               AND created_at >= now() - interval '1 hour'
         """),
         {"ip_hash": ip_hash},
-    ).scalar()
-    if rate_count is not None and int(rate_count) >= 5:
+    ).fetchone()
+    if rate_row is not None and int(rate_row.rate_count) >= 5:
+        oldest = rate_row.oldest_created_at
+        if oldest is not None:
+            if oldest.tzinfo is None:
+                oldest = oldest.replace(tzinfo=timezone.utc)
+            retry_after = max(
+                1,
+                math.ceil(
+                    (oldest + timedelta(hours=1) - datetime.now(timezone.utc)).total_seconds()
+                ),
+            )
+        else:
+            retry_after = 3600
         raise HTTPException(
-            status_code=429, detail="Too many reports from this network. Try again later."
+            status_code=429,
+            detail="Too many reports from this network. Try again later.",
+            headers={"Retry-After": str(retry_after)},
         )
 
     nearest = _resolve_nearest(db, wkt)
@@ -528,7 +550,9 @@ def submit_civilian_followup(
         )
 
     # Rate limit: max 5 follow-ups per IP per hour on the same report
-    ip_hash = hash_client_ip(get_client_ip(request))
+    ip_hash = hash_client_ip(
+        request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")
+    )
     recent_count = db.execute(
         text("""
             SELECT COUNT(*)
@@ -736,7 +760,9 @@ def register_notification(
         )
 
     # Per-IP token registration cap (5 per IP per hour, Redis fail-closed)
-    client_ip = get_client_ip(request) or "unknown"
+    client_ip = request.headers.get("x-real-ip") or (
+        request.client.host if request.client else "unknown"
+    )
     rate_limit_public(
         _get_redis(), client_ip, "public_notify", limit=5, window=3600, fail_closed=True
     )

@@ -33,21 +33,36 @@ def test_nginx_overwrites_x_forwarded_for_instead_of_appending_spoofable_header(
         f"Unexpected X-Forwarded-For values: {forwarded_lines - _ALLOWED_XFF_VALUES}"
     )
 
-    # /api/v1/public/ locations must use $realip_remote_addr (gap #14 / DS-07).
+    # /api/v1/public/ and /api/civilian/ locations must use $realip_remote_addr (gap #14 / DS-07).
     lines = conf.splitlines()
     in_public_location = False
+    in_civilian_location = False
     found_realip_in_public = False
+    found_realip_in_civilian = False
     for line in lines:
         stripped = line.strip()
         if "location /api/v1/public/" in stripped:
             in_public_location = True
-        elif in_public_location and stripped.startswith("location "):
+            in_civilian_location = False
+        elif "location /api/civilian/" in stripped:
+            in_civilian_location = True
             in_public_location = False
+        elif stripped.startswith("location "):
+            in_public_location = False
+            in_civilian_location = False
         if (
             in_public_location
             and "proxy_set_header X-Forwarded-For $realip_remote_addr" in stripped
         ):
             found_realip_in_public = True
+        if (
+            in_civilian_location
+            and "proxy_set_header X-Forwarded-For $realip_remote_addr" in stripped
+        ):
+            found_realip_in_civilian = True
     assert found_realip_in_public, (
         "/api/v1/public/ must use X-Forwarded-For $realip_remote_addr to prevent rate-limit spoofing"
+    )
+    assert found_realip_in_civilian, (
+        "/api/civilian/ must use X-Forwarded-For $realip_remote_addr to prevent DB rate-limit spoofing"
     )

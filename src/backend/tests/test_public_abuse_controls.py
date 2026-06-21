@@ -343,7 +343,7 @@ class TestNeutral404:
                     "device_id": "test-device",
                     "followup_text": "test",
                 },
-                headers={"x-forwarded-for": "198.51.100.1"},
+                headers={"x-real-ip": "198.51.100.1"},
             )
             assert resp.status_code == 404, resp.text
             data = resp.json()
@@ -464,7 +464,7 @@ class TestNotifySpamLimits:
                 resp = client.post(
                     "/api/civilian/reports/42/notify",
                     json={"device_id": "test-device", "fcm_token": f"test-token-{i}"},
-                    headers={"x-forwarded-for": ip},
+                    headers={"x-real-ip": ip},
                 )
                 assert resp.status_code == 201, f"Request {i + 1} failed: {resp.text}"
 
@@ -472,7 +472,7 @@ class TestNotifySpamLimits:
             resp = client.post(
                 "/api/civilian/reports/42/notify",
                 json={"device_id": "test-device", "fcm_token": "test-token-6"},
-                headers={"x-forwarded-for": ip},
+                headers={"x-real-ip": ip},
             )
             assert resp.status_code == 429, f"6th request should be 429: {resp.text}"
             data = resp.json()
@@ -560,7 +560,15 @@ class TestExistingRateLimits:
     def test_civilian_report_rate_limit_db_based_returns_429(self):
         """POST /api/civilian/reports — >5 reports from same IP in 1hr → 429."""
         mock_db = _MockDB(
-            mappings=[("citizen_reports", _FakeRow(count=5))],
+            mappings=[
+                (
+                    "COUNT(*) AS rate_count",
+                    _FakeRow(
+                        rate_count=5,
+                        oldest_created_at=datetime(2026, 6, 22, 9, 30, 0, tzinfo=timezone.utc),
+                    ),
+                )
+            ],
         )
 
         clear = _override_db_with(mock_db)
@@ -572,10 +580,11 @@ class TestExistingRateLimits:
                     "longitude": 120.9842,
                     "category": "STRUCTURAL",
                 },
-                headers={"x-forwarded-for": "198.51.100.1"},
+                headers={"x-real-ip": "198.51.100.1"},
             )
             assert resp.status_code == 429, resp.text
             assert "Too many reports" in resp.json()["detail"]
+            assert "Retry-After" in resp.headers
         finally:
             clear()
 
@@ -591,7 +600,6 @@ class TestExistingRateLimits:
         )
         ip = _test_ip(abs(hash("dmz-rate-limit")) % 256)
         _clean_redis_keys(r, f"public_rate_limit:{ip}*")
-
         _REGION_ROW = _FakeRow(region_id=42)
         _INSERT_ROW = _FakeRow(
             incident_id=999,
@@ -633,3 +641,82 @@ class TestExistingRateLimits:
             clear()
 
         _clean_redis_keys(r, f"public_rate_limit:{ip}*")
+
+
+# ---------------------------------------------------------------------------
+# Civilian report DB-based rate limit — Retry-After header
+# ---------------------------------------------------------------------------
+
+
+class TestCivilianReportRateLimit:
+    """POST /api/civilian/reports — DB-based 5/hr limit now returns Retry-After."""
+
+    _PAYLOAD = {"latitude": 14.5995, "longitude": 120.9842, "category": "STRUCTURAL"}
+    _IP = "198.51.100.77"
+    _OLDEST = datetime(2026, 6, 22, 9, 30, 0, tzinfo=timezone.utc)
+
+    def _blocked_mock(self):
+        return _MockDB(
+            mappings=[
+                (
+                    "COUNT(*) AS rate_count",
+                    _FakeRow(rate_count=5, oldest_created_at=self._OLDEST),
+                )
+            ]
+        )
+
+    def test_sixth_report_returns_429(self):
+        """6th POST from same IP within 1 hr should return 429."""
+        clear = _override_db_with(self._blocked_mock())
+        try:
+            resp = client.post(
+                "/api/civilian/reports",
+                json=self._PAYLOAD,
+                headers={"x-real-ip": self._IP},
+            )
+            assert resp.status_code == 429, resp.text
+            assert "Too many reports" in resp.json()["detail"]
+        finally:
+            clear()
+
+    def test_sixth_report_has_retry_after_header(self):
+        """429 response must include a positive integer Retry-After header."""
+        clear = _override_db_with(self._blocked_mock())
+        try:
+            resp = client.post(
+                "/api/civilian/reports",
+                json=self._PAYLOAD,
+                headers={"x-real-ip": self._IP},
+            )
+            assert resp.status_code == 429, resp.text
+            assert "Retry-After" in resp.headers, (
+                f"Retry-After header missing from 429: {dict(resp.headers)}"
+            )
+            assert int(resp.headers["Retry-After"]) >= 1
+        finally:
+            clear()
+
+    def test_different_ips_have_independent_quotas(self):
+        """Two different IPs, each under the limit, must not be rate-limited."""
+        under_limit = _MockDB(
+            mappings=[
+                (
+                    "COUNT(*) AS rate_count",
+                    _FakeRow(rate_count=0, oldest_created_at=None),
+                )
+            ]
+        )
+        for ip in ("198.51.100.11", "198.51.100.22"):
+            clear = _override_db_with(under_limit)
+            try:
+                resp = client.post(
+                    "/api/civilian/reports",
+                    json=self._PAYLOAD,
+                    headers={"x-real-ip": ip},
+                )
+                # count=0 passes the rate-limit gate; downstream DB mocks are
+                # absent so the handler raises 500 from missing INSERT rows —
+                # but it must NOT be a 429 (rate-limit block).
+                assert resp.status_code != 429, f"IP {ip} should not be rate-limited: {resp.text}"
+            finally:
+                clear()

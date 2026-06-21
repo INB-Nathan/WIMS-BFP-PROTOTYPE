@@ -483,7 +483,7 @@ class TestCivilianFollowupEndpoint:
             resp = client.post(
                 "/api/civilian/reports/42/followup",
                 json={"device_id": "device-a", "followup_text": "More details about the fire."},
-                headers={"x-forwarded-for": "198.51.100.1"},
+                headers={"x-real-ip": "198.51.100.1"},
             )
             assert resp.status_code == 201, resp.text
             data = resp.json()
@@ -525,7 +525,7 @@ class TestCivilianFollowupEndpoint:
                     "device_id": "device-a",
                     "followup_text": "Trying to update terminal report.",
                 },
-                headers={"x-forwarded-for": "198.51.100.1"},
+                headers={"x-real-ip": "198.51.100.1"},
             )
             assert resp.status_code == 409, resp.text
             assert "Terminal reports" in resp.json()["detail"]
@@ -551,7 +551,7 @@ class TestCivilianFollowupEndpoint:
             resp = client.post(
                 "/api/civilian/reports/99999/followup",
                 json={"device_id": "device-a", "followup_text": "Updating nonexistent report."},
-                headers={"x-forwarded-for": "198.51.100.1"},
+                headers={"x-real-ip": "198.51.100.1"},
             )
             assert resp.status_code == 404, resp.text
             assert "Report not found" in resp.json()["detail"]
@@ -563,7 +563,7 @@ class TestCivilianFollowupEndpoint:
         resp = client.post(
             "/api/civilian/reports/42/followup",
             json={"device_id": "device-a", "followup_text": ""},
-            headers={"x-forwarded-for": "198.51.100.1"},
+            headers={"x-real-ip": "198.51.100.1"},
         )
         assert resp.status_code == 422, resp.text
 
@@ -572,7 +572,7 @@ class TestCivilianFollowupEndpoint:
         resp = client.post(
             "/api/civilian/reports/42/followup",
             json={"device_id": "device-a"},
-            headers={"x-forwarded-for": "198.51.100.1"},
+            headers={"x-real-ip": "198.51.100.1"},
         )
         assert resp.status_code == 422, resp.text
 
@@ -581,7 +581,7 @@ class TestCivilianFollowupEndpoint:
         resp = client.post(
             "/api/civilian/reports/42/followup",
             json={"device_id": "device-a", "followup_text": "x" * 2001},
-            headers={"x-forwarded-for": "198.51.100.1"},
+            headers={"x-real-ip": "198.51.100.1"},
         )
         assert resp.status_code == 422, resp.text
 
@@ -625,7 +625,7 @@ class TestCivilianFollowupEndpoint:
             resp = client.post(
                 "/api/civilian/reports/42/followup",
                 json={"device_id": "device-a", "followup_text": "Rate limit test."},
-                headers={"x-forwarded-for": "198.51.100.1"},
+                headers={"x-real-ip": "198.51.100.1"},
             )
             assert resp.status_code == 429, resp.text
             data = resp.json()
@@ -673,7 +673,7 @@ class TestCivilianFollowupEndpoint:
             resp = client.post(
                 "/api/civilian/reports/42/followup",
                 json={"device_id": "device-a", "followup_text": "IP rate limit test."},
-                headers={"x-forwarded-for": "198.51.100.1"},
+                headers={"x-real-ip": "198.51.100.1"},
             )
             assert resp.status_code == 429, resp.text
             data = resp.json()
