@@ -30,6 +30,20 @@ function buildRscCacheKey(origin: string, pathname: string): string {
   return origin + '/_rsc' + canonicalPath(pathname);
 }
 
+const INCIDENT_DETAIL_SHELL = '/dashboard/regional/incidents/1';
+
+function offlineNavigationFallbackKeys(origin: string, pathname: string): string[] {
+  const canonicalKey = origin + canonicalPath(pathname);
+  const isCanonicalDetail = canonicalKey !== origin + pathname;
+  return [
+    origin + pathname,
+    canonicalKey,
+    ...(isCanonicalDetail ? [origin + INCIDENT_DETAIL_SHELL] : []),
+    origin + '/dashboard',
+    origin + '/',
+  ];
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────
 
 describe('canonicalPath', () => {
@@ -96,5 +110,28 @@ describe('buildRscCacheKey — PR #382 fix', () => {
   it('handles deep nested paths', () => {
     const key = buildRscCacheKey(origin, '/dashboard/regional/analytics/monthly');
     expect(key).toBe('https://wimsbfp.tech/_rsc/dashboard/regional/analytics/monthly');
+  });
+});
+
+describe('offlineNavigationFallbackKeys', () => {
+  const origin = 'https://wimsbfp.tech';
+
+  it('falls back from any pending-sync local incident URL to the cached detail shell before the generic dashboard', () => {
+    expect(offlineNavigationFallbackKeys(origin, '/dashboard/regional/incidents/abc-123')).toEqual([
+      'https://wimsbfp.tech/dashboard/regional/incidents/abc-123',
+      'https://wimsbfp.tech/dashboard/regional/incidents/__detail__',
+      'https://wimsbfp.tech/dashboard/regional/incidents/1',
+      'https://wimsbfp.tech/dashboard',
+      'https://wimsbfp.tech/',
+    ]);
+  });
+
+  it('does not use the incident detail shell for unrelated navigations', () => {
+    expect(offlineNavigationFallbackKeys(origin, '/dashboard/regional')).toEqual([
+      'https://wimsbfp.tech/dashboard/regional',
+      'https://wimsbfp.tech/dashboard/regional',
+      'https://wimsbfp.tech/dashboard',
+      'https://wimsbfp.tech/',
+    ]);
   });
 });

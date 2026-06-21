@@ -1,3 +1,10 @@
+## [2026-06-21] fix(offline): keep pending-sync local incident drafts openable offline
+
+- **Fix (`src/frontend/public/sw.js`):** bumped the app cache to `wims-bfp-cache-v10`, precached `/dashboard/regional/incidents/1` as a reusable dynamic detail shell, and taught offline navigation fallback for `/dashboard/regional/incidents/<id>` to try that shell before the generic dashboard/offline HTML.
+- **Tests (`src/frontend/__tests__/sw-cache-key.test.ts`):** added fallback-order coverage proving arbitrary local incident URLs can resolve to the cached detail shell offline.
+- **Context:** fixes pending local incident drafts opening the app's offline-unavailable page instead of the client detail page that reconstructs from `getOfflineOp(localId)`.
+- **Wiki:** updated `system-wiki/architecture/pwa-tests-cicd.md` and this log.
+
 ## [2026-06-21] fix(offline): disable uncached regional incident clicks offline
 
 - **Fix (`src/frontend/src/app/dashboard/regional/page.tsx`):** regional dashboard now computes cached detail IDs for the current encoder regardless of whether the visible list was loaded online or from cache. When offline, online incidents whose detail payload is not cached stay visible but are not navigable.

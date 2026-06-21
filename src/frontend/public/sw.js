@@ -9,11 +9,12 @@
  *   it delegates to the page rather than POSTing directly.
  */
 
-const CACHE_NAME = 'wims-bfp-cache-v9';
+const CACHE_NAME = 'wims-bfp-cache-v10';
 // Separate long-lived cache for map tiles so they survive main-cache evictions.
 const TILE_CACHE_NAME = 'wims-tiles-v1';
 const SYNC_TAG = 'sync-pending-incidents';
 const APP_SHELL = '/dashboard';
+const INCIDENT_DETAIL_SHELL = '/dashboard/regional/incidents/1';
 const OFFLINE_HTML = `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WIMS-BFP Offline</title></head>
@@ -31,6 +32,7 @@ const urlsToCache = [
   '/dashboard',
   '/dashboard/regional',
   '/dashboard/regional/audit',
+  INCIDENT_DETAIL_SHELL,
   '/home',
   '/login',
   '/afor/create',
@@ -180,9 +182,14 @@ self.addEventListener('fetch', (event) => {
         return response;
       }).catch(async () => {
         const cache = await caches.open(CACHE_NAME);
+        const isCanonicalDetail = canonicalKey !== requestUrl.origin + requestUrl.pathname;
+        const detailShell = isCanonicalDetail
+          ? await cache.match(requestUrl.origin + INCIDENT_DETAIL_SHELL)
+          : undefined;
         return (
           (await cache.match(request)) ||
           (await cache.match(canonicalKey)) ||
+          detailShell ||
           (await cache.match(APP_SHELL)) ||
           (await cache.match('/')) ||
           new Response(OFFLINE_HTML, {
