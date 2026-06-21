@@ -2,10 +2,13 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { fetchBreaches, updateBreach, Breach, BreachStatus } from '@/lib/api/breach';
-import { fetchAdminConfig, updateAdminConfig, SystemConfigEntry } from '@/lib/api/legacy';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import { updateBreach, Breach, BreachStatus } from '@/lib/api/breach';
+import { updateAdminConfig, SystemConfigEntry } from '@/lib/api/legacy';
+import { fetchBreachesOfflineAware, fetchAdminConfigOfflineAware } from '@/lib/api/offlineAdmin';
+import { StaleCacheBanner } from '@/components/ui/StaleCacheBanner';
 import Link from 'next/link';
-import { ShieldX, Clock, CheckCircle, AlertTriangle, Phone, User, Building2, Pencil, X, ArrowRight } from 'lucide-react';
+import { ShieldX, Clock, CheckCircle, AlertTriangle, Phone, User, Building2, Pencil, X, ArrowRight, WifiOff } from 'lucide-react';
 
 const STATUS_LABELS: Record<BreachStatus, string> = {
     DETECTED: 'Detected',
@@ -314,6 +317,7 @@ function StatusAdvanceModal({
 
 export default function BreachNotificationsPage() {
     const { user, loading: authLoading } = useAuth();
+    const { isOnline } = useNetworkStatus();
     const role = (user as { role?: string })?.role ?? null;
     const isAdmin = role === 'SYSTEM_ADMIN';
 
@@ -338,15 +342,23 @@ export default function BreachNotificationsPage() {
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
     const [actionError, setActionError] = useState<string | null>(null);
 
+    // T11: cache freshness tracking
+    const [breachesCachedAt, setBreachesCachedAt] = useState<number | undefined>(undefined);
+    const [npcConfigCachedAt, setNpcConfigCachedAt] = useState<number | undefined>(undefined);
+    // T11: friendly offline-unavailable state
+    const [offlineUnavailable, setOfflineUnavailable] = useState<boolean>(false);
+
     const loadNpcConfig = useCallback(async () => {
         if (!isAdmin) return;
         setNpcLoading(true);
         try {
-            const config = await fetchAdminConfig();
+            const res = await fetchAdminConfigOfflineAware();
+            const config = res.response;
             const name = config.find((c: SystemConfigEntry) => c.key === 'npc_contact_name')?.value ?? '';
             const phone = config.find((c: SystemConfigEntry) => c.key === 'npc_contact_phone')?.value ?? '';
             const officePhone = config.find((c: SystemConfigEntry) => c.key === 'npc_office_phone')?.value ?? '';
             setNpcConfig({ name, phone, officePhone });
+            setNpcConfigCachedAt(res.fromCache ? res.cachedAt : undefined);
         } catch (err) {
             console.error('Failed to load NPC config', err);
         } finally {
@@ -359,16 +371,23 @@ export default function BreachNotificationsPage() {
         setLoading(true);
         setError(null);
         setActionError(null);
+        setOfflineUnavailable(false);
         try {
-            const [data] = await Promise.all([fetchBreaches(), loadNpcConfig()]);
-            setBreaches(data);
+            const [breachesRes] = await Promise.all([fetchBreachesOfflineAware(), loadNpcConfig()]);
+            setBreaches(breachesRes.response);
+            setBreachesCachedAt(breachesRes.fromCache ? breachesRes.cachedAt : undefined);
         } catch (err) {
-            setError('Failed to load breach records.');
+            setBreaches([]);
+            if (!isOnline) {
+                setOfflineUnavailable(true);
+            } else {
+                setError('Failed to load breach records.');
+            }
             console.error('fetchBreaches error', err);
         } finally {
             setLoading(false);
         }
-    }, [isAdmin, loadNpcConfig]);
+    }, [isAdmin, isOnline, loadNpcConfig]);
 
     useEffect(() => {
         loadAll();
@@ -424,6 +443,37 @@ export default function BreachNotificationsPage() {
 
     return (
         <div className="space-y-6">
+            {/* T11: Friendly offline-unavailable banner when wrapper throws + we're offline */}
+            {offlineUnavailable && (
+                <div
+                    className="card"
+                    data-testid="offline-unavailable"
+                    style={{ borderLeft: '4px solid #f59e0b', backgroundColor: '#fffbeb' }}
+                >
+                    <div className="card-body flex items-center gap-3">
+                        <WifiOff className="w-5 h-5 text-amber-700 flex-shrink-0" />
+                        <div>
+                            <div className="text-sm font-semibold text-amber-800">
+                                Breach notifications are unavailable offline
+                            </div>
+                            <div className="text-xs text-amber-700 mt-1">
+                                Reconnect to the network to load breach records and NPC contact details.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* T11: Stale cache banner — pick the most recent cachedAt across breaches + NPC config */}
+            {(() => {
+                const cachedAts = [breachesCachedAt, npcConfigCachedAt].filter(
+                    (v): v is number => typeof v === 'number',
+                );
+                if (cachedAts.length === 0) return null;
+                const latest = Math.max(...cachedAts);
+                return <StaleCacheBanner freshness={{ cachedAt: latest, isOnline }} />;
+            })()}
+
             {/* Header */}
             <div className="card">
                 <div className="card-body flex items-center justify-between">
