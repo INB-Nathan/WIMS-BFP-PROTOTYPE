@@ -207,9 +207,9 @@ def get_queue(
         """)
     )
 
-    # Ensure active public signal rows have a durable cluster workflow record.
-    # Read-time spatial grouping is still used for suggestions/severity, but
-    # validators need a cluster id before they can claim and apply actions.
+    # Ensure ALL active public signal rows have a durable cluster workflow record.
+    # Every non-terminal report gets a singleton cluster so validators can always
+    # apply Rejected_* terminal actions even without spatial grouping partners.
     db.execute(
         text("""
             WITH unclustered AS (
@@ -224,25 +224,10 @@ def get_queue(
                         AND cc.status != 'CLUSTER_CLOSED'
                   )
             ),
-            groupable AS (
-                SELECT u.report_id
-                FROM unclustered u
-                JOIN wims.citizen_reports cr ON cr.report_id = u.report_id
-                WHERE EXISTS (
-                    SELECT 1
-                    FROM wims.citizen_reports r2
-                    WHERE r2.report_id != u.report_id
-                      AND r2.status NOT LIKE 'REJECTED_%'
-                      AND r2.status != 'ACTIONED'
-                      AND ST_DWithin(cr.location::geography, r2.location::geography, 100)
-                      AND r2.created_at >= cr.created_at - interval '1 hour'
-                      AND r2.created_at <= cr.created_at + interval '1 hour'
-                )
-            ),
             created AS (
                 INSERT INTO wims.citizen_report_clusters (anchor_report_id, status)
                 SELECT report_id, 'CLUSTER_MONITORING'
-                FROM groupable
+                FROM unclustered
                 RETURNING cluster_id, anchor_report_id
             )
             INSERT INTO wims.citizen_report_cluster_members (cluster_id, report_id)

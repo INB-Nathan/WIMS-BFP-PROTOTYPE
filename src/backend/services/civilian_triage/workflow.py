@@ -27,6 +27,7 @@ from services.civilian_triage.notifications import enqueue_status_notification, 
 from services.civilian_triage.policies import (
     TERMINAL_REPORT_STATUSES,
     is_cluster_claim_stale,
+    validate_singleton_terminal_status,
     validate_terminal_status,
 )
 from services.civilian_triage.repository import (
@@ -381,6 +382,18 @@ def apply_terminal_action_command(
     user_id = user["user_id"]
     try:
         cluster = ensure_cluster_claim(db, cluster_id, user)
+
+        # Count cluster members to enforce singleton action policy.
+        # Singleton clusters (1 member) can only use REJECTED_* statuses.
+        member_count_row = db.execute(
+            text("""
+                SELECT COUNT(*) FROM wims.citizen_report_cluster_members
+                WHERE cluster_id = :cid
+            """),
+            {"cid": cluster_id},
+        ).scalar()
+        validate_singleton_terminal_status(status, member_count_row or 0)
+
         members = db.execute(
             text("""
                 SELECT cr.report_id, cr.status

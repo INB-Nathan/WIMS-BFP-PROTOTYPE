@@ -14,6 +14,11 @@ TERMINAL_REPORT_STATUSES = {
     "REJECTED_TIMEOUT",
 }
 
+# Singleton clusters (member_count <= 1) cannot be ACTIONED.
+# ACTIONED requires multiple corroborating reports — a lone signal
+# can only be rejected, not confirmed as actioned.
+SINGLETON_TERMINAL_STATUSES = TERMINAL_REPORT_STATUSES - {"ACTIONED"}
+
 CLAIM_STALE_MINUTES = 15
 RELATED_REPORT_RADIUS_METERS = 100
 RELATED_REPORT_WINDOW_HOURS = 1
@@ -38,6 +43,22 @@ def validate_terminal_status(status: str) -> str:
     normalized = status.strip().upper()
     if normalized not in TERMINAL_REPORT_STATUSES:
         raise HTTPException(status_code=422, detail="Unsupported terminal status")
+    return normalized
+
+
+def validate_singleton_terminal_status(status: str, member_count: int) -> str:
+    """Validate a terminal action on a cluster with limited members.
+
+    Singleton clusters (member_count <= 1) can only use REJECTED_*
+    statuses. ACTIONED requires multiple corroborating reports.
+    """
+    normalized = validate_terminal_status(status)
+    if member_count <= 1 and normalized == "ACTIONED":
+        raise HTTPException(
+            status_code=422,
+            detail="ACTIONED requires a cluster with multiple corroborating reports. "
+                   "Use REJECTED_* statuses for singleton reports.",
+        )
     return normalized
 
 

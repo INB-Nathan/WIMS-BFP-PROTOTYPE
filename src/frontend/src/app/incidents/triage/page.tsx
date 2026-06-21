@@ -325,15 +325,17 @@ export default function TriagePage() {
     }
   }
 
-  // Split queue into clusters and singletons
+  // Split queue into clusters (multi-report) and singletons (single-report clusters).
+  // Every report now has a durable cluster, but entries with member_count <= 1
+  // are displayed as "Individual Reports" for focused singleton triage.
   const clusters = useMemo(() => {
     if (!queue) return [];
-    return queue.clusters.filter(item => item.cluster_id !== null && item.cluster_id !== undefined);
+    return queue.clusters.filter(item => item.member_count > 1);
   }, [queue]);
 
   const singletons = useMemo(() => {
     if (!queue) return [];
-    return queue.clusters.filter(item => item.cluster_id === null || item.cluster_id === undefined);
+    return queue.clusters.filter(item => item.member_count <= 1);
   }, [queue]);
 
   // Sort clusters: life_safety_risk DESC → timeout_risk DESC → severity DESC → member_count DESC → age DESC
@@ -710,22 +712,29 @@ export default function TriagePage() {
                     }}
                     className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
                   >
-                    {TERMINAL_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    {(inspectionMode === 'singleton'
+                      ? TERMINAL_OPTIONS.filter((o) => o.value.startsWith('REJECTED_'))
+                      : TERMINAL_OPTIONS
+                    ).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
+                  {inspectionMode === 'singleton' && (
+                    <p className="mt-2 text-xs text-slate-500">
+                      ACTIONED requires a cluster with multiple corroborating reports.
+                    </p>
+                  )}
                   <textarea value={explanation} onChange={(event) => setExplanation(event.target.value)} rows={5} className="mt-3 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
                   <textarea value={internalNote} onChange={(event) => setInternalNote(event.target.value)} rows={3} placeholder="Internal note, optional" className="mt-3 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
                   <div className="mt-3 rounded-md bg-slate-50 p-3 text-sm text-slate-700">
                     Preview for {selectedReportIds(openCluster, selected).length} report(s): {explanation || 'No explanation entered.'}
                   </div>
                   <button
-                    disabled={busy || !openCluster.cluster_id || !explanation.trim()}
+                    disabled={busy || !explanation.trim()}
                     onClick={() => void applyTerminalAction()}
                     className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md bg-red-700 px-3 py-2 text-sm font-medium text-white hover:bg-red-800 disabled:opacity-50"
                   >
                     {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
                     Apply
                   </button>
-                  {!openCluster.cluster_id && <p className="mt-2 text-xs text-slate-500">Claimable terminal actions require a durable cluster. Singleton suggestions can be clustered by backend workflow before action.</p>}
                 </div>
 
                 <div className="rounded-md border border-slate-200 p-3">
