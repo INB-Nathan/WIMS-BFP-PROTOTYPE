@@ -17,7 +17,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/context/AuthContext', () => ({
   useAuth: () => ({
-    user: { role: 'SYSTEM_ADMIN' },
+    user: { id: 'admin-1', role: 'SYSTEM_ADMIN' },
     loading: false,
     logout: vi.fn(),
   }),
@@ -26,6 +26,7 @@ vi.mock('@/context/AuthContext', () => ({
 const mockFetchAdminUsers = vi.fn();
 const mockFetchAdminSecurityLogs = vi.fn();
 const mockFetchAuditLogs = vi.fn();
+const mockFetchRegionsOfflineAware = vi.fn();
 
 vi.mock('@/lib/useNetworkStatus', () => ({
   useNetworkStatus: () => ({ isOnline: true, isReconnecting: false }),
@@ -81,6 +82,8 @@ vi.mock('@/lib/api', () => ({
   fetchWorkerStatus: vi.fn().mockResolvedValue([]),
   fetchWorkerStatusOfflineAware: vi.fn().mockResolvedValue({ response: [], fromCache: false }),
   fetchRegions: vi.fn().mockResolvedValue([]),
+  // Plan T13 (Phase B) — offline-aware reference reads (regions).
+  fetchRegionsOfflineAware: (userId: string) => mockFetchRegionsOfflineAware(userId),
   fetchActiveSessions: vi.fn().mockResolvedValue([]),
   fetchActiveSessionsOfflineAware: vi.fn().mockResolvedValue({ response: [], fromCache: false }),
   fetchUserSessions: vi.fn().mockResolvedValue({ sessions: [] }),
@@ -95,6 +98,7 @@ describe('Admin System search wiring', () => {
     mockFetchAdminUsers.mockResolvedValue([]);
     mockFetchAdminSecurityLogs.mockResolvedValue({ items: [], total: 0 });
     mockFetchAuditLogs.mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
+    mockFetchRegionsOfflineAware.mockResolvedValue({ response: [], fromCache: false });
   });
 
   it('exposes accessible label for the security search button', async () => {

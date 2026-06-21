@@ -7,6 +7,7 @@ import { Sidebar } from './Sidebar';
 import { usePathname } from 'next/navigation';
 import { registerServiceWorker } from '@/lib/swRegistration';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import { maybePruneCaches } from '@/lib/offlineStore';
 
 export function LayoutShell({ children }: { children: ReactNode }) {
     const { user, loading, loggingOut, login } = useAuth();
@@ -16,6 +17,19 @@ export function LayoutShell({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         registerServiceWorker();
+    }, []);
+
+    // Task 10: boot-guard eviction trigger. Runs `maybePruneCaches()` once on
+    // mount — it self-gates via `wims:cachePruneAt` localStorage timestamp to
+    // fire at most once per hour, so calling it on every mount is cheap.
+    // Best-effort: maybePruneCaches swallows its own errors, but we still
+    // wrap in try/catch to be defensive against import-time failures.
+    useEffect(() => {
+        try {
+            void maybePruneCaches();
+        } catch {
+            // noop — never block render
+        }
     }, []);
 
     useEffect(() => {

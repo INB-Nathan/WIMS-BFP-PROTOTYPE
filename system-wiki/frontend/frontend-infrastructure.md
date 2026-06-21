@@ -1,11 +1,11 @@
 ---
 title: Frontend Infrastructure
 created: 2026-05-16
-updated: 2026-06-14
+updated: 2026-06-22
 type: frontend
-tags: [wims-bfp, frontend, components, api-client, auth, utilities]
-sources: [src/frontend/src/app/globals.css, src/frontend/src/context/AuthContext.tsx, src/frontend/src/lib/api.ts, src/frontend/src/lib/afor-utils.ts, src/frontend/src/lib/ph-regions.ts, src/frontend/src/lib/regional-incidents.ts, src/frontend/src/lib/analyst-workflow-transfer.ts, src/frontend/src/lib/edgeFunctions.ts, src/frontend/src/types/api.ts]
-status: draft
+tags: [wims-bfp, frontend, components, api-client, auth, utilities, offline-first]
+sources: [src/frontend/src/app/globals.css, src/frontend/src/context/AuthContext.tsx, src/frontend/src/lib/api.ts, src/frontend/src/lib/afor-utils.ts, src/frontend/src/lib/ph-regions.ts, src/frontend/src/lib/regional-incidents.ts, src/frontend/src/lib/analyst-workflow-transfer.ts, src/frontend/src/lib/edgeFunctions.ts, src/frontend/src/types/api.ts, src/frontend/src/lib/offlineStore.ts, src/frontend/src/lib/api/offlineBase.ts, src/frontend/src/lib/api/offlineAdmin.ts, src/frontend/src/lib/api/offlineAnalytics.ts, src/frontend/src/lib/api/offlineValidator.ts, src/frontend/src/lib/api/offlineReference.ts, src/frontend/public/sw.js, src/frontend/src/components/ui/StaleCacheBanner.tsx]
+status: verified
 ---
 
 # Frontend Infrastructure
@@ -80,9 +80,10 @@ The API client is split into domain slices with a compatibility barrel. `src/fro
 | `api/offlineAdmin.ts` | Offline-aware admin monitoring read wrappers for health, metrics, worker status, active sessions, and audit logs |
 | `api/reference.ts` | Reference data and nearby-station exports |
 | `api/validator.ts` | Validator-oriented compatibility exports + offline-aware action wrappers |
-| `api/offlineBase.ts` | Shared offline API helpers extracted from `offlineAdmin.ts`, `offlineAnalytics.ts`, and `offlineValidator.ts` — provides `OfflineResult<T>`, `offlineAware()`, `isNetworkError`, `stableStringify`, `shouldServeOffline`, cache helpers |
+| `api/offlineBase.ts` | Shared offline API helpers extracted from `offlineAdmin.ts`, `offlineAnalytics.ts`, and `offlineValidator.ts` — provides `OfflineResult<T>`, `offlineAware()` (encrypted), `offlineAwareReference()` (unencrypted, userId-namespaced), `isNetworkError`, `stableStringify`, `shouldServeOffline`, `readFreshCacheOrThrow`, `readFreshReferenceCacheOrThrow`, cache helpers |
 | `api/offlineValidator.ts` | Offline-aware validator queue fetch, verification, and archive/unarchive wrappers returning `{ queued, localId }` or `{ response, fromCache, cachedAt? }` |
 | `api/legacy.ts` | Temporary implementation holder during migration; new code should prefer domain slices |
+| `api/offlineReference.ts` | Offline-aware unencrypted reference wrappers (`fetchRegionsOfflineAware`, `fetchProvincesOfflineAware`, `fetchCitiesOfflineAware`); 7-day TTL; `REFERENCE_STORE` with userId-namespaced keys |
 
 Public civilian functions use `publicApiFetch` and do not call authenticated `apiFetch`.
 
@@ -386,3 +387,141 @@ Export preview with format selection (CSV/PDF/XLSX), column selection, and estim
 ### `analytics/TypeDistributionChart.tsx`, `TopBarangaysChart.tsx`, `TrendCharts.tsx`, `ResponseTimeChart.tsx`, `HeatmapViewer.tsx`
 
 Recharts-based analytics charts for the analyst dashboard. Each accepts filter state as props and fetches its own data via the corresponding `api.ts` function.
+
+## Offline Read Caching (2026-06-22, branch `feat/offline-every-role`)
+
+This is the read-caching complement to the existing offline **write** pipeline. The encoder `offlineOps` queue and sync engine documented above (under `IncidentForm.tsx`) handle write-queueing; the layer below caches **read** responses for every role so dashboard/list pages can render their last-known server state when the network is unavailable. The cache is populated opportunistically on every successful online fetch and read through a single orchestrator pair, not mounted on read-only pages (no `useAutoSync`).
+
+### Storage layer — `src/frontend/src/lib/offlineStore.ts`
+
+`wims-bfp-db` is now **DB v6**. The `upgrade()` callback appends each store in its own `oldVersion < N` branch and never recreates a store that already exists, so existing offline data carries across version bumps.
+
+| Object store | Encryption | Key shape | TTL | Backing data | Owner |
+|---|---|---|---|---|---|
+| `incident-queue` (legacy v2) | AES-256-GCM | auto-increment id | n/a | Phase 1A queued incidents | legacy |
+| `crypto-keys` | n/a | string | n/a | non-extractable AES-GCM CryptoKey, per-user | all roles |
+| `offlineOps` (v3) | AES-256-GCM | UUID `localId` | n/a | write queue (create/update/submit/delete/verify/archive) | encoder (writes) |
+| `cachedIncidents` (v3) | AES-256-GCM | numeric `serverId` | n/a | regional incident detail payload | encoder (reads) |
+| `analytics-cache` (`READ_CACHE_STORE`, v4) | AES-256-GCM | string key | per-record `ttlMs` | analyst/admin/validator encrypted read cache | analyst + admin + validator |
+| `reference-cache` (`REFERENCE_STORE`, v6) | **plaintext** | string `reference:{userId}:{op}:{args}` | per-record `ttlMs` (7d default) | regions/provinces/cities per user | dashboard filter dropdowns + analyst + admin |
+| `publicOfflineOps` (v5) | plaintext | UUID `localId` | n/a | civilian anonymous submission queue | civilian |
+
+The pushback-P1 per-user isolation guarantee is enforced by **key namespacing** for `REFERENCE_STORE` (no per-user key exists, so the store is plaintext; isolation comes from the key prefix) and by **per-user key material + destruction on user switch** for the encrypted stores. `setActiveOfflineUser(prev → next)` wipes the prior user's `offlineOps` / `cachedIncidents` / `crypto-keys` (via `wipeAllOfflineData`) AND clears their `reference:{prevUserId}:*` prefix in `REFERENCE_STORE` (via `clearReferenceDataForUser`, pushback P1) so the plaintext RLS-scoped data does not survive a shared-device logout/login cycle.
+
+Generic API (replaces the legacy single-purpose `cacheAnalyticsResponse` / `getCachedAnalyticsResponse` pair; the old names are kept as back-compat aliases):
+
+- `cacheReadResponse<T>(key, data, ttlMs, cachedAt?)` — encrypted write to `READ_CACHE_STORE`, with the per-record `ttlMs` stored on the record for per-record eviction.
+- `getReadCachedResponse<T>(key)` — decrypts and returns `{ key, data, cachedAt, ttlMs }` (or `undefined` on miss).
+- `cacheReferenceData<T>(key, data, ttlMs, cachedAt?)` — plaintext write to `REFERENCE_STORE`; caller MUST supply a `reference:{userId}:...` key.
+- `getCachedReferenceData<T>(key)` — plaintext read.
+- `evictExpiredReadCache()` / `evictExpiredReferenceData()` — cursor-scan + per-record `cachedAt + ttlMs < now` delete, capped at 500 deletions/pass, back-compat default 30 min for pre-v3 records missing `ttlMs`. Best-effort (`try/catch` + dev-mode `console.warn`).
+- `clearReferenceDataForUser(userId)` — regex-prefix sweep `^reference:{userId}:` over `REFERENCE_STORE`; returns deleted count. Best-effort.
+
+### Orchestrators — `src/frontend/src/lib/api/offlineBase.ts`
+
+`offlineBase.ts` is the single shared base for the four domain wrapper modules. It defines the `OfflineResult<T> = { response: T; fromCache: boolean; cachedAt?: number }` envelope and the two orchestrators:
+
+| Function | Storage | Cache key | Use |
+|---|---|---|---|
+| `offlineAware<T>(cacheKey, args, prefix, ttlMs, fetcher, errorMessage)` | encrypted `READ_CACHE_STORE` | `${prefix}:${cacheKey}:${stableStringify(args)}` | analyst / admin / validator reads |
+| `offlineAwareReference<T>(cacheKey, args, prefix, ttlMs, userId, fetcher, errorMessage)` | plaintext `REFERENCE_STORE` | `${prefix}:${userId}:${cacheKey}:${stableStringify(args)}` | reference data |
+
+Both follow the same control flow: if `shouldServeOffline()` (or `navigator.onLine === false`) → read fresh cache and throw the friendly `errorMessage` on miss/stale; otherwise `await fetcher()` → `await cache…()` (encrypted or unencrypted) → return `{ response, fromCache: false }`. On `isNetworkError` (TypeError / `ERR_*` / `Failed to fetch` / `net::ERR` / `NetworkError`) the orchestrator calls `markConnectivityOffline()` and falls back to a fresh cache read. After every successful write, `incrementCacheWriteCount()` is invoked so the every-25-writes eviction trigger fires.
+
+Helpers exported alongside the orchestrators: `isNetworkError`, `stableStringify` (deterministic, key-sorted, undefined/empty filtered), `isNavigatorOffline`, `shouldServeOffline`, `isFresh`, `buildCacheKey`, `readFreshCacheOrThrow`, `readFreshReferenceCacheOrThrow`, `writeCache`, `OfflineResult<T>`.
+
+### Domain wrapper inventory (12 new offline-aware wrappers)
+
+`offlineAdmin.ts` — encrypted, prefix `admin`, 60s default (30min for config/rate-limits):
+
+| Function | TTL | Backing |
+|---|---|---|
+| `fetchSystemHealthOfflineAware` | 60s | legacy `fetchSystemHealth` |
+| `fetchSystemMetricsOfflineAware` | 60s | legacy `fetchSystemMetrics` |
+| `fetchWorkerStatusOfflineAware` | 60s | legacy `fetchWorkerStatus` |
+| `fetchActiveSessionsOfflineAware` | 30s | legacy `fetchActiveSessions` |
+| `fetchAuditLogsOfflineAware` | 60s | legacy `fetchAuditLogs` |
+| `fetchAdminSecurityLogsOfflineAware` | 60s | legacy `fetchAdminSecurityLogs` |
+| `fetchSecurityLogsSummaryOfflineAware` | 60s | legacy `fetchSecurityLogsSummary` |
+| `fetchAnomaliesOfflineAware` | 60s | legacy `fetchAnomalies` |
+| `fetchBreachesOfflineAware` | 60s | `breach.fetchBreaches` |
+| `fetchAdminConfigOfflineAware` | 30min | legacy `fetchAdminConfig` |
+| `fetchRateLimitsOfflineAware` | 30min | legacy `fetchRateLimits` |
+
+`offlineValidator.ts` — encrypted, prefix `validator`, 60s default:
+
+| Function | TTL | Backing |
+|---|---|---|
+| `fetchOperationalMapOfflineAware` | 60s | `validator.fetchOperationalMap` |
+| `fetchValidatorAuditLogsOfflineAware` | 60s | `validator.fetchValidatorAuditLogs` |
+
+`offlineAnalytics.ts` — encrypted, prefix `analytics`, 30min default:
+
+| Function | TTL | Backing |
+|---|---|---|
+| `fetchAnalystIncidentWildlandDetailOfflineAware` | 30min | legacy `fetchAnalystIncidentWildlandDetail` |
+
+`offlineReference.ts` — plaintext, prefix `reference`, 7-day TTL, userId-namespaced:
+
+| Function | TTL | Backing |
+|---|---|---|
+| `fetchRegionsOfflineAware(userId)` | 7d | legacy `fetchRegions` |
+| `fetchProvincesOfflineAware(userId, regionId)` | 7d | legacy `fetchProvinces` |
+| `fetchCitiesOfflineAware(userId, provinceId)` | 7d | legacy `fetchCities` |
+
+All four wrapper modules re-export the `OfflineResult<T>` envelope as their own domain-specific name (`OfflineAdminResult` / `OfflineAnalyticsResult` / `OfflineValidatorResult` / `OfflineReferenceResult`) so existing consumer code is unaffected.
+
+### Shared UI — `src/frontend/src/components/ui/StaleCacheBanner.tsx`
+
+`StaleCacheBanner` renders nothing when `freshness?.cachedAt` is `null`; otherwise it renders a `<StickyBanner tone="amber">` with the message `"Showing cached data — reconnect to refresh. from HH:MM:SS"` (or a caller-supplied `message`). Every rewired page mounts it once with `{ cachedAt, isOnline }` derived from the wrapper result + `useNetworkStatus()`.
+
+### Page bindings (12 rewires, no `useAutoSync`)
+
+The following pages were rewired to call the offline-aware wrappers, mount `useNetworkStatus()` (not `useAutoSync`), and render `StaleCacheBanner` whenever the wrapper returns `fromCache: true`. None of these pages mount the write-queue `useAutoSync`; only the encoder/validator surfaces that initiate writes do.
+
+| Role | Page | Wrapper(s) used |
+|---|---|---|
+| Admin | `/admin/monitoring` | `fetchAdminSecurityLogsOfflineAware`, `fetchSecurityLogsSummaryOfflineAware`, `fetchAuditLogsOfflineAware` |
+| Admin | `/admin/anomalies` | `fetchAnomaliesOfflineAware` |
+| Admin | `/admin/breach` | `fetchBreachesOfflineAware`, `fetchAdminConfigOfflineAware` |
+| Admin | `/admin/system/config` | `fetchAdminConfigOfflineAware` |
+| Admin | `/admin/system/rate-limits` | `fetchRateLimitsOfflineAware` |
+| Validator | `/dashboard/validator/map` | `fetchOperationalMapOfflineAware` |
+| Validator | `/dashboard/validator/audit` | `fetchValidatorAuditLogsOfflineAware` |
+| Analyst | `/dashboard/analyst/incidents/[id]/wildland` | `fetchAnalystIncidentWildlandDetailOfflineAware` |
+| Dashboard | `/dashboard` (filter dropdowns) | `fetchRegionsOfflineAware`, `fetchProvincesOfflineAware`, `fetchCitiesOfflineAware` |
+| Analyst | `/dashboard/analyst` (filter dropdown) | `fetchRegionsOfflineAware` |
+| Analyst workflow | `/dashboard/analyst/[workflow]` (filter dropdown) | `fetchRegionsOfflineAware` |
+| Admin system | `/admin/system` (filter dropdown) | `fetchRegionsOfflineAware` |
+
+The 5 admin pages, 2 validator pages, and the analyst wildland page are full rewires (wrapper + `useNetworkStatus` + `StaleCacheBanner` + cache-miss friendly error state). The other 4 pages (dashboard, analyst, analyst workflow, admin/system) are reference-data swap-only: the filter dropdowns use the `*OfflineAware` reference wrappers so the dropdowns render their last-known region/province/city lists offline; everything else is unchanged.
+
+### Service worker — `src/frontend/public/sw.js`
+
+`CACHE_NAME` bumped to `wims-bfp-cache-v12`. Three new analyst-shell URLs are now in `urlsToCache` (precache at install): `/dashboard/analyst/incidents/1`, `/dashboard/analyst/incidents/1/wildland`, and `/dashboard/analyst/comparative`. The `canonicalPath()` helper was extended to collapse the three analyst URL families to a single canonical shell so the SW navigate handler can serve the precached shell when the user goes offline on a specific incident / wildland / workflow URL. Admin and validator routes are NOT in the precache list (they are not in `urlsToCache`); those pages rely on the encrypted IndexedDB read cache rather than SW shell precache.
+
+A new `PREFETCH_ROLE` `message` handler lets the page ask the SW to warm its cache for the post-login role. The handler opens `CACHE_NAME`, iterates the role's route set, and for each route calls `cache.match` (skip if already present) and otherwise `fetch` + `cache.put`, all wrapped in `Promise.allSettled` so a single failed route does not abort the rest. Role route sets:
+
+- `SYSTEM_ADMIN` → the 5 admin pages + `/admin/system`
+- `NATIONAL_ANALYST` → `/dashboard/analyst`, the 6 workflow slugs, and the 3 shells
+- `NATIONAL_VALIDATOR` → `/dashboard/validator`, `/dashboard/validator/map`, `/dashboard/validator/audit`
+- `REGIONAL_ENCODER` → `/dashboard/regional`
+
+The post-login wiring lives in `src/frontend/src/context/AuthContext.tsx`: after a successful login and once the user role is known, `navigator.serviceWorker.controller?.postMessage({ type: 'PREFETCH_ROLE', role })` is sent (guarded for `controller === null` and SW-unsupported browsers). The handler is fire-and-forget — failures are silent.
+
+### Eviction wiring (pushback P3 + P4)
+
+Four triggers run the per-record eviction pair (`evictExpiredReadCache` + `evictExpiredReferenceData`):
+
+1. **App boot** — `LayoutShell.tsx` calls `maybePruneCaches()` once on mount. A `wims:cachePruneAt` localStorage timestamp ensures the boot guard fires at most once per hour.
+2. **Every 25 successful cache writes** — `incrementCacheWriteCount()` (called inside `offlineAware` and `offlineAwareReference` after each successful write) resets a `wims:cacheWriteCount` counter to 0 and runs both evictions once the counter crosses 25.
+3. **After every successful sync batch completion** — the existing `wims:sync-complete` listener calls `maybePruneCaches()`.
+4. **On user switch** — `setActiveOfflineUser` calls `clearReferenceDataForUser(prev)` (in addition to the crypto-key wipe) so the prior user's plaintext reference data is destroyed.
+
+All four are best-effort (`try/catch` + dev-mode `console.warn`); a failed eviction never blocks the caller. The write counter is reset to 0 BEFORE the eviction call so a slow eviction does not cause the next write to also be at 25.
+
+### Scope notes
+
+- The read-caching layer documented here is **scoped to read-only pages** (filter dropdowns, dashboards, monitoring panels, audit/map views, wildland detail). Writes go through the existing `offlineOps` queue + `syncEngine` and are NOT re-implemented here.
+- This change does NOT mount `useAutoSync` on any of the 12 rewired pages. That hook remains the encoder/validator write-sync trigger.
+- The pre-existing M2 verification target ("verify IndexedDB encryption/sync semantics against M2") is partially closed by this work: the encrypted read cache and reference-cache layer now have a stable, per-record-TTL contract plus user-switch isolation. The full M2 write-queue contract was closed earlier (see `gaps/frs-codebase-gap-register.md` "M2d Offline-first Encoder" entry).

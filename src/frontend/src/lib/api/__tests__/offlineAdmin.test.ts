@@ -17,6 +17,12 @@ const adminMocks = vi.hoisted(() => ({
   fetchWorkerStatus: vi.fn(),
   fetchActiveSessions: vi.fn(),
   fetchAuditLogs: vi.fn(),
+  fetchAdminSecurityLogs: vi.fn(),
+  fetchSecurityLogsSummary: vi.fn(),
+  fetchAnomalies: vi.fn(),
+  fetchBreaches: vi.fn(),
+  fetchAdminConfig: vi.fn(),
+  fetchRateLimits: vi.fn(),
   getReadCachedResponse: vi.fn(),
   cacheReadResponse: vi.fn(),
   markConnectivityOffline: vi.fn(),
@@ -39,6 +45,11 @@ vi.mock('../legacy', async (importOriginal) => {
     fetchWorkerStatus: adminMocks.fetchWorkerStatus,
     fetchActiveSessions: adminMocks.fetchActiveSessions,
     fetchAuditLogs: adminMocks.fetchAuditLogs,
+    fetchAdminSecurityLogs: adminMocks.fetchAdminSecurityLogs,
+    fetchSecurityLogsSummary: adminMocks.fetchSecurityLogsSummary,
+    fetchAnomalies: adminMocks.fetchAnomalies,
+    fetchAdminConfig: adminMocks.fetchAdminConfig,
+    fetchRateLimits: adminMocks.fetchRateLimits,
   };
 });
 
@@ -51,6 +62,10 @@ vi.mock('../../connectivity', () => ({
   getConnectivitySnapshot: () => adminMocks.connectivitySnapshot,
   isReachable: adminMocks.isReachable,
   markConnectivityOffline: adminMocks.markConnectivityOffline,
+}));
+
+vi.mock('../breach', () => ({
+  fetchBreaches: adminMocks.fetchBreaches,
 }));
 
 // ---------------------------------------------------------------------------
@@ -129,7 +144,7 @@ describe('fetchSystemHealthOfflineAware — network error, cached fallback', () 
       key: 'admin:system-health:',
       data: mockHealth,
       cachedAt,
-      ttlMs: 60_000,
+      ttlMs: 30_000,
     });
 
     const { fetchSystemHealthOfflineAware } = await import('../offlineAdmin');
@@ -220,7 +235,7 @@ describe('fetchAuditLogsOfflineAware — cache key with params', () => {
       key: 'admin:audit-logs:{}',
       data: mockAuditResponse,
       cachedAt,
-      ttlMs: 60_000,
+      ttlMs: 30_000,
     });
 
     const { fetchAuditLogsOfflineAware } = await import('../offlineAdmin');
@@ -301,5 +316,499 @@ describe('fetchWorkerStatusOfflineAware — basic contract', () => {
     await expect(fetchWorkerStatusOfflineAware()).rejects.toThrow(
       'System health data is unavailable offline. Reconnect to refresh this view.',
     );
+  });
+});
+
+describe('fetchAdminSecurityLogsOfflineAware — security logs', () => {
+  const mockLogEntry = { log_id: 1, severity_level: 'HIGH', classification: 'INTRUSION', source_ip: '10.0.0.1', timestamp: '2025-01-01T00:00:00Z', xai_narrative: null };
+  const mockResponse = { items: [mockLogEntry], total: 1 };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('caches and returns online security logs', async () => {
+    goOnline();
+    adminMocks.fetchAdminSecurityLogs.mockResolvedValue(mockResponse);
+    adminMocks.cacheReadResponse.mockResolvedValue(undefined);
+
+    const { fetchAdminSecurityLogsOfflineAware } = await import('../offlineAdmin');
+
+    const result = await fetchAdminSecurityLogsOfflineAware();
+
+    expect(result).toEqual({ response: mockResponse, fromCache: false });
+    expect(adminMocks.fetchAdminSecurityLogs).toHaveBeenCalledTimes(1);
+    expect(adminMocks.cacheReadResponse).toHaveBeenCalledWith(
+      expect.stringMatching(/^admin:security-logs:/),
+      mockResponse,
+      expect.any(Number),
+    );
+  });
+
+  it('throws offline without cache', async () => {
+    goOffline();
+    adminMocks.getReadCachedResponse.mockResolvedValue(undefined);
+
+    const { fetchAdminSecurityLogsOfflineAware } = await import('../offlineAdmin');
+
+    await expect(fetchAdminSecurityLogsOfflineAware()).rejects.toThrow(
+      'System health data is unavailable offline. Reconnect to refresh this view.',
+    );
+  });
+
+  it('serves fresh cached data when offline', async () => {
+    goOffline();
+    const cachedAt = Date.now() - 5_000;
+    adminMocks.getReadCachedResponse.mockResolvedValue({
+      key: 'admin:security-logs:',
+      data: mockResponse,
+      cachedAt,
+      ttlMs: 60_000,
+    });
+
+    const { fetchAdminSecurityLogsOfflineAware } = await import('../offlineAdmin');
+
+    const result = await fetchAdminSecurityLogsOfflineAware();
+
+    expect(result).toEqual({ response: mockResponse, fromCache: true, cachedAt });
+    expect(adminMocks.fetchAdminSecurityLogs).not.toHaveBeenCalled();
+  });
+
+  it('falls back to cache on network error', async () => {
+    goOnline();
+    const cachedAt = Date.now() - 5_000;
+    adminMocks.fetchAdminSecurityLogs.mockRejectedValue(new TypeError('Failed to fetch'));
+    adminMocks.getReadCachedResponse.mockResolvedValue({
+      key: 'admin:security-logs:',
+      data: mockResponse,
+      cachedAt,
+      ttlMs: 60_000,
+    });
+
+    const { fetchAdminSecurityLogsOfflineAware } = await import('../offlineAdmin');
+
+    const result = await fetchAdminSecurityLogsOfflineAware();
+
+    expect(result).toEqual({ response: mockResponse, fromCache: true, cachedAt });
+    expect(adminMocks.fetchAdminSecurityLogs).toHaveBeenCalledTimes(1);
+    expect(adminMocks.markConnectivityOffline).toHaveBeenCalled();
+  });
+
+  it('generates cache key with params', async () => {
+    goOnline();
+    adminMocks.fetchAdminSecurityLogs.mockResolvedValue(mockResponse);
+    adminMocks.cacheReadResponse.mockResolvedValue(undefined);
+
+    const { fetchAdminSecurityLogsOfflineAware } = await import('../offlineAdmin');
+
+    await fetchAdminSecurityLogsOfflineAware({ severity: 'HIGH', limit: 10 });
+
+    expect(adminMocks.cacheReadResponse).toHaveBeenCalledWith(
+      expect.stringContaining('admin:security-logs:'),
+      mockResponse,
+      expect.any(Number),
+    );
+  });
+});
+
+describe('fetchSecurityLogsSummaryOfflineAware — logs summary', () => {
+  const mockSummary = {
+    by_severity: { LOW: 10, MEDIUM: 5, HIGH: 2, CRITICAL: 1 },
+    unreviewed_count: 3,
+    total: 18,
+    recent_narratives: [{ log_id: 1, severity_level: 'HIGH', xai_narrative: null, timestamp: '2025-01-01T00:00:00Z' }],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('caches and returns online summary', async () => {
+    goOnline();
+    adminMocks.fetchSecurityLogsSummary.mockResolvedValue(mockSummary);
+    adminMocks.cacheReadResponse.mockResolvedValue(undefined);
+
+    const { fetchSecurityLogsSummaryOfflineAware } = await import('../offlineAdmin');
+
+    const result = await fetchSecurityLogsSummaryOfflineAware();
+
+    expect(result).toEqual({ response: mockSummary, fromCache: false });
+    expect(adminMocks.fetchSecurityLogsSummary).toHaveBeenCalledTimes(1);
+    expect(adminMocks.cacheReadResponse).toHaveBeenCalledWith(
+      expect.stringMatching(/^admin:security-logs-summary:/),
+      mockSummary,
+      expect.any(Number),
+    );
+  });
+
+  it('throws offline without cache', async () => {
+    goOffline();
+    adminMocks.getReadCachedResponse.mockResolvedValue(undefined);
+
+    const { fetchSecurityLogsSummaryOfflineAware } = await import('../offlineAdmin');
+
+    await expect(fetchSecurityLogsSummaryOfflineAware()).rejects.toThrow(
+      'System health data is unavailable offline. Reconnect to refresh this view.',
+    );
+  });
+
+  it('serves fresh cached summary when offline', async () => {
+    goOffline();
+    const cachedAt = Date.now() - 5_000;
+    adminMocks.getReadCachedResponse.mockResolvedValue({
+      key: 'admin:security-logs-summary:',
+      data: mockSummary,
+      cachedAt,
+      ttlMs: 60_000,
+    });
+
+    const { fetchSecurityLogsSummaryOfflineAware } = await import('../offlineAdmin');
+
+    const result = await fetchSecurityLogsSummaryOfflineAware();
+
+    expect(result).toEqual({ response: mockSummary, fromCache: true, cachedAt });
+    expect(adminMocks.fetchSecurityLogsSummary).not.toHaveBeenCalled();
+  });
+
+  it('falls back to cache on network error', async () => {
+    goOnline();
+    const cachedAt = Date.now() - 5_000;
+    adminMocks.fetchSecurityLogsSummary.mockRejectedValue(new TypeError('Failed to fetch'));
+    adminMocks.getReadCachedResponse.mockResolvedValue({
+      key: 'admin:security-logs-summary:',
+      data: mockSummary,
+      cachedAt,
+      ttlMs: 60_000,
+    });
+
+    const { fetchSecurityLogsSummaryOfflineAware } = await import('../offlineAdmin');
+
+    const result = await fetchSecurityLogsSummaryOfflineAware();
+
+    expect(result).toEqual({ response: mockSummary, fromCache: true, cachedAt });
+    expect(adminMocks.fetchSecurityLogsSummary).toHaveBeenCalledTimes(1);
+    expect(adminMocks.markConnectivityOffline).toHaveBeenCalled();
+  });
+});
+
+describe('fetchAnomaliesOfflineAware — anomalies', () => {
+  const mockAnomaly = {
+    anomaly_id: 1,
+    anomaly_type: 'RATE_SPIKE',
+    subject_user_id: null,
+    severity: 'MEDIUM',
+    details: {},
+    detected_at: '2025-01-01T00:00:00Z',
+    status: 'OPEN',
+    dedup_key: 'dedup-1',
+  };
+  const mockResponse = { items: [mockAnomaly], total: 1, limit: 50, offset: 0, counts: {}, type_facets: [] };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('caches and returns online anomalies', async () => {
+    goOnline();
+    adminMocks.fetchAnomalies.mockResolvedValue(mockResponse);
+    adminMocks.cacheReadResponse.mockResolvedValue(undefined);
+
+    const { fetchAnomaliesOfflineAware } = await import('../offlineAdmin');
+
+    const result = await fetchAnomaliesOfflineAware();
+
+    expect(result).toEqual({ response: mockResponse, fromCache: false });
+    expect(adminMocks.fetchAnomalies).toHaveBeenCalledTimes(1);
+    expect(adminMocks.cacheReadResponse).toHaveBeenCalledWith(
+      expect.stringMatching(/^admin:anomalies:/),
+      mockResponse,
+      expect.any(Number),
+    );
+  });
+
+  it('throws offline without cache', async () => {
+    goOffline();
+    adminMocks.getReadCachedResponse.mockResolvedValue(undefined);
+
+    const { fetchAnomaliesOfflineAware } = await import('../offlineAdmin');
+
+    await expect(fetchAnomaliesOfflineAware()).rejects.toThrow(
+      'System health data is unavailable offline. Reconnect to refresh this view.',
+    );
+  });
+
+  it('serves fresh cached anomalies when offline', async () => {
+    goOffline();
+    const cachedAt = Date.now() - 5_000;
+    adminMocks.getReadCachedResponse.mockResolvedValue({
+      key: 'admin:anomalies:',
+      data: mockResponse,
+      cachedAt,
+      ttlMs: 60_000,
+    });
+
+    const { fetchAnomaliesOfflineAware } = await import('../offlineAdmin');
+
+    const result = await fetchAnomaliesOfflineAware();
+
+    expect(result).toEqual({ response: mockResponse, fromCache: true, cachedAt });
+    expect(adminMocks.fetchAnomalies).not.toHaveBeenCalled();
+  });
+
+  it('generates cache key with anomaly params', async () => {
+    goOnline();
+    adminMocks.fetchAnomalies.mockResolvedValue(mockResponse);
+    adminMocks.cacheReadResponse.mockResolvedValue(undefined);
+
+    const { fetchAnomaliesOfflineAware } = await import('../offlineAdmin');
+
+    await fetchAnomaliesOfflineAware({ severity: 'HIGH', limit: 20 });
+
+    expect(adminMocks.cacheReadResponse).toHaveBeenCalledWith(
+      expect.stringContaining('admin:anomalies:'),
+      mockResponse,
+      expect.any(Number),
+    );
+  });
+});
+
+describe('fetchBreachesOfflineAware — breaches', () => {
+  const mockBreach = {
+    breach_id: 1,
+    threat_log_id: 1,
+    detected_at: '2025-01-01T00:00:00Z',
+    npc_deadline_at: '2025-02-01T00:00:00Z',
+    status: 'DETECTED' as const,
+    affected_systems: null,
+    data_scope: null,
+    notes: null,
+    reported_by: null,
+    npc_submitted_at: null,
+    created_at: '2025-01-01T00:00:00Z',
+    updated_at: '2025-01-01T00:00:00Z',
+  };
+  const mockResponse = [mockBreach];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('caches and returns online breaches', async () => {
+    goOnline();
+    adminMocks.fetchBreaches.mockResolvedValue(mockResponse);
+    adminMocks.cacheReadResponse.mockResolvedValue(undefined);
+
+    const { fetchBreachesOfflineAware } = await import('../offlineAdmin');
+
+    const result = await fetchBreachesOfflineAware();
+
+    expect(result).toEqual({ response: mockResponse, fromCache: false });
+    expect(adminMocks.fetchBreaches).toHaveBeenCalledTimes(1);
+    expect(adminMocks.cacheReadResponse).toHaveBeenCalledWith(
+      expect.stringMatching(/^admin:breaches:/),
+      mockResponse,
+      expect.any(Number),
+    );
+  });
+
+  it('throws offline without cache', async () => {
+    goOffline();
+    adminMocks.getReadCachedResponse.mockResolvedValue(undefined);
+
+    const { fetchBreachesOfflineAware } = await import('../offlineAdmin');
+
+    await expect(fetchBreachesOfflineAware()).rejects.toThrow(
+      'System health data is unavailable offline. Reconnect to refresh this view.',
+    );
+  });
+
+  it('serves fresh cached breaches when offline', async () => {
+    goOffline();
+    const cachedAt = Date.now() - 5_000;
+    adminMocks.getReadCachedResponse.mockResolvedValue({
+      key: 'admin:breaches:',
+      data: mockResponse,
+      cachedAt,
+      ttlMs: 60_000,
+    });
+
+    const { fetchBreachesOfflineAware } = await import('../offlineAdmin');
+
+    const result = await fetchBreachesOfflineAware();
+
+    expect(result).toEqual({ response: mockResponse, fromCache: true, cachedAt });
+    expect(adminMocks.fetchBreaches).not.toHaveBeenCalled();
+  });
+
+  it('falls back to cache on network error', async () => {
+    goOnline();
+    const cachedAt = Date.now() - 5_000;
+    adminMocks.fetchBreaches.mockRejectedValue(new TypeError('Failed to fetch'));
+    adminMocks.getReadCachedResponse.mockResolvedValue({
+      key: 'admin:breaches:',
+      data: mockResponse,
+      cachedAt,
+      ttlMs: 60_000,
+    });
+
+    const { fetchBreachesOfflineAware } = await import('../offlineAdmin');
+
+    const result = await fetchBreachesOfflineAware();
+
+    expect(result).toEqual({ response: mockResponse, fromCache: true, cachedAt });
+    expect(adminMocks.fetchBreaches).toHaveBeenCalledTimes(1);
+    expect(adminMocks.markConnectivityOffline).toHaveBeenCalled();
+  });
+});
+
+describe('fetchAdminConfigOfflineAware — system config', () => {
+  const mockEntry = { key: 'npc_email', value: 'npc@bfp.gov.ph', description: 'NPC notification email', updated_by: null, updated_at: null };
+  const mockResponse = [mockEntry];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('caches and returns online system config', async () => {
+    goOnline();
+    adminMocks.fetchAdminConfig.mockResolvedValue(mockResponse);
+    adminMocks.cacheReadResponse.mockResolvedValue(undefined);
+
+    const { fetchAdminConfigOfflineAware } = await import('../offlineAdmin');
+
+    const result = await fetchAdminConfigOfflineAware();
+
+    expect(result).toEqual({ response: mockResponse, fromCache: false });
+    expect(adminMocks.fetchAdminConfig).toHaveBeenCalledTimes(1);
+    expect(adminMocks.cacheReadResponse).toHaveBeenCalledWith(
+      expect.stringMatching(/^admin:system-config:/),
+      mockResponse,
+      expect.any(Number),
+    );
+  });
+
+  it('throws offline without cache', async () => {
+    goOffline();
+    adminMocks.getReadCachedResponse.mockResolvedValue(undefined);
+
+    const { fetchAdminConfigOfflineAware } = await import('../offlineAdmin');
+
+    await expect(fetchAdminConfigOfflineAware()).rejects.toThrow(
+      'System health data is unavailable offline. Reconnect to refresh this view.',
+    );
+  });
+
+  it('serves fresh cached config when offline', async () => {
+    goOffline();
+    const cachedAt = Date.now() - 5_000;
+    adminMocks.getReadCachedResponse.mockResolvedValue({
+      key: 'admin:system-config:',
+      data: mockResponse,
+      cachedAt,
+      ttlMs: 30 * 60 * 1000,
+    });
+
+    const { fetchAdminConfigOfflineAware } = await import('../offlineAdmin');
+
+    const result = await fetchAdminConfigOfflineAware();
+
+    expect(result).toEqual({ response: mockResponse, fromCache: true, cachedAt });
+    expect(adminMocks.fetchAdminConfig).not.toHaveBeenCalled();
+  });
+
+  it('re-fetches when cached config is stale (beyond 30min TTL)', async () => {
+    goOnline();
+    adminMocks.fetchAdminConfig.mockResolvedValue(mockResponse);
+    adminMocks.cacheReadResponse.mockResolvedValue(undefined);
+    // Cached but 31 minutes old — beyond 30min TTL
+    adminMocks.getReadCachedResponse.mockResolvedValue({
+      key: 'admin:system-config:',
+      data: mockResponse,
+      cachedAt: Date.now() - 31 * 60 * 1000,
+      ttlMs: 30 * 60 * 1000,
+    });
+
+    const { fetchAdminConfigOfflineAware } = await import('../offlineAdmin');
+
+    const result = await fetchAdminConfigOfflineAware();
+
+    expect(result.fromCache).toBe(false);
+    expect(adminMocks.fetchAdminConfig).toHaveBeenCalledTimes(1);
+    expect(adminMocks.cacheReadResponse).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('fetchRateLimitsOfflineAware — rate limits', () => {
+  const mockResponse = { tier: 'default', login_window_seconds: 300, login_threshold: 5, updated_at: null };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('caches and returns online rate limits', async () => {
+    goOnline();
+    adminMocks.fetchRateLimits.mockResolvedValue(mockResponse);
+    adminMocks.cacheReadResponse.mockResolvedValue(undefined);
+
+    const { fetchRateLimitsOfflineAware } = await import('../offlineAdmin');
+
+    const result = await fetchRateLimitsOfflineAware();
+
+    expect(result).toEqual({ response: mockResponse, fromCache: false });
+    expect(adminMocks.fetchRateLimits).toHaveBeenCalledTimes(1);
+    expect(adminMocks.cacheReadResponse).toHaveBeenCalledWith(
+      expect.stringMatching(/^admin:rate-limits:/),
+      mockResponse,
+      expect.any(Number),
+    );
+  });
+
+  it('throws offline without cache', async () => {
+    goOffline();
+    adminMocks.getReadCachedResponse.mockResolvedValue(undefined);
+
+    const { fetchRateLimitsOfflineAware } = await import('../offlineAdmin');
+
+    await expect(fetchRateLimitsOfflineAware()).rejects.toThrow(
+      'System health data is unavailable offline. Reconnect to refresh this view.',
+    );
+  });
+
+  it('serves fresh cached rate limits when offline', async () => {
+    goOffline();
+    const cachedAt = Date.now() - 5_000;
+    adminMocks.getReadCachedResponse.mockResolvedValue({
+      key: 'admin:rate-limits:',
+      data: mockResponse,
+      cachedAt,
+      ttlMs: 30 * 60 * 1000,
+    });
+
+    const { fetchRateLimitsOfflineAware } = await import('../offlineAdmin');
+
+    const result = await fetchRateLimitsOfflineAware();
+
+    expect(result).toEqual({ response: mockResponse, fromCache: true, cachedAt });
+    expect(adminMocks.fetchRateLimits).not.toHaveBeenCalled();
+  });
+
+  it('falls back to cache on network error', async () => {
+    goOnline();
+    const cachedAt = Date.now() - 5_000;
+    adminMocks.fetchRateLimits.mockRejectedValue(new TypeError('Failed to fetch'));
+    adminMocks.getReadCachedResponse.mockResolvedValue({
+      key: 'admin:rate-limits:',
+      data: mockResponse,
+      cachedAt,
+      ttlMs: 30 * 60 * 1000,
+    });
+
+    const { fetchRateLimitsOfflineAware } = await import('../offlineAdmin');
+
+    const result = await fetchRateLimitsOfflineAware();
+
+    expect(result).toEqual({ response: mockResponse, fromCache: true, cachedAt });
+    expect(adminMocks.fetchRateLimits).toHaveBeenCalledTimes(1);
+    expect(adminMocks.markConnectivityOffline).toHaveBeenCalled();
   });
 });

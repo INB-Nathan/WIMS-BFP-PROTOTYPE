@@ -32,14 +32,27 @@ vi.mock('@/context/AuthContext', () => ({
   useAuth: () => mockUseAuth(),
 }));
 
+vi.mock('@/lib/useNetworkStatus', () => ({
+  useNetworkStatus: () => ({ isOnline: true, isChecking: false, isReconnecting: false, state: 'online' }),
+}));
+
 const mockFetchSecurityLogsSummary = vi.fn();
 const mockFetchAdminSecurityLogs = vi.fn();
 const mockFetchAuditLogs = vi.fn();
+const mockFetchSecurityLogsSummaryOfflineAware = vi.fn();
+const mockFetchAdminSecurityLogsOfflineAware = vi.fn();
+const mockFetchAuditLogsOfflineAware = vi.fn();
 
 vi.mock('@/lib/api/legacy', () => ({
   fetchSecurityLogsSummary: () => mockFetchSecurityLogsSummary(),
   fetchAdminSecurityLogs: (params?: unknown) => mockFetchAdminSecurityLogs(params),
   fetchAuditLogs: (params?: unknown) => mockFetchAuditLogs(params),
+}));
+
+vi.mock('@/lib/api/offlineAdmin', () => ({
+  fetchSecurityLogsSummaryOfflineAware: () => mockFetchSecurityLogsSummaryOfflineAware(),
+  fetchAdminSecurityLogsOfflineAware: (params?: unknown) => mockFetchAdminSecurityLogsOfflineAware(params),
+  fetchAuditLogsOfflineAware: (params?: unknown) => mockFetchAuditLogsOfflineAware(params),
 }));
 
 const DEFAULT_SUMMARY = {
@@ -78,6 +91,21 @@ describe('M8: Security Monitoring page', () => {
     mockFetchAuditLogs.mockResolvedValue({ items: [], total: 0 });
     mockFetchSecurityLogsSummary.mockResolvedValue(DEFAULT_SUMMARY);
     mockFetchAdminSecurityLogs.mockResolvedValue({ items: [], total: 0 });
+    // Default online mocks for the offline-aware wrappers — delegate to legacy
+    // mock so existing tests keep their data shape unchanged. The T11 test
+    // overrides these to return fromCache=true.
+    mockFetchAuditLogsOfflineAware.mockImplementation(async (params?: unknown) => ({
+      response: await mockFetchAuditLogs(params),
+      fromCache: false,
+    }));
+    mockFetchSecurityLogsSummaryOfflineAware.mockImplementation(async () => ({
+      response: await mockFetchSecurityLogsSummary(),
+      fromCache: false,
+    }));
+    mockFetchAdminSecurityLogsOfflineAware.mockImplementation(async (params?: unknown) => ({
+      response: await mockFetchAdminSecurityLogs(params),
+      fromCache: false,
+    }));
   });
 
   afterEach(() => {
@@ -605,6 +633,54 @@ describe('M8: Security Monitoring page', () => {
     await waitFor(() => {
       const nextBtn = screen.getByText('Next');
       expect(nextBtn).not.toBeDisabled();
+    });
+  });
+});
+
+// ── T11: offline-aware read cache (T11 rewire) ──────────────────────────────
+
+describe('M8: Security Monitoring page — offline-aware read caching (T11)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    mockAdminUser();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it('renders StaleCacheBanner when wrappers return fromCache=true', async () => {
+    const cachedAt = Date.now() - 60_000;
+    mockFetchSecurityLogsSummaryOfflineAware.mockResolvedValue({
+      response: DEFAULT_SUMMARY,
+      fromCache: true,
+      cachedAt,
+    });
+    mockFetchAdminSecurityLogsOfflineAware.mockResolvedValue({
+      response: { items: [], total: 0 },
+      fromCache: true,
+      cachedAt,
+    });
+    mockFetchAuditLogsOfflineAware.mockResolvedValue({
+      response: { items: [], total: 0 },
+      fromCache: true,
+      cachedAt,
+    });
+
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      // The page should now call the offline-aware wrappers
+      expect(mockFetchSecurityLogsSummaryOfflineAware).toHaveBeenCalled();
+    });
+    // Stale cache banner should be present because at least one call returned fromCache
+    expect(screen.getByText(/Showing cached data/i)).toBeInTheDocument();
+    // Underlying summary cards should still render from the cached response
+    await waitFor(() => {
+      expect(screen.getByText('10')).toBeInTheDocument();
     });
   });
 });

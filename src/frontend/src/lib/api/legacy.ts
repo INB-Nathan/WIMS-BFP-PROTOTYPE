@@ -13,6 +13,7 @@ import type {
   ActiveSession,
   PaginatedResponse,
 } from '@/types/api';
+export type { Region, Province, City };
 import {
   buildRegionalIncidentsQueryString,
   type RegionalIncidentsQueryParams,
@@ -20,6 +21,7 @@ import {
 
 import { API_BASE, ApiRequestError, apiFetch, errorMessageFromJson } from './transport';
 import { publicApiFetch } from './public-transport';
+import type { MapClusterItem } from './map';
 
 /** Fetch incidents list - returns [] on error or 404 */
 export async function fetchIncidents(params?: { region_id?: number; category?: string; from?: string; to?: string; type?: string }): Promise<IncidentListItem[]> {
@@ -1170,6 +1172,85 @@ export async function fetchValidatorStats(params?: { date_from?: string; date_to
   if (params?.date_to) qs.set('date_to', params.date_to);
   const query = qs.toString() ? `?${qs.toString()}` : '';
   return apiFetch(`/regional/validator/stats${query}`);
+}
+
+// ---------------------------------------------------------------------------
+// Validator API — operational map + audit logs
+// ---------------------------------------------------------------------------
+
+export interface AuditEntry {
+  history_id: number;
+  incident_id: number;
+  region_id: number | null;
+  region_display: string | null;
+  action_by_user_id: string | null;
+  actor_username: string | null;
+  previous_status: string;
+  new_status: string;
+  action_label: string | null;
+  notes: string | null;
+  action_timestamp: string | null;
+}
+
+export interface AuditResponse {
+  items: AuditEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface OperationalMapParams {
+  sw: [number, number];
+  ne: [number, number];
+  zoom: number;
+  status?: string;
+}
+
+export interface AuditLogParams {
+  dateFrom?: string;
+  dateTo?: string;
+  regionId?: string;
+  actorUsername?: string;
+  roleFilter?: string;
+  action?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+/** Fetch operational map clusters — GET /api/validator/operational-map */
+export async function fetchOperationalMap(
+  params: OperationalMapParams,
+): Promise<MapClusterItem[]> {
+  const search = new URLSearchParams({
+    sw_lat: params.sw[0].toFixed(6),
+    sw_lng: params.sw[1].toFixed(6),
+    ne_lat: params.ne[0].toFixed(6),
+    ne_lng: params.ne[1].toFixed(6),
+    zoom: String(params.zoom),
+  });
+  if (params.status) search.set('status_filter', params.status);
+  const data = await apiFetch<{ clusters?: MapClusterItem[] }>(
+    `/api/validator/operational-map?${search}`,
+  );
+  return data.clusters ?? [];
+}
+
+/** Fetch validator audit logs — GET /regional/validator/audit-logs */
+export async function fetchValidatorAuditLogs(
+  params: AuditLogParams,
+): Promise<AuditResponse> {
+  const search = new URLSearchParams();
+  if (params.dateFrom) search.set('date_from', params.dateFrom);
+  if (params.dateTo) search.set('date_to', params.dateTo);
+  if (params.regionId) search.set('region_id', params.regionId);
+  if (params.actorUsername?.trim()) search.set('actor_username', params.actorUsername.trim());
+  if (params.roleFilter) search.set('role', params.roleFilter);
+  if (params.action) search.set('action', params.action);
+  search.set('limit', String(params.pageSize ?? 50));
+  search.set('offset', String((params.page ?? 0) * (params.pageSize ?? 50)));
+  return apiFetch<AuditResponse>(
+    `/regional/validator/audit-logs?${search.toString()}`,
+  );
 }
 
 export type AforFormKind = 'STRUCTURAL_AFOR' | 'WILDLAND_AFOR';

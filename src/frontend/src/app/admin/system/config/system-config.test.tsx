@@ -31,12 +31,21 @@ vi.mock('@/context/AuthContext', () => ({
   useAuth: () => mockUseAuth(),
 }));
 
+vi.mock('@/lib/useNetworkStatus', () => ({
+  useNetworkStatus: () => ({ isOnline: true, isChecking: false, isReconnecting: false, state: 'online' }),
+}));
+
 const mockFetchAdminConfig = vi.fn();
 const mockUpdateAdminConfig = vi.fn();
+const mockFetchAdminConfigOfflineAware = vi.fn();
 
 vi.mock('@/lib/api/legacy', () => ({
   fetchAdminConfig: () => mockFetchAdminConfig(),
   updateAdminConfig: (key: string, value: string) => mockUpdateAdminConfig(key, value),
+}));
+
+vi.mock('@/lib/api/offlineAdmin', () => ({
+  fetchAdminConfigOfflineAware: () => mockFetchAdminConfigOfflineAware(),
 }));
 
 vi.mock('@/lib/offlineStore', () => ({
@@ -69,6 +78,12 @@ describe('SystemConfigPage — worker timeout keys', () => {
     mockReplace.mockReset();
     mockFetchAdminConfig.mockResolvedValue(DEFAULT_CONFIG);
     mockUpdateAdminConfig.mockResolvedValue({ key: '', value: '', status: 'ok' });
+    // Default online mock — delegates to legacy so existing tests pass.
+    // The T11 test overrides to return fromCache=true.
+    mockFetchAdminConfigOfflineAware.mockImplementation(async () => ({
+      response: await mockFetchAdminConfig(),
+      fromCache: false,
+    }));
   });
 
   afterEach(() => {
@@ -149,6 +164,38 @@ describe('SystemConfigPage — auth', () => {
 
     await waitFor(() => {
       expect(mockReplace).toHaveBeenCalledWith('/admin/system');
+    });
+  });
+});
+
+// ── T11: offline-aware read cache (T11 rewire) ──────────────────────────────
+
+describe('SystemConfigPage — offline-aware read caching (T11)', () => {
+  beforeEach(() => {
+    mockAdminUser();
+    mockReplace.mockReset();
+    mockFetchAdminConfig.mockResolvedValue(DEFAULT_CONFIG);
+    mockUpdateAdminConfig.mockResolvedValue({ key: '', value: '', status: 'ok' });
+  });
+
+  it('renders StaleCacheBanner when offline-aware wrapper returns fromCache=true', async () => {
+    const cachedAt = Date.now() - 60_000;
+    mockFetchAdminConfigOfflineAware.mockResolvedValue({
+      response: DEFAULT_CONFIG,
+      fromCache: true,
+      cachedAt,
+    });
+
+    render(<SystemConfigPage />);
+
+    await waitFor(() => {
+      expect(mockFetchAdminConfigOfflineAware).toHaveBeenCalled();
+    });
+    // Stale cache banner should be visible
+    expect(screen.getByText(/Showing cached data/i)).toBeInTheDocument();
+    // Underlying data should still render from the cached response
+    await waitFor(() => {
+      expect(screen.getByText('worker_stale_timeout_seconds')).toBeInTheDocument();
     });
   });
 });

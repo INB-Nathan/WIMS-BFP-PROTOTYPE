@@ -3,12 +3,16 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { fetchAdminConfig, updateAdminConfig, SystemConfigEntry } from '@/lib/api/legacy';
-import { Settings, Save, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import { updateAdminConfig, SystemConfigEntry } from '@/lib/api/legacy';
+import { fetchAdminConfigOfflineAware } from '@/lib/api/offlineAdmin';
+import { StaleCacheBanner } from '@/components/ui/StaleCacheBanner';
+import { Settings, Save, RefreshCw, AlertCircle, CheckCircle, WifiOff } from 'lucide-react';
 import { initOfflineStorageLimit } from '@/lib/offlineStore';
 
 export default function SystemConfigPage() {
     const { user, loading: authLoading } = useAuth();
+    const { isOnline } = useNetworkStatus();
     const router = useRouter();
 
     const [config, setConfig] = useState<SystemConfigEntry[]>([]);
@@ -17,6 +21,9 @@ export default function SystemConfigPage() {
     const [messages, setMessages] = useState<Record<string, { text: string; ok: boolean }>>({});
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
+    // T11: cache freshness tracking + offline-unavailable state
+    const [configCachedAt, setConfigCachedAt] = useState<number | undefined>(undefined);
+    const [offlineUnavailable, setOfflineUnavailable] = useState<boolean>(false);
 
     useEffect(() => {
         if (!authLoading && user?.role !== 'SYSTEM_ADMIN') {
@@ -27,12 +34,15 @@ export default function SystemConfigPage() {
     const loadConfig = useCallback(async () => {
         setLoading(true);
         setLoadError(null);
+        setOfflineUnavailable(false);
         try {
-            const rows = await fetchAdminConfig();
+            const res = await fetchAdminConfigOfflineAware();
+            const rows = res.response;
             setConfig(rows);
             const initial: Record<string, string> = {};
             rows.forEach(r => { initial[r.key] = r.value; });
             setEdits(initial);
+            setConfigCachedAt(res.fromCache ? res.cachedAt : undefined);
             // Sync offline storage cap from admin config.
             const offlineRow = rows.find(r => r.key === 'offline_storage_mb');
             if (offlineRow) {
@@ -42,11 +52,17 @@ export default function SystemConfigPage() {
                 }
             }
         } catch {
-            setLoadError('Failed to load configuration. Check your connection and try again.');
+            if (!isOnline) {
+                setOfflineUnavailable(true);
+                setConfig([]);
+                setEdits({});
+            } else {
+                setLoadError('Failed to load configuration. Check your connection and try again.');
+            }
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [isOnline]);
 
     useEffect(() => {
         if (!authLoading && user?.role === 'SYSTEM_ADMIN') {
@@ -88,6 +104,32 @@ export default function SystemConfigPage() {
 
     return (
         <div className="space-y-6">
+            {/* T11: Friendly offline-unavailable banner when wrapper throws + we're offline */}
+            {offlineUnavailable && (
+                <div
+                    className="card"
+                    data-testid="offline-unavailable"
+                    style={{ borderLeft: '4px solid #f59e0b', backgroundColor: '#fffbeb' }}
+                >
+                    <div className="card-body flex items-center gap-3">
+                        <WifiOff className="w-5 h-5 text-amber-700 flex-shrink-0" />
+                        <div>
+                            <div className="text-sm font-semibold text-amber-800">
+                                System configuration is unavailable offline
+                            </div>
+                            <div className="text-xs text-amber-700 mt-1">
+                                Reconnect to the network to load configuration values.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* T11: Stale cache banner */}
+            {configCachedAt != null && (
+                <StaleCacheBanner freshness={{ cachedAt: configCachedAt, isOnline }} />
+            )}
+
             <div>
                 <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
                     System Configuration

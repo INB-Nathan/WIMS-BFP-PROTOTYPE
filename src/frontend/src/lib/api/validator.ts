@@ -5,6 +5,15 @@ export {
 } from './regional';
 
 export {
+  type AuditEntry,
+  type AuditLogParams,
+  type AuditResponse,
+  fetchOperationalMap,
+  fetchValidatorAuditLogs,
+  type OperationalMapParams,
+} from './legacy';
+
+export {
   archiveIncidentOfflineAware,
   fetchValidatorQueueOfflineAware,
   submitArchiveActionOfflineAware,

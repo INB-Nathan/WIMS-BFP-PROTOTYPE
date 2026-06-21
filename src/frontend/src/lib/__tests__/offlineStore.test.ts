@@ -22,6 +22,8 @@ if (!globalThis.crypto) {
 
 // ─── Constants matching offlineStore.ts ──────────────────────────────────────
 const DB_NAME = 'wims-bfp-db';
+// Bumped 5 → 6 in Task 1 to introduce REFERENCE_STORE; keep this in sync with
+// the production constant so the raw-record read path uses the same version.
 const DB_VERSION = 6;
 const STORE_NAME = 'incident-queue';
 

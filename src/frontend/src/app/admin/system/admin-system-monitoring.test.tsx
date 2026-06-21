@@ -55,7 +55,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/context/AuthContext', () => ({
     useAuth: () => ({
-        user: { role: 'SYSTEM_ADMIN' },
+        user: { id: 'admin-1', role: 'SYSTEM_ADMIN' },
         loading: false,
         logout: vi.fn(),
     }),
@@ -68,6 +68,7 @@ const mockFetchAdminUsers = vi.fn();
 const mockFetchAuditLogs = vi.fn();
 const mockFetchAdminSecurityLogs = vi.fn();
 const mockFetchRegions = vi.fn();
+const mockFetchRegionsOfflineAware = vi.fn();
 const mockFetchActiveSessions = vi.fn();
 
 const networkStatusState = { isOnline: true, isReconnecting: false };
@@ -111,6 +112,8 @@ vi.mock('@/lib/api', () => ({
     fetchAuditLogsOfflineAware: async () => ({ response: await mockFetchAuditLogs(), fromCache: false }),
     analyzeSecurityLog: vi.fn(),
     fetchRegions: () => mockFetchRegions(),
+    // Plan T13 (Phase B) — offline-aware reference reads (regions).
+    fetchRegionsOfflineAware: (userId: string) => mockFetchRegionsOfflineAware(userId),
     fetchUserSessions: vi.fn().mockResolvedValue({ sessions: [] }),
     terminateUserSessions: vi.fn(),
     KeycloakSession: {},
@@ -129,6 +132,7 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
         mockFetchAuditLogs.mockResolvedValue({ items: [], total: 0 });
         mockFetchAdminSecurityLogs.mockResolvedValue({ items: [], total: 0 });
         mockFetchRegions.mockResolvedValue([]);
+        mockFetchRegionsOfflineAware.mockResolvedValue({ response: [], fromCache: false });
         mockFetchActiveSessions.mockResolvedValue([]);
     });
 
@@ -151,6 +155,15 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
         expect(mockFetchSystemHealth).toHaveBeenCalledTimes(1);
         expect(mockFetchSystemMetrics).toHaveBeenCalledTimes(1);
         expect(mockFetchWorkerStatus).toHaveBeenCalledTimes(1);
+    });
+
+    it('calls fetchRegionsOfflineAware with the active admin user id (Plan T13 reference rewire)', async () => {
+        vi.useRealTimers();
+        render(<AdminSystemPage />);
+
+        await waitFor(() => {
+            expect(mockFetchRegionsOfflineAware).toHaveBeenCalledWith('admin-1');
+        });
     });
 
     it('CPU%, memory MB, disk GB, and worker hostname appear in DOM after initial load', async () => {

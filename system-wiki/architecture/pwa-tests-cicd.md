@@ -16,9 +16,9 @@ status: draft
 
 **File:** `src/frontend/src/lib/offlineStore.ts`
 
-Wraps IndexedDB (via Jake Archibald's `idb` library) in database `wims-bfp-db`. The database is now version 3: legacy offline incident queue records remain in `incident-queue`, reusable AES-GCM key material remains in `crypto-keys`, and analyst offline read caching uses the encrypted `analytics-cache` object store keyed by `analytics:{cacheKey}`. Analytics cached values are stored only as `{ key, encrypted, cachedAt }`; no heatmap/detail/sensitive payload is written to IndexedDB in raw form.
+Wraps IndexedDB (via Jake Archibald's `idb` library) in database `wims-bfp-db`. The database is now version 6: legacy offline incident queue records remain in `incident-queue`, reusable AES-GCM key material remains in `crypto-keys`, analyst/admin/validator offline read caching uses the encrypted `analytics-cache` object store keyed by `{prefix}:{cacheKey}`, and a new unencrypted `reference-cache` object store (DB v6) holds per-user-namespaced reference data (`reference:{userId}:...`) such as regions/provinces/cities. Encrypted cached values are stored as `{ key, encrypted, cachedAt, ttlMs }`; reference cached values are stored as `{ key, data, cachedAt, ttlMs }` (plaintext). No heatmap/detail/sensitive payload is written to IndexedDB in raw form. Per-record `ttlMs` (pushback P3) lets eviction prune by the record's own expiry.
 
-Account-switch and manual offline-data clearing now wipe the legacy Phase 1A `incident-queue` store in addition to `offlineOps`, `cachedIncidents`, and `crypto-keys`, so pre-Phase 1B queued rows are not carried over on shared devices after a different encoder logs in.
+Account-switch and manual offline-data clearing now wipe the legacy Phase 1A `incident-queue` store in addition to `offlineOps`, `cachedIncidents`, `crypto-keys`, and the prior user's `reference:{prevUserId}:*` prefix in `reference-cache` (pushback P1), so pre-Phase 1B queued rows are not carried over on shared devices after a different encoder logs in and the prior user's plaintext RLS-scoped ref data does not survive.
 
 | Export | Signature | Description |
 |---|---|---|
@@ -26,9 +26,14 @@ Account-switch and manual offline-data clearing now wipe the legacy Phase 1A `in
 | `getPendingIncidents()` | `() => Promise<PendingIncident[]>` | Returns all records where `status === 'pending'` |
 | `markSynced(id)` | `(number) => Promise<void>` | Marks item synced then deletes it |
 | `clearSynced()` | `() => Promise<void>` | Deletes all synced items |
-| `cacheAnalyticsResponse(key, data, cachedAt?)` | `(string, unknown, number?) => Promise<void>` | Encrypts and stores an analyst read response in `analytics-cache` |
-| `getCachedAnalyticsResponse(key)` | `(string) => Promise<CachedAnalyticsResponse \| undefined>` | Decrypts a cached analyst response and returns `{ key, data, cachedAt }` |
-| `clearAnalyticsCache()` | `() => Promise<void>` | Clears the encrypted analyst read cache |
+| `cacheReadResponse(key, data, ttlMs, cachedAt?)` | `(string, unknown, number, number?) => Promise<void>` | Encrypts and stores a generic read response in `analytics-cache`; stores per-record `ttlMs` for per-record eviction. |
+| `getReadCachedResponse(key)` | `(string) => Promise<CachedResponse \| undefined>` | Decrypts a cached read response and returns `{ key, data, cachedAt, ttlMs }`. |
+| `cacheReferenceData(key, data, ttlMs, cachedAt?)` | `(string, unknown, number, number?) => Promise<void>` | Plaintext write to the unencrypted `reference-cache` store. Caller MUST build a userId-namespaced key (`reference:{userId}:...`) so per-user isolation is achieved. |
+| `getCachedReferenceData(key)` | `(string) => Promise<CachedResponse \| undefined>` | Plaintext read from `reference-cache`. |
+| `evictExpiredReadCache()` | `() => Promise<number>` | Cursor-scan `analytics-cache`; delete records whose `cachedAt + ttlMs < now`; per-record TTL; capped at 500 deletions/pass; back-compat default 30min when `ttlMs` missing. Best-effort. |
+| `evictExpiredReferenceData()` | `() => Promise<number>` | Same for `reference-cache`; 7-day TTL for ref entries. Best-effort. |
+| `clearReferenceDataForUser(userId)` | `(string) => Promise<number>` | Regex prefix sweep `^reference:{userId}:` on `reference-cache`; returns deleted count. Best-effort, never throws. |
+| `clearAnalyticsCache()` | `() => Promise<void>` | Clears the encrypted read cache |
 
 ### `connectivity.ts` — Reachability Snapshot
 

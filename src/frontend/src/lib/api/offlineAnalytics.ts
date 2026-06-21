@@ -2,6 +2,7 @@ import {
   fetchAnalyticsFilterOptions as legacyFetchAnalyticsFilterOptions,
   fetchAnalystIncidentDetail as legacyFetchAnalystIncidentDetail,
   fetchAnalystIncidentSensitive as legacyFetchAnalystIncidentSensitive,
+  fetchAnalystIncidentWildlandDetail as legacyFetchAnalystIncidentWildlandDetail,
   fetchComparativeData as legacyFetchComparativeData,
   fetchHeatmapData as legacyFetchHeatmapData,
   fetchResponseTimeByRegion as legacyFetchResponseTimeByRegion,
@@ -12,6 +13,7 @@ import {
 import type {
   AnalystIncidentDetailResponse,
   AnalystIncidentSensitiveResponse,
+  AnalystIncidentWildlandDetailResponse,
   AnalyticsFilterOptionsField,
   AnalyticsGlobalFilters,
   ComparativeFilters,
@@ -91,4 +93,10 @@ export async function fetchAnalystIncidentSensitiveOfflineAware(
   incidentId: number,
 ): Promise<OfflineAnalyticsResult<AnalystIncidentSensitiveResponse>> {
   return offlineAware('analyst-sensitive', [incidentId], 'analytics', ANALYTICS_CACHE_TTL_MS, () => legacyFetchAnalystIncidentSensitive(incidentId), OFFLINE_ANALYTICS_ERROR);
+}
+
+export async function fetchAnalystIncidentWildlandDetailOfflineAware(
+  incidentId: number,
+): Promise<OfflineAnalyticsResult<AnalystIncidentWildlandDetailResponse>> {
+  return offlineAware('analyst-wildland-detail', [incidentId], 'analytics', ANALYTICS_CACHE_TTL_MS, () => legacyFetchAnalystIncidentWildlandDetail(incidentId), OFFLINE_ANALYTICS_ERROR);
 }

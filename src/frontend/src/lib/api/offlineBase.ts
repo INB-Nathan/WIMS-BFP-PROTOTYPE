@@ -14,7 +14,10 @@
  */
 import {
   cacheReadResponse,
+  cacheReferenceData,
+  getCachedReferenceData,
   getReadCachedResponse,
+  incrementCacheWriteCount,
 } from '../offlineStore';
 import {
   getConnectivitySnapshot,
@@ -122,13 +125,38 @@ export async function readFreshCacheOrThrow<T>(
   throw new Error(errorMessage);
 }
 
+/**
+ * Sibling of `readFreshCacheOrThrow` for the UNENCRYPTED reference store.
+ * Returns a fresh cached result or throws the given error message.
+ *
+ * Reference data is plaintext and userId-namespaced (per pushback P1), so
+ * callers must build the key with their userId baked in
+ * (`buildCacheKey(\`${prefix}:${userId}\`, ...)`) before invoking this helper.
+ */
+export async function readFreshReferenceCacheOrThrow<T>(
+  key: string,
+  ttlMs: number,
+  errorMessage: string,
+): Promise<OfflineResult<T>> {
+  const cached = await getCachedReferenceData<T>(key);
+  if (!cached || !isFresh(cached.cachedAt, ttlMs)) {
+    throw new Error(errorMessage);
+  }
+  return {
+    response: cached.data,
+    fromCache: true,
+    cachedAt: cached.cachedAt,
+  };
+}
+
 // ── Cache write helper ─────────────────────────────────────────────
 
 /**
  * Best-effort cache write — failures are silently swallowed so a
  * successful online fetch is never broken by a failing IndexedDB write.
- * `ttlMs` is forwarded into the record so per-record eviction prunes by
- * the record's own expiry (pushback P3) instead of a shared cutoff.
+ *
+ * Task 1: the per-record ttlMs is persisted alongside the encrypted payload
+ * so eviction can prune by the record's own expiry (pushback P3).
  */
 export async function writeCache<T>(key: string, response: T, ttlMs: number): Promise<void> {
   try {
@@ -179,5 +207,77 @@ export async function offlineAware<T>(
       return readFreshCacheOrThrow<T>(key, ttlMs, errorMessage);
     }
     throw err;
+  } finally {
+    // Task 10: best-effort write counter — runs on success and on failure
+    // (a successful online fetch is the common case, but a network-error
+    // fallback that hits the cache also means we wrote nothing this round,
+    // so incrementing is harmless). The counter itself is best-effort.
+    try {
+      await incrementCacheWriteCount();
+    } catch (writeCountErr) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[offlineBase] incrementCacheWriteCount failed:', writeCountErr);
+      }
+    }
+  }
+}
+
+// ── Reference (unencrypted) orchestrator ──────────────────────────
+
+/**
+ * Offline-first wrapper for **unencrypted reference data** reads.
+ *
+ * Same control flow as `offlineAware` but writes/reads the plaintext
+ * REFERENCE_STORE via `cacheReferenceData`/`getCachedReferenceData`.
+ * `userId` is REQUIRED and baked into the cache key prefix so that
+ * per-user isolation is preserved in the unencrypted store (pushback P1).
+ *
+ * 1. When offline → serve from fresh reference cache (throw if absent).
+ * 2. When online → fetch, cache the result unencrypted, return fresh.
+ * 3. On network error → mark connectivity offline, fall back to cache.
+ * 4. Non-network errors are re-thrown.
+ *
+ * @param cacheKey    Logical name (e.g. 'regions')
+ * @param args        Distinguishing arguments (used in cache key)
+ * @param prefix      Domain prefix for the cache key (e.g. 'reference')
+ * @param ttlMs       Cache TTL in milliseconds
+ * @param userId      Active user id — namespaced into the cache key
+ * @param fetcher     Async function that performs the network request
+ * @param errorMessage Thrown when offline and no cache is available
+ */
+export async function offlineAwareReference<T>(
+  cacheKey: string,
+  args: unknown[],
+  prefix: string,
+  ttlMs: number,
+  userId: string,
+  fetcher: () => Promise<T>,
+  errorMessage: string,
+): Promise<OfflineResult<T>> {
+  const key = buildCacheKey(`${prefix}:${userId}`, cacheKey, args);
+
+  if (shouldServeOffline()) {
+    return readFreshReferenceCacheOrThrow<T>(key, ttlMs, errorMessage);
+  }
+
+  try {
+    const response = await fetcher();
+    await cacheReferenceData(key, response, ttlMs, Date.now());
+    return { response, fromCache: false };
+  } catch (err) {
+    if (isNetworkError(err)) {
+      markConnectivityOffline();
+      return readFreshReferenceCacheOrThrow<T>(key, ttlMs, errorMessage);
+    }
+    throw err;
+  } finally {
+    // Task 10: best-effort write counter — see offlineAware above.
+    try {
+      await incrementCacheWriteCount();
+    } catch (writeCountErr) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[offlineBase] incrementCacheWriteCount failed:', writeCountErr);
+      }
+    }
   }
 }

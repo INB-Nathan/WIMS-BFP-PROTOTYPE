@@ -75,6 +75,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // encoders to access the app and view cached incidents when offline.
   const SESSION_CACHE_KEY = 'wims:offline_session_cache';
 
+  // ─── Service-worker role notification (Task 14) ──────────────────────────────
+  // Best-effort: tell the active SW which role just signed in so it can
+  // pre-warm that role's routes (see ROLE_PREFETCH_ROUTES in public/sw.js).
+  // Must never throw or block login: missing SW, null controller, or a
+  // postMessage failure are all silent no-ops.
+  const notifyServiceWorkerOfRole = useCallback((role: string | undefined) => {
+    if (!role) return;
+    if (typeof navigator === 'undefined') return;
+    const controller = navigator.serviceWorker?.controller;
+    if (!controller) return;
+    try {
+      controller.postMessage({ type: 'PREFETCH_ROLE', role });
+    } catch (err) {
+      console.warn('[AuthContext] notifyServiceWorkerOfRole: postMessage failed:', err);
+    }
+  }, []);
+
   const restoreSessionFromCache = useCallback(() => {
     try {
       const raw = localStorage.getItem(SESSION_CACHE_KEY);
@@ -108,6 +125,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // if a different uid is now logged in (item F12).
           if (data.user.id) void setActiveOfflineUser(data.user.id);
           try { localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ user: data.user })); } catch { /* private mode */ }
+          // Post-login role prefetch (Task 14): notify the active service worker
+          // of the signed-in role so it can pre-warm that role's routes.
+          notifyServiceWorkerOfRole(data.user.role);
         } else {
           setUser(null);
           localStorage.removeItem(SESSION_CACHE_KEY);
@@ -128,7 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [refreshAccessToken, restoreSessionFromCache]);
+  }, [refreshAccessToken, restoreSessionFromCache, notifyServiceWorkerOfRole]);
 
   // ─── Initial session load ────────────────────────────────────────────────────
   useEffect(() => {

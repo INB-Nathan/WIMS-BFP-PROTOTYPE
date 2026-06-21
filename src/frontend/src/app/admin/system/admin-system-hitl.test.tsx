@@ -45,7 +45,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/context/AuthContext', () => ({
     useAuth: () => ({
-        user: { role: 'SYSTEM_ADMIN' },
+        user: { id: 'admin-1', role: 'SYSTEM_ADMIN' },
         loading: false,
         logout: vi.fn(),
     }),
@@ -58,6 +58,7 @@ const mockCreateIncidentFromAlert = vi.fn();
 const mockFetchRelatedAuditLogs = vi.fn();
 const mockFetchAdminUsers = vi.fn();
 const mockFetchAuditLogs = vi.fn();
+const mockFetchRegionsOfflineAware = vi.fn();
 
 vi.mock('@/lib/useNetworkStatus', () => ({
     useNetworkStatus: () => ({ isOnline: true, isReconnecting: false }),
@@ -108,6 +109,8 @@ vi.mock('@/lib/api', () => ({
     fetchWorkerStatus: vi.fn().mockResolvedValue([]),
     fetchWorkerStatusOfflineAware: vi.fn().mockResolvedValue({ response: [], fromCache: false }),
     fetchRegions: vi.fn().mockResolvedValue([]),
+    // Plan T13 (Phase B) — offline-aware reference reads (regions).
+    fetchRegionsOfflineAware: (userId: string) => mockFetchRegionsOfflineAware(userId),
     fetchActiveSessions: vi.fn().mockResolvedValue([]),
     fetchActiveSessionsOfflineAware: vi.fn().mockResolvedValue({ response: [], fromCache: false }),
     fetchUserSessions: vi.fn().mockResolvedValue({ sessions: [] }),
@@ -123,6 +126,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         mockUpdateAdminSecurityLog.mockResolvedValue({ status: 'ok', log_id: 1 });
         mockCreateIncidentFromAlert.mockResolvedValue({ status: 'ok', incident_id: 42 });
         mockFetchRelatedAuditLogs.mockResolvedValue({ log_id: 1, items: [] });
+        mockFetchRegionsOfflineAware.mockResolvedValue({ response: [], fromCache: false });
     });
 
     it('shows decision buttons for unactioned logs', async () => {

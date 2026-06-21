@@ -44,6 +44,7 @@ const mockFetchHeatmapData = vi.fn();
 const mockFetchTrendData = vi.fn();
 const mockFetchComparativeData = vi.fn();
 const mockFetchRegions = vi.fn();
+const mockFetchRegionsOfflineAware = vi.fn();
 const mockFetchTypeDistribution = vi.fn();
 const mockFetchTopBarangays = vi.fn();
 const mockFetchResponseTime = vi.fn();
@@ -57,6 +58,8 @@ vi.mock('@/lib/api', () => ({
   fetchTrendDataOfflineAware: async (f: object) => ({ response: await mockFetchTrendData(f), fromCache: false }),
   fetchComparativeDataOfflineAware: async (f: object) => ({ response: await mockFetchComparativeData(f), fromCache: false }),
   fetchRegions: () => mockFetchRegions(),
+  // Plan T13 (Phase B) — offline-aware reference reads (regions).
+  fetchRegionsOfflineAware: (userId: string) => mockFetchRegionsOfflineAware(userId),
   fetchTypeDistributionOfflineAware: async (f: object) => ({ response: await mockFetchTypeDistribution(f), fromCache: false }),
   fetchTopBarangays: (f: object) => mockFetchTopBarangays(f),
   fetchResponseTimeByRegionOfflineAware: async (f: object) => ({ response: await mockFetchResponseTime(f), fromCache: false }),
@@ -135,6 +138,13 @@ function setupMocks() {
     { region_id: 1, region_name: 'NCR', region_code: 'NCR' },
     { region_id: 2, region_name: 'Region III', region_code: 'R3' },
   ]);
+  mockFetchRegionsOfflineAware.mockResolvedValue({
+    response: [
+      { region_id: 1, region_name: 'NCR', region_code: 'NCR' },
+      { region_id: 2, region_name: 'Region III', region_code: 'R3' },
+    ],
+    fromCache: false,
+  });
   mockFetchHeatmapData.mockResolvedValue({ type: 'FeatureCollection', features: [] });
   mockFetchTrendData.mockResolvedValue({ data: [] });
   mockFetchComparativeData.mockResolvedValue({

@@ -351,7 +351,7 @@ describe('encryption at rest — analytics cache', () => {
     await setActiveOfflineUser(ENCODER_ID);
   });
 
-  it('encrypts data on cacheReadResponse', async () => {
+  it('encrypts data on cacheReadResponse and stores ttlMs on the record', async () => {
     await cacheReadResponse('heatmap:ncr', { geometry: 'GeoJSON', count: 100 }, 60_000);
 
     const raw = analyticsCacheStore.get('heatmap:ncr')!;
@@ -361,6 +361,14 @@ describe('encryption at rest — analytics cache', () => {
 
     const rawJson = JSON.stringify(raw);
     expect(rawJson.includes('GeoJSON')).toBe(false);
+
+    // Task 1 / spec v3: per-record ttlMs is persisted on the encrypted record
+    // so eviction can prune by the record's own expiry (pushback P3).
+    expect(raw.ttlMs).toBe(60_000);
+
+    const cached = await getReadCachedResponse<{ geometry: string; count: number }>('heatmap:ncr');
+    expect(cached!.ttlMs).toBe(60_000);
+    expect(cached!.data).toEqual({ geometry: 'GeoJSON', count: 100 });
   });
 
   it('decrypts data on getReadCachedResponse', async () => {
@@ -369,13 +377,6 @@ describe('encryption at rest — analytics cache', () => {
 
     const cached = await getReadCachedResponse<typeof original>('topbarangays');
     expect(cached!.data).toEqual(original);
-  });
-
-  it('stores per-record ttlMs on cacheReadResponse records (pushback P3)', async () => {
-    const ttl = 60_000;
-    await cacheReadResponse('admin:system-health', { ok: true }, ttl);
-    const got = await getReadCachedResponse<{ ok: boolean }>('admin:system-health');
-    expect(got?.ttlMs).toBe(ttl);
   });
 });
 
