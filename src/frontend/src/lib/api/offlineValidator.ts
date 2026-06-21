@@ -1,7 +1,7 @@
 import { apiFetch, ApiRequestError } from './transport';
 import {
-  cacheAnalyticsResponse,
-  getCachedAnalyticsResponse,
+  cacheReadResponse,
+  getReadCachedResponse,
   queueIncident,
   type VerifyAction,
 } from '../offlineStore';
@@ -151,7 +151,7 @@ export async function fetchValidatorQueueOfflineAware<T>(
   const key = queueCacheKey(userId, params);
 
   if (shouldServeOffline()) {
-    const cached = await getCachedAnalyticsResponse<T>(key);
+    const cached = await getReadCachedResponse<T>(key);
     if (!cached || !isFresh(cached.cachedAt, VALIDATOR_CACHE_TTL_MS)) {
       throw new Error(
         'Validator queue is unavailable offline. Reconnect to refresh this view.',
@@ -168,7 +168,7 @@ export async function fetchValidatorQueueOfflineAware<T>(
     const response = await fetcher();
     // Best-effort cache write
     try {
-      await cacheAnalyticsResponse<T>(key, response);
+      await cacheReadResponse<T>(key, response, VALIDATOR_CACHE_TTL_MS);
     } catch {
       // Cache writes must not break an otherwise successful response.
     }
@@ -176,7 +176,7 @@ export async function fetchValidatorQueueOfflineAware<T>(
   } catch (err) {
     if (isNetworkError(err)) {
       markConnectivityOffline();
-      const cached = await getCachedAnalyticsResponse<T>(key);
+      const cached = await getReadCachedResponse<T>(key);
       if (!cached || !isFresh(cached.cachedAt, VALIDATOR_CACHE_TTL_MS)) {
         throw err;
       }

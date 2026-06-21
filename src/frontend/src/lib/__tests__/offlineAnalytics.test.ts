@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const analyticsMocks = vi.hoisted(() => ({
   fetchHeatmapData: vi.fn(),
-  getCachedAnalyticsResponse: vi.fn(),
-  cacheAnalyticsResponse: vi.fn(),
+  getReadCachedResponse: vi.fn(),
+  cacheReadResponse: vi.fn(),
   markConnectivityOffline: vi.fn(),
   isReachable: vi.fn(),
   connectivitySnapshot: {
@@ -24,8 +24,8 @@ vi.mock('../api/legacy', async (importOriginal) => {
 });
 
 vi.mock('../offlineStore', () => ({
-  getCachedAnalyticsResponse: analyticsMocks.getCachedAnalyticsResponse,
-  cacheAnalyticsResponse: analyticsMocks.cacheAnalyticsResponse,
+  getReadCachedResponse: analyticsMocks.getReadCachedResponse,
+  cacheReadResponse: analyticsMocks.cacheReadResponse,
 }));
 
 vi.mock('../connectivity', () => ({
@@ -62,10 +62,11 @@ describe('fetchHeatmapDataOfflineAware', () => {
       ],
     };
 
-    analyticsMocks.getCachedAnalyticsResponse.mockResolvedValue({
+    analyticsMocks.getReadCachedResponse.mockResolvedValue({
       key: 'analytics:heatmap:region-4:2026-06',
       data: cachedResponse,
       cachedAt,
+      ttlMs: 30 * 60 * 1000,
     });
 
     const { fetchHeatmapDataOfflineAware } = await import('../api/analytics');
@@ -99,9 +100,10 @@ describe('fetchHeatmapDataOfflineAware', () => {
     const result = await fetchHeatmapDataOfflineAware(filters);
 
     expect(analyticsMocks.fetchHeatmapData).toHaveBeenCalledWith(filters);
-    expect(analyticsMocks.cacheAnalyticsResponse).toHaveBeenCalledWith(
+    expect(analyticsMocks.cacheReadResponse).toHaveBeenCalledWith(
       expect.stringMatching(/^analytics:heatmap:/),
       response,
+      expect.any(Number),
     );
     expect(result).toEqual({ response, fromCache: false });
   });

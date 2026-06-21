@@ -13,8 +13,8 @@
  * All three domain modules import from here instead of duplicating the logic.
  */
 import {
-  cacheAnalyticsResponse,
-  getCachedAnalyticsResponse,
+  cacheReadResponse,
+  getReadCachedResponse,
 } from '../offlineStore';
 import {
   getConnectivitySnapshot,
@@ -100,7 +100,7 @@ export async function getFreshCache<T>(
   key: string,
   ttlMs: number,
 ): Promise<OfflineResult<T> | null> {
-  const cached = await getCachedAnalyticsResponse<T>(key);
+  const cached = await getReadCachedResponse<T>(key);
   if (!cached || !isFresh(cached.cachedAt, ttlMs)) return null;
   return {
     response: cached.data,
@@ -127,10 +127,13 @@ export async function readFreshCacheOrThrow<T>(
 /**
  * Best-effort cache write — failures are silently swallowed so a
  * successful online fetch is never broken by a failing IndexedDB write.
+ *
+ * Task 1: the per-record ttlMs is persisted alongside the encrypted payload
+ * so eviction can prune by the record's own expiry (pushback P3).
  */
-export async function writeCache<T>(key: string, response: T): Promise<void> {
+export async function writeCache<T>(key: string, response: T, ttlMs: number): Promise<void> {
   try {
-    await cacheAnalyticsResponse<T>(key, response);
+    await cacheReadResponse<T>(key, response, ttlMs);
   } catch {
     // noop
   }
@@ -169,7 +172,7 @@ export async function offlineAware<T>(
 
   try {
     const response = await fetcher();
-    await writeCache(key, response);
+    await writeCache(key, response, ttlMs);
     return { response, fromCache: false };
   } catch (err) {
     if (isNetworkError(err)) {

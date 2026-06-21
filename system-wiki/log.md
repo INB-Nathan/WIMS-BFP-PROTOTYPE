@@ -1,3 +1,23 @@
+## [2026-06-21] refactor(offlineStore): generic cache methods, REFERENCE_STORE (unencrypted, per-user), per-record ttlMs, eviction
+
+- **Scope:** Task 1 of the `docs/superpowers/plans/2026-06-21-offline-cache-every-role.md` plan. Foundation for all later offline-aware wrappers (Tasks 2, 4–7).
+- **Storage refactor in `src/frontend/src/lib/offlineStore.ts`:**
+  - `DB_VERSION` bumped 5 → 6; the `upgrade()` callback ONLY `createObjectStore(REFERENCE_STORE, ...)` in the `oldVersion < 6` branch — never drops or recreates the existing `analytics-cache` / `offlineOps` / `cachedIncidents` / `publicOfflineOps` stores.
+  - New constant `REFERENCE_STORE = 'reference-cache'`. `ANALYTICS_STORE` renamed to `READ_CACHE_STORE` (same underlying DB store name `'analytics-cache'` for back-compat).
+  - `cacheAnalyticsResponse` → `cacheReadResponse(key, data, ttlMs, cachedAt?)`; `getCachedAnalyticsResponse` → `getReadCachedResponse(key)`; record schema gains per-record `ttlMs`. `CachedResponse<T> = { key, data, cachedAt, ttlMs }` is exported; `CachedAnalyticsResponse<T>` kept as a back-compat alias.
+  - New unencrypted `cacheReferenceData` / `getCachedReferenceData` use `REFERENCE_STORE`. Callers build userId-namespaced keys (`reference:{userId}:...`) so per-user isolation is achieved.
+  - New `evictExpiredReadCache()` and `evictExpiredReferenceData()` prune by per-record `ttlMs` (pushback P3), capped at 500 deletions/pass, best-effort, with a 30-min back-compat default for pre-v3 records missing `ttlMs`.
+  - New `clearReferenceDataForUser(userId)` regex-prefix sweep over `REFERENCE_STORE` (`^reference:{userId}:`) with proper regex escaping. Best-effort.
+  - `setActiveOfflineUser` now calls `clearReferenceDataForUser(prev)` (try/catch + `console.warn`) on user-switch on top of the existing crypto-key wipe (pushback P1).
+- **Migrated callers (in-repo):**
+  - `src/frontend/src/lib/api/offlineBase.ts` — imports renamed; `writeCache(key, response, ttlMs)` now persists the per-record TTL.
+  - `src/frontend/src/lib/api/offlineValidator.ts` — direct cache calls now use `cacheReadResponse` / `getReadCachedResponse` with `VALIDATOR_CACHE_TTL_MS`.
+  - Test mocks updated in `lib/api/__tests__/offlineAdmin.test.ts`, `lib/__tests__/offlineValidator.test.ts`, `lib/__tests__/offlineAnalytics.test.ts`, and `lib/__tests__/offlineStore.encryption.test.ts` (with a new `ttlMs` assertion).
+  - `lib/__tests__/offlineStore.reference.test.ts` (new) — 4 fake-indexeddb tests: plaintext round-trip, per-user isolation, per-record-TTL eviction, `clearReferenceDataForUser` prefix sweep.
+  - `lib/__tests__/offlineStore.test.ts` — DB_VERSION local constant bumped 5 → 6 to match the new schema.
+- **Verification:** 739 / 739 frontend vitest tests pass; `npx tsc --noEmit` reports the same pre-existing 59 errors that existed on master (no new errors introduced by this change; net −4 because some pre-existing call-site type errors resolved once the new 3-arg `cacheReadResponse` signature landed).
+- **Wiki updates:** `system-wiki/architecture/pwa-tests-cicd.md` `offlineStore.ts` table rewritten with the new API + DB v6 + REFERENCE_STORE + per-record TTL + eviction + user-switch prefix clear. Comprehensive wrapper + SW + page-rewire documentation lands in Task 15.
+
 ## [2026-06-21] test(admin): stabilize system monitoring worker-empty assertion
 
 - **CI failure:** frontend Vitest failed only `src/app/admin/system/admin-system-monitoring.test.tsx` in the test `renders System Health & Monitoring section heading after initial data load`.
