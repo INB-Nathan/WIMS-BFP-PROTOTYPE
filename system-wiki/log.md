@@ -1,3 +1,11 @@
+## [2026-06-21] fix(offline): read pending draft id from live pathname
+
+- **Diagnosis:** after the service worker served the cached `/dashboard/regional/incidents/1` detail shell offline, App Router params could still resolve to the shell's numeric id. The page then requested incident `1` via `fetchRegionalIncidentOfflineAware` and showed `This incident is not available offline...` instead of loading the clicked UUID draft from `offlineOps`.
+- **Fix (`src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx`):** replaced `useParams()` for the detail id with `usePathname()` plus `extractRegionalIncidentRouteId`, so the client uses the live URL path (`/incidents/<uuid>`) even when the cached shell came from another incident.
+- **Tests (`src/frontend/src/lib/__tests__/regionalIncidentRoute.test.ts`):** added route-id extraction coverage for numeric IDs, local UUID drafts, and non-detail routes.
+- **Validation:** targeted Vitest and targeted ESLint passed.
+- **Wiki:** updated `system-wiki/architecture/pwa-tests-cicd.md` and this log.
+
 ## [2026-06-21] fix(offline): keep pending-sync local incident drafts openable offline
 
 - **Fix (`src/frontend/public/sw.js`):** bumped the app cache to `wims-bfp-cache-v10`, precached `/dashboard/regional/incidents/1` as a reusable dynamic detail shell, and taught offline navigation fallback for `/dashboard/regional/incidents/<id>` to try that shell before the generic dashboard/offline HTML.

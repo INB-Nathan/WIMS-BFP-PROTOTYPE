@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { ArrowLeft, Pencil, Send, Trash2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -25,6 +25,7 @@ import { IncidentRevisionHistory } from '@/components/IncidentRevisionHistory';
 import { IncidentConflictMergePanel } from '@/components/IncidentConflictMergePanel';
 import type { Incident } from '@/lib/edgeFunctions';
 import { getShortRegionName } from '@/lib/ph-regions';
+import { extractRegionalIncidentRouteId } from '@/lib/regionalIncidentRoute';
 
 // Read-only map zoomed in on the pinned coordinates (M4 Bug 8-B/8-C)
 const IncidentLocationMap = dynamic(
@@ -448,8 +449,12 @@ function detailFromOfflineOp(op: OfflineOpDecrypted): RegionalIncidentDetailResp
 
 export default function RegionalIncidentDetailPage() {
   const router = useRouter();
-  const params = useParams();
-  const rawId = params?.id as string | undefined;
+  const pathname = usePathname();
+  // Service-worker offline fallback can serve a cached dynamic detail shell that
+  // was originally fetched for a different incident. Read the id from the live
+  // browser pathname instead of App Router params so pending local UUID drafts
+  // do not inherit the cached shell's numeric id while offline.
+  const rawId = extractRegionalIncidentRouteId(pathname);
   const incidentId = rawId && /^\d+$/.test(rawId) ? parseInt(rawId, 10) : NaN;
   const localIncidentId = rawId && Number.isNaN(incidentId) ? rawId : null;
 
