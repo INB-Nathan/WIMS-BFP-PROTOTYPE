@@ -87,7 +87,7 @@ vi.mock('@/lib/api', () => {
         ],
       },
       {
-        cluster_id: null as unknown as number,
+        cluster_id: 2,
         anchor_report_id: 20,
         cluster_status: 'SINGLETON' as TriageClusterEntry['cluster_status'],
         assigned_to: null,
@@ -263,8 +263,8 @@ describe('TriagePage', () => {
     // Verify count values via the <strong> elements
     const strongs = screen.getAllByText(/^[0-9]+$/);
     expect(strongs.length).toBeGreaterThanOrEqual(2);
-    expect(strongs[0].textContent).toBe('2'); // Clusters count
-    expect(strongs[1].textContent).toBe('1'); // Individual reports count
+    expect(strongs[0].textContent).toBe('1'); // Clusters count (member_count > 1)
+    expect(strongs[1].textContent).toBe('2'); // Individual reports count (member_count <= 1)
     expect(screen.getByText(/Polled/)).toBeInTheDocument();
   });
 
@@ -285,11 +285,13 @@ describe('TriagePage', () => {
     render(<TriagePage />);
     // Wait for inspects to appear (data loaded) before querying
     const inspectBtns = await screen.findAllByRole('button', { name: 'Inspect' });
-    // First Inspect is cluster, second is singleton
+    // Layout under member_count-based split: [0] = cluster (member_count > 1),
+    // [1..n] = singletons (member_count <= 1). The last button is always a
+    // singleton because every active report now has a durable cluster.
     const singletonInspect = inspectBtns[inspectBtns.length - 1];
     await userEvent.click(singletonInspect);
     await waitFor(() => {
-      // Singleton modal shows "Singleton report" title, not "Cluster N"
+      // Singleton modal title is driven by member_count <= 1 (not cluster_id nullability)
       expect(screen.getByText('Singleton report')).toBeInTheDocument();
     });
   });
@@ -394,13 +396,15 @@ describe('TriagePage', () => {
     render(<TriagePage />);
 
     const inspectBtns = await screen.findAllByRole('button', { name: 'Inspect' });
-    // Open cluster 3 which has HTML in description and follow-ups
-    // inspectBtns[0] = cluster 1, [1] = cluster 3 (HTML one), [2] = singleton
-    const clusterInspect = inspectBtns[1];
+    // Layout under member_count-based split: [0] = cluster 1 (member_count=2),
+    // [1] = singleton #2 (no HTML), [2] = singleton #3 (HTML in description + follow-ups).
+    // Cluster 3 has cluster_id=3 but member_count=1, so its title is "Singleton report"
+    // under the new contract.
+    const clusterInspect = inspectBtns[2];
     await userEvent.click(clusterInspect);
 
     await waitFor(() => {
-      expect(screen.getByText('Cluster 3')).toBeInTheDocument();
+      expect(screen.getByText('Singleton report')).toBeInTheDocument();
     });
 
     const modalContent = screen.getByRole('dialog').textContent || '';

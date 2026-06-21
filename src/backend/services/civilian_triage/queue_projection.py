@@ -570,14 +570,17 @@ def get_queue(
         )
 
     # ── Group into clusters ───────────────────────────────────────────────────
-    cluster_map: dict[int | str, TriageClusterEntry] = {}
+    # Every active report is materialized into a durable cluster before this
+    # query runs (see singleton-cluster CTEs above), so cluster_id is always
+    # a real int — the str fallback key is no longer reachable.
+    cluster_map: dict[int, TriageClusterEntry] = {}
 
     for entry in entries:
         cluster_id, cluster_status, assigned_to_uuid, review_started_at, anchor_report_id = (
             report_cluster_info.get(entry.report_id, (None, None, None, None, None))
         )
 
-        cluster_key = cluster_id if cluster_id is not None else f"singleton:{entry.report_id}"
+        cluster_key = cluster_id
 
         if cluster_key not in cluster_map:
             # Resolve assigned_to display name

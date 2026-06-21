@@ -317,25 +317,32 @@ class TestGetTriageQueue:
         assert rid_normal in cluster_ids
         assert "ACTIONED" not in str(cluster_ids)
 
-    def test_isolated_report_stays_as_singleton(self, client_with_validator, db_session):
-        """Isolated reports without related reports appear as singletons, not clusters."""
+    def test_isolated_report_gets_singleton_cluster(self, client_with_validator, db_session):
+        """Isolated reports get a singleton cluster (member_count == 1) with a real cluster_id.
+
+        Under the new contract every active non-terminal report is materialized
+        into a durable CLUSTER_MONITORING cluster so validators can always
+        apply Rejected_* terminal actions on isolated singletons. The split
+        between "clusters" and "singletons" in the frontend is now driven by
+        member_count, not by cluster_id nullability.
+        """
         rid = make_report(db_session, 121.05, 14.60)
         resp = client_with_validator.get("/api/triage/queue")
         assert resp.status_code == 200
-        # The report should appear as a singleton entry (cluster_id is null)
-        singletons = [
-            c
-            for c in resp.json()["clusters"]
-            if c["cluster_id"] is None and any(r["report_id"] == rid for r in c["reports"])
+        matching_entries = [
+            c for c in resp.json()["clusters"] if any(r["report_id"] == rid for r in c["reports"])
         ]
-        assert len(singletons) == 1, f"Expected 1 singleton, got {len(singletons)}"
-        # It should NOT appear in any cluster entry
-        cluster_entries = [
-            c
-            for c in resp.json()["clusters"]
-            if c["cluster_id"] is not None and any(r["report_id"] == rid for r in c["reports"])
-        ]
-        assert len(cluster_entries) == 0, f"Expected 0 cluster entries, got {len(cluster_entries)}"
+        assert len(matching_entries) == 1, (
+            f"Expected 1 entry for isolated report, got {len(matching_entries)}"
+        )
+        entry = matching_entries[0]
+        # Cluster_id is a real int — singletons are durable, not null.
+        assert entry["cluster_id"] is not None, (
+            "Isolated report must have a durable cluster_id under the new contract"
+        )
+        assert entry["member_count"] == 1, (
+            f"Expected singleton member_count == 1, got {entry['member_count']}"
+        )
 
     def test_related_reports_auto_cluster(self, client_with_validator, db_session):
         """Two reports near each other (100m/1hr) each get materialized as clusters."""
@@ -1117,12 +1124,18 @@ class TestClusterClaimActivityWorkflow:
 class TestPhase2WorkflowActions:
     """Terminal actions, timeout job, and deprecated promotion safeguards."""
 
-    def test_queue_materializes_cluster_only_for_related_reports(
+    def test_queue_materializes_cluster_for_every_active_report(
         self,
         client_with_validator,
         db_session,
     ):
-        """Only reports with related reports (100m/1hr) get durable clusters; isolated reports don't."""
+        """Every active non-terminal report (isolated or related) gets a durable cluster.
+
+        Under the new contract the queue materializer runs an explicit
+        singleton-cluster CTE for every PENDING/UNDER_REVIEW/LINKED report
+        that is not already a member of a durable cluster, so even an
+        isolated report without spatial neighbors gets a real cluster_id.
+        """
         rid_isolated = make_report(db_session, 121.05, 14.60)
         rid_related_1 = make_report(db_session, 122.00, 15.00)
         rid_related_2 = make_report(db_session, 122.0005, 15.0005)  # ~56m — related
@@ -1130,23 +1143,8 @@ class TestPhase2WorkflowActions:
         resp = client_with_validator.get("/api/triage/queue")
         assert resp.status_code == 200
 
-        # Isolated report should NOT have a durable cluster in DB
-        isolated_membership = db_session.execute(
-            text("""
-                SELECT cc.cluster_id
-                FROM wims.citizen_report_clusters cc
-                JOIN wims.citizen_report_cluster_members cm ON cm.cluster_id = cc.cluster_id
-                WHERE cm.report_id = :rid
-                  AND cc.status != 'CLUSTER_CLOSED'
-            """),
-            {"rid": rid_isolated},
-        ).fetchone()
-        assert isolated_membership is None, (
-            f"Isolated report should have no cluster, got cluster_id={isolated_membership}"
-        )
-
-        # Related reports SHOULD each have a durable cluster in DB
-        for rid in (rid_related_1, rid_related_2):
+        # Every active report — isolated and related — MUST have a durable cluster in DB.
+        for rid in (rid_isolated, rid_related_1, rid_related_2):
             membership = db_session.execute(
                 text("""
                     SELECT cc.cluster_id
@@ -1157,7 +1155,9 @@ class TestPhase2WorkflowActions:
                 """),
                 {"rid": rid},
             ).fetchone()
-            assert membership is not None, f"Related report {rid} should have a cluster"
+            assert membership is not None, (
+                f"Report {rid} should have a durable cluster under the new contract"
+            )
 
     def test_terminal_action_updates_reports_and_audits(
         self,

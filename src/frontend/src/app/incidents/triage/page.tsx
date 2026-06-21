@@ -190,7 +190,7 @@ export default function TriagePage() {
     setOpenCluster(cluster);
     setInspectionMode(mode);
     setSelected(new Set(cluster.reports.filter((report) => !isTerminal(report.status)).map((report) => report.report_id)));
-    setTerminalStatus('ACTIONED');
+    setTerminalStatus(mode === 'singleton' ? 'REJECTED_INSUFFICIENT' : 'ACTIONED');
     setExplanation(TERMINAL_OPTIONS[0].template);
     setInternalNote('');
     setCorrectionReportId(null);
@@ -225,7 +225,6 @@ export default function TriagePage() {
   }
 
   async function applyTerminalAction() {
-    if (!openCluster?.cluster_id) return;
     const reportIds = selectedReportIds(openCluster, selected);
     if (reportIds.length === 0) {
       setError('Select at least one non-terminal report.');
@@ -579,7 +578,7 @@ export default function TriagePage() {
           >
             <div className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-200 bg-white px-5 py-4">
               <div>
-                <h2 id="triage-modal-title" className="text-lg font-semibold text-slate-950">{openCluster.cluster_id ? `Cluster ${openCluster.cluster_id}` : 'Singleton report'}</h2>
+                <h2 id="triage-modal-title" className="text-lg font-semibold text-slate-950">{openCluster.member_count <= 1 ? 'Singleton report' : `Cluster ${openCluster.cluster_id}`}</h2>
                 <p className="text-sm text-slate-600">Select non-terminal rows, preview the civilian-visible explanation, then apply a terminal action.</p>
               </div>
               <div className="flex items-center gap-3">

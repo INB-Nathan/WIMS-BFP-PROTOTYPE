@@ -383,16 +383,19 @@ def apply_terminal_action_command(
     try:
         cluster = ensure_cluster_claim(db, cluster_id, user)
 
-        # Count cluster members to enforce singleton action policy.
+        # Count cluster members to enforce singleton action policy (B5 fix).
         # Singleton clusters (1 member) can only use REJECTED_* statuses.
-        member_count_row = db.execute(
+        # Use SELECT … FOR UPDATE to lock membership rows against concurrent
+        # merges/splits that would make the count stale (TOCTOU race).
+        member_rows = db.execute(
             text("""
-                SELECT COUNT(*) FROM wims.citizen_report_cluster_members
+                SELECT report_id FROM wims.citizen_report_cluster_members
                 WHERE cluster_id = :cid
+                FOR UPDATE
             """),
             {"cid": cluster_id},
-        ).scalar()
-        validate_singleton_terminal_status(status, member_count_row or 0)
+        ).fetchall()
+        validate_singleton_terminal_status(status, len(member_rows))
 
         members = db.execute(
             text("""
@@ -529,6 +532,28 @@ def correct_terminal_report_command(
             raise HTTPException(status_code=404, detail="Report not found")
         if row.status not in TERMINAL_REPORT_STATUSES:
             raise HTTPException(status_code=409, detail="Only terminal reports use correction flow")
+
+        # Enforce singleton action policy on correction path (B1 fix).
+        # Look up cluster membership, lock member rows, and reject
+        # ACTIONED corrections on singleton clusters.
+        cluster_member = db.execute(
+            text("""
+                SELECT cluster_id FROM wims.citizen_report_cluster_members
+                WHERE report_id = :rid
+            """),
+            {"rid": report_id},
+        ).fetchone()
+        if cluster_member is not None:
+            member_rows = db.execute(
+                text("""
+                    SELECT report_id FROM wims.citizen_report_cluster_members
+                    WHERE cluster_id = :cid
+                    FOR UPDATE
+                """),
+                {"cid": cluster_member.cluster_id},
+            ).fetchall()
+            validate_singleton_terminal_status(status, len(member_rows))
+
         note = append_internal_note(
             row.internal_note, str(user_id), f"correction {row.status}->{status}", reason
         )

@@ -53,11 +53,11 @@ def validate_singleton_terminal_status(status: str, member_count: int) -> str:
     statuses. ACTIONED requires multiple corroborating reports.
     """
     normalized = validate_terminal_status(status)
-    if member_count <= 1 and normalized == "ACTIONED":
+    if member_count <= 1 and normalized not in SINGLETON_TERMINAL_STATUSES:
         raise HTTPException(
             status_code=422,
             detail="ACTIONED requires a cluster with multiple corroborating reports. "
-                   "Use REJECTED_* statuses for singleton reports.",
+            "Use REJECTED_* statuses for singleton reports.",
         )
     return normalized
 
