@@ -5,12 +5,20 @@
  *
  * Searchable, filterable view of wims.incident_verification_history with
  * CSV export. NATIONAL_VALIDATOR only.
+ *
+ * Read path is offline-aware (T12): logs come through
+ * `fetchValidatorAuditLogsOfflineAware` and the StaleCacheBanner surfaces
+ * whenever the response was served from the encrypted offline cache.
+ * When the page is offline and the cache is empty, we render a friendly
+ * "unavailable offline" state instead of crashing.
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { FileText } from 'lucide-react';
-import { apiFetch } from '@/lib/api';
+import { FileText, WifiOff } from 'lucide-react';
+import { fetchValidatorAuditLogsOfflineAware } from '@/lib/api';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import { StaleCacheBanner } from '@/components/ui/StaleCacheBanner';
 import { PH_REGIONS } from '@/lib/ph-regions';
 
 interface AuditEntry {
@@ -25,13 +33,6 @@ interface AuditEntry {
   action_label: string | null;
   notes: string | null;
   action_timestamp: string | null;
-}
-
-interface AuditResponse {
-  items: AuditEntry[];
-  total: number;
-  limit: number;
-  offset: number;
 }
 
 const ACTION_OPTIONS: { value: string; label: string }[] = [
@@ -52,12 +53,21 @@ const ACTION_OPTIONS: { value: string; label: string }[] = [
 ];
 const PAGE_SIZE = 15;
 
+const OFFLINE_UNAVAILABLE_MESSAGE =
+  'The audit log is unavailable offline. Reconnect to refresh this view.';
+
 export default function ValidatorAuditPage() {
+  const networkStatus = useNetworkStatus();
   const [items, setItems] = useState<AuditEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Stale cache metadata — only set when the offline-aware wrapper reports
+  // that the response was served from the encrypted cache.
+  const [cacheMeta, setCacheMeta] = useState<{ cachedAt: number } | null>(null);
+  // Set when offline + cache miss — page renders a friendly unavailable state.
+  const [unavailableOffline, setUnavailableOffline] = useState(false);
 
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -67,50 +77,121 @@ export default function ValidatorAuditPage() {
   const [action, setAction] = useState('');
 
   const buildParams = useCallback(() => {
-    const p = new URLSearchParams();
-    if (dateFrom) p.set('date_from', dateFrom);
-    if (dateTo) p.set('date_to', dateTo);
-    if (regionId) p.set('region_id', regionId);
-    if (actorUsername.trim()) p.set('actor_username', actorUsername.trim());
-    if (roleFilter) p.set('role', roleFilter);
-    if (action) p.set('action', action);
+    const p: {
+      dateFrom?: string;
+      dateTo?: string;
+      regionId?: string;
+      actorUsername?: string;
+      roleFilter?: string;
+      action?: string;
+    } = {};
+    if (dateFrom) p.dateFrom = dateFrom;
+    if (dateTo) p.dateTo = dateTo;
+    if (regionId) p.regionId = regionId;
+    if (actorUsername.trim()) p.actorUsername = actorUsername.trim();
+    if (roleFilter) p.roleFilter = roleFilter;
+    if (action) p.action = action;
     return p;
   }, [dateFrom, dateTo, regionId, actorUsername, roleFilter, action]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const p = buildParams();
-    p.set('limit', String(PAGE_SIZE));
-    p.set('offset', String(page * PAGE_SIZE));
+    setUnavailableOffline(false);
     try {
-      const res = await apiFetch<AuditResponse>(
-        `/regional/validator/audit-logs?${p.toString()}`,
-      );
-      setItems(res.items);
-      setTotal(res.total);
+      const result = await fetchValidatorAuditLogsOfflineAware({
+        ...buildParams(),
+        page,
+        pageSize: PAGE_SIZE,
+      });
+      setItems(result.response.items);
+      setTotal(result.response.total);
+      if (result.fromCache && result.cachedAt != null) {
+        setCacheMeta({ cachedAt: result.cachedAt });
+      } else {
+        setCacheMeta(null);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load audit logs');
+      // The wrapper throws a friendly message when offline + cache miss.
+      // Treat that as the "unavailable offline" state so we can render a
+      // purpose-built screen rather than the red error banner.
+      const message = err instanceof Error ? err.message : 'Failed to load audit logs';
+      if (
+        !networkStatus.isOnline &&
+        message === 'Validator audit logs are unavailable offline. Reconnect to refresh this view.'
+      ) {
+        setUnavailableOffline(true);
+        setError(null);
+      } else {
+        setError(message);
+      }
+      setCacheMeta(null);
     } finally {
       setLoading(false);
     }
-  }, [buildParams, page]);
+  }, [buildParams, page, networkStatus.isOnline]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   const handleExport = () => {
+    // The browser handles the download via the Content-Disposition header
+    // set by the server. Export is a write-ish flow that requires a live
+    // connection, so it stays on the raw URL.
+    const search = new URLSearchParams();
     const p = buildParams();
-    const url = `/api/regional/validator/audit-logs/export?${p.toString()}`;
-    // The browser handles the download via the Content-Disposition header set by the server.
+    if (p.dateFrom) search.set('date_from', p.dateFrom);
+    if (p.dateTo) search.set('date_to', p.dateTo);
+    if (p.regionId) search.set('region_id', p.regionId);
+    if (p.actorUsername) search.set('actor_username', p.actorUsername);
+    if (p.roleFilter) search.set('role', p.roleFilter);
+    if (p.action) search.set('action', p.action);
+    const url = `/api/regional/validator/audit-logs/export?${search.toString()}`;
     window.open(url, '_blank');
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  if (unavailableOffline) {
+    return (
+      <div className="space-y-6">
+        {cacheMeta && (
+          <StaleCacheBanner
+            freshness={{ cachedAt: cacheMeta.cachedAt, isOnline: networkStatus.isOnline }}
+            message="Showing cached audit entries"
+          />
+        )}
+        <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 text-center p-8">
+          <WifiOff className="w-12 h-12 text-gray-300" />
+          <h2 className="text-lg font-semibold text-gray-600">
+            Audit Trail Unavailable Offline
+          </h2>
+          <p className="text-sm text-gray-400 max-w-xs">
+            {OFFLINE_UNAVAILABLE_MESSAGE}
+          </p>
+          <Link
+            href="/dashboard/validator"
+            className="text-sm font-medium px-4 py-2 rounded-lg text-white"
+            style={{ backgroundColor: 'var(--bfp-maroon)' }}
+          >
+            ← Back to queue
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {/* Stale cache banner — only when the wrapper served cached logs */}
+      {cacheMeta && (
+        <StaleCacheBanner
+          freshness={{ cachedAt: cacheMeta.cachedAt, isOnline: networkStatus.isOnline }}
+          message="Showing cached audit entries"
+        />
+      )}
+
       <section className="card overflow-hidden">
         <div
           className="card-header flex items-center gap-2"
@@ -118,6 +199,14 @@ export default function ValidatorAuditPage() {
         >
           <FileText className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
           <span>Audit Trail</span>
+          {!networkStatus.isOnline && (
+            <span
+              data-testid="offline-indicator"
+              className="ml-auto text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800"
+            >
+              Offline
+            </span>
+          )}
         </div>
 
         <div className="card-body">

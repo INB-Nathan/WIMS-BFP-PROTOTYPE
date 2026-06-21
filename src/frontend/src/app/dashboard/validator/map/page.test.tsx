@@ -13,7 +13,7 @@
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
-import { render, screen, act, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 
 // ── Network status mock (overridden per test) ───────────────────────────
@@ -44,10 +44,11 @@ vi.mock('next/dynamic', () => ({
   default: () => function MockMapInner(
     props: { onViewportChange: (b: typeof mockBounds, z: number) => void; clusters: unknown[] },
   ) {
+    const { onViewportChange } = props;
     React.useEffect(() => {
       // Fire once on mount to drive the initial fetch.
-      props.onViewportChange(mockBounds, 10);
-    }, []);
+      onViewportChange(mockBounds, 10);
+    }, [onViewportChange]);
     return <div data-testid="map-inner" />;
   },
 }));
