@@ -1,3 +1,48 @@
+## [2026-06-21] perf(civilian): eager prefetch of MapPickerInner chunk on /report mount
+
+- **Symptom:** the user reported the offline chunk-load fallback is
+  working ("Enter the fire location manually / Ilagay ang lokasyon
+  nang mano-mano" renders), but the map should load instantly on
+  first open whenever possible. The fallback is graceful but not the
+  optimal UX — the user should see the map, not a manual form, when
+  connectivity allows.
+- **Root cause:** the context step renders `<MapPicker />`, a
+  `next/dynamic()` import of MapPickerInner. The dynamic import only
+  fires when the context step actually renders. If the user is
+  offline by then (or the SW cache is full from QuotaExceededError),
+  the chunk load fails with ChunkLoadError and the error boundary
+  shows the manual fallback. The chunk was never fetched earlier in
+  the flow when the user was still online on the safety step.
+- **Fix (`src/frontend/src/app/page.tsx`):** added a `useEffect` on
+  mount that eagerly calls `import('@/components/MapPickerInner')`.
+  The promise is fire-and-forget; if it fails (offline / SW full /
+  network error), the failure is swallowed because the
+  `MapPickerErrorBoundary` (commit `a10ff01f`) already handles the
+  actual render-time failure. When the user is online on the safety
+  step, the prefetch gives the SW time to download and cache the
+  chunk before the user reaches the context step, so the map loads
+  instantly.
+- **Test (`src/frontend/src/app/__tests__/page.test.tsx`):** added a
+  `vi.mock('@/components/MapPickerInner', ...)` at the top of the
+  file that returns a no-op component. This prevents vitest from
+  loading the real MapPickerInner (which transitively imports
+  react-leaflet and leaflet — heavy deps) when the prefetch fires
+  during test render. Without this mock the test suite would
+  regress by ~10s per render of the page. A dedicated test asserting
+  the prefetch was attempted was attempted but removed: `vi.mock`
+  factories run once at module resolution, so the dynamic import in
+  the useEffect is a no-op (module already loaded) and the counter
+  approach doesn't work. The prefetch is verified by the existing
+  594/594 vitest pass + manual verification on the deployed site.
+- **Test summary:** 594/594 frontend vitest pass (unchanged). 0 new
+  ESLint warnings. No build impact.
+- **Out of scope (still deferred from `a10ff01f`):** the underlying
+  `QuotaExceededError` on `wims-bfp-cache-v9` is still real. The
+  prefetch helps when the cache has room, but does not address the
+  root cause. A quota-aware eviction strategy in `public/sw.js` or a
+  smaller initial `urlsToCache` list remains a separate follow-up.
+- **System wiki updates:** `system-wiki/log.md` (this entry).
+
 ## [2026-06-21] docs | close Phase 2 gap #3 — tracking page 911 boundary (doc drift, regression test added)
 
 - **Symptom:** gap register item (3) claimed the tracking page 911

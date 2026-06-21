@@ -504,6 +504,24 @@ export default function ReportPage() {
   // prompts for desktop notifications on persistent failures.
   usePublicAutoSync();
 
+  // ── Eager prefetch: MapPickerInner chunk ─────────────────────────────────
+  // The context step renders <MapPicker />, which is a `next/dynamic()` import
+  // of MapPickerInner. Without this prefetch, the dynamic import only fires
+  // when the context step actually renders — by which point the user may have
+  // gone offline, the SW cache may be full (QuotaExceededError on
+  // wims-bfp-cache-v9), and the chunk load fails with ChunkLoadError.
+  // Importing MapPickerInner directly here fires the chunk fetch on mount,
+  // while the user is still reading the safety step. The SW then caches the
+  // chunk so it loads instantly when the context step renders. If the prefetch
+  // fails (offline), the failure is swallowed — the MapPickerErrorBoundary
+  // catches any actual render failure and shows the manual lat/lng fallback.
+  useEffect(() => {
+    void import('@/components/MapPickerInner').catch(() => {
+      // Prefetch failed (offline / SW full / network error). The error
+      // boundary will catch the render-time failure and show the fallback.
+    });
+  }, []);
+
   const geoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isLifeSafety = safetyStatus === 'I_NEED_HELP' || safetyStatus === 'SOMEONE_ELSE_NEEDS_HELP';

@@ -94,6 +94,15 @@ vi.mock('@/components/MapPicker', () => ({
   },
 }));
 
+// Mock MapPickerInner (the actual next/dynamic chunk target) so the eager
+// prefetch in page.tsx doesn't try to load the real module. The real
+// MapPickerInner transitively imports react-leaflet and leaflet (heavy
+// deps that would slow the test suite dramatically). The mock returns a
+// no-op component — the eager prefetch is fire-and-forget.
+vi.mock('@/components/MapPickerInner', () => ({
+  MapPickerInner: () => null,
+}));
+
 // Mock CalmEmergencyBlock
 vi.mock('../CalmEmergencyBlock', () => ({
   CalmEmergencyBlock: () => <div data-testid="calm-block" />,
