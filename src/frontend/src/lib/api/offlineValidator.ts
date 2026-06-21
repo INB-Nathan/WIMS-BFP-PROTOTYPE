@@ -10,9 +10,18 @@ import {
   OfflineResult,
   isNetworkError,
   isFresh,
+  offlineAware,
   shouldServeOffline,
   stableStringify,
 } from './offlineBase';
+import {
+  type AuditLogParams,
+  type AuditResponse,
+  fetchOperationalMap,
+  fetchValidatorAuditLogs,
+  type OperationalMapParams,
+} from './validator';
+import type { MapClusterItem } from './map';
 
 export interface OfflineQueueResult {
   queued: boolean;
@@ -21,7 +30,21 @@ export interface OfflineQueueResult {
 
 export type OfflineValidatorQueueResult<T> = OfflineResult<T>;
 
+// Domain-aliased result type so existing consumers (validator.ts, components)
+// are unaffected.
+export type OfflineValidatorResult<T> = OfflineResult<T>;
+
 const VALIDATOR_CACHE_TTL_MS = 30 * 60 * 1000;
+
+// 60s TTL for validator read views — operational map and audit logs both
+// surface live data the user is actively working with, so a short cache
+// window balances offline availability with freshness on reconnect.
+const VALIDATOR_READ_CACHE_TTL_MS = 60_000;
+
+const OFFLINE_VALIDATOR_MAP_ERROR =
+  'Validator operational map is unavailable offline. Reconnect to refresh this view.';
+const OFFLINE_VALIDATOR_AUDIT_ERROR =
+  'Validator audit logs are unavailable offline. Reconnect to refresh this view.';
 
 function queueCacheKey(userId: string | null | undefined, params: Record<string, unknown>): string {
   return `validator:queue:${userId || 'anonymous'}:${encodeURIComponent(stableStringify(params))}`;
@@ -188,4 +211,32 @@ export async function fetchValidatorQueueOfflineAware<T>(
     }
     throw err;
   }
+}
+
+// ── Task 6: encrypted read wrappers (operational map + audit logs) ──
+
+export async function fetchOperationalMapOfflineAware(
+  params: OperationalMapParams,
+): Promise<OfflineValidatorResult<MapClusterItem[]>> {
+  return offlineAware(
+    'operational-map',
+    [params],
+    'validator',
+    VALIDATOR_READ_CACHE_TTL_MS,
+    () => fetchOperationalMap(params),
+    OFFLINE_VALIDATOR_MAP_ERROR,
+  );
+}
+
+export async function fetchValidatorAuditLogsOfflineAware(
+  params: AuditLogParams,
+): Promise<OfflineValidatorResult<AuditResponse>> {
+  return offlineAware(
+    'audit-logs',
+    [params],
+    'validator',
+    VALIDATOR_READ_CACHE_TTL_MS,
+    () => fetchValidatorAuditLogs(params),
+    OFFLINE_VALIDATOR_AUDIT_ERROR,
+  );
 }

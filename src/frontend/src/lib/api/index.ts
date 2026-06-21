@@ -19,3 +19,7 @@ export * from './triage';
 export * from './map';
 export * from './operations';
 export * from './validator';
+export {
+  fetchOperationalMapOfflineAware,
+  fetchValidatorAuditLogsOfflineAware,
+} from './offlineValidator';
