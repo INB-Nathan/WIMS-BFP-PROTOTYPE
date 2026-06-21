@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-21
 Total synthesis pages: 34
-Last changes: Fixed analyst workflow selected-set transfer hydration so Incident Explorer handoff no longer loops analyst-list calls with and without `incident_ids`; updated frontend route map.
+Last changes: Diagnosed and fixed the admin system monitoring Vitest race by waiting for the loaded worker-empty state instead of the static section heading; updated admin hub notes.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

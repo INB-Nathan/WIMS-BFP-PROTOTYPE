@@ -1,10 +1,10 @@
 ---
 title: System Admin Hub
 created: 2026-05-16
-updated: 2026-06-20
+updated: 2026-06-21
 type: operation
 tags: [wims-bfp, admin, system-admin, dashboard, identity, security, rate-limits, config]
-sources: [src/frontend/src/app/admin/system/page.tsx, src/backend/api/routes/admin.py, src/frontend/src/lib/api/legacy.ts, src/frontend/src/app/admin/system/rate-limits/page.tsx]
+sources: [src/frontend/src/app/admin/system/page.tsx, src/frontend/src/app/admin/system/admin-system-monitoring.test.tsx, src/backend/api/routes/admin.py, src/frontend/src/lib/api/legacy.ts, src/frontend/src/app/admin/system/rate-limits/page.tsx]
 status: draft
 ---
 
@@ -35,6 +35,8 @@ The admin hub (`/admin/system`) is the `SYSTEM_ADMIN`-only management console fo
 | **System Audit Trails** | Dedicated page `/admin/audit` with full filters, pagination, offline caching (#352) | `fetchAuditLogsOfflineAware()` → `GET /api/admin/audit-logs` | The admin hub now shows a CTA card linking to `/admin/audit`; full audit table, advanced filters (q, user_id, action_type, table_affected, ip_address, date_from, date_to), expandable old/new values, and prev/next pagination live on the dedicated page. The action-type suggestions include incident upload (`UPLOAD_BUNDLE`) and civilian follow-up (`CIVILIAN_FOLLOWUP`) audit events. |
 | **Scheduled Reports** | Create/manage scheduled analytics reports | `POST /api/admin/scheduled-reports`, `GET /api/admin/scheduled-reports` | Create form: name, format (pdf/excel/csv), cron expression, filters JSON, recipients; list with toggle/delete; delete uses confirmation modal (no native `confirm()`) |
 | **Backup Management** | Trigger pg_dump + AES encrypt, list backups, download | `triggerBackup()`, `listBackups()`, `downloadBackup()` | Backup filenames: `wims_YYYYMMDD_HHMMSS.sql.enc`; retention policy deletes oldest when >100 files; download via FileResponse |
+
+**Test note:** `src/frontend/src/app/admin/system/admin-system-monitoring.test.tsx` validates the monitoring card's worker-empty state by waiting for the rendered `No active workers.` post-load text; the section heading is static and is not a reliable async-load sentinel.
 
 ## Backend API Routes
 

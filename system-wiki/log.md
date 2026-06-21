@@ -1,3 +1,11 @@
+## [2026-06-21] test(admin): stabilize system monitoring worker-empty assertion
+
+- **CI failure:** frontend Vitest failed only `src/app/admin/system/admin-system-monitoring.test.tsx` in the test `renders System Health & Monitoring section heading after initial data load`.
+- **Root cause:** the test waited for the static `System Health & Monitoring` heading, which is present before async monitoring data finishes loading. On CI, the next assertion ran while the skeleton/initial state was still active, so `No active workers.` had not rendered yet.
+- **Fix:** changed the test to wait for the actual post-load worker-empty text (`No active workers.`), then assert the static heading and Celery Workers labels.
+- **Validation:** targeted Vitest for `admin-system-monitoring.test.tsx` passed (14/14); targeted ESLint passed.
+- **Wiki:** updated `system-wiki/subsystems/admin-hub.md`, `system-wiki/index.md`, and this log.
+
 ## [2026-06-21] fix(analyst): stop selected-set workflow transfer fetch loop
 
 - **Symptom:** in the analyst Incident Explorer, selecting all incidents on the page and proceeding to an independent workflow could loop `/api/incidents/analyst-list` between requests with `incident_ids=...` and requests without `incident_ids`.

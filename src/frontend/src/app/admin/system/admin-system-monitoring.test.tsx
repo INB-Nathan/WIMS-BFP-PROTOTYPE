@@ -245,11 +245,11 @@ describe('M9a: System Monitoring — initial fetch and 60s auto-refresh', () => 
         render(<AdminSystemPage />);
 
         await waitFor(() => {
-            expect(screen.getByText('System Health & Monitoring')).toBeInTheDocument();
+            expect(screen.getByText('No active workers.')).toBeInTheDocument();
         });
 
+        expect(screen.getByText('System Health & Monitoring')).toBeInTheDocument();
         expect(screen.getAllByText('Celery Workers').length).toBeGreaterThanOrEqual(1);
-        expect(screen.getByText('No active workers.')).toBeInTheDocument();
     });
 
     it('shows offline banner when useNetworkStatus reports offline', async () => {
