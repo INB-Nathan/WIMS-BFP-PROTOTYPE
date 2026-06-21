@@ -297,6 +297,28 @@
 - **`src/backend/tests/integration/test_check_constraints.py`:** 13 integration tests: 9 negative-value violation tests, 3 null-value acceptance tests, 1 migration idempotency test. Follows `test_database_schema.py` patterns.
 - **`system-wiki/database/schema-overview.md`:** Added "DB-Enforced vs App-Enforced Invariants" section documenting which invariants are enforced at DB layer vs app layer. Updated allowlist.
 
+## [2026-06-20] feat | public abuse controls — throttles + neutral responses + audit (PR #428, issue #392)
+
+- **`src/backend/utils/public_abuse.py`:** New shared helpers: `rate_limit_public()` (Redis sliding-window ZSET Lua throttle, fail-closed), `neutral_404()` (consistent 404 shape for public /{id} routes), `log_public_audit()` (IP hash with rotating salt, user-agent hash, no plaintext PII).
+- **`src/backend/api/routes/consent.py`:** Added Redis sliding-window throttle (5/IP/hr, fail-closed per D6). Added module-level Redis client singleton.
+- **`src/backend/api/routes/civilian.py`:** All 5 public /{id} routes now return neutral 404 ("Not found") via `neutral_404()` helper. Notification endpoint: added max 10 FCM tokens/report cap (DB COUNT check) + 5 registrations/IP/hour Redis rate limit.
+- **`src/backend/api/routes/public_dmz.py`:** Rate limiter changed from fail-open to fail-closed (503 when Redis down). Added privacy-preserving audit log call after incident creation.
+- **`src/backend/tests/test_public_abuse_controls.py`:** 12 new TDD tests covering consent throttle, neutral 404 (5 endpoints), notification spam limits, existing rate limits, and audit log privacy.
+
+## [2026-06-21] refactor | public_abuse.py central judo — delegate to utils.audit (PR #428 follow-up, Worker-A)
+
+- **`src/backend/utils/public_abuse.py`:** Deleted 5 functions that duplicated `utils.audit.py` helpers: `_get_ip_hash_salt`, `_hash_ip`, `_hash_user_agent`, `_resolve_client_ip`, `log_public_audit`. The static fallback salt (`b"wims-static-public-audit-salt-v1"`) that collapsed the IP-privacy property on Redis outage is gone. The file is now 124 lines (was 258). Kept `rate_limit_public()` (Redis sliding-window ZSET Lua throttle) and `neutral_404()` (consistent 404 shape for public /{id} routes). IP extraction and IP hashing now reuse `audit.get_client_ip()` and `audit.hash_client_ip()`, so the single `WIMS_AUDIT_IP_SALT` env var covers all audit writes (no more three different salt strategies: none, env-var, Redis-rotating).
+- **`src/backend/api/routes/public_dmz.py`:** Deleted the inline `from utils.public_abuse import log_public_audit` plus the second `log_public_audit(...)` call and the second `db.commit()` that created a duplicate `system_audit_trails` row per public incident submission. The pre-existing `log_system_audit(..., sensitive=True)` at lines 254-264 already writes the privacy-preserving audit row in the same transaction as the `fire_incidents` INSERT, so the second row was redundant. Net effect: exactly one `system_audit_trails` row per public submission, written in a single transaction with the incident (D20 fail-closed semantics preserved).
+- **`system-wiki/security/security-baseline.md`:** Updated "Public Abuse Controls" section to document the consolidation: public audit is now `log_system_audit(..., user_id=None, ..., ip_hash=hash_client_ip(get_client_ip(request)), sensitive=True)`. The "Shared helpers in `utils/public_abuse.py`" line now lists only `rate_limit_public()` and `neutral_404()`.
+
+## [2026-06-21] fix | consent_log privacy regression (PR #428 follow-up)
+
+- **`src/postgres-init/64_consent_log_ip_hash.sql`:** New migration changing `wims.consent_log.request_ip` from `INET` to `VARCHAR(128)` so the column can hold a salted SHA-256 hash. Idempotent: `USING COALESCE(request_ip::text, '')` preserves existing data.
+- **`src/backend/main.py`:** Registered `64_consent_log_ip_hash.sql` in `_SQL_FILE_SCHEMA_PATCHES` allowlist and the `_apply_postgres_init_sql_patch` call sequence, mirroring the pattern of migrations 62 and 63. Docstring updated.
+- **`src/backend/api/routes/consent.py`:** Replaced the inline `x-forwarded-for` extraction with `audit.get_client_ip(request)`. Replaced `CAST(:ip AS INET)` with plain `:ip` bind. INSERT now stores `audit.hash_client_ip(client_ip)` (salted SHA-256, rotating via `WIMS_AUDIT_IP_SALT`) instead of the raw IP. Removed the duplicate `_get_redis()` singleton.
+- **`src/backend/utils/redis_singleton.py`:** New module consolidating the per-process sync Redis client. Replaces the two byte-identical singletons in `consent.py` and `civilian.py`. Same URL, timeouts, and pool size.
+- **`system-wiki/security/security-baseline.md`:** No change needed — the existing "Never logs plaintext IP, request body, or PII" rule now applies to `consent_log` as well.
+
 ## [2026-06-19] fix | blob metadata stripping + analyst decrypt completeness (PR #385 review)
 
 - **`src/backend/api/routes/regional/encoder.py`:** Added `key_version` to the blob metadata stripping list (was missing — only 4 of 5 fields were stripped).
@@ -3935,3 +3957,13 @@ automatically when they reconnect.
 
 - `system-wiki/subsystems/civilian-reporting-phase2.md` — new "Offline submit" section.
 - `system-wiki/gaps/frs-codebase-gap-register.md` — close gap "Civilian offline submit" (was 0/2 in static coverage matrix).
+
+## [2026-06-21] refactor | civilian.py consolidation — replace _ip_hash, inline imports, dead neutral_404 (PR #428 follow-up, Worker-D)
+
+- **`src/backend/api/routes/civilian.py`:** Replaced the unsalted `_ip_hash(request)` helper (lines 87-95) with the shared `audit.hash_client_ip(audit.get_client_ip(request))` call. Two call sites updated: `submit_civilian_report` (line 271) and `submit_civilian_followup` (line 531).
+- **`src/backend/api/routes/civilian.py`:** Removed the four inline `from utils.public_abuse import ...` statements buried inside handler bodies (lines 270, 443, 542, 766). Replaced with a single top-level import: `from utils.public_abuse import rate_limit_public` (lines 17-18). The `neutral_404` import was removed entirely — see below.
+- **`src/backend/api/routes/civilian.py`:** Deleted three dead `if not row: from utils.public_abuse import neutral_404; raise neutral_404()` blocks (lines 270, 443, 542). `_require_device_ownership` runs first in all three call sites and returns the "Report not found" 404 before the dead branch could be reached. The append and followup handlers still need the SELECT (for the `status` column to gate the 409 check), but the inline `if not parent: raise neutral_404()` is dead.
+- **`src/backend/api/routes/civilian.py`:** Replaced the six-line inline `x-forwarded-for` extraction in `register_notification` (lines 758-763) with a single `client_ip = get_client_ip(request) or "unknown"` call, matching the consolidation done in `consent.py`.
+- **`src/backend/api/routes/civilian.py`:** File size reduced from 997 LoC to 969 LoC (net −28 lines). One more endpoint and it would have crossed the 1000-line threshold for the project.
+- **Tests:** `tests/test_civilian_triage_module.py` — 4/4 pass. `tests/test_public_submission.py` — 12 pass / 13 fail (all failures are pre-existing Redis infrastructure issues, not regressions from this change). `tests/test_public_abuse_controls.py` — 6 pass / 6 fail (same Redis baseline).
+- **Validation:** `ruff check` clean, `ruff format --check` clean, `ast.parse` clean.

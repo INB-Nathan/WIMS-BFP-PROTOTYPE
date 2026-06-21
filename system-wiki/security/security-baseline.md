@@ -1,7 +1,7 @@
 ---
 title: Security Baseline
 created: 2026-05-14
-updated: 2026-06-11
+updated: 2026-06-20
 type: security
 tags: [wims-bfp, security, auth, rbac, rls, audit-log, ids, xai, privacy, fail-closed]
 sources: [raw/frs/frs-auth.md, raw/frs/frs-complianceanddataprivacy.md, raw/frs/frs-intrusiondetectionandnetworkingmonitoring.md, raw/frs/frs-threatdetectionwithexplainableai.md, raw/codebase/codebase-snapshot-2026-05-14.md, src/keycloak/demo-otp-provider, src/keycloak/bfp-realm.json, src/keycloak/import/bfp-realm.json]
@@ -37,7 +37,16 @@ Self-service profile email edits (`PATCH /api/user/me`) treat email as a login i
 **Email verification flow (2026-06-17, #225):** Users initiate an email change via `POST /api/auth/change-email` (password verified against Keycloak's Direct Grant with optional TOTP support), a 6-digit cryptographically-random code is stored in Redis with 10-minute TTL, and a verification email is sent. The user then confirms via `POST /api/auth/verify-email`. On success the email is updated in both Keycloak and `wims.users`. Both endpoints have per-user Redis-based rate limiting (3 requests/10 min for change-email, 5 requests/10 min for verify-email) to deter brute-force and email bombing. Keycloak remains configured with `verifyEmail: false` in the development realm (the custom flow replaces built-in verification).
 
 ## Fail-Closed Rule
-Any missing authentication context defaults to deny. Public unauthenticated behavior is limited to the explicit public DMZ submission route in `public_dmz.py`; all adjacent APIs should require valid role context.
+Any missing authentication context defaults to deny. Public unauthenticated behavior is limited to explicit public routes; all adjacent APIs should require valid role context.
+
+### Public Abuse Controls (2026-06-20, PR #428)
+Implements D18 (Public abuse controls), D5 (Public audit logging), and D6 (Redis fail-open policy) for all Tier-0 public/no-auth endpoints:
+
+- **Redis sliding-window throttles** (fail-closed per D6): All public write endpoints rate-limited per-IP via atomic Lua-script ZSET with Retry-After header. Consent (5/IP/hr), public DMZ (3/IP/hr), notification registration (5/IP/hr). Redis down → 503 (not allow-through).
+- **Neutral 404 responses**: All public /{id} GET/POST/PATCH endpoints return identical "Not found" for missing vs. wrong-owner to prevent report existence leakage.
+- **Notification spam limits**: Max 10 FCM tokens per report; 5 registrations per IP per hour.
+- **Privacy-preserving audit logging**: Public endpoints use the shared `log_system_audit(..., user_id=None, action_type="PUBLIC_INCIDENT_SUBMIT", table_affected="wims.fire_incidents", record_id=..., ip_hash=hash_client_ip(get_client_ip(request)), sensitive=True)` from `utils.audit`. The IP is salted-hashed via the `WIMS_AUDIT_IP_SALT` env var (env-var rotation, no Redis dependency). The `sensitive=True` flag keeps the audit INSERT in the same transaction as the fire_incidents INSERT, so audit failures roll back the incident write (D20 fail-closed). One audit row per public submission, written in the same transaction.
+- Shared helpers in `utils/public_abuse.py`: `rate_limit_public()` (Redis sliding-window ZSET Lua throttle, fail-closed) and `neutral_404()` (consistent 404 shape for public /{id} routes). IP extraction (`get_client_ip`) and IP hashing (`hash_client_ip`) are reused from `utils.audit` to keep a single salt strategy across the codebase.
 
 ## RLS and Data Privacy
 FRS Module 10 requires minimization, purpose limitation, rectification/erasure handling, breach notification, DPIA, and RoPA. Database enforcement must be verified in `src/postgres-init/09_rls_helpers.sql`, `10_rls_policies.sql`, and route dependencies.

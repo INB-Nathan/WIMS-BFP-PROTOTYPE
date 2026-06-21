@@ -20,6 +20,7 @@ import auth
 from auth import get_db_with_rls
 from database import get_db
 from main import app
+from utils.audit import hash_client_ip
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -983,8 +984,8 @@ class TestConsentEndpoint:
         assert resp.status_code == 201
 
         insert_params = mock_db.execute.call_args_list[0][0][1]
-        assert insert_params["ip"] == "203.0.113.42", (
-            f"Expected X-Forwarded-For IP, got {insert_params['ip']}"
+        assert insert_params["ip"] == hash_client_ip("203.0.113.42"), (
+            f"Expected X-Forwarded-For hash, got {insert_params['ip']}"
         )
 
     def test_consent_no_x_forwarded_for_falls_back_to_client_host(self, client: TestClient):
@@ -1021,7 +1022,7 @@ class TestConsentEndpoint:
         assert resp.status_code == 201
 
         insert_params = mock_db.execute.call_args_list[0][0][1]
-        assert insert_params["ip"] == "testclient", (
+        assert insert_params["ip"] == hash_client_ip("testclient"), (
             f"Expected fallback to testclient, got {insert_params['ip']}"
         )
 
@@ -1059,7 +1060,7 @@ class TestConsentEndpoint:
         )
         assert resp.status_code == 201
         insert_params = mock_db.execute.call_args_list[0][0][1]
-        assert insert_params["ip"] == "198.51.100.1", (
+        assert insert_params["ip"] == hash_client_ip("198.51.100.1"), (
             f"Expected first comma-separated IP, got {insert_params['ip']}"
         )
 

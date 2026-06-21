@@ -76,7 +76,7 @@ async def rate_limit_public_dmz(request: Request) -> None:
     Algorithm: sliding-window sorted set (atomic Lua script)
 
     Raises HTTPException 429 if limit exceeded.
-    Redis failures are fail-open (incident ingestion must be resilient).
+    Redis failures are fail-closed per D6 (public abuse surface).
     """
     client_ip = request.headers.get("x-forwarded-for")
     if client_ip:
@@ -139,8 +139,11 @@ async def rate_limit_public_dmz(request: Request) -> None:
     except HTTPException:
         raise
     except Exception:
-        logger.warning("Redis eval failed for key=%s — allowing request through (fail-open)", key)
-        return
+        logger.error("Redis eval failed for key=%s — fail-closed: denying request", key)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable — rate limiter unreachable",
+        )
     finally:
         try:
             await r.aclose(close_connection_pool=True)
