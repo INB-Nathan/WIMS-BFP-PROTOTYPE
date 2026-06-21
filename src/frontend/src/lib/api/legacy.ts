@@ -13,6 +13,7 @@ import type {
   ActiveSession,
   PaginatedResponse,
 } from '@/types/api';
+export type { Region, Province, City };
 import {
   buildRegionalIncidentsQueryString,
   type RegionalIncidentsQueryParams,
