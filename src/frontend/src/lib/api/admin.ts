@@ -47,6 +47,12 @@ export {
   fetchWorkerStatusOfflineAware,
   fetchActiveSessionsOfflineAware,
   fetchAuditLogsOfflineAware,
+  fetchAdminSecurityLogsOfflineAware,
+  fetchSecurityLogsSummaryOfflineAware,
+  fetchAnomaliesOfflineAware,
+  fetchBreachesOfflineAware,
+  fetchAdminConfigOfflineAware,
+  fetchRateLimitsOfflineAware,
 } from './offlineAdmin';
 
 export type { OfflineAdminResult } from './offlineAdmin';
