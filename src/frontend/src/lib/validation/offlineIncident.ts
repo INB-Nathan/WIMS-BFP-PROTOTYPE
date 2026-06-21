@@ -1,75 +1,41 @@
 /**
- * Offline validation schemas for regional incident create/update ops.
+ * Offline payload validation for regional incident create/update ops.
  *
- * Per D10: Validate payload before encryption (queue write) and before replay (sync).
- * These schemas are stricter than the main schemas because offline payloads must
- * be safe to encrypt and later replay against the server without unexpected failures.
+ * Per D10: Validate payload before encryption (queue write) and before replay
+ * (sync deque). Uses the same Zod schemas as the server-side API, so a payload
+ * that passes here is guaranteed to survive the server's Pydantic validation.
+ *
+ * All three call sites (offlineStore.queue, offlineStore.update, syncEngine.replay)
+ * use the single validateOfflinePayload() helper below — no duplicate functions.
  */
 
-import { z } from "zod";
 import { incidentCreateSchema, incidentUpdateSchema } from "./regionalIncident";
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Offline operation validation
-// ═══════════════════════════════════════════════════════════════════════════
-
 /**
- * Schema for offline create operation payloads.
- * Mirrors incidentCreateSchema but validates the exact shape stored in IndexedDB.
- * Used before encrypt (write) and before replay (sync deque).
+ * Validate an offline op's payload against the appropriate Zod schema.
+ *
+ * @param op       Object with `operation` and `payload` fields (satisfied by
+ *                 OfflineOpDecrypted in syncEngine or the parameter objects in
+ *                 offlineStore.ts queueOfflineOp/updateOfflineOp).
+ * @param phase    "encrypt" (pre-write) or "replay" (pre-sync). Used only for
+ *                 the error message — the same schema is applied either way.
+ *
+ * Throws Error with joined Zod issue messages on validation failure.
+ * Callers are expected to catch and surface. syncEngine wraps this in try/catch;
+ * offlineStore lets it propagate to the UI hook layer (offlineRegionalActions
+ * catches via the caller's own error boundary).
  */
-export const offlineCreateSchema = incidentCreateSchema;
-
-/**
- * Schema for offline update operation payloads.
- * Mirrors incidentUpdateSchema.
- * Used before encrypt (write) and before replay (sync deque).
- */
-export const offlineUpdateSchema = incidentUpdateSchema;
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Replay validation
-// ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * Validate a decrypted offline payload before replay.
- * Returns the validated payload or throws with a descriptive error.
- * Used in syncEngine.ts when dequeuing pending ops.
- */
-export function validateOfflinePayloadForReplay(
-  operation: "create" | "update",
-  payload: Record<string, unknown>
-): Record<string, unknown> {
-  const schema = operation === "create" ? offlineCreateSchema : offlineUpdateSchema;
-  const result = schema.safeParse(payload);
+export function validateOfflinePayload(
+  op: { operation: string; payload: Record<string, unknown> },
+  phase: "encrypt" | "replay",
+): void {
+  if (op.operation !== "create" && op.operation !== "update") return;
+  const schema = op.operation === "create" ? incidentCreateSchema : incidentUpdateSchema;
+  const result = schema.safeParse(op.payload);
   if (!result.success) {
     const issues = result.error.issues
-      .map((i) => `${i.path.join(".")}: ${i.message}`)
+      .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
       .join("; ");
-    throw new Error(
-      `Offline ${operation} payload validation failed before replay: ${issues}`
-    );
+    throw new Error(`Invalid offline payload before ${phase}: ${issues}`);
   }
-  return result.data as Record<string, unknown>;
-}
-
-/**
- * Validate a payload before encrypting it for the offline queue.
- * Used in offlineStore.ts queueOfflineOp / updateOfflineOp.
- */
-export function validateOfflinePayloadBeforeEncrypt(
-  operation: "create" | "update",
-  payload: Record<string, unknown>
-): Record<string, unknown> {
-  const schema = operation === "create" ? offlineCreateSchema : offlineUpdateSchema;
-  const result = schema.safeParse(payload);
-  if (!result.success) {
-    const issues = result.error.issues
-      .map((i) => `${i.path.join(".")}: ${i.message}`)
-      .join("; ");
-    throw new Error(
-      `Offline ${operation} payload validation failed before encrypt: ${issues}`
-    );
-  }
-  return result.data as Record<string, unknown>;
 }

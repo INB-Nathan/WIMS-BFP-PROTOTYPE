@@ -22,7 +22,7 @@ import {
   purgeSyncedOps, evictStaleCachedIncidents, cacheIncident, getCachedIncident,
   type ArchiveActionPayload, type OfflineOpDecrypted, type OfflineOpType, type PendingIncident, type VerifyPayload,
 } from './offlineStore';
-import { validateOfflinePayloadForReplay } from './validation/offlineIncident';
+import { validateOfflinePayload } from './validation/offlineIncident';
 import { refreshToken } from './auth-refresh';
 import { isReachable, markConnectivityOffline } from './connectivity';
 
@@ -498,7 +498,7 @@ export async function syncPendingIncidents(
     // Validate decrypted payload before replay (D10)
     if (op.operation === 'create' || op.operation === 'update') {
       try {
-        validateOfflinePayloadForReplay(op.operation, op.payload as Record<string, unknown>);
+        validateOfflinePayload({ operation: op.operation, payload: op.payload }, "replay");
       } catch (e) {
         await markOpError(op.localId, '4xx', e instanceof Error ? e.message : 'payload validation failed before replay');
         failed++;

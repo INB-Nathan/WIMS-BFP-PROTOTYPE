@@ -8,10 +8,7 @@
 
 import { describe, it, expect } from "vitest";
 import { incidentCreateSchema, incidentUpdateSchema } from "../regionalIncident";
-import {
-  validateOfflinePayloadForReplay,
-  validateOfflinePayloadBeforeEncrypt,
-} from "../offlineIncident";
+import { validateOfflinePayload } from "../offlineIncident";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // IncidentCreateSchema
@@ -278,55 +275,54 @@ describe("incidentUpdateSchema", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Offline validation helpers
+// Offline validation helper (unified — encrypt + replay same schema)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("validateOfflinePayloadBeforeEncrypt", () => {
-  it("validates a valid create payload", () => {
+describe("validateOfflinePayload", () => {
+  it("passes a valid create payload (encrypt phase)", () => {
     const payload = { latitude: 14.5995, longitude: 120.9842, civilian_injured: 2 };
-    const result = validateOfflinePayloadBeforeEncrypt("create", payload);
-    expect(result.latitude).toBe(14.5995);
+    expect(() => validateOfflinePayload({ operation: "create", payload }, "encrypt")).not.toThrow();
   });
 
-  it("throws on invalid create payload", () => {
+  it("throws on invalid create payload (encrypt phase)", () => {
     const payload = { latitude: 999, longitude: 120.9842 };
-    expect(() => validateOfflinePayloadBeforeEncrypt("create", payload)).toThrow(
-      /Offline create payload validation failed/
+    expect(() => validateOfflinePayload({ operation: "create", payload }, "encrypt")).toThrow(
+      /Invalid offline payload before encrypt/
     );
   });
 
-  it("validates a valid update payload", () => {
+  it("passes a valid update payload (encrypt phase)", () => {
     const payload = { civilian_injured: 5 };
-    const result = validateOfflinePayloadBeforeEncrypt("update", payload);
-    expect(result.civilian_injured).toBe(5);
+    expect(() => validateOfflinePayload({ operation: "update", payload }, "encrypt")).not.toThrow();
   });
 
-  it("throws on invalid update payload", () => {
+  it("throws on invalid update payload (encrypt phase)", () => {
     const payload = { civilian_injured: -1 };
-    expect(() => validateOfflinePayloadBeforeEncrypt("update", payload)).toThrow(
-      /Offline update payload validation failed/
+    expect(() => validateOfflinePayload({ operation: "update", payload }, "encrypt")).toThrow(
+      /Invalid offline payload before encrypt/
     );
   });
-});
 
-describe("validateOfflinePayloadForReplay", () => {
-  it("validates a valid create payload before replay", () => {
+  it("passes a valid create payload (replay phase)", () => {
     const payload = { latitude: 14.5995, longitude: 120.9842 };
-    const result = validateOfflinePayloadForReplay("create", payload);
-    expect(result.latitude).toBe(14.5995);
+    expect(() => validateOfflinePayload({ operation: "create", payload }, "replay")).not.toThrow();
   });
 
-  it("throws on invalid create payload before replay", () => {
+  it("throws on invalid create payload (replay phase)", () => {
     const payload = { latitude: 999, longitude: 120.9842 };
-    expect(() => validateOfflinePayloadForReplay("create", payload)).toThrow(
-      /Offline create payload validation failed before replay/
+    expect(() => validateOfflinePayload({ operation: "create", payload }, "replay")).toThrow(
+      /Invalid offline payload before replay/
     );
   });
 
-  it("throws on invalid update payload before replay", () => {
+  it("throws on invalid update payload (replay phase)", () => {
     const payload = { latitude: 999 };
-    expect(() => validateOfflinePayloadForReplay("update", payload)).toThrow(
-      /Offline update payload validation failed before replay/
+    expect(() => validateOfflinePayload({ operation: "update", payload }, "replay")).toThrow(
+      /Invalid offline payload before replay/
     );
+  });
+
+  it("skips validation for unsupported operations", () => {
+    expect(() => validateOfflinePayload({ operation: "submit", payload: {} }, "encrypt")).not.toThrow();
   });
 });
