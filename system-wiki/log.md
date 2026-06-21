@@ -1,3 +1,30 @@
+## [2026-06-21] docs | close Phase 2 gap #1 — step ordering (doc drift, no code change)
+
+- **Symptom:** gap register item (1) claimed `page.tsx` defaults `step = 'context'`,
+  contradicting the design intent in `subsystems/civilian-reporting-phase2.md`
+  ('First interactive step' clause) which requires safety as the first
+  interactive step.
+- **Verification (read the file, do not trust the gap text):**
+  - `src/frontend/src/app/page.tsx:461` — `const [step, setStep] =
+    useState<Step>('safety');` — already correct.
+  - `src/frontend/src/app/__tests__/page.test.tsx:188` — `'ReportPage starts
+    at step='safety', so these should be visible on initial render'`
+    comment, with 5 tests in `describe('ReportPage — Safety step')` all
+    passing.
+  - The user-reported offline bug (2026-06-21) also implicitly confirmed
+    this: they said "I proceeded to check i am safe, then when i press
+    continue I proceed to the next which is context" — i.e., the safety
+    step was the first thing they saw.
+- **Fix:** no code change. Updated `system-wiki/gaps/frs-codebase-gap-
+  register.md` line 26 to strike through the wrong claim and add a
+  **CLOSED 2026-06-21 (doc drift, no code change needed)** note with the
+  verification line numbers and the existing test reference. Items (2)-(10)
+  in the same list are unchanged and still open.
+- **Test summary:** 593/593 frontend vitest pass (unchanged). No code
+  changes, so no lint or build impact.
+- **System wiki updates:** `system-wiki/gaps/frs-codebase-gap-register.md`
+  only.
+
 ## [2026-06-21] fix(civilian): context step crashes offline from fresh cache (ChunkLoadError)
 
 - **Symptom (user-reported):** Open `/report` while offline (DevTools network offline) →
