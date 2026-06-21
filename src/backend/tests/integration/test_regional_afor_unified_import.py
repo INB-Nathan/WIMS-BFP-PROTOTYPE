@@ -326,11 +326,5 @@ def test_commit_rejects_form_kind_mismatch(
             )
         },
     )
-    assert prev.status_code == 200
-    rows = [r["data"] for r in prev.json()["rows"] if r["status"] == "VALID"]
-
-    res = client_regional_encoder.post(
-        "/api/regional/afor/commit",
-        json={"form_kind": "STRUCTURAL_AFOR", "rows": rows, **_commit_coords_body()},
-    )
-    assert res.status_code == 400
+    assert prev.status_code == 400
+    assert "Wildland-specific AFOR import is deprecated" in prev.json().get("detail", "")
