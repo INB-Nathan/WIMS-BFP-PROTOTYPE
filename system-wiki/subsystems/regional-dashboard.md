@@ -1,7 +1,7 @@
 ---
 title: Regional Dashboard
 created: 2026-05-16
-updated: 2026-05-31
+updated: 2026-06-21
 type: operation
 tags: [wims-bfp, regional, encoder, dashboard, incident-workflow, afor]
 sources: [src/frontend/src/app/dashboard/regional/page.tsx, src/frontend/src/app/dashboard/regional/audit/page.tsx, src/frontend/src/app/dashboard/regional/drafts/page.tsx, src/frontend/src/app/dashboard/regional/incidents/[id]/page.tsx, src/backend/api/routes/regional.py]
@@ -77,8 +77,8 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 **Source:** `src/frontend/src/app/dashboard/regional/audit/page.tsx` (~193 lines)
 
 - Purpose: Encoder's personal audit trail showing every action on their incidents
-- Filters: From/To date pickers
-- Columns: Date & Time, Incident (linked to detail page), Action (mapped from action_label to human-readable), Notes
+- Filters: From/To date pickers, action, and city/municipality where exposed by the client
+- Columns: Date & Time, Incident (linked to detail page), Action (mapped from action_label to human-readable), Notes, IP address when available
 - Pagination: 50 rows/page, Prev/Next navigation
 - Empty state: "No activity recorded yet."
 - Data source: `GET /api/regional/audit-log`
@@ -180,7 +180,7 @@ Offline create sync replays through `POST /api/incidents/upload-bundle` with `cl
 
 | Method | Path | Function | Behavior |
 |---|---|---|---|
-| `GET` | `/api/regional/audit-log` | `get_encoder_audit_log` | Encoder's own audit trail; supports date_from/date_to filter; paginated |
+| `GET` | `/api/regional/audit-log` | `get_encoder_audit_log` | Encoder's own audit trail; unions IVH incident actions with `USER_LOGIN` audit rows in one CTE, applies date/action/city filters before a single final sort + pagination window |
 | `GET` | `/api/regional/validator/audit-logs` | `get_validator_audit_logs` | Cross-region validator audit logs with filters: date range, region_id, validator_id, action type; paginated |
 | `GET` | `/api/regional/validator/audit-logs/export` | `export_validator_audit_logs` | CSV export of validator audit logs with same filter support |
 

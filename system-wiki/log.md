@@ -1,3 +1,9 @@
+## [2026-06-21] fix | encoder audit-log unified pagination (PR #443)
+
+- **`src/backend/api/routes/regional/encoder.py`:** Replaced independent IVH/login audit queries with a single `activity_items` CTE that `UNION ALL`s incident lifecycle rows and `USER_LOGIN` rows, applies date/action/city filters per source, and performs one final `ORDER BY action_timestamp DESC LIMIT/OFFSET` pagination window plus a matching CTE count. City filters intentionally exclude login-only rows because login events are not incident-scoped.
+- **`src/backend/tests/test_encoder_audit_log_query.py`:** Added a regression test for unified CTE pagination/filter SQL shape.
+- **`system-wiki/subsystems/regional-dashboard.md`:** Updated encoder audit-log behavior notes.
+
 ## [2026-06-21] fix | migration 63 startup self-heal wiring (PR #443)
 
 - **`src/backend/main.py`:** Added `63_ivh_ip_address.sql` to `_SQL_FILE_SCHEMA_PATCHES`, documented it in the startup patch list, and applied it from `apply_schema_patches()` after migration 62 so existing persistent Postgres volumes receive `wims.incident_verification_history.ip_address` on backend startup.

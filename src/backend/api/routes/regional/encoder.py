@@ -525,18 +525,62 @@ def get_encoder_audit_log(
         else ""
     )
 
-    rows = db.execute(
-        text(
-            f"""
+    login_where_clauses = [
+        "sat.user_id = CAST(:encoder_id AS uuid)",
+        "sat.action_type = 'USER_LOGIN'",
+    ]
+    if date_from:
+        login_where_clauses.append("sat.timestamp >= CAST(:date_from AS timestamptz)")
+    if date_to:
+        login_where_clauses.append("sat.timestamp <= CAST(:date_to AS timestamptz)")
+    if action:
+        login_where_clauses.append(":action IN ('LOGIN', 'USER_LOGIN')")
+    if city_municipality:
+        # Login events are not incident-scoped and have no city; a city filter should
+        # not leak unrelated login rows into the incident activity result set.
+        login_where_clauses.append("FALSE")
+    login_where_sql = " AND ".join(login_where_clauses)
+
+    activity_cte_sql = f"""
+        WITH activity_items AS (
             SELECT
-                ivh.history_id, ivh.target_id,
-                ivh.action_label, ivh.previous_status, ivh.new_status,
-                ivh.notes, ivh.action_timestamp,
-                ivh.ip_address
+                ivh.history_id::text AS history_id,
+                ivh.target_id AS incident_id,
+                ivh.action_label::text AS action_label,
+                ivh.previous_status::text AS previous_status,
+                ivh.new_status::text AS new_status,
+                ivh.notes::text AS notes,
+                ivh.action_timestamp AS action_timestamp,
+                ivh.ip_address::text AS ip_address
             FROM wims.incident_verification_history ivh
             {nd_join}
             WHERE {where_sql}
-            ORDER BY ivh.action_timestamp DESC
+
+            UNION ALL
+
+            SELECT
+                ('login_' || sat.audit_id::text) AS history_id,
+                NULL::integer AS incident_id,
+                'LOGIN' AS action_label,
+                NULL::text AS previous_status,
+                NULL::text AS new_status,
+                NULL::text AS notes,
+                sat.timestamp AS action_timestamp,
+                sat.ip_address::text AS ip_address
+            FROM wims.system_audit_trails sat
+            WHERE {login_where_sql}
+        )
+    """
+
+    rows = db.execute(
+        text(
+            f"""
+            {activity_cte_sql}
+            SELECT
+                history_id, incident_id, action_label, previous_status, new_status,
+                notes, action_timestamp, ip_address
+            FROM activity_items
+            ORDER BY action_timestamp DESC
             LIMIT :limit OFFSET :offset
             """
         ),
@@ -547,10 +591,8 @@ def get_encoder_audit_log(
         db.execute(
             text(
                 f"""
-                SELECT COUNT(*)
-                FROM wims.incident_verification_history ivh
-                {nd_join}
-                WHERE {where_sql}
+                {activity_cte_sql}
+                SELECT COUNT(*) FROM activity_items
                 """
             ),
             params,
@@ -558,68 +600,21 @@ def get_encoder_audit_log(
         or 0
     )
 
-    # Also fetch login events from system_audit_trails
-    login_rows = db.execute(
-        text("""
-            SELECT sat.audit_id, sat.action_type, sat.ip_address, sat.timestamp
-            FROM wims.system_audit_trails sat
-            WHERE sat.user_id = CAST(:encoder_id AS uuid)
-              AND sat.action_type = 'USER_LOGIN'
-            ORDER BY sat.timestamp DESC
-            LIMIT :limit OFFSET :offset
-        """),
-        {"encoder_id": encoder_id, "limit": limit, "offset": offset},
-    ).fetchall()
-
-    login_total = (
-        db.execute(
-            text("""
-                SELECT COUNT(*) FROM wims.system_audit_trails
-                WHERE user_id = CAST(:encoder_id AS uuid) AND action_type = 'USER_LOGIN'
-            """),
-            {"encoder_id": encoder_id},
-        ).scalar()
-        or 0
-    )
-
-    incident_items = [
-        {
-            "history_id": r[0],
-            "incident_id": r[1],
-            "action_label": r[2],
-            "previous_status": r[3],
-            "new_status": r[4],
-            "notes": r[5],
-            "action_timestamp": r[6].isoformat() if r[6] else None,
-            "ip_address": r[7],
-        }
-        for r in rows
-    ]
-
-    login_items = [
-        {
-            "history_id": f"login_{lr[0]}",
-            "incident_id": None,
-            "action_label": "LOGIN",
-            "previous_status": None,
-            "new_status": None,
-            "notes": None,
-            "action_timestamp": lr[3].isoformat() if lr[3] else None,
-            "ip_address": lr[2],
-        }
-        for lr in login_rows
-    ]
-
-    # Merge and sort by timestamp descending, apply pagination window
-    all_items = sorted(
-        incident_items + login_items,
-        key=lambda x: x["action_timestamp"] or "",
-        reverse=True,
-    )
-
     return {
-        "items": all_items[:limit],
-        "total": total + login_total,
+        "items": [
+            {
+                "history_id": r[0],
+                "incident_id": r[1],
+                "action_label": r[2],
+                "previous_status": r[3],
+                "new_status": r[4],
+                "notes": r[5],
+                "action_timestamp": r[6].isoformat() if r[6] else None,
+                "ip_address": r[7],
+            }
+            for r in rows
+        ],
+        "total": total,
         "limit": limit,
         "offset": offset,
     }
