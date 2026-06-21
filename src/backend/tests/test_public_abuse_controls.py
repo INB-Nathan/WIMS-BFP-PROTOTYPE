@@ -463,7 +463,7 @@ class TestNotifySpamLimits:
             for i in range(5):
                 resp = client.post(
                     "/api/civilian/reports/42/notify",
-                    json={"fcm_token": f"test-token-{i}"},
+                    json={"device_id": "test-device", "fcm_token": f"test-token-{i}"},
                     headers={"x-forwarded-for": ip},
                 )
                 assert resp.status_code == 201, f"Request {i + 1} failed: {resp.text}"
@@ -471,7 +471,7 @@ class TestNotifySpamLimits:
             # 6th request should be rate-limited
             resp = client.post(
                 "/api/civilian/reports/42/notify",
-                json={"fcm_token": "test-token-6"},
+                json={"device_id": "test-device", "fcm_token": "test-token-6"},
                 headers={"x-forwarded-for": ip},
             )
             assert resp.status_code == 429, f"6th request should be 429: {resp.text}"
