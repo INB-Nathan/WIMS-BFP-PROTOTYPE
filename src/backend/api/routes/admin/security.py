@@ -277,7 +277,11 @@ def update_security_log(
         decision_dict: dict[str, Any] = {
             "action": body.action,
             "note": body.note,
-            "reviewed_by": _admin["user_id"],
+            # Coerce UUID -> str: _admin["user_id"] is a uuid.UUID in
+            # production (from wims.users.user_id), which json.dumps cannot
+            # serialize. str(uuid) yields the canonical form the frontend and
+            # existing tests already expect. Regression: HITL PATCH 500 on VPS.
+            "reviewed_by": str(_admin["user_id"]),
             "reviewed_at": now,
         }
         updates.append("hitl_decision = CAST(:hitl_decision AS jsonb)")

@@ -8,6 +8,8 @@ Covers:
 - DELETE /admin/sessions/{user_id}/{session_id}   (GAP-A13)
 """
 
+import uuid
+
 import pytest
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
@@ -704,6 +706,33 @@ class TestPatchSecurityLogHitl:
         assert audit_params["action"] == "HITL_REVIEW", "Audit action_type mismatch"
         assert audit_params["table"] == "security_threat_logs", "Audit table mismatch"
         assert audit_params["rec"] == 1, "Audit record_id mismatch"
+
+    def test_confirm_threat_with_uuid_user_id_serializes_hitl_decision(self, client: TestClient):
+        """Regression: production returns user_id as uuid.UUID, not str.
+
+        json.dumps(decision_dict) must not raise TypeError on a UUID
+        reviewed_by. Mirrors the live VPS failure on PATCH
+        /admin/security-logs/{id} (HITL decision 500).
+        """
+        admin_with_uuid = {
+            **mock_admin_user(),
+            "user_id": uuid.UUID("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"),
+        }
+        app.dependency_overrides[auth.get_current_wims_user] = lambda: admin_with_uuid
+        mock_db, mock_get_db = _mock_security_log_db()
+        # Prefetch (call 1) returns LOW severity — email/breach branches not exercised
+        mock_db.execute.return_value.fetchone.return_value = ("LOW", "n/a", None)
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.patch("/api/admin/security-logs/1", json={"action": "CONFIRM_THREAT"})
+
+        assert response.status_code == 200
+        update_call = next(
+            c for c in mock_db.execute.call_args_list if "admin_action_taken" in c[0][1]
+        )
+        params = update_call[0][1]
+        # The canonical string form must appear in the serialized JSONB payload.
+        assert '"reviewed_by": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"' in params["hitl_decision"]
 
     def test_false_positive_sets_label_and_jsonb(self, client: TestClient):
         """PATCH { "action": "FALSE_POSITIVE" } sets admin_action_taken + hitl_decision JSONB + resolved_at."""
