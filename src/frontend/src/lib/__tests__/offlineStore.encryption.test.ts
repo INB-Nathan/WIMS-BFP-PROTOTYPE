@@ -235,7 +235,7 @@ describe('encryption at rest — offlineOps queue', () => {
       serverUpdatedAt: null,
       regionId: 1,
       encoderId: ENCODER_ID,
-      payload: { general_category: 'STRUCTURAL', fire_station_name: 'Station 1' },
+      payload: { latitude: 14.5995, longitude: 120.9842, general_category: 'STRUCTURAL', fire_station_name: 'Station 1' },
       createdAt: Date.now(),
     });
 
@@ -251,7 +251,7 @@ describe('encryption at rest — offlineOps queue', () => {
   });
 
   it('decrypts payload on getPendingOps', async () => {
-    const payload = { general_category: 'VEHICULAR', incident_address: 'EDSA' };
+    const payload = { latitude: 14.5995, longitude: 120.9842, general_category: 'VEHICULAR', incident_address: 'EDSA' };
     await queueOfflineOp({
       localId: 'op-enc-2',
       operation: 'create',
@@ -300,7 +300,7 @@ describe('encryption at rest — offlineOps queue', () => {
       serverUpdatedAt: null,
       regionId: 1,
       encoderId: ENCODER_ID,
-      payload: { desc: 'original' },
+      payload: { latitude: 14.5995, longitude: 120.9842, desc: 'original' },
       createdAt: Date.now(),
     });
 
@@ -308,7 +308,7 @@ describe('encryption at rest — offlineOps queue', () => {
     const beforeData = [...beforeEnc.data];
     const beforeIv = [...beforeEnc.iv];
 
-    await updateOfflineOp('op-re-enc', { desc: 'updated payload' });
+    await updateOfflineOp('op-re-enc', { latitude: 14.5995, longitude: 120.9842, desc: 'updated payload' });
 
     const afterEnc = (offlineOpsStore.get('op-re-enc')!.payload as { iv: number[]; data: number[] });
     expect(Buffer.from(afterEnc.iv)).not.toEqual(Buffer.from(beforeIv));
@@ -391,7 +391,7 @@ describe('unique IV per encryption', () => {
   });
 
   it('produces unique IV for each queueOfflineOp call', async () => {
-    const payload = { desc: 'same payload' };
+    const payload = { latitude: 14.5995, longitude: 120.9842, desc: 'same payload' };
     await queueOfflineOp({
       localId: 'op1', operation: 'create', serverId: null, linkedLocalId: null,
       serverUpdatedAt: null, regionId: 1, encoderId: ENCODER_ID,

@@ -22,6 +22,7 @@ import {
   purgeSyncedOps, evictStaleCachedIncidents, cacheIncident, getCachedIncident,
   type ArchiveActionPayload, type OfflineOpDecrypted, type OfflineOpType, type PendingIncident, type VerifyPayload,
 } from './offlineStore';
+import { validateOfflinePayload } from './validation/offlineIncident';
 import { refreshToken } from './auth-refresh';
 import { isReachable, markConnectivityOffline } from './connectivity';
 
@@ -493,6 +494,18 @@ export async function syncPendingIncidents(
     }
 
     await markOpSyncing(op.localId);
+
+    // Validate decrypted payload before replay (D10)
+    if (op.operation === 'create' || op.operation === 'update') {
+      try {
+        validateOfflinePayload({ operation: op.operation, payload: op.payload }, "replay");
+      } catch (e) {
+        await markOpError(op.localId, '4xx', e instanceof Error ? e.message : 'payload validation failed before replay');
+        failed++;
+        errors.push({ localId: op.localId, operation: op.operation, error: e instanceof Error ? e.message : 'payload validation failed' });
+        continue;
+      }
+    }
 
     let result: { ok: boolean; serverId?: number; conflictCode?: string; serverVersion?: Record<string, unknown>; status?: number; error?: string };
 

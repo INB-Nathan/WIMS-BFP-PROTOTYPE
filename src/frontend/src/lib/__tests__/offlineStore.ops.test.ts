@@ -227,14 +227,14 @@ describe('updateOfflineOp', () => {
       serverUpdatedAt: null,
       regionId: 1,
       encoderId: ENCODER_ID,
-      payload: { general_category: 'STRUCTURAL' },
+      payload: { latitude: 14.5995, longitude: 120.9842, general_category: 'STRUCTURAL' },
       createdAt: originalCreatedAt,
     });
 
     const before = opsStore.get(localId)!;
     expect(before.createdAt).toBe(originalCreatedAt);
 
-    await updateOfflineOp(localId, { general_category: 'VEHICULAR', updated_at: '2026-06-09T10:00:00.000Z' });
+    await updateOfflineOp(localId, { latitude: 14.5995, longitude: 120.9842, general_category: 'VEHICULAR', updated_at: '2026-06-09T10:00:00.000Z' });
 
     const after = opsStore.get(localId)!;
     // createdAt must NOT have changed
@@ -265,7 +265,7 @@ describe('getOfflineOp', () => {
       serverUpdatedAt: null,
       regionId: 1,
       encoderId: ENCODER_ID,
-      payload: { general_category: 'STRUCTURAL', fire_station_name: 'Station 1' },
+      payload: { latitude: 14.5995, longitude: 120.9842, general_category: 'STRUCTURAL', fire_station_name: 'Station 1' },
       createdAt: Date.now(),
     });
 
@@ -321,7 +321,7 @@ describe('resolveConflictOp', () => {
       serverUpdatedAt: null,
       regionId: 1,
       encoderId: ENCODER_ID,
-      payload: { general_category: 'STRUCTURAL' },
+      payload: { latitude: 14.5995, longitude: 120.9842, general_category: 'STRUCTURAL' },
       createdAt: Date.now(),
     });
 
@@ -367,7 +367,7 @@ describe('per-user isolation (F12)', () => {
     await queueOfflineOp({
       localId: 'a-1', operation: 'create', serverId: null, linkedLocalId: null,
       serverUpdatedAt: null, regionId: 1, encoderId: 'user-A',
-      payload: { general_category: 'STRUCTURAL' }, createdAt: Date.now(),
+      payload: { latitude: 14.5995, longitude: 120.9842, general_category: 'STRUCTURAL' }, createdAt: Date.now(),
     });
     cacheStore.set(42, { serverId: 42 });
     expect(opsStore.size).toBe(1);
@@ -397,7 +397,7 @@ describe('per-user isolation (F12)', () => {
     await queueOfflineOp({
       localId: 'a-2', operation: 'create', serverId: null, linkedLocalId: null,
       serverUpdatedAt: null, regionId: 1, encoderId: 'user-A',
-      payload: { general_category: 'STRUCTURAL' }, createdAt: Date.now(),
+      payload: { latitude: 14.5995, longitude: 120.9842, general_category: 'STRUCTURAL' }, createdAt: Date.now(),
     });
     expect(opsStore.size).toBe(1);
 
@@ -445,7 +445,7 @@ describe('markOpFailed', () => {
       serverUpdatedAt: null,
       regionId: 1,
       encoderId: ENCODER_ID,
-      payload: { general_category: 'STRUCTURAL' },
+      payload: { latitude: 14.5995, longitude: 120.9842, general_category: 'STRUCTURAL' },
       createdAt: Date.now(),
     });
 
@@ -469,7 +469,7 @@ describe('markOpFailed', () => {
       serverUpdatedAt: null,
       regionId: 1,
       encoderId: ENCODER_ID,
-      payload: { general_category: 'STRUCTURAL' },
+      payload: { latitude: 14.5995, longitude: 120.9842, general_category: 'STRUCTURAL' },
       createdAt: Date.now(),
     });
 
@@ -502,7 +502,7 @@ describe('getFailedOps', () => {
       operation: 'create',
       serverId: null, linkedLocalId: null, serverUpdatedAt: null,
       regionId: 1, encoderId: ENCODER_ID,
-      payload: { general_category: 'STRUCTURAL' },
+      payload: { latitude: 14.5995, longitude: 120.9842, general_category: 'STRUCTURAL' },
       createdAt: Date.now(),
     });
 
@@ -519,7 +519,7 @@ describe('getFailedOps', () => {
       operation: 'create',
       serverId: null, linkedLocalId: null, serverUpdatedAt: null,
       regionId: 1, encoderId: ENCODER_ID,
-      payload: { general_category: 'STRUCTURAL' },
+      payload: { latitude: 14.5995, longitude: 120.9842, general_category: 'STRUCTURAL' },
       createdAt: Date.now(),
     });
     await queueOfflineOp({
@@ -548,7 +548,7 @@ describe('getFailedOps', () => {
       operation: 'create',
       serverId: null, linkedLocalId: null, serverUpdatedAt: null,
       regionId: 1, encoderId: ENCODER_ID,
-      payload: { general_category: 'STRUCTURAL' },
+      payload: { latitude: 14.5995, longitude: 120.9842, general_category: 'STRUCTURAL' },
       createdAt: Date.now(),
     });
     await queueOfflineOp({
@@ -556,7 +556,7 @@ describe('getFailedOps', () => {
       operation: 'create',
       serverId: null, linkedLocalId: null, serverUpdatedAt: null,
       regionId: 1, encoderId: 'other-enc',
-      payload: { general_category: 'VEHICULAR' },
+      payload: { latitude: 14.5995, longitude: 120.9842, general_category: 'VEHICULAR' },
       createdAt: Date.now(),
     });
 
