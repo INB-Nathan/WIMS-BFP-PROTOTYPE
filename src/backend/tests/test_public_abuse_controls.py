@@ -580,7 +580,12 @@ class TestExistingRateLimits:
             clear()
 
     def test_public_dmz_rate_limit_redis_based_returns_429(self):
-        """POST /api/v1/public/report — >3 requests from same IP in 1hr → 429."""
+        """POST /api/v1/public/report — >3 requests from same IP in 1hr → 429.
+
+        Uses x-real-ip (which nginx sets to $realip_remote_addr) to supply the
+        rate-limit key.  x-forwarded-for is no longer used for rate limiting
+        because it is client-controlled after Docker NAT — see gap #14 / DS-07.
+        """
         r = redis.from_url(
             os.environ.get("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True
         )
@@ -613,14 +618,14 @@ class TestExistingRateLimits:
                         "longitude": 120.9842,
                         "description": f"Test {i + 1}",
                     },
-                    headers={"x-forwarded-for": ip},
+                    headers={"x-real-ip": ip},
                 )
                 assert resp.status_code == 201, f"Request {i + 1} failed: {resp.text}"
 
             fourth = client.post(
                 "/api/v1/public/report",
                 json={"latitude": 14.5995, "longitude": 120.9842, "description": "Rate limited"},
-                headers={"x-forwarded-for": ip},
+                headers={"x-real-ip": ip},
             )
             assert fourth.status_code == 429, f"4th request should be 429: {fourth.text}"
             assert "Retry-After" in fourth.headers

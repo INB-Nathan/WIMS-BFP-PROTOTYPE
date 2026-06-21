@@ -78,11 +78,15 @@ async def rate_limit_public_dmz(request: Request) -> None:
     Raises HTTPException 429 if limit exceeded.
     Redis failures are fail-closed per D6 (public abuse surface).
     """
-    client_ip = request.headers.get("x-forwarded-for")
-    if client_ip:
-        client_ip = client_ip.split(",")[0].strip()
-    else:
-        client_ip = request.client.host if request.client else "unknown"
+    # Read from X-Real-IP, which nginx sets to $realip_remote_addr (the actual
+    # TCP socket address before real-IP-module processing).  This cannot be
+    # spoofed by the client because nginx always overwrites the header with the
+    # socket-level IP.  X-Forwarded-For is NOT used here: the real-IP module
+    # rewrites $remote_addr from the client-controlled XFF chain, so reading
+    # XFF would let an attacker rotate the rate-limit key with fake IPs.
+    client_ip = request.headers.get("x-real-ip") or (
+        request.client.host if request.client else "unknown"
+    )
 
     key = f"public_rate_limit:{client_ip}"
     now = time.time()
