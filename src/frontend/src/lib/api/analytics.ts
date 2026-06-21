@@ -2,6 +2,7 @@ export {
   fetchAnalyticsFilterOptionsOfflineAware,
   fetchAnalystIncidentDetailOfflineAware,
   fetchAnalystIncidentSensitiveOfflineAware,
+  fetchAnalystIncidentWildlandDetailOfflineAware,
   fetchComparativeDataOfflineAware,
   fetchFilterOptionsOfflineAware,
   fetchHeatmapDataOfflineAware,
