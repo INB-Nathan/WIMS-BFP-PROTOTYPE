@@ -133,6 +133,60 @@ vi.mock('@/lib/api', () => {
           },
         ],
       },
+      {
+        cluster_id: 3,
+        anchor_report_id: 30,
+        cluster_status: 'CLUSTER_MONITORING',
+        assigned_to: null,
+        review_started_at: null,
+        member_count: 1,
+        has_life_safety: false,
+        severity: 'LOW',
+        avg_trust: 0.9,
+        oldest_report_at: '2026-06-21T03:00:00Z',
+        is_aging: false,
+        is_timeout_risk: false,
+        is_danger: false,
+        related_count: 0,
+        station: { name: 'BFP Pasig', distance_m: 500, phone_available: true },
+        reports: [
+          {
+            report_id: 30,
+            latitude: 14.5600,
+            longitude: 121.0700,
+            category: 'STRUCTURAL',
+            sub_category: 'FIRE',
+            reporting_context: 'WITNESS',
+            safety_status: 'SAFE',
+            status: 'PENDING',
+            status_explanation: null,
+            trust_breakdown: {
+              score: 90,
+              included_signals: ['WITNESS', 'STRUCTURAL'],
+              missing_signals: [],
+              gps_mismatch: false,
+              duplicate_device_count_30m: 0,
+            },
+            severity: 'LOW',
+            related_count: 0,
+            linked_count: 0,
+            created_at: '2026-06-21T03:00:00Z',
+            reported_at: '2026-06-21T03:00:00Z',
+            is_aging: false,
+            is_timeout_risk: false,
+            previous_report_id: null,
+            station: { name: 'BFP Pasig', distance_m: 500, phone_available: true },
+            description: '<script>alert(1)</script>',
+            followups: [
+              {
+                followup_id: 1,
+                followup_text: '<script>alert(1)</script>',
+                created_at: '2026-06-21T03:05:00Z',
+              },
+            ],
+          },
+        ],
+      },
     ],
   };
 
@@ -209,7 +263,7 @@ describe('TriagePage', () => {
     // Verify count values via the <strong> elements
     const strongs = screen.getAllByText(/^[0-9]+$/);
     expect(strongs.length).toBeGreaterThanOrEqual(2);
-    expect(strongs[0].textContent).toBe('1'); // Clusters count
+    expect(strongs[0].textContent).toBe('2'); // Clusters count
     expect(strongs[1].textContent).toBe('1'); // Individual reports count
     expect(screen.getByText(/Polled/)).toBeInTheDocument();
   });
@@ -333,6 +387,29 @@ describe('TriagePage', () => {
     fireEvent.mouseDown(backdrop);
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(document.body.style.overflow).toBe('');
+  });
+
+  it('strips HTML tags from report description and follow-ups in cluster modal', async () => {
+    const { default: TriagePage } = await import('./page');
+    render(<TriagePage />);
+
+    const inspectBtns = await screen.findAllByRole('button', { name: 'Inspect' });
+    // Open cluster 3 which has HTML in description and follow-ups
+    // inspectBtns[0] = cluster 1, [1] = cluster 3 (HTML one), [2] = singleton
+    const clusterInspect = inspectBtns[1];
+    await userEvent.click(clusterInspect);
+
+    await waitFor(() => {
+      expect(screen.getByText('Cluster 3')).toBeInTheDocument();
+    });
+
+    const modalContent = screen.getByRole('dialog').textContent || '';
+    // The description should have <script> tags stripped — 'alert(1)' visible, no angle brackets
+    expect(modalContent).toContain('alert(1)');
+    expect(modalContent).not.toContain('<script>');
+    expect(modalContent).not.toContain('</script>');
+    // Follow-up section and timestamp still render
+    expect(modalContent).toContain('Follow-up');
   });
 
   it('does not show Claim button for ENCODER role', async () => {

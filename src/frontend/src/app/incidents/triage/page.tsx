@@ -656,14 +656,14 @@ export default function TriagePage() {
                             <div className="text-xs text-slate-500">{report.reporting_context} · {report.safety_status}</div>
                             {report.description && (
                               <div className="mt-2 max-w-md rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-700">
-                                {report.description}
+                                {report.description.replace(/<[^>]*>/g, '')}
                               </div>
                             )}
                             {report.followups && report.followups.length > 0 && (
                               <div className="mt-2 space-y-1">
                                 {report.followups.map((followup) => (
                                   <div key={followup.followup_id} className="rounded-md bg-blue-50 px-2 py-1 text-xs text-blue-900">
-                                    <div>{followup.followup_text}</div>
+                                    <div>{followup.followup_text.replace(/<[^>]*>/g, '')}</div>
                                     <div className="mt-0.5 text-[11px] text-blue-700">Follow-up · {new Date(followup.created_at).toLocaleString()}</div>
                                   </div>
                                 ))}

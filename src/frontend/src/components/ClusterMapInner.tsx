@@ -3,25 +3,22 @@
 import { MapContainer, TileLayer, Marker, Circle } from 'react-leaflet';
 import L from 'leaflet';
 import type { TriageReportEntry } from '@/lib/api';
+import { firePinIcon } from '@/components/map/leafletIcons';
 
-// Fix default marker icons in Next.js — self-hosted under /leaflet/.
-const RedIcon = L.icon({
-  iconUrl: '/leaflet/marker-icon.png',
-  iconRetinaUrl: '/leaflet/marker-icon-2x.png',
-  shadowUrl: '/leaflet/marker-shadow.png',
+/* BFP maroon pin for primary cluster members */
+const clusterPin = firePinIcon;
+
+/* Teal pin for suggested merge-candidate members */
+const suggestedPin = L.divIcon({
+  className: 'leaflet-suggested-pin',
+  html: `<svg width="25" height="41" viewBox="0 0 25 41" xmlns="http://www.w3.org/2000/svg">
+    <path d="M12.5 0C5.6 0 0 5.6 0 12.5C0 21.9 12.5 41 12.5 41S25 21.9 25 12.5C25 5.6 19.4 0 12.5 0z" fill="#0D9488"/>
+    <circle cx="12.5" cy="12.5" r="5" fill="#fff"/>
+  </svg>`,
   iconSize: [25, 41],
   iconAnchor: [12, 41],
-  className: 'bg-red-600',
+  popupAnchor: [1, -34],
 });
-const BlueIcon = L.icon({
-  iconUrl: '/leaflet/marker-icon.png',
-  iconRetinaUrl: '/leaflet/marker-icon-2x.png',
-  shadowUrl: '/leaflet/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  className: 'bg-blue-500',
-});
-L.Marker.prototype.options.icon = RedIcon;
 
 interface ClusterMapInnerProps {
   center: [number, number];
@@ -57,7 +54,7 @@ export default function ClusterMapInner({ center, reports, suggestedReportIds }:
           <Marker
             key={report.report_id}
             position={[report.latitude, report.longitude]}
-            icon={isSuggested ? BlueIcon : RedIcon}
+            icon={isSuggested ? suggestedPin : clusterPin}
             title={`#${report.report_id} (${report.category ?? '?'}/${report.sub_category ?? '?'})`}
           />
         );
