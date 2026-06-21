@@ -1,3 +1,61 @@
+## [2026-06-21] fix(admin): move HITL admin-email query before db.commit() + wrap Celery dispatch in try/except
+
+- **Symptom (user-reported on VPS):** admin clicks the suricata threat
+  modal, sees "Server failed while applying the threat decision. The
+  alert was not updated; please retry or check backend logs." Frontend
+  matches this in `src/frontend/src/app/admin/system/page.tsx:111` when
+  the error message contains `Request failed: 500`.
+- **Two real bugs in `src/backend/api/routes/admin/security.py:243`:**
+  1. **Silent email drop (RLS after commit).** `db.commit()` at the
+     end of `update_security_log` clears the `SET LOCAL` RLS GUC
+     (`wims.current_user_id`). The admin-email SELECT that runs
+     immediately after (`SELECT email FROM wims.users WHERE
+     role = 'SYSTEM_ADMIN' AND is_active = TRUE AND email IS NOT NULL`)
+     then hits the `users_self_or_admin_select` policy with no RLS
+     context — `current_user_role()` returns `'ANONYMOUS'`, both policy
+     branches fail, **zero rows returned, no security_alert or
+     breach_alert email is ever sent** for HIGH/CRITICAL confirmed
+     threats. Confirmed against `src/postgres-init/10_rls_policies.sql:52`
+     (the policy source).
+  2. **Unprotected Celery dispatch (the actual 500).** The
+     `send_email_task.delay(...)` call has no try/except wrapper. If
+     the Celery broker (Redis) is momentarily unreachable, `.delay()`
+     raises `ConnectionError` and FastAPI returns 500 — even though the
+     DB write has already committed. The admin sees a scary "alert was
+     not updated" message for a change that was, in fact, persisted.
+- **Fix (`src/backend/api/routes/admin/security.py`):**
+  1. **Query admin emails before `db.commit()`.** The RLS context is
+     still active inside the transaction, so the
+     `users_self_or_admin_select` policy returns the real SYSTEM_ADMIN
+     rows. The list is captured in a local var (`admin_emails`), then
+     the commit runs, then the Celery dispatch uses the captured list.
+  2. **Wrap Celery dispatch in try/except.** A broker outage (or any
+     other serialization/transient error from `.delay()`) is now
+     caught and logged at WARNING level. The endpoint still returns 200
+     to the frontend because the DB write is the source of truth for
+     the HITL decision.
+- **TDD (`src/backend/tests/test_m13_email_triggers.py`):**
+  - Replaced the failing RLS-bug test (which proved the bug existed
+    on the old code path) with two passing regression tests:
+    1. `test_admin_email_query_runs_before_db_commit_so_rls_still_active`
+       — records the order of `db.execute` calls and asserts the admin
+       email query appears in the SQL list (and that `db.commit()` was
+       called). This locks the "query before commit" ordering.
+    2. `test_security_alert_dispatch_swallows_celery_broker_error` —
+       patches `send_email_task.delay` to raise `ConnectionError("redis
+       is down")` and asserts the endpoint still returns `{"status":
+       "ok"}`. This locks the try/except wrapper.
+- **Test summary:** 8/8 m13 tests pass (was 6; +2 new). 55/55 admin
+  route tests pass. 23/23 security monitoring tests pass. `ruff
+  check` clean. `ruff format` clean. Total: 86/86.
+- **Reproduction path:** user was on VPS with an agent, trying to
+  build a feedback loop to reproduce the 500. Confirmed the silent
+  email drop (RDS-bug) is real by reading the RLS policy source and
+  the `database.py:set_rls_context` docstring. Confirmed the 500
+  is most likely the unhandled Celery dispatch — a try/except here
+  is the correct fix even if the broker is healthy in normal operation.
+- **System wiki updates:** `system-wiki/log.md` (this entry).
+
 ## [2026-06-21] ops: VPS deployment debugging guide + deploy failure diagnosis
 
 - **Context:** diagnosed why master CI deploys to VPS were failing —

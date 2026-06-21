@@ -368,9 +368,14 @@ def update_security_log(
             },
         )
 
-    db.commit()
-
-    # M13b + M10d: email dispatch — runs after commit (Celery tasks, no RLS needed)
+    # M13b: query admin emails BEFORE db.commit() so the SET LOCAL RLS GUC
+    # (wims.current_user_id) is still active. After commit, the GUC is
+    # cleared and the users_self_or_admin_select policy on wims.users
+    # returns zero rows (current_user_role() defaults to 'ANONYMOUS'),
+    # which would silently drop all HIGH/CRITICAL confirmed-threat
+    # notifications. (Regression: see tests/test_m13_email_triggers.py
+    # test_admin_email_dispatched_even_when_post_commit_rls_query_returns_empty.)
+    admin_emails: list[str] = []
     if (
         body.action == "CONFIRM_THREAT"
         and log_metadata is not None
@@ -386,10 +391,20 @@ def update_security_log(
                 )
             ).fetchall()
         ]
-        if admin_emails:
-            from tasks.notifications import send_email_task
 
-            frontend_url = os.environ.get("NEXT_PUBLIC_APP_URL", "http://localhost:3000")
+    db.commit()
+
+    # M13b + M10d: email dispatch — runs after commit (Celery tasks, no RLS needed)
+    if admin_emails:
+        from tasks.notifications import send_email_task
+
+        frontend_url = os.environ.get("NEXT_PUBLIC_APP_URL", "http://localhost:3000")
+        # Celery broker (Redis) hiccups must not turn a successful HITL
+        # decision into a 500 — the DB write is already committed at this
+        # point. Log and swallow dispatch failures so the frontend gets
+        # the 200 it expects. (Regression: see tests/test_m13_email_triggers.py
+        # test_security_alert_dispatch_swallows_celery_broker_error.)
+        try:
             send_email_task.delay(
                 to=admin_emails,
                 template_name="security_alert",
@@ -413,6 +428,12 @@ def update_security_log(
                         "dashboard_link": f"{frontend_url}/admin/breach",
                     },
                 )
+        except Exception as exc:
+            logger.warning(
+                "Celery dispatch failed for security_alert (log_id=%s): %s",
+                log_id,
+                exc,
+            )
 
     # Publish real-time SSE event
     publish_security_event_sync(
