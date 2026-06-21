@@ -1,3 +1,31 @@
+## [2026-06-21] docs | close Phase 2 gap #2 — success screen 911 boundary (doc drift, regression test added)
+
+- **Symptom:** gap register item (2) claimed the success screen 911
+  boundary shows only for `isLifeSafety` submissions, contradicting the
+  design intent that the boundary appear for ALL submissions regardless
+  of `safety_status`.
+- **Verification (read the file, do not trust the gap text):**
+  - `src/frontend/src/app/page.tsx:1273-1308` — the `if (step ===
+    'submitted')` block renders the bilingual 911 boundary
+    unconditionally. The in-code comment at line 1294 reads "911
+    emergency boundary — ALL submissions, every safety status." There
+    is NO `isLifeSafety &&` gate in the submitted step.
+  - The existing flow test `submits an update from the submitted
+    success screen` in `page.test.tsx` uses the non-life-safety path
+    (`I am safe` → I_AM_SAFE) and lands on the submitted screen,
+    proving the boundary renders for non-life-safety reports.
+- **Fix:** no code change. Added a regression test that asserts the
+  English 911 boundary text and the 'does not replace an emergency
+  call' sentence are present on the submitted screen for a non-life-
+  safety report. The test passes (the code was already correct) and
+  locks the behavior in so a future re-gate to `isLifeSafety &&`
+  would be caught.
+- **Test summary:** 593/593 frontend vitest pass (unchanged from
+  previous commit). 0 new ESLint warnings. No build impact.
+- **System wiki updates:** `system-wiki/gaps/frs-codebase-gap-
+  register.md` (strikethrough on item 2), `system-wiki/log.md` (this
+  entry).
+
 ## [2026-06-21] docs | close Phase 2 gap #1 — step ordering (doc drift, no code change)
 
 - **Symptom:** gap register item (1) claimed `page.tsx` defaults `step = 'context'`,

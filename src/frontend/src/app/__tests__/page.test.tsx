@@ -148,6 +148,18 @@ describe('ReportPage — submitted-screen append', () => {
     await screen.findByText('Report Submitted');
     expect(screen.getByText(/Report #1 has been received/)).toBeInTheDocument();
 
+    // 911 emergency boundary is unconditional on the submitted step — must
+    // appear for non-life-safety submissions (I_AM_SAFE) too, not only when
+    // safetyStatus is I_NEED_HELP / SOMEONE_ELSE_NEEDS_HELP. Locks in
+    // gap-register item (2) so a future re-gate to `isLifeSafety &&` is
+    // caught.
+    expect(
+      screen.getByText(/Call 911 if you have not done so/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/does not replace an emergency call/),
+    ).toBeInTheDocument();
+
     // Append from the submitted screen
     await user.type(
       screen.getByPlaceholderText('Describe any new information... / Ilarawan ang anumang bagong impormasyon...'),
