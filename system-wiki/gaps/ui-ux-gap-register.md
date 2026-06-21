@@ -130,6 +130,17 @@ Investigated 2026-06-01. Sluggish tab-switching across all authenticated dashboa
 
 **Recommended fix:** Add **TanStack Query (React Query)** as a caching layer. Wrap each page's `useCallback` fetch functions in `useQuery` with a stable key (e.g. `['validator-queue', page, statusFilter, regionFilter, dateBounds]`) and `staleTime: 60_000`. Navigation back to a visited tab renders instantly from cache; a background refetch updates silently. This is a cross-cutting refactor touching all three dashboard pages plus the API slice layer — budget 1–2 sessions.
 
+## Triage Inspection Modal (`/incidents/triage` Inspect)
+
+| Issue | Detail | Status |
+|---|---|---|
+| All four destructive paths shared visual weight and one-click commit | Terminal / Correct / Split / Merge were stacked as equal-weight cards with the same apply-button style and a one-click commit. The citizen-visible explanation lived in a plain `<textarea>` with no preview of what the civilian would see. | **Closed 2026-06-21** — tabbed action architecture in `src/frontend/src/components/triage/` |
+| No pre-commit review for destructive actions | A single click on "Apply" or "Merge Source Into This Cluster" or "Split Selected" committed immediately. No diff preview, no "this affects N reports" confirmation. | **Closed 2026-06-21** — two-step `<ConfirmActionDialog>` for any `REJECTED_*`, every correction, every split, every merge. Impact summary + citizen-visible message + source/target or leaving/staying preview. |
+| Merge UI was text-row based | Merge candidates rendered as `Cluster #N anchor #N · NNNm · NNmin · N members · STATUS` text rows with no visual hierarchy. | **Closed 2026-06-21** — `MergeActionPanel` renders suggested candidates as visual cards with anchor id, distance, member count, status, and a maroon stripe when picked. |
+| Split UI had no preview | The operator picked rows + a note with no preview of which reports would move. | **Closed 2026-06-21** — `SplitActionPanel` renders side-by-side "Leaving" / "Staying" preview columns. |
+| Selection affordance was a checkbox column inside a wide table | Selected rows looked identical to unselected rows in a dense table. | **Closed 2026-06-21** — `ReportsListPanel` renders one card per report. Selected cards get a 4px maroon left border + tinted background. |
+| No keyboard shortcuts beyond Escape | Power users had no way to navigate between actions or invoke the active form from the keyboard. | **Partially closed 2026-06-21** — `1`–`5` switch tabs (per `frontend/validator-triage-shortcuts` policy). Commit shortcuts deliberately omitted so terminal/correction/split/merge remain deliberate-UI-click actions. |
+
 ## Related
 - [[ui-ux/evaluation-loginpage-keycloaksso]]
 - [[ui-ux/evaluation-system-admin-hub]]

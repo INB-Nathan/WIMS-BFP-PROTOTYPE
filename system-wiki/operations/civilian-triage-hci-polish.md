@@ -1,12 +1,12 @@
 ---
 title: Civilian Triage Queue — HCI Polish
 created: 2026-05-20
-updated: 2026-05-20
+updated: 2026-06-21
 type: operation
 tags: [wims-bfp, civilian-reporting, triage, validator, hci, ux, frontend]
-sources: [src/frontend/src/app/incidents/triage/page.tsx, system-wiki/subsystems/civilian-reporting-phase2.md]
-status: draft
-related: [subsystems/civilian-reporting-phase2, frontend/validator-triage-shortcuts, gaps/ui-ux-gap-register]
+sources: [src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/components/triage/, system-wiki/subsystems/civilian-reporting-phase2.md]
+status: in-progress
+related: [subsystems/civilian-reporting-phase2, frontend/validator-triage-shortcuts, frontend/route-map, gaps/ui-ux-gap-register]
 ---
 
 # Civilian Triage Queue — HCI Polish
@@ -128,14 +128,42 @@ const singletons = queue.clusters.filter(c => c.cluster_id === null);
 9. Empty state placeholders per table
 10. URL filter parity check (both tables should react to the same query params, but `unreviewed` maps to singleton-only)
 
+### Phase D — Inspection Modal Action Tab Architecture (DONE 2026-06-21)
+
+The four destructive paths (terminal, correction, split, merge) used to share the same visual weight, the same apply button style, and the same one-click commit. This ticket added a tabbed action architecture in `src/frontend/src/components/triage/`:
+
+11. Tabbed right rail with Terminal / Correct / Split / Merge / Activity tabs.
+12. Per-action citizen-visible previews: phone-card mock for terminal + correction, leaving/staying for split, source/target for merge.
+13. Two-step destructive confirmation for any `REJECTED_*` terminal, every correction, every split, every merge. `ConfirmActionDialog` shows the exact impact summary + payload preview; `Esc` cancels only the confirm (capture-phase listener) without closing the parent modal.
+14. Sticky dark-maroon header with cluster summary, severity, life-safety pulsing badge, member count, trust, station, oldest-report age, and explicit Close button.
+15. Report cards (not a table) with one-card-per-report scan, heavy maroon left border for selected rows, inline "Correct" button on terminal rows.
+16. `1`–`5` keyboard navigation between tabs (cluster-only for Split + Merge). Per `frontend/validator-triage-shortcuts` policy, **no commit shortcuts** — terminal / correction / split / merge must be committed by clicking the panel commit button.
+17. Per-action "Why this status?" / "What will happen?" disclosure blocks explaining audit + notification consequences.
+18. State extracted to `useTriageModalState` hook so the modal is a presentational component.
+
+Validation: 27 triage tests pass (13 original + 14 new), 732 tests in the full frontend suite, `npx eslint src/components/triage/ src/app/incidents/triage/page.tsx` clean, no new `tsc` errors.
+
 ---
 
 ## Related Files
 
 | File | Role |
 |---|---|
-| `src/frontend/src/app/incidents/triage/page.tsx` | Primary edit target |
+| `src/frontend/src/app/incidents/triage/page.tsx` | Queue page shell, table rendering, modal mount |
+| `src/frontend/src/components/triage/TriageInspectionModal.tsx` | Modal shell, tab routing, two-step confirm orchestration |
+| `src/frontend/src/components/triage/ClusterSummaryHeader.tsx` | Sticky dark-maroon header |
+| `src/frontend/src/components/triage/TriageActionTabs.tsx` | Left-rail tab nav with `1`–`5` shortcuts |
+| `src/frontend/src/components/triage/ReportsListPanel.tsx` | Center report cards |
+| `src/frontend/src/components/triage/TerminalActionPanel.tsx` | Terminal action form + previews |
+| `src/frontend/src/components/triage/CorrectionActionPanel.tsx` | Correction form + previews |
+| `src/frontend/src/components/triage/SplitActionPanel.tsx` | Split form + leaving/staying preview |
+| `src/frontend/src/components/triage/MergeActionPanel.tsx` | Merge form + source/target preview |
+| `src/frontend/src/components/triage/CitizenMessagePreview.tsx` | Phone-card mock of citizen-visible message |
+| `src/frontend/src/components/triage/ActivityPanel.tsx` | Activity timeline |
+| `src/frontend/src/components/triage/ConfirmActionDialog.tsx` | Two-step destructive confirmation |
+| `src/frontend/src/components/triage/useTriageModalState.ts` | Extracted state hook |
+| `src/frontend/src/components/triage/triage-modal.css` | Operations-console visual system |
+| `src/frontend/src/components/ClusterInspectionMap.tsx` | Used only for cluster modal center panel |
 | `src/frontend/src/lib/api.ts` | `fetchTriageQueue` returns `TriageQueueResponse` — no change |
-| `src/frontend/src/components/ClusterInspectionMap.tsx` | Used only for cluster modal |
 | `system-wiki/subsystems/civilian-reporting-phase2.md` | Authority for Phase 2 spec |
-| `system-wiki/frontend/validator-triage-shortcuts.md` | Keyboard shortcuts to re-evaluate post-split |
+| `system-wiki/frontend/validator-triage-shortcuts.md` | Keyboard shortcut policy |

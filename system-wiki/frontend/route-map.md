@@ -44,7 +44,7 @@ Next.js App Router pages detected under `src/frontend/src/app`.
 | `/incidents/import` | `incidents/import/page.tsx` |
 | `/incidents/new` | `incidents/new/page.tsx` |
 | `/incidents` | `incidents/page.tsx` |
-| `/incidents/triage` | `incidents/triage/page.tsx` | Phase 2 civilian triage queue using `/api/triage/queue`, claim, cluster inspection, and terminal actions. |
+| `/incidents/triage` | `incidents/triage/page.tsx` | Phase 2 civilian triage queue using `/api/triage/queue`, claim, cluster inspection, and terminal actions. The inspection modal at `components/triage/` is tabbed (Terminal / Correct / Split / Merge / Activity) with a two-step destructive confirm, per-action previews, and a citizen-message phone-card mock; see `frontend/validator-triage-shortcuts` for the keyboard model and `components-deep` for the subcomponents. |
 | `/login` | `login/page.tsx` | Employee-facing app login page. Do not place app pages under `/auth/*`; nginx reserves `/auth/` for Keycloak. |
 | `/` | `page.tsx` | Public civilian emergency report form. Includes `<NearbyPublicReportAreas />` map for Public Fire Report Areas after `CalmEmergencyBlock`; it shares parent `fireLocation` with the report flow, supports national/manual/location modes, shows BFP station markers, and polls every 60 seconds when visible. Submitted and updated reports link to `/tracking?id=<report_id>` for status checks. |
 | `/profile` | `profile/page.tsx` | Profile editing includes email/login-identity changes with current-password field, contact-number validation aligned to `^09\\d{9}$`, and warning/error display for backend partial profile-update responses. |

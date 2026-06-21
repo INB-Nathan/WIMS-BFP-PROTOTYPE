@@ -4,9 +4,9 @@ created: 2026-05-20
 updated: 2026-06-20
 type: subsystem
 tags: [wims-bfp, subsystem, civilian-reporting, triage, validation, public-dmz, cluster, merge, map]
-sources: [system-wiki/prd/civilian-reporting-phase-2.md, system-wiki/decisions/0001-civilian-reporting-overhaul.md, src/backend/api/routes/triage.py, src/backend/api/routes/civilian.py, src/backend/api/routes/ref.py, src/backend/api/routes/public_dmz.py, src/backend/tasks/civilian_reports.py, src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/app/page.tsx, src/frontend/src/app/tracking/page.tsx]
+sources: [system-wiki/prd/civilian-reporting-phase-2.md, system-wiki/decisions/0001-civilian-reporting-overhaul.md, src/backend/api/routes/triage.py, src/backend/api/routes/civilian.py, src/backend/api/routes/ref.py, src/backend/api/routes/public_dmz.py, src/backend/tasks/civilian_reports.py, src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/components/triage/TriageInspectionModal.tsx, src/frontend/src/components/triage/triage-modal.css, src/frontend/src/app/page.tsx, src/frontend/src/app/tracking/page.tsx]
 status: current
-related: [prd/civilian-reporting-phase-2, decisions/0001-civilian-reporting-overhaul, subsystems/references/triage-api-ref, frontend/validator-triage-shortcuts, gaps/frs-codebase-gap-register]
+related: [prd/civilian-reporting-phase-2, decisions/0001-civilian-reporting-overhaul, subsystems/references/triage-api-ref, frontend/validator-triage-shortcuts, frontend/route-map, operations/civilian-triage-hci-polish, gaps/frs-codebase-gap-register]
 ---
 
 # Civilian Reporting Phase 2 — Subsystem Deep-Dive
@@ -206,7 +206,7 @@ Returns clustered `citizen_reports` with cluster metadata.
 | `confidence` | min threshold |
 | `unreviewed` | no cluster membership |
 
-**Cluster discovery / related counts**: triage queue related-count/severity uses PostGIS `ST_DWithin(geography, geography, 100)` and a 1-hour window. Queue reads materialize durable clusters for explicit civilian append chains (`linked_to_report_id`) before spatial grouping so validator inspection shows parent reports together with appended updates even when the update falls outside the 100m/1hr suggestion window. Spatial grouping then materializes durable clusters only for reports that have at least one related report within 100m/1hr (the `groupable` CTE filters `unclustered` reports with a correlated `EXISTS (SELECT 1 FROM ... WHERE ST_DWithin(...) AND ...)` subquery). Truly isolated reports remain unclustered (`cluster_id` is null) and appear in the Individual Reports table; related reports each get their own cluster and appear in the Clusters table for validator review, claim, and manual merge.
+**Cluster discovery / related counts**: triage queue related-count/severity uses PostGIS `ST_DWithin(geography, geography, 100)` and a 1-hour window. Queue reads materialize durable clusters for explicit civilian append chains (`linked_to_report_id`) before the general materialization pass so validator inspection shows parent reports together with appended updates even when the update falls outside the 100m/1hr suggestion window. The main materialization pass creates a durable cluster for **every** active non-terminal report (not just spatially-groupable ones), so all reports including truly isolated singletons get a `cluster_id`. This ensures validators can always apply `REJECTED_*` terminal actions without needing a multi-report cluster first. The frontend splits the queue by `member_count`: entries with `member_count > 1` appear in the Clusters table (multi-report clusters), and entries with `member_count <= 1` appear in the Individual Reports table (singleton clusters).
 
 **RLS context note**: the queue projection uses `get_db_with_rls()` and materializes clusters during the read. Because SQLAlchemy/PostgreSQL `SET LOCAL wims.current_user_id` is cleared by `db.commit()`, `src/backend/services/civilian_triage/queue_projection.py` re-establishes RLS context immediately after the materialization commit and before `_table_exists()` plus the main queue SELECT. Without this reset, production app-user sessions can see PENDING rows in lightweight widgets but receive an empty triage queue.
 
@@ -245,6 +245,8 @@ Apply a terminal action to all non-terminal rows in a cluster.
 - All non-terminal rows in the cluster receive the same `status` and `status_explanation`.
 - Terminal rows (already ACTIONED or REJECTED_*) are skipped with a warning in the response.
 - Row-level `UNDER_REVIEW` status is cleared by this action.
+- **Singleton restriction**: clusters with `member_count <= 1` cannot use `ACTIONED`. Only `REJECTED_*` statuses are allowed on singleton clusters. ACTIONED requires multiple corroborating reports.
+- The frontend filters the terminal action dropdown to `REJECTED_*` only when inspecting a singleton entry.
 
 ### `POST /api/triage/clusters/{cluster_id}/split`
 Create a new explicit cluster from selected outlier reports. Moves selected `citizen_report_ids` from the current cluster into a new `CLUSTER_MONITORING` cluster. The original cluster is updated to remove those rows.
@@ -321,20 +323,22 @@ Phase 2 validator UI:
 - **Queue list**: Cluster cards sorted by priority (life-safety > aging > severity > member_count > age). Quick filter chips. 30-second polling.
 - **Filters in URL**: `?status=PENDING&aging=true&timeout_risk=true` — shareable and bookmarkable.
 - **Claim indicator**: shows assigned validator + time; stale claims highlighted.
-- **Inspection modal**:
-  - `<ClusterInspectionMap>` — react-leaflet map with red markers for cluster members, blue markers for suggested merge-anchor reports, 100m radius circle around anchor
-  - Report table (coordinates, category, safety, trust score, age)
-  - Merge-candidate suggestion list — click to auto-fill source cluster ID + pre-generated internal note
-  - Activity/history panel (fetched in parallel with merge candidates on modal open)
-  - Terminal action card: action selector, required `status_explanation` textarea, optional `internal_note`, preview
-  - Correction card: `NATIONAL_VALIDATOR` or `SYSTEM_ADMIN` only
-  - Split card: select outlier reports, confirm
-  - Merge card: source cluster ID (manual or from candidate list)
-  - Modal UX stability: background 30-second queue polling is paused while the dialog is open, body scroll is locked, the header is sticky, backdrop click closes only when the actual backdrop is targeted, and an explicit Close button is available.
-- **Keyboard shortcuts**:
-  - `Esc` → close modal, including when focus is inside a modal `INPUT`, `TEXTAREA`, or `SELECT`.
-  - Non-close shortcuts are suppressed inside editable controls to avoid accidental actions while typing.
-  - Shortcut hint shown in modal header: "Esc close".
+- **Inspection modal** (tabbed action architecture, `src/frontend/src/components/triage/`):
+  - **Header (`ClusterSummaryHeader`)**: sticky, dark maroon chrome; breadcrumb `TRIAGE / QUEUE / {TYPE}`; title (Cluster N or Singleton report); severity badge (HIGH/MEDIUM/LOW); LIFE SAFETY pulsing badge; 2H+ DANGER; TIMEOUT RISK; AGING; member count, trust, station, oldest-report age (recomputed every 30s); "Esc close" hint; explicit Close button.
+  - **Left rail (`TriageActionTabs`)**: Terminal (1), Correct (2), Split (3, cluster-only), Merge (4, cluster-only), Activity (5). Each tab shows a count badge (e.g. selected count for Split, candidate count for Merge) and a single-key shortcut kbd. Active tab gets the maroon stripe + inverted kbd.
+  - **Center (`ReportsListPanel`)**: report cards (not a table) with one-card-per-report scan. Each card shows trust score, GPS-mismatch / duplicate-device warnings, follow-ups, status pill, "Correct" button on terminal rows, and a heavy maroon left border when selected. Reports are auto-selected on modal open.
+  - **Right rail**: one of five panels driven by the active tab:
+    - `TerminalActionPanel` — status radio-cards (standard / caution / destructive tones), citizen-visible explanation textarea, internal note, `<CitizenMessagePreview>` phone-card mock, "Why this status?" guidance, commit button. Standard `ACTIONED` commits without confirm; `REJECTED_*` open a destructive confirm.
+    - `CorrectionActionPanel` — target-report slot (filled by clicking "Correct" on a terminal row, which auto-switches the tab), replacement status + explanation, required audit reason (visually distinguished as audit-only), phone-card preview, commit.
+    - `SplitActionPanel` — side-by-side "Leaving" / "Staying" preview, required internal note, "What will happen?" disclosure, caution-tone commit.
+    - `MergeActionPanel` — source / target flow cards (Source dashed when not picked), suggested-candidate list rendered as visual cards (not text rows), source id input as backup, required internal note, destructive-tone commit.
+    - `ActivityPanel` — most-recent-first timeline of audit events with status transitions.
+  - **Destructive confirm (`ConfirmActionDialog`)**: two-step confirmation for any `REJECTED_*` terminal action, any correction, every split, and every merge. Shows the impact summary, the citizen-visible message (for terminal), source/target/leaving/staying preview (for split/merge), and a destructive-tone commit button. `Esc` cancels without closing the parent modal (capture-phase listener).
+  - **Modal UX stability**: background 30-second queue polling is paused while the dialog is open, body scroll is locked, the header is sticky, backdrop click closes only when the actual backdrop is targeted, and an explicit Close button is available.
+- **Keyboard shortcuts** (see `frontend/validator-triage-shortcuts` for the canonical policy):
+  - `Esc` → close modal, including when focus is inside a modal `INPUT`, `TEXTAREA`, or `SELECT`. `Esc` inside the destructive confirm cancels only the confirm, not the parent modal.
+  - `1`–`5` switch action tabs (cluster-mode only for `3` Split and `4` Merge). Suppressed inside editable controls.
+  - **No commit shortcuts.** Terminal, correction, split, and merge must be committed by clicking the panel commit button. This is the deliberate-UI-click policy from `frontend/validator-triage-shortcuts`.
 
 ### Map Components
 
@@ -421,8 +425,10 @@ All tests use an `autouse=True` `_clean_state` fixture that flushes Redis and de
 **Frontend**:
 - `src/frontend/src/app/report/page.tsx` — public submission
 - `src/frontend/src/app/report/tracking/page.tsx` — public tracking
-- `src/frontend/src/app/incidents/triage/page.tsx` — validator triage UI
-- `src/frontend/src/components/ClusterInspectionMap.tsx` — SSR-safe map wrapper
+- `src/frontend/src/app/incidents/triage/page.tsx` — validator triage UI (queue + tables + modal mount)
+- `src/frontend/src/components/triage/TriageInspectionModal.tsx` — modal shell, tab routing, two-step confirm orchestration
+- `src/frontend/src/components/triage/triage-modal.css` — operations-console visual system for the modal
+- `src/frontend/src/components/ClusterInspectionMap.tsx` — SSR-safe map wrapper (used inside the cluster-mode modal center panel)
 - `src/frontend/src/components/ClusterMapInner.tsx` — Leaflet map
 - `src/frontend/src/lib/api.ts` — API client (all Phase 2 methods)
 - `src/frontend/src/app/incidents/triage/page.test.tsx` — Vitest tests

@@ -1,0 +1,1749 @@
+/* =========================================================================
+   Triage Inspection Modal — Operations Console Aesthetic
+   BFP Civil Defense Intelligence. Bricolage Grotesque display,
+   JetBrains Mono for IDs/timestamps, BFP maroon dominant.
+   ========================================================================= */
+
+.triage-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background:
+    radial-gradient(ellipse at top, rgba(153, 27, 27, 0.18), transparent 60%),
+    radial-gradient(ellipse at bottom right, rgba(15, 23, 42, 0.55), rgba(15, 23, 42, 0.85));
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 1.5rem;
+  animation: triage-fade-in 0.18s ease-out;
+}
+
+@keyframes triage-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.triage-modal__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 1280px;
+  max-height: calc(100vh - 3rem);
+  background: #FAF7F2;            /* bone / cream surface */
+  color: #1F2937;
+  border-radius: 14px;
+  border: 1px solid #E5DCC9;
+  box-shadow:
+    0 30px 80px rgba(15, 23, 42, 0.35),
+    0 2px 6px rgba(15, 23, 42, 0.12);
+  overflow: hidden;
+  font-family: 'Inter', system-ui, sans-serif;
+  animation: triage-modal-rise 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes triage-modal-rise {
+  from { transform: translateY(8px) scale(0.985); opacity: 0; }
+  to   { transform: translateY(0)   scale(1);     opacity: 1; }
+}
+
+/* -------------------------------------------------------------------------
+   HEADER
+   ------------------------------------------------------------------------- */
+
+.triage-modal-header {
+  position: relative;
+  padding: 1.1rem 1.4rem 0.9rem;
+  background:
+    linear-gradient(180deg, #1A0A0A 0%, #2C1212 100%);
+  color: #F8F4ED;
+  border-bottom: 1px solid #5C1B1B;
+  overflow: hidden;
+}
+
+.triage-modal-header::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 80px);
+  pointer-events: none;
+}
+
+.triage-modal-header__crumb {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(248, 244, 237, 0.55);
+}
+
+.triage-modal-header__crumb-tag {
+  padding: 2px 6px;
+  border: 1px solid rgba(248, 244, 237, 0.18);
+  border-radius: 3px;
+}
+
+.triage-modal-header__crumb-tag--accent {
+  color: #FBBF24;
+  border-color: rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.triage-modal-header__crumb-sep {
+  color: rgba(248, 244, 237, 0.3);
+}
+
+.triage-modal-header__crumb-current {
+  color: #F8F4ED;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.triage-modal-header__row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.6rem;
+}
+
+.triage-modal-header__title-block {
+  min-width: 0;
+}
+
+.triage-modal-header__title {
+  font-family: 'Bricolage Grotesque', 'Inter', system-ui, sans-serif;
+  font-size: 1.55rem;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  margin: 0;
+  color: #FFFFFF;
+}
+
+.triage-modal-header__subtitle {
+  margin: 0.3rem 0 0;
+  font-size: 0.78rem;
+  color: rgba(248, 244, 237, 0.6);
+}
+
+.triage-modal-header__badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.triage-modal-header__meta {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-top: 0.85rem;
+  padding-top: 0.7rem;
+  border-top: 1px dashed rgba(248, 244, 237, 0.15);
+  font-size: 0.72rem;
+  color: rgba(248, 244, 237, 0.7);
+}
+
+.triage-modal-header__spacer { flex: 1; }
+
+.triage-modal-header__hint {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.7rem;
+  color: rgba(248, 244, 237, 0.55);
+}
+
+.triage-modal-header__hint kbd,
+.triage-modal-header__hint .triage-kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  margin-right: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-family: inherit;
+  color: rgba(248, 244, 237, 0.85);
+}
+
+.triage-modal-header__close {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.6rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  color: rgba(248, 244, 237, 0.9);
+  font-size: 0.7rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.triage-modal-header__close:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+/* -------------------------------------------------------------------------
+   SEVERITY + BADGES
+   ------------------------------------------------------------------------- */
+
+.triage-sev {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid;
+}
+
+.triage-sev--high {
+  color: #FEE2E2;
+  background: rgba(220, 38, 38, 0.18);
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
+.triage-sev--medium {
+  color: #FEF3C7;
+  background: rgba(217, 119, 6, 0.18);
+  border-color: rgba(251, 191, 36, 0.55);
+}
+
+.triage-sev--low {
+  color: #E0F2FE;
+  background: rgba(2, 132, 199, 0.18);
+  border-color: rgba(125, 211, 252, 0.45);
+}
+
+.triage-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid;
+  animation: triage-badge-in 0.3s ease-out;
+}
+
+@keyframes triage-badge-in {
+  from { transform: translateY(-2px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.triage-badge--life {
+  color: #FECACA;
+  background: rgba(220, 38, 38, 0.22);
+  border-color: rgba(248, 113, 113, 0.55);
+  animation: triage-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes triage-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.0); }
+  50%      { box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.25); }
+}
+
+.triage-badge--danger {
+  color: #FEE2E2;
+  background: rgba(220, 38, 38, 0.28);
+  border-color: rgba(248, 113, 113, 0.7);
+}
+
+.triage-badge--timeout {
+  color: #FDE68A;
+  background: rgba(217, 119, 6, 0.18);
+  border-color: rgba(251, 191, 36, 0.45);
+}
+
+.triage-badge--aging {
+  color: #E0E7FF;
+  background: rgba(67, 56, 202, 0.18);
+  border-color: rgba(129, 140, 248, 0.45);
+}
+
+.triage-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: rgba(248, 244, 237, 0.7);
+  font-size: 0.72rem;
+}
+
+.triage-meta strong {
+  color: #F8F4ED;
+  font-weight: 600;
+}
+
+.triage-meta__related {
+  color: rgba(251, 191, 36, 0.85);
+  margin-left: 0.3rem;
+}
+
+.triage-meta--time { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+/* -------------------------------------------------------------------------
+   CLAIM BAR
+   ------------------------------------------------------------------------- */
+
+.triage-claim-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 1.4rem;
+  background: linear-gradient(90deg, #FEF3C7 0%, #FDE68A 100%);
+  border-bottom: 1px solid #F59E0B;
+  color: #78350F;
+  font-size: 0.8rem;
+}
+
+.triage-claim-bar__button {
+  padding: 0.3rem 0.8rem;
+  background: #92400E;
+  color: #FFFFFF;
+  border: 1px solid #78350F;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.triage-claim-bar__button:hover { background: #78350F; }
+.triage-claim-bar__button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* -------------------------------------------------------------------------
+   BODY GRID
+   ------------------------------------------------------------------------- */
+
+.triage-modal__body {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr) 380px;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 1100px) {
+  .triage-modal__body { grid-template-columns: 140px minmax(0, 1fr) 340px; }
+}
+
+@media (max-width: 900px) {
+  .triage-modal__body { grid-template-columns: 1fr; }
+  .triage-modal__rail, .triage-modal__right { display: none; }
+}
+
+.triage-modal__rail {
+  background: #F3EFE6;
+  border-right: 1px solid #E5DCC9;
+  padding: 0.9rem 0.6rem;
+  overflow-y: auto;
+}
+
+.triage-modal__center {
+  background: #FAF7F2;
+  overflow-y: auto;
+  border-right: 1px solid #E5DCC9;
+}
+
+.triage-modal__right {
+  background: #FFFFFF;
+  overflow-y: auto;
+  padding: 0;
+}
+
+/* -------------------------------------------------------------------------
+   ACTION TABS (left rail)
+   ------------------------------------------------------------------------- */
+
+.triage-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.triage-tab {
+  position: relative;
+  display: grid;
+  grid-template-columns: 4px auto 1fr auto auto;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.65rem 0.55rem 0.7rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #4B5563;
+  font-size: 0.78rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.triage-tab:hover {
+  background: rgba(153, 27, 27, 0.05);
+  color: #1F2937;
+}
+
+.triage-tab__stripe {
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.triage-tab__icon {
+  width: 16px;
+  height: 16px;
+  color: #6B7280;
+  flex-shrink: 0;
+}
+
+.triage-tab__label {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.triage-tab__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  background: #991B1B;
+  color: #FFFFFF;
+  border-radius: 999px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  min-width: 18px;
+  justify-content: center;
+}
+
+.triage-tab__shortcut {
+  display: inline-block;
+  padding: 1px 4px;
+  background: rgba(15, 23, 42, 0.06);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.6rem;
+  color: #6B7280;
+}
+
+.triage-tab--active {
+  background: #FFFFFF;
+  border-color: #E5DCC9;
+  color: #1F2937;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.triage-tab--active .triage-tab__stripe { background: #991B1B; }
+.triage-tab--active .triage-tab__icon { color: #991B1B; }
+.triage-tab--active .triage-tab__shortcut {
+  background: #991B1B;
+  color: #F8F4ED;
+  border-color: #991B1B;
+}
+
+/* -------------------------------------------------------------------------
+   REPORTS LIST (center)
+   ------------------------------------------------------------------------- */
+
+.triage-reports {
+  padding: 1rem 1.1rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.triage-reports__singleton-meta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.55rem 0.75rem;
+  background: #F3EFE6;
+  border: 1px solid #E5DCC9;
+  border-radius: 8px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.72rem;
+  color: #4B5563;
+}
+
+.triage-reports__coord {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.triage-reports__coord-label {
+  color: #9CA3AF;
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.triage-report-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.triage-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.6rem;
+  padding: 0.8rem 0.9rem;
+  background: #FFFFFF;
+  border: 1px solid #E5DCC9;
+  border-radius: 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.triage-card:hover {
+  border-color: #C7B894;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.05);
+}
+
+.triage-card--selected {
+  border-color: #991B1B;
+  border-left-width: 4px;
+  box-shadow: 0 2px 8px rgba(153, 27, 27, 0.12);
+  background: linear-gradient(90deg, rgba(153, 27, 27, 0.04) 0%, transparent 40%);
+}
+
+.triage-card--terminal {
+  background: #F9FAFB;
+  opacity: 0.92;
+}
+
+.triage-card__selector {
+  display: flex;
+  align-items: flex-start;
+  padding-top: 2px;
+  cursor: pointer;
+}
+
+.triage-card__checkbox {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.triage-card__checkbox-pill {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1.5px solid #C7B894;
+  background: #FFFFFF;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #FFFFFF;
+  flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.triage-card__checkbox:checked + .triage-card__checkbox-pill {
+  background: #991B1B;
+  border-color: #991B1B;
+}
+
+.triage-card__checkbox:disabled + .triage-card__checkbox-pill {
+  background: #F3F4F6;
+  border-color: #E5E7EB;
+  color: transparent;
+}
+
+.triage-card__body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.triage-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.triage-card__id {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1F2937;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+}
+
+.triage-card__id-hash { color: #991B1B; }
+.triage-card__id-num { letter-spacing: 0.02em; }
+
+.triage-card__status-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.triage-card__status {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: #E5E7EB;
+  color: #374151;
+}
+
+.triage-card__status--pending {
+  background: #FEF3C7;
+  color: #92400E;
+}
+
+.triage-card__status--actioned {
+  background: #DCFCE7;
+  color: #166534;
+}
+
+.triage-card__status--rejected_bogus,
+.triage-card__status--rejected_duplicate,
+.triage-card__status--rejected_insufficient {
+  background: #FEE2E2;
+  color: #991B1B;
+}
+
+.triage-card__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  color: #1D4ED8;
+}
+
+.triage-card__signals {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.8rem;
+  color: #1F2937;
+}
+
+.triage-card__category { font-weight: 600; }
+.triage-card__context { font-size: 0.72rem; color: #6B7280; }
+
+.triage-card__description {
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  background: #F9F6EF;
+  border-left: 2px solid #D6C9A8;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  color: #374151;
+  line-height: 1.45;
+}
+
+.triage-card__followups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.triage-card__followup {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  background: #EFF6FF;
+  border-left: 2px solid #2563EB;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: #1E3A8A;
+}
+
+.triage-card__followup-time {
+  font-size: 0.65rem;
+  color: #1D4ED8;
+  margin-top: 0.15rem;
+}
+
+.triage-card__warnings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.triage-card__warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem;
+  background: #FEF3C7;
+  border: 1px solid #F59E0B;
+  border-radius: 4px;
+  color: #92400E;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.triage-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0.4rem;
+  border-top: 1px dashed #E5DCC9;
+  flex-wrap: wrap;
+}
+
+.triage-card__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.72rem;
+  color: #6B7280;
+}
+
+.triage-card__trust strong { color: #1F2937; font-weight: 700; }
+.triage-card__time { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.65rem; }
+
+.triage-card__correct {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.6rem;
+  background: #FFFFFF;
+  border: 1px solid #D1D5DB;
+  border-radius: 5px;
+  color: #374151;
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.triage-card__correct:hover {
+  background: #F3F4F6;
+  border-color: #991B1B;
+  color: #991B1B;
+}
+
+/* -------------------------------------------------------------------------
+   ACTION PANELS (right rail)
+   ------------------------------------------------------------------------- */
+
+.triage-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.2rem 1.3rem 1.4rem;
+}
+
+.triage-panel__head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.triage-panel__eyebrow {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #991B1B;
+}
+
+.triage-panel__eyebrow--warn { color: #B45309; }
+
+.triage-panel__title {
+  font-family: 'Bricolage Grotesque', 'Inter', sans-serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: #1F2937;
+  margin: 0;
+}
+
+.triage-panel__desc {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #6B7280;
+  line-height: 1.5;
+}
+
+.triage-panel__selection {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  background: linear-gradient(90deg, rgba(153, 27, 27, 0.08), rgba(153, 27, 27, 0.02));
+  border-left: 3px solid #991B1B;
+  border-radius: 6px;
+}
+
+.triage-panel__selection-num {
+  font-family: 'Bricolage Grotesque', 'Inter', sans-serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #991B1B;
+  line-height: 1;
+}
+
+.triage-panel__selection-label {
+  font-size: 0.8rem;
+  color: #1F2937;
+  font-weight: 500;
+}
+
+.triage-panel__selection-hint {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: #92400E;
+  font-style: italic;
+}
+
+.triage-status-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.triage-status-grid__legend {
+  grid-column: 1 / -1;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #6B7280;
+  margin-bottom: 0.15rem;
+}
+
+.triage-status-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.7rem;
+  background: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+}
+
+.triage-status-card:hover { border-color: #C7B894; }
+
+.triage-status-card__input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.triage-status-card__icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: #F3F4F6;
+  color: #6B7280;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.triage-status-card__label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #1F2937;
+}
+
+.triage-status-card__value {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.6rem;
+  color: #9CA3AF;
+}
+
+.triage-status-card--standard .triage-status-card__icon { background: #DBEAFE; color: #1D4ED8; }
+.triage-status-card--caution   .triage-status-card__icon { background: #FEF3C7; color: #B45309; }
+.triage-status-card--destructive .triage-status-card__icon { background: #FEE2E2; color: #991B1B; }
+
+.triage-status-card--active {
+  border-width: 2px;
+  box-shadow: 0 0 0 1px currentColor;
+}
+
+.triage-status-card--standard.triage-status-card--active { border-color: #1D4ED8; color: #1D4ED8; }
+.triage-status-card--caution.triage-status-card--active   { border-color: #B45309; color: #B45309; }
+.triage-status-card--destructive.triage-status-card--active { border-color: #991B1B; color: #991B1B; }
+
+/* -------------------------------------------------------------------------
+   FORM FIELDS
+   ------------------------------------------------------------------------- */
+
+.triage-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.triage-field__label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #1F2937;
+}
+
+.triage-field__optional,
+.triage-field__required {
+  margin-left: 0.4rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.triage-field__optional { color: #6B7280; }
+.triage-field__required { color: #991B1B; }
+
+.triage-field__hint {
+  margin: 0;
+  font-size: 0.7rem;
+  color: #6B7280;
+  line-height: 1.45;
+}
+
+.triage-field__counter {
+  align-self: flex-end;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.6rem;
+  color: #9CA3AF;
+}
+
+.triage-textarea,
+.triage-input {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  background: #FFFFFF;
+  border: 1px solid #D1D5DB;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  color: #1F2937;
+  font-family: 'Inter', sans-serif;
+  line-height: 1.45;
+  resize: vertical;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.triage-textarea:focus,
+.triage-input:focus {
+  outline: none;
+  border-color: #991B1B;
+  box-shadow: 0 0 0 3px rgba(153, 27, 27, 0.12);
+}
+
+.triage-textarea--audit {
+  border-left: 3px solid #B45309;
+  background: #FFFBEB;
+}
+
+.triage-why {
+  background: #F9F6EF;
+  border: 1px dashed #D6C9A8;
+  border-radius: 6px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.72rem;
+  color: #57534E;
+}
+
+.triage-why summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+  font-weight: 600;
+  color: #92400E;
+  list-style: none;
+  user-select: none;
+}
+
+.triage-why summary::-webkit-details-marker { display: none; }
+.triage-why p { margin: 0.4rem 0 0; line-height: 1.5; }
+.triage-why code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.7rem;
+  background: #FFFFFF;
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid #E5DCC9;
+}
+
+/* -------------------------------------------------------------------------
+   CITIZEN MESSAGE PREVIEW
+   ------------------------------------------------------------------------- */
+
+.triage-citizen-preview {
+  border: 1px solid #E5DCC9;
+  border-radius: 8px;
+  background: #F3EFE6;
+  padding: 0.55rem 0.7rem 0.7rem;
+}
+
+.triage-citizen-preview__chrome {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #6B7280;
+  margin-bottom: 0.5rem;
+}
+
+.triage-citizen-preview__count {
+  margin-left: auto;
+  padding: 1px 6px;
+  background: #FFFFFF;
+  border: 1px solid #D6C9A8;
+  border-radius: 999px;
+  color: #57534E;
+}
+
+.triage-citizen-preview__phone {
+  position: relative;
+  background: #1F2937;
+  border-radius: 14px;
+  padding: 6px;
+  max-width: 220px;
+  margin: 0 auto;
+}
+
+.triage-citizen-preview__notch {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 4px;
+  background: #4B5563;
+  border-radius: 2px;
+}
+
+.triage-citizen-preview__screen {
+  background: #F9F6EF;
+  border-radius: 9px;
+  padding: 0.7rem 0.55rem 0.6rem;
+  min-height: 70px;
+}
+
+.triage-citizen-preview__bubble {
+  background: #FFFFFF;
+  border-radius: 10px;
+  padding: 0.5rem 0.6rem;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+  font-size: 0.72rem;
+  color: #1F2937;
+  line-height: 1.4;
+  position: relative;
+}
+
+.triage-citizen-preview__bubble::after {
+  content: '';
+  position: absolute;
+  left: -5px;
+  bottom: 6px;
+  width: 8px;
+  height: 8px;
+  background: #FFFFFF;
+  transform: rotate(45deg);
+  border-radius: 1px;
+}
+
+.triage-citizen-preview__sender {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #991B1B;
+  margin-bottom: 0.15rem;
+}
+
+.triage-citizen-preview__status {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6B7280;
+  margin-bottom: 0.25rem;
+}
+
+.triage-citizen-preview__text {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.triage-citizen-preview[data-tone="caution"]       .triage-citizen-preview__status { color: #B45309; }
+.triage-citizen-preview[data-tone="destructive"]   .triage-citizen-preview__status { color: #991B1B; }
+
+/* -------------------------------------------------------------------------
+   COMMIT BUTTON
+   ------------------------------------------------------------------------- */
+
+.triage-commit {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 0.9rem;
+  background: #991B1B;
+  color: #FFFFFF;
+  border: 1px solid #7F1D1D;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.05s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1px 3px rgba(153, 27, 27, 0.2);
+}
+
+.triage-commit:hover { background: #7F1D1D; box-shadow: 0 3px 8px rgba(153, 27, 27, 0.3); }
+.triage-commit:active { transform: translateY(1px); }
+.triage-commit:disabled { background: #D1D5DB; border-color: #D1D5DB; cursor: not-allowed; box-shadow: none; }
+
+.triage-commit--standard    { background: #991B1B; border-color: #7F1D1D; }
+.triage-commit--caution     { background: #B45309; border-color: #92400E; }
+.triage-commit--destructive { background: #7F1D1D; border-color: #581818; }
+
+.triage-commit kbd {
+  padding: 1px 5px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.6rem;
+}
+
+.triage-commit__hint {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.triage-commit strong { font-weight: 700; }
+
+/* -------------------------------------------------------------------------
+   CORRECTION TARGET
+   ------------------------------------------------------------------------- */
+
+.triage-target {
+  background: #F9F6EF;
+  border: 1px solid #E5DCC9;
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+}
+
+.triage-target__label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #6B7280;
+  margin-bottom: 0.2rem;
+}
+
+.triage-target__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.triage-target__id {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-weight: 700;
+  color: #991B1B;
+}
+
+.triage-target__hint { color: #6B7280; font-size: 0.72rem; }
+
+.triage-target__row--empty { color: #92400E; font-style: italic; }
+.triage-target__row--empty strong { color: #92400E; font-style: normal; }
+
+/* -------------------------------------------------------------------------
+   SPLIT PREVIEW
+   ------------------------------------------------------------------------- */
+
+.triage-split-preview {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.triage-split-preview__arrow {
+  align-self: center;
+  color: #991B1B;
+  width: 18px;
+  height: 18px;
+}
+
+.triage-split-col {
+  background: #F9F6EF;
+  border: 1px solid #E5DCC9;
+  border-radius: 6px;
+  padding: 0.55rem 0.65rem;
+  min-height: 90px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.triage-split-col--leaving { border-color: #F59E0B; background: #FFFBEB; }
+.triage-split-col--staying { border-color: #6B7280; background: #F3F4F6; }
+
+.triage-split-col__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.triage-split-col__title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #57534E;
+}
+
+.triage-split-col--leaving .triage-split-col__title { color: #92400E; }
+.triage-split-col--staying .triage-split-col__title { color: #374151; }
+
+.triage-split-col__count {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #1F2937;
+}
+
+.triage-split-col__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.triage-split-col__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  padding: 0.3rem 0.4rem;
+  background: #FFFFFF;
+  border: 1px solid #E5DCC9;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  color: #1F2937;
+}
+
+.triage-split-col__id {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-weight: 700;
+  color: #991B1B;
+}
+
+.triage-split-col__cat { color: #4B5563; font-size: 0.65rem; }
+.triage-split-col__desc { color: #6B7280; font-size: 0.65rem; font-style: italic; }
+.triage-split-col__empty { color: #9CA3AF; font-style: italic; font-size: 0.75rem; margin: 0; }
+
+/* -------------------------------------------------------------------------
+   MERGE CANDIDATES
+   ------------------------------------------------------------------------- */
+
+.triage-merge-flow {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.triage-merge-flow__arrow {
+  align-self: center;
+  color: #991B1B;
+  width: 18px;
+  height: 18px;
+}
+
+.triage-merge-card {
+  border: 1px solid #E5DCC9;
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  background: #F9F6EF;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.triage-merge-card--source   { border-color: #F59E0B; background: #FFFBEB; }
+.triage-merge-card--target   { border-color: #991B1B; background: #FEF2F2; }
+.triage-merge-card--empty    { border-style: dashed; opacity: 0.7; }
+
+.triage-merge-card__label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #6B7280;
+}
+
+.triage-merge-card__id {
+  font-family: 'Bricolage Grotesque', 'Inter', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #1F2937;
+}
+
+.triage-merge-card--source .triage-merge-card__id { color: #92400E; }
+.triage-merge-card--target .triage-merge-card__id { color: #991B1B; }
+
+.triage-merge-card__placeholder { color: #9CA3AF; font-weight: 400; }
+.triage-merge-card__subtitle { font-size: 0.7rem; color: #4B5563; }
+.triage-merge-card__meta {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.62rem;
+  color: #6B7280;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.triage-merge-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.72rem;
+  color: #6B7280;
+  font-style: italic;
+}
+
+.triage-candidate-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.triage-candidate {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  background: #FFFFFF;
+  border: 1px solid #E5DCC9;
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.triage-candidate:hover { border-color: #991B1B; }
+
+.triage-candidate--active {
+  border-color: #991B1B;
+  background: linear-gradient(90deg, rgba(153, 27, 27, 0.05), transparent);
+  box-shadow: inset 3px 0 0 #991B1B;
+}
+
+.triage-candidate__head {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: #991B1B;
+}
+
+.triage-candidate__id {
+  font-family: 'Bricolage Grotesque', 'Inter', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.triage-candidate__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  font-size: 0.7rem;
+  color: #4B5563;
+}
+
+.triage-candidate__meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.triage-candidate__status {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6B7280;
+}
+
+.triage-candidate__time {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.62rem;
+  color: #9CA3AF;
+}
+
+/* -------------------------------------------------------------------------
+   ACTIVITY
+   ------------------------------------------------------------------------- */
+
+.triage-activity-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 1.2rem 0.8rem;
+  text-align: center;
+  background: #F9F6EF;
+  border: 1px dashed #D6C9A8;
+  border-radius: 8px;
+  color: #6B7280;
+}
+
+.triage-activity-empty p { margin: 0; font-size: 0.78rem; }
+.triage-activity-empty__hint { color: #9CA3AF; font-style: italic; font-size: 0.7rem !important; }
+
+.triage-activity {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+
+.triage-activity::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: linear-gradient(180deg, #D6C9A8 0%, transparent 100%);
+}
+
+.triage-activity__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 0.6rem;
+  padding: 0.4rem 0 0.5rem 0;
+}
+
+.triage-activity__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #991B1B;
+  border: 2px solid #FAF7F2;
+  margin-top: 4px;
+  box-shadow: 0 0 0 1px #D6C9A8;
+}
+
+.triage-activity__type {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #1F2937;
+  text-transform: capitalize;
+}
+
+.triage-activity__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  font-size: 0.68rem;
+  color: #6B7280;
+  margin-top: 0.1rem;
+}
+
+.triage-activity__meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.triage-activity__report {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: #1F2937;
+}
+
+.triage-activity__transition {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.65rem;
+}
+
+.triage-activity__prev { color: #6B7280; }
+.triage-activity__arrow { color: #991B1B; }
+.triage-activity__next { color: #991B1B; font-weight: 700; }
+
+.triage-activity__note {
+  margin: 0.25rem 0 0;
+  padding: 0.3rem 0.5rem;
+  background: #F3EFE6;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  color: #4B5563;
+}
+
+/* -------------------------------------------------------------------------
+   CONFIRM DIALOG
+   ------------------------------------------------------------------------- */
+
+.triage-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  animation: triage-fade-in 0.15s ease-out;
+}
+
+.triage-confirm__panel {
+  position: relative;
+  background: #FFFFFF;
+  border: 1px solid #E5DCC9;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 440px;
+  padding: 1.4rem 1.4rem 1.1rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: triage-modal-rise 0.18s ease-out;
+}
+
+.triage-confirm__close {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  background: transparent;
+  border: 0;
+  color: #6B7280;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.triage-confirm__close:hover { background: #F3F4F6; color: #1F2937; }
+
+.triage-confirm__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.7rem;
+}
+
+.triage-confirm__icon--standard    { background: #DBEAFE; color: #1D4ED8; }
+.triage-confirm__icon--caution     { background: #FEF3C7; color: #B45309; }
+.triage-confirm__icon--destructive { background: #FEE2E2; color: #991B1B; }
+
+.triage-confirm__title {
+  margin: 0 0 0.4rem;
+  font-family: 'Bricolage Grotesque', 'Inter', sans-serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #1F2937;
+}
+
+.triage-confirm__body {
+  margin: 0 0 0.9rem;
+  font-size: 0.82rem;
+  color: #4B5563;
+  line-height: 1.5;
+}
+
+.triage-confirm__preview {
+  margin-bottom: 1rem;
+}
+
+.triage-confirm__mini {
+  background: #F9F6EF;
+  border: 1px solid #E5DCC9;
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+}
+
+.triage-confirm__mini-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.triage-confirm__mini-label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6B7280;
+  min-width: 70px;
+}
+
+.triage-confirm__mini-value { color: #1F2937; font-weight: 500; }
+
+.triage-confirm__mini-bubble {
+  background: #FFFFFF;
+  border: 1px solid #E5DCC9;
+  border-radius: 6px;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.72rem;
+  color: #1F2937;
+  line-height: 1.4;
+}
+
+.triage-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.triage-button-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.85rem;
+  background: transparent;
+  border: 1px solid #D1D5DB;
+  border-radius: 6px;
+  color: #374151;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.triage-button-ghost kbd {
+  padding: 1px 4px;
+  background: #F3F4F6;
+  border: 1px solid #E5E7EB;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.6rem;
+}
+
+.triage-confirm__commit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.95rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #FFFFFF;
+  border: 1px solid;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.triage-confirm__commit--standard    { background: #991B1B; border-color: #7F1D1D; }
+.triage-confirm__commit--caution     { background: #B45309; border-color: #92400E; }
+.triage-confirm__commit--destructive { background: #7F1D1D; border-color: #581818; }
+.triage-confirm__commit kbd {
+  padding: 1px 4px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.6rem;
+}
+
+/* -------------------------------------------------------------------------
+   SCROLLBARS
+   ------------------------------------------------------------------------- */
+
+.triage-modal__center::-webkit-scrollbar,
+.triage-modal__right::-webkit-scrollbar,
+.triage-modal__rail::-webkit-scrollbar {
+  width: 8px;
+}
+
+.triage-modal__center::-webkit-scrollbar-track,
+.triage-modal__right::-webkit-scrollbar-track,
+.triage-modal__rail::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.triage-modal__center::-webkit-scrollbar-thumb,
+.triage-modal__right::-webkit-scrollbar-thumb,
+.triage-modal__rail::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.18);
+  border-radius: 4px;
+}
+
+.triage-modal__center::-webkit-scrollbar-thumb:hover,
+.triage-modal__right::-webkit-scrollbar-thumb:hover,
+.triage-modal__rail::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.32);
+}

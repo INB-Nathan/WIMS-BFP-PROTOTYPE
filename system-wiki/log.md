@@ -4236,3 +4236,35 @@ automatically when they reconnect.
 - **`src/frontend/src/app/admin/system/admin-system-hitl.test.tsx`:** Updated Suricata Alert header assertions from exact string match `'Suricata Alert #1'` to regex `/Suricata Alert.*#1/` to tolerate em dash in header.
 - **`src/frontend/src/app/admin/system/admin-system-analyze-ai.test.tsx`:** Same regex fix.
 - **Validation:** `npx vitest run src/app/admin/system/` — 61 tests pass (1 previously failing regex fixed). `npx tsc --noEmit` — no new errors (all pre-existing).
+
+## [2026-06-21] ui | Triage inspection modal — tabbed action architecture + destructive confirm
+
+- **Scope:** `src/frontend/src/app/incidents/triage/page.tsx` previously inlined a four-card stacked action panel (Terminal / Correct / Split / Merge) plus a permanent Activity card. The four destructive paths (terminal, correction, split, merge) all shared the same visual weight, the same apply button style, and the same one-click commit. The citizen-visible explanation lived in a plain `<textarea>` with no preview of what the civilian would actually see. Merge candidates were rendered as text rows. Selecting reports was a checkbox column inside a wide table.
+
+- **New architecture (`src/frontend/src/components/triage/`):**
+  - **`TriageInspectionModal.tsx`** — shell with three-column grid (180px left rail / flexible center / 380px right rail) and a sticky dark-maroon header.
+  - **`ClusterSummaryHeader.tsx`** — sticky header with breadcrumb `TRIAGE / QUEUE / CLUSTER|SINGLETON`, severity badge, LIFE SAFETY pulsing badge, 2H+ DANGER, TIMEOUT RISK, AGING, member count, trust, station, oldest-report age (recomputed every 30s via `useNow`), explicit Close button.
+  - **`TriageActionTabs.tsx`** — left-rail tab nav with single-key shortcuts `1`–`5`. Active tab gets a maroon stripe + inverted kbd. Cluster-only tabs (Split, Merge) are hidden in singleton mode. Each tab shows a count badge (selected count for Split, candidate count for Merge, target report id for Correct).
+  - **`ReportsListPanel.tsx`** — center list of report cards (one per report, not a table row). Trust score, GPS-mismatch / duplicate-device warnings, follow-ups, status pill, "Correct" button on terminal rows, heavy maroon left border on selected cards. `<ClusterInspectionMap>` rendered above the list in cluster mode.
+  - **`TerminalActionPanel.tsx`** — status radio-cards (standard / caution / destructive tones), required citizen-visible explanation textarea (with char counter), optional internal note, "Why this status?" disclosure, `<CitizenMessagePreview>` phone-card mock, commit button. Standard `ACTIONED` commits directly; `REJECTED_*` open the destructive confirm.
+  - **`CorrectionActionPanel.tsx`** — target-report slot (filled by clicking "Correct" on a terminal row, which auto-switches the tab), replacement status + explanation, required audit reason (visually distinguished as audit-only with a maroon left border), phone-card preview.
+  - **`SplitActionPanel.tsx`** — side-by-side "Leaving" / "Staying" preview columns, required internal note, "What will happen?" disclosure showing the count split, caution-tone commit.
+  - **`MergeActionPanel.tsx`** — source / target flow cards (Source is dashed-empty until a candidate is picked), suggested-candidate list rendered as visual cards (not text rows), source-id input as a backup, required internal note, destructive-tone commit.
+  - **`CitizenMessagePreview.tsx`** — phone-card mock rendering the exact civilian-facing message that will be sent for the current selection. Lays the explanation next to a phone-chrome frame so the operator sees what the citizen will read.
+  - **`ActivityPanel.tsx`** — most-recent-first timeline of audit events with status transitions and notes. Empty state explains what should appear once actions are taken.
+  - **`ConfirmActionDialog.tsx`** — two-step confirmation for any `REJECTED_*` terminal action, every correction, every split, and every merge. Shows the impact summary, the citizen-visible message (for terminal), and the source/target or leaving/staying preview (for split/merge). `Esc` cancels only the confirm (capture-phase listener wins the race against the parent's `Esc` handler), leaving the parent modal open.
+  - **`useTriageModalState.ts`** — extracted state hook. Owns all form state, selection, and the four `apply*` functions. Single source of truth for pre-select-on-open, tab auto-switch on correction-target click, and singleton-mode tab filtering.
+  - **`triage-modal.css`** — operations-console visual system: BFP maroon dominant, deep slate chrome, sharp amber for caution, JetBrains Mono for IDs/timestamps, Bricolage Grotesque for display, bone-cream `#FAF7F2` surface, dark-maroon gradient header, fixed grid + asymmetric asymmetric tile, status-toned radio cards.
+
+- **HCI fixes (per `frontend/validator-triage-shortcuts` policy):**
+  - **Tab navigation, not commit shortcuts.** `1`–`5` switch tabs but never commit. Terminal / correction / split / merge must be committed by clicking the panel commit button. The commit button reads "click to confirm" rather than showing `⌘↵` so the no-shortcut policy is visible to the operator.
+  - **Two-step destructive confirm** for any `REJECTED_*` terminal, every correction, every split, every merge. The confirm dialog shows the impact summary (count + status + source/target or leaving/staying) and the citizen-visible explanation, so the operator confirms the exact payload before it lands.
+  - **Citizen-facing previews** next to every form (phone-card mock for terminal + correction; source / target or leaving / staying cards for split + merge) so the operator never has to mentally render the diff before clicking.
+  - **Why-this-status guidance** in a `<details>` block per action panel: explains when to use each `REJECTED_*` status and what audit event gets recorded.
+  - **Pre-select on open** — non-terminal reports are pre-checked, terminal reports are pre-disabled. No empty-default confusion.
+  - **Heavy selected affordance** — selected cards get a 4px maroon left border + tinted background, not just a checkbox tick.
+  - **Per-action contextual copy** — "Confirm Bogus on 2 reports" instead of generic "Are you sure?".
+
+- **Test coverage:** 14 new tests added to `src/app/incidents/triage/page.test.tsx` covering the new architecture (tab nav, citizen preview, leaving/staying split preview, source/target merge flow, singleton tab filtering, destructive confirm for terminal/merge, confirm-cancel keeps parent modal, why-this-status guidance, report card rendering with HTML-stripped follow-ups, claim button visibility). Total: 27 triage tests pass, 732 in the full frontend suite, `npx eslint src/components/triage/ src/app/incidents/triage/page.tsx` clean, no new `npx tsc` errors.
+
+- **Wiki updates:** `frontend/validator-triage-shortcuts` updated to status=current with the new 1–5 navigation policy; `frontend/route-map` updated entry for `/incidents/triage`; `subsystems/civilian-reporting-phase2` source list + related list + Inspection modal section rewritten to match the new architecture.

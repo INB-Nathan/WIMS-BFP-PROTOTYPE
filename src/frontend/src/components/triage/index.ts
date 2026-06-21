@@ -1,0 +1,1 @@
+export { TriageInspectionModal } from './TriageInspectionModal';
