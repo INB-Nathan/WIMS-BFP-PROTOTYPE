@@ -675,10 +675,6 @@ function AforImportPage() {
 
     // Offline check: use verified app reachability, not navigator.onLine.
     if (isOffline) {
-      if (previewData.form_kind === 'WILDLAND_AFOR') {
-        setError('Wildland AFOR commit requires an internet connection. Reconnect and try again.');
-        return;
-      }
       setIsCommitting(true);
       setError(null);
       const validRows = previewData.rows.filter((r) => r.status === 'VALID').map((r) => r.data);
@@ -721,7 +717,7 @@ function AforImportPage() {
         return;
       }
     } catch (err: unknown) {
-      if (isNetworkError(err) && previewData.form_kind !== 'WILDLAND_AFOR') {
+      if (isNetworkError(err)) {
         markConnectivityOffline();
         const queued = await queueAforRowsOffline(validRows, commitLat, commitLng);
         setIsCommitting(false);
@@ -733,7 +729,7 @@ function AforImportPage() {
         }
       }
       const errMsg = isNetworkError(err)
-        ? 'Connection lost. Reconnect and try again (wildland AFOR cannot be queued offline).'
+        ? 'Connection lost. Reconnect and try again.'
         : (err as { message?: string }).message || 'Failed to commit the imported data.';
       if (isNetworkError(err)) markConnectivityOffline();
       setError(errMsg);
@@ -814,9 +810,6 @@ function AforImportPage() {
           <div className="flex flex-wrap gap-2">
             <a href="/templates/afor_template.xlsx" download className="card flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-gray-50 transition-colors">
               <FileDown className="w-4 h-4" /> Structural template (.xlsx)
-            </a>
-            <a href="/templates/wildland_afor_template.xlsx" download className="card flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-gray-50 transition-colors">
-              <FileDown className="w-4 h-4" /> Wildland template (.xlsx)
             </a>
           </div>
         )}

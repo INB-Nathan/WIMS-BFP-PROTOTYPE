@@ -186,11 +186,11 @@ cd src && docker compose down && docker compose up --build -d
 ### What was NOT changed
 
 - Database schema (`wims.incident_wildland_afor` and child tables) — untouched.
-- Backend routes (`encoder.py`, `commit.py`, `parse.py`, `stats.py`) — untouched; wildland AFOR import via file upload still persists correctly.
+- Backend AFOR routes — updated to reject `WILDLAND_AFOR` import/commit requests with 400; wildland remains available as a standard incident category/sub-category, not a dedicated AFOR import/manual workflow.
 - Analyst read-only wildland detail view (`/dashboard/analyst/incidents/[id]/wildland`) — untouched.
 - Wildland classification card and `WildlandFireBreakdown` stats widget — untouched.
 - `WildlandFireBreakdown.tsx` dashboard component — untouched.
 
 ### Why
 
-Only structural AFORs will be created manually. Wildland AFORs may still arrive via file import (the import → parse → commit pipeline is unchanged), but the manual creation path for wildland type is removed from the UI.
+Only structural AFORs will use the dedicated AFOR import/manual workflow. Wildland remains available as a normal incident category/sub-category in the standard incident form, but the separate wildland AFOR import/manual flow is deprecated end-to-end.

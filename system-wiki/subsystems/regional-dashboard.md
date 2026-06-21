@@ -62,7 +62,7 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 
 ### Manual Entry / Import Review Navigation
 
-`src/frontend/src/components/SectionDotNav.tsx` provides reusable fixed right-side dot navigation with scroll-spy labels and smooth-scroll click behavior. It is used by `IncidentForm.tsx` for structural manual entry and edit mode, `WildlandAforManualForm.tsx` for wildland manual entry and import correction handoff, and `/afor/import` for upload, map pin, summary, and data-preview workflow sections.
+`src/frontend/src/components/SectionDotNav.tsx` provides reusable fixed right-side dot navigation with scroll-spy labels and smooth-scroll click behavior. It is used by `IncidentForm.tsx` for manual entry/edit mode and `/afor/import` for structural AFOR upload, map pin, summary, and data-preview workflow sections. The former dedicated wildland AFOR manual/import-correction form is deprecated; wildland remains a standard incident category/sub-category.
 
 ### Manual Entry Draft Restore
 

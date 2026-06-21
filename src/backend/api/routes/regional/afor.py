@@ -90,6 +90,16 @@ async def import_afor_file(
         logger.exception("Failed to parse AFOR file")
         raise HTTPException(status_code=400, detail="Failed to parse file")
 
+    if form_kind == "WILDLAND_AFOR":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Wildland-specific AFOR import is deprecated. Use the structural "
+                "AFOR import or encode wildland incidents through the standard "
+                "incident form category/sub-category fields."
+            ),
+        )
+
     if len(rows) == 0:
         raise HTTPException(status_code=400, detail="No data rows found in file")
 
@@ -163,6 +173,15 @@ async def commit_afor_import(
         raise HTTPException(status_code=400, detail="Invalid JSON body") from None
 
     body = AforCommitRequest.model_validate(raw_body)
+    if body.form_kind == "WILDLAND_AFOR":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Wildland-specific AFOR commit is deprecated. Use the structural "
+                "AFOR import or encode wildland incidents through the standard "
+                "incident form category/sub-category fields."
+            ),
+        )
     _request_ip = get_client_ip(request)
 
     def _ivh_with_ip(db, **kwargs):  # type: ignore[no-untyped-def]

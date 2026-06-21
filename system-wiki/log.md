@@ -1,3 +1,10 @@
+## [2026-06-21] fix | deprecate dedicated wildland AFOR import workflow (PR #443)
+
+- **`src/backend/api/routes/regional/afor.py`:** `POST /api/regional/afor/import` now rejects detected `WILDLAND_AFOR` files with 400, and `POST /api/regional/afor/commit` rejects `form_kind: WILDLAND_AFOR`. Wildland remains available through standard incident category/sub-category fields rather than a dedicated wildland AFOR import/manual workflow.
+- **`src/frontend/src/app/afor/import/page.tsx`:** Removed the wildland template download and wildland-specific offline/commit messaging from the AFOR import UI.
+- **`src/backend/tests/integration/test_regional_afor_unified_import.py`:** Replaced wildland import/commit persistence expectations with rejection tests.
+- **Docs/wiki:** Updated API/PR notes and regional/frontend wiki pages to mark the dedicated wildland AFOR workflow deprecated while preserving ordinary wildland category support.
+
 ## [2026-06-21] fix | encoder audit-log unified pagination (PR #443)
 
 - **`src/backend/api/routes/regional/encoder.py`:** Replaced independent IVH/login audit queries with a single `activity_items` CTE that `UNION ALL`s incident lifecycle rows and `USER_LOGIN` rows, applies date/action/city filters per source, and performs one final `ORDER BY action_timestamp DESC LIMIT/OFFSET` pagination window plus a matching CTE count. City filters intentionally exclude login-only rows because login events are not incident-scoped.

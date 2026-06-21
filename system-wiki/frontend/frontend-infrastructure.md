@@ -285,7 +285,6 @@ components/
   LayoutShell.tsx
   NetworkStatusIndicator.tsx
   Header.tsx
-  WildlandAforManualForm.tsx
   analytics/
     ...
 app/dashboard/regional/
