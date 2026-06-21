@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import {
-  fetchAnomalies,
   updateAnomalyStatus,
   type AnomalyDetectionItem,
 } from '@/lib/api/legacy';
-import { ShieldAlert, RefreshCw, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
+import { fetchAnomaliesOfflineAware } from '@/lib/api/offlineAdmin';
+import { StaleCacheBanner } from '@/components/ui/StaleCacheBanner';
+import { ShieldAlert, RefreshCw, CheckCircle, Clock, AlertTriangle, WifiOff } from 'lucide-react';
 
 type SeverityLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 type AnomalyStatus = 'NEW' | 'ACKNOWLEDGED' | 'RESOLVED';
@@ -44,6 +46,7 @@ function formatTime(iso: string): string {
 
 export default function AnomalyDetectionPage() {
   const { user, loading: authLoading } = useAuth();
+  const { isOnline } = useNetworkStatus();
   const role = (user as { role?: string })?.role ?? null;
   const isAdmin = role === 'SYSTEM_ADMIN';
 
@@ -59,6 +62,10 @@ export default function AnomalyDetectionPage() {
   // Aggregate data from API for summary cards and dynamic filter options
   const [counts, setCounts] = useState<Record<string, number>>({ NEW: 0, ACKNOWLEDGED: 0, RESOLVED: 0 });
   const [typeFacets, setTypeFacets] = useState<Array<{ type: string; count: number }>>([]);
+  // T11: cache freshness tracking
+  const [anomaliesCachedAt, setAnomaliesCachedAt] = useState<number | undefined>(undefined);
+  // T11: friendly offline-unavailable state
+  const [offlineUnavailable, setOfflineUnavailable] = useState<boolean>(false);
 
   const PAGE_SIZE = 20;
 
@@ -66,29 +73,35 @@ export default function AnomalyDetectionPage() {
     if (!isAdmin) return;
     setLoading(true);
     setError(null);
+    setOfflineUnavailable(false);
     try {
-      const result = await fetchAnomalies({
+      const result = await fetchAnomaliesOfflineAware({
         status: statusFilter || undefined,
         severity: severityFilter || undefined,
         anomaly_type: typeFilter || undefined,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       });
-      setAnomalies(result.items);
-      setTotal(result.total);
-      setCounts(result.counts ?? { NEW: 0, ACKNOWLEDGED: 0, RESOLVED: 0 });
-      setTypeFacets(result.type_facets ?? []);
+      setAnomalies(result.response.items);
+      setTotal(result.response.total);
+      setCounts(result.response.counts ?? { NEW: 0, ACKNOWLEDGED: 0, RESOLVED: 0 });
+      setTypeFacets(result.response.type_facets ?? []);
+      setAnomaliesCachedAt(result.fromCache ? result.cachedAt : undefined);
     } catch (err) {
       console.error('loadAnomalies error', err);
-      setError(err instanceof Error ? err.message : 'Failed to load anomaly data');
       setAnomalies([]);
       setTotal(0);
       setCounts({ NEW: 0, ACKNOWLEDGED: 0, RESOLVED: 0 });
       setTypeFacets([]);
+      if (!isOnline) {
+        setOfflineUnavailable(true);
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to load anomaly data');
+      }
     } finally {
       setLoading(false);
     }
-  }, [isAdmin, statusFilter, typeFilter, severityFilter, page]);
+  }, [isAdmin, isOnline, statusFilter, typeFilter, severityFilter, page]);
 
   useEffect(() => {
     loadAnomalies();
@@ -149,6 +162,32 @@ export default function AnomalyDetectionPage() {
 
   return (
     <div className="space-y-6">
+      {/* T11: Friendly offline-unavailable banner when wrapper throws + we're offline */}
+      {offlineUnavailable && (
+        <div
+          className="card"
+          data-testid="offline-unavailable"
+          style={{ borderLeft: '4px solid #f59e0b', backgroundColor: '#fffbeb' }}
+        >
+          <div className="card-body flex items-center gap-3">
+            <WifiOff className="w-5 h-5 text-amber-700 flex-shrink-0" />
+            <div>
+              <div className="text-sm font-semibold text-amber-800">
+                Anomaly detection data is unavailable offline
+              </div>
+              <div className="text-xs text-amber-700 mt-1">
+                Reconnect to the network to load anomaly detections and aggregates.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* T11: Stale cache banner */}
+      {anomaliesCachedAt != null && (
+        <StaleCacheBanner freshness={{ cachedAt: anomaliesCachedAt, isOnline }} />
+      )}
+
       {/* Header */}
       <div className="card">
         <div className="card-body flex items-center justify-between">
