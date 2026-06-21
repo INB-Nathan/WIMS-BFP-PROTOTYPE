@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid as _uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -17,6 +17,13 @@ _ISO_DT_MAX = 40  # generous cap for ISO-8601 datetime strings
 
 _D11_TOLERANCE_MINUTES = 5  # D11: clock-skew tolerance for occurrence/report dates
 
+# ─── Type aliases for reprising Field(max_length=…) boilerplate (cf. incident_bundle.py) ──
+
+LabelField = Annotated[str | None, Field(default=None, max_length=_LABEL_MAX)]
+DescField = Annotated[str | None, Field(default=None, max_length=_DESC_MAX)]
+NarrativeField = Annotated[str | None, Field(default=None, max_length=_NARRATIVE_MAX)]
+IsoDtField = Annotated[str | None, Field(default=None, max_length=_ISO_DT_MAX)]
+
 
 def _validate_not_future_date(value: str | None, field_name: str) -> str | None:
     """Validate that an ISO datetime string is not beyond `now() + tolerance` UTC.
@@ -27,7 +34,7 @@ def _validate_not_future_date(value: str | None, field_name: str) -> str | None:
     if value is None:
         return value
     try:
-        dt = datetime.fromisoformat(value)
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except (ValueError, TypeError):
         raise ValueError(f"{field_name} must be a valid ISO-8601 datetime string, got: {value!r}")
     # Naive datetimes are treated as UTC (per D11 canonical time semantics)
@@ -83,40 +90,40 @@ class IncidentCreateRequest(BaseModel):
     parent_incident_id: int | None = None
 
     # ── Date / time (D11 — semantic future-date rejection) ─────────────────
-    notification_dt: str | None = Field(None, max_length=_ISO_DT_MAX)
+    notification_dt: IsoDtField
 
     # ── String labels (D4: 255) ────────────────────────────────────────────
-    alarm_level: str | None = Field(None, max_length=_LABEL_MAX)
-    general_category: str | None = Field(None, max_length=_LABEL_MAX)
-    sub_category: str | None = Field(None, max_length=_LABEL_MAX)
-    specific_type: str | None = Field(None, max_length=_LABEL_MAX)
-    occupancy_type: str | None = Field(None, max_length=_LABEL_MAX)
-    responder_type: str | None = Field(None, max_length=_LABEL_MAX)
-    fire_origin: str | None = Field(None, max_length=_LABEL_MAX)
-    extent_of_damage: str | None = Field(None, max_length=_LABEL_MAX)
-    stage_of_fire: str | None = Field(None, max_length=_LABEL_MAX)
-    fire_station_name: str | None = Field(None, max_length=_LABEL_MAX)
-    province_district: str | None = Field(None, max_length=_LABEL_MAX)
-    city_municipality: str | None = Field(None, max_length=_LABEL_MAX)
-    barangay: str | None = Field(None, max_length=_LABEL_MAX)
-    incident_type_code: str | None = Field(None, max_length=_LABEL_MAX)
-    street_address: str | None = Field(None, max_length=_LABEL_MAX)
-    landmark: str | None = Field(None, max_length=_LABEL_MAX)
-    caller_name: str | None = Field(None, max_length=_LABEL_MAX)
-    caller_number: str | None = Field(None, max_length=_LABEL_MAX)
-    establishment_name: str | None = Field(None, max_length=_LABEL_MAX)
-    owner_name: str | None = Field(None, max_length=_LABEL_MAX)
-    occupant_name: str | None = Field(None, max_length=_LABEL_MAX)
-    receiver_name: str | None = Field(None, max_length=_LABEL_MAX)
-    prepared_by_officer: str | None = Field(None, max_length=_LABEL_MAX)
-    noted_by_officer: str | None = Field(None, max_length=_LABEL_MAX)
+    alarm_level: LabelField
+    general_category: LabelField
+    sub_category: LabelField
+    specific_type: LabelField
+    occupancy_type: LabelField
+    responder_type: LabelField
+    fire_origin: LabelField
+    extent_of_damage: LabelField
+    stage_of_fire: LabelField
+    fire_station_name: LabelField
+    province_district: LabelField
+    city_municipality: LabelField
+    barangay: LabelField
+    incident_type_code: LabelField
+    street_address: LabelField
+    landmark: LabelField
+    caller_name: LabelField
+    caller_number: LabelField
+    establishment_name: LabelField
+    owner_name: LabelField
+    occupant_name: LabelField
+    receiver_name: LabelField
+    prepared_by_officer: LabelField
+    noted_by_officer: LabelField
 
     # ── String descriptions / notes (D4: 2000) ────────────────────────────
-    recommendations: str | None = Field(None, max_length=_DESC_MAX)
-    remarks: str | None = Field(None, max_length=_DESC_MAX)
+    recommendations: DescField
+    remarks: DescField
 
     # ── String narrative (D4: 10000) ──────────────────────────────────────
-    narrative_report: str | None = Field(None, max_length=_NARRATIVE_MAX)
+    narrative_report: NarrativeField
 
     # ── Non-negative numerics (counts) ─────────────────────────────────────
     civilian_injured: int = Field(default=0, ge=0)
@@ -134,7 +141,7 @@ class IncidentCreateRequest(BaseModel):
     total_response_time_minutes: int | None = Field(None, ge=0)
 
     # ── Idempotency ───────────────────────────────────────────────────────
-    client_id: str | None = Field(None, max_length=_LABEL_MAX)
+    client_id: LabelField
 
     # ── Validators ─────────────────────────────────────────────────────────
 
@@ -158,42 +165,42 @@ class IncidentUpdateRequest(BaseModel):
     """
 
     # ── Date / time (D11) ─────────────────────────────────────────────────
-    notification_dt: str | None = Field(None, max_length=_ISO_DT_MAX)
+    notification_dt: IsoDtField
 
     # ── String labels (D4: 255) ────────────────────────────────────────────
-    alarm_level: str | None = Field(None, max_length=_LABEL_MAX)
-    general_category: str | None = Field(None, max_length=_LABEL_MAX)
-    sub_category: str | None = Field(None, max_length=_LABEL_MAX)
-    specific_type: str | None = Field(None, max_length=_LABEL_MAX)
-    occupancy_type: str | None = Field(None, max_length=_LABEL_MAX)
-    responder_type: str | None = Field(None, max_length=_LABEL_MAX)
-    fire_origin: str | None = Field(None, max_length=_LABEL_MAX)
-    extent_of_damage: str | None = Field(None, max_length=_LABEL_MAX)
-    stage_of_fire: str | None = Field(None, max_length=_LABEL_MAX)
-    general_description_of_involved: str | None = Field(None, max_length=_DESC_MAX)
-    fire_station_name: str | None = Field(None, max_length=_LABEL_MAX)
-    province_district: str | None = Field(None, max_length=_LABEL_MAX)
-    city_municipality: str | None = Field(None, max_length=_LABEL_MAX)
-    barangay: str | None = Field(None, max_length=_LABEL_MAX)
-    incident_type_code: str | None = Field(None, max_length=_LABEL_MAX)
-    street_address: str | None = Field(None, max_length=_LABEL_MAX)
-    landmark: str | None = Field(None, max_length=_LABEL_MAX)
-    caller_name: str | None = Field(None, max_length=_LABEL_MAX)
-    caller_number: str | None = Field(None, max_length=_LABEL_MAX)
-    establishment_name: str | None = Field(None, max_length=_LABEL_MAX)
-    owner_name: str | None = Field(None, max_length=_LABEL_MAX)
-    occupant_name: str | None = Field(None, max_length=_LABEL_MAX)
-    receiver_name: str | None = Field(None, max_length=_LABEL_MAX)
-    prepared_by_officer: str | None = Field(None, max_length=_LABEL_MAX)
-    noted_by_officer: str | None = Field(None, max_length=_LABEL_MAX)
-    disposition: str | None = Field(None, max_length=_LABEL_MAX)
+    alarm_level: LabelField
+    general_category: LabelField
+    sub_category: LabelField
+    specific_type: LabelField
+    occupancy_type: LabelField
+    responder_type: LabelField
+    fire_origin: LabelField
+    extent_of_damage: LabelField
+    stage_of_fire: LabelField
+    general_description_of_involved: DescField
+    fire_station_name: LabelField
+    province_district: LabelField
+    city_municipality: LabelField
+    barangay: LabelField
+    incident_type_code: LabelField
+    street_address: LabelField
+    landmark: LabelField
+    caller_name: LabelField
+    caller_number: LabelField
+    establishment_name: LabelField
+    owner_name: LabelField
+    occupant_name: LabelField
+    receiver_name: LabelField
+    prepared_by_officer: LabelField
+    noted_by_officer: LabelField
+    disposition: LabelField
 
     # ── String descriptions / notes (D4: 2000) ────────────────────────────
-    recommendations: str | None = Field(None, max_length=_DESC_MAX)
-    remarks: str | None = Field(None, max_length=_DESC_MAX)
+    recommendations: DescField
+    remarks: DescField
 
     # ── String narrative (D4: 10000) ──────────────────────────────────────
-    narrative_report: str | None = Field(None, max_length=_NARRATIVE_MAX)
+    narrative_report: NarrativeField
 
     # ── Non-negative numerics (counts, optional) ───────────────────────────
     civilian_injured: int | None = Field(None, ge=0)
@@ -215,7 +222,6 @@ class IncidentUpdateRequest(BaseModel):
 
     # ── Numeric identifiers ────────────────────────────────────────────────
     city_id: int | None = None
-    parent_incident_id: int | None = None  # not present on Update, but kept for symmetry
 
     # ── Coordinates (optional on update) ───────────────────────────────────
     latitude: float | None = Field(None, ge=-90, le=90)

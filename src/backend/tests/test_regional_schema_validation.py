@@ -55,16 +55,19 @@ class TestIncidentCreateRequest:
 
     # ─── Non-negative numeric fields ──────────────────────────────────────
 
-    @pytest.mark.parametrize("field,valid", [
-        ("civilian_injured", [0, 1, 100]),
-        ("civilian_deaths", [0, 1, 999]),
-        ("firefighter_injured", [0, 1, 50]),
-        ("firefighter_deaths", [0, 1, 10]),
-        ("families_affected", [0, 1, 500]),
-        ("structures_affected", [0, 1, 200]),
-        ("households_affected", [0, 1, 300]),
-        ("individuals_affected", [0, 1, 1000]),
-    ])
+    @pytest.mark.parametrize(
+        "field,valid",
+        [
+            ("civilian_injured", [0, 1, 100]),
+            ("civilian_deaths", [0, 1, 999]),
+            ("firefighter_injured", [0, 1, 50]),
+            ("firefighter_deaths", [0, 1, 10]),
+            ("families_affected", [0, 1, 500]),
+            ("structures_affected", [0, 1, 200]),
+            ("households_affected", [0, 1, 300]),
+            ("individuals_affected", [0, 1, 1000]),
+        ],
+    )
     def test_non_negative_numeric_valid(self, field, valid):
         """Non-negative integer fields accept >=0."""
         for val in valid:
@@ -72,26 +75,32 @@ class TestIncidentCreateRequest:
             obj = IncidentCreateRequest(**kwargs)
             assert getattr(obj, field) == val
 
-    @pytest.mark.parametrize("field,invalids", [
-        ("civilian_injured", [-1, -100]),
-        ("civilian_deaths", [-1, -999]),
-        ("firefighter_injured", [-1, -50]),
-        ("firefighter_deaths", [-1, -10]),
-        ("families_affected", [-1, -500]),
-        ("structures_affected", [-1, -200]),
-        ("households_affected", [-1, -300]),
-        ("individuals_affected", [-1, -1000]),
-    ])
+    @pytest.mark.parametrize(
+        "field,invalids",
+        [
+            ("civilian_injured", [-1, -100]),
+            ("civilian_deaths", [-1, -999]),
+            ("firefighter_injured", [-1, -50]),
+            ("firefighter_deaths", [-1, -10]),
+            ("families_affected", [-1, -500]),
+            ("structures_affected", [-1, -200]),
+            ("households_affected", [-1, -300]),
+            ("individuals_affected", [-1, -1000]),
+        ],
+    )
     def test_non_negative_numeric_invalid(self, field, invalids):
         """Non-negative integer fields reject <0."""
         for val in invalids:
             with pytest.raises(ValidationError):
                 IncidentCreateRequest(**{"latitude": 14.5995, "longitude": 120.9842, field: val})
 
-    @pytest.mark.parametrize("field,valid", [
-        ("estimated_damage_php", [0.0, 1000.50, 999999.99]),
-        ("distance_from_station_km", [0.0, 5.2, 100.0]),
-    ])
+    @pytest.mark.parametrize(
+        "field,valid",
+        [
+            ("estimated_damage_php", [0.0, 1000.50, 999999.99]),
+            ("distance_from_station_km", [0.0, 5.2, 100.0]),
+        ],
+    )
     def test_non_negative_float_valid(self, field, valid):
         """Non-negative float fields accept >=0."""
         for val in valid:
@@ -99,10 +108,13 @@ class TestIncidentCreateRequest:
             obj = IncidentCreateRequest(**kwargs)
             assert getattr(obj, field) == val
 
-    @pytest.mark.parametrize("field,invalids", [
-        ("estimated_damage_php", [-0.01, -1000.0]),
-        ("distance_from_station_km", [-0.1, -50.0]),
-    ])
+    @pytest.mark.parametrize(
+        "field,invalids",
+        [
+            ("estimated_damage_php", [-0.01, -1000.0]),
+            ("distance_from_station_km", [-0.1, -50.0]),
+        ],
+    )
     def test_non_negative_float_invalid(self, field, invalids):
         """Non-negative float fields reject <0."""
         for val in invalids:
@@ -129,38 +141,44 @@ class TestIncidentCreateRequest:
 
     # ─── String max_length ────────────────────────────────────────────────
 
-    @pytest.mark.parametrize("field,limit", [
-        ("alarm_level", 255),
-        ("general_category", 255),
-        ("sub_category", 255),
-        ("fire_station_name", 255),
-        ("caller_name", 255),
-        ("caller_number", 255),
-        ("establishment_name", 255),
-        ("street_address", 255),
-        ("landmark", 255),
-        ("recommendations", 2000),
-        ("narrative_report", 10000),
-    ])
+    @pytest.mark.parametrize(
+        "field,limit",
+        [
+            ("alarm_level", 255),
+            ("general_category", 255),
+            ("sub_category", 255),
+            ("fire_station_name", 255),
+            ("caller_name", 255),
+            ("caller_number", 255),
+            ("establishment_name", 255),
+            ("street_address", 255),
+            ("landmark", 255),
+            ("recommendations", 2000),
+            ("narrative_report", 10000),
+        ],
+    )
     def test_string_max_length_valid(self, field, limit):
         """String fields accept length == limit."""
         kwargs = {"latitude": 14.5995, "longitude": 120.9842, field: "x" * limit}
         obj = IncidentCreateRequest(**kwargs)
         assert len(getattr(obj, field)) == limit
 
-    @pytest.mark.parametrize("field,limit", [
-        ("alarm_level", 255),
-        ("general_category", 255),
-        ("sub_category", 255),
-        ("fire_station_name", 255),
-        ("caller_name", 255),
-        ("caller_number", 255),
-        ("establishment_name", 255),
-        ("street_address", 255),
-        ("landmark", 255),
-        ("recommendations", 2000),
-        ("narrative_report", 10000),
-    ])
+    @pytest.mark.parametrize(
+        "field,limit",
+        [
+            ("alarm_level", 255),
+            ("general_category", 255),
+            ("sub_category", 255),
+            ("fire_station_name", 255),
+            ("caller_name", 255),
+            ("caller_number", 255),
+            ("establishment_name", 255),
+            ("street_address", 255),
+            ("landmark", 255),
+            ("recommendations", 2000),
+            ("narrative_report", 10000),
+        ],
+    )
     def test_string_max_length_invalid(self, field, limit):
         """String fields reject length > limit."""
         kwargs = {"latitude": 14.5995, "longitude": 120.9842, field: "x" * (limit + 1)}
@@ -193,9 +211,7 @@ class TestIncidentCreateRequest:
         """notification_dt beyond 5-min future tolerance raises ValidationError."""
         far_future = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
         with pytest.raises(ValidationError):
-            IncidentCreateRequest(
-                latitude=14.5995, longitude=120.9842, notification_dt=far_future
-            )
+            IncidentCreateRequest(latitude=14.5995, longitude=120.9842, notification_dt=far_future)
 
     def test_notification_dt_none_valid(self):
         """notification_dt=None is accepted (optional field)."""
@@ -220,15 +236,31 @@ class TestIncidentCreateRequest:
         assert obj.longitude == 120.9842
         assert obj.civilian_injured == 0  # default
 
-    @pytest.mark.parametrize("field", [
-        "region_id", "specific_type", "occupancy_type", "city_id",
-        "responder_type", "fire_origin", "extent_of_damage",
-        "stage_of_fire", "province_district", "city_municipality",
-        "barangay", "incident_type_code", "parent_incident_id",
-        "owner_name", "occupant_name", "receiver_name",
-        "prepared_by_officer", "noted_by_officer", "remarks",
-        "client_id",
-    ])
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "region_id",
+            "specific_type",
+            "occupancy_type",
+            "city_id",
+            "responder_type",
+            "fire_origin",
+            "extent_of_damage",
+            "stage_of_fire",
+            "province_district",
+            "city_municipality",
+            "barangay",
+            "incident_type_code",
+            "parent_incident_id",
+            "owner_name",
+            "occupant_name",
+            "receiver_name",
+            "prepared_by_officer",
+            "noted_by_officer",
+            "remarks",
+            "client_id",
+        ],
+    )
     def test_optional_fields_accept_none(self, field):
         """Optional fields accept None."""
         kwargs = {"latitude": 14.5995, "longitude": 120.9842, field: None}
@@ -274,34 +306,50 @@ class TestIncidentUpdateRequest:
 
     # ─── Non-negative numeric fields (all optional) ───────────────────────
 
-    @pytest.mark.parametrize("field,valid", [
-        ("civilian_injured", [0, 1]),
-        ("civilian_deaths", [0, 5]),
-        ("firefighter_injured", [0, 3]),
-        ("firefighter_deaths", [0, 1]),
-        ("families_affected", [0, 100]),
-        ("structures_affected", [0, 50]),
-        ("households_affected", [0, 100]),
-        ("individuals_affected", [0, 500]),
-        ("vehicles_affected", [0, 20]),
-    ])
+    @pytest.mark.parametrize(
+        "field,valid",
+        [
+            ("civilian_injured", [0, 1]),
+            ("civilian_deaths", [0, 5]),
+            ("firefighter_injured", [0, 3]),
+            ("firefighter_deaths", [0, 1]),
+            ("families_affected", [0, 100]),
+            ("structures_affected", [0, 50]),
+            ("households_affected", [0, 100]),
+            ("individuals_affected", [0, 500]),
+            ("vehicles_affected", [0, 20]),
+        ],
+    )
     def test_non_negative_numeric_valid(self, field, valid):
         for val in valid:
             obj = IncidentUpdateRequest(**{field: val})
             assert getattr(obj, field) == val
 
-    @pytest.mark.parametrize("field", [
-        "civilian_injured", "civilian_deaths", "firefighter_injured",
-        "firefighter_deaths", "families_affected", "structures_affected",
-        "households_affected", "individuals_affected", "vehicles_affected",
-    ])
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "civilian_injured",
+            "civilian_deaths",
+            "firefighter_injured",
+            "firefighter_deaths",
+            "families_affected",
+            "structures_affected",
+            "households_affected",
+            "individuals_affected",
+            "vehicles_affected",
+        ],
+    )
     def test_non_negative_numeric_invalid(self, field):
         with pytest.raises(ValidationError):
             IncidentUpdateRequest(**{field: -1})
 
-    @pytest.mark.parametrize("field", [
-        "estimated_damage_php", "distance_from_station_km",
-    ])
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "estimated_damage_php",
+            "distance_from_station_km",
+        ],
+    )
     def test_non_negative_float_invalid(self, field):
         with pytest.raises(ValidationError):
             IncidentUpdateRequest(**{field: -0.1})
@@ -312,19 +360,22 @@ class TestIncidentUpdateRequest:
 
     # ─── String max_length ────────────────────────────────────────────────
 
-    @pytest.mark.parametrize("field,limit", [
-        ("alarm_level", 255),
-        ("general_category", 255),
-        ("sub_category", 255),
-        ("fire_station_name", 255),
-        ("caller_name", 255),
-        ("caller_number", 255),
-        ("establishment_name", 255),
-        ("street_address", 255),
-        ("landmark", 255),
-        ("recommendations", 2000),
-        ("narrative_report", 10000),
-    ])
+    @pytest.mark.parametrize(
+        "field,limit",
+        [
+            ("alarm_level", 255),
+            ("general_category", 255),
+            ("sub_category", 255),
+            ("fire_station_name", 255),
+            ("caller_name", 255),
+            ("caller_number", 255),
+            ("establishment_name", 255),
+            ("street_address", 255),
+            ("landmark", 255),
+            ("recommendations", 2000),
+            ("narrative_report", 10000),
+        ],
+    )
     def test_string_max_length_invalid(self, field, limit):
         with pytest.raises(ValidationError):
             IncidentUpdateRequest(**{field: "x" * (limit + 1)})
