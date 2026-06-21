@@ -181,7 +181,13 @@ export function AnalystIncidentList({
     return () => {
       cancelled = true;
     };
-  }, [filterKey, filters, page, localPageSize, sortBy, sortDir]);
+    // Note: `filters` is intentionally NOT in this dep array. `filterKey` is the
+    // content-stable JSON-stringified form of `filters`; the parent re-creates
+    // the object on every render (e.g. `evidenceFilters` useMemo in the workflow
+    // page, or `appliedIncidentFilters` after `loadData`). Including the raw
+    // object would re-fire this effect on every render and produce an infinite
+    // load/setItems/render loop when a selected set is active.
+  }, [filterKey, page, localPageSize, sortBy, sortDir]);
 
   const toggleSort = (column: AnalystListSortField) => {
     if (column === sortBy) {
