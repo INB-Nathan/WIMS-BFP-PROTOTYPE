@@ -17,8 +17,8 @@ const adminMocks = vi.hoisted(() => ({
   fetchWorkerStatus: vi.fn(),
   fetchActiveSessions: vi.fn(),
   fetchAuditLogs: vi.fn(),
-  getCachedAnalyticsResponse: vi.fn(),
-  cacheAnalyticsResponse: vi.fn(),
+  getReadCachedResponse: vi.fn(),
+  cacheReadResponse: vi.fn(),
   markConnectivityOffline: vi.fn(),
   isReachable: vi.fn(),
   connectivitySnapshot: {
@@ -43,8 +43,8 @@ vi.mock('../legacy', async (importOriginal) => {
 });
 
 vi.mock('../../offlineStore', () => ({
-  getCachedAnalyticsResponse: adminMocks.getCachedAnalyticsResponse,
-  cacheAnalyticsResponse: adminMocks.cacheAnalyticsResponse,
+  getReadCachedResponse: adminMocks.getReadCachedResponse,
+  cacheReadResponse: adminMocks.cacheReadResponse,
 }));
 
 vi.mock('../../connectivity', () => ({
@@ -73,7 +73,7 @@ describe('fetchSystemHealthOfflineAware — offline, no cache', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     goOffline();
-    adminMocks.getCachedAnalyticsResponse.mockResolvedValue(undefined);
+    adminMocks.getReadCachedResponse.mockResolvedValue(undefined);
   });
 
   it('throws when offline with no cached admin data', async () => {
@@ -97,7 +97,7 @@ describe('fetchSystemHealthOfflineAware — online fresh', () => {
 
   it('returns { response, fromCache: false } and writes cache on success', async () => {
     adminMocks.fetchSystemHealth.mockResolvedValue(mockHealth);
-    adminMocks.cacheAnalyticsResponse.mockResolvedValue(undefined);
+    adminMocks.cacheReadResponse.mockResolvedValue(undefined);
 
     const { fetchSystemHealthOfflineAware } = await import('../offlineAdmin');
 
@@ -105,10 +105,11 @@ describe('fetchSystemHealthOfflineAware — online fresh', () => {
 
     expect(result).toEqual({ response: mockHealth, fromCache: false });
     expect(adminMocks.fetchSystemHealth).toHaveBeenCalledTimes(1);
-    expect(adminMocks.cacheAnalyticsResponse).toHaveBeenCalledTimes(1);
-    expect(adminMocks.cacheAnalyticsResponse).toHaveBeenCalledWith(
+    expect(adminMocks.cacheReadResponse).toHaveBeenCalledTimes(1);
+    expect(adminMocks.cacheReadResponse).toHaveBeenCalledWith(
       expect.stringMatching(/^admin:system-health:/),
       mockHealth,
+      expect.any(Number),
     );
   });
 });
@@ -124,10 +125,11 @@ describe('fetchSystemHealthOfflineAware — network error, cached fallback', () 
 
   it('falls back to cache on network error with { response, fromCache: true }', async () => {
     adminMocks.fetchSystemHealth.mockRejectedValue(new TypeError('Failed to fetch'));
-    adminMocks.getCachedAnalyticsResponse.mockResolvedValue({
+    adminMocks.getReadCachedResponse.mockResolvedValue({
       key: 'admin:system-health:',
       data: mockHealth,
       cachedAt,
+      ttlMs: 60_000,
     });
 
     const { fetchSystemHealthOfflineAware } = await import('../offlineAdmin');
@@ -150,12 +152,13 @@ describe('fetchActiveSessionsOfflineAware — 30s TTL', () => {
   it('re-fetches when cache is older than 30s (stale TTL)', async () => {
     goOnline();
     adminMocks.fetchActiveSessions.mockResolvedValue(mockSessions);
-    adminMocks.cacheAnalyticsResponse.mockResolvedValue(undefined);
+    adminMocks.cacheReadResponse.mockResolvedValue(undefined);
     // Cached item exists but is 31 seconds old — beyond 30s TTL
-    adminMocks.getCachedAnalyticsResponse.mockResolvedValue({
+    adminMocks.getReadCachedResponse.mockResolvedValue({
       key: 'admin:active-sessions:',
       data: mockSessions,
       cachedAt: Date.now() - 31_000,
+      ttlMs: 30_000,
     });
 
     const { fetchActiveSessionsOfflineAware } = await import('../offlineAdmin');
@@ -165,16 +168,17 @@ describe('fetchActiveSessionsOfflineAware — 30s TTL', () => {
     // Should have re-fetched online since cache was stale
     expect(result.fromCache).toBe(false);
     expect(adminMocks.fetchActiveSessions).toHaveBeenCalledTimes(1);
-    expect(adminMocks.cacheAnalyticsResponse).toHaveBeenCalledTimes(1);
+    expect(adminMocks.cacheReadResponse).toHaveBeenCalledTimes(1);
   });
 
   it('serves fresh cache when offline and TTL is within 30s', async () => {
     goOffline();
     const cachedAt = Date.now() - 10_000;
-    adminMocks.getCachedAnalyticsResponse.mockResolvedValue({
+    adminMocks.getReadCachedResponse.mockResolvedValue({
       key: 'admin:active-sessions:',
       data: mockSessions,
       cachedAt,
+      ttlMs: 30_000,
     });
 
     const { fetchActiveSessionsOfflineAware } = await import('../offlineAdmin');
@@ -196,25 +200,27 @@ describe('fetchAuditLogsOfflineAware — cache key with params', () => {
 
   it('generates cache key with args for audit logs with params', async () => {
     adminMocks.fetchAuditLogs.mockResolvedValue(mockAuditResponse);
-    adminMocks.cacheAnalyticsResponse.mockResolvedValue(undefined);
+    adminMocks.cacheReadResponse.mockResolvedValue(undefined);
 
     const { fetchAuditLogsOfflineAware } = await import('../offlineAdmin');
 
     await fetchAuditLogsOfflineAware({ limit: 50, offset: 0, q: 'test' });
 
-    expect(adminMocks.cacheAnalyticsResponse).toHaveBeenCalledWith(
+    expect(adminMocks.cacheReadResponse).toHaveBeenCalledWith(
       expect.stringContaining('admin:audit-logs:'),
       mockAuditResponse,
+      expect.any(Number),
     );
   });
 
   it('serves cached audit logs when offline', async () => {
     goOffline();
     const cachedAt = Date.now() - 5_000;
-    adminMocks.getCachedAnalyticsResponse.mockResolvedValue({
+    adminMocks.getReadCachedResponse.mockResolvedValue({
       key: 'admin:audit-logs:{}',
       data: mockAuditResponse,
       cachedAt,
+      ttlMs: 60_000,
     });
 
     const { fetchAuditLogsOfflineAware } = await import('../offlineAdmin');
@@ -236,22 +242,23 @@ describe('fetchSystemMetricsOfflineAware — basic contract', () => {
   it('caches and returns online metrics', async () => {
     goOnline();
     adminMocks.fetchSystemMetrics.mockResolvedValue(mockMetrics);
-    adminMocks.cacheAnalyticsResponse.mockResolvedValue(undefined);
+    adminMocks.cacheReadResponse.mockResolvedValue(undefined);
 
     const { fetchSystemMetricsOfflineAware } = await import('../offlineAdmin');
 
     const result = await fetchSystemMetricsOfflineAware();
 
     expect(result).toEqual({ response: mockMetrics, fromCache: false });
-    expect(adminMocks.cacheAnalyticsResponse).toHaveBeenCalledWith(
+    expect(adminMocks.cacheReadResponse).toHaveBeenCalledWith(
       expect.stringMatching(/^admin:system-metrics:/),
       mockMetrics,
+      expect.any(Number),
     );
   });
 
   it('throws offline without cache', async () => {
     goOffline();
-    adminMocks.getCachedAnalyticsResponse.mockResolvedValue(undefined);
+    adminMocks.getReadCachedResponse.mockResolvedValue(undefined);
 
     const { fetchSystemMetricsOfflineAware } = await import('../offlineAdmin');
 
@@ -271,22 +278,23 @@ describe('fetchWorkerStatusOfflineAware — basic contract', () => {
   it('caches and returns online worker status', async () => {
     goOnline();
     adminMocks.fetchWorkerStatus.mockResolvedValue(mockWorkers);
-    adminMocks.cacheAnalyticsResponse.mockResolvedValue(undefined);
+    adminMocks.cacheReadResponse.mockResolvedValue(undefined);
 
     const { fetchWorkerStatusOfflineAware } = await import('../offlineAdmin');
 
     const result = await fetchWorkerStatusOfflineAware();
 
     expect(result).toEqual({ response: mockWorkers, fromCache: false });
-    expect(adminMocks.cacheAnalyticsResponse).toHaveBeenCalledWith(
+    expect(adminMocks.cacheReadResponse).toHaveBeenCalledWith(
       expect.stringMatching(/^admin:worker-status:/),
       mockWorkers,
+      expect.any(Number),
     );
   });
 
   it('throws offline without cache', async () => {
     goOffline();
-    adminMocks.getCachedAnalyticsResponse.mockResolvedValue(undefined);
+    adminMocks.getReadCachedResponse.mockResolvedValue(undefined);
 
     const { fetchWorkerStatusOfflineAware } = await import('../offlineAdmin');
 

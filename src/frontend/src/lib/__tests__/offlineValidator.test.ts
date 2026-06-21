@@ -35,8 +35,8 @@ const offlineStoreMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../offlineStore', () => ({
-  cacheAnalyticsResponse: vi.fn(),
-  getCachedAnalyticsResponse: vi.fn(),
+  cacheReadResponse: vi.fn(),
+  getReadCachedResponse: vi.fn(),
   queueIncident: offlineStoreMocks.queueIncident,
 }));
 

@@ -2,12 +2,13 @@ import { openDB, IDBPDatabase } from 'idb';
 import { validateOfflinePayload } from './validation/offlineIncident';
 
 const DB_NAME = 'wims-bfp-db';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const STORE_NAME = 'incident-queue';      // legacy — Phase 1A compat
 const KEY_STORE = 'crypto-keys';
 const OPS_STORE = 'offlineOps';           // Phase 1B+
 const CACHE_STORE = 'cachedIncidents';    // Phase 1D+
-const ANALYTICS_STORE = 'analytics-cache'; // PR #272 offline read cache
+const READ_CACHE_STORE = 'analytics-cache'; // PR #272 offline read cache (renamed from ANALYTICS_STORE; same on-disk store)
+const REFERENCE_STORE = 'reference-cache'; // v6 — unencrypted, per-user-namespaced reference data cache
 const PUBLIC_OPS_STORE = 'publicOfflineOps'; // v5 — civilian anonymous offline submission queue
 
 // ─── Legacy types (incident-queue) ────────────────────────────────────────
@@ -52,16 +53,52 @@ interface EncryptedPayload {
     data: number[];
 }
 
-interface CachedAnalyticsRecord {
+interface CachedReadRecord {
     key: string;
     encrypted: EncryptedPayload;
     cachedAt: number;
+    ttlMs: number;
 }
 
-export interface CachedAnalyticsResponse<T = unknown> {
+interface CachedReferenceRecord {
+    key: string;
+    data: unknown;
+    cachedAt: number;
+    ttlMs: number;
+}
+
+/**
+ * Generic cached response returned by getReadCachedResponse and
+ * getCachedReferenceData. `ttlMs` is the per-record TTL set at write time
+ * so eviction can prune by the record's own expiry (pushback P3) instead
+ * of a single shared cutoff. `CachedAnalyticsResponse` is retained as an
+ * alias so existing call sites that import the old type name still compile.
+ */
+export interface CachedResponse<T = unknown> {
     key: string;
     data: T;
     cachedAt: number;
+    ttlMs: number;
+}
+
+/** @deprecated kept as alias of CachedResponse for back-compat. */
+export type CachedAnalyticsResponse<T = unknown> = CachedResponse<T>;
+
+/**
+ * Back-compat default TTL applied to records missing `ttlMs` (pre-v3
+ * writes). Longest sensible wrapper TTL so they aren't wrongly evicted
+ * before the next online refresh overwrites them with a ttlMs-bearing
+ * record. Defined here so the helper used by both read-cache and ref
+ * stores stays in one place.
+ */
+const DEFAULT_LEGACY_TTL_MS = 30 * 60 * 1000;
+
+/** Cap a single eviction pass to avoid long-running IDB transactions. */
+const EVICTION_MAX_DELETES_PER_PASS = 500;
+
+/** Escape a string so it can be safely embedded in a RegExp. */
+function escapeRegex(input: string): string {
+    return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 interface QueuedRecord {
@@ -142,11 +179,15 @@ async function getDB(): Promise<IDBPDatabase> {
                 }
             }
             // v4: PR #272 analytics/admin/validator encrypted read cache. Separate
-            // version because both branches used v3 for different stores.
+            // version because both branches used v3 for different stores. The
+            // on-disk store name is the legacy `analytics-cache` for
+            // back-compat with existing client databases — exposed as
+            // READ_CACHE_STORE to signal the generic role (encrypted, per-user
+            // crypto-isolated read cache for analytics/admin/validator).
             if (oldVersion < 4) {
-                if (!db.objectStoreNames.contains(ANALYTICS_STORE)) {
-                    const analyticsStore = db.createObjectStore(ANALYTICS_STORE, { keyPath: 'key' });
-                    analyticsStore.createIndex('by_cachedAt', 'cachedAt');
+                if (!db.objectStoreNames.contains(READ_CACHE_STORE)) {
+                    const readCacheStore = db.createObjectStore(READ_CACHE_STORE, { keyPath: 'key' });
+                    readCacheStore.createIndex('by_cachedAt', 'cachedAt');
                 }
             }
             // v5: civilian anonymous offline submission queue. Plaintext by design
@@ -159,6 +200,16 @@ async function getDB(): Promise<IDBPDatabase> {
                     publicOpsStore.createIndex('by_deviceId', 'deviceId');
                     publicOpsStore.createIndex('by_status', 'status');
                     publicOpsStore.createIndex('by_createdAt', 'createdAt');
+                }
+            }
+            // v6: unencrypted per-user-namespaced reference data cache. Created
+            // here ONLY — existing stores (READ_CACHE_STORE, OPS_STORE,
+            // CACHE_STORE, PUBLIC_OPS_STORE, KEY_STORE, STORE_NAME) MUST NOT be
+            // dropped or recreated; their data persists across the upgrade.
+            if (oldVersion < 6) {
+                if (!db.objectStoreNames.contains(REFERENCE_STORE)) {
+                    const refStore = db.createObjectStore(REFERENCE_STORE, { keyPath: 'key' });
+                    refStore.createIndex('by_cachedAt', 'cachedAt');
                 }
             }
         },
@@ -272,6 +323,20 @@ export async function setActiveOfflineUser(userId: string): Promise<void> {
 
     if (prev && prev !== userId) {
         await wipeAllOfflineData();
+        // On user-switch, also clear the prior user's plaintext reference
+        // cache (pushback P1). Best-effort: a failure here must not block
+        // the new user from binding. Swallow + warn so operators have a
+        // signal without crashing login.
+        try {
+            await clearReferenceDataForUser(prev);
+        } catch (err) {
+            if (typeof console !== 'undefined') {
+                console.warn(
+                    `[offlineStore] Failed to clear reference cache for prior user ${prev}:`,
+                    err,
+                );
+            }
+        }
     } else if (!prev) {
         // First run under per-user keying: adopt any legacy single key so this
         // user's existing offline work isn't orphaned by the upgrade.
@@ -456,38 +521,183 @@ export async function clearSynced() {
     await tx.done;
 }
 
-export async function cacheAnalyticsResponse<T = unknown>(
+export async function cacheReadResponse<T = unknown>(
     key: string,
     data: T,
-    cachedAt = Date.now()
+    ttlMs: number,
+    cachedAt: number = Date.now()
 ): Promise<void> {
     const db = await getDB();
     const encrypted = await encryptPayload(data);
-    const record: CachedAnalyticsRecord = {
+    const record: CachedReadRecord = {
         key,
         encrypted,
         cachedAt,
+        ttlMs,
     };
-    await db.put(ANALYTICS_STORE, record);
+    await db.put(READ_CACHE_STORE, record);
 }
 
-export async function getCachedAnalyticsResponse<T = unknown>(
+export async function getReadCachedResponse<T = unknown>(
     key: string
-): Promise<CachedAnalyticsResponse<T> | undefined> {
+): Promise<CachedResponse<T> | undefined> {
     const db = await getDB();
-    const item: CachedAnalyticsRecord | undefined = await db.get(ANALYTICS_STORE, key);
+    const item: CachedReadRecord | undefined = await db.get(READ_CACHE_STORE, key);
     if (!item) return undefined;
     const data = await decryptPayload<T>(item.encrypted);
     return {
         key: item.key,
         data,
         cachedAt: item.cachedAt,
+        ttlMs: item.ttlMs,
     };
 }
 
 export async function clearAnalyticsCache(): Promise<void> {
     const db = await getDB();
-    await db.clear(ANALYTICS_STORE);
+    await db.clear(READ_CACHE_STORE);
+}
+
+// ─── Reference data store (unencrypted, per-user-namespaced) ─────────────
+
+/**
+ * Write a plaintext reference entry. The caller MUST bake the active
+ * userId into the key (e.g. `reference:{userId}:regions`) because the
+ * REFERENCE_STORE is unencrypted and is not isolated by the per-user
+ * crypto key like READ_CACHE_STORE is. `ttlMs` is stored on the record
+ * (typically 7 days) so per-record eviction prunes by each entry's own
+ * expiry instead of a shared cutoff.
+ */
+export async function cacheReferenceData<T = unknown>(
+    key: string,
+    data: T,
+    ttlMs: number,
+    cachedAt: number = Date.now()
+): Promise<void> {
+    const db = await getDB();
+    const record: CachedReferenceRecord = {
+        key,
+        data,
+        cachedAt,
+        ttlMs,
+    };
+    await db.put(REFERENCE_STORE, record);
+}
+
+/**
+ * Read a plaintext reference entry. Returns undefined when the key is
+ * absent. The returned `ttlMs` reflects what was set on write so
+ * freshness checks at the call site can use the record's own window.
+ */
+export async function getCachedReferenceData<T = unknown>(
+    key: string
+): Promise<CachedResponse<T> | undefined> {
+    const db = await getDB();
+    const item: CachedReferenceRecord | undefined = await db.get(REFERENCE_STORE, key);
+    if (!item) return undefined;
+    return {
+        key: item.key,
+        data: item.data as T,
+        cachedAt: item.cachedAt,
+        ttlMs: item.ttlMs,
+    };
+}
+
+// ─── Eviction ───────────────────────────────────────────────────────────
+
+/**
+ * Prune READ_CACHE_STORE records whose own `ttlMs` has elapsed
+ * (cachedAt + ttlMs < now). Records missing `ttlMs` fall back to
+ * DEFAULT_LEGACY_TTL_MS so pre-v3 writes are not wrongly evicted before
+ * the next online refresh overwrites them. Capped at
+ * EVICTION_MAX_DELETES_PER_PASS per call to avoid long IDB transactions;
+ * the caller can re-invoke to drain large backlogs. Best-effort: store
+ * open failure is logged + swallowed, never thrown to the caller.
+ *
+ * @returns the number of records deleted.
+ */
+export async function evictExpiredReadCache(): Promise<number> {
+    return _evictExpiredStore(READ_CACHE_STORE);
+}
+
+/**
+ * Reference-store counterpart of `evictExpiredReadCache`. Same per-record
+ * `ttlMs` semantics, same per-pass cap, same best-effort behaviour.
+ *
+ * @returns the number of records deleted.
+ */
+export async function evictExpiredReferenceData(): Promise<number> {
+    return _evictExpiredStore(REFERENCE_STORE);
+}
+
+async function _evictExpiredStore(storeName: string): Promise<number> {
+    try {
+        const db = await getDB();
+        const now = Date.now();
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        let cursor = await store.openCursor();
+        let deleted = 0;
+        while (cursor) {
+            const value = cursor.value as { cachedAt?: number; ttlMs?: number };
+            const cachedAt = value.cachedAt ?? 0;
+            const ttlMs = value.ttlMs ?? DEFAULT_LEGACY_TTL_MS;
+            if (cachedAt + ttlMs < now) {
+                await cursor.delete();
+                deleted += 1;
+                if (deleted >= EVICTION_MAX_DELETES_PER_PASS) break;
+            }
+            cursor = await cursor.continue();
+        }
+        await tx.done;
+        return deleted;
+    } catch (err) {
+        if (typeof console !== 'undefined') {
+            console.warn(
+                `[offlineStore] evictExpiredStore(${storeName}) failed:`,
+                err,
+            );
+        }
+        return 0;
+    }
+}
+
+/**
+ * Delete every REFERENCE_STORE entry whose key starts with
+ * `reference:{userId}:`. Used by the user-switch path so plaintext
+ * per-user RLS-scoped reference data does not survive a logout.
+ *
+ * @returns the number of records deleted.
+ */
+export async function clearReferenceDataForUser(userId: string): Promise<number> {
+    if (!userId) return 0;
+    const prefix = `reference:${userId}:`;
+    const pattern = new RegExp('^' + escapeRegex(prefix));
+    try {
+        const db = await getDB();
+        const tx = db.transaction(REFERENCE_STORE, 'readwrite');
+        const store = tx.objectStore(REFERENCE_STORE);
+        let cursor = await store.openCursor();
+        let deleted = 0;
+        while (cursor) {
+            const value = cursor.value as { key?: string };
+            if (typeof value.key === 'string' && pattern.test(value.key)) {
+                await cursor.delete();
+                deleted += 1;
+            }
+            cursor = await cursor.continue();
+        }
+        await tx.done;
+        return deleted;
+    } catch (err) {
+        if (typeof console !== 'undefined') {
+            console.warn(
+                `[offlineStore] clearReferenceDataForUser(${userId}) failed:`,
+                err,
+            );
+        }
+        return 0;
+    }
 }
 
 // ─── Offline Operations API (offlineOps) — Phase 1B+ ─────────────────────

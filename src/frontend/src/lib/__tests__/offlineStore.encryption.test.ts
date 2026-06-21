@@ -163,8 +163,8 @@ const {
   getDraftOps,
   cacheIncident,
   getCachedIncident,
-  cacheAnalyticsResponse,
-  getCachedAnalyticsResponse,
+  cacheReadResponse,
+  getReadCachedResponse,
   updateQueuedIncident,
   updateOfflineOp,
   setActiveOfflineUser,
@@ -351,8 +351,8 @@ describe('encryption at rest — analytics cache', () => {
     await setActiveOfflineUser(ENCODER_ID);
   });
 
-  it('encrypts data on cacheAnalyticsResponse', async () => {
-    await cacheAnalyticsResponse('heatmap:ncr', { geometry: 'GeoJSON', count: 100 });
+  it('encrypts data on cacheReadResponse', async () => {
+    await cacheReadResponse('heatmap:ncr', { geometry: 'GeoJSON', count: 100 }, 60_000);
 
     const raw = analyticsCacheStore.get('heatmap:ncr')!;
     const enc = raw.encrypted as { iv: number[]; data: number[] };
@@ -363,12 +363,19 @@ describe('encryption at rest — analytics cache', () => {
     expect(rawJson.includes('GeoJSON')).toBe(false);
   });
 
-  it('decrypts data on getCachedAnalyticsResponse', async () => {
+  it('decrypts data on getReadCachedResponse', async () => {
     const original = { items: [{ name: 'Manila' }, { name: 'Quezon City' }] };
-    await cacheAnalyticsResponse('topbarangays', original);
+    await cacheReadResponse('topbarangays', original, 60_000);
 
-    const cached = await getCachedAnalyticsResponse<typeof original>('topbarangays');
+    const cached = await getReadCachedResponse<typeof original>('topbarangays');
     expect(cached!.data).toEqual(original);
+  });
+
+  it('stores per-record ttlMs on cacheReadResponse records (pushback P3)', async () => {
+    const ttl = 60_000;
+    await cacheReadResponse('admin:system-health', { ok: true }, ttl);
+    const got = await getReadCachedResponse<{ ok: boolean }>('admin:system-health');
+    expect(got?.ttlMs).toBe(ttl);
   });
 });
 
@@ -408,11 +415,11 @@ describe('unique IV per encryption', () => {
     expect(iv1).not.toBe(iv2);
   });
 
-  it('produces unique IV for repeated cacheAnalyticsResponse calls', async () => {
-    await cacheAnalyticsResponse('same-key', { data: 1 });
+  it('produces unique IV for repeated cacheReadResponse calls', async () => {
+    await cacheReadResponse('same-key', { data: 1 }, 60_000);
     const iv1 = Buffer.from((analyticsCacheStore.get('same-key')!.encrypted as { iv: number[] }).iv).toString('hex');
 
-    await cacheAnalyticsResponse('same-key', { data: 2 });
+    await cacheReadResponse('same-key', { data: 2 }, 60_000);
     const iv2 = Buffer.from((analyticsCacheStore.get('same-key')!.encrypted as { iv: number[] }).iv).toString('hex');
 
     expect(iv1).not.toBe(iv2);

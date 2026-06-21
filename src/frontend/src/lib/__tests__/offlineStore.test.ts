@@ -22,7 +22,7 @@ if (!globalThis.crypto) {
 
 // ─── Constants matching offlineStore.ts ──────────────────────────────────────
 const DB_NAME = 'wims-bfp-db';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const STORE_NAME = 'incident-queue';
 
 // ─── Local type for raw IndexedDB records (not exported from offlineStore.ts) ─
