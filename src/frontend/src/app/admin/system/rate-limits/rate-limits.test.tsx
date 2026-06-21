@@ -33,13 +33,22 @@ vi.mock('@/context/AuthContext', () => ({
   useAuth: () => mockUseAuth(),
 }));
 
+vi.mock('@/lib/useNetworkStatus', () => ({
+  useNetworkStatus: () => ({ isOnline: true, isChecking: false, isReconnecting: false, state: 'online' }),
+}));
+
 const mockFetchRateLimits = vi.fn();
 const mockUpdateRateLimits = vi.fn();
+const mockFetchRateLimitsOfflineAware = vi.fn();
 
 vi.mock('@/lib/api/legacy', () => ({
   fetchRateLimits: () => mockFetchRateLimits(),
   updateRateLimits: (tier: string, limit: number, window: number) =>
     mockUpdateRateLimits(tier, limit, window),
+}));
+
+vi.mock('@/lib/api/offlineAdmin', () => ({
+  fetchRateLimitsOfflineAware: () => mockFetchRateLimitsOfflineAware(),
 }));
 
 function mockAdminUser() {
@@ -62,6 +71,12 @@ describe('RateLimitsPage — loading', () => {
     mockReplace.mockReset();
     mockAdminUser();
     mockFetchRateLimits.mockResolvedValue(DEFAULT_CONFIG);
+    // Default online mock — delegates to legacy so existing tests pass.
+    // The T11 test overrides to return fromCache=true.
+    mockFetchRateLimitsOfflineAware.mockImplementation(async () => ({
+      response: await mockFetchRateLimits(),
+      fromCache: false,
+    }));
   });
 
   afterEach(() => {
@@ -249,6 +264,42 @@ describe('RateLimitsPage — error and edge cases', () => {
 
     await waitFor(() => {
       expect(mockReplace).toHaveBeenCalledWith('/admin/system');
+    });
+  });
+});
+
+// ── T11: offline-aware read cache (T11 rewire) ──────────────────────────────
+
+describe('RateLimitsPage — offline-aware read caching (T11)', () => {
+  beforeEach(() => {
+    mockReplace.mockReset();
+    mockAdminUser();
+    mockFetchRateLimits.mockResolvedValue(DEFAULT_CONFIG);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it('renders StaleCacheBanner when offline-aware wrapper returns fromCache=true', async () => {
+    const cachedAt = Date.now() - 60_000;
+    mockFetchRateLimitsOfflineAware.mockResolvedValue({
+      response: DEFAULT_CONFIG,
+      fromCache: true,
+      cachedAt,
+    });
+
+    render(<RateLimitsPage />);
+
+    await waitFor(() => {
+      expect(mockFetchRateLimitsOfflineAware).toHaveBeenCalled();
+    });
+    // Stale cache banner should be visible
+    expect(screen.getByText(/Showing cached data/i)).toBeInTheDocument();
+    // Underlying data should still render from the cached response
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('5')).toBeInTheDocument();
     });
   });
 });
