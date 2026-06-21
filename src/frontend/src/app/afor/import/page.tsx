@@ -673,6 +673,12 @@ function AforImportPage() {
       return;
     }
 
+    // Block Wildland AFOR commit — dedicated import is deprecated/out of scope
+    if (previewData.form_kind === 'WILDLAND_AFOR') {
+      setError('Dedicated Wildland AFOR import is deprecated/out of scope. Encode wildland incidents through Manual Entry.');
+      return;
+    }
+
     // Offline check: use verified app reachability, not navigator.onLine.
     if (isOffline) {
       setIsCommitting(true);

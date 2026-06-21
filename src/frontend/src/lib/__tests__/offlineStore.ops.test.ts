@@ -29,13 +29,17 @@ type StoredOp = {
 const opsStore = new Map<string, StoredOp>();
 const keyStore = new Map<string, CryptoKey>();
 const cacheStore = new Map<number, unknown>();
+// Legacy 'incident-queue' store (Phase 1A). queueIncident() writes here.
+// F1 asserts that a cross-account switch also clears this store.
+const legacyStore = new Map<number, unknown>();
 
 function makeOpsDbMock() {
   return {
-    // key-value get (used for crypto-keys and direct op lookup)
-    get: vi.fn(async (storeName: string, key: string) => {
-      if (storeName === 'crypto-keys') return keyStore.get(key);
-      return opsStore.get(key);
+    // key-value get (used for crypto-keys, direct op lookup, and legacy queue rows)
+    get: vi.fn(async (storeName: string, key: string | number) => {
+      if (storeName === 'crypto-keys') return keyStore.get(key as string);
+      if (storeName === 'incident-queue') return legacyStore.get(key as number);
+      return opsStore.get(key as string);
     }),
     put: vi.fn(async (storeName: string, value: StoredOp | CryptoKey, optKey?: string) => {
       if (storeName === 'crypto-keys') {
@@ -44,8 +48,22 @@ function makeOpsDbMock() {
         opsStore.set((value as StoredOp).localId, value as StoredOp);
       }
     }),
-    delete: vi.fn(async (_storeName: string, key: string) => {
-      opsStore.delete(key);
+    // queueIncident() uses db.add(STORE_NAME, ...). Real idb auto-assigns the
+    // numeric key when the store was created with { keyPath: 'id', autoIncrement: true }.
+    add: vi.fn(async (storeName: string, value: { id?: number; [k: string]: unknown }) => {
+      if (storeName === 'incident-queue') {
+        const id = (legacyStore.size || 0) + 1;
+        legacyStore.set(id, { ...value, id });
+        return id;
+      }
+      throw new Error(`mock add: unhandled store ${storeName}`);
+    }),
+    delete: vi.fn(async (storeName: string, key: string | number) => {
+      if (storeName === 'incident-queue') {
+        legacyStore.delete(key as number);
+        return;
+      }
+      opsStore.delete(key as string);
     }),
     // Index-based scan used by recoverStaleSyncingOps, getPendingOps, etc.
     getAllFromIndex: vi.fn(async (_storeName: string, _indexName: string, query: string) => {
@@ -67,12 +85,14 @@ function makeOpsDbMock() {
     getAll: vi.fn(async (storeName?: string) => {
       if (storeName === 'offlineOps') return [...opsStore.values()];
       if (storeName === 'cachedIncidents') return [...cacheStore.values()];
+      if (storeName === 'incident-queue') return [...legacyStore.values()];
       return [];
     }),
     clear: vi.fn(async (storeName: string) => {
       if (storeName === 'offlineOps') opsStore.clear();
       else if (storeName === 'cachedIncidents') cacheStore.clear();
       else if (storeName === 'crypto-keys') keyStore.clear();
+      else if (storeName === 'incident-queue') legacyStore.clear();
     }),
   };
 }
@@ -86,13 +106,13 @@ const {
   deleteOfflineOpCascade,
   recoverStaleSyncingOps,
   resolveConflictOp,
-  resetFailedOp,
   updateOfflineOp,
   queueOfflineOp,
   getOfflineOp,
   setActiveOfflineUser,
   markOpFailed,
   getFailedOps,
+  queueIncident,
 } = await import('../offlineStore');
 
 const ENCODER_ID = 'enc-001';
@@ -122,6 +142,7 @@ beforeEach(() => {
   opsStore.clear();
   keyStore.clear();
   cacheStore.clear();
+  legacyStore.clear();
   try { localStorage.clear(); } catch { /* jsdom */ }
   vi.clearAllMocks();
 });
@@ -362,6 +383,28 @@ describe('per-user isolation (F12)', () => {
 
     await setActiveOfflineUser('user-A'); // same uid → no wipe
     expect(opsStore.size).toBe(1);
+  });
+
+  // ─── F1: cross-account switch must also clear the legacy 'incident-queue' ──
+  // wipeAllOfflineData() historically cleared only offlineOps / cachedIncidents /
+  // crypto-keys, leaving the Phase 1A 'incident-queue' store behind. A new
+  // account logging in on the same device would therefore still see the prior
+  // user's pending legacy rows on disk. The store must be cleared atomically
+  // with the rest of the cross-account wipe.
+  //
+  // Note: the assertion inspects the raw legacyStore directly. After a
+  // cross-account switch the key has rotated, so decrypting the prior user's
+  // ciphertext with the new key would AES-fail and mask the real regression.
+  // The behaviour under test is wipe coverage, not decryptability of wiped data.
+  it('F1: clears legacy incident-queue when a different uid logs in', async () => {
+    await setActiveOfflineUser('user-A');
+    await queueIncident({ description: 'Legacy pending fire report' });
+    expect(legacyStore.size).toBe(1);
+
+    // A different account logs in on the same device → prior data destroyed.
+    await setActiveOfflineUser('user-B');
+
+    expect(legacyStore.size).toBe(0);
   });
 });
 

@@ -29,6 +29,7 @@ export interface VerifyPayload {
 export interface ArchiveActionPayload {
     incident_id: number;
     action: 'archive' | 'unarchive';
+    scope?: 'validator' | 'encoder';
 }
 
 export interface QueueIncidentOptions {
@@ -236,12 +237,16 @@ async function getOrCreateKey(): Promise<CryptoKey> {
  * Destroy ALL offline state on this device — every queued op, cached incident,
  * and stored crypto key. Used when a different account logs in so the prior
  * user's encrypted data cannot be carried over or decrypted.
+ *
+ * Also clears the legacy Phase 1A 'incident-queue' store (item F1) so the
+ * prior user's pre-Phase 1B queued incidents cannot be carried over.
  */
 async function wipeAllOfflineData(): Promise<void> {
     const db = await getDB();
     await db.clear(OPS_STORE);
     await db.clear(CACHE_STORE);
     await db.clear(KEY_STORE);
+    await db.clear(STORE_NAME);
     saltCache = null;
 }
 

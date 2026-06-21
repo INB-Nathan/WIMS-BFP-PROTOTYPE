@@ -47,7 +47,8 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 - Summary category cards aggregate legacy/current category aliases, including `VEHICULAR` + `TRANSPORTATION`, so counts match incident rows after backend category normalization.
 - Empty state: centered "No incidents found" guidance with a BFP-red "Search All Time" button that switches the list date filter to All Time.
 - Rows/cards are keyboard-focusable/clickable; a delayed floating "Click to view" bubble appears after hover and disappears on mouse movement or leave instead of using permanent Open text/actions. Archive-view rows/cards now open the same incident detail route instead of 404ing, because archived records are allowed through the role-scoped detail query.
-- Pending offline create ops render as the same rich incident cards with `PENDING_SYNC` status and open the standard `/dashboard/regional/incidents/{localId}` detail route. The detail page reconstructs a normal read-only incident view from the encrypted offline op without fetching the server, only switches into the shared `IncidentForm` when the encoder clicks Edit, and deletes local pending creates with `deleteOfflineOpCascade(localId)` so linked queued work is removed with the create.
+- Pending offline create ops render as the same rich incident cards with `PENDING_SYNC` status and open the standard `/dashboard/regional/incidents/{localId}` detail route. The detail page reconstructs a normal read-only incident view from the encrypted offline op without fetching the server, only switches into the shared `IncidentForm` when the encoder clicks Edit, and deletes local pending creates with `deleteOfflineOpCascade(localId)` so linked queued work is removed with the create. `IncidentForm.offline.test.tsx` covers Save as Draft queueing one `create` op and Submit for Review queueing a linked `submit` op.
+- Encoder archive/unarchive actions are offline-aware: verified incident archive/unarchive requests use `offlineRegionalActions.ts`, queue an `archive_action` with `scope: 'encoder'` when offline or on network failure, and replay through the encoder archive endpoints on reconnect.
 - Rejected workload UX: the alert is dismissible, its "Show rejected" action clears classification/date filters and switches date scope to All Time, and the Rejected status chip carries a red count badge. When switching away from Rejected or Drafts, an inherited All Time date scope is reset to Today so broad date ranges do not leak into normal workload views.
 
 **Wildland Fire Classifications** — conditionally rendered when `stats.wildland_total > 0`:
@@ -63,6 +64,8 @@ The page title now displays "Dashboard" in the role workspace, while the sidebar
 ### Manual Entry / Import Review Navigation
 
 `src/frontend/src/components/SectionDotNav.tsx` provides reusable fixed right-side dot navigation with scroll-spy labels and smooth-scroll click behavior. It is used by `IncidentForm.tsx` for manual entry/edit mode and `/afor/import` for structural AFOR upload, map pin, summary, and data-preview workflow sections. The former dedicated wildland AFOR manual/import-correction form is deprecated; wildland remains a standard incident category/sub-category.
+
+Dedicated Wildland AFOR import is now explicitly out of implementation scope. If a `WILDLAND_AFOR` preview reaches `/afor/import` commit, the page blocks the commit with a deprecation/out-of-scope message and keeps the preview in place; encoders should encode wildland incidents through Manual Entry using the normal wildland category/sub-category fields.
 
 ### Manual Entry Draft Restore
 

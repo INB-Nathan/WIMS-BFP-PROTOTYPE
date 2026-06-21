@@ -9,6 +9,10 @@ import {
 } from 'lucide-react';
 import { apiFetch, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
 import { fetchRegionalIncidentsOfflineAware } from '@/lib/api/offlineRegional';
+import {
+  archiveEncoderIncidentOfflineAware,
+  unarchiveEncoderIncidentOfflineAware,
+} from '@/lib/api/offlineRegionalActions';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { getConnectivitySnapshot } from '@/lib/connectivity';
 import { getPendingOps, getCachedIncidents, type OfflineOpDecrypted } from '@/lib/offlineStore';
@@ -357,11 +361,20 @@ export default function RegionalDashboardPage() {
     setPageIndex(0);
   });
 
+  const encoderArchiveContext = () => ({
+    encoderId: user?.id ?? '',
+    regionId: Number((user as { assignedRegionId?: number | string | null })?.assignedRegionId ?? 0),
+  });
+
   const doEncoderArchive = async (incidentId: number, e: MouseEvent) => {
     e.stopPropagation();
     setArchiveError(null);
     try {
-      await apiFetch(`/regional/incidents/${incidentId}/archive`, { method: 'PATCH' });
+      const result = await archiveEncoderIncidentOfflineAware(incidentId, encoderArchiveContext());
+      if (result.queued) {
+        setArchiveError('Archive queued — it will sync when you reconnect.');
+        return;
+      }
       await loadIncidents();
     } catch (err: unknown) {
       setArchiveError(err instanceof Error ? err.message : 'Archive failed');
@@ -372,7 +385,11 @@ export default function RegionalDashboardPage() {
     e.stopPropagation();
     setArchiveError(null);
     try {
-      await apiFetch(`/regional/incidents/${incidentId}/unarchive`, { method: 'PATCH' });
+      const result = await unarchiveEncoderIncidentOfflineAware(incidentId, encoderArchiveContext());
+      if (result.queued) {
+        setArchiveError('Unarchive queued — it will sync when you reconnect.');
+        return;
+      }
       await loadIncidents();
     } catch (err: unknown) {
       setArchiveError(err instanceof Error ? err.message : 'Unarchive failed');

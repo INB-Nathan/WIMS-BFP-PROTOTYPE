@@ -316,9 +316,12 @@ async function processArchiveAction(
   op: OfflineOpDecrypted
 ): Promise<{ ok: boolean; conflictCode?: string; status?: number; error?: string }> {
   const payload = op.payload as unknown as ArchiveActionPayload;
+  const endpointBase = payload.scope === 'encoder'
+    ? `/api/regional/incidents/${payload.incident_id}`
+    : `/api/regional/validator/incidents/${payload.incident_id}`;
   const endpoint = payload.action === 'archive'
-    ? `/api/regional/validator/incidents/${payload.incident_id}/archive`
-    : `/api/regional/validator/incidents/${payload.incident_id}/unarchive`;
+    ? `${endpointBase}/archive`
+    : `${endpointBase}/unarchive`;
   const res = await apiFetch(endpoint, {
     method: 'PATCH',
     body: JSON.stringify({ client_id: op.localId }),

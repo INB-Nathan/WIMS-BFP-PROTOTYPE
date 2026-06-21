@@ -1,3 +1,53 @@
+## [2026-06-21] test(offline): IncidentForm offline create and submit coverage
+
+- **Tests (`src/frontend/src/components/__tests__/IncidentForm.offline.test.tsx`):** added render-level coverage for encoder manual-entry offline behavior. Save as Draft queues one `create` offline op and redirects to `/dashboard/regional`; Submit for Review queues a `create` op plus linked `submit` op for ordered replay by the sync engine.
+- **Validation:** `npx vitest run src/components/__tests__/IncidentForm.offline.test.tsx` passed (2/2); `npx eslint src/components/__tests__/IncidentForm.offline.test.tsx` passed; combined F2/F4 offline suite passed (45/45).
+- **Wiki:** updated `system-wiki/architecture/pwa-tests-cicd.md`, `system-wiki/subsystems/regional-dashboard.md`, `system-wiki/index.md`, and this log.
+
+## [2026-06-21] feat(offline): encoder archive/unarchive offline queueing
+
+- **Fix (`src/frontend/src/lib/api/offlineRegionalActions.ts`):** added encoder archive/unarchive offline-aware wrappers. If the encoder is offline or a request fails with a network error, the action queues an `archive_action` offline op with `scope: 'encoder'`, `serverId`, encoder id, and region id.
+- **Fix (`src/frontend/src/lib/syncEngine.ts`):** scoped archive actions now route `scope: 'encoder'` to `/api/regional/incidents/{id}/archive|unarchive`, while existing validator archive actions continue using `/api/regional/validator/incidents/{id}/archive|unarchive`.
+- **Fix (`src/frontend/src/app/dashboard/regional/page.tsx`):** regional dashboard archive/unarchive handlers now use the offline-aware wrappers and show queued-action copy instead of surfacing a raw network failure.
+- **Tests:** added `offlineRegionalActions.test.ts` for offline queue and network-fallback queue behavior, and extended `syncEngine.test.ts` with encoder archive/unarchive endpoint dispatch tests.
+- **Validation:** `npx vitest run src/lib/__tests__/syncEngine.test.ts src/lib/__tests__/offlineRegionalActions.test.ts` passed (43/43); combined offline-first targeted suite passed (78/78); targeted ESLint passed with no output.
+- **Wiki:** updated `system-wiki/architecture/pwa-tests-cicd.md`, `system-wiki/subsystems/regional-dashboard.md`, `system-wiki/index.md`, and this log.
+
+## [2026-06-21] fix(offline): encoder offline-store wipe + AFOR wildland deprecation guard
+
+- **Fix (`src/frontend/src/lib/offlineStore.ts`):** cross-account offline-data wipe now clears the legacy Phase 1A `incident-queue` store in addition to `offlineOps`, `cachedIncidents`, and `crypto-keys`, preventing prior-user legacy queued ciphertext from remaining on shared devices after another encoder logs in.
+- **Tests (`offlineStore.ops.test.ts`):** added a RED→GREEN regression test that seeds the legacy queue for user A, switches to user B, and asserts the legacy queue is cleared.
+- **Tests (`offlineRegional.test.ts`):** added cached regional list fallback coverage for status, category, combined status/category, date range, archived/non-archived views, empty matches, newest `cachedAt`, and no online API calls while offline.
+- **Product decision (`/afor/import`):** dedicated Wildland AFOR import is deprecated/out of implementation scope. The import page now blocks `WILDLAND_AFOR` commit attempts with explicit deprecation/out-of-scope copy while preserving the preview; normal wildland category/sub-category manual incident entry remains supported.
+- **Validation:** targeted Vitest passed for offlineStore/offlineRegional/AFOR import tests (60/60 then 35/35 after lint cleanup). Targeted ESLint on changed frontend files passed with no output.
+- **Wiki:** updated `system-wiki/architecture/pwa-tests-cicd.md` and `system-wiki/subsystems/regional-dashboard.md`.
+
+## [2026-06-21] feat(triage): singleton clusters for all active reports + REJECTED_* only on singletons
+
+- **Problem**: isolated individual reports (no nearby reports within 100m/1hr)
+  had no `cluster_id` in the triage queue, so validators could not apply any
+  terminal action (no cluster to target). The UI showed "Claimable terminal
+  actions require a durable cluster" with no actionable path.
+- **Fix (queue_projection.py)**: removed the `groupable` CTE filter that
+  restricted durable cluster creation to reports with spatial neighbors.
+  Every active non-terminal report now gets a `CLUSTER_MONITORING` cluster
+  and a `citizen_report_cluster_members` row, so all reports have a
+  claimable cluster_id.
+- **Fix (policies.py)**: added `SINGLETON_TERMINAL_STATUSES` constant
+  (= `TERMINAL_REPORT_STATUSES - {"ACTIONED"}`) and
+  `validate_singleton_terminal_status()` that rejects ACTIONED when
+  `member_count <= 1`.
+- **Fix (workflow.py)**: `apply_terminal_action_command` now counts cluster
+  members before applying and calls `validate_singleton_terminal_status()`,
+  so ACTIONED on a singleton cluster returns 422 with a clear message.
+- **Fix (page.tsx)**: frontend now splits queue by `member_count` (> 1 =
+  Clusters, <= 1 = Individual Reports). In singleton inspection mode, the
+  terminal action dropdown shows only REJECTED_* options with a note saying
+  ACTIONED requires corroborating reports. Removed the old "cluster required"
+  guard message.
+- **Wiki**: updated `system-wiki/subsystems/civilian-reporting-phase2.md`
+  cluster discovery section and terminal-action docs.
+
 ## [2026-06-21] fix(admin): move HITL admin-email query before db.commit() + wrap Celery dispatch in try/except
 
 - **Symptom (user-reported on VPS):** admin clicks the suricata threat

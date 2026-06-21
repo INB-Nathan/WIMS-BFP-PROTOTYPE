@@ -1,7 +1,7 @@
 ---
 title: PWA/Offline-First, Tests & CI/CD
 created: 2026-05-16
-updated: 2026-06-14
+updated: 2026-06-21
 type: architecture
 tags: [wims-bfp, pwa, offline-first, testing, ci-cd, service-worker, sync-engine, validator-offline]
 sources: [src/frontend/src/lib/, src/frontend/src/lib/api/offlineAnalytics.ts, src/frontend/src/lib/api/offlineValidator.ts, src/frontend/src/lib/api/offlineBase.ts, src/frontend/public/sw.js, src/frontend/src/app/home/__tests__/operations-board.test.tsx, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py, src/backend/tests/test_schema_patch_startup_guard.py]
@@ -17,6 +17,8 @@ status: draft
 **File:** `src/frontend/src/lib/offlineStore.ts`
 
 Wraps IndexedDB (via Jake Archibald's `idb` library) in database `wims-bfp-db`. The database is now version 3: legacy offline incident queue records remain in `incident-queue`, reusable AES-GCM key material remains in `crypto-keys`, and analyst offline read caching uses the encrypted `analytics-cache` object store keyed by `analytics:{cacheKey}`. Analytics cached values are stored only as `{ key, encrypted, cachedAt }`; no heatmap/detail/sensitive payload is written to IndexedDB in raw form.
+
+Account-switch and manual offline-data clearing now wipe the legacy Phase 1A `incident-queue` store in addition to `offlineOps`, `cachedIncidents`, and `crypto-keys`, so pre-Phase 1B queued rows are not carried over on shared devices after a different encoder logs in.
 
 | Export | Signature | Description |
 |---|---|---|
@@ -48,9 +50,15 @@ Reads pending encoder operations from IndexedDB and replays them against the aut
 
 | Export | Signature | Description |
 |---|---|---|
-| `syncPendingIncidents(encoderId, options?)` | `(string, { bypassBackoff?: boolean }) => Promise<SyncResult>` | Verifies app reachability, refreshes auth, replays queued create/update/submit/delete ops oldest-first, returns `{ synced, conflicts, failed, errors, abortReason? }`. Auto/background sync respects exponential backoff; manual Sync Now passes `bypassBackoff: true` so an encoder can immediately retry queued failures. |
+| `syncPendingIncidents(encoderId, options?)` | `(string, { bypassBackoff?: boolean }) => Promise<SyncResult>` | Verifies app reachability, refreshes auth, replays queued create/update/submit/delete/archive-action ops oldest-first, returns `{ synced, conflicts, failed, errors, abortReason? }`. Auto/background sync respects exponential backoff; manual Sync Now passes `bypassBackoff: true` so an encoder can immediately retry queued failures. |
 
 **Failure behavior:** offline/unreachable aborts with `abortReason: 'offline'` and keeps the queue intact; expired auth aborts with `abortReason: 'auth'`; network loss during a batch marks the current op `network` and stops; 409 moves the op to conflict state.
+
+`src/frontend/src/lib/__tests__/offlineRegional.test.ts` now covers regional cached-list fallback filter parity for status, category, date range, archived/non-archived views, empty matches, newest `cachedAt`, and offline-branch isolation so the encoder dashboard's offline list behavior stays aligned with online filters.
+
+Encoder archive/unarchive actions now use `src/frontend/src/lib/api/offlineRegionalActions.ts`: when offline or when an online request fails with a network error, the dashboard queues an `archive_action` offline op with `scope: 'encoder'`. `syncEngine.ts` routes scoped encoder archive actions to `/api/regional/incidents/{id}/archive|unarchive` while preserving existing validator archive actions on `/api/regional/validator/incidents/{id}/archive|unarchive`.
+
+`src/frontend/src/components/__tests__/IncidentForm.offline.test.tsx` covers the encoder `IncidentForm` offline create path: Save as Draft queues one `create` op and redirects to `/dashboard/regional`, while Submit for Review queues a `create` op plus linked `submit` op so sync replays the draft and immediate submission in order.
 
 ### `api/offlineValidator.ts` — Validator Offline-First Action Wrappers (GH #269)
 

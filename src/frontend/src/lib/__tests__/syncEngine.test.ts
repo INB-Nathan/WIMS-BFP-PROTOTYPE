@@ -830,6 +830,54 @@ describe('offlineOps dispatch — archive_action ops', () => {
     expect(url).toMatch(/\/regional\/validator\/incidents\/77\/unarchive/);
   });
 
+  it('dispatches encoder archive action to the encoder archive endpoint when scope is encoder', async () => {
+    const localId = 'encoder-archive-offlineops-uuid';
+
+    vi.mocked(getPendingOps).mockResolvedValue([
+      makeOp({
+        localId,
+        operation: 'archive_action',
+        payload: { incident_id: 88, action: 'archive', scope: 'encoder' },
+      }),
+    ]);
+
+    mockSessionOkWithApiResponses({
+      ok: true, status: 200,
+      json: () => Promise.resolve({ status: 'archived', incident_id: 88 }), text: () => Promise.resolve(JSON.stringify({ status: 'archived', incident_id: 88 })),
+    });
+
+    await syncPendingIncidents(ENCODER_ID);
+
+    const [url, options] = fetchSpy.mock.calls[1];
+    expect(url).toMatch(/\/regional\/incidents\/88\/archive/);
+    expect(url).not.toMatch(/\/regional\/validator\/incidents/);
+    expect(options.method).toBe('PATCH');
+  });
+
+  it('dispatches encoder unarchive action to the encoder unarchive endpoint when scope is encoder', async () => {
+    const localId = 'encoder-unarchive-offlineops-uuid';
+
+    vi.mocked(getPendingOps).mockResolvedValue([
+      makeOp({
+        localId,
+        operation: 'archive_action',
+        payload: { incident_id: 89, action: 'unarchive', scope: 'encoder' },
+      }),
+    ]);
+
+    mockSessionOkWithApiResponses({
+      ok: true, status: 200,
+      json: () => Promise.resolve({ status: 'unarchived', incident_id: 89 }), text: () => Promise.resolve(JSON.stringify({ status: 'unarchived', incident_id: 89 })),
+    });
+
+    await syncPendingIncidents(ENCODER_ID);
+
+    const [url, options] = fetchSpy.mock.calls[1];
+    expect(url).toMatch(/\/regional\/incidents\/89\/unarchive/);
+    expect(url).not.toMatch(/\/regional\/validator\/incidents/);
+    expect(options.method).toBe('PATCH');
+  });
+
   it('409 on archive_action marks conflict', async () => {
     const localId = 'archive-dup-uuid';
 

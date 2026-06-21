@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-21
 Total synthesis pages: 34
-Last changes: Added VPS deployment debugging guide with SSH, Docker, nginx DNS cache, and stale container recovery procedures.
+Last changes: Updated encoder offline-first notes for legacy queue wipe, regional cached-list test coverage, deprecated Wildland AFOR import commit guard, offline-aware encoder archive/unarchive replay, and IncidentForm offline create/submit tests.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
