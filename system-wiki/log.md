@@ -1,3 +1,30 @@
+## [2026-06-21] docs | close Phase 2 gap #3 — tracking page 911 boundary (doc drift, regression test added)
+
+- **Symptom:** gap register item (3) claimed the tracking page 911
+  boundary shows only for `REJECTED_*` statuses, contradicting the
+  design intent that the boundary appear for all statuses
+  (PENDING/UNDER_REVIEW/LINKED/ACTIONED) with varying prominence.
+- **Verification (read the file, do not trust the gap text):**
+  - `src/frontend/src/app/tracking/page.tsx:469-509` renders the
+    bilingual 911 boundary for ALL statuses. PENDING / UNDER_REVIEW /
+    LINKED get the prominent red-50 boundary (lines 469-485);
+    ACTIONED gets a muted gray-50 boundary (lines 486-495);
+    REJECTED_* gets the prominent red-50 boundary (lines 497-509).
+  - There is no `REJECTED_*` gate on the 911 boundary; the gate only
+    applies to the nearest-station display (line 429) and the status
+    explanation (line 422), which is correct.
+- **Fix:** no code change. Added a regression test to
+  `src/frontend/src/app/tracking/page.test.tsx` that asserts the
+  English + Filipino 911 boundary text is present for a PENDING
+  status. The test passes (the code was already correct) and locks
+  the behavior in so a future re-gate to `REJECTED_*` only would be
+  caught.
+- **Test summary:** 594/594 frontend vitest pass (was 593; +1 new).
+  0 new ESLint warnings. No build impact.
+- **System wiki updates:** `system-wiki/gaps/frs-codebase-gap-
+  register.md` (strikethrough on item 3), `system-wiki/log.md` (this
+  entry).
+
 ## [2026-06-21] docs | close Phase 2 gap #2 — success screen 911 boundary (doc drift, regression test added)
 
 - **Symptom:** gap register item (2) claimed the success screen 911

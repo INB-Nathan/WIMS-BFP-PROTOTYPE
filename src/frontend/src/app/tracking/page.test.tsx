@@ -45,4 +45,37 @@ describe('ReportTrackerPage', () => {
     await waitFor(() => expect(fetchReportStatus).toHaveBeenCalledWith('42', 'device-a'));
     expect(await screen.findByText('ACTIONED')).toBeDefined();
   });
+
+  it('renders the bilingual 911 emergency boundary on a PENDING report (not only REJECTED_*)', async () => {
+    vi.mocked(fetchReportStatus).mockResolvedValue({
+      report_id: 42,
+      status: 'PENDING',
+      created_at: '2026-05-19T08:00:00Z',
+    } as unknown as CivilianReportTrackingResponse);
+    localStorage.setItem('wims_civilian_device_id', 'device-a');
+    window.history.pushState({}, '', '/tracking?id=42');
+
+    const { default: ReportTrackerPage } = await import('./page');
+    render(<ReportTrackerPage />);
+
+    // Wait for the data to load, then assert the 911 boundary is present
+    // for a PENDING (non-REJECTED) status. The gap register item (3)
+    // previously claimed the boundary only rendered for REJECTED_* statuses.
+    // The 911 boundary must appear across all statuses — PENDING/UNDER_REVIEW/
+    // LINKED get the prominent red variant, ACTIONED a muted variant, and
+    // REJECTED_* the prominent red variant. This test locks the PENDING path.
+    expect(
+      await screen.findByText(/For urgent emergencies, call 911\./),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /This report helps BFP review signals — it does not replace an emergency call\./,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Ang report na ito ay tumutulong sa BFP na suriin ang mga signal/,
+      ),
+    ).toBeInTheDocument();
+  });
 });
