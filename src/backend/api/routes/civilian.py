@@ -288,7 +288,7 @@ def submit_civilian_report(
         """),
         {"ip_hash": ip_hash},
     ).fetchone()
-    if rate_row is not None and int(rate_row.rate_count) >= 5:
+    if rate_row is not None and int(rate_row.rate_count) >= 3:
         oldest = rate_row.oldest_created_at
         if oldest is not None:
             if oldest.tzinfo is None:

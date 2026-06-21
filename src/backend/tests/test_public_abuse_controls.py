@@ -558,13 +558,13 @@ class TestExistingRateLimits:
     """Verify existing rate limits on civilian and public DMZ endpoints."""
 
     def test_civilian_report_rate_limit_db_based_returns_429(self):
-        """POST /api/civilian/reports — >5 reports from same IP in 1hr → 429."""
+        """POST /api/civilian/reports — >3 reports from same IP in 1hr → 429."""
         mock_db = _MockDB(
             mappings=[
                 (
                     "COUNT(*) AS rate_count",
                     _FakeRow(
-                        rate_count=5,
+                        rate_count=3,
                         oldest_created_at=datetime(2026, 6, 22, 9, 30, 0, tzinfo=timezone.utc),
                     ),
                 )
@@ -649,7 +649,7 @@ class TestExistingRateLimits:
 
 
 class TestCivilianReportRateLimit:
-    """POST /api/civilian/reports — DB-based 5/hr limit now returns Retry-After."""
+    """POST /api/civilian/reports — DB-based 3/hr limit now returns Retry-After."""
 
     _PAYLOAD = {"latitude": 14.5995, "longitude": 120.9842, "category": "STRUCTURAL"}
     _IP = "198.51.100.77"
@@ -660,7 +660,7 @@ class TestCivilianReportRateLimit:
             mappings=[
                 (
                     "COUNT(*) AS rate_count",
-                    _FakeRow(rate_count=5, oldest_created_at=self._OLDEST),
+                    _FakeRow(rate_count=3, oldest_created_at=self._OLDEST),
                 )
             ]
         )
