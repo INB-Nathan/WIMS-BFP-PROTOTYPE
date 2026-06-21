@@ -5,6 +5,7 @@ import AnalystWorkflowPage from './page';
 const mockReplace = vi.fn();
 const mockPush = vi.fn();
 const mockFetchAnalystIncidentList = vi.fn();
+const mockFetchRegionsOfflineAware = vi.fn();
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: mockReplace, push: mockPush }),
@@ -36,6 +37,8 @@ vi.mock('@/lib/useAutoSync', () => ({
 
 vi.mock('@/lib/api', () => ({
   fetchRegions: vi.fn().mockResolvedValue([]),
+  // Plan T13 (Phase B) — offline-aware reference reads (regions).
+  fetchRegionsOfflineAware: (userId: string) => mockFetchRegionsOfflineAware(userId),
   fetchAnalyticsFilterOptionsOfflineAware: vi.fn().mockResolvedValue({ response: [], fromCache: false }),
   fetchComparativeDataOfflineAware: vi.fn().mockResolvedValue({
     response: {
@@ -69,6 +72,7 @@ beforeEach(() => {
     page: 1,
     page_size: 100,
   });
+  mockFetchRegionsOfflineAware.mockResolvedValue({ response: [], fromCache: false });
 });
 
 describe('AnalystWorkflowPage transfer hydration', () => {
@@ -89,5 +93,13 @@ describe('AnalystWorkflowPage transfer hydration', () => {
     for (const [params] of mockFetchAnalystIncidentList.mock.calls) {
       expect((params as { incident_ids?: number[] }).incident_ids).toEqual([111, 112, 113]);
     }
+  });
+
+  it('calls fetchRegionsOfflineAware with the active user id (Plan T13 reference rewire)', async () => {
+    render(<AnalystWorkflowPage />);
+
+    await waitFor(() => {
+      expect(mockFetchRegionsOfflineAware).toHaveBeenCalledWith('analyst-1');
+    });
   });
 });
