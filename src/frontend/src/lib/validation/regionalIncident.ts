@@ -10,7 +10,7 @@
  * Use z.infer<typeof incidentCreateSchema> for TypeScript types.
  */
 
-import { z, ZodIssueCode } from "zod";
+import { z } from "zod";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Shared helpers
@@ -31,7 +31,7 @@ function notFutureDate(toleranceMinutes = D11_TOLERANCE_MINUTES) {
     const parsed = new Date(value);
     if (isNaN(parsed.getTime())) {
       ctx.addIssue({
-        code: ZodIssueCode.custom,
+        code: "custom",
         message: `Invalid ISO datetime string: ${value}`,
       });
       return;
@@ -39,7 +39,7 @@ function notFutureDate(toleranceMinutes = D11_TOLERANCE_MINUTES) {
     const cutoff = Date.now() + toleranceMinutes * 60 * 1000;
     if (parsed.getTime() > cutoff) {
       ctx.addIssue({
-        code: ZodIssueCode.custom,
+        code: "custom",
         message: `Date must not be more than ${toleranceMinutes} minutes in the future (got ${value})`,
       });
     }
@@ -218,12 +218,12 @@ export const incidentUpdateSchema = z.object({
   longitude: lonField.nullable().optional(),
 
   // Structured blobs (no deep validation)
-  alarm_timeline: z.record(z.unknown()).nullable().optional(),
-  resources_deployed: z.record(z.unknown()).nullable().optional(),
+  alarm_timeline: z.record(z.string(), z.unknown()).nullable().optional(),
+  resources_deployed: z.record(z.string(), z.unknown()).nullable().optional(),
   problems_encountered: z.array(z.unknown()).nullable().optional(),
   other_personnel: z.array(z.unknown()).nullable().optional(),
-  personnel_on_duty: z.record(z.unknown()).nullable().optional(),
-  casualty_details: z.record(z.unknown()).nullable().optional(),
+  personnel_on_duty: z.record(z.string(), z.unknown()).nullable().optional(),
+  casualty_details: z.record(z.string(), z.unknown()).nullable().optional(),
 
   // Sync / idempotency
   client_updated_at: z.string().nullable().optional(),
