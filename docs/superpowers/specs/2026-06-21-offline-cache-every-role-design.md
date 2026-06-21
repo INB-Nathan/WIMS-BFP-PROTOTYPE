@@ -1,7 +1,7 @@
 # Offline Caching for Every Role — Design Spec
 
 **Date:** 2026-06-21
-**Status:** Draft v2 — pending user review (revised per 6 architecture directives)
+**Status:** Draft v3 — pending user review (revised per 6 directives + 5 pushback fixes)
 **Scope:** Frontend read-cache (offline-first) completion across all roles
 
 ## Problem
@@ -98,33 +98,59 @@ Introduce generic, domain-agnostic methods + a second unencrypted store.
 **New constants:**
 ```ts
 const READ_CACHE_STORE = 'analytics-cache';   // rename of ANALYTICS_STORE (same DB store, encrypted)
-const REFERENCE_STORE  = 'reference-cache';   // NEW — unencrypted, long-TTL
+const REFERENCE_STORE  = 'reference-cache';   // NEW — unencrypted, long-TTL, per-user namespaced
 ```
 Bump `DB_VERSION` 5 → 6 to create `REFERENCE_STORE` via the `upgrade()` callback
 (keep `READ_CACHE_STORE` as the existing store, no data migration needed).
 
+**Record schema — add per-record `ttlMs`** (pushback P3, applies to BOTH stores):
+```ts
+interface CachedReadRecord   { key: string; encrypted: EncryptedPayload; cachedAt: number; ttlMs: number }
+interface CachedReferenceRecord { key: string; data: unknown;            cachedAt: number; ttlMs: number }  // plaintext
+```
+Storing `ttlMs` per record lets eviction delete by the record's own expiry
+instead of a single shared cutoff, so a 60s security-logs entry is pruned at
+~60s, not held until the 30min cutoff. Existing records (pre-ttlMs) get a
+back-compat default of the longest TTL on read so they aren't wrongly evicted
+before the next online refresh overwrites them with a `ttlMs`-bearing record.
+
 **New generic methods (replace `cacheAnalyticsResponse` / `getCachedAnalyticsResponse`):**
 ```ts
-export async function cacheReadResponse<T>(key, data, cachedAt = Date.now()): Promise<void>
-  // encrypted, READ_CACHE_STORE (back-compat for all existing read caches)
+export async function cacheReadResponse<T>(key, data, ttlMs, cachedAt = Date.now()): Promise<void>
+  // encrypted, READ_CACHE_STORE; stores ttlMs on the record
 
 export async function getReadCachedResponse<T>(key): Promise<CachedResponse<T> | undefined>
   // decrypts from READ_CACHE_STORE
 
-export async function cacheReferenceData<T>(key, data, cachedAt = Date.now()): Promise<void>
-  // UNENCRYPTED, REFERENCE_STORE (no crypto; public geographical data)
+export async function cacheReferenceData<T>(key, data, ttlMs, cachedAt = Date.now()): Promise<void>
+  // UNENCRYPTED, REFERENCE_STORE; stores ttlMs on the record. key MUST include userId.
 
 export async function getCachedReferenceData<T>(key): Promise<CachedResponse<T> | undefined>
   // reads from REFERENCE_STORE (no decrypt)
 
-export async function evictExpiredReadCache(ttlMs: number): Promise<number>
-  // deletes READ_CACHE_STORE entries where cachedAt + ttlMs < now; returns count
+export async function evictExpiredReadCache(): Promise<number>
+  // deletes READ_CACHE_STORE records where cachedAt + ttlMs < now; returns count (no ttlMs arg — per-record)
 
-export async function evictExpiredReferenceData(ttlMs: number): Promise<number>
-  // same for REFERENCE_STORE
+export async function evictExpiredReferenceData(): Promise<number>
+  // same for REFERENCE_STORE, per-record ttlMs
 ```
-`CachedResponse<T>` = `{ key, data, cachedAt }` (rename of `CachedAnalyticsResponse`,
-kept as a type alias for back-compat).
+`CachedResponse<T>` = `{ key, data, cachedAt, ttlMs }` (rename of
+`CachedAnalyticsResponse`, kept as a type alias for back-compat).
+
+**Per-user namespacing (pushback P1 — security):** the encrypted `READ_CACHE_STORE`
+is already per-user isolated by the existing per-user crypto key (item F12,
+`offlineStore.ts:168`). The **unencrypted** `REFERENCE_STORE` has no such
+isolation, and `/api/ref/regions` is RLS-scoped per user (verified
+`backend/api/routes/ref.py:20` — `Depends(get_current_wims_user)` +
+`get_db_with_rls`; `public_dmz.py:199` confirms `ref_regions` carries an RLS
+policy bypassed only via SECURITY DEFINER). An unencrypted shared store would
+let user B read user A's cached region set off disk. Therefore every reference
+cache key MUST embed the active userId: `reference:{userId}:regions`, etc.
+`cacheReferenceData`/`getCachedReferenceData` take the userId-namespaced key as
+given (callers build it); on user switch, `clearAllOfflineData()`/`setActiveOfflineUser`
+already wipe crypto-key-bound stores — extend the user-switch path to also clear
+that prior user's `REFERENCE_STORE` entries (key-prefix sweep
+`reference:{prevUserId}:*`) so plaintext ref data does not survive a logout.
 
 **Migration:** `offlineBase.ts` switches its imports from
 `cacheAnalyticsResponse`/`getCachedAnalyticsResponse` to
@@ -137,16 +163,20 @@ Old method names removed (all callers are in-repo: `offlineBase.ts`,
 `lib/__tests__/offlineAnalytics.test.ts`, `lib/api/__tests__/offlineAdmin.test.ts`
 updated to the new names.
 
-**Eviction trigger (directive 6):** run `evictExpiredReadCache` +
-`evictExpiredReferenceData` opportunistically:
-- Once per session on app boot — guard with a `localStorage` timestamp
-  (`wims:cachePruneAt`) so it runs at most every 6h, not every page load.
-- After each successful sync batch (inside the existing sync-completion handler
-  that pages already listen to).
-Heavily-parameterized list queries (security logs, anomalies, audit logs,
-operational map) are pruned by their own TTL (60s) — expired entries deleted
-on the next prune pass. Reference data pruned by its 7-day TTL. Prune is
-best-effort (catch + console.warn, never blocks reads/writes).
+**Eviction triggers (directive 6, pushbacks P3/P4):**
+- **Boot guard** — once per session on app boot, guarded by a `localStorage`
+  timestamp (`wims:cachePruneAt`) so it runs at most every 1h (lowered from 6h
+  — pushback P4: heavy parameterized sessions grow fast).
+- **After each sync-batch completion** (existing sync-completion handler).
+- **Every-N-writes (pushback P4)** — a `localStorage` write counter
+  (`wims:cacheWriteCount`) increments on every `cacheReadResponse`/
+  `cacheReferenceData` write; when it crosses 25, run a prune pass and reset.
+  Bounds unbounded growth in long active sessions that never sync.
+- **User-switch** — `setActiveOfflineUser` clears the prior user's
+  `REFERENCE_STORE` prefix (pushback P1) on top of the existing crypto-key wipe.
+All prune passes are per-record-TTL (pushback P3): a record is expired iff
+`cachedAt + ttlMs < now`, using the record's own `ttlMs`. Best-effort
+(`try/catch`, `console.warn`, never blocks reads/writes).
 
 ### Pattern (existing `offlineAware`, reused + extended)
 
@@ -157,16 +187,19 @@ reference path, add a sibling orchestrator or a flag:
 
 ```ts
 export async function offlineAware<T>(cacheKey, args, prefix, ttlMs, fetcher, errorMessage): Promise<OfflineResult<T>>
-  // encrypted (existing) — unchanged signature, just renames the store calls
+  // encrypted (existing) — passes ttlMs into cacheReadResponse for per-record eviction
 
-export async function offlineAwareReference<T>(cacheKey, args, prefix, ttlMs, fetcher, errorMessage): Promise<OfflineResult<T>>
-  // UNENCRYPTED — same control flow but uses cacheReferenceData/getCachedReferenceData
+export async function offlineAwareReference<T>(cacheKey, args, prefix, ttlMs, userId, fetcher, errorMessage): Promise<OfflineResult<T>>
+  // UNENCRYPTED — same control flow but uses cacheReferenceData/getCachedReferenceData.
+  // userId REQUIRED (pushback P1): baked into the cache key so RLS-scoped ref data
+  // is isolated per user in the unencrypted store.
 ```
 Both share `shouldServeOffline`, `isNetworkError`, `markConnectivityOffline`,
-`buildCacheKey`, `isFresh` (already in `offlineBase`). Only the store accessor
-differs. Behaviour identical to the existing `offlineAware` (offline → fresh
-cache or throw; online → fetch + cache; network error → mark offline + cache
-fallback).
+`buildCacheKey`, `isFresh` (already in `offlineBase`). Only the store accessor +
+userId namespacing differ. Behaviour identical to the existing `offlineAware`
+(offline → fresh cache or throw; online → fetch + cache; network error → mark
+offline + cache fallback). Pages obtain `userId` from `useAuth()` and pass it
+into the reference wrappers.
 
 ### API abstraction first (directive 4)
 
@@ -214,15 +247,16 @@ Re-export via `lib/api/admin.ts` / `index.ts`.
 |---------|-------|-----|
 | `fetchAnalystIncidentWildlandDetailOfflineAware(id)` | `legacy.fetchAnalystIncidentWildlandDetail` | 30min |
 
-**New `lib/api/offlineReference.ts` (+3, prefix `reference`, UNENCRYPTED, 7 days):**
+**New `lib/api/offlineReference.ts` (+3, prefix `reference`, UNENCRYPTED, 7 days, per-user):**
 
-| Wrapper | Wraps | TTL | Store |
-|---------|-------|-----|-------|
-| `fetchRegionsOfflineAware()` | `legacy.fetchRegions` | 7 days | REFERENCE_STORE |
-| `fetchProvincesOfflineAware(regionId)` | `legacy.fetchProvinces` | 7 days | REFERENCE_STORE |
-| `fetchCitiesOfflineAware(provinceId)` | `legacy.fetchCities` | 7 days | REFERENCE_STORE |
+| Wrapper | Wraps | TTL | Store | Per-user |
+|---------|-------|-----|-------|----------|
+| `fetchRegionsOfflineAware(userId)` | `legacy.fetchRegions` | 7 days | REFERENCE_STORE | key `reference:{userId}:regions` |
+| `fetchProvincesOfflineAware(userId, regionId)` | `legacy.fetchProvinces` | 7 days | REFERENCE_STORE | key `reference:{userId}:provinces:{regionId}` |
+| `fetchCitiesOfflineAware(userId, provinceId)` | `legacy.fetchCities` | 7 days | REFERENCE_STORE | key `reference:{userId}:cities:{provinceId}` |
 
-Uses `offlineAwareReference` (unencrypted). Re-export from `lib/api/index.ts`.
+Uses `offlineAwareReference` (unencrypted, userId-namespaced — pushback P1).
+Re-export from `lib/api/index.ts`. Call sites pass `userId` from `useAuth()`.
 
 **TTL rationale:** 60s for operational/security/anomaly/breach/map/audit
 (near-realtime, matches existing `ADMIN_CACHE_TTL_MS`). 30min for config,
@@ -302,7 +336,25 @@ the existing `INCIDENT_DETAIL_SHELL`), not hardcoding of role pages. Without
 them, offline navigation to an unvisited analyst incident/workflow URL falls
 back to `APP_SHELL`/`/` and the analyst `'use client'` page never mounts, so
 the offline wrapper never runs. The actual role pages (admin/validator) are NOT
-precached — they rely on the existing runtime navigate caching.
+precached — they rely on the existing runtime navigate caching **plus** the
+post-login role prefetch below.
+
+**Role-scoped post-login prefetch (pushback P2):** pure runtime caching leaves a
+user who goes offline before first-visiting `admin/monitoring` with a blank
+page. Mitigation without precaching every role's pages for every user: after a
+successful login, the app `postMessage`s the active role to the SW
+(`{type:'PREFETCH_ROLE', role}`); the SW `fetch()`es only that role's route set
+and `cache.put()`s them into `CACHE_NAME`:
+- `SYSTEM_ADMIN` → the 5 admin routes + `/admin/system`.
+- `NATIONAL_ANALYST` → `/dashboard/analyst`, the 6 workflow slugs, analyst
+  detail/wildland shells.
+- `NATIONAL_VALIDATOR` → `/dashboard/validator`, `/dashboard/validator/map`,
+  `/dashboard/validator/audit`.
+- `REGIONAL_ENCODER` → `/dashboard/regional` (+ already-precached shells).
+Bounded cost (one role's ~5–8 pages), guaranteed offline availability for that
+user after their first login. The prefetch is best-effort (`Promise.allSettled`);
+a failed prefetch does not block login. Routes already in the cache are skipped
+(`cache.match` before `fetch`).
 
 Navigation-fallback block (`sw.js:174`) + RSC cache-key block (`sw.js:144`)
 apply the same `canonicalPath()` mapping for both document and `/_rsc` requests,
@@ -310,21 +362,26 @@ as the regional path does today.
 
 ### Eviction (directive 6)
 
-Defined behaviour for expired parameterized list-query entries:
-- `evictExpiredReadCache(ttlMs)` scans `READ_CACHE_STORE`, deletes any record
-  where `cachedAt + ttlMs < Date.now()`. Each domain's prune uses its own TTL;
-  since the store is shared, prune runs with the **longest** configured TTL
-  (30min) as the cutoff — entries older than 30min are definitely expired for
-  every domain, and shorter-TTL (60s) entries are naturally older than 30min
-  when pruned. (Per-key TTL is already enforced at read time by `isFresh`, so
-  eviction is a storage-reclaim optimisation, not a correctness gate.)
-- `evictExpiredReferenceData(ttlMs)` scans `REFERENCE_STORE` with the 7-day TTL.
+Defined behaviour for expired parameterized list-query entries (pushback P3 —
+per-record TTL, not a shared cutoff):
+- `evictExpiredReadCache()` scans `READ_CACHE_STORE`, deletes any record where
+  `cachedAt + record.ttlMs < Date.now()` using the **record's own `ttlMs`**.
+  A 60s security-logs entry is pruned at ~60s; a 30min config entry at ~30min.
+  Records lacking `ttlMs` (back-compat from pre-v3 writes) get the longest TTL
+  as a safe default so they are not wrongly evicted before the next online
+  refresh overwrites them.
+- `evictExpiredReferenceData()` scans `REFERENCE_STORE` with per-record `ttlMs`
+  (7 days for ref entries).
 - Prune pass is bounded: single IDB transaction, `cursor.delete()` per expired
   record, capped at a max-records-per-pass constant (e.g. 500) to avoid long
   transactions; remaining expired entries pruned on the next pass.
-- Triggers: app-boot guard (≤1 prune per 6h via `localStorage` timestamp) +
-  after each sync-batch completion.
+- Triggers: app-boot guard (≤1/h via `localStorage` timestamp) + after each
+  sync-batch + every-25-writes counter (pushback P4) + user-switch prefix clear
+  (pushback P1).
 - Best-effort: `try/catch`, `console.warn` on failure, never throws to caller.
+
+Read-time `isFresh` per-wrapper TTL remains the correctness gate — eviction is
+storage reclamation, never the thing that decides whether a read is stale.
 
 ## Tests (TDD — red first)
 
@@ -334,10 +391,16 @@ Defined behaviour for expired parameterized list-query entries:
 - New/extend tests: `cacheReferenceData`/`getCachedReferenceData` round-trip
   stores data **unencrypted** (assert no `EncryptedPayload` shape, plaintext
   retrievable without a crypto key).
-- `evictExpiredReadCache(ttlMs)` deletes only entries older than TTL, leaves
-  fresh entries, returns deleted count.
-- `evictExpiredReferenceData(ttlMs)` same for reference store.
+- **Per-user isolation test (pushback P1)** — write ref data under
+  `reference:userA:*`, assert `getCachedReferenceData('reference:userB:*')`
+  returns undefined; assert user-switch clears `reference:userA:*` prefix.
+- `evictExpiredReadCache()` deletes records by **per-record `ttlMs`** (pushback
+  P3): a 60s-TTL record is deleted at age 61s while a 30min-TTL record at age
+  61s survives; returns deleted count; leaves fresh entries.
+- `evictExpiredReferenceData()` same for reference store (7-day `ttlMs`).
 - Eviction is best-effort (store open failure → warn, no throw).
+- Every-N-writes trigger (pushback P4): after 25 writes the counter fires a
+  prune (assert prune invoked once per 25 writes, not per write).
 - DB upgrade v5→v6 creates `REFERENCE_STORE` without dropping existing stores.
 
 **Wrappers (table-driven `describe.each` matrix, 5 cases each):**
@@ -350,7 +413,8 @@ fallback; (5) stale (age > TTL) offline → treated as miss → throws.
   EXISTS — also migrates existing #269 wrapper tests to new cache method names).
 - Extend `lib/__tests__/offlineAnalytics.test.ts` (+1 wildland wrapper). (Exists.)
 - **New** `lib/__tests__/offlineReference.test.ts` (+3 ref wrappers; asserts
-  unencrypted store path + 7-day TTL freshness window).
+  unencrypted store path + 7-day TTL freshness window + **userId namespacing**
+  so userA's regions are not returned for userB's key).
 
 **SW (`__tests__/sw-cache-key.test.ts`):**
 - `offlineNavigationFallbackKeys` for analyst detail/wildland/workflow URLs
@@ -360,6 +424,9 @@ fallback; (5) stale (age > TTL) offline → treated as miss → throws.
 - **Do NOT** assert the 7 admin/validator routes in `urlsToCache` (they are
   runtime-cached, not precached — asserting presence would be wrong).
 - Assert the 3 analyst shells ARE in `urlsToCache` (fallback anchors).
+- **Role-prefetch (pushback P2)** — new test: a `PREFETCH_ROLE` message for each
+  role asserts the SW fetches that role's route set (mock `fetch`/`cache.put`)
+  and skips already-cached routes; failed prefetch does not reject.
 
 **API abstraction (`lib/__tests__/` or `lib/api/__tests__/`):**
 - New tests for `fetchOperationalMap` + `fetchValidatorAuditLogs` building the
@@ -406,8 +473,10 @@ fallback; (5) stale (age > TTL) offline → treated as miss → throws.
 9. **SW** — bump cache, canonicalPath collapse + 3 shells, extend
    `sw-cache-key.test.ts` (red first).
 10. **Page rewires** (7 full, then 5 swap) + update existing page-test mocks.
-11. **Eviction wiring** — app-boot guard + sync-completion trigger.
-12. **Wiki + CI pre-flight.**
+11. **Eviction wiring** — boot guard (≤1/h) + sync-completion + every-25-writes
+    counter + user-switch prefix clear.
+12. **SW role prefetch** — `postMessage` role on login + SW route-set prefetch.
+13. **Wiki + CI pre-flight.**
 
 ## Risks
 
@@ -425,31 +494,50 @@ fallback; (5) stale (age > TTL) offline → treated as miss → throws.
   wrapper generic `T` must be `{items:any[]; total:number}`.
 - **Breach page `fetchAdminConfig` for NPC config** reuses
   `fetchAdminConfigOfflineAware` (30min) — no duplicate wrapper.
-- **Eviction per-key TTL nuance** — shared `READ_CACHE_STORE` holds mixed-TTL
-  entries; prune uses the longest TTL as cutoff so no fresh entry is wrongly
-  deleted. Read-time `isFresh` per-wrapper TTL remains the correctness gate.
+- **Eviction per-record TTL (pushback P3)** — shared `READ_CACHE_STORE` holds
+  mixed-TTL entries; each record carries its own `ttlMs` so a 60s entry prunes
+  at ~60s and a 30min entry at ~30min. Pre-v3 records without `ttlMs` get the
+  longest TTL as a safe back-compat default so they are not wrongly evicted
+  before the next online refresh overwrites them. Read-time `isFresh` per-wrapper
+  TTL remains the correctness gate.
 - **`useAutoSync` non-goal trap** — do NOT add autosync to the 7 full-rewire
   pages even though some have online write buttons; Scope A queues nothing.
+- **Reference data staleness (pushback P5, accepted)** — 7-day TTL means if an
+  admin reassigns regions or edits geography, a given user may see stale ref
+  data up to 7 days. PH administrative geography changes rarely, so this is
+  acceptable. Mitigation: explicit refresh buttons (already on most ref-using
+  pages) force an online refetch that overwrites the cache; on reconnect the
+  next online read refreshes automatically. No spec change beyond this note.
+- **Unencrypted ref store per-user isolation (pushback P1)** — correctness
+  depends on every reference cache key embedding `userId` AND on the user-switch
+  path clearing the prior user's `reference:{prevUserId}:*` prefix. If either is
+  missed, user B can read user A's RLS-scoped region set off disk. Mitigation:
+  a dedicated test asserts two synthetic users' ref caches are isolated and
+  that user-switch wipes the prior user's prefix.
 
 ## Acceptance
 
 - Generic storage methods `cacheReadResponse`/`getReadCachedResponse`/
   `cacheReferenceData`/`getCachedReferenceData`/`evictExpiredReadCache`/
-  `evictExpiredReferenceData` exist; old `cacheAnalyticsResponse` names removed;
-  `offlineBase` + `offlineValidator` migrated; `REFERENCE_STORE` (unencrypted)
-  created via DB v6 upgrade.
+  `evictExpiredReferenceData` exist (per-record `ttlMs`); old `cacheAnalyticsResponse`
+  names removed; `offlineBase` + `offlineValidator` migrated; `REFERENCE_STORE`
+  (unencrypted, per-user namespaced) created via DB v6 upgrade.
 - 12 offline-aware wrappers exist (admin×6, validator×2, analyst×1, reference×3)
-  with TTLs per table; reference wrappers use unencrypted 7-day store.
+  with TTLs per table; reference wrappers use unencrypted 7-day store with
+  `userId` in every cache key.
 - `fetchOperationalMap` + `fetchValidatorAuditLogs` API functions exist; the 2
   validator wrappers wrap them (no inline `apiFetch`/`URLSearchParams` in the
   wrapper).
 - 7 full-rewire pages render cached data offline with `StaleCacheBanner` + cache-
   miss state; mount `useNetworkStatus` but NOT `useAutoSync`.
-- 5 swap pages use offline-aware ref/config reads.
+- 5 swap pages use offline-aware ref/config reads (passing `userId` for ref).
 - `sw.js`: `CACHE_NAME` v12; canonicalPath collapses the 3 analyst dynamic
   families; 3 shells in `urlsToCache`; **no** admin/validator page routes in
-  `urlsToCache` (runtime-cached).
-- Eviction runs on boot (≤1/6h) + after sync; expired parameterized entries
-  pruned; best-effort, non-blocking.
+  `urlsToCache` (runtime-cached + post-login role prefetch).
+- Role prefetch: SW handles `PREFETCH_ROLE` message, fetches the active role's
+  route set on login, skips cached routes, best-effort.
+- Eviction runs on boot (≤1/h) + after sync + every 25 writes + on user-switch;
+  per-record `ttlMs` so 60s entries prune at ~60s; best-effort, non-blocking.
+  User-switch clears prior user's `reference:{prevUserId}:*` prefix.
 - `npx vitest run` green; `npm run lint` green; `npm run build` green (env set).
 - `system-wiki/architecture/pwa-tests-cicd.md` + `log.md` updated.
