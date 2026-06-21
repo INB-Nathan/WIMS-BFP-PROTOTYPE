@@ -1,3 +1,15 @@
+## [2026-06-22] feat(offlineBase): offlineAwareReference orchestrator (unencrypted, userId-namespaced)
+
+- **Scope:** Task 2 of the `docs/superpowers/plans/2026-06-21-offline-cache-every-role.md` plan. Adds the unencrypted reference-data orchestrator that wraps the `REFERENCE_STORE` writes/reads added in Task 1.
+- **New public API in `src/frontend/src/lib/api/offlineBase.ts`:**
+  - `offlineAwareReference<T>(cacheKey, args, prefix, ttlMs, userId, fetcher, errorMessage): Promise<OfflineResult<T>>` — same control flow as `offlineAware` but uses `cacheReferenceData`/`getCachedReferenceData` (plaintext, REFERENCE_STORE) and bakes `userId` into the cache key prefix via `buildCacheKey(\`${prefix}:${userId}\`, cacheKey, args)`. The `userId` lives ONLY in the cache key — never inside the payload, never used for any other purpose — so per-user isolation is preserved in the unencrypted store (pushback P1).
+  - `readFreshReferenceCacheOrThrow<T>(key, ttlMs, errorMessage)` — sibling of `readFreshCacheOrThrow` that reads `REFERENCE_STORE` and gates on `isFresh(cachedAt, ttlMs)`. Used by both the `shouldServeOffline()` early-return path and the network-error fallback path inside `offlineAwareReference`.
+  - Imports added: `cacheReferenceData`, `getCachedReferenceData` from `../offlineStore`.
+- **Tests added:** `src/frontend/src/lib/api/__tests__/offlineBase.test.ts` (4 new tests): online fetch+caches with the userId-namespaced key and rejects any leakage of the userId into the payload; offline+fresh cache returns `fromCache:true` without touching the network; offline+miss throws the `errorMessage`; network error marks connectivity offline and falls back to a fresh cache. Uses the `vi.hoisted` mock pattern from `offlineAdmin.test.ts` and asserts the exact namespaced key `reference:userA:regions:%5B%5D`.
+- **Validation:** `npx vitest run src/lib/api/__tests__/offlineBase.test.ts` → 4/4 pass. Full `npx vitest run` → 779/779 pass (775 baseline + 4 new, 0 regressions). `npx eslint` on both files → clean.
+- **Wiki updates:** `frontend/frontend-infrastructure.md` row for `api/offlineBase.ts` updated to mention `offlineAwareReference` + `readFreshReferenceCacheOrThrow` alongside the encrypted `offlineAware` orchestrator.
+- **No gaps opened/closed in `gaps/frs-codebase-gap-register.md`** — this task is plumbing only; no FRS traceability changes.
+
 ## [2026-06-21] refactor(offlineStore): generic cache methods, REFERENCE_STORE (unencrypted, per-user), per-record ttlMs, eviction
 
 - **Scope:** Task 1 of the `docs/superpowers/plans/2026-06-21-offline-cache-every-role.md` plan. Foundation for all later offline-aware wrappers (Tasks 2, 4–7).
