@@ -1,3 +1,79 @@
+## [2026-06-21] fix(civilian): context step crashes offline from fresh cache (ChunkLoadError)
+
+- **Symptom (user-reported):** Open `/report` while offline (DevTools network offline) →
+  safety step works, click Continue → context step crashes with
+  "Application error: a client-side exception has occurred while loading wimsbfp.tech".
+  Browser console shows: `ChunkLoadError: Failed to load chunk
+  /_next/static/chunks/c3b53539df55402a.js`, repeated
+  `QuotaExceededError: Quota exceeded` from `sw.js`, plus
+  `net::ERR_INTERNET_DISCONNECTED` for `/api/ref/emergency-services` and
+  `401 (Unauthorized)` for `/api/auth/session` (the latter is normal for
+  anonymous civilian flow).
+- **Root cause (ranked hypotheses, all confirmed):**
+  1. The context step renders `<MapPicker />`, a `next/dynamic()` import of
+     `MapPickerInner` (`src/frontend/src/components/MapPicker.tsx:6`). The
+     chunk is **not** in the SW cache on a fresh visit and the SW is
+     already full (`QuotaExceededError` on `wims-bfp-cache-v9`), so
+     offline chunk load fails. The throw bubbles to the app-level error
+     page (the Next.js `error.tsx` boundary is at `/afor/error.tsx`; the
+     public route has none, so the default "Application error" page
+     renders).
+  2. The `QuotaExceededError` itself is real and contributes: every
+     navigation and every static asset is re-cached, eventually hitting
+     the per-origin quota.
+  3. The `/api/ref/emergency-services` `ERR_INTERNET_DISCONNECTED` is
+     from a separate prefetch (the SW caches RSC payloads for the public
+     root map, including a reference to this endpoint), not a crash
+     trigger.
+- **Fix (`src/frontend/src/app/page.tsx`):**
+  - New `MapPickerErrorBoundary` class component wraps `<MapPicker />` in
+    the context step (line ~1409). On `getDerivedStateFromError` it
+    renders `<ManualLocationFallback />` instead.
+  - `ManualLocationFallback` is a small bilingual form: two
+    `<input type="number">` fields for latitude/longitude, with
+    validation against valid degree ranges. On valid input it dispatches
+    a `wims:manual-location` `CustomEvent` that the page listens for in
+    a `useEffect` and routes to the existing `handlePinChange(lat, lng)`
+    so the rest of the form (Continue → category → details → submit or
+    queue) works identically.
+  - A "Retry map / Subukan ulit ang mapa" link calls the boundary's
+    `retry()` to attempt the dynamic import again.
+  - `console.warn` is logged once per catch so we can detect repeated
+    failures in production telemetry.
+- **TDD (RED→GREEN):** `src/frontend/src/app/__tests__/page.test.tsx`
+  gained a new `describe('ReportPage — context step map chunk-load
+  fallback')` block with 3 tests. The MapPicker mock now has a
+  `mapPickerBehaviour.throwOnRender` toggle (hoisted) so a test can
+  simulate the `ChunkLoadError` deterministically.
+  - Test 1: navigates to context step, asserts the heading still renders
+    (would fail before the boundary because the throw propagates).
+  - Test 2: selects WITNESS context, asserts the manual lat/lng inputs
+    appear.
+  - Test 3: types valid lat/lng, asserts the Continue button enables
+    (verifies the event-bridge wires the input back to `geo` state).
+- **Test summary:**
+  - 593/593 frontend vitest pass (was 590; +3 new).
+  - 0 ESLint errors. 9 lint warnings remain — all pre-existing
+    (`@typescript-eslint/no-unused-vars` on `appendCivilianReport`,
+    `ArrowLeft`, `Camera`, `Circle`, `Search`, `XCircle` imports and
+    two unused `eslint-disable` directives). No new warnings introduced.
+  - `NEXT_PUBLIC_AUTH_API_URL=http://localhost/auth
+    NEXT_PUBLIC_BASE_URL=http://localhost:3000 npm run build` succeeds.
+- **Out of scope (deferred to a follow-up):**
+  - SW cache eviction policy (the underlying `QuotaExceededError` on
+    `wims-bfp-cache-v9`). Would need either a quota-aware eviction
+    strategy in `src/frontend/public/sw.js` or a smaller initial
+    `urlsToCache` list.
+  - The `/api/ref/emergency-services` ERR_INTERNET_DISCONNECTED is
+    cosmetic (the RSC payload is fine, the embedded reference is just
+    not reachable when offline). Not a crash trigger.
+- **System wiki updates:**
+  - `system-wiki/subsystems/civilian-reporting-phase2.md` — extend the
+    "Offline submit" section with the map chunk-load fallback note.
+  - `system-wiki/gaps/frs-codebase-gap-register.md` — add a new
+    "offline-first crash from chunk load" entry marked CLOSED with the
+    today's fix.
+
 ## [2026-06-21] fix(triage): strip HTML tags from description/follow-ups + cluster map markers
 
 - Triage cluster modal: `report.description` and `followup.followup_text` now

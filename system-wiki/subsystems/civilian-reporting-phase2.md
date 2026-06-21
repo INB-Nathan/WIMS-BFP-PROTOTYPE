@@ -497,3 +497,80 @@ POST /api/civilian/reports/{id}/followup (depends on parent server_id)
 - 587/587 frontend vitest tests pass (up from 543 baseline = +44 net).
 - 0 ESLint errors, 18 warnings (all pre-existing).
 - `npm run build` succeeds.
+
+## Offline Map Chunk-Load Fallback — 2026-06-21
+
+The context step on `/report` renders `<MapPicker />`, which is a
+`next/dynamic()` import of `MapPickerInner`. When a user opens `/report`
+offline from a fresh cache (no prior online visit on this device) and the
+SW cache is already full, the dynamic chunk cannot be served, the throw
+bubbles to the app-level error page, and the user is locked out of
+submitting a report at all ("Application error: a client-side exception
+has occurred").
+
+### Fix shape
+
+- New `MapPickerErrorBoundary` class component wraps `<MapPicker />` in the
+  context step (`src/frontend/src/app/page.tsx`). On error it renders
+  `<ManualLocationFallback />`.
+- `ManualLocationFallback` is a small bilingual form with two
+  `<input type="number">` fields for latitude / longitude. On valid input
+  it dispatches a `wims:manual-location` `CustomEvent` that the page
+  listens for in a `useEffect` and routes to the existing
+  `handlePinChange(lat, lng)`. The rest of the form (Continue → category
+  → details → submit or queue) works identically.
+- A "Retry map / Subukan ulit ang mapa" link calls the boundary's
+  `retry()` to attempt the dynamic import again once the user has a
+  connection.
+- `console.warn` is logged once per catch so we can detect repeated
+  failures in production telemetry.
+
+### Why a window CustomEvent rather than React props
+
+The fallback component is rendered by the error boundary, which is a
+class component that does not propagate React props from its parent.
+Threading `handlePinChange` through the boundary would require either
+a context provider, a ref, or a state lift — all heavier than a tiny
+named `window` event. The event listener is bound only on the
+`step === 'context'` step so it does not leak to other pages.
+
+### Test coverage
+
+3 new tests in `src/frontend/src/app/__tests__/page.test.tsx` under
+`describe('ReportPage — context step map chunk-load fallback')`:
+
+1. **Renders context step instead of crashing** — navigates
+   safety → context, asserts the "How did you learn about this fire?"
+   heading is still visible. Used to throw before the heading could
+   render.
+2. **Shows manual lat / lng inputs as the map fallback** — selects
+   WITNESS context, asserts `<input aria-label="Latitude" />` and
+   `<input aria-label="Longitude" />` are present.
+3. **Typing into the manual fallback sets the pin and enables
+   Continue** — types `14.5` / `121.0` into the inputs, asserts the
+   Continue button is no longer disabled (verifies the event-bridge
+   wires the input back to `geo` state).
+
+The MapPicker mock gained a `mapPickerBehaviour.throwOnRender` toggle
+(`vi.hoisted`) so a test can deterministically simulate a
+`ChunkLoadError`.
+
+### Out of scope (deferred)
+
+- **SW cache eviction** — the underlying `QuotaExceededError` on
+  `wims-bfp-cache-v9`. Would need either a quota-aware eviction
+  strategy in `src/frontend/public/sw.js` or a smaller initial
+  `urlsToCache` list. Tracked separately.
+- **`/api/ref/emergency-services` ERR_INTERNET_DISCONNECTED** — appears
+  in the console because the SW caches RSC payloads that reference the
+  endpoint. Cosmetic, not a crash trigger.
+
+### Test summary (2026-06-21 follow-up)
+
+- 593/593 frontend vitest tests pass (was 590; +3 new).
+- 0 ESLint errors. 9 lint warnings remain — all pre-existing
+  (`@typescript-eslint/no-unused-vars` on `appendCivilianReport`,
+  `ArrowLeft`, `Camera`, `Circle`, `Search`, `XCircle` imports and
+  two unused `eslint-disable` directives). No new warnings introduced.
+- `NEXT_PUBLIC_AUTH_API_URL=http://localhost/auth
+  NEXT_PUBLIC_BASE_URL=http://localhost:3000 npm run build` succeeds.

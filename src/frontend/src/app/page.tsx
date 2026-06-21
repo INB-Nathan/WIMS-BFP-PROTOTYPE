@@ -43,6 +43,148 @@ import { EmergencyReferenceCard } from '@/components/EmergencyReferenceCard';
 const GPS_TIMEOUT_MS = 10_000;
 const GPS_MISMATCH_THRESHOLD_M = 200;
 
+// ── MapPicker error boundary + manual fallback ──────────────────────────────
+// The /report context step renders <MapPicker />, which is a `next/dynamic()`
+// import of MapPickerInner (a ~340-line component that pulls in react-leaflet
+// + leaflet). When the user opens /report offline from a fresh cache — or
+// when the SW cache is full (QuotaExceededError on wims-bfp-cache-v9) — the
+// dynamic chunk cannot be served and React throws ChunkLoadError during
+// render. Without a boundary that error bubbles to the app-level error page
+// ("Application error: a client-side exception has occurred") and the user
+// is locked out of submitting a report at all.
+//
+// Boundary catches the throw and renders <ManualLocationFallback />: two
+// number inputs that call the same handlePinChange() the map would, so the
+// rest of the form (Continue → category → details → submit/queue) works
+// identically. The user can also try the map again via the "Retry map" link
+// which resets the boundary state.
+class MapPickerErrorBoundary extends React.Component<
+  { children: React.ReactNode; onRetry?: () => void },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode; onRetry?: () => void }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+  componentDidCatch(error: Error) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[MapPicker] failed to render, falling back to manual lat/lng entry:',
+      error?.message ?? error,
+    );
+  }
+  retry = () => {
+    this.setState({ hasError: false });
+    this.props.onRetry?.();
+  };
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div data-testid="map-picker-fallback" className="space-y-2">
+          <ManualLocationFallback />
+          <button
+            type="button"
+            onClick={this.retry}
+            className="text-xs underline"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            Retry map / Subukan ulit ang mapa
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function ManualLocationFallback() {
+  const [latText, setLatText] = useState('');
+  const [lngText, setLngText] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  // Surface the typed values through a custom event the page listens for.
+  // This avoids threading new props through MapPicker's call site.
+  function commit() {
+    const lat = parseFloat(latText);
+    const lng = parseFloat(lngText);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setError('Enter both latitude and longitude as numbers.');
+      return;
+    }
+    if (lat < -90 || lat > 90) {
+      setError('Latitude must be between -90 and 90.');
+      return;
+    }
+    if (lng < -180 || lng > 180) {
+      setError('Longitude must be between -180 and 180.');
+      return;
+    }
+    setError(null);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('wims:manual-location', { detail: { lat, lng } }),
+      );
+    }
+  }
+
+  return (
+    <div
+      className="p-3 rounded-lg border"
+      style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--content-bg)' }}
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+        <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+          Enter the fire location manually / Ilagay ang lokasyon nang mano-mano
+        </p>
+      </div>
+      <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
+        The map could not load (this can happen when offline and the map data is not yet cached). Enter coordinates in decimal degrees, or re-enable your connection to use the map.
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Latitude</span>
+          <input
+            type="number"
+            step="any"
+            min={-90}
+            max={90}
+            value={latText}
+            onChange={(e) => setLatText(e.target.value)}
+            onBlur={commit}
+            aria-label="Latitude"
+            data-testid="manual-lat"
+            className="form-input"
+            style={{ fontSize: '0.875rem' }}
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Longitude</span>
+          <input
+            type="number"
+            step="any"
+            min={-180}
+            max={180}
+            value={lngText}
+            onChange={(e) => setLngText(e.target.value)}
+            onBlur={commit}
+            aria-label="Longitude"
+            data-testid="manual-lng"
+            className="form-input"
+            style={{ fontSize: '0.875rem' }}
+          />
+        </label>
+      </div>
+      {error && (
+        <p className="text-xs mt-2" style={{ color: '#b91c1c' }}>{error}</p>
+      )}
+    </div>
+  );
+}
+
 const CATEGORIES: { value: CivilianCategory; label: string; labelFil: string; icon: React.ReactElement<{ className?: string }> }[] = [
   { value: 'STRUCTURAL', label: 'Structural', labelFil: 'Gusali', icon: <Flame className="w-5 h-5" /> },
   { value: 'NON_STRUCTURAL', label: 'Non-Structural', labelFil: 'Di-gusali', icon: <Zap className="w-5 h-5" /> },
@@ -448,6 +590,24 @@ export default function ReportPage() {
     setGpsSource('manual');
     setPinClearedFromChallenge(false);
   }
+
+  // Bridge ManualLocationFallback's CustomEvent back into handlePinChange.
+  // The fallback is rendered inside an error boundary so it cannot accept
+  // props from the boundary's parent; a window event is the smallest viable
+  // seam. Only mounted on the context step, so it does not leak to other
+  // pages.
+  useEffect(() => {
+    if (step !== 'context') return;
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ lat: number; lng: number }>).detail;
+      if (!detail) return;
+      handlePinChange(detail.lat, detail.lng);
+    };
+    window.addEventListener('wims:manual-location', handler);
+    return () => window.removeEventListener('wims:manual-location', handler);
+    // handlePinChange closes over setGpsWarningConfirmed etc.; safe to
+    // re-bind on step change since we only care about the context step.
+  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Context step ────────────────────────────────────────────────────────────
 
@@ -1406,11 +1566,13 @@ export default function ReportPage() {
                   )}
 
                   <div className="rounded-lg overflow-hidden border" style={{ borderColor: 'var(--border-color)' }}>
-                    <MapPicker
-                      center={phoneGeo ? [phoneGeo.lat, phoneGeo.lng] : undefined}
-                      value={geo.latitude !== null ? { lat: geo.latitude, lng: geo.longitude! } : null}
-                      onChange={handlePinChange}
-                    />
+                    <MapPickerErrorBoundary>
+                      <MapPicker
+                        center={phoneGeo ? [phoneGeo.lat, phoneGeo.lng] : undefined}
+                        value={geo.latitude !== null ? { lat: geo.latitude, lng: geo.longitude! } : null}
+                        onChange={handlePinChange}
+                      />
+                    </MapPickerErrorBoundary>
                   </div>
 
                   {(phoneGeoStatus.denied || phoneGeoStatus.timedOut) && reportingContext !== 'WITNESS' && (

@@ -74,10 +74,20 @@ vi.mock('react-leaflet', () => ({
   }),
 }));
 
-// Mock MapPicker (used in Context step)
+// Mock MapPicker (used in Context step).
+// `mapPickerBehaviour.throwOnRender` lets a test simulate a chunk-load failure
+// (next/dynamic ChunkLoadError) and assert the error boundary fallback renders.
+const mapPickerBehaviour = vi.hoisted(() => ({ throwOnRender: false }));
 let mapPickerChange: ((lat: number, lng: number) => void) | null = null;
 vi.mock('@/components/MapPicker', () => ({
   MapPicker: ({ onChange }: { onChange?: (lat: number, lng: number) => void }) => {
+    if (mapPickerBehaviour.throwOnRender) {
+      // Simulate next/dynamic ChunkLoadError thrown during render of the
+      // dynamically-loaded MapPicker chunk. In production this happens when
+      // the SW cache is full (QuotaExceededError) and the user is offline
+      // (no network to refetch the chunk from).
+      throw new Error('Loading chunk c3b53539df55402a failed.');
+    }
     // Store the onChange callback so tests can simulate pin drop
     mapPickerChange = onChange ?? null;
     return <div data-testid="map-picker" />;
@@ -456,5 +466,91 @@ describe('ReportPage — civilian offline submit', () => {
     await screen.findByText('Report saved offline');
     // LocalId is rendered as a tracking hint so the user can find it again
     expect(screen.getByText(/queued-local-1/)).toBeInTheDocument();
+  });
+});
+
+describe('ReportPage — context step map chunk-load fallback', () => {
+  // Regression tests for the offline-from-start crash:
+  // When the user opens /report offline, the SW cache is full
+  // (QuotaExceededError) and the dynamic chunk for <MapPicker /> cannot be
+  // served. Going to the context step then throws ChunkLoadError which used
+  // to bubble to the app-level error boundary ("Application error"). The
+  // page must instead render a manual lat/lng fallback so the user can
+  // still submit a report offline.
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    try { localStorage.clear(); } catch {}
+    mockSearchParams = new URLSearchParams();
+    mapPickerChange = null;
+    mapPickerBehaviour.throwOnRender = false;
+    setConnectivity('online');
+  });
+
+  afterEach(() => {
+    mapPickerBehaviour.throwOnRender = false;
+  });
+
+  // Quiet React's error logging in the test output — the chunk-load throw
+  // is intentional. jsdom surfaces it as a console.error in @testing-library.
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn> | null = null;
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    consoleErrorSpy?.mockRestore();
+  });
+
+  it('renders the context step instead of crashing when the map chunk fails to load', async () => {
+    mapPickerBehaviour.throwOnRender = true;
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+
+    fireEvent.click(screen.getByText('I am safe'));
+    fireEvent.click(screen.getByText('Continue'));
+
+    // Heading must render — used to throw before this could appear.
+    await screen.findByText('How did you learn about this fire?');
+  });
+
+  it('shows manual latitude / longitude inputs as the map fallback', async () => {
+    mapPickerBehaviour.throwOnRender = true;
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+
+    fireEvent.click(screen.getByText('I am safe'));
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('How did you learn about this fire?');
+    fireEvent.click(screen.getByText('I saw it happen'));
+
+    // Fallback form should expose manual lat / lng inputs so the user can
+    // still set a location offline without the map.
+    const latInput = await screen.findByLabelText(/latitude/i);
+    const lngInput = screen.getByLabelText(/longitude/i);
+    expect(latInput).toBeInTheDocument();
+    expect(lngInput).toBeInTheDocument();
+  });
+
+  it('typing into the manual fallback sets the pin and enables Continue', async () => {
+    mapPickerBehaviour.throwOnRender = true;
+    const user = userEvent.setup();
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+
+    fireEvent.click(screen.getByText('I am safe'));
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('How did you learn about this fire?');
+    fireEvent.click(screen.getByText('I saw it happen'));
+
+    const latInput = await screen.findByLabelText(/latitude/i);
+    const lngInput = screen.getByLabelText(/longitude/i);
+    await user.clear(latInput);
+    await user.type(latInput, '14.5');
+    await user.clear(lngInput);
+    await user.type(lngInput, '121.0');
+
+    // Continue should now be enabled (lat/lng are valid numbers).
+    const continueBtn = screen.getByRole('button', { name: /Continue/ });
+    expect(continueBtn).not.toBeDisabled();
   });
 });
