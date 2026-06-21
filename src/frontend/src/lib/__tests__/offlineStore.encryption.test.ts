@@ -168,7 +168,6 @@ const {
   updateQueuedIncident,
   updateOfflineOp,
   setActiveOfflineUser,
-  clearAllOfflineData,
 } = await import('../offlineStore');
 
 const ENCODER_ID = 'enc-test-001';

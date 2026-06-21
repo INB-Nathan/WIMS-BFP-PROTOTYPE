@@ -305,7 +305,7 @@ describe('prefetchRole — cache.match + Promise.allSettled contract', () => {
 
   it('does not cache non-ok responses', async () => {
     const cache = makeFakeCache();
-    const fetchImpl = async (_url: string) =>
+    const fetchImpl = async () =>
       new Response('forbidden', { status: 403 });
     await prefetchRole(
       'NATIONAL_VALIDATOR',
