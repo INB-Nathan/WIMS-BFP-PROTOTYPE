@@ -60,6 +60,8 @@ Encoder archive/unarchive actions now use `src/frontend/src/lib/api/offlineRegio
 
 `src/frontend/src/components/__tests__/IncidentForm.offline.test.tsx` covers the encoder `IncidentForm` offline create path: Save as Draft queues one `create` op and redirects to `/dashboard/regional`, while Submit for Review queues a `create` op plus linked `submit` op so sync replays the draft and immediate submission in order.
 
+Regional incident cards preserve visible-but-disabled online incidents while offline when their detail payload is not cached. `page.tsx` now computes cached detail availability from `cachedIncidents` regardless of whether the visible list was loaded online or from cache, and `IncidentCard.test.tsx` verifies offline uncached cards show `Go online to view` without dispatching navigation while cached cards remain clickable.
+
 ### `api/offlineValidator.ts` — Validator Offline-First Action Wrappers (GH #269)
 
 **File:** `src/frontend/src/lib/api/offlineValidator.ts`

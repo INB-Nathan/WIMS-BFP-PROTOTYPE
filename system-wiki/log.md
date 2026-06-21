@@ -1,3 +1,11 @@
+## [2026-06-21] fix(offline): disable uncached regional incident clicks offline
+
+- **Fix (`src/frontend/src/app/dashboard/regional/page.tsx`):** regional dashboard now computes cached detail IDs for the current encoder regardless of whether the visible list was loaded online or from cache. When offline, online incidents whose detail payload is not cached stay visible but are not navigable.
+- **Tests (`src/frontend/src/components/regional/__tests__/IncidentCard.test.tsx`):** added coverage that offline uncached incident cards show `Go online to view`, set `aria-disabled`, and suppress click/keyboard navigation, while cached cards remain clickable.
+- **Tests (`src/frontend/src/lib/__tests__/offlineStore.ops.test.ts`):** added direct cross-account cache-isolation coverage for `cachedIncidents`; different UID login clears cached regional incident data while same-user offline work preservation remains unchanged.
+- **Validation:** `npx vitest run src/components/regional/__tests__/IncidentCard.test.tsx src/lib/__tests__/offlineStore.ops.test.ts` passed (24/24); targeted ESLint passed with no output.
+- **Wiki:** updated `system-wiki/architecture/pwa-tests-cicd.md`, `system-wiki/subsystems/regional-dashboard.md`, `system-wiki/index.md`, and this log.
+
 ## [2026-06-21] test(offline): IncidentForm offline create and submit coverage
 
 - **Tests (`src/frontend/src/components/__tests__/IncidentForm.offline.test.tsx`):** added render-level coverage for encoder manual-entry offline behavior. Save as Draft queues one `create` offline op and redirects to `/dashboard/regional`; Submit for Review queues a `create` op plus linked `submit` op for ordered replay by the sync engine.

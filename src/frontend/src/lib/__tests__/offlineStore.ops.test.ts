@@ -41,9 +41,11 @@ function makeOpsDbMock() {
       if (storeName === 'incident-queue') return legacyStore.get(key as number);
       return opsStore.get(key as string);
     }),
-    put: vi.fn(async (storeName: string, value: StoredOp | CryptoKey, optKey?: string) => {
+    put: vi.fn(async (storeName: string, value: StoredOp | CryptoKey | { serverId: number }, optKey?: string) => {
       if (storeName === 'crypto-keys') {
         keyStore.set(optKey as string, value as CryptoKey);
+      } else if (storeName === 'cachedIncidents') {
+        cacheStore.set((value as { serverId: number }).serverId, value);
       } else {
         opsStore.set((value as StoredOp).localId, value as StoredOp);
       }
@@ -66,7 +68,10 @@ function makeOpsDbMock() {
       opsStore.delete(key as string);
     }),
     // Index-based scan used by recoverStaleSyncingOps, getPendingOps, etc.
-    getAllFromIndex: vi.fn(async (_storeName: string, _indexName: string, query: string) => {
+    getAllFromIndex: vi.fn(async (storeName: string, _indexName: string, query: string) => {
+      if (storeName === 'cachedIncidents') {
+        return [...cacheStore.values()].filter((item) => (item as { encoderId?: string }).encoderId === query);
+      }
       return [...opsStore.values()].filter((op) => op.encoderId === query);
     }),
     // Transactional writes
@@ -113,6 +118,8 @@ const {
   markOpFailed,
   getFailedOps,
   queueIncident,
+  cacheIncident,
+  getCachedIncidents,
 } = await import('../offlineStore');
 
 const ENCODER_ID = 'enc-001';
@@ -370,6 +377,19 @@ describe('per-user isolation (F12)', () => {
     await setActiveOfflineUser('user-B');
     expect(opsStore.size).toBe(0);
     expect(cacheStore.size).toBe(0);
+  });
+
+  it('clears encrypted cached incidents when a different uid logs in', async () => {
+    await setActiveOfflineUser('user-A');
+    await cacheIncident(101, { nonsensitive: { general_category: 'STRUCTURAL' } }, 'user-A');
+
+    expect(cacheStore.size).toBe(1);
+    await expect(getCachedIncidents('user-A')).resolves.toHaveLength(1);
+
+    await setActiveOfflineUser('user-B');
+
+    expect(cacheStore.size).toBe(0);
+    await expect(getCachedIncidents('user-B')).resolves.toHaveLength(0);
   });
 
   it('preserves offline ops on a same-user re-login', async () => {

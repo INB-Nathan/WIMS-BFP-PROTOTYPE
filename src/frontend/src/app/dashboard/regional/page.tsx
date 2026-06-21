@@ -236,7 +236,7 @@ export default function RegionalDashboardPage() {
       setIsFromCache(fromCache);
       setCachedAt(cAt);
 
-      if (fromCache && encoderId) {
+      if (encoderId) {
         const allCached = await getCachedIncidents(encoderId);
         setCachedDetailIds(new Set(
           allCached
@@ -885,7 +885,7 @@ export default function RegionalDashboardPage() {
                   onHoverEnd={clearHoverHint}
                   onArchive={doEncoderArchive}
                   onUnarchive={doEncoderUnarchive}
-                  isDetailCached={isFromCache ? cachedDetailIds.has(inc.incident_id) : undefined}
+                  isDetailCached={!isOnline ? cachedDetailIds.has(inc.incident_id) : undefined}
                   isOnline={isOnline}
                 />
               ))}
@@ -971,7 +971,7 @@ export default function RegionalDashboardPage() {
                   );
                 })}
                 {incidents.map((inc, idx) => {
-                  const rowOfflineUncached = !isOnline && isFromCache && !cachedDetailIds.has(inc.incident_id);
+                  const rowOfflineUncached = !isOnline && !cachedDetailIds.has(inc.incident_id);
                   return (
                   <tr
                     key={inc.incident_id}
