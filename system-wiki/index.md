@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-21
 Total synthesis pages: 34
-Last changes: Updated encoder offline-first notes for legacy queue wipe/cache isolation, regional cached-list and offline-click test coverage, deprecated Wildland AFOR import commit guard, offline-aware encoder archive/unarchive replay, and IncidentForm offline create/submit tests.
+Last changes: Fixed analyst workflow selected-set transfer hydration so Incident Explorer handoff no longer loops analyst-list calls with and without `incident_ids`; updated frontend route map.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

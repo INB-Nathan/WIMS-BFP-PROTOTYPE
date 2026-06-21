@@ -191,6 +191,7 @@ function CacheMetaText({ cachedAt }: { cachedAt?: number }) {
 export default function AnalystWorkflowPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const transferId = searchParams.get('transfer');
   const params = useParams<{ workflow?: string | string[] }>();
   const workflowParam = Array.isArray(params.workflow) ? params.workflow[0] : params.workflow;
   const workflow = workflowParam && isWorkflowSlug(workflowParam) ? workflowParam : null;
@@ -223,6 +224,7 @@ export default function AnalystWorkflowPage() {
   const [selectedIncidentIds, setSelectedIncidentIds] = useState<number[]>([]);
   const [selectedSetActive, setSelectedSetActive] = useState(false);
   const [transferLoaded, setTransferLoaded] = useState(false);
+  const [hydratedTransferId, setHydratedTransferId] = useState<string | null>();
 
   const [heatmap, setHeatmap] = useState<HeatmapGeoJSON | null>(null);
   const [trends, setTrends] = useState<TrendsResponse | null>(null);
@@ -242,7 +244,7 @@ export default function AnalystWorkflowPage() {
   }, [loading, role, router]);
 
   useEffect(() => {
-    const payload = readAnalystWorkflowTransfer(searchParams.get('transfer'));
+    const payload = readAnalystWorkflowTransfer(transferId);
     if (payload) {
       const filters = payload.filters;
       setStartDate(filters.start_date ?? '');
@@ -259,8 +261,9 @@ export default function AnalystWorkflowPage() {
       setSelectedIncidentIds(payload.selectedIncidentIds ?? []);
       setSelectedSetActive((payload.selectedIncidentIds ?? []).length > 0);
     }
+    setHydratedTransferId(transferId);
     setTransferLoaded(true);
-  }, [searchParams]);
+  }, [transferId]);
 
   useEffect(() => {
     if (loading) return;
@@ -402,6 +405,7 @@ export default function AnalystWorkflowPage() {
 
   const activeFilterCount = Object.values(activeFilters).filter((value) => value !== undefined && value !== '').length;
   const exportUnavailableOffline = !networkStatus.isOnline;
+  const transferReady = transferLoaded && hydratedTransferId === transferId;
   const evidenceFilters = useMemo<AnalystIncidentListParams>(() => (
     selectedIncidentIds.length > 0
       && selectedSetActive
@@ -782,19 +786,21 @@ export default function AnalystWorkflowPage() {
         </Panel>
       )}
 
-      <AnalystIncidentList
-        filters={evidenceFilters}
-        pageSize={workflow === 'incident-explorer' ? 100 : 25}
-        prominent={workflow === 'incident-explorer'}
-        title={workflow === 'incident-explorer' ? 'Incident Explorer' : 'Incident Evidence Table'}
-        description={
-          workflow === 'incident-explorer'
-            ? 'Selected-set control center with 100 rows per page for dense review.'
-            : 'Verified incidents matching this workflow’s local filters.'
-        }
-        initialSelectedIncidentIds={selectedIncidentIds}
-        onSelectionChange={setSelectedIncidentIds}
-      />
+      {transferReady && (
+        <AnalystIncidentList
+          filters={evidenceFilters}
+          pageSize={workflow === 'incident-explorer' ? 100 : 25}
+          prominent={workflow === 'incident-explorer'}
+          title={workflow === 'incident-explorer' ? 'Incident Explorer' : 'Incident Evidence Table'}
+          description={
+            workflow === 'incident-explorer'
+              ? 'Selected-set control center with 100 rows per page for dense review.'
+              : 'Verified incidents matching this workflow’s local filters.'
+          }
+          initialSelectedIncidentIds={selectedIncidentIds}
+          onSelectionChange={setSelectedIncidentIds}
+        />
+      )}
 
       {exportModal?.open && (
         <ExportPreviewModal

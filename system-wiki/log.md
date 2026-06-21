@@ -1,3 +1,12 @@
+## [2026-06-21] fix(analyst): stop selected-set workflow transfer fetch loop
+
+- **Symptom:** in the analyst Incident Explorer, selecting all incidents on the page and proceeding to an independent workflow could loop `/api/incidents/analyst-list` between requests with `incident_ids=...` and requests without `incident_ids`.
+- **Cause:** the workflow page hydrated selected-set transfer state in a `useEffect` keyed to the `useSearchParams()` object, and mounted the evidence table before transfer hydration completed. The child list could emit an initial empty selection while the parent then rehydrated the transferred IDs, producing a selection feedback loop.
+- **Fix (`src/frontend/src/app/dashboard/analyst/[workflow]/page.tsx`):** derive a stable `transferId`, key hydration to that string, and mount `AnalystIncidentList` only after transfer hydration is complete.
+- **Regression test:** added `src/frontend/src/app/dashboard/analyst/[workflow]/page.transfer.test.tsx`, which mocks an unstable search-param object and asserts the evidence table fetches exactly once with transferred `incident_ids`.
+- **Validation:** targeted Vitest with hard wall timeouts passed for the new workflow transfer test and existing analyst list regression tests; targeted ESLint passed.
+- **Wiki:** updated `system-wiki/frontend/route-map.md`, `system-wiki/index.md`, and this log.
+
 ## [2026-06-21] refactor(analyst): white page header, workflows moved to top, standardize chart cards
 
 - **Diagnosis:** the analyst dashboard used a maroon `#991B1B` brand band as the page header — distinctive, but inconsistent with the clean white `PageHeader` pattern used by `ValidatorPageHeader` and `RegionalPageHeader`. The Analyst Workflows cards sat at the *bottom* of the page (after charts and the incident list), making them a discovery dead-end. Three chart cards used inconsistent treatments: Comparative Summary used hand-rolled 2-up tiles, Top-N Analysis rendered as text rows with no bars, and Cross-Region Comparison had a bare `<table>` outside the standard card chrome.
