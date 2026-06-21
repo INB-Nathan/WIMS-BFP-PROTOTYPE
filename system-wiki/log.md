@@ -1,7 +1,14 @@
-# System Wiki Log
+## [2026-06-21] diagnosis | cluster inspection map renders tinted blue pin instead of red pin
 
-Chronological record of system-wiki changes. Append-only.
-Format: `## [YYYY-MM-DD] action | subject`
+- **Symptom:** Validators opening the triage inspection modal see "a red square on the mark" on the cluster map. Only the triage modal is affected; all other maps in the app use the centralized SVG `divIcon` pattern and render correctly.
+- **Root cause:** `src/frontend/src/components/ClusterMapInner.tsx` lines 8-23 define `RedIcon`/`BlueIcon` via `L.icon({ iconUrl: '/leaflet/marker-icon.png', ..., className: 'bg-red-600'/'bg-blue-500' })`. The `/leaflet/marker-icon.png` served by the frontend is the **default Leaflet blue pin** (25x41 RGBA, identical to `node_modules/leaflet/dist/images/marker-icon.png` per MD5; ~33% of pixels are transparent). The `className` option in `L.Icon` applies to the marker `<img>` element, so `bg-red-600` only sets a `background-color` that shows through the transparent pixels. The solid blue pin body remains visible inside the red rectangle — exactly the "red square on the mark" the user described.
+- **Why "in some maps":** `ClusterMapInner` is the only consumer of these RedIcon/BlueIcon definitions. `PublicFireMapInner`, `NearbyStationsMapInner`, `FireStationsMapInner`, `MapPickerInner`, and the validator operational map (`ValidatorMapInner`) all use `src/components/map/leafletIcons.ts` or `CircleMarker`, so they are unaffected. The triage queue is the only place this shows.
+- **Introduced:** commit `a7493d9` 2026-05-20 (feat(m14) Civilian Reporting Phase 2). The asset path was self-hosted in commit `5483cafd` 2026-06-17 (the production gateway now serves the PNG at HTTP 200 from `/leaflet/`), so the visual artifact became more obvious once the image actually loaded.
+- **Recommended fix (not yet applied):** migrate `ClusterMapInner` to `L.divIcon` + inline SVG (the pattern already used in `src/components/map/leafletIcons.ts` via `firePinIcon` / `userLocationIcon`). Requires a frontend rebuild because this is a code change; the public `NEXT_PUBLIC_*` build args are unaffected.
+- **`system-wiki/subsystems/civilian-reporting-phase2.md`:** updated the `ClusterMapInner.tsx` description to reflect the actual implementation (tinted default Leaflet pin) and recorded the known UI gap.
+- **`system-wiki/gaps/frs-codebase-gap-register.md`:** added gap entry for triage cluster map marker rendering.
+
+## [2026-06-20] fix | login field icon scope containment (#427)
 
 ## [2026-06-20] fix | login field icon scope containment (#427)
 
@@ -3577,3 +3584,9 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - Updated regional dashboard and backend route-map wiki notes.
 - Validation: `pytest -q tests/test_afor_import_commit_coordinates.py`, `ruff check .`, and `ruff format --check .` passed after formatting.
 - No FRS gap register change; this corrects implementation behavior for existing official incident geospatial storage.
+
+## [2026-06-20] chore | VPS work prompt template (`.pi/prompts/vps.md`)
+
+- **`.pi/prompts/vps.md` (new):** Project-level pi prompt template invoked via `/vps`. Captures the safe VPS workflow distilled from `.github/ci/deploy.yml:152-154` and the 2026-06-20 auth-loop post-mortem: always use `docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production` (never the local `.env`); tag `src-backend-rollback:latest` before any rebuild; run the 5-step verification (`/health`, OIDC discovery, `/login`, public DMZ, frontend ECONNREFUSED scan); rollback procedure; special-case subsystems (Keycloak realm, SQL init, nginx, frontend build args). The template points local validation back to the running `wims-postgres` container and the `pytest` env block from `AGENTS.md`.
+- **Trigger:** 2026-06-20 backend crash loop from a local `docker compose up -d --build backend` that interpolated `DATABASE_ADMIN_URL` from `src/.env` (`POSTGRES_PASSWORD=postgres`) instead of `src/.env.production` (`POSTGRES_PASSWORD=wims-postgres-secure-2026`). The backend's startup DDL patches (`_apply_postgres_init_sql_patch` in `src/backend/main.py:166`) failed with `password authentication failed for user "postgres"`, the backend entered a crash loop, and `/api/auth/session` got `ECONNREFUSED` from the frontend session route — producing the auth loop. Fixed by re-creating the backend with the production compose + env file. No source-code change.
+- **Related existing wiki:** `system-wiki/operations/auth-loop-debug-guide.md` documents the `BACKEND_URL`/`NEXT_PUBLIC_AUTH_API_URL` server-side probe failure class; the new prompt template covers the broader "how to do anything on the VPS without breaking it" workflow, of which auth-loop-debug is one symptom.

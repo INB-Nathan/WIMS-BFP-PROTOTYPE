@@ -206,7 +206,7 @@ Returns clustered `citizen_reports` with cluster metadata.
 | `confidence` | min threshold |
 | `unreviewed` | no cluster membership |
 
-**Cluster discovery / related counts**: triage queue related-count/severity uses PostGIS `ST_DWithin(geography, geography, 100)` and a 1-hour window. Queue reads materialize durable clusters only for reports that have at least one related report within 100m/1hr (the `groupable` CTE filters `unclustered` reports with a correlated `EXISTS (SELECT 1 FROM ... WHERE ST_DWithin(...) AND ...)` subquery). Truly isolated reports remain unclustered (`cluster_id` is null) and appear in the Individual Reports table; related reports each get their own cluster and appear in the Clusters table for validator review, claim, and manual merge.
+**Cluster discovery / related counts**: triage queue related-count/severity uses PostGIS `ST_DWithin(geography, geography, 100)` and a 1-hour window. Queue reads materialize durable clusters only for **connected components of unclustered reports** that contain at least two members within 100m/1hr of each other (transitive closure over the spatial adjacency). The materialization uses a recursive CTE that builds each component and inserts one cluster row per component with all of its members; components with a single member are skipped, so the report is left as a singleton (`cluster_id` is null) and appears in the Individual Reports table. Clusters created by the explicit split workflow or by manual merge still work as before; the auto-materialization only acts on reports not already in any open cluster. Truly isolated reports (no unclustered neighbors within 100m/1hr) also remain unclustered and appear in the Individual Reports table.
 
 **RLS context note**: the queue projection uses `get_db_with_rls()` and materializes singleton clusters during the read. Because SQLAlchemy/PostgreSQL `SET LOCAL wims.current_user_id` is cleared by `db.commit()`, `src/backend/services/civilian_triage/queue_projection.py` re-establishes RLS context immediately after the materialization commit and before `_table_exists()` plus the main queue SELECT. Without this reset, production app-user sessions can see PENDING rows in lightweight widgets but receive an empty triage queue.
 
@@ -346,8 +346,8 @@ Phase 2 validator UI:
 **`ClusterMapInner.tsx`** (`src/frontend/src/components/ClusterMapInner.tsx`):
 - `MapContainer` centered on cluster centroid
 - OpenStreetMap tile layer (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`)
-- Red circle markers (`#ef4444`) for cluster reports
-- Blue circle markers (`#3b82f6`) for suggested merge-anchor reports
+- Markers: `L.icon` using `/leaflet/marker-icon.png` (the default Leaflet blue pin PNG, 25x41 RGBA with 339/1025 transparent pixels) with `className: 'bg-red-600'` for cluster members and `className: 'bg-blue-500'` for suggested merge anchors. The CSS `background-color` shows through the transparent pixels of the pin, so each marker renders as a tinted (red/blue) rectangle with a blue pin shape inside.
+  - **Known UI gap (2026-06-21 diagnosis):** the `className` color tint does not actually recolor the pin; the blue PNG body remains visible. Visually this looks like a red/blue square with a blue teardrop inside. The centralized `src/components/map/leafletIcons.ts` already does this correctly with `L.divIcon` + inline SVG (see `firePinIcon`, used by `PublicFireMapInner`); `ClusterMapInner` should be migrated to the same pattern.
 - `Circle` component showing 100m radius around anchor
 
 ## API Client
