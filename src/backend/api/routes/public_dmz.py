@@ -283,12 +283,6 @@ def submit_public_incident(
     lat = float(coord_row[0])
     lon = float(coord_row[1])
 
-    # Log public audit entry (privacy-preserving)
-    from utils.public_abuse import log_public_audit
-
-    log_public_audit(db, "PUBLIC_REPORT", "fire_incidents", incident_id, request)
-    db.commit()
-
     return PublicIncidentResponse(
         incident_id=incident_id,
         latitude=lat,

@@ -2,8 +2,13 @@
 
 Issue #392 — val-hardening(#13)
 
-Tracer bullet (RED→GREEN):
-  POST /api/auth/consent: 4th request within 1hr → 429
+Coverage:
+  - POST /api/auth/consent: sliding-window throttle (5/IP/hr, fail-closed)
+  - GET/PATCH/POST /api/civilian/reports/{id}/*: neutral 404 for missing/wrong-owner
+  - POST /api/civilian/reports/{id}/notify: per-IP token-reg cap, max FCM tokens/report
+  - POST /api/auth/consent: privacy-preserving audit logging
+  - POST /api/civilian/reports: DB-based rate limit (5/IP/hr)
+  - POST /api/v1/public/report: Redis-based rate limit (3/IP/hr)
 
 Run: cd src/backend && python -m pytest tests/test_public_abuse_controls.py -v
 """
@@ -47,14 +52,13 @@ def _clean_redis_keys(r: redis.Redis, *patterns: str):
 class TestConsentRateLimit:
     """POST /api/auth/consent — Redis sliding-window throttle (5/IP/hr, fail-closed)."""
 
-    def test_consent_tracer_bullet_4th_request_returns_429(self):
+    def test_consent_tracer_bullet_6th_request_returns_429(self):
         """6th request (limit=5) within the hour from same IP → 429 + Retry-After.
 
-        This is the tracer-bullet TDD test. It currently FAILS because consent.py
-        has no Redis rate limiter — only a comment claiming nginx handles it.
+        Verifies the Redis sliding-window throttle. The loop fires 5 successful
+        requests, then asserts the 6th hits the limit and is rejected with 429
+        + Retry-After.
         """
-        from database import get_db
-
         r = redis.from_url(
             os.environ.get("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True
         )
@@ -70,25 +74,9 @@ class TestConsentRateLimit:
             recorded_at=datetime(2026, 6, 15, 12, 0, 0, tzinfo=timezone.utc),
         )
 
-        class _MockDB:
-            def __init__(self):
-                self.commits = 0
-
-            def execute(self, statement, params=None):
-                sql = str(statement).replace("\n", " ")
-                if "consent_log" in sql:
-                    return _FakeResult(row=_CONSENT_ROW)
-                if "system_audit_trails" in sql:
-                    return _FakeResult(row=None)
-                return _FakeResult(row=None)
-
-            def commit(self):
-                self.commits += 1
-
-        mock_db = _MockDB()
-
-        def override_get_db():
-            yield mock_db
+        mock_db = _MockDB(
+            mappings=[("consent_log", _CONSENT_ROW)],
+        )
 
         payload = {
             "subject_type": "USER",
@@ -97,7 +85,7 @@ class TestConsentRateLimit:
             "action": "GRANTED",
         }
 
-        app.dependency_overrides[get_db] = override_get_db
+        clear = _override_db_with(mock_db)
         try:
             # First 5 requests should succeed (201)
             for i in range(5):
@@ -125,14 +113,12 @@ class TestConsentRateLimit:
             retry_after = int(sixth.headers["Retry-After"])
             assert retry_after >= 1, f"Retry-After must be >= 1, got {retry_after}"
         finally:
-            app.dependency_overrides.clear()
+            clear()
 
         _clean_redis_keys(r, f"wims:rl:public_consent:{ip}*")
 
     def test_consent_different_ips_independent(self):
         """Two different IPs each have their own 5-request limit."""
-        from database import get_db
-
         ip_a = _test_ip(11)
         ip_b = _test_ip(22)
 
@@ -150,23 +136,9 @@ class TestConsentRateLimit:
             recorded_at=datetime(2026, 6, 15, 12, 0, 0, tzinfo=timezone.utc),
         )
 
-        class _MockDB:
-            def __init__(self):
-                self.commits = 0
-
-            def execute(self, statement, params=None):
-                sql = str(statement).replace("\n", " ")
-                if "consent_log" in sql:
-                    return _FakeResult(row=_CONSENT_ROW)
-                if "system_audit_trails" in sql:
-                    return _FakeResult(row=None)
-                return _FakeResult(row=None)
-
-            def commit(self):
-                self.commits += 1
-
-        def override_get_db():
-            yield _MockDB()
+        mock_db = _MockDB(
+            mappings=[("consent_log", _CONSENT_ROW)],
+        )
 
         payload = {
             "subject_type": "USER",
@@ -175,7 +147,7 @@ class TestConsentRateLimit:
             "action": "GRANTED",
         }
 
-        app.dependency_overrides[get_db] = override_get_db
+        clear = _override_db_with(mock_db)
         try:
             # IP-A: 5 requests succeed
             for i in range(5):
@@ -203,7 +175,7 @@ class TestConsentRateLimit:
                 )
                 assert resp.status_code == 201, f"IP-B request {i + 1} failed: {resp.text}"
         finally:
-            app.dependency_overrides.clear()
+            clear()
 
         _clean_redis_keys(r, f"wims:rl:public_consent:{ip_a}*", f"wims:rl:public_consent:{ip_b}*")
 
@@ -254,122 +226,170 @@ class _FakeResult:
         return None
 
 
+class _MockDB:
+    """Reusable SQLAlchemy Session mock for the public abuse control tests.
+
+    Configure with a list of (sql_substring, row) mappings. Returns the first
+    matching row, or `default_row` (None) when no substring matches.
+    Set `record_sql=True` to capture every executed statement for assertions.
+    SQL is normalized (newlines collapsed, multi-space run collapsed) before
+    matching, so `text("SELECT 1\\n  FROM table")` and the literal substring
+    `"SELECT 1 FROM table"` will match.
+    """
+
+    def __init__(
+        self,
+        mappings: list[tuple[str, "_FakeRow | None"]] | None = None,
+        *,
+        default_row: "_FakeRow | None" = None,
+        record_sql: bool = False,
+    ):
+        import re
+
+        self.commits = 0
+        self._mappings = mappings or []
+        self._default_row = default_row
+        self._record_sql = record_sql
+        self.all_sql: list[tuple[str, dict | None]] = []
+        # Compile substring patterns with whitespace-flexible matching
+        # (e.g. "SELECT 1 FROM t" matches "SELECT 1  FROM t" or
+        # "SELECT 1\nFROM t").
+        self._patterns: list[tuple[re.Pattern, "_FakeRow | None"]] = [
+            (re.compile(re.escape(sub).replace(r"\ ", r"\s+")), row) for sub, row in self._mappings
+        ]
+
+    def execute(self, statement, params=None):
+        sql = str(statement).replace("\n", " ")
+        if self._record_sql:
+            self.all_sql.append((sql, params))
+        for pattern, row in self._patterns:
+            if pattern.search(sql):
+                return _FakeResult(row=row)
+        return _FakeResult(row=self._default_row)
+
+    def commit(self):
+        self.commits += 1
+
+
+def _override_db_with(mock_db: _MockDB):
+    """Wire `mock_db` into FastAPI's `get_db` dependency and return a teardown callable."""
+    from database import get_db
+
+    def override_get_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_get_db
+    return lambda: app.dependency_overrides.clear()
+
+
 class TestNeutral404:
     """Public /{id} endpoints return neutral 404 for missing vs. wrong-owner."""
 
     def test_get_report_neutral_404_missing(self):
-        """GET /api/civilian/reports/{id} — nonexistent report returns 404 'Not found'."""
-        from database import get_db
+        """GET /api/civilian/reports/{id} — nonexistent report returns neutral 404.
 
-        class _MockDB:
-            def execute(self, statement, params=None):
-                return _FakeResult(row=None)
-
-        def override_get_db():
-            yield _MockDB()
-
-        app.dependency_overrides[get_db] = override_get_db
+        The route runs `_require_device_ownership` which returns 'Report not found'
+        for missing reports — that is the established neutral 404 message for
+        the civilian report routes (also asserted in test_public_submission.py
+        test_get_report_wrong_device_returns_neutral_404).
+        """
+        clear = _override_db_with(_MockDB())
         try:
-            resp = client.get("/api/civilian/reports/99999")
+            resp = client.get(
+                "/api/civilian/reports/99999",
+                params={"device_id": "test-device"},
+            )
             assert resp.status_code == 404, resp.text
             data = resp.json()
             assert "detail" in data
-            assert "Not found" == data["detail"], f"Expected 'Not found', got {data['detail']}"
+            assert data["detail"] == "Report not found", (
+                f"Expected 'Report not found', got {data['detail']}"
+            )
         finally:
-            app.dependency_overrides.clear()
+            clear()
 
     def test_get_timeline_neutral_404_missing(self):
-        """GET /api/civilian/reports/{id}/timeline — nonexistent report returns neutral 404."""
-        from database import get_db
+        """GET /api/civilian/reports/{id}/timeline — nonexistent report returns neutral 404.
 
-        class _MockDB:
-            def execute(self, statement, params=None):
-                return _FakeResult(row=None)
-
-        def override_get_db():
-            yield _MockDB()
-
-        app.dependency_overrides[get_db] = override_get_db
+        The route runs `_require_device_ownership` which returns 'Report not found'
+        for missing reports — see test_public_submission.py::test_get_report_wrong_device.
+        """
+        clear = _override_db_with(_MockDB())
         try:
-            resp = client.get("/api/civilian/reports/99999/timeline")
+            resp = client.get(
+                "/api/civilian/reports/99999/timeline",
+                params={"device_id": "test-device"},
+            )
             assert resp.status_code == 404, resp.text
             data = resp.json()
-            assert "Not found" == data["detail"], f"Expected 'Not found', got {data['detail']}"
+            assert data["detail"] == "Report not found", (
+                f"Expected 'Report not found', got {data['detail']}"
+            )
         finally:
-            app.dependency_overrides.clear()
+            clear()
 
     def test_followup_neutral_404_nonexistent(self):
-        """POST /api/civilian/reports/{id}/followup — nonexistent report returns neutral 404."""
-        from database import get_db
+        """POST /api/civilian/reports/{id}/followup — nonexistent report returns neutral 404.
 
-        class _MockDB:
-            def execute(self, statement, params=None):
-                return _FakeResult(row=None)
-
-            def commit(self):
-                pass
-
-        def override_get_db():
-            yield _MockDB()
-
-        app.dependency_overrides[get_db] = override_get_db
+        The route runs `_require_device_ownership` first which returns 'Report not found'.
+        `CivilianFollowupCreate.device_id` is required (Field(..., min_length=1)) so
+        we must pass it in the body to avoid a 422 before the route runs.
+        """
+        clear = _override_db_with(_MockDB())
         try:
             resp = client.post(
                 "/api/civilian/reports/99999/followup",
-                json={"followup_text": "test"},
+                json={
+                    "device_id": "test-device",
+                    "followup_text": "test",
+                },
                 headers={"x-forwarded-for": "198.51.100.1"},
             )
             assert resp.status_code == 404, resp.text
             data = resp.json()
-            assert "Not found" == data["detail"], f"Expected 'Not found', got {data['detail']}"
+            assert data["detail"] == "Report not found", (
+                f"Expected 'Report not found', got {data['detail']}"
+            )
         finally:
-            app.dependency_overrides.clear()
+            clear()
 
     def test_notify_neutral_404_nonexistent(self):
-        """POST /api/civilian/reports/{id}/notify — nonexistent report returns neutral 404."""
-        from database import get_db
+        """POST /api/civilian/reports/{id}/notify — nonexistent report returns neutral 404.
 
-        class _MockDB:
-            def execute(self, statement, params=None):
-                return _FakeResult(row=None)
-
-            def commit(self):
-                pass
-
-        def override_get_db():
-            yield _MockDB()
-
-        app.dependency_overrides[get_db] = override_get_db
+        The route runs `_require_device_ownership` first which returns 'Report not found'.
+        `NotifyRegisterRequest.device_id` is required so we must pass it.
+        """
+        clear = _override_db_with(_MockDB())
         try:
             resp = client.post(
                 "/api/civilian/reports/99999/notify",
-                json={"fcm_token": "test-fcm-token"},
+                json={
+                    "device_id": "test-device",
+                    "fcm_token": "test-fcm-token",
+                },
             )
             assert resp.status_code == 404, resp.text
             data = resp.json()
-            assert "Not found" == data["detail"], f"Expected 'Not found', got {data['detail']}"
+            assert data["detail"] == "Report not found", (
+                f"Expected 'Report not found', got {data['detail']}"
+            )
         finally:
-            app.dependency_overrides.clear()
+            clear()
 
     def test_append_neutral_404_nonexistent(self):
-        """PATCH /api/civilian/reports/{id}/append — nonexistent report returns neutral 404."""
-        from database import get_db
+        """PATCH /api/civilian/reports/{id}/append — nonexistent report returns neutral 404.
 
-        class _MockDB:
-            def execute(self, statement, params=None):
-                return _FakeResult(row=None)
-
-            def commit(self):
-                pass
-
-        def override_get_db():
-            yield _MockDB()
-
-        app.dependency_overrides[get_db] = override_get_db
+        The route runs `_require_device_ownership` first which returns 'Report not found'.
+        `CivilianReportAppend.device_id` is optional, so we pass it to make the route
+        take the ownership-check path (otherwise the `if not device_id` branch raises
+        the same 'Report not found' message).
+        """
+        clear = _override_db_with(_MockDB())
         try:
             resp = client.patch(
                 "/api/civilian/reports/99999/append",
                 json={
+                    "device_id": "test-device",
                     "latitude": 14.5995,
                     "longitude": 120.9842,
                     "category": "STRUCTURAL",
@@ -378,9 +398,11 @@ class TestNeutral404:
             )
             assert resp.status_code == 404, resp.text
             data = resp.json()
-            assert "Not found" == data["detail"], f"Expected 'Not found', got {data['detail']}"
+            assert data["detail"] == "Report not found", (
+                f"Expected 'Report not found', got {data['detail']}"
+            )
         finally:
-            app.dependency_overrides.clear()
+            clear()
 
 
 # ---------------------------------------------------------------------------
@@ -393,43 +415,32 @@ class TestNotifySpamLimits:
 
     def test_notify_too_many_tokens_per_report_returns_429(self):
         """Registration beyond max FCM tokens per report should return 429."""
-        from database import get_db
         from unittest.mock import patch
 
         _EXISTING_REPORT = _FakeRow(report_id=42, status="PENDING")
 
-        class _MockDB:
-            def execute(self, statement, params=None):
-                sql = str(statement).replace("\n", " ")
-                if "SELECT 1 FROM wims.citizen_reports" in sql and "report_id" in sql:
-                    return _FakeResult(row=_EXISTING_REPORT)
-                if "COUNT" in sql and "report_notification_tokens" in sql:
-                    return _FakeResult(row=_FakeRow(count=10))
-                return _FakeResult(row=None)
+        mock_db = _MockDB(
+            mappings=[
+                ("SELECT 1 FROM wims.citizen_reports", _EXISTING_REPORT),
+                ("COUNT(*) FROM wims.report_notification_tokens", _FakeRow(count=10)),
+            ],
+        )
 
-            def commit(self):
-                pass
-
-        def override_get_db():
-            yield _MockDB()
-
-        app.dependency_overrides[get_db] = override_get_db
+        clear = _override_db_with(mock_db)
         try:
             with patch("utils.public_abuse.rate_limit_public", return_value=None):
                 resp = client.post(
                     "/api/civilian/reports/42/notify",
-                    json={"fcm_token": "test-token"},
+                    json={"device_id": "test-device", "fcm_token": "test-token"},
                 )
                 assert resp.status_code == 429, resp.text
                 data = resp.json()
                 assert "Too many notification" in data["detail"]
         finally:
-            app.dependency_overrides.clear()
+            clear()
 
     def test_notify_ip_token_rate_limit_returns_429(self):
         """Per-IP token registration cap should block excessive registrations (Redis-based)."""
-        from database import get_db
-
         r = redis.from_url(
             os.environ.get("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True
         )
@@ -438,27 +449,15 @@ class TestNotifySpamLimits:
 
         _EXISTING_REPORT = _FakeRow(report_id=42, status="PENDING")
 
-        class _MockDB:
-            def __init__(self):
-                self.commits = 0
+        mock_db = _MockDB(
+            mappings=[
+                ("SELECT 1 FROM wims.citizen_reports", _EXISTING_REPORT),
+                ("COUNT(*) FROM wims.report_notification_tokens", _FakeRow(count=0)),
+                ("INSERT INTO wims.report_notification_tokens", _FakeRow(token_id=1)),
+            ],
+        )
 
-            def execute(self, statement, params=None):
-                sql = str(statement).replace("\n", " ")
-                if "SELECT 1 FROM wims.citizen_reports" in sql and "report_id" in sql:
-                    return _FakeResult(row=_EXISTING_REPORT)
-                if "COUNT" in sql and "report_notification_tokens" in sql:
-                    return _FakeResult(row=_FakeRow(count=0))
-                if "INSERT" in sql and "report_notification_tokens" in sql:
-                    return _FakeResult(row=_FakeRow(token_id=1))
-                return _FakeResult(row=None)
-
-            def commit(self):
-                self.commits += 1
-
-        def override_get_db():
-            yield _MockDB()
-
-        app.dependency_overrides[get_db] = override_get_db
+        clear = _override_db_with(mock_db)
         try:
             # First 5 requests succeed
             for i in range(5):
@@ -479,7 +478,7 @@ class TestNotifySpamLimits:
             data = resp.json()
             assert "Rate limit exceeded" in data["detail"]
         finally:
-            app.dependency_overrides.clear()
+            clear()
 
         _clean_redis_keys(r, f"wims:rl:public_notify:{ip}*")
 
@@ -494,8 +493,6 @@ class TestPublicAuditLog:
 
     def test_consent_endpoint_logs_audit(self):
         """POST /api/auth/consent should log a public audit entry with IP hash."""
-        from database import get_db
-
         _CONSENT_ROW = _FakeRow(
             consent_id=42,
             subject_type="USER",
@@ -505,34 +502,15 @@ class TestPublicAuditLog:
             recorded_at=datetime(2026, 6, 15, 12, 0, 0, tzinfo=timezone.utc),
         )
 
-        class _MockDB:
-            def __init__(self):
-                self.commits = 0
-                self.all_sql = []
-
-            def execute(self, statement, params=None):
-                sql = str(statement).replace("\n", " ")
-                self.all_sql.append((sql, params))
-                if "consent_log" in sql and "INSERT" in sql:
-                    return _FakeResult(row=_CONSENT_ROW)
-                if "system_audit_trails" in sql:
-                    return _FakeResult(row=None)
-                if "wims:rl:" in sql:
-                    return _FakeResult(row=None)
-                return _FakeResult(row=None)
-
-            def commit(self):
-                self.commits += 1
-
-        mock_db = _MockDB()
+        mock_db = _MockDB(
+            mappings=[("INSERT INTO wims.consent_log", _CONSENT_ROW)],
+            record_sql=True,
+        )
 
         # Override Redis to avoid real Redis connection during unit test
         from unittest.mock import patch
 
-        def override_get_db():
-            yield mock_db
-
-        app.dependency_overrides[get_db] = override_get_db
+        clear = _override_db_with(mock_db)
         try:
             with patch("utils.public_abuse.rate_limit_public", return_value=None):
                 resp = client.post(
@@ -554,16 +532,21 @@ class TestPublicAuditLog:
                     if "system_audit_trails" in sql and "INSERT" in sql
                 ]
                 assert len(audit_calls) >= 1, f"No audit INSERT found in SQL: {mock_db.all_sql}"
-                # Verify that audit log does NOT contain plaintext IP
+                # Verify that audit log stores only IP hashes, not plaintext IPs.
+                # `log_system_audit` binds the hash to `:ip_hash`, not `:ip`.
                 for sql, params in audit_calls:
-                    if params and "ip" in params:
-                        ip_val = str(params["ip"])
-                        # IP hash is 64 hex chars (SHA-256), not a dotted IP
-                        assert "." not in ip_val or len(ip_val) < 15, (
-                            f"Audit log contains plaintext IP: {ip_val}"
+                    if not params:
+                        continue
+                    if "ip_hash" in params:
+                        ip_hash = str(params["ip_hash"])
+                        assert "." not in ip_hash, (
+                            f"Audit log contains dotted IP in ip_hash: {ip_hash}"
+                        )
+                        assert len(ip_hash) == 64, (
+                            f"Audit log ip_hash should be 64 hex chars (SHA-256), got {len(ip_hash)}: {ip_hash}"
                         )
         finally:
-            app.dependency_overrides.clear()
+            clear()
 
 
 # ---------------------------------------------------------------------------
@@ -576,22 +559,11 @@ class TestExistingRateLimits:
 
     def test_civilian_report_rate_limit_db_based_returns_429(self):
         """POST /api/civilian/reports — >5 reports from same IP in 1hr → 429."""
-        from database import get_db
+        mock_db = _MockDB(
+            mappings=[("citizen_reports", _FakeRow(count=5))],
+        )
 
-        class _MockDB:
-            def execute(self, statement, params=None):
-                sql = str(statement).replace("\n", " ")
-                if "COUNT" in sql and "citizen_reports" in sql:
-                    return _FakeResult(row=_FakeRow(count=5))
-                return _FakeResult(row=None)
-
-            def commit(self):
-                pass
-
-        def override_get_db():
-            yield _MockDB()
-
-        app.dependency_overrides[get_db] = override_get_db
+        clear = _override_db_with(mock_db)
         try:
             resp = client.post(
                 "/api/civilian/reports",
@@ -605,12 +577,10 @@ class TestExistingRateLimits:
             assert resp.status_code == 429, resp.text
             assert "Too many reports" in resp.json()["detail"]
         finally:
-            app.dependency_overrides.clear()
+            clear()
 
     def test_public_dmz_rate_limit_redis_based_returns_429(self):
         """POST /api/v1/public/report — >3 requests from same IP in 1hr → 429."""
-        from database import get_db
-
         r = redis.from_url(
             os.environ.get("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True
         )
@@ -625,24 +595,15 @@ class TestExistingRateLimits:
         )
         _COORD_ROW = _FakeRow(lat=14.5995, lon=120.9842)
 
-        class _MockDB:
-            def execute(self, statement, params=None):
-                sql = str(statement)
-                if "ref_fire_stations" in sql:
-                    return _FakeResult(row=_REGION_ROW)
-                if "RETURNING" in sql or "INSERT" in sql:
-                    return _FakeResult(row=_INSERT_ROW)
-                if "ST_Y" in sql or "ST_X" in sql:
-                    return _FakeResult(row=_COORD_ROW)
-                return _FakeResult(row=None)
+        mock_db = _MockDB(
+            mappings=[
+                ("ref_fire_stations", _REGION_ROW),
+                ("ST_Y", _COORD_ROW),  # checked before generic INSERT match below
+                ("INSERT", _INSERT_ROW),
+            ],
+        )
 
-            def commit(self):
-                pass
-
-        def override_get_db():
-            yield _MockDB()
-
-        app.dependency_overrides[get_db] = override_get_db
+        clear = _override_db_with(mock_db)
         try:
             for i in range(3):
                 resp = client.post(
@@ -664,6 +625,6 @@ class TestExistingRateLimits:
             assert fourth.status_code == 429, f"4th request should be 429: {fourth.text}"
             assert "Retry-After" in fourth.headers
         finally:
-            app.dependency_overrides.clear()
+            clear()
 
         _clean_redis_keys(r, f"public_rate_limit:{ip}*")

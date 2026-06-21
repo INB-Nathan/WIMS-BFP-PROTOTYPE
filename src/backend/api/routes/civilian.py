@@ -14,7 +14,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import get_db
-from utils.audit import log_system_audit
+from utils.audit import get_client_ip, hash_client_ip, log_system_audit
+from utils.public_abuse import rate_limit_public
 
 from schemas.civilian import (
     CivilianFollowupCreate,
@@ -82,16 +83,6 @@ STATUS_GUIDANCE = {
     "ACTIONED": "For urgent updates, call 911 or your nearest BFP station.",
     "LINKED": "Your report was linked to a related civilian report.",
 }
-
-
-def _ip_hash(request: Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for")
-    ip = (
-        forwarded_for.split(",", 1)[0].strip()
-        if forwarded_for
-        else (request.client.host if request.client else "")
-    )
-    return hashlib.sha256(ip.encode("utf-8")).hexdigest()
 
 
 def _resolve_nearest(db: Session, wkt: str):
@@ -266,10 +257,6 @@ def _fetch_report_response(
         """),
         {"rid": report_id},
     ).fetchone()
-    if not row:
-        from utils.public_abuse import neutral_404
-
-        raise neutral_404()
     return _response_from_row(row)
 
 
@@ -281,7 +268,7 @@ def submit_civilian_report(
 ) -> CivilianReportResponse:
     """Public endpoint: submit emergency report with no auth."""
     wkt = f"SRID=4326;POINT({body.longitude} {body.latitude})"
-    ip_hash = _ip_hash(request)
+    ip_hash = hash_client_ip(get_client_ip(request))
     _require_previous_report(db, body.previous_report_id)
     rate_count = db.execute(
         text("""
@@ -439,10 +426,6 @@ def append_civilian_report(
         text("SELECT report_id, status FROM wims.citizen_reports WHERE report_id = :rid"),
         {"rid": report_id},
     ).fetchone()
-    if not parent:
-        from utils.public_abuse import neutral_404
-
-        raise neutral_404()
     if parent.status == "ACTIONED" or str(parent.status).startswith("REJECTED_"):
         raise HTTPException(
             status_code=409,
@@ -538,10 +521,6 @@ def submit_civilian_followup(
         text("SELECT report_id, status FROM wims.citizen_reports WHERE report_id = :rid"),
         {"rid": report_id},
     ).fetchone()
-    if not parent:
-        from utils.public_abuse import neutral_404
-
-        raise neutral_404()
     if parent.status == "ACTIONED" or str(parent.status).startswith("REJECTED_"):
         raise HTTPException(
             status_code=409,
@@ -549,7 +528,7 @@ def submit_civilian_followup(
         )
 
     # Rate limit: max 5 follow-ups per IP per hour on the same report
-    ip_hash = _ip_hash(request)
+    ip_hash = hash_client_ip(get_client_ip(request))
     recent_count = db.execute(
         text("""
             SELECT COUNT(*)
@@ -757,14 +736,7 @@ def register_notification(
         )
 
     # Per-IP token registration cap (5 per IP per hour, Redis fail-closed)
-    forwarded = request.headers.get("x-forwarded-for")
-    client_ip = (
-        forwarded.split(",")[0].strip()
-        if forwarded
-        else (request.client.host if request.client else "unknown")
-    )
-    from utils.public_abuse import rate_limit_public
-
+    client_ip = get_client_ip(request) or "unknown"
     rate_limit_public(
         _get_redis(), client_ip, "public_notify", limit=5, window=3600, fail_closed=True
     )

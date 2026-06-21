@@ -139,6 +139,7 @@ _SQL_FILE_SCHEMA_PATCHES = {
     "61_check_constraints.sql",
     "62_audit_correlation_columns.sql",
     "63_ivh_ip_address.sql",
+    "64_consent_log_ip_hash.sql",
 }
 
 
@@ -202,6 +203,7 @@ def apply_schema_patches() -> None:
     - non-negative CHECK constraints on incident_nonsensitive_details (61_check_constraints.sql)
     - system_audit_trails correlation_id / result / ip_hash columns (62_audit_correlation_columns.sql)
     - incident_verification_history ip_address column (63_ivh_ip_address.sql)
+    - consent_log.request_ip type INET -> VARCHAR(128) for IP-hash storage (64_consent_log_ip_hash.sql)
 
     Uses DATABASE_ADMIN_URL (superuser) because CREATE RULE / CREATE POLICY /
     ALTER TABLE require the table owner; wims_app_user (the runtime role) is not
@@ -500,6 +502,12 @@ def apply_schema_patches() -> None:
             db,
             "63_ivh_ip_address.sql",
             "ip_address column on incident_verification_history",
+        )
+        # Migration 64: stop storing raw IP in consent_log (PR #428, D5 privacy)
+        _apply_postgres_init_sql_patch(
+            db,
+            "64_consent_log_ip_hash.sql",
+            "consent_log.request_ip INET -> VARCHAR(128) for salted IP-hash storage",
         )
     finally:
         db.close()
