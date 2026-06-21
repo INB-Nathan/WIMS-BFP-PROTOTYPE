@@ -6,10 +6,10 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import {
-  fetchAnalystIncidentWildlandDetail,
-  type AnalystIncidentWildlandDetailResponse,
-} from '@/lib/api';
+import { fetchAnalystIncidentWildlandDetailOfflineAware } from '@/lib/api';
+import type { AnalystIncidentWildlandDetailResponse } from '@/lib/api';
+import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import { StaleCacheBanner } from '@/components/ui/StaleCacheBanner';
 
 const ANALYST_ROLES = ['NATIONAL_ANALYST', 'SYSTEM_ADMIN'];
 
@@ -49,9 +49,12 @@ export default function AnalystWildlandDetailPage() {
   const role = (user as { role?: string })?.role ?? null;
   const canAccess = ANALYST_ROLES.includes(role ?? '');
 
+  const networkStatus = useNetworkStatus();
   const [detail, setDetail] = useState<AnalystIncidentWildlandDetailResponse | null>(null);
+  const [cachedAt, setCachedAt] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [unavailableOffline, setUnavailableOffline] = useState(false);
 
   useEffect(() => {
     if (!authLoading && role && !canAccess) {
@@ -67,15 +70,25 @@ export default function AnalystWildlandDetailPage() {
     }
     setLoading(true);
     setError(null);
+    setUnavailableOffline(false);
     try {
-      setDetail(await fetchAnalystIncidentWildlandDetail(incidentId));
+      const result = await fetchAnalystIncidentWildlandDetailOfflineAware(incidentId);
+      setDetail(result.response);
+      setCachedAt(result.fromCache ? result.cachedAt : undefined);
     } catch (e) {
       setDetail(null);
-      setError(e instanceof Error ? e.message : 'Failed to load wildland AFOR.');
+      setCachedAt(undefined);
+      const message = e instanceof Error ? e.message : 'Failed to load wildland AFOR.';
+      if (!networkStatus.isOnline) {
+        setUnavailableOffline(true);
+        setError(null);
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }
-  }, [incidentId]);
+  }, [incidentId, networkStatus.isOnline]);
 
   useEffect(() => {
     if (authLoading || !canAccess) return;
@@ -94,16 +107,30 @@ export default function AnalystWildlandDetailPage() {
     return <div className="text-sm text-gray-500">Redirecting...</div>;
   }
 
-  if (error || !detail) {
+  if (error || unavailableOffline || !detail) {
     return (
       <div className="space-y-4">
         <Link href={`/dashboard/analyst/incidents/${incidentId}`} className="inline-flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900">
           <ArrowLeft className="h-4 w-4" />
           Back to incident detail
         </Link>
-        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error || 'Wildland AFOR not found.'}
-        </div>
+        {unavailableOffline ? (
+          <div
+            data-testid="wildland-offline-unavailable"
+            className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+            role="status"
+          >
+            <p className="font-medium">Wildland AFOR unavailable offline.</p>
+            <p className="mt-1 text-amber-700">
+              Reconnect to the network to load this wildland AFOR. Previously viewed
+              details will appear here automatically once you go online.
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error || 'Wildland AFOR not found.'}
+          </div>
+        )}
       </div>
     );
   }
@@ -112,6 +139,9 @@ export default function AnalystWildlandDetailPage() {
 
   return (
     <div className="space-y-6">
+      <StaleCacheBanner
+        freshness={cachedAt ? { cachedAt, isOnline: networkStatus.isOnline } : undefined}
+      />
       <div>
         <Link href={`/dashboard/analyst/incidents/${detail.incident_id}`} className="mb-3 inline-flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900">
           <ArrowLeft className="h-4 w-4" />
