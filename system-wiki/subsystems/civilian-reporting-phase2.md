@@ -429,3 +429,71 @@ All tests use an `autouse=True` `_clean_state` fixture that flushes Redis and de
 
 **Database**:
 - `src/postgres-init/36_ref_fire_stations_phone_null.sql` — phone default 911
+
+---
+
+## Offline Submit (FR-CIV-OFFLINE) — 2026-06-21
+
+The public `/report` page now supports anonymous offline submission. Coverage
+matrix jumped from 0/2 (civilian had no offline support at all) to 2/2.
+
+### Architecture
+
+```
+Public civilians (no auth, may be offline)
+    │
+    ▼
+submitCivilianReportOfflineAware(payload, deviceId)
+    │  - shouldServeOffline()? → queuePublicOfflineOp, return { queued:true, localId }
+    │  - online → publicApiFetch POST /api/civilian/reports
+    │  - on network error → markConnectivityOffline + queue
+    │  - on 4xx → re-throw (do not queue — validation is server-side)
+    │
+    ▼
+publicOfflineOps (v5 IndexedDB store, plaintext by design)
+    │  - key: localId (UUID)
+    │  - indexes: by_deviceId, by_status, by_createdAt
+    │  - linkedLocalId chain: submit → append → followup
+    │
+    ▼
+usePublicAutoSync → syncPublicOfflineOps(deviceId)
+    │  - on reconnect (2s debounce)
+    │  - on mount with pending ops (1.5s)
+    │  - syncNow() bypasses backoff
+    │  - on failure: Notification.requestPermission() + new Notification(...)
+    │
+    ▼
+POST /api/civilian/reports  (creates report, returns report_id)
+PATCH /api/civilian/reports/{id}/append  (depends on parent server_id)
+POST /api/civilian/reports/{id}/followup (depends on parent server_id)
+```
+
+### Key design decisions (handoff 2026-06-21)
+
+| # | Decision | Why |
+|---|---|---|
+| 1 | New publicOfflineOps store, not genericizing offlineOps | Clean auth-boundary separation. Public sync never calls /api/auth/session; private sync never sees civilian data. |
+| 2 | Plaintext storage (no encryption) | Civilians have no per-user key material. Threat model: malicious local user can read queued submissions. Compensating controls: device-bound identity via localStorage + server-side device_id validation on append/followup. |
+| 3 | All three operations supported (submit + append + followup) with linkedLocalId for dependency chaining | Civilians must be able to add updates to a previously-queued report. The server_id is unknown at queue time, so the linked chain resolves the parent during sync replay. |
+| 4 | Life-safety "Send now" queues offline immediately | No review/duplicate check on the life-safety fast path. The "Add details" path is unchanged. |
+| 5 | Notification prompt after failed sync | Desktop Notification API. Hook prompts once per page load (tracked via ref). Fires `new Notification(...)` with the top synced report's category when granted. |
+| 6 | Block review when offline | Duplicate suggestions require a fresh network round-trip; serving cached ones could mislead. Review step renders a "Connect to continue" screen with a retry button + 911 boundary. |
+
+### Files
+
+- `src/frontend/src/lib/offlineStore.ts` — v5 upgrade + 8 new exported functions
+- `src/frontend/src/lib/api/offlineCivilian.ts` — Pattern B wrappers (3 ops + checkReviewEligibility)
+- `src/frontend/src/lib/syncEngine.ts` — `syncPublicOfflineOps` (no auth, no credentials:include)
+- `src/frontend/src/lib/usePublicAutoSync.ts` — auto-sync hook + notification flow
+- `src/frontend/src/app/page.tsx` — wired wrappers, new `queued_offline` step, "Connect to continue" review-gate screen
+- `src/frontend/src/lib/__tests__/publicOfflineStore.test.ts` — 15 tests
+- `src/frontend/src/lib/api/__tests__/offlineCivilian.test.ts` — 10 tests
+- `src/frontend/src/lib/__tests__/syncPublicOfflineOps.test.ts` — 9 tests
+- `src/frontend/src/lib/__tests__/usePublicAutoSync.test.ts` — 6 tests
+- `src/frontend/src/app/__tests__/page.test.tsx` — 4 new tests (5 existing preserved)
+
+### Test summary
+
+- 587/587 frontend vitest tests pass (up from 543 baseline = +44 net).
+- 0 ESLint errors, 18 warnings (all pre-existing).
+- `npm run build` succeeds.

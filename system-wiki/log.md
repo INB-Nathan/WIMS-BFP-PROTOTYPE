@@ -1,3 +1,15 @@
+## [2026-06-21] fix(triage): strip HTML tags from description/follow-ups + cluster map markers
+
+- Triage cluster modal: `report.description` and `followup.followup_text` now
+  strip HTML tags via `.replace(/<[^>]*>/g, '')` so raw angle-bracket text like
+  `<script>alert(1)</script>` renders as clean `alert(1)`.
+- `ClusterMapInner`: replaced broken `L.icon` + PNG markers (red square over
+  blue pin) with `firePinIcon` (maroon SVG divIcon) from leafletIcons.ts for
+  cluster pins and new teal SVG divIcon for suggested pins.
+- TDD approach: Matt Pocock TDD skill installed, RED→GREEN on both fixes,
+  16/16 tests passing.
+- Commit `2ce01136`, pushed directly to master.
+
 ## [2026-06-21] fix | deprecate dedicated wildland AFOR import workflow (PR #443)
 
 - **`src/backend/api/routes/regional/afor.py`:** `POST /api/regional/afor/import` now rejects detected `WILDLAND_AFOR` files with 400, and `POST /api/regional/afor/commit` rejects `form_kind: WILDLAND_AFOR`. Wildland remains available through standard incident category/sub-category fields rather than a dedicated wildland AFOR import/manual workflow.
@@ -3639,3 +3651,84 @@ Made pending-sync offline incidents fully manageable through the normal regional
 - `src/frontend/src/app/incidents/triage/page.tsx`: validator inspection modal now displays appended-update badges, parent linked-update counts, report descriptions, and follow-up text.
 - Validation: `pytest tests/test_civilian_triage_module.py -q` passed; `npm run lint` passed with existing warnings.
 - Updated `system-wiki/subsystems/civilian-reporting-phase2.md`.
+
+## [2026-06-21] feat(civilian) | offline submit + queued_offline + review gate (FR-CIV-OFFLINE)
+
+**New capability:** the civilian `/report` page now supports anonymous offline submission. Anyone
+on the public reporting flow can file a report without connectivity, and queued reports sync
+automatically when they reconnect.
+
+### New IndexedDB store (v5)
+
+- `src/frontend/src/lib/offlineStore.ts`: bumped `DB_VERSION` 4 → 5 and added a new
+  `publicOfflineOps` store keyed by `localId` (UUID) with `by_deviceId`, `by_status`,
+  and `by_createdAt` indexes. **Plaintext** by design (handoff decision #2) — civilians
+  have no per-user key material, so the threat model accepts a malicious-local-user risk
+  in exchange for queued-submission resilience. The store is separate from `offlineOps`
+  to keep the auth boundary obvious (decision #1).
+- New exports: `queuePublicOfflineOp`, `getPendingPublicOps`, `getPublicOp`,
+  `markPublicOpSynced`, `markPublicOpFailed`, `markPublicOpSyncing`, `getLinkedPublicOp`,
+  `purgeSyncedPublicOps`, `getPendingPublicOpsCount`. `markPublicOpFailed` transitions
+  to permanent `failed` after 5 retries.
+- Existing test `offlineStore.test.ts` bumped to `DB_VERSION=5`; 60/60 offline-store
+  tests pass (45 existing + 15 new in `publicOfflineStore.test.ts`).
+
+### New offline-aware wrappers
+
+- `src/frontend/src/lib/api/offlineCivilian.ts`: new file with `submitCivilianReportOfflineAware`,
+  `appendCivilianReportOfflineAware`, `submitFollowupOfflineAware`, and `checkReviewEligibility`.
+  Follows the validator-style Pattern B: offline → queue + return `{queued:true, localId}`;
+  online → call legacy + return `{queued:false, response}`; network error → mark connectivity
+  offline + queue; non-network error (4xx including 422) → re-throw.
+- `linkedLocalId` is captured at queue time so the sync engine can reconstruct the
+  dependency chain (submit → server_id=N → append PATCH /reports/N/append) in createdAt order.
+- `localId` uses `crypto.randomUUID()` in secure contexts with a `Math.random` fallback
+  for plain-HTTP local dev (handoff gotcha #3).
+- 10/10 tests pass in `offlineCivilian.test.ts`.
+
+### New public sync engine
+
+- `src/frontend/src/lib/syncEngine.ts`: added `syncPublicOfflineOps(deviceId, options?)`.
+  Deliberately does **not** call `/api/auth/session` and does **not** use `credentials: 'include'`
+  (handoff decision #1) — the public API is anonymous. Implements dependency resolution via
+  `syncedServerIds` map so child ops (append/followup) PATCH against the parent's resolved
+  serverId. 5xx continues with next op; TypeError network error marks connectivity offline and
+  aborts the batch.
+- 9/9 tests pass in `syncPublicOfflineOps.test.ts`.
+
+### New auto-sync hook
+
+- `src/frontend/src/lib/usePublicAutoSync.ts`: new hook mirroring `useAutoSync` but for the
+  public queue. Listens for reconnect with 2s debounce, fires on mount when there are pending
+  ops and the user is online (1.5s), and exposes `syncNow()` that bypasses any backoff.
+  On persistent failure, prompts the user to enable desktop notifications and fires a
+  `new Notification(...)` with the top synced report's category (handoff decision #5).
+- 6/6 tests pass in `usePublicAutoSync.test.ts`.
+
+### Page wiring (`src/frontend/src/app/page.tsx`)
+
+- Added `queued_offline` to the `Step` union and a new `queuedLocalId` state.
+- `handleReviewBeforeSubmit` calls `checkReviewEligibility()` first; when offline, sets
+  `reviewBlockedReason` and `setStep('review')` so a dedicated "Connect to continue" screen
+  with a retry button + 911 boundary renders (handoff decision #6).
+- `handleSubmit` now uses `submitCivilianReportOfflineAware`; on `queued:true`, transitions
+  to `queued_offline` instead of `submitted`.
+- `handleAppend` uses `appendCivilianReportOfflineAware`; on `queued:true`, surfaces the
+  offline status with a bilingual "saved offline, will send on reconnect" message.
+- New `queued_offline` step renders the localId as a tracking hint, plus a 911 boundary
+  (handoff decision #4).
+- 10/10 page tests pass (5 existing + 4 new in `page.test.tsx`).
+- Life-safety category step "Send now" path unchanged at the page level (already calls
+  `handleSubmit`); the offline-aware wrapper now handles queuing transparently (handoff
+  decision #4 — life-safety queues immediately without review/duplicate check).
+
+### Test summary
+
+- 587/587 frontend vitest tests pass (up from 543 baseline).
+- 0 ESLint errors, 18 warnings (all pre-existing in unrelated files).
+- `npm run build` succeeds.
+
+### System wiki updates
+
+- `system-wiki/subsystems/civilian-reporting-phase2.md` — new "Offline submit" section.
+- `system-wiki/gaps/frs-codebase-gap-register.md` — close gap "Civilian offline submit" (was 0/2 in static coverage matrix).

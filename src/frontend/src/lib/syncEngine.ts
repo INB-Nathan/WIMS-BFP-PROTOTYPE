@@ -585,3 +585,284 @@ export async function syncPendingIncidents(
 
   return { synced, conflicts, failed, errors, syncedIncidents: [...syncedSummaries.values()] };
 }
+
+// ─── Public sync (civilian anonymous) ─────────────────────────────────────────
+//
+// Separate from syncPendingIncidents because the auth boundary is fundamentally
+// different: civilians are unauthenticated, so this path must NOT call
+// /api/auth/session, NOT attempt to refresh tokens, and NOT use
+// credentials: 'include' (the legacy create bundle endpoint requires an auth
+// cookie; the public reports endpoint does not). It uses publicApiFetch
+// internally, which sets credentials: 'omit' and content-type/json.
+//
+// Linked-op resolution: a submit that succeeds at server id=N is the parent of
+// any append/followup whose linkedLocalId points to that submit's localId. The
+// syncedServerIds map is the channel that lets the child op know what server
+// id to PATCH against, since at queue time the child had no serverId.
+//
+// This function is intentionally tolerant: a single 5xx does not abort the
+// whole batch. Only network errors (TypeError from fetch) and `not reachable`
+// probes abort — civilians may be on flaky mobile networks where one report
+// succeeds and the next one times out, and we should retry the rest on the
+// next reconnect.
+
+import {
+  getPendingPublicOps,
+  getLinkedPublicOp,
+  markPublicOpSyncing,
+  markPublicOpSynced,
+  markPublicOpFailed,
+  purgeSyncedPublicOps,
+  type PublicOfflineOp,
+} from './offlineStore';
+// isReachable and markConnectivityOffline are already imported at the top of
+// the file for the encoder sync function — reusing the existing imports.
+
+export interface PublicSyncError {
+  localId: string;
+  operation: string;
+  status?: number;
+  error?: string;
+}
+
+export interface PublicSyncedIncidentSummary {
+  localId: string;
+  serverId: number;
+  operation: 'submit' | 'append' | 'followup';
+  category: string;
+  location: string;
+  result: string;
+}
+
+export interface PublicSyncResult {
+  synced: number;
+  failed: number;
+  errors: PublicSyncError[];
+  abortReason?: 'offline';
+  syncedIncidents: PublicSyncedIncidentSummary[];
+}
+
+const PUBLIC_OP_RESULT_LABEL: Record<PublicOfflineOp['operation'], string> = {
+  submit: 'Report received',
+  append: 'Update received',
+  followup: 'Follow-up received',
+};
+
+type PublicApiResult =
+  | { ok: true; status: number; body: Record<string, unknown>; serverId: number }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Call the civilian reports API. Wraps publicApiFetch so the public sync path
+ * inherits its credentials: 'omit' behaviour. Returns a tagged result that the
+ * dispatch loop can switch on without try/catch.
+ *
+ * Note: publicApiFetch throws plain Error on non-2xx responses WITHOUT
+ * preserving the HTTP status. We work around this by issuing a raw fetch
+ * (which publicApiFetch would have done internally) and reading res.status
+ * before deciding whether to throw. This keeps the credentials: 'omit'
+ * behaviour we need while exposing the status for error classification.
+ */
+async function publicApiCall(
+  path: string,
+  method: 'POST' | 'PATCH',
+  body: Record<string, unknown>
+): Promise<PublicApiResult> {
+  // We can't reuse publicApiFetch here because it discards the status. Replicate
+  // its path construction (drop /api prefix) so the URL hits the same backend
+  // route the public endpoints would have.
+  const basePath = path.startsWith('/api/') ? path.slice(4) : path;
+  const url = basePath.startsWith('http') ? basePath : `/api${basePath.startsWith('/') ? '' : '/'}${basePath}`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      credentials: 'omit',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    // Network error (TypeError from fetch) — connectivity lost.
+    return { ok: false, status: 0, error: err instanceof Error ? err.message : 'Network error' };
+  }
+
+  let json: Record<string, unknown> = {};
+  try {
+    json = (await res.json()) as Record<string, unknown>;
+  } catch {
+    // Malformed body — return as-is with the status code.
+    if (!res.ok) {
+      return { ok: false, status: res.status, error: 'Malformed response' };
+    }
+    return { ok: false, status: res.status, error: 'Malformed response' };
+  }
+
+  if (!res.ok) {
+    const message =
+      (json.message as string | undefined) ??
+      (json.detail as string | undefined) ??
+      `Request failed: ${res.status}`;
+    return { ok: false, status: res.status, error: message };
+  }
+
+  const serverId = (json.report_id as number | undefined) ?? null;
+  if (serverId === null) {
+    // followup endpoint returns followup_id not report_id
+    const followupId = (json.followup_id as number | undefined) ?? null;
+    if (followupId !== null) {
+      return { ok: true, status: res.status, body: json, serverId: followupId };
+    }
+    return { ok: false, status: res.status, error: 'Response missing report_id' };
+  }
+  return { ok: true, status: res.status, body: json, serverId };
+}
+
+/**
+ * Sync all pending public offline ops for a given deviceId.
+ *
+ * @param deviceId  Browser-bound identity used to filter the queue and bind the
+ *                  server-side device check on the API.
+ * @param options   { bypassBackoff: true } is accepted for API parity with the
+ *                  encoder hook; the public sync engine does not currently
+ *                  apply a backoff window (every retryable op is replayed), so
+ *                  the flag is currently a no-op.
+ */
+export async function syncPublicOfflineOps(
+  deviceId: string,
+  options: { bypassBackoff?: boolean } = {}
+): Promise<PublicSyncResult> {
+  // The public sync engine does not currently apply a backoff window (every
+  // retryable op is replayed), so the bypassBackoff flag is accepted for API
+  // parity with the encoder hook but does not change behaviour.
+  void options;
+  const empty: PublicSyncResult = { synced: 0, failed: 0, errors: [], syncedIncidents: [] };
+
+  if (!(await isReachable())) {
+    return { ...empty, abortReason: 'offline' };
+  }
+
+  const ops = await getPendingPublicOps(deviceId);
+  if (ops.length === 0) {
+    return empty;
+  }
+
+  // Tracks the serverId a parent's localId resolved to during this batch. The
+  // child op's `linkedLocalId` is the key; the value is what to PATCH against.
+  const syncedServerIds = new Map<string, number>();
+
+  let synced = 0;
+  let failed = 0;
+  const errors: PublicSyncError[] = [];
+  const summaries: PublicSyncedIncidentSummary[] = [];
+
+  for (const op of ops) {
+    if (op.retryCount >= 5) {
+      // Already at ceiling — leave for manual retry. Don't increment again.
+      continue;
+    }
+
+    await markPublicOpSyncing(op.localId);
+
+    let result: PublicApiResult;
+    switch (op.operation) {
+      case 'submit': {
+        result = await publicApiCall('/civilian/reports', 'POST', op.payload);
+        break;
+      }
+      case 'append': {
+        // Resolve serverId from the parent submit's sync result.
+        const serverId = resolvePublicServerId(op, syncedServerIds);
+        if (serverId === null) {
+          // Parent hasn't synced yet (or wasn't queued in this batch) — defer.
+          // Mark as retryable so a later pass picks it up after the parent lands.
+          await markPublicOpFailed(op.localId, 'parent_pending', 'parent submit not yet synced');
+          failed += 1;
+          errors.push({ localId: op.localId, operation: op.operation, error: 'parent pending' });
+          continue;
+        }
+        result = await publicApiCall(`/civilian/reports/${serverId}/append`, 'PATCH', op.payload);
+        break;
+      }
+      case 'followup': {
+        const serverId = resolvePublicServerId(op, syncedServerIds);
+        if (serverId === null) {
+          await markPublicOpFailed(op.localId, 'parent_pending', 'parent submit not yet synced');
+          failed += 1;
+          errors.push({ localId: op.localId, operation: op.operation, error: 'parent pending' });
+          continue;
+        }
+        result = await publicApiCall(
+          `/civilian/reports/${serverId}/followup`,
+          'POST',
+          op.payload
+        );
+        break;
+      }
+      default: {
+        // Unreachable in practice; keep TypeScript happy.
+        result = { ok: false, status: 0, error: `unknown operation: ${(op as { operation: string }).operation}` };
+      }
+    }
+
+    if (result.ok) {
+      await markPublicOpSynced(op.localId, result.serverId);
+      syncedServerIds.set(op.localId, result.serverId);
+      // Walk the linkedLocalId chain for this op: if a child was previously
+      // deferred with parent_pending, the resolved serverId may now let it
+      // complete on the next batch.
+      await getLinkedPublicOp(op.localId).catch(() => []);
+      synced += 1;
+      const payload = op.payload as Record<string, unknown>;
+      const category = (payload.category as string | undefined) ?? '';
+      const lat = (payload.latitude as number | undefined) ?? null;
+      const lng = (payload.longitude as number | undefined) ?? null;
+      const location = lat !== null && lng !== null ? `${lat.toFixed(5)}, ${lng.toFixed(5)}` : '';
+      summaries.push({
+        localId: op.localId,
+        serverId: result.serverId,
+        operation: op.operation,
+        category,
+        location,
+        result: PUBLIC_OP_RESULT_LABEL[op.operation],
+      });
+    } else if (result.status === 0) {
+      // Network error (TypeError from publicApiFetch) — connectivity lost.
+      markConnectivityOffline();
+      await markPublicOpFailed(op.localId, 'network', result.error);
+      failed += 1;
+      errors.push({ localId: op.localId, operation: op.operation, error: result.error });
+      return { synced, failed, errors, syncedIncidents: summaries, abortReason: 'offline' };
+    } else if (result.status >= 500) {
+      // 5xx — retryable, continue with next op.
+      await markPublicOpFailed(op.localId, '5xx', result.error);
+      failed += 1;
+      errors.push({ localId: op.localId, operation: op.operation, status: result.status, error: result.error });
+    } else {
+      // 4xx (validation, 409, etc.) — mark as failed; do not retry.
+      await markPublicOpFailed(op.localId, String(result.status), result.error);
+      failed += 1;
+      errors.push({ localId: op.localId, operation: op.operation, status: result.status, error: result.error });
+    }
+  }
+
+  if (synced > 0) {
+    await purgeSyncedPublicOps();
+  }
+
+  return { synced, failed, errors, syncedIncidents: summaries };
+}
+
+/**
+ * Resolve a public op's serverId by walking the syncedServerIds map. An op
+ * whose own serverId is set (e.g. the user appended on the same session as
+ * the original submit) returns that; an op whose linkedLocalId points to a
+ * parent submit returns the parent's resolved serverId; otherwise null.
+ */
+function resolvePublicServerId(
+  op: PublicOfflineOp,
+  syncedServerIds: Map<string, number>
+): number | null {
+  if (op.serverId !== null) return op.serverId;
+  if (op.linkedLocalId) return syncedServerIds.get(op.linkedLocalId) ?? null;
+  return null;
+}

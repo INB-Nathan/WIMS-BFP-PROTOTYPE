@@ -75,3 +75,5 @@ This register prevents agents from hallucinating completion. A module is not com
 - [[security/security-baseline]]
 - [[gaps/ui-ux-gap-register]]
 - [[gaps/functional-bug-register]]
+
+- **Civilian offline submit (FR-CIV-OFFLINE) — 2026-06-21, CLOSED**: Coverage matrix showed civilians at 0/2 offline support. Implemented v5 `publicOfflineOps` IndexedDB store (plaintext by design — no per-user key), offline-aware wrappers in `src/frontend/src/lib/api/offlineCivilian.ts` (Pattern B: queue when offline, fallback on network error, re-throw 4xx), `syncPublicOfflineOps` in `src/frontend/src/lib/syncEngine.ts` (no auth, `credentials: 'omit'`, dependency-chain resolution via `syncedServerIds` map), `usePublicAutoSync` hook with reconnect debounce + on-mount sync + desktop Notification flow on persistent failure, page-level wiring with new `queued_offline` step and a "Connect to continue" review gate. Tests: 44 new (15 store + 10 wrapper + 9 sync + 6 hook + 4 page) on top of 543 baseline. All 587 frontend vitest pass, 0 ESLint errors, `npm run build` succeeds. Not FRS-mandated but a UX completeness fix that closes the role asymmetry surfaced by the static coverage audit.

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { appendCivilianReport } from '@/lib/api';
+import { appendCivilianReportOfflineAware } from '@/lib/api/offlineCivilian';
 
 const mockRouterReplace = vi.fn();
 let mockSearchParams = new URLSearchParams();
@@ -146,15 +146,19 @@ describe('ReportPage — submitted-screen append', () => {
     fireEvent.click(screen.getByText('Submit Update / Magsumite ng Update'));
 
     await waitFor(() => {
-      expect(appendCivilianReport).toHaveBeenCalledWith(1, expect.objectContaining({
-        latitude: 14.5,
-        longitude: 121,
-        category: 'STRUCTURAL',
-        reporting_context: 'WITNESS',
-        safety_status: 'I_AM_SAFE',
-        device_id: 'device-a',
-        description: 'Fire seems to be spreading northwards.',
-      }));
+      expect(appendCivilianReportOfflineAware).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reportId: 1,
+          latitude: 14.5,
+          longitude: 121,
+          category: 'STRUCTURAL',
+          reporting_context: 'WITNESS',
+          safety_status: 'I_AM_SAFE',
+          device_id: 'device-a',
+          description: 'Fire seems to be spreading northwards.',
+        }),
+        'device-a'
+      );
     });
   });
 });
@@ -212,15 +216,19 @@ describe('ReportPage — Safety step', () => {
     await user.click(screen.getByRole('button', { name: 'Submit Update' }));
 
     await waitFor(() => {
-      expect(appendCivilianReport).toHaveBeenCalledWith(42, expect.objectContaining({
-        latitude: 14.5,
-        longitude: 121,
-        category: 'STRUCTURAL',
-        reporting_context: 'WITNESS',
-        safety_status: 'I_AM_SAFE',
-        device_id: 'device-a',
-        description: 'Smoke is getting heavier.',
-      }));
+      expect(appendCivilianReportOfflineAware).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reportId: 42,
+          latitude: 14.5,
+          longitude: 121,
+          category: 'STRUCTURAL',
+          reporting_context: 'WITNESS',
+          safety_status: 'I_AM_SAFE',
+          device_id: 'device-a',
+          description: 'Smoke is getting heavier.',
+        }),
+        'device-a'
+      );
     });
   });
 
@@ -236,5 +244,217 @@ describe('ReportPage — Safety step', () => {
 
     expect(mockRouterReplace).toHaveBeenCalledWith('/');
     expect(screen.getByText('Are you or anyone else in danger?')).toBeInTheDocument();
+  });
+});
+
+// ── Civilian offline submit (FR-CIV-OFFLINE) ─────────────────────────────────
+//
+// These tests verify the page-level integration of the offline-aware wrappers:
+//   - Review step is blocked when offline (no duplicate fetch)
+//   - Review proceeds when online (duplicate fetch fires)
+//   - "Send now" on life-safety category queues offline without review
+//   - queued_offline screen renders with a tracking link after offline submit
+//
+// The wrapper layer (offlineCivilian) is mocked so we can drive the page's
+// branching without touching IndexedDB or network.
+
+const offlineMocks = vi.hoisted(() => ({
+  // Default impl: behave as if online so the existing tests work without
+  // needing each one to wire up the offline mocks. The civilian-offline
+  // describe block resets these per-test for the offline scenarios.
+  submitCivilianReportOfflineAware: vi.fn().mockImplementation(async () => ({
+    queued: false,
+    response: { report_id: 1, status: 'PENDING' },
+  })),
+  appendCivilianReportOfflineAware: vi.fn().mockImplementation(async () => ({
+    queued: false,
+    response: { report_id: 42, status: 'PENDING' },
+  })),
+  submitFollowupOfflineAware: vi.fn().mockImplementation(async () => ({
+    queued: false,
+    response: { followup_id: 1, report_id: 42 },
+  })),
+  checkReviewEligibility: vi.fn().mockImplementation(() => undefined),
+}));
+
+vi.mock('@/lib/api/offlineCivilian', () => ({
+  submitCivilianReportOfflineAware: offlineMocks.submitCivilianReportOfflineAware,
+  appendCivilianReportOfflineAware: offlineMocks.appendCivilianReportOfflineAware,
+  submitFollowupOfflineAware: offlineMocks.submitFollowupOfflineAware,
+  checkReviewEligibility: offlineMocks.checkReviewEligibility,
+}));
+
+const connectivityMocks = vi.hoisted(() => ({
+  state: 'online' as 'online' | 'offline' | 'checking' | 'reconnecting',
+  isOnline: true,
+  isChecking: false,
+  isReconnecting: false,
+  lastCheckedAt: null as number | null,
+  markConnectivityOffline: vi.fn(),
+}));
+
+vi.mock('@/lib/connectivity', () => ({
+  getConnectivitySnapshot: () => connectivityMocks,
+  markConnectivityOffline: connectivityMocks.markConnectivityOffline,
+  isReachable: vi.fn().mockResolvedValue(true),
+  probeConnectivity: vi.fn().mockResolvedValue(connectivityMocks),
+  subscribeConnectivity: vi.fn(() => () => {}),
+  startConnectivityMonitor: vi.fn(),
+}));
+
+const publicAutoSyncMocks = vi.hoisted(() => ({
+  // Default impl: stub out the hook for the existing tests.
+  usePublicAutoSync: vi.fn().mockReturnValue({
+    syncing: false,
+    lastSyncedAt: null,
+    pendingCount: 0,
+    failedCount: 0,
+    syncNow: vi.fn(),
+  }),
+}));
+
+vi.mock('@/lib/usePublicAutoSync', () => ({
+  usePublicAutoSync: publicAutoSyncMocks.usePublicAutoSync,
+}));
+
+function setConnectivity(state: 'online' | 'offline') {
+  connectivityMocks.state = state;
+  connectivityMocks.isOnline = state === 'online';
+}
+
+describe('ReportPage — civilian offline submit', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    try { localStorage.clear(); } catch {}
+    mockSearchParams = new URLSearchParams();
+    mapPickerChange = null;
+    setConnectivity('online');
+    offlineMocks.checkReviewEligibility.mockImplementation(() => undefined);
+    offlineMocks.submitCivilianReportOfflineAware.mockResolvedValue({
+      queued: false,
+      response: { report_id: 1, status: 'PENDING' },
+    });
+    publicAutoSyncMocks.usePublicAutoSync.mockReturnValue({
+      syncing: false,
+      lastSyncedAt: null,
+      pendingCount: 0,
+      failedCount: 0,
+      syncNow: vi.fn(),
+    });
+  });
+
+  it('blocks review when offline with "connect" message', async () => {
+    setConnectivity('offline');
+    offlineMocks.checkReviewEligibility.mockImplementation(() => {
+      throw new Error('Connect to the internet to check for similar reports.');
+    });
+    try { localStorage.setItem('wims_civilian_device_id', 'd-1'); } catch {}
+
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+
+    // Navigate to category step
+    fireEvent.click(screen.getByText('I am safe'));
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('How did you learn about this fire?');
+    fireEvent.click(screen.getByText('I saw it happen'));
+    await waitFor(() => expect(mapPickerChange).not.toBeNull());
+    mapPickerChange!(14.5, 121);
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('What type of fire is this?');
+    fireEvent.click(screen.getByText('Structural'));
+    fireEvent.click(screen.getByText('Continue'));
+
+    // On details step now
+    await screen.findByText('Observed time (optional)');
+    fireEvent.click(screen.getByText('Review & Submit'));
+
+    // Review blocked because offline
+    expect(offlineMocks.checkReviewEligibility).toHaveBeenCalled();
+    // Should show the "Connect to continue" header
+    await screen.findByText('Connect to continue');
+  });
+
+  it('proceeds to review and fetches duplicate suggestions when online', async () => {
+    try { localStorage.setItem('wims_civilian_device_id', 'd-1'); } catch {}
+
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+
+    // Drive through the flow up to Review & Submit
+    fireEvent.click(screen.getByText('I am safe'));
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('How did you learn about this fire?');
+    fireEvent.click(screen.getByText('I saw it happen'));
+    await waitFor(() => expect(mapPickerChange).not.toBeNull());
+    mapPickerChange!(14.5, 121);
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('What type of fire is this?');
+    fireEvent.click(screen.getByText('Structural'));
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('Observed time (optional)');
+    fireEvent.click(screen.getByText('Review & Submit'));
+
+    expect(offlineMocks.checkReviewEligibility).toHaveBeenCalled();
+    await screen.findByText('Review Your Report');
+  });
+
+  it('queues offline when "Send now" is clicked on the life-safety category step', async () => {
+    setConnectivity('offline');
+    offlineMocks.submitCivilianReportOfflineAware.mockResolvedValue({
+      queued: true,
+      localId: 'queued-local-1',
+    });
+    try { localStorage.setItem('wims_civilian_device_id', 'd-1'); } catch {}
+
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+
+    // Select life-safety status
+    fireEvent.click(screen.getByText('I need help'));
+    fireEvent.click(screen.getByText('Continue'));
+
+    // Context step
+    await screen.findByText('How did you learn about this fire?');
+    fireEvent.click(screen.getByText('I saw it happen'));
+    await waitFor(() => expect(mapPickerChange).not.toBeNull());
+    mapPickerChange!(14.5, 121);
+    fireEvent.click(screen.getByText('Continue'));
+
+    // Category step — life-safety should show Send now button
+    await screen.findByText('What type of fire is this?');
+    fireEvent.click(screen.getByText('Structural'));
+    fireEvent.click(screen.getByText('Send now / Ipadala na'));
+
+    expect(offlineMocks.submitCivilianReportOfflineAware).toHaveBeenCalled();
+    // Should transition to the queued_offline step
+    await screen.findByText('Report saved offline');
+  });
+
+  it('queued_offline screen shows tracking hint with the localId', async () => {
+    setConnectivity('offline');
+    offlineMocks.submitCivilianReportOfflineAware.mockResolvedValue({
+      queued: true,
+      localId: 'queued-local-1',
+    });
+    try { localStorage.setItem('wims_civilian_device_id', 'd-1'); } catch {}
+
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+
+    fireEvent.click(screen.getByText('I need help'));
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('How did you learn about this fire?');
+    fireEvent.click(screen.getByText('I saw it happen'));
+    await waitFor(() => expect(mapPickerChange).not.toBeNull());
+    mapPickerChange!(14.5, 121);
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('What type of fire is this?');
+    fireEvent.click(screen.getByText('Structural'));
+    fireEvent.click(screen.getByText('Send now / Ipadala na'));
+
+    await screen.findByText('Report saved offline');
+    // LocalId is rendered as a tracking hint so the user can find it again
+    expect(screen.getByText(/queued-local-1/)).toBeInTheDocument();
   });
 });

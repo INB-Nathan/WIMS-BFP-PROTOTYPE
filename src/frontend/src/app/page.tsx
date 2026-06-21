@@ -7,6 +7,12 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { MapPicker } from '@/components/MapPicker';
 import { PublicFireMap } from '@/components/PublicFireMap';
 import { fetchCivilianDuplicateSuggestions, submitCivilianReportV2, appendCivilianReport, fetchReportStatus } from '@/lib/api';
+import {
+  submitCivilianReportOfflineAware,
+  appendCivilianReportOfflineAware,
+  checkReviewEligibility,
+} from '@/lib/api/offlineCivilian';
+import { usePublicAutoSync } from '@/lib/usePublicAutoSync';
 import type { CivilianCategory, CivilianDuplicateSuggestion, CivilianReportTrackingResponse, CivilianReportV2Payload, ReportingContext, SafetyStatus } from '@/lib/api';
 import React from 'react';
 
@@ -83,7 +89,7 @@ const SAFETY_STATUSES: { value: SafetyStatus; label: string; labelFil: string; d
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type Step = 'context' | 'safety' | 'category' | 'details' | 'review' | 'submitted' | 'update';
+type Step = 'context' | 'safety' | 'category' | 'details' | 'review' | 'submitted' | 'update' | 'queued_offline';
 
 interface GeoState {
   latitude: number | null;
@@ -345,6 +351,17 @@ export default function ReportPage() {
   const [updateParentReport, setUpdateParentReport] = useState<CivilianReportTrackingResponse | null>(null);
   const [updateLoading, setUpdateLoading] = useState(false);
 
+  // ── Offline submit state ────────────────────────────────────────────────────
+  // queuedLocalId is set when the offline-aware wrapper queues a report. The
+  // queued_offline step shows the localId so the user can find it again after
+  // sync (the localId is the idempotency key, not the server id).
+  const [queuedLocalId, setQueuedLocalId] = useState<string | null>(null);
+  const [reviewBlockedReason, setReviewBlockedReason] = useState<string | null>(null);
+
+  // Public auto-sync hook: listens for reconnect, fires the public sync engine,
+  // prompts for desktop notifications on persistent failures.
+  usePublicAutoSync();
+
   const geoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isLifeSafety = safetyStatus === 'I_NEED_HELP' || safetyStatus === 'SOMEONE_ELSE_NEEDS_HELP';
@@ -586,7 +603,20 @@ export default function ReportPage() {
     const payload = buildPayload();
     if (!payload) return;
     setSubmitError(null);
+    setReviewBlockedReason(null);
     setDuplicateSuggestions([]);
+    // The review step needs to fetch duplicate suggestions online so the user
+    // can decide whether to file a new report or augment an existing one.
+    // Offline → block with a clear "connect" message (handoff decision #6).
+    try {
+      checkReviewEligibility();
+    } catch (err) {
+      setReviewBlockedReason(err instanceof Error ? err.message : 'Connect to the internet to continue.');
+      // Move to the review step so the blocked screen renders — the user sees
+      // the connect-to-continue message + retry button + 911 boundary.
+      setStep('review');
+      return;
+    }
     try {
       const suggestions = await fetchCivilianDuplicateSuggestions(payload);
       setDuplicateSuggestions(suggestions);
@@ -623,17 +653,33 @@ export default function ReportPage() {
     setAppending(true);
     setAppendError(null);
     try {
-      await appendCivilianReport(targetReportId, {
-        latitude: nextLatitude,
-        longitude: nextLongitude,
-        category: nextCategory,
-        reporting_context: nextReportingContext,
-        safety_status: nextSafetyStatus,
-        device_id: deviceId,
-        reported_at: appendTimestamp ? new Date(appendTimestamp).toISOString() : undefined,
-        description: appendDescription.trim(),
-      });
-      setAppendSubmitted(true);
+      const result = await appendCivilianReportOfflineAware(
+        {
+          parentLocalId: null,
+          reportId: targetReportId,
+          latitude: nextLatitude,
+          longitude: nextLongitude,
+          category: nextCategory,
+          reporting_context: nextReportingContext,
+          safety_status: nextSafetyStatus,
+          device_id: deviceId,
+          reported_at: appendTimestamp ? new Date(appendTimestamp).toISOString() : undefined,
+          description: appendDescription.trim(),
+        },
+        deviceId
+      );
+      if (result.queued) {
+        setQueuedLocalId(result.localId);
+        // On the appended-from-submitted-screen path, surface the queued state
+        // so the user sees the localId and knows the update will sync later.
+        setAppendSubmitted(true);
+        setAppendError(
+          'You are offline — your update is saved and will be sent when you reconnect. ' +
+            'Offline ka — nai-save ang update at ipapadala kapag nakakonekta ulit.'
+        );
+      } else {
+        setAppendSubmitted(true);
+      }
     } catch (err) {
       setAppendError(err instanceof Error ? err.message : 'Update failed. Please try again.');
     } finally {
@@ -648,14 +694,25 @@ export default function ReportPage() {
     setSubmitError(null);
 
     try {
-      const res = await submitCivilianReportV2(payload);
-      setSubmittedResponse(res);
-      setSubmittedReportId(res.report_id);
+      const deviceId = payload.device_id ?? getDeviceId();
+      const result = await submitCivilianReportOfflineAware(payload, deviceId);
+      if (result.queued) {
+        // Offline path: the wrapper queued the op. Show the queued_offline
+        // screen so the user knows the report is saved locally and will be
+        // sent when they reconnect.
+        setQueuedLocalId(result.localId);
+        setStep('queued_offline');
+        setSubmitting(false);
+        return;
+      }
+      setSubmittedResponse(result.response);
+      setSubmittedReportId(result.response.report_id);
       setStep('submitted');
     } catch (err) {
       // Detect error type for targeted copy + 911 boundary
-      const isNetworkError = err instanceof TypeError || (err instanceof Error && err.message.includes('fetch'));
-      const status = (err as { response?: { status?: number } })?.response?.status;
+      const isNetworkError = err instanceof TypeError || (err instanceof Error ? err.message.includes('Failed to fetch') : false);
+      const status = (err as { status?: number; response?: { status?: number } })?.status
+        ?? (err as { response?: { status?: number } })?.response?.status;
       let type: typeof submitErrorType = 'unknown';
       if (isNetworkError) type = 'network';
       else if (status === 422) type = 'validation';
@@ -668,6 +725,62 @@ export default function ReportPage() {
   }
 
   // ── Review screen (non-life-safety final check) ─────────────────────────
+
+  if (step === 'review' && reviewBlockedReason) {
+    // Review was attempted while offline. The duplicate-suggestion check
+    // requires a network round-trip; we don't queue duplicate fetches because
+    // the user needs fresh data to decide. Show a clear "connect" message
+    // and a retry button that re-runs handleReviewBeforeSubmit.
+    return (
+      <div className="min-h-screen" style={{ background: 'var(--content-bg)' }}>
+        <div className="text-center py-6 px-4" style={{ background: 'var(--bfp-gradient)' }}>
+          <h1 className="text-lg font-bold text-white">Connect to continue</h1>
+          <p className="text-xs text-white/60 mt-0.5">Mag-connect para magpatuloy</p>
+        </div>
+        <div className="max-w-lg mx-auto px-4 mt-4 pb-8">
+          <div className="card overflow-hidden">
+            <div className="card-body space-y-4 p-6">
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm">
+                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <p>{reviewBlockedReason}</p>
+              </div>
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-red-700">
+                      For immediate danger, call 911 now.
+                    </p>
+                    <p className="text-xs text-red-600 mt-0.5">
+                      Kung may agarang peligro, tumawag sa 911 ngayon.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setStep('details')}
+                  className="flex-1 py-3 rounded-xl border text-sm font-medium"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)', backgroundColor: 'var(--card-bg)' }}
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleReviewBeforeSubmit()}
+                  className="flex-1 py-3.5 rounded-xl text-white text-sm font-bold flex items-center justify-center gap-1.5"
+                  style={{ background: 'var(--bfp-gradient)', boxShadow: '0 2px 8px rgba(153,27,34,0.3)' }}
+                >
+                  <RefreshCw className="w-4 h-4" /> Try again / Subukan ulit
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (step === 'review') {
     return (
@@ -914,6 +1027,82 @@ export default function ReportPage() {
             </div>
           )}
         </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Queued offline screen ────────────────────────────────────────────────
+  // Reached when the offline-aware wrapper queued the report instead of
+  // sending it. The user sees their localId (the idempotency key + tracking
+  // hint), confirmation that BFP will receive the report on reconnect, and
+  // a 911 emergency boundary copy because life-safety paths can land here.
+
+  if (step === 'queued_offline') {
+    return (
+      <div className="min-h-screen" style={{ background: 'var(--content-bg)' }}>
+        <div className="text-center py-6 px-4" style={{ background: 'var(--bfp-gradient)' }}>
+          <div className="mx-auto w-14 h-14 rounded-full flex items-center justify-center mb-3" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }}>
+            <CheckCircle className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-xl font-bold text-white">
+            Report saved offline
+          </h1>
+          <p className="text-xs text-white/60 mt-1">
+            Nai-save ang report offline
+          </p>
+        </div>
+        <div className="max-w-lg mx-auto px-4 mt-4 pb-8">
+          <div className="card overflow-hidden">
+            <div className="p-6 text-center">
+
+              <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+                Your report will be sent automatically when you reconnect.
+                <br />
+                <span lang="fil">Ipapadala ang report mo kapag nakakonekta ulit.</span>
+              </p>
+
+              <div
+                className="rounded-lg p-3 mb-4 text-left text-xs"
+                style={{ backgroundColor: 'var(--content-bg)', color: 'var(--text-secondary)' }}
+              >
+                <p className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                  Tracking ID (offline)
+                </p>
+                <code className="block break-all" data-testid="queued-local-id">
+                  {queuedLocalId}
+                </code>
+                <p className="mt-2">
+                  Save this ID. If you lose connection, the report will still reach BFP.
+                </p>
+              </div>
+
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 text-left">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-red-700">
+                      For immediate danger, call 911 now.
+                    </p>
+                    <p className="text-xs text-red-600 mt-0.5">
+                      Kung may agarang peligro, tumawag sa 911 ngayon.
+                    </p>
+                    <p className="text-xs text-red-600 mt-1">
+                      This report helps BFP review public signals — it does not replace an emergency call.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <Link
+                href="/"
+                className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-bold"
+                style={{ background: 'var(--bfp-gradient)', boxShadow: '0 2px 8px rgba(153,27,34,0.3)' }}
+              >
+                Done
+              </Link>
+            </div>
+          </div>
         </div>
       </div>
     );
