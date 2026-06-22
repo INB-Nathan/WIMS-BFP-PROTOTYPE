@@ -81,6 +81,25 @@ export interface SecurityLog {
   xai_confidence: number | null;
 }
 
+export interface SecurityThreatLog {
+  log_id: number;
+  timestamp: string | null;
+  source_ip: string | null;
+  destination_ip: string | null;
+  suricata_sid: number | null;
+  severity_level: string | null;
+  raw_payload: string | null;
+  xai_narrative: string | null;
+  xai_confidence: number | null;
+  admin_action_taken: string | null;
+  resolved_at: string | null;
+  reviewed_by: string | null;
+  hitl_decision?: { action?: string; note?: string | null; reviewed_at?: string | null; reviewed_by?: string | null } | null;
+  classification: string | null;
+  suricata_signature: string | null;
+  suricata_category: string | null;
+}
+
 export interface AuditLogEntry {
   audit_id: number;
   user_id: string | null;

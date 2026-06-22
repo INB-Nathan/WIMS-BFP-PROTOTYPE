@@ -22,7 +22,7 @@ import type {
   RateLimitConfig,
 } from './legacy';
 import type { Breach } from './breach';
-import type { ActiveSession, AuditLogEntry, PaginatedResponse, SecurityLog } from '@/types/api';
+import type { ActiveSession, AuditLogEntry, PaginatedResponse, SecurityThreatLog } from '@/types/api';
 import {
   OfflineResult,
   offlineAware,
@@ -69,7 +69,7 @@ export async function fetchAuditLogsOfflineAware(
 
 export async function fetchAdminSecurityLogsOfflineAware(
   params?: { q?: string; severity?: string; classification?: string; limit?: number; offset?: number; source_ip?: string; date_from?: string; date_to?: string },
-): Promise<OfflineResult<{ items: SecurityLog[]; total: number }>> {
+): Promise<OfflineResult<{ items: SecurityThreatLog[]; total: number }>> {
   return offlineAware('security-logs', [params ?? {}], 'admin', ADMIN_CACHE_TTL_MS, () => legacyFetchAdminSecurityLogs(params), OFFLINE_ADMIN_ERROR);
 }
 
