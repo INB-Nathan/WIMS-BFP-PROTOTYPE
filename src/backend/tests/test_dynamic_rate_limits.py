@@ -319,4 +319,6 @@ class TestRateLimitMiddlewareConfig:
         # eval_args[0] = (script, numkeys=1, key, now_ts, window, threshold)
         key = eval_args[0][2]  # KEYS[1] (the rate-limit key) is the 3rd positional arg
         assert "5.6.7.8" in key, f"Rate-limit key must use X-Real-IP (5.6.7.8), got: {key}"
-        assert "1.2.3.4" not in key, f"Rate-limit key must NOT use spoofed XFF (1.2.3.4), got: {key}"
+        assert "1.2.3.4" not in key, (
+            f"Rate-limit key must NOT use spoofed XFF (1.2.3.4), got: {key}"
+        )
