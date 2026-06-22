@@ -12,10 +12,13 @@ The carve-out below documents the intentional asymmetry:
   ``$realip_remote_addr`` (the pre-real-IP-module socket address) so the
   backend rate limiter cannot be bypassed by a spoofed X-Forwarded-For
   header (gap #14 / DS-07).
-- Authenticated ``/api/``, ``/api/auth/``, ``/auth/``, and ``/`` blocks
-  MAY continue to use ``$proxy_add_x_forwarded_for`` because they sit
-  behind a JWT / session and the rate-limit threat model does not
-  require socket-IP anchoring.
+- Authenticated ``/api/``, ``/auth/``, and ``/`` blocks historically used
+  ``$remote_addr`` for X-Real-IP. As of 2026-06-22, ALL location blocks
+  (including ``/api/auth/``) use ``$realip_remote_addr`` for X-Real-IP as
+  defense-in-depth against the internal/SSRF vector. ``/api/auth/callback``
+  is pre-auth PKCE — the old "behind a JWT/session" rationale did not apply
+  to it. X-Forwarded-For directives are unchanged (trusted_client_ip never
+  reads XFF).
 """
 
 from __future__ import annotations
@@ -187,6 +190,49 @@ def test_nginx_cors_exposes_retry_after_in_public_and_civilian(config_path):
                 f"{config_path.name}: {label} block {i} must expose "
                 f"Retry-After in Access-Control-Expose-Headers, got:\n{block}"
             )
+
+
+@pytest.mark.parametrize("config_path", NGINX_CONFIGS, ids=lambda p: p.name)
+def test_nginx_x_real_ip_uses_realip_remote_addr_on_all_blocks(config_path):
+    """Every location block that proxies must set X-Real-IP $realip_remote_addr.
+
+    Defense-in-depth against the internal/SSRF vector: $realip_remote_addr is
+    always the TCP socket peer (immune to realip rewriting), so X-Real-IP
+    carries the trustworthy IP even when the request originates from inside
+    the Docker network / localhost / a future multi-hop path.
+
+    Note: /api/auth/callback is pre-auth PKCE — the 'behind a JWT/session'
+    carve-out in the module docstring does NOT apply to it.
+    """
+    conf = config_path.read_text(encoding="utf-8")
+    lines = conf.splitlines()
+
+    in_location = False
+    has_proxy_pass = False
+    violations = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("location "):
+            in_location = True
+            has_proxy_pass = False
+        elif stripped.startswith("proxy_pass"):
+            has_proxy_pass = True
+        elif stripped == "}":
+            if in_location and has_proxy_pass:
+                # This location proxies — check it was captured above
+                pass
+            in_location = False
+            has_proxy_pass = False
+
+        if has_proxy_pass and "proxy_set_header X-Real-IP" in stripped:
+            if "$realip_remote_addr" not in stripped:
+                violations.append(stripped)
+
+    assert not violations, (
+        f"{config_path.name}: location blocks with proxy_pass must set "
+        f"X-Real-IP $realip_remote_addr (not $remote_addr). Violations: {violations}"
+    )
 
 
 @pytest.mark.parametrize("config_path", NGINX_CONFIGS, ids=lambda p: p.name)
