@@ -86,28 +86,28 @@ const total_incidents: WidgetDefinition = {
 };
 const drafts: WidgetDefinition = {
   id: "drafts",
-  label: "Drafts",
+  label: "My Drafts",
   roles: new Set(["REGIONAL_ENCODER"]),
   icon: FileText,
   isCategorical: false,
 };
 const submitted_today: WidgetDefinition = {
   id: "submitted_today",
-  label: "Submitted Today",
+  label: "My Submissions Today",
   roles: new Set(["REGIONAL_ENCODER"]),
   icon: CalendarDays,
   isCategorical: false,
 };
 const pending_validation: WidgetDefinition = {
   id: "pending_validation",
-  label: "Pending Validation",
+  label: "My Pending Validation",
   roles: new Set(["REGIONAL_ENCODER"]),
   icon: Clock,
   isCategorical: false,
 };
 const by_alarm_level: WidgetDefinition = {
   id: "by_alarm_level",
-  label: "By Alarm Level",
+  label: "My Incidents by Alarm Level",
   roles: new Set(["REGIONAL_ENCODER"]),
   icon: AlertTriangle,
   isCategorical: true,

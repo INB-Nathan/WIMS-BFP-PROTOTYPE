@@ -76,6 +76,7 @@ _W["by_category"] = {
         JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
         WHERE fi.verification_status = 'VERIFIED'
           AND fi.is_archived = FALSE
+          {region_filter}
         GROUP BY nd.general_category
         ORDER BY count DESC
     """,
@@ -109,7 +110,7 @@ _W["drafts"] = {
     "query": """
         SELECT COUNT(*)
         FROM wims.fire_incidents
-        WHERE region_id = :rid
+        WHERE encoder_id = :uid
           AND verification_status = 'DRAFT'
           AND is_archived = FALSE
     """,
@@ -120,7 +121,7 @@ _W["submitted_today"] = {
     "query": """
         SELECT COUNT(*)
         FROM wims.fire_incidents
-        WHERE region_id = :rid
+        WHERE encoder_id = :uid
           AND DATE(created_at AT TIME ZONE 'Asia/Manila') = CURRENT_DATE
           AND is_archived = FALSE
     """,
@@ -131,7 +132,7 @@ _W["pending_validation"] = {
     "query": """
         SELECT COUNT(*)
         FROM wims.fire_incidents
-        WHERE region_id = :rid
+        WHERE encoder_id = :uid
           AND verification_status IN ('PENDING', 'PENDING_VALIDATION')
           AND is_archived = FALSE
     """,
@@ -143,7 +144,7 @@ _W["by_alarm_level"] = {
         SELECT COALESCE(nd.alarm_level, 'UNKNOWN') AS label, COUNT(*) AS count
         FROM wims.fire_incidents fi
         JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
-        WHERE fi.region_id = :rid
+        WHERE fi.encoder_id = :uid
           AND fi.verification_status = 'VERIFIED'
           AND fi.is_archived = FALSE
         GROUP BY nd.alarm_level
@@ -253,14 +254,19 @@ def get_widget_data(
         params: dict = {}
         if region_id:
             params["rid"] = region_id
+        # Encoder widgets scope to the current user's own work via :uid.
+        # Always set when the caller is an encoder, even if assigned_region_id
+        # is missing (region_id stays None in that case).
+        if role in ("REGIONAL_ENCODER", "ENCODER"):
+            params["uid"] = user["user_id"]
 
-        # Handle region_filter placeholder for total_incidents (analyst: no filter, encoder: region)
-        query = query.replace(
-            "{region_filter}",
-            "AND fi.region_id = :rid"
-            if (region_id and wid == "total_incidents" and role == "REGIONAL_ENCODER")
-            else "",
-        )
+        # Handle region_filter placeholder for total_incidents and by_category.
+        # - REGIONAL_ENCODER: scope to encoder's own work via :uid
+        # - NATIONAL_VALIDATOR / NATIONAL_ANALYST / SYSTEM_ADMIN: no filter (global)
+        if role == "REGIONAL_ENCODER" and wid in ("total_incidents", "by_category"):
+            query = query.replace("{region_filter}", "AND fi.encoder_id = :uid")
+        else:
+            query = query.replace("{region_filter}", "")
 
         try:
             rows = db.execute(text(query), params).fetchall()

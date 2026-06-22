@@ -141,7 +141,8 @@ def update_my_profile(
     JWT authentication is sufficient for name/contact changes. Email changes also
     require current_password because email is the user's login identity/username.
     Role and region cannot be changed here — contact a System Administrator.
-    Changes are reflected immediately in Keycloak.
+    Changes are reflected immediately in Keycloak (name fields only).
+    contact_number is an application field stored in wims.users, not in Keycloak.
     """
     if not any(
         [
@@ -163,24 +164,12 @@ def update_my_profile(
             detail="Email changes require verification. Use POST /api/auth/change-email to initiate the verification flow, then POST /api/auth/verify-email to confirm.",
         )
 
-    # --- Update Keycloak profile (only when identity/contact fields are present) ---
-    if any([body.first_name, body.last_name, body.email, body.contact_number]):
-        try:
-            update_user_profile(
-                keycloak_id,
-                first_name=body.first_name,
-                last_name=body.last_name,
-                email=body.email,
-                contact_number=body.contact_number,
-            )
-        except KeycloakError as e:
-            logger.error(f"Keycloak profile update failed for {keycloak_id}: {e}")
-            raise HTTPException(
-                status_code=502,
-                detail="Failed to update identity provider profile. Try again later.",
-            )
-
-    # --- Sync DB fields (contact_number, email) ---
+    # --- Sync DB fields first (contact_number, notification prefs) ---
+    # Doing this before the Keycloak call means a Keycloak outage cannot lose
+    # the user's contact_number change. contact_number is an application field
+    # and is intentionally NOT pushed to Keycloak — Keycloak's user profile
+    # validation rejects undeclared custom attributes (e.g. contact_number) and
+    # would 500/400 the whole request if we tried.
     db_sync_failed = False
     if body.contact_number:
         try:
@@ -219,6 +208,34 @@ def update_my_profile(
                 "DB notification prefs sync failed for user %s", current_user["user_id"]
             )
 
+    # --- Sync Keycloak (best-effort, identity fields only) ---
+    # contact_number is intentionally excluded: it's a DB-only field. If Keycloak
+    # is unreachable, the user's name change is logged and surfaced as a "partial"
+    # response so the DB-backed changes (contact_number, notification prefs) are
+    # never held hostage by an IDP outage.
+    keycloak_sync_failed = False
+    if any([body.first_name, body.last_name, body.email]):
+        try:
+            update_user_profile(
+                keycloak_id,
+                first_name=body.first_name,
+                last_name=body.last_name,
+                email=body.email,
+            )
+        except KeycloakError as e:
+            logger.error(f"Keycloak profile update failed for {keycloak_id}: {e}")
+            keycloak_sync_failed = True
+
+    if db_sync_failed and keycloak_sync_failed:
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to update profile. Both database and identity provider are unavailable. Try again later.",
+        )
+    if keycloak_sync_failed:
+        return {
+            "status": "partial",
+            "message": "Profile saved locally; identity provider sync will retry. Your name may not be reflected until the next login.",
+        }
     if db_sync_failed:
         return {
             "status": "partial",

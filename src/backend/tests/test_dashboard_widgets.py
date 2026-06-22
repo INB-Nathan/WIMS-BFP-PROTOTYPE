@@ -190,14 +190,18 @@ class TestValidatorWidgets:
 
 class TestEncoderWidgets:
     def test_encoder_count_widgets(self, client: TestClient):
-        """REGIONAL_ENCODER gets encoder count widgets with correct values."""
+        """REGIONAL_ENCODER gets encoder count widgets with correct values.
+
+        Encoder widgets are scoped to the encoder's own work via encoder_id,
+        not to the region. The mock prefix matches the new SQL.
+        """
         app.dependency_overrides[get_current_wims_user] = _encoder_user
         db = _mock_db(
             {
                 # User lookup: SELECT assigned_region_id FROM wims.users
                 "assigned_region_id": [(42,)],
-                # total_incidents: uses {region_filter} → fi.region_id = :rid
-                "fi.region_id = :rid": [(15,)],
+                # total_incidents: {region_filter} → AND fi.encoder_id = :uid
+                "fi.encoder_id = :uid": [(15,)],
                 # drafts: verification_status = 'DRAFT'
                 "verification_status = 'DRAFT'": [(7,)],
                 # submitted_today: created_at AT TIME ZONE
@@ -221,6 +225,62 @@ class TestEncoderWidgets:
         assert data["submitted_today"]["count"] == 3
         assert "pending_validation" in data
         assert data["pending_validation"]["count"] == 4
+
+    def test_encoder_widgets_use_encoder_id_not_region_id(self, client: TestClient):
+        """Every encoder widget SQL must filter by encoder_id, not region_id.
+
+        This guards the user-scoping decision: encoder widgets show the
+        encoder's own work, not the region's aggregate.
+        """
+        app.dependency_overrides[get_current_wims_user] = _encoder_user
+        captured: list[tuple[str, dict | None]] = []
+
+        def capturing_execute(sql, params=None):
+            captured.append((str(sql), params))
+            # Return canned results for every widget we expect to run.
+            for prefix, rows in {
+                "assigned_region_id": [(42,)],
+                "verification_status = 'DRAFT'": [(7,)],
+                "created_at AT TIME ZONE": [(3,)],
+                "PENDING_VALIDATION": [(4,)],
+                "general_category": [("Structural", 5)],
+                "fi.verification_status = 'VERIFIED'": [(15,)],
+                "alarm_level": [("3", 5)],
+            }.items():
+                if prefix in str(sql):
+                    result = MagicMock()
+                    result.fetchall.return_value = rows
+                    return result
+            result = MagicMock()
+            result.fetchall.return_value = []
+            return result
+
+        db = MagicMock()
+        db.execute.side_effect = capturing_execute
+        app.dependency_overrides[get_db_with_rls] = lambda: db
+
+        resp = client.get(
+            "/api/dashboard/widgets"
+            "?ids=total_incidents,drafts,submitted_today,pending_validation,by_category,by_alarm_level",
+        )
+        assert resp.status_code == 200
+
+        # Drop the user-lookup query and the assigned_region_id fetch.
+        widget_queries = [
+            (stmt, params)
+            for stmt, params in captured
+            if "wims.fire_incidents" in stmt or "wims.incident_nonsensitive_details" in stmt
+        ]
+        assert widget_queries, "expected at least one widget query to be captured"
+
+        for stmt, params in widget_queries:
+            assert "encoder_id" in stmt, f"widget SQL should use encoder_id: {stmt!r}"
+            assert "fi.region_id = :rid" not in stmt, (
+                f"widget SQL should not use region_id: {stmt!r}"
+            )
+            assert params is not None and "uid" in params, (
+                f"widget params should include :uid: params={params!r}, stmt={stmt!r}"
+            )
 
     def test_encoder_categorical_widget(self, client: TestClient):
         """by_alarm_level returns categories for encoder."""

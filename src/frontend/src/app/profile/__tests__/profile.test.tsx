@@ -7,7 +7,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ProfilePage from '../page';
-import type { User } from '@/context/AuthContext';
 
 const mockReplace = vi.fn();
 
@@ -151,7 +150,7 @@ describe('ProfilePage', () => {
       });
     });
 
-    it('shows region ID for REGIONAL_ENCODER', async () => {
+    it('shows region name for REGIONAL_ENCODER (assignedRegionId 13 → Region X - Northern Mindanao)', async () => {
       mockAnalystUser({
         role: 'REGIONAL_ENCODER',
         username: 'encoder_ncr',
@@ -162,7 +161,7 @@ describe('ProfilePage', () => {
       render(<ProfilePage />);
 
       await waitFor(() => {
-        expect(screen.getByText('13')).toBeInTheDocument();
+        expect(screen.getByText('Region X - Northern Mindanao')).toBeInTheDocument();
       });
     });
 

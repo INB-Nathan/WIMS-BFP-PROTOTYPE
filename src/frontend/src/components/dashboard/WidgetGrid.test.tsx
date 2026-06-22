@@ -173,7 +173,7 @@ describe("AddWidgetDropdown", () => {
     },
     {
       id: "drafts",
-      label: "Drafts",
+      label: "My Drafts",
       roles: new Set(["REGIONAL_ENCODER"]),
       icon: (() => null) as unknown as WidgetDefinition["icon"],
       isCategorical: false,
@@ -198,7 +198,7 @@ describe("AddWidgetDropdown", () => {
     await user.click(button);
 
     expect(screen.getByText("Total Incidents")).toBeDefined();
-    expect(screen.getByText("Drafts")).toBeDefined();
+    expect(screen.getByText("My Drafts")).toBeDefined();
   });
 
   it("calls onAddWidget when a widget is selected", async () => {
@@ -209,7 +209,7 @@ describe("AddWidgetDropdown", () => {
     );
 
     await user.click(screen.getByText("Add Widget"));
-    await user.click(screen.getByText("Drafts"));
+    await user.click(screen.getByText("My Drafts"));
 
     expect(onAdd).toHaveBeenCalledWith("drafts");
   });

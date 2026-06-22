@@ -17,6 +17,7 @@ import {
     RefreshCw,
 } from 'lucide-react';
 import { OfflineModeManager } from '@/components/regional/OfflineModeManager';
+import { PH_REGIONS } from '@/lib/ph-regions';
 
 export default function ProfilePage() {
     const { user, loading, logout } = useAuth();
@@ -27,6 +28,18 @@ export default function ProfilePage() {
         id?: string;
         assignedRegionId?: number | null;
     } | null;
+
+    // Resolve the assigned region to a human-readable label.
+    // Analyst / admin have no single region; others show the PH_REGIONS name
+    // for their assigned_region_id, falling back to "Region {id}" if the id
+    // is not in the static table.
+    const assignedRegionDisplay = (() => {
+        if (typedUser?.role === 'NATIONAL_ANALYST') return 'All Regions';
+        if (typedUser?.role === 'SYSTEM_ADMIN') return 'National';
+        const id = typedUser?.assignedRegionId;
+        if (id == null) return '—';
+        return PH_REGIONS.find((r) => r.regionId === id)?.regionName ?? `Region ${id}`;
+    })();
 
     // ---------------------------------------------------------------------------
     // Profile form state
@@ -231,13 +244,7 @@ export default function ProfilePage() {
                         </div>
                         <div>
                             <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>Assigned Region</p>
-                            <p style={{ color: 'var(--text-primary)' }}>
-                              {typedUser?.role === 'NATIONAL_ANALYST'
-                                ? 'All Regions'
-                                : typedUser?.role === 'SYSTEM_ADMIN'
-                                ? 'National'
-                                : (typedUser?.assignedRegionId ?? '—')}
-                            </p>
+                            <p style={{ color: 'var(--text-primary)' }}>{assignedRegionDisplay}</p>
                         </div>
                     </div>
                     <p className="mt-4 text-xs text-gray-400">

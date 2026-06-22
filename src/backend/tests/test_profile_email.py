@@ -287,8 +287,13 @@ class TestProfileUpdateWithEmail:
             assert "change-email" in detail.lower()
             mock_kc_update.assert_not_called()
 
-    def test_update_profile_keycloak_failure_returns_502(self, client: TestClient):
-        """Keycloak profile update errors should return 502."""
+    def test_update_profile_keycloak_failure_returns_partial(self, client: TestClient):
+        """Keycloak profile update errors should not 502 the whole request.
+
+        DB writes happen first; if Keycloak is unreachable the name change is
+        lost but the request still returns 200 with status="partial" so the
+        user is not blocked by an IDP outage.
+        """
         app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
         mock_db = _get_db_session()
         app.dependency_overrides[get_db_with_rls] = lambda: mock_db
@@ -300,8 +305,65 @@ class TestProfileUpdateWithEmail:
             mock_kc_update.side_effect = KeycloakError(error_message="keycloak down")
             response = client.patch("/api/user/me", json={"first_name": "Ana"})
 
-            assert response.status_code == 502
-            assert "identity provider" in response.json()["detail"].lower()
+            assert response.status_code == 200
+            body = response.json()
+            assert body["status"] == "partial"
+            assert "identity provider" in body["message"].lower()
+
+    def test_contact_number_only_change_succeeds_without_keycloak_call(
+        self,
+        client: TestClient,
+    ):
+        """Changing only contact_number must NOT call Keycloak.
+
+        contact_number is a DB-only field. Passing it to Keycloak as a custom
+        attribute triggers Keycloak user-profile validation errors and was the
+        root cause of the 'failed to update identity provider profile' error
+        in the edit profile UI.
+        """
+        app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
+        mock_db = _get_db_session()
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        with (
+            patch("api.routes.user.update_user_profile") as mock_kc_update,
+            patch("api.routes.user.logger"),
+        ):
+            # Even with Keycloak broken, the contact_number change should
+            # succeed because the call must not be attempted in the first place.
+            mock_kc_update.side_effect = KeycloakError(error_message="keycloak down")
+
+            response = client.patch(
+                "/api/user/me",
+                json={"contact_number": "09171234567"},
+            )
+
+            assert response.status_code == 200
+            assert response.json()["status"] == "ok"
+            mock_kc_update.assert_not_called()
+
+    def test_contact_number_change_persists_to_db(self, client: TestClient):
+        """contact_number change must commit to wims.users even if Keycloak is up."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_analyst_user
+        mock_db = _get_db_session()
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+
+        with (
+            patch("api.routes.user.update_user_profile"),
+            patch("api.routes.user.logger"),
+        ):
+            response = client.patch(
+                "/api/user/me",
+                json={"contact_number": "09171234567"},
+            )
+
+            assert response.status_code == 200
+            assert response.json()["status"] == "ok"
+            # The contact_number UPDATE must be among the DB execute calls
+            db_sqls = [str(c[0][0]) for c in mock_db.execute.call_args_list]
+            assert any("contact_number = :cnum" in s and "wims.users" in s for s in db_sqls), (
+                f"expected contact_number UPDATE in DB calls, got: {db_sqls}"
+            )
 
     def test_update_profile_empty_body_returns_400(self, client: TestClient):
         """Route-level empty PATCH body should return 400 No fields to update."""
