@@ -157,3 +157,51 @@ export interface ApiError {
   message?: string;
   detail?: string;
 }
+
+// ── IP Blocklist (admin threat-response) ────────────────────────────────────
+
+export interface BlockedIp {
+  source_ip: string;
+  blocked_at: string | null;
+  expires_at: string | null;
+  is_permanent: boolean;
+  block_count: number;
+  blocked_by: string | null;
+  block_reason: string | null;
+}
+
+export interface BlockResult {
+  ip: string;
+  is_permanent: boolean;
+  expires_at: string | null;
+  block_count: number;
+  repeat_offender: boolean;
+  already_active: boolean;
+}
+
+export interface BlockByFilterResult {
+  dry_run: boolean;
+  total_distinct_ips: number;
+  blocked_count?: number;
+  permanent_count?: number;
+  skipped_self: number;
+  skipped_allowlist: number;
+  already_blocked?: number;
+  capped?: boolean;
+  would_block?: number;
+  repeat_offenders?: number;
+  capped_at?: number;
+}
+
+export interface BulkResult {
+  results: Array<{ log_id: number; status?: string; error?: string; [k: string]: unknown }>;
+}
+
+export interface SecurityLogFilter {
+  severity?: string;
+  source_ip?: string;
+  date_from?: string;
+  date_to?: string;
+  q?: string;
+  classification?: string;
+}
