@@ -28,7 +28,7 @@ from services.regional_incidents.helpers import (
     region_text_matches as _region_text_matches,
 )
 from services.kms import get_crypto_provider
-from utils.audit import get_client_ip, log_system_audit
+from utils.audit import trusted_client_ip, log_system_audit
 from utils.upload_validation import (
     check_magic_bytes,
     check_xlsx_decompression_bomb,
@@ -182,7 +182,7 @@ async def commit_afor_import(
                 "incident form category/sub-category fields."
             ),
         )
-    _request_ip = get_client_ip(request)
+    _request_ip = trusted_client_ip(request)
 
     def _ivh_with_ip(db, **kwargs):  # type: ignore[no-untyped-def]
         return _insert_incident_verification_history(db, request_ip=_request_ip, **kwargs)

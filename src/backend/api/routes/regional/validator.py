@@ -33,7 +33,7 @@ from services.regional_incidents.helpers import (
     build_audit_log_query as _build_audit_log_query,
     verify_incident_hash_chain as _verify_incident_hash_chain,
 )
-from utils.audit import get_client_ip, log_system_audit
+from utils.audit import trusted_client_ip, log_system_audit
 from schemas.regional import (
     VerificationActionRequest,
     ClientIdRequest,
@@ -312,7 +312,7 @@ def verify_incident(
         validator_user_id=validator_user_id,
         request=request,
         force=force,
-        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
+        deps=_regional_lifecycle_dependencies(request_ip=trusted_client_ip(request)),
         client_id=body.client_id,
     )
 
@@ -586,7 +586,7 @@ def bulk_approve_incidents(
         incident_ids=body.incident_ids,
         notes=body.notes,
         validator_user_id=validator_user_id,
-        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
+        deps=_regional_lifecycle_dependencies(request_ip=trusted_client_ip(request)),
     )
     logger.info(
         "Validator user_id=%s bulk-approved %d incidents: %s; held: %d",
@@ -644,7 +644,7 @@ def archive_incident(
         db,
         incident_id=incident_id,
         validator_user_id=validator_user_id,
-        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
+        deps=_regional_lifecycle_dependencies(request_ip=trusted_client_ip(request)),
         client_id=resolved_client_id,
     )
 
@@ -693,7 +693,7 @@ def unarchive_incident(
         db,
         incident_id=incident_id,
         actor_user_id=validator_user_id,
-        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
+        deps=_regional_lifecycle_dependencies(request_ip=trusted_client_ip(request)),
         client_id=resolved_client_id,
     )
 

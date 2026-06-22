@@ -27,7 +27,7 @@ from services.regional_incidents.helpers import (
     insert_incident_verification_history as _insert_incident_verification_history,
     normalize_general_category as _normalize_general_category,
 )
-from utils.audit import get_client_ip
+from utils.audit import trusted_client_ip
 from utils.crypto import SecurityProviderError
 from schemas.regional import IncidentCreateRequest, IncidentUpdateRequest
 
@@ -300,7 +300,7 @@ def create_incident(
         new_status="DRAFT",
         notes="Encoder created new draft",
         action_label="CREATED_DRAFT",
-        request_ip=get_client_ip(request),
+        request_ip=trusted_client_ip(request),
     )
 
     db.commit()
@@ -395,7 +395,7 @@ def update_incident(
             new_status=incident[1],
             notes="Encoder edit — fields updated",
             action_label="EDITED",
-            request_ip=get_client_ip(request),
+            request_ip=trusted_client_ip(request),
         )
         db.commit()
     except Exception:
@@ -437,7 +437,7 @@ def force_replace_incident(
         incident_id=incident_id,
         body=body,
         encoder_id=encoder_id,
-        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
+        deps=_regional_lifecycle_dependencies(request_ip=trusted_client_ip(request)),
     )
     logger.info("Force-replaced PENDING incident %s by encoder %s", incident_id, encoder_id)
     return result
@@ -506,7 +506,7 @@ def update_draft(
             new_status="DRAFT",
             notes="Encoder updated draft fields",
             action_label="EDITED",
-            request_ip=get_client_ip(request),
+            request_ip=trusted_client_ip(request),
         )
         db.commit()
     except Exception:
@@ -530,7 +530,7 @@ def delete_draft(
         db,
         incident_id=incident_id,
         encoder_id=encoder_id,
-        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
+        deps=_regional_lifecycle_dependencies(request_ip=trusted_client_ip(request)),
         draft_only=True,
     )
     logger.info("Draft deleted (archived) incident %s by encoder %s", incident_id, encoder_id)
@@ -550,7 +550,7 @@ def unpend_incident(
         db,
         incident_id=incident_id,
         encoder_id=encoder_id,
-        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
+        deps=_regional_lifecycle_dependencies(request_ip=trusted_client_ip(request)),
     )
     logger.info("Unpended incident %s by encoder %s", incident_id, encoder_id)
     return result
@@ -569,7 +569,7 @@ def delete_incident(
         db,
         incident_id=incident_id,
         encoder_id=encoder_id,
-        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
+        deps=_regional_lifecycle_dependencies(request_ip=trusted_client_ip(request)),
     )
     logger.info("Soft-deleted incident %s by encoder %s", incident_id, encoder_id)
     return result
@@ -665,7 +665,7 @@ def encoder_unarchive_incident(
         db,
         incident_id=incident_id,
         actor_user_id=encoder_id,
-        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
+        deps=_regional_lifecycle_dependencies(request_ip=trusted_client_ip(request)),
     )
 
 
@@ -697,7 +697,7 @@ def submit_incident_for_review(
         encoder_id=encoder_id,
         ack_duplicate=ack_duplicate,
         force=force,
-        deps=_regional_lifecycle_dependencies(request_ip=get_client_ip(request)),
+        deps=_regional_lifecycle_dependencies(request_ip=trusted_client_ip(request)),
     )
     logger.info(
         "Encoder user_id=%s submitted incident_id=%s for review",

@@ -37,7 +37,7 @@ from services.regional_incidents.helpers import (
     verify_incident_hash_chain as _verify_incident_hash_chain,
 )
 from tasks.exports import export_analyst_incidents_task
-from utils.audit import get_client_ip, log_system_audit
+from utils.audit import trusted_client_ip, log_system_audit
 from utils.crypto import SecurityProviderError
 from utils.upload_validation import (
     check_magic_bytes,
@@ -524,7 +524,7 @@ def upload_incident_bundle(
                 new_status="DRAFT",
                 notes="Encoder created new draft",
                 action_label="CREATED_DRAFT",
-                request_ip=get_client_ip(request),
+                request_ip=trusted_client_ip(request),
             )
 
             db.execute(text("RELEASE SAVEPOINT incident_sp"))
