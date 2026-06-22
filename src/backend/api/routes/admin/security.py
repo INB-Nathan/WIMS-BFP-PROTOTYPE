@@ -18,6 +18,7 @@ from services.ai_service import analyze_threat_log
 from services.event_bus import publish_security_event_sync
 from services.suricata_ingestion import _create_security_incident
 from utils.audit import log_system_audit
+from services.ip_blocklist import block_ip, block_ips_by_filter, _get_request_client_ip
 
 logger = logging.getLogger("wims.admin")
 router = APIRouter()
@@ -49,6 +50,25 @@ class SecurityLogUpdate(BaseModel):
     note: str | None = None
     admin_action_taken: str | None = None
     resolved_at: str | None = None
+
+
+class BlockSourceIpBody(BaseModel):
+    ttl_hours: int | str | None = 24
+
+
+class BlockByFilterBody(BaseModel):
+    severity: str | None = None
+    source_ip: str | None = None
+    date_from: str | None = None
+    date_to: str | None = None
+    q: str | None = None
+    classification: str | None = None
+
+
+class BulkActionBody(BaseModel):
+    log_ids: list[int]
+    action: str
+    ttl_hours: int | str | None = 24
 
 
 @router.get("/security-logs")
@@ -228,6 +248,104 @@ def get_security_logs_summary(
         "total": total,
         "recent_narratives": recent_narratives,
     }
+
+
+@router.post("/security-logs/block-by-filter")
+async def block_by_filter(
+    body: BlockByFilterBody,
+    request: Request,
+    _admin: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+    preview: bool = False,
+):
+    """Block all distinct source_ips matching threat-log filters (dry-run with ?preview=true)."""
+    filters = body.model_dump()
+    requester_ip = _get_request_client_ip(request)
+    result = await block_ips_by_filter(
+        db, filters, _admin["user_id"], dry_run=preview, requester_ip=requester_ip
+    )
+    if not preview:
+        log_system_audit(
+            db,
+            _admin["user_id"],
+            "BLOCK_BY_FILTER",
+            "ip_blocklist",
+            None,
+            request=request,
+            new_values={"filters": filters, "result": result},
+        )
+        db.commit()
+    return result
+
+
+@router.post("/security-logs/bulk-action")
+async def bulk_action(
+    body: BulkActionBody,
+    request: Request,
+    _admin: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Bulk action on security logs — block_ip, dismiss, or false_positive."""
+    if not body.log_ids:
+        raise HTTPException(status_code=400, detail="log_ids must not be empty")
+
+    requester_ip = _get_request_client_ip(request)
+    results: list[dict] = []
+
+    for lid in body.log_ids:
+        if body.action == "block_ip":
+            row = db.execute(
+                text("SELECT source_ip FROM wims.security_threat_logs WHERE log_id = :lid"),
+                {"lid": lid},
+            ).fetchone()
+            if row and row[0]:
+                ttl = (
+                    None
+                    if body.ttl_hours == "permanent"
+                    else (int(body.ttl_hours) if body.ttl_hours else 24)
+                )
+                try:
+                    r = await block_ip(
+                        db,
+                        row[0],
+                        _admin["user_id"],
+                        f"bulk block (log {lid})",
+                        lid,
+                        ttl,
+                        requester_ip,
+                    )
+                    results.append({"log_id": lid, **r})
+                except ValueError as e:
+                    results.append({"log_id": lid, "error": str(e)})
+            else:
+                results.append({"log_id": lid, "error": "No source_ip found"})
+        elif body.action == "dismiss":
+            dismiss_security_log(db, lid, _admin["user_id"])
+            results.append({"log_id": lid, "status": "dismissed"})
+        elif body.action == "false_positive":
+            db.execute(
+                text(
+                    "UPDATE wims.security_threat_logs "
+                    "SET admin_action_taken = 'False Positive (Dismissed)', "
+                    "resolved_at = now() WHERE log_id = :lid"
+                ),
+                {"lid": lid},
+            )
+            results.append({"log_id": lid, "status": "false_positive"})
+        else:
+            results.append({"log_id": lid, "error": f"Unknown action: {body.action}"})
+
+    log_system_audit(
+        db,
+        _admin["user_id"],
+        "BULK_SECURITY_ACTION",
+        "security_threat_logs",
+        None,
+        request=request,
+        new_values={"log_ids": body.log_ids, "action": body.action},
+    )
+    db.commit()
+    return {"results": results}
 
 
 @router.post("/security-logs/{log_id}/analyze")
@@ -450,6 +568,52 @@ def update_security_log(
     return {"status": "ok", "log_id": log_id}
 
 
+@router.post("/security-logs/{log_id}/block-source-ip")
+async def block_source_ip(
+    log_id: int,
+    body: BlockSourceIpBody,
+    request: Request,
+    _admin: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Block the source IP of a security log. Requires the log to have a source_ip."""
+    row = db.execute(
+        text("SELECT source_ip FROM wims.security_threat_logs WHERE log_id = :log_id"),
+        {"log_id": log_id},
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Security log not found")
+    source_ip = row[0]
+    if not source_ip:
+        raise HTTPException(status_code=400, detail="Alert has no source_ip")
+
+    ttl = None if body.ttl_hours == "permanent" else (int(body.ttl_hours) if body.ttl_hours else 24)
+    requester_ip = _get_request_client_ip(request)
+
+    try:
+        result = await block_ip(
+            db,
+            source_ip,
+            _admin["user_id"],
+            f"manual row block (log {log_id})",
+            log_id,
+            ttl,
+            requester_ip,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    db.execute(
+        text(
+            "UPDATE wims.security_threat_logs "
+            "SET admin_action_taken = 'Blocked IP' WHERE log_id = :log_id"
+        ),
+        {"log_id": log_id},
+    )
+    db.commit()
+    return result
+
+
 @router.post("/security-logs/{log_id}/create-incident")
 def create_incident_from_alert(
     log_id: int,
@@ -523,6 +687,35 @@ def create_incident_from_alert(
             status_code=500,
             detail="Failed to create incident from alert",
         )
+
+
+@router.delete("/security-logs/{log_id}")
+def delete_security_log(
+    log_id: int,
+    request: Request,
+    _admin: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Soft-delete a security log. 404 if not found."""
+    row = db.execute(
+        text("SELECT 1 FROM wims.security_threat_logs WHERE log_id = :lid"),
+        {"lid": log_id},
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Security log not found")
+
+    dismiss_security_log(db, log_id, _admin["user_id"])
+    log_system_audit(
+        db,
+        _admin["user_id"],
+        "DELETE_SECURITY_LOG",
+        "security_threat_logs",
+        log_id,
+        request=request,
+        new_values={"action": "soft_delete", "admin_action_taken": "Dismissed"},
+    )
+    db.commit()
+    return {"status": "ok", "log_id": log_id}
 
 
 @router.get("/security-logs/{log_id}/related-audit")
@@ -608,3 +801,19 @@ def get_related_audit(
             for r in rows
         ],
     }
+
+
+def dismiss_security_log(db: Session, log_id: int, admin_id) -> None:
+    """Shared soft-delete helper — DELETE endpoint + bulk dismiss both call this.
+
+    Sets resolved_at=now() and admin_action_taken='Dismissed' on the row.
+    The caller is responsible for audit logging and commit.
+    """
+    db.execute(
+        text(
+            "UPDATE wims.security_threat_logs "
+            "SET resolved_at = now(), admin_action_taken = 'Dismissed' "
+            "WHERE log_id = :lid"
+        ),
+        {"lid": log_id},
+    )
