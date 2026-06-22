@@ -65,6 +65,7 @@ from api.routes.consent import router as consent_router
 # WIMS role resolution — canonical source in auth.py
 from auth import resolve_wims_role_from_token as _resolve_role_from_token
 from utils.csrf import csrf_middleware
+from services.ip_blocklist import _get_request_client_ip, resync_blocklist_to_redis
 
 # Module-level logger — must be defined before use in schema patches and rate limiter
 logger = logging.getLogger("wims.rate_limit")
@@ -516,6 +517,16 @@ def apply_schema_patches() -> None:
             _schema_patches_in_progress = False
 
 
+@app.on_event("startup")
+async def _resync_blocklist_on_boot():
+    """Restore active block IPs from Postgres to Redis on application boot."""
+    try:
+        count = await resync_blocklist_to_redis()
+        logger.info("Blocklist resync: %d IPs restored to Redis on boot", count)
+    except Exception as e:
+        logger.warning("Boot blocklist resync failed: %s", e)
+
+
 def _apply_users_rls(db) -> None:  # type: ignore[type-arg]
     """Broaden users SELECT policy so BFP staff roles can JOIN wims.users."""
     db.execute(text("DROP POLICY IF EXISTS users_self_or_admin_select ON wims.users"))
@@ -815,6 +826,24 @@ async def rate_limit_middleware(request: Request, call_next):
             headers={"Retry-After": str(retry_after)},
         )
 
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def blocked_ip_middleware(request: Request, call_next):
+    """App-layer IP block check. Redis EXISTS only — zero Postgres in hot path.
+    Fail-open if Redis is down (matches rate limiter). X-Real-IP first (not XFF)."""
+    if request.url.path in ("/health", "/api/v1/public/health"):
+        return await call_next(request)
+    client_ip = _get_request_client_ip(request)
+    r = await _get_redis()
+    if r is None:
+        return await call_next(request)  # fail open
+    try:
+        if await r.exists(f"ip:block:{client_ip}"):
+            return JSONResponse(status_code=403, content={"detail": "IP blocked by admin action"})
+    except Exception:
+        logger.warning("BlockedIPMiddleware Redis check failed — fail open")
     return await call_next(request)
 
 
