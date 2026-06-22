@@ -458,8 +458,8 @@ export default function AdminAuditPage() {
                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
                           {a.timestamp ? new Date(a.timestamp).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : '—'}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-mono text-gray-600 max-w-[200px] truncate" title={a.user_id ?? undefined}>
-                          {a.user_id ?? '—'}
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700 max-w-[200px] truncate" title={a.user_name ?? a.user_id ?? undefined}>
+                          {a.user_name ?? a.user_id ?? '—'}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm">
                           <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${

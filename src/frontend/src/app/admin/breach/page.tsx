@@ -227,7 +227,7 @@ function StatusAdvanceModal({
             await onConfirm(notes);
             onClose();
         } catch {
-            setModalError('Failed to advance status. The record has not been changed.');
+            setModalError('Status update could not be verified. Refresh to see the current state.');
         } finally {
             setConfirming(false);
         }
@@ -418,7 +418,15 @@ export default function BreachNotificationsPage() {
             setTimeout(() => setSuccessMessage(null), 5000);
             setAdvanceTarget(null);
         } catch {
-            // The modal will display its own error; keep prior row state
+            // The PATCH may have succeeded on the backend (db.commit() runs before
+            // the response is serialised).  Reload so the UI matches the server state
+            // even when the response delivery fails.
+            try {
+                const refreshed = await fetchBreachesOfflineAware();
+                setBreaches(refreshed.response);
+            } catch {
+                // silent — keep prior row state
+            }
             throw new Error('updateBreach failed');
         } finally {
             setUpdating(null);

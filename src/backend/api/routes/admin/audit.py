@@ -37,27 +37,27 @@ def get_audit_logs(
     params: dict = {"limit": limit, "offset": offset}
 
     if user_id is not None:
-        where_clauses.append("user_id = :user_id")
+        where_clauses.append("sat.user_id = :user_id")
         params["user_id"] = user_id
     if action_type is not None:
-        where_clauses.append("action_type = :action_type")
+        where_clauses.append("sat.action_type = :action_type")
         params["action_type"] = action_type
     if table_affected is not None:
-        where_clauses.append("table_affected = :table_affected")
+        where_clauses.append("sat.table_affected = :table_affected")
         params["table_affected"] = table_affected
     if ip_address is not None:
-        where_clauses.append("ip_address = :ip_address")
+        where_clauses.append("sat.ip_address = :ip_address")
         params["ip_address"] = ip_address
     if date_from is not None:
-        where_clauses.append("timestamp >= CAST(:date_from AS timestamptz)")
+        where_clauses.append("sat.timestamp >= CAST(:date_from AS timestamptz)")
         params["date_from"] = date_from
     if date_to is not None:
-        where_clauses.append("timestamp <= CAST(:date_to AS timestamptz)")
+        where_clauses.append("sat.timestamp <= CAST(:date_to AS timestamptz)")
         params["date_to"] = date_to
     if q:
         q = q.strip()
     if q:
-        where_clauses.append("search_vector @@ websearch_to_tsquery('english', :q)")
+        where_clauses.append("sat.search_vector @@ websearch_to_tsquery('english', :q)")
         params["q"] = q
 
     where_sql = ""
@@ -65,17 +65,19 @@ def get_audit_logs(
         where_sql = "WHERE " + " AND ".join(where_clauses)
 
     order_by = (
-        "ts_rank(search_vector, websearch_to_tsquery('english', :q)) DESC"
+        "ts_rank(sat.search_vector, websearch_to_tsquery('english', :q)) DESC"
         if q
-        else "timestamp DESC"
+        else "sat.timestamp DESC"
     )
 
     rows = db.execute(
         text(f"""
-            SELECT audit_id, user_id, action_type, table_affected, record_id,
-                   ip_address, user_agent, timestamp,
-                   old_values, new_values
-            FROM wims.system_audit_trails
+            SELECT sat.audit_id, sat.user_id, sat.action_type, sat.table_affected,
+                   sat.record_id, sat.ip_address, sat.user_agent, sat.timestamp,
+                   sat.old_values, sat.new_values,
+                   u.username
+            FROM wims.system_audit_trails sat
+            LEFT JOIN wims.users u ON sat.user_id = u.user_id
             {where_sql}
             ORDER BY {order_by}
             LIMIT :limit OFFSET :offset
@@ -85,7 +87,7 @@ def get_audit_logs(
 
     total = (
         db.execute(
-            text(f"SELECT COUNT(*) FROM wims.system_audit_trails {where_sql}"),
+            text(f"SELECT COUNT(*) FROM wims.system_audit_trails sat {where_sql}"),
             params,
         ).scalar()
         or 0
@@ -97,11 +99,15 @@ def get_audit_logs(
             return mapping.get(key)
         return row[index] if len(row) > index else None
 
+    # Index of username column in the SELECT (10 columns before it)
+    _USERNAME_IDX = 10
+
     return {
         "items": [
             {
                 "audit_id": r[0],
                 "user_id": str(r[1]) if r[1] else None,
+                "user_name": r[_USERNAME_IDX] if len(r) > _USERNAME_IDX and r[_USERNAME_IDX] else None,
                 "action_type": r[2],
                 "table_affected": r[3],
                 "record_id": r[4],

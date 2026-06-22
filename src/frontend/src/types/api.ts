@@ -103,6 +103,7 @@ export interface SecurityThreatLog {
 export interface AuditLogEntry {
   audit_id: number;
   user_id: string | null;
+  user_name?: string | null;
   action_type: string | null;
   table_affected: string | null;
   record_id: number | null;

@@ -223,7 +223,7 @@ def update_anomaly_status(
             "audit_blob": json.dumps(
                 {
                     "status_changed_at": now.isoformat(),
-                    "status_changed_by": admin["user_id"],
+                    "status_changed_by": str(admin["user_id"]),
                     "previous_status": current_status,
                     "new_status": new_status,
                     "action": audit_action,
