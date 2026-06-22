@@ -339,9 +339,10 @@ def submit_civilian_report(
                 f"{CIVILIAN_REPORT_HOURLY_CAP}; citizen_reports schema regression"
             )
             retry_after = RETRY_AFTER_CEILING_SECONDS
+        _retry_minutes = max(1, math.ceil(retry_after / 60))
         raise HTTPException(
             status_code=429,
-            detail="Too many reports from this network. Try again later.",
+            detail=f"Too many reports from this network. Try again in {_retry_minutes} minutes.",
             headers={"Retry-After": str(retry_after)},
         )
 
