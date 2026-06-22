@@ -1,7 +1,7 @@
 ---
 title: Database Schema Overview
 created: 2026-05-14
-updated: 2026-06-21
+updated: 2026-06-22
 type: database
 tags: [wims-bfp, database, schema, rls, audit-log, implementation-map, startup-self-heal]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/postgres-init]
@@ -61,6 +61,7 @@ As of 2026-06-19, eligible schema-only SQL files are executed directly from `src
 | `wims.regional_public_keys` | `08_security_audit.sql` |
 | `wims.security_threat_logs` | `08_security_audit.sql` |
 | `wims.system_audit_trails` | `08_security_audit.sql`; `old_values`/`new_values` JSONB columns added in `60_audit_forensics_columns.sql` |
+| `wims.ip_blocklist` | `65_ip_blocklist.sql` |
 | `wims.analytics_incident_facts` | `11_analytics_facts.sql` |
 | `wims.analytics_incident_facts.municipality_name` / `province_name` | `28_analytics_geography_denorm.sql` |
 | `wims.analytics_export_log` | `13_export_reports.sql` |
@@ -75,7 +76,7 @@ As of 2026-06-19, eligible schema-only SQL files are executed directly from `src
 - Incident workflow: `wims.fire_incidents`, detail tables, involved parties, responding units, operational challenges, attachments.
 - Verification/immutability: `wims.incident_verification_history`, immutable records SQL (DELETE + UPDATE blocked for audit trails), audit trails.
 - Analytics: `wims.analytics_incident_facts`, materialized view SQL, export/scheduled report tables. Migration `28_analytics_geography_denorm.sql` adds denormalized `municipality_name` and `province_name` fields for analyst filters/top-N views, plus export task/file metadata on `analytics_export_log`. Scheduled reports remain deferred outside the National Analyst dashboard phase.
-- Security: `wims.security_threat_logs`, `wims.system_audit_trails`, public keys.
+- Security: `wims.security_threat_logs`, `wims.system_audit_trails`, `wims.ip_blocklist`, public keys.
 - Civilian reporting: `wims.citizen_reports` stores device-UUID-owned reports. The `location` column is a PostGIS `geography` type — when extracting latitude/longitude via `ST_Y`/`ST_X`, the column must be cast to `geometry`: `ST_Y(location::geometry)` or `ST_X(location::geometry)`. The Phase 2 update flow uses `GET /api/civilian/reports?device_id=` to enumerate a device's owned reports before allowing an append.
 
 ## DB-Enforced vs App-Enforced Invariants

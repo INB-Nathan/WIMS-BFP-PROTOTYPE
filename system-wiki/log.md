@@ -1,3 +1,10 @@
+## [2026-06-22] feat(db): migration 65 — ip_blocklist table + RLS + config rows
+
+- **Scope:** Task 1 of the monitoring-threat-actions plan. New `wims.ip_blocklist` table (block_id, source_ip, blocked_at, expires_at, is_permanent, blocked_by, block_reason, threat_log_id, is_active) with indexes on source_ip and active-only partial index. RLS policy `ip_blocklist_admin_all` (SYSTEM_ADMIN-only, mirrors 10_rls_policies.sql pattern). Two system_config rows: `ip_blocklist.repeat_offender_threshold`=3 and `ip_blocklist.allowlist`=127.0.0.1,::1.
+- **File created:** `src/postgres-init/65_ip_blocklist.sql` (41 lines, idempotent: IF NOT EXISTS + ON CONFLICT DO NOTHING).
+- **Application:** Applied to running `wims-postgres` container, verified: table columns match spec (no block_count column), RLS policy present, 2 config rows, idempotent second run. Committed `b77218b7`.
+- **Wiki update:** This log entry. Table added to schema-overview table listing. No gap-register change (gap closure when full feature lands in later tasks).
+
 ## [2026-06-22] fix(frontend): type fetchAdminSecurityLogsOfflineAware as SecurityThreatLog[] (TS2352 build unblock)
 
 - **Scope:** Unblock `next build` on master (red across CI Frontend, CI Docker Build, CI Security Scan, CI Merge Gate, CD frontend push, Deploy frontend build — all identical TS2352 at `src/app/admin/monitoring/page.tsx:120`). Type-only fix, no runtime behavior change. Backend, security audit, and migrations were already green.
