@@ -141,4 +141,43 @@ describe('offlineStore reference (unencrypted) store', () => {
       console.warn = origWarn;
     }
   });
+
+  // Issue #13 (security D1): the isolation test was positive-only. Verify
+  // the user-switch path actually wipes the prior user's prefix via
+  // clearReferenceDataForUser.
+  it('user-switch via setActiveOfflineUser wipes the prior user prefix (issue #13)', async () => {
+    const { setActiveOfflineUser, clearReferenceDataForUser } = await import('../offlineStore');
+    // Seed two users' reference data.
+    await cacheReferenceData('reference:userA:regions', [{ region_id: 1 }], 7 * 24 * 60 * 60 * 1000);
+    await cacheReferenceData('reference:userA:provinces:1', [{ province_id: 11 }], 7 * 24 * 60 * 60 * 1000);
+    await cacheReferenceData('reference:userB:regions', [{ region_id: 2 }], 7 * 24 * 60 * 60 * 1000);
+    // Switch from userA to userB. This must wipe userA's plaintext prefix.
+    await setActiveOfflineUser('userA');
+    await setActiveOfflineUser('userB');
+    // userA's data must be gone; userB's data preserved.
+    expect(await getCachedReferenceData('reference:userA:regions')).toBeUndefined();
+    expect(await getCachedReferenceData('reference:userA:provinces:1')).toBeUndefined();
+    expect(await getCachedReferenceData('reference:userB:regions')).toBeDefined();
+    // And the explicit clearReferenceDataForUser call also still works.
+    const deleted = await clearReferenceDataForUser('userB');
+    expect(deleted).toBe(1);
+    expect(await getCachedReferenceData('reference:userB:regions')).toBeUndefined();
+  });
+
+  // Issue #13 (security D1): the escapeRegex in clearReferenceDataForUser
+  // is correct, but there is no regression test. Add one for a userId
+  // containing regex meta-characters.
+  it('clearReferenceDataForUser escapeRegex handles regex meta-characters (issue #13)', async () => {
+    const { clearReferenceDataForUser } = await import('../offlineStore');
+    // userId with regex meta-characters: .*+?^$()[]{}|\.
+    // If escapeRegex is broken (e.g. forgets to escape '.'), this would
+    // also match reference:userA:foo (and many other keys).
+    await cacheReferenceData('reference:userA.*:regions', [1], 7 * 24 * 60 * 60 * 1000);
+    await cacheReferenceData('reference:userAXX:regions', [2], 7 * 24 * 60 * 60 * 1000);
+    const deleted = await clearReferenceDataForUser('userA.*');
+    expect(deleted).toBe(1);
+    expect(await getCachedReferenceData('reference:userA.*:regions')).toBeUndefined();
+    // The unescaped match must NOT have deleted the userAXX entry.
+    expect(await getCachedReferenceData('reference:userAXX:regions')).toBeDefined();
+  });
 });
