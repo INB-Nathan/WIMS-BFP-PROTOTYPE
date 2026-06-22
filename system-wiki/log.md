@@ -1,3 +1,12 @@
+## [2026-06-22] perf: backend workers 4→3, postgres tuning, security_threat_logs indexes
+
+- **Scope:** Further VPS optimization on 2 vCPUs / 8GB RAM.
+- **`src/backend/Dockerfile`:** uvicorn workers reduced from 4 to 3 (4 workers on 2 CPUs caused context-switching overhead).
+- **`src/docker-compose.yml`:** postgres gains `shared_buffers=2GB` (was 128MB) and `max_connections=30` (was 100) via `command` flags.
+- **`src/postgres-init/66_security_threat_logs_indexes.sql`:** Three new indexes on `security_threat_logs` — `(reviewed_by, severity_level, timestamp)` composite, `(source_ip)`, and `(timestamp)`. Dashboard COUNT queries are now index-only scans instead of full-table scans.
+- **`src/backend/api/routes/admin/audit.py`:** `ruff format` fix (1 file reformatted).
+- **Validation:** `ruff format --check` — 236 files already formatted.
+
 ## [2026-06-22] ops: reduce Suricata poll frequency, Ollama CPU limit, switch to 1.5B model
 
 - **Scope:** VPS with 2 vCPUs was overloaded (load avg 6.26). celery-worker at 96% CPU due to two 1-second polling tasks. PostgreSQL spiked from bulk threat log cleanup.

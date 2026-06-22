@@ -107,7 +107,9 @@ def get_audit_logs(
             {
                 "audit_id": r[0],
                 "user_id": str(r[1]) if r[1] else None,
-                "user_name": r[_USERNAME_IDX] if len(r) > _USERNAME_IDX and r[_USERNAME_IDX] else None,
+                "user_name": r[_USERNAME_IDX]
+                if len(r) > _USERNAME_IDX and r[_USERNAME_IDX]
+                else None,
                 "action_type": r[2],
                 "table_affected": r[3],
                 "record_id": r[4],

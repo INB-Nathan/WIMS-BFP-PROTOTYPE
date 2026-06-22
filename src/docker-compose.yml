@@ -8,6 +8,7 @@ services:
   postgres:
     image: postgis/postgis:15-3.4-alpine
     container_name: wims-postgres
+    command: ["postgres", "-c", "shared_buffers=2GB", "-c", "max_connections=30"]
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?error}
