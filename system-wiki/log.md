@@ -4473,12 +4473,4 @@ automatically when they reconnect.
 
 - **Wiki updates:** `frontend/frontend-infrastructure.md` `updated: 2026-06-22` + new top-level section "Offline Read Caching" covering the storage layer, the two orchestrators, the 12-wrapper inventory, `StaleCacheBanner`, the 12 page bindings, the SW role-prefetch contract, and the four eviction triggers. This log entry is the second half of the wiki update.
 
-## [2026-06-22] fix(security): swap login + consent rate limiters to trusted_client_ip (Tier 1 XFF cleanup)
-
-- **Scope:** Task 1 of the XFF/429/XAI cleanup plan (`docs/superpowers/plans/2026-06-22-xff-cleanup-civilian-429-xai-load-guard.md`). Both the login rate limiter in `main.py:rate_limit_middleware` and the public consent rate limiter in `consent.py:record_consent` parsed `X-Forwarded-For` leftmost — spoofable. Swapped to `trusted_client_ip()` (X-Real-IP first, never XFF).
-- **Fix:** `main.py` — added `from utils.audit import trusted_client_ip`, replaced 4-line XFF parse with `client_ip = trusted_client_ip(request)`. `consent.py` — swapped import from `get_client_ip` to `trusted_client_ip`, replaced `get_client_ip(request) or "unknown"` with `trusted_client_ip(request)`.
-- **Tests:** Added `test_middleware_keys_on_x_real_ip_not_xff` to `TestRateLimitMiddlewareConfig` (verifies rate-limit key contains X-Real-IP, not XFF from spoofed header). Created `tests/test_consent_rate_limit.py` with `test_consent_rate_limit_uses_x_real_ip_not_xff` (verifies IP passed to `rate_limit_public` is X-Real-IP, not spoofed XFF). 2/2 RED→GREEN + 15 pre-existing tests unaffected (17/17 pass). Ruff clean.
-- **Commit:** `b19b8092`.
-- **Wiki update:** This log entry. Gap register: closes "IP blocklist rate-limiter XFF bug".
-
 - **Gap register check:** the pre-existing "Offline-first: verify IndexedDB encryption/sync semantics against M2" verification target is **partially closed** by this work — the encrypted read cache and the per-user-namespaced plaintext reference cache now have a stable, per-record-TTL contract plus user-switch isolation, and the offline write-queue contract was closed earlier (M2d, see the gap register). The verification target is NOT explicitly re-stated in `gaps/frs-codebase-gap-register.md` from this task because the M2d closure was a separate earlier work item; no NEW gap was opened by this branch.
