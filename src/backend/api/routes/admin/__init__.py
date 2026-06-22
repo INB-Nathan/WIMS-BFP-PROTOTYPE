@@ -15,6 +15,7 @@ from . import (
     breach,
     privacy,
     anomalies,
+    ip_blocklist,
     sync,
 )
 
@@ -31,4 +32,5 @@ router.include_router(config.router)
 router.include_router(breach.router)
 router.include_router(privacy.router)
 router.include_router(anomalies.router)
+router.include_router(ip_blocklist.router, prefix="/ip-blocklist", tags=["admin-ip-blocklist"])
 router.include_router(sync.router)
