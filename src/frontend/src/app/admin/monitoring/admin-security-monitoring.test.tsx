@@ -42,17 +42,28 @@ const mockFetchAuditLogs = vi.fn();
 const mockFetchSecurityLogsSummaryOfflineAware = vi.fn();
 const mockFetchAdminSecurityLogsOfflineAware = vi.fn();
 const mockFetchAuditLogsOfflineAware = vi.fn();
+const mockUpdateAdminSecurityLog = vi.fn();
+const mockCreateIncidentFromAlert = vi.fn();
+const mockBlockSourceIp = vi.fn();
+const mockDeleteSecurityLog = vi.fn();
 
 vi.mock('@/lib/api/legacy', () => ({
   fetchSecurityLogsSummary: () => mockFetchSecurityLogsSummary(),
   fetchAdminSecurityLogs: (params?: unknown) => mockFetchAdminSecurityLogs(params),
   fetchAuditLogs: (params?: unknown) => mockFetchAuditLogs(params),
+  updateAdminSecurityLog: (logId: number, payload: unknown) => mockUpdateAdminSecurityLog(logId, payload),
+  createIncidentFromAlert: (logId: number) => mockCreateIncidentFromAlert(logId),
 }));
 
 vi.mock('@/lib/api/offlineAdmin', () => ({
   fetchSecurityLogsSummaryOfflineAware: () => mockFetchSecurityLogsSummaryOfflineAware(),
   fetchAdminSecurityLogsOfflineAware: (params?: unknown) => mockFetchAdminSecurityLogsOfflineAware(params),
   fetchAuditLogsOfflineAware: (params?: unknown) => mockFetchAuditLogsOfflineAware(params),
+}));
+
+vi.mock('@/lib/api/securityActions', () => ({
+  blockSourceIp: (...args: unknown[]) => mockBlockSourceIp(...args),
+  deleteSecurityLog: (...args: unknown[]) => mockDeleteSecurityLog(...args),
 }));
 
 const DEFAULT_SUMMARY = {
@@ -681,6 +692,207 @@ describe('M8: Security Monitoring page — offline-aware read caching (T11)', ()
     // Underlying summary cards should still render from the cached response
     await waitFor(() => {
       expect(screen.getByText('10')).toBeInTheDocument();
+    });
+  });
+});
+
+// ── T11: Per-row actions + filters (Task 11) ─────────────────────────────────
+
+describe('M8: Security Monitoring page — per-row actions + filters (T11)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    mockAdminUser();
+    mockFetchAuditLogs.mockResolvedValue({ items: [], total: 0 });
+    mockFetchSecurityLogsSummary.mockResolvedValue(DEFAULT_SUMMARY);
+    mockFetchAdminSecurityLogs.mockResolvedValue({
+      items: [
+        {
+          log_id: 1,
+          timestamp: '2026-06-12T10:30:00Z',
+          source_ip: '192.168.1.100',
+          severity_level: 'HIGH',
+          suricata_sid: 2001,
+          admin_action_taken: null,
+          xai_confidence: 0.88,
+        },
+      ],
+      total: 1,
+    });
+    mockFetchAuditLogsOfflineAware.mockImplementation(async (params?: unknown) => ({
+      response: await mockFetchAuditLogs(params),
+      fromCache: false,
+    }));
+    mockFetchSecurityLogsSummaryOfflineAware.mockImplementation(async () => ({
+      response: await mockFetchSecurityLogsSummary(),
+      fromCache: false,
+    }));
+    mockFetchAdminSecurityLogsOfflineAware.mockImplementation(async (params?: unknown) => ({
+      response: await mockFetchAdminSecurityLogs(params),
+      fromCache: false,
+    }));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it('renders 6 action buttons in each threat row', async () => {
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    // HITL 3-button group
+    expect(screen.getByText('Confirm Threat')).toBeInTheDocument();
+    expect(screen.getByText('False Positive')).toBeInTheDocument();
+    expect(screen.getByText('Request More Info')).toBeInTheDocument();
+
+    // Primary action
+    expect(screen.getByText('Block Source IP')).toBeInTheDocument();
+
+    // Secondary actions
+    expect(screen.getByText('Create Incident')).toBeInTheDocument();
+    expect(screen.getByText('Delete Alert')).toBeInTheDocument();
+  });
+
+  it('HITL Confirm Threat calls updateAdminSecurityLog with CONFIRM_THREAT', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('Confirm Threat'));
+
+    expect(mockUpdateAdminSecurityLog).toHaveBeenCalledWith(1, { action: 'CONFIRM_THREAT' });
+  });
+
+  it('Block Source IP calls blockSourceIp and shows success toast', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mockBlockSourceIp.mockResolvedValue({ ip: '192.168.1.100', is_permanent: false, repeat_offender: false, already_active: false });
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('Block Source IP'));
+
+    expect(window.confirm).toHaveBeenCalled();
+    expect(mockBlockSourceIp).toHaveBeenCalledWith(1, { ttl_hours: 24 });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Blocked IP 192\.168\.1\.100/i)).toBeInTheDocument();
+    });
+  });
+
+  it('Block Source IP with backend 400 shows error toast', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mockBlockSourceIp.mockRejectedValue({
+      response: { data: { detail: 'Cannot block your own IP address' } },
+    });
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('Block Source IP'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Cannot block your own IP/i)).toBeInTheDocument();
+    });
+  });
+
+  it('Create Incident calls createIncidentFromAlert', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mockCreateIncidentFromAlert.mockResolvedValue({ status: 'ok', incident_id: 42 });
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('Create Incident'));
+
+    expect(window.confirm).toHaveBeenCalled();
+    expect(mockCreateIncidentFromAlert).toHaveBeenCalledWith(1);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Incident created/i)).toBeInTheDocument();
+    });
+  });
+
+  it('Delete Alert calls deleteSecurityLog and refetches', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mockDeleteSecurityLog.mockResolvedValue({ status: 'ok', log_id: 1 });
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('Delete Alert'));
+
+    expect(window.confirm).toHaveBeenCalled();
+    expect(mockDeleteSecurityLog).toHaveBeenCalledWith(1);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Alert dismissed/i)).toBeInTheDocument();
+    });
+  });
+
+  it('source_ip filter input triggers refetch with source_ip param', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+
+    mockFetchAdminSecurityLogs.mockResolvedValue({
+      items: [
+        {
+          log_id: 2,
+          timestamp: '2026-06-12T11:00:00Z',
+          source_ip: '10.0.0.1',
+          severity_level: 'MEDIUM',
+          suricata_sid: 2002,
+          admin_action_taken: null,
+          xai_confidence: 0.75,
+        },
+      ],
+      total: 1,
+    });
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(mockFetchAdminSecurityLogs).toHaveBeenCalled();
+    });
+
+    const sourceIpInput = screen.getByPlaceholderText(/filter by source ip/i);
+    await user.type(sourceIpInput, '10.0.0.1');
+
+    await waitFor(() => {
+      const calls = mockFetchAdminSecurityLogsOfflineAware.mock.calls;
+      const lastCall = calls[calls.length - 1][0];
+      expect(lastCall?.source_ip).toBe('10.0.0.1');
     });
   });
 });

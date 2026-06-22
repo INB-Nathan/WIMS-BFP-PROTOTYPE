@@ -7,12 +7,15 @@ import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { normalizeNarrative } from '@/lib/xaiNarrativeNormalizer';
 import {
   type SecurityLogsSummary,
+  updateAdminSecurityLog,
+  createIncidentFromAlert,
 } from '@/lib/api/legacy';
 import {
   fetchAdminSecurityLogsOfflineAware,
   fetchSecurityLogsSummaryOfflineAware,
   fetchAuditLogsOfflineAware,
 } from '@/lib/api/offlineAdmin';
+import { blockSourceIp, deleteSecurityLog } from '@/lib/api/securityActions';
 import { StaleCacheBanner } from '@/components/ui/StaleCacheBanner';
 import { ShieldAlert, RefreshCw, AlertTriangle, Info, WifiOff } from 'lucide-react';
 
@@ -42,6 +45,12 @@ interface ThreatLogItem {
   xai_confidence: number | null;
 }
 
+const HITL_ACTION_LABELS: Record<string, string> = {
+  CONFIRM_THREAT: 'Confirmed Threat',
+  FALSE_POSITIVE: 'False Positive',
+  REQUEST_MORE_INFO: 'More Info Requested',
+};
+
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleString('en-PH', {
     year: 'numeric',
@@ -66,6 +75,11 @@ export default function SecurityMonitoringPage() {
   const [activeSeverities, setActiveSeverities] = useState<Set<SeverityLevel>>(new Set());
   const [page, setPage] = useState(0);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [sourceIp, setSourceIp] = useState<string>('');
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
+  const [searchQ, setSearchQ] = useState<string>('');
+  const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [totalThreats, setTotalThreats] = useState<number>(0);
   const [expandedNarratives, setExpandedNarratives] = useState<Set<number>>(new Set());
@@ -106,6 +120,14 @@ export default function SecurityMonitoringPage() {
     }
   }, [isAdmin, isOnline]);
 
+  // T11: auto-dismiss toast after 4s
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
   const loadThreats = useCallback(async () => {
     if (!isAdmin) return;
     setError(null);
@@ -114,6 +136,10 @@ export default function SecurityMonitoringPage() {
       const severityParam = activeSeverities.size > 0 ? Array.from(activeSeverities).join(',') : undefined;
       const result = await fetchAdminSecurityLogsOfflineAware({
         severity: severityParam,
+        source_ip: sourceIp.trim() || undefined,
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
+        q: searchQ.trim() || undefined,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       });
@@ -132,7 +158,7 @@ export default function SecurityMonitoringPage() {
     } finally {
       setLoading(false);
     }
-  }, [isAdmin, isOnline, activeSeverities, page]);
+  }, [isAdmin, isOnline, activeSeverities, page, sourceIp, dateFrom, dateTo, searchQ]);
 
   useEffect(() => {
     loadMonitoring();
@@ -192,8 +218,63 @@ export default function SecurityMonitoringPage() {
 
   const clearFilters = () => {
     setActiveSeverities(new Set());
+    setSourceIp('');
+    setDateFrom('');
+    setDateTo('');
+    setSearchQ('');
     setPage(0);
   };
+
+  // T11: HITL handler
+  const handleHitl = useCallback(async (logId: number, action: 'CONFIRM_THREAT' | 'FALSE_POSITIVE' | 'REQUEST_MORE_INFO') => {
+    try {
+      await updateAdminSecurityLog(logId, { action });
+      setToast({ type: 'success', text: HITL_ACTION_LABELS[action] });
+      loadThreats();
+    } catch (err) {
+      console.error('HITL action failed', err);
+      setToast({ type: 'error', text: 'Failed to record verdict' });
+    }
+  }, [loadThreats]);
+
+  // T11: Block Source IP handler
+  const handleBlockSourceIp = useCallback(async (log: ThreatLogItem) => {
+    if (!window.confirm(`Block source IP ${log.source_ip} for 24 hours? A repeat offender will be blocked permanently.`)) return;
+    try {
+      await blockSourceIp(log.log_id, { ttl_hours: 24 });
+      setToast({ type: 'success', text: `Blocked IP ${log.source_ip}` });
+      loadThreats();
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setToast({ type: 'error', text: detail || 'Failed to block IP' });
+      console.error('blockSourceIp error', err);
+    }
+  }, [loadThreats]);
+
+  // T11: Create Incident handler
+  const handleCreateIncident = useCallback(async (log: ThreatLogItem) => {
+    if (!window.confirm(`Create a DRAFT fire incident from this alert? (log_id: ${log.log_id})`)) return;
+    try {
+      await createIncidentFromAlert(log.log_id);
+      setToast({ type: 'success', text: 'Incident created from alert' });
+    } catch (err) {
+      console.error('createIncident error', err);
+      setToast({ type: 'error', text: 'Failed to create incident' });
+    }
+  }, []);
+
+  // T11: Delete Alert handler
+  const handleDeleteAlert = useCallback(async (log: ThreatLogItem) => {
+    if (!window.confirm('Dismiss this alert? It will be marked dismissed and kept for audit.')) return;
+    try {
+      await deleteSecurityLog(log.log_id);
+      setToast({ type: 'success', text: 'Alert dismissed' });
+      loadThreats();
+    } catch (err) {
+      console.error('deleteSecurityLog error', err);
+      setToast({ type: 'error', text: 'Failed to dismiss alert' });
+    }
+  }, [loadThreats]);
 
   const toggleNarrative = (logId: number) => {
     setExpandedNarratives((prev) => {
@@ -252,6 +333,21 @@ export default function SecurityMonitoringPage() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* T11: Toast notification */}
+      {toast && (
+        <div
+          className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all ${
+            toast.type === 'success' ? 'bg-green-600 text-white' :
+            toast.type === 'error' ? 'bg-red-600 text-white' :
+            'bg-blue-600 text-white'
+          }`}
+          data-testid="toast"
+          role="alert"
+        >
+          {toast.text}
         </div>
       )}
 
@@ -415,6 +511,55 @@ export default function SecurityMonitoringPage() {
               );
             })}
           </div>
+          {/* T11: New filter inputs */}
+          <div className="flex gap-3 flex-wrap items-end mt-4 pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium" style={{ color: 'var(--text-muted)' }} htmlFor="filter-source-ip">Source IP</label>
+              <input
+                id="filter-source-ip"
+                type="text"
+                placeholder="Filter by source IP"
+                value={sourceIp}
+                onChange={(e) => { setSourceIp(e.target.value); setPage(0); }}
+                className="px-3 py-1.5 rounded-md text-xs border"
+                style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--card-bg)', color: 'var(--text-primary)' }}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium" style={{ color: 'var(--text-muted)' }} htmlFor="filter-date-from">From</label>
+              <input
+                id="filter-date-from"
+                type="date"
+                value={dateFrom}
+                onChange={(e) => { setDateFrom(e.target.value); setPage(0); }}
+                className="px-3 py-1.5 rounded-md text-xs border"
+                style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--card-bg)', color: 'var(--text-primary)' }}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium" style={{ color: 'var(--text-muted)' }} htmlFor="filter-date-to">To</label>
+              <input
+                id="filter-date-to"
+                type="date"
+                value={dateTo}
+                onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
+                className="px-3 py-1.5 rounded-md text-xs border"
+                style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--card-bg)', color: 'var(--text-primary)' }}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium" style={{ color: 'var(--text-muted)' }} htmlFor="filter-search">Search</label>
+              <input
+                id="filter-search"
+                type="text"
+                placeholder="Search payload or narrative"
+                value={searchQ}
+                onChange={(e) => { setSearchQ(e.target.value); setPage(0); }}
+                className="px-3 py-1.5 rounded-md text-xs border"
+                style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--card-bg)', color: 'var(--text-primary)' }}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -479,6 +624,12 @@ export default function SecurityMonitoringPage() {
                   >
                     XAI Confidence
                   </th>
+                  <th
+                    className="px-4 py-3 text-left font-semibold text-xs uppercase tracking-wider"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -511,6 +662,65 @@ export default function SecurityMonitoringPage() {
                     </td>
                     <td className="px-4 py-3 text-xs" style={{ color: 'var(--text-primary)' }}>
                       {log.xai_confidence != null ? `${(log.xai_confidence * 100).toFixed(0)}%` : '—'}
+                    </td>
+                    <td className="px-4 py-3" style={{ minWidth: '280px' }}>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {/* HITL 3-button group */}
+                        <button
+                          onClick={() => handleHitl(log.log_id, 'CONFIRM_THREAT')}
+                          className="px-2 py-1 text-[11px] font-semibold rounded border transition-colors"
+                          style={{ borderColor: '#22c55e', color: '#16a34a', backgroundColor: '#f0fdf4' }}
+                          title="Confirm as real threat"
+                        >
+                          Confirm Threat
+                        </button>
+                        <button
+                          onClick={() => handleHitl(log.log_id, 'FALSE_POSITIVE')}
+                          className="px-2 py-1 text-[11px] font-semibold rounded border transition-colors"
+                          style={{ borderColor: '#f59e0b', color: '#d97706', backgroundColor: '#fffbeb' }}
+                          title="Mark as false positive"
+                        >
+                          False Positive
+                        </button>
+                        <button
+                          onClick={() => handleHitl(log.log_id, 'REQUEST_MORE_INFO')}
+                          className="px-2 py-1 text-[11px] font-semibold rounded border transition-colors"
+                          style={{ borderColor: '#6366f1', color: '#6366f1', backgroundColor: '#eef2ff' }}
+                          title="Request more analysis"
+                        >
+                          Request More Info
+                        </button>
+
+                        {/* Block Source IP — primary action, maroon */}
+                        <button
+                          onClick={() => handleBlockSourceIp(log)}
+                          className="px-2 py-1 text-[11px] font-semibold rounded transition-colors"
+                          style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
+                          title="Block this source IP"
+                        >
+                          Block Source IP
+                        </button>
+
+                        {/* Create Incident — secondary */}
+                        <button
+                          onClick={() => handleCreateIncident(log)}
+                          className="px-2 py-1 text-[11px] font-semibold rounded border transition-colors"
+                          style={{ borderColor: 'var(--bfp-maroon)', color: 'var(--bfp-maroon)' }}
+                          title="Create DRAFT incident from this alert"
+                        >
+                          Create Incident
+                        </button>
+
+                        {/* Delete Alert — ghost/destructive */}
+                        <button
+                          onClick={() => handleDeleteAlert(log)}
+                          className="px-2 py-1 text-[11px] font-semibold rounded transition-colors"
+                          style={{ color: '#dc2626', backgroundColor: 'transparent' }}
+                          title="Dismiss this alert (soft-delete)"
+                        >
+                          Delete Alert
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
