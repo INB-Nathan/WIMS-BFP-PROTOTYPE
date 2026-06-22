@@ -226,6 +226,18 @@ self.addEventListener('fetch', (event) => {
   if (isRsc) {
     // Cache key must be a valid HTTP URL — the 'rsc:' prefix scheme is rejected
     // by the Cache API. Use a synthetic same-origin path instead.
+    //
+    // Issue #20 (open question): this key drops the query string entirely.
+    // Two RSC requests that share `canonicalPath(pathname)` but differ in
+    // `?_rsc=...` or other query params will collide in the cache. For the
+    // canonical collapse pattern (one shell per URL family) this is OK, but
+    // for incident-detail RSC payloads (where the data is per-incident) the
+    // collapse can serve one incident's RSC for another. Confirm with the
+    // Next.js team whether any served RSC payloads vary on query before
+    // changing this. The pinned sync-guard test
+    // (`__tests__/sw-cache-key.test.ts > drops the query string (current
+    // behaviour — open question for issue #20)`) documents the current
+    // 2-arg helper shape so this is not changed silently.
     const cacheKey = requestUrl.origin + '/_rsc' + canonicalPath(requestUrl.pathname);
     event.respondWith(
       fetch(request)
