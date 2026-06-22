@@ -19,6 +19,7 @@ import { blockSourceIp, deleteSecurityLog, bulkActionSecurityLogs, blockByFilter
 import { StaleCacheBanner } from '@/components/ui/StaleCacheBanner';
 import type { SecurityLogFilter } from '@/types/api';
 import { ShieldAlert, RefreshCw, AlertTriangle, Info, WifiOff } from 'lucide-react';
+import { BlockedIpsPanel } from './BlockedIpsPanel';
 
 type SeverityLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
@@ -908,6 +909,9 @@ export default function SecurityMonitoringPage() {
           </div>
         )}
       </div>
+
+      {/* Blocked IPs management panel */}
+      <BlockedIpsPanel onUnblocked={loadThreats} />
 
       {/* Recent XAI Narratives */}
       <div className="card">

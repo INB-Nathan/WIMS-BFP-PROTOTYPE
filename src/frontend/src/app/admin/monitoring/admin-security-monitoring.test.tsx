@@ -48,6 +48,8 @@ const mockBlockSourceIp = vi.fn();
 const mockDeleteSecurityLog = vi.fn();
 const mockBulkActionSecurityLogs = vi.fn();
 const mockBlockByFilter = vi.fn();
+const mockListBlockedIps = vi.fn().mockResolvedValue([]);
+const mockUnblockIp = vi.fn();
 
 vi.mock('@/lib/api/legacy', () => ({
   fetchSecurityLogsSummary: () => mockFetchSecurityLogsSummary(),
@@ -68,6 +70,8 @@ vi.mock('@/lib/api/securityActions', () => ({
   deleteSecurityLog: (...args: unknown[]) => mockDeleteSecurityLog(...args),
   bulkActionSecurityLogs: (...args: unknown[]) => mockBulkActionSecurityLogs(...args),
   blockByFilter: (...args: unknown[]) => mockBlockByFilter(...args),
+  listBlockedIps: (...args: unknown[]) => mockListBlockedIps(...args),
+  unblockIp: (...args: unknown[]) => mockUnblockIp(...args),
 }));
 
 const DEFAULT_SUMMARY = {
@@ -1227,5 +1231,50 @@ describe('M8: Security Monitoring page — bulk actions + S3 (Task 12)', () => {
     await user.click(screen.getByText(/Clear selection/i));
 
     expect(screen.queryByTestId('bulk-action-bar')).not.toBeInTheDocument();
+  });
+});
+
+// ── Task 13: Blocked IPs panel mount ──────────────────────────────────────
+
+describe('T13: Blocked IPs panel mount', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    mockAdminUser();
+    mockFetchAuditLogs.mockResolvedValue({ items: [], total: 0 });
+    mockFetchSecurityLogsSummary.mockResolvedValue(DEFAULT_SUMMARY);
+    mockFetchAdminSecurityLogs.mockResolvedValue({ items: [], total: 0 });
+    mockFetchAuditLogsOfflineAware.mockImplementation(async (params?: unknown) => ({
+      response: await mockFetchAuditLogs(params),
+      fromCache: false,
+    }));
+    mockFetchSecurityLogsSummaryOfflineAware.mockImplementation(async () => ({
+      response: await mockFetchSecurityLogsSummary(),
+      fromCache: false,
+    }));
+    mockFetchAdminSecurityLogsOfflineAware.mockImplementation(async (params?: unknown) => ({
+      response: await mockFetchAdminSecurityLogs(params),
+      fromCache: false,
+    }));
+    // The panel calls listBlockedIps on mount — return empty by default
+    mockListBlockedIps.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it('renders the BlockedIpsPanel on the monitoring page with empty state', async () => {
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    // The panel is async — listBlockedIps is called in useEffect
+    await waitFor(() => {
+      expect(screen.getByText(/No IPs currently blocked/i)).toBeInTheDocument();
+    });
+
+    // Confirm the panel data-testid is present
+    expect(screen.getByTestId('blocked-ips-panel')).toBeInTheDocument();
   });
 });
