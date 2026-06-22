@@ -8,17 +8,8 @@ export const API_BASE = typeof window !== 'undefined'
   ? (process.env.NEXT_PUBLIC_API_URL || '/api')
   : process.env.NEXT_PUBLIC_API_URL || 'http://localhost/api';
 
-export class ApiRequestError extends Error {
-  status: number;
-  detail?: unknown;
-
-  constructor(message: string, status: number, detail?: unknown) {
-    super(message);
-    this.name = 'ApiRequestError';
-    this.status = status;
-    this.detail = detail;
-  }
-}
+import { ApiRequestError } from './errors';
+export { ApiRequestError };
 
 export function errorMessageFromJson(json: unknown, fallback: string): string {
   if (!json || typeof json !== 'object') return fallback;

@@ -1,4 +1,5 @@
 import { API_BASE } from './transport';
+import { ApiRequestError } from './errors';
 import { ApiParseError } from '@/lib/validation';
 
 export async function publicApiFetch<T>(
@@ -37,7 +38,16 @@ export async function publicApiFetch<T>(
   }
 
   if (!res.ok) {
-    throw new Error((json as { message?: string; detail?: string }).message ?? (json as { detail?: string }).detail ?? `Request failed: ${res.status}`);
+    const retryAfterHeader = res.headers?.get?.('retry-after');
+    const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) : undefined;
+    throw new ApiRequestError(
+      (json as { message?: string; detail?: string }).message
+        ?? (json as { detail?: string }).detail
+        ?? `Request failed: ${res.status}`,
+      res.status,
+      json,
+      retryAfter,
+    );
   }
   return json as T;
 }
