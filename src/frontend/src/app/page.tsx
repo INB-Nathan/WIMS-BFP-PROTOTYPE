@@ -949,13 +949,19 @@ export default function ReportPage() {
       const isNetworkError = err instanceof TypeError || (err instanceof Error ? err.message.includes('Failed to fetch') : false);
       const status = (err as { status?: number; response?: { status?: number } })?.status
         ?? (err as { response?: { status?: number } })?.response?.status;
+      const retryAfter = (err as { retryAfter?: number })?.retryAfter;
       let type: typeof submitErrorType = 'unknown';
       if (isNetworkError) type = 'network';
       else if (status === 422) type = 'validation';
       else if (status === 429) type = 'rate_limit';
       else if (status && status >= 500) type = 'server';
       setSubmitErrorType(type);
-      setSubmitError(err instanceof Error ? err.message : 'Submission failed. Please try again.');
+      if (type === 'rate_limit' && retryAfter) {
+        const minutes = Math.max(1, Math.ceil(retryAfter / 60));
+        setSubmitError(`Too many reports from this network. Try again in ${minutes} minutes.`);
+      } else {
+        setSubmitError(err instanceof Error ? err.message : 'Submission failed. Please try again.');
+      }
       setSubmitting(false);
     }
   }
@@ -1117,14 +1123,14 @@ export default function ReportPage() {
                     <p className="text-sm font-semibold text-red-700">
                       {submitErrorType === 'network' && 'Network error. Check your connection.'}
                       {submitErrorType === 'validation' && 'Missing required information.'}
-                      {submitErrorType === 'rate_limit' && 'Too many reports from this network.'}
+                      {submitErrorType === 'rate_limit' && (submitError ?? 'Too many reports from this network.')}
                       {submitErrorType === 'server' && 'Server error. Please try again later.'}
                       {submitErrorType === 'unknown' && 'Submission failed. Please try again.'}
                     </p>
                     <p className="text-xs text-red-600 mt-0.5">
                       {submitErrorType === 'network' && 'Make sure you are connected to the internet and try again.'}
                       {submitErrorType === 'validation' && 'Please check the form and try again.'}
-                      {submitErrorType === 'rate_limit' && 'Try tracking or updating an existing report instead.'}
+                      {submitErrorType === 'rate_limit' && 'Wait for the retry time above before submitting again.'}
                       {submitErrorType === 'server' && 'Retry in a few minutes. If this persists, contact BFP directly.'}
                       {submitErrorType === 'unknown' && 'If this persists, call 911 for immediate danger.'}
                     </p>

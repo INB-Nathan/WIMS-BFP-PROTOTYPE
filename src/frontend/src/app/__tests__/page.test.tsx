@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiRequestError } from '@/lib/api/errors';
 import { appendCivilianReportOfflineAware } from '@/lib/api/offlineCivilian';
 
 const mockRouterReplace = vi.fn();
@@ -512,6 +513,56 @@ describe('ReportPage — civilian offline submit', () => {
     await screen.findByText('Report saved offline');
     // LocalId is rendered as a tracking hint so the user can find it again
     expect(screen.getByText(/queued-local-1/)).toBeInTheDocument();
+  });
+
+  it('renders specific rate-limit timing message on 429 instead of generic copy', async () => {
+    try { localStorage.setItem('wims_civilian_device_id', 'd-rate-1'); } catch {}
+    offlineMocks.submitCivilianReportOfflineAware.mockRejectedValue(
+      new ApiRequestError(
+        'Too many reports from this network. Try again in 60 minutes.',
+        429,
+        { detail: 'Too many reports from this network. Try again in 60 minutes.' },
+        3600,
+      ),
+    );
+
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+
+    // Safety step
+    fireEvent.click(screen.getByText('I am safe'));
+    fireEvent.click(screen.getByText('Continue'));
+
+    // Context step — WITNESS + pin
+    await screen.findByText('How did you learn about this fire?');
+    fireEvent.click(screen.getByText('I saw it happen'));
+    await waitFor(() => expect(mapPickerChange).not.toBeNull());
+    mapPickerChange!(14.5, 121);
+    fireEvent.click(screen.getByText('Continue'));
+
+    // Category step
+    await screen.findByText('What type of fire is this?');
+    fireEvent.click(screen.getByText('Structural'));
+    fireEvent.click(screen.getByText('Continue'));
+
+    // Details step
+    await screen.findByText('Observed time (optional)');
+    fireEvent.click(screen.getByText('Review & Submit'));
+
+    // Review step — click submit, triggering the 429 rejection
+    await screen.findByText('Review Your Report');
+    fireEvent.click(screen.getByText('Submit Report'));
+
+    // After rejection, the error should show the specific timing message
+    await waitFor(() => {
+      expect(screen.getByText(/Try again in 60 minutes/i)).toBeInTheDocument();
+    });
+
+    // The secondary copy must also be the new timing-aware message
+    expect(screen.getByText('Wait for the retry time above before submitting again.')).toBeInTheDocument();
+
+    // Must NOT show the generic "Submission failed" text (it was overwritten)
+    expect(screen.queryByText(/Submission failed/i)).not.toBeInTheDocument();
   });
 });
 
