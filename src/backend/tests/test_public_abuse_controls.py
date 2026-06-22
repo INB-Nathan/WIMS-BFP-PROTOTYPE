@@ -822,13 +822,17 @@ class TestCivilianReportRateLimit:
             finally:
                 clear()
 
-    def test_rate_limit_uses_advisory_xact_lock_to_prevent_toctou(self):
+    def test_rate_limit_blocks_concurrent_burst(self):
         """PR #446 gap #14 followup: the DB rate-limit must take a Postgres
         advisory transaction lock BEFORE the COUNT(*) query so N concurrent
         requests at the boundary cannot all observe count<3 and all INSERT.
 
-        The lock is keyed on the per-IP hash so different IPs do not contend.
-        pg_advisory_xact_lock is transaction-scoped — it auto-releases on
+        This is the real test that the concurrent-burst race is closed: it
+        captures the SQL the route executes and asserts that the
+        `pg_advisory_xact_lock` call appears in the captured stream BEFORE
+        the `COUNT(*) AS rate_count` rate-limit query. The lock is keyed on
+        the per-IP hash so different IPs do not contend, and
+        `pg_advisory_xact_lock` is transaction-scoped — it auto-releases on
         commit/rollback, no explicit unlock needed.
         """
         clear = _override_db_with(self._blocked_mock_with_sql_capture())
@@ -868,58 +872,3 @@ class TestCivilianReportRateLimit:
         )
         self._captured_sql = captured.all_sql  # type: ignore[attr-defined]
         return captured
-
-    def test_rate_limit_blocks_concurrent_burst(self):
-        """N concurrent POSTs from the same IP at the rate-limit boundary
-        must not all succeed. With the pg_advisory_xact_lock fix, the count
-        and INSERT are serialized per-IP — so even with 6 concurrent
-        requests when count=2, only one of them can transition count→3.
-
-        This test uses a mock that always reports count=2 (under threshold)
-        and asserts that at most 1 of N concurrent requests passes the
-        gate. Without the advisory lock, all N would pass the gate and the
-        underlying handler would do its INSERT.
-        """
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
-        # Mock that always returns count=2 (under threshold). Without the
-        # advisory lock, every concurrent request sees count=2 and proceeds
-        # to INSERT, polluting the rate-limit window.
-        racing = _MockDB(
-            mappings=[
-                (
-                    "COUNT(*) AS rate_count",
-                    _FakeRow(rate_count=2, oldest_created_at=None),
-                )
-            ]
-        )
-        clear = _override_db_with(racing)
-        try:
-            ip = "198.51.100.99"
-
-            def _post():
-                return client.post(
-                    "/api/civilian/reports",
-                    json=self._PAYLOAD,
-                    headers={"x-real-ip": ip, "Origin": "http://localhost"},
-                )
-
-            # Fire 6 concurrent requests. With pg_advisory_xact_lock in
-            # place, the lock serializes the (count + insert) critical
-            # section per-IP, so the per-IP cap is enforced atomically.
-            # Without the lock, all 6 would see count=2 and proceed.
-            with ThreadPoolExecutor(max_workers=6) as ex:
-                futures = [ex.submit(_post) for _ in range(6)]
-                codes = [f.result().status_code for f in as_completed(futures)]
-            # The test verifies that the mock DB was hit by at least one
-            # request — the actual atomicity guarantee is provided by
-            # pg_advisory_xact_lock at the database level. This test catches
-            # the regression where the lock is removed: a real database
-            # would let all 6 INSERTs through, but our unit test only
-            # confirms the SQL is being routed through the lock.
-            assert any(c != 403 for c in codes), (
-                f"All requests CSRF-blocked; the test must exercise the "
-                f"rate-limit path. codes={codes}"
-            )
-        finally:
-            clear()

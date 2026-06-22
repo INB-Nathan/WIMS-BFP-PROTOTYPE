@@ -109,7 +109,7 @@ return 'LOW'
 
 | Action | Limit | Key | Response |
 |---|---|---|---|
-| New initial report | 5 | IP hash per hour | 429 + `Retry-After` |
+| New initial report | 3 | IP hash per hour | 429 + `Retry-After` |
 | Append to existing report | 1 | device_id per 5 min | 429 + `Retry-After` |
 
 Append: `PATCH /api/civilian/reports/{report_id}/append` creates a new `citizen_reports` row with `linked_to_report_id` pointing to parent. Increments parent's `link_count`.
