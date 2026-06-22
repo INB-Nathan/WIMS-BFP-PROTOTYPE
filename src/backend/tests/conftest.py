@@ -46,10 +46,20 @@ def pytest_configure(config):
 def flush_public_rate_limit():
     """Clear Redis rate-limit keys before each test.
 
-    Public submission tests use ``public_rate_limit:*`` keys, while the PKCE
-    callback middleware in ``main.py`` uses ``rate_limit:*`` keys. Clearing both
-    namespaces keeps endpoint tests focused on their own expected status codes
-    instead of inheriting a spent sliding-window budget from earlier tests.
+    The rate-limit namespaces in this codebase are:
+
+    - ``public_rate_limit:*`` — public DMZ (``/api/v1/public/report``)
+    - ``rate_limit:*`` — PKCE callback middleware in ``main.py``
+    - ``wims:rl:public_consent:*`` — ``/api/auth/consent`` (fail-closed, 5/IP/hr)
+    - ``wims:rl:public_notify:*`` — ``/api/civilian/reports/{id}/notify``
+      (fail-closed, 5/IP/hr)
+
+    Clearing all four keeps endpoint tests focused on their own expected
+    status codes instead of inheriting a spent sliding-window budget from
+    earlier tests. The ``wims:rl:public_*`` namespaces were added after
+    the original fixture; without them, consent/notify tests collide on
+    the shared TestClient fallback IP ("testclient") once ~5 prior tests
+    have spent the bucket.
     """
     try:
         import redis as redis_sync
@@ -62,7 +72,12 @@ def flush_public_rate_limit():
             os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
             decode_responses=True,
         )
-        for pattern in ("public_rate_limit:*", "rate_limit:*"):
+        for pattern in (
+            "public_rate_limit:*",
+            "rate_limit:*",
+            "wims:rl:public_consent:*",
+            "wims:rl:public_notify:*",
+        ):
             for key in r.scan_iter(match=pattern):
                 r.delete(key)
     except Exception:

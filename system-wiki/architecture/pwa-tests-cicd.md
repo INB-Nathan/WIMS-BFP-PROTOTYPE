@@ -147,7 +147,7 @@ pytest with `pytest-asyncio` for async tests. Markers: `unit`, `integration`, `r
 
 ```
 src/backend/tests/
-├── conftest.py              # Env load, AES key, marker registration, Redis rate-limit key flush fixture (`public_rate_limit:*`, `rate_limit:*`)
+├── conftest.py              # Env load, AES key, marker registration, Redis rate-limit key flush fixture (4 namespaces: `public_rate_limit:*`, `rate_limit:*`, `wims:rl:public_consent:*`, `wims:rl:public_notify:*`)
 ├── integration/             # Full-stack integration tests
 │   ├── conftest.py          # No-op rate-limit fixture
 │   ├── test_admin_api.py
@@ -192,7 +192,7 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 **3. Integration Tests (`test_keycloak_password_reset.py`)**
 ~750 lines, full e2e against live services. Patterns: fixture-based prerequisites (auto-skip if Keycloak unreachable), resource setup/teardown, helper functions for API interaction, MailHog email extraction. Tests pre-flight config (5) + full e2e flow (4) including OWASP user enumeration prevention, single-use token enforcement. The test uses `KEYCLOAK_PASSWORD_RESET_CLIENT_ID` (default `bfp-client`) for Direct Grant-specific checks so CI/global backend auth defaults can remain `wims-web`/`wims-web`.
 
-**4. Rate-limit test isolation** — root `conftest.py` clears Redis `public_rate_limit:*` and auth callback `rate_limit:*` keys before each test. This prevents public submission and PKCE callback endpoint tests from inheriting a spent sliding-window budget from earlier tests while preserving per-test burst behavior.
+**4. Rate-limit test isolation** — root `conftest.py` clears four Redis namespaces before each test: `public_rate_limit:*` (DMZ), `rate_limit:*` (PKCE callback), `wims:rl:public_consent:*` (`/api/auth/consent` 5/IP/hr), and `wims:rl:public_notify:*` (`/api/civilian/reports/{id}/notify` 5/IP/hr). The `wims:rl:public_*` namespaces were added in the 2026-06-22 follow-up to the WS1 XFF→`trusted_client_ip` migration; without them, consent/notify tests collide on the shared TestClient fallback IP ("testclient") once ~5 prior tests have spent the bucket. This prevents public submission, PKCE callback, consent, and notify endpoint tests from inheriting a spent sliding-window budget from earlier tests while preserving per-test burst behavior.
 
 **5. ci.yml exclusions** — 8 test files explicitly excluded from CI runner: rate-limiting, suricata, infra-config, bootstrap, OTP, schema, RLS policy, SQL quality (need special Docker setup).
 

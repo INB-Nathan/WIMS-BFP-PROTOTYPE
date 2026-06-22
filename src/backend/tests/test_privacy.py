@@ -947,14 +947,66 @@ class TestConsentEndpoint:
         assert call_args[3] == "wims.consent_log"  # table_affected
         assert call_args[4] == 5  # record_id (consent_id from mock row)
 
-    # ── Issue #306: X-Forwarded-For / client IP capture tests ─────────────
+    # ── Issue #306 / gap #14 (DS-07): client IP capture tests ──────────
+    # ``trusted_client_ip`` ignores X-Forwarded-For (client-controlled
+    # after a trusted-proxy hop) and prefers X-Real-IP, falling back to
+    # the ASGI socket peer. The previous tests asserted the pre-fix
+    # XFF-first behavior; that was a security bug (gap #14) and the
+    # behavior is intentionally gone. These tests pin the new contract.
 
-    def test_consent_x_forwarded_for_overrides_client_ip(self, client: TestClient):
-        """X-Forwarded-For header IP is recorded, not the direct client IP."""
+    def test_consent_x_real_ip_is_hashed(self, client: TestClient):
+        """X-Real-IP (set by nginx to $realip_remote_addr) is the trusted
+        client IP and is what gets recorded in the consent_log.ip_hash.
+        """
         mock_db = _make_db()
         consent_row = MagicMock()
         consent_row.__getitem__ = lambda s, k: {
             0: 10,
+            1: "USER",
+            2: "uid-xri",
+            3: "DATA_PROCESSING",
+            4: "GRANTED",
+            5: _NOW,
+        }[k]
+        mock_db.execute.side_effect = [
+            MagicMock(fetchone=lambda: consent_row),
+            MagicMock(),  # audit INSERT
+        ]
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db] = mock_get_db
+
+        resp = client.post(
+            "/api/auth/consent",
+            json={
+                "subject_type": "USER",
+                "subject_id": "uid-xri",
+                "consent_type": "DATA_PROCESSING",
+                "action": "GRANTED",
+            },
+            headers={"X-Real-IP": "203.0.113.42"},
+        )
+        assert resp.status_code == 201
+
+        insert_params = mock_db.execute.call_args_list[0][0][1]
+        assert insert_params["ip"] == hash_client_ip("203.0.113.42"), (
+            f"Expected X-Real-IP hash, got {insert_params['ip']}"
+        )
+
+    def test_consent_xff_is_ignored_prevents_spoofing(self, client: TestClient):
+        """Regression guard: X-Forwarded-For is client-controlled after a
+        trusted-proxy hop, so the route MUST NOT use it for IP capture.
+        Sending only X-Forwarded-For (no X-Real-IP) must fall back to the
+        socket peer ('testclient' under TestClient) — proving XFF was
+        ignored. If a future refactor re-introduces the XFF-first path,
+        this test fails.
+        """
+        mock_db = _make_db()
+        consent_row = MagicMock()
+        consent_row.__getitem__ = lambda s, k: {
+            0: 11,
             1: "USER",
             2: "uid-xff",
             3: "DATA_PROCESSING",
@@ -984,18 +1036,28 @@ class TestConsentEndpoint:
         assert resp.status_code == 201
 
         insert_params = mock_db.execute.call_args_list[0][0][1]
-        assert insert_params["ip"] == hash_client_ip("203.0.113.42"), (
-            f"Expected X-Forwarded-For hash, got {insert_params['ip']}"
+        # Must NOT be the XFF hash — that's the regression we're guarding.
+        xff_hash = hash_client_ip("203.0.113.42")
+        assert insert_params["ip"] != xff_hash, (
+            f"X-Forwarded-For was used for IP capture (got {insert_params['ip']}); "
+            f"this is a security regression (gap #14 / DS-07)."
+        )
+        # Should be the socket peer (testclient under TestClient).
+        assert insert_params["ip"] == hash_client_ip("testclient"), (
+            f"Expected fallback to testclient, got {insert_params['ip']}"
         )
 
-    def test_consent_no_x_forwarded_for_falls_back_to_client_host(self, client: TestClient):
-        """No X-Forwarded-For → falls back to request.client.host (testclient)."""
+    def test_consent_no_ip_header_falls_back_to_socket_peer(self, client: TestClient):
+        """No X-Real-IP and no X-Forwarded-For → falls back to the ASGI
+        socket peer. Under TestClient that is the literal string
+        'testclient' (see FastAPI/Starlette TestClient behavior).
+        """
         mock_db = _make_db()
         consent_row = MagicMock()
         consent_row.__getitem__ = lambda s, k: {
-            0: 11,
+            0: 12,
             1: "USER",
-            2: "uid-noxff",
+            2: "uid-noip",
             3: "DATA_PROCESSING",
             4: "GRANTED",
             5: _NOW,
@@ -1014,7 +1076,7 @@ class TestConsentEndpoint:
             "/api/auth/consent",
             json={
                 "subject_type": "USER",
-                "subject_id": "uid-noxff",
+                "subject_id": "uid-noip",
                 "consent_type": "DATA_PROCESSING",
                 "action": "GRANTED",
             },
@@ -1024,44 +1086,6 @@ class TestConsentEndpoint:
         insert_params = mock_db.execute.call_args_list[0][0][1]
         assert insert_params["ip"] == hash_client_ip("testclient"), (
             f"Expected fallback to testclient, got {insert_params['ip']}"
-        )
-
-    def test_consent_malformed_x_forwarded_for_handled(self, client: TestClient):
-        """Multiple comma-separated IPs → first taken; empty/absent → fallback."""
-        mock_db = _make_db()
-        consent_row = MagicMock()
-        consent_row.__getitem__ = lambda s, k: {
-            0: 12,
-            1: "USER",
-            2: "uid-multi",
-            3: "DATA_PROCESSING",
-            4: "GRANTED",
-            5: _NOW,
-        }[k]
-        mock_db.execute.side_effect = [
-            MagicMock(fetchone=lambda: consent_row),
-            MagicMock(),  # audit INSERT
-        ]
-
-        def mock_get_db():
-            yield mock_db
-
-        app.dependency_overrides[get_db] = mock_get_db
-
-        resp = client.post(
-            "/api/auth/consent",
-            json={
-                "subject_type": "USER",
-                "subject_id": "uid-multi",
-                "consent_type": "DATA_PROCESSING",
-                "action": "GRANTED",
-            },
-            headers={"X-Forwarded-For": "198.51.100.1, 203.0.113.99"},
-        )
-        assert resp.status_code == 201
-        insert_params = mock_db.execute.call_args_list[0][0][1]
-        assert insert_params["ip"] == hash_client_ip("198.51.100.1"), (
-            f"Expected first comma-separated IP, got {insert_params['ip']}"
         )
 
     # ── Issue #315: consent_type max_length validation ───────────────────

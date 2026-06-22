@@ -92,7 +92,7 @@ class TestConsentRateLimit:
                 resp = client.post(
                     "/api/auth/consent",
                     json=payload,
-                    headers={"x-forwarded-for": ip},
+                    headers={"x-real-ip": ip},
                 )
                 assert resp.status_code == 201, (
                     f"Request {i + 1} should succeed: {resp.status_code} {resp.text}"
@@ -102,7 +102,7 @@ class TestConsentRateLimit:
             sixth = client.post(
                 "/api/auth/consent",
                 json=payload,
-                headers={"x-forwarded-for": ip},
+                headers={"x-real-ip": ip},
             )
             assert sixth.status_code == 429, (
                 f"6th request should be 429, got {sixth.status_code}: {sixth.text}"
@@ -154,7 +154,7 @@ class TestConsentRateLimit:
                 resp = client.post(
                     "/api/auth/consent",
                     json=payload,
-                    headers={"x-forwarded-for": ip_a},
+                    headers={"x-real-ip": ip_a},
                 )
                 assert resp.status_code == 201, f"IP-A request {i + 1} failed: {resp.text}"
 
@@ -162,7 +162,7 @@ class TestConsentRateLimit:
             resp_a6 = client.post(
                 "/api/auth/consent",
                 json=payload,
-                headers={"x-forwarded-for": ip_a},
+                headers={"x-real-ip": ip_a},
             )
             assert resp_a6.status_code == 429, f"IP-A 6th should be 429: {resp_a6.text}"
 
@@ -171,7 +171,7 @@ class TestConsentRateLimit:
                 resp = client.post(
                     "/api/auth/consent",
                     json=payload,
-                    headers={"x-forwarded-for": ip_b},
+                    headers={"x-real-ip": ip_b},
                 )
                 assert resp.status_code == 201, f"IP-B request {i + 1} failed: {resp.text}"
         finally:
@@ -507,12 +507,16 @@ class TestPublicAuditLog:
             record_sql=True,
         )
 
-        # Override Redis to avoid real Redis connection during unit test
+        # Override Redis to avoid real Redis connection during unit test.
+        # Patch the import site (``api.routes.consent.rate_limit_public``)
+        # — the route binds the name into its own module namespace via
+        # ``from utils.public_abuse import rate_limit_public``, so patching
+        # the source module would not intercept the call.
         from unittest.mock import patch
 
         clear = _override_db_with(mock_db)
         try:
-            with patch("utils.public_abuse.rate_limit_public", return_value=None):
+            with patch("api.routes.consent.rate_limit_public", return_value=None):
                 resp = client.post(
                     "/api/auth/consent",
                     json={
