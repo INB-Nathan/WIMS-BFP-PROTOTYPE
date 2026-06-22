@@ -177,14 +177,14 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '4'
-          memory: 8gb
+          cpus: '2'
+          memory: 4gb
     restart: always
 
   ollama-model-pull:
     image: ollama/ollama:0.5.1
     container_name: wims-ollama-model-pull
-    command: pull qwen2.5:3b
+    command: pull qwen2.5:1.5b
     environment:
       - OLLAMA_HOST=http://ollama:11434
     networks:

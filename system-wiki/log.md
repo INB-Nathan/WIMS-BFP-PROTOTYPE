@@ -1,3 +1,12 @@
+## [2026-06-22] ops: reduce Suricata poll frequency, Ollama CPU limit, switch to 1.5B model
+
+- **Scope:** VPS with 2 vCPUs was overloaded (load avg 6.26). celery-worker at 96% CPU due to two 1-second polling tasks. PostgreSQL spiked from bulk threat log cleanup.
+- **`src/backend/celery_config.py`:** `subscribe-suricata-alerts` and `process-ai-queue` beat schedules changed from `1.0` to `10.0` seconds. Each was blocking a ForkPoolWorker for ~500ms every second. CPU dropped from 96% → 3.4%.
+- **`src/docker-compose.yml`:** Ollama resource limits reduced from `cpus: '4', memory: 8gb` to `cpus: '2', memory: 4gb` to match VPS capacity. Model pull changed from `qwen2.5:3b` to `qwen2.5:1.5b` for smaller footprint.
+- **Bulk threat log cleanup:** Resolved 67,686 unreviewed `security_threat_logs` (LOW, MEDIUM, stale HIGH/CRITICAL) via SQL UPDATE — down to 7,689 recent HIGH threats remaining.
+- **Disk cleanup:** `docker builder prune` freed 24.71GB. `journalctl --vacuum-time=3d` freed 1.5GB. `eve.json` truncated (was 2.7GB). Disk usage 70% → 52%.
+- **Wiki update:** This log entry.
+
 ## [2026-06-22] fix(profile): stop holding profile saves hostage by Keycloak attribute validation
 
 - **Scope:** Self-service profile update at `PATCH /api/user/me` was returning 502 "Failed to update identity provider profile" on the edit profile form, preventing users from changing their `first_name`, `last_name`, or `contact_number`. Root cause had two parts.

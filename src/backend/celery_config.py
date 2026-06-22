@@ -94,11 +94,11 @@ celery_app.conf.update(
         },
         "subscribe-suricata-alerts": {
             "task": "tasks.suricata_redis.subscribe_alerts",
-            "schedule": 1.0,
+            "schedule": 10.0,
         },
         "process-ai-queue": {
             "task": "tasks.ai_forwarding.process_queue",
-            "schedule": 1.0,
+            "schedule": 10.0,
         },
         # GH #152 Phase 6: Daily KMS key rotation check (03:30 UTC)
         "ensure-pii-key-rotation-daily": {
