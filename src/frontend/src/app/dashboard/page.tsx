@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { fetchRegionsOfflineAware, fetchProvincesOfflineAware, fetchCitiesOfflineAware } from '@/lib/api';
+import { StaleCacheBanner } from '@/components/ui/StaleCacheBanner';
 import { defaultRouteForRole } from '@/lib/roleRedirect';
 import type { Region, Province, City } from '@/types/api';
 import { edgeFunctions, AnalyticsSummaryResponse } from '@/lib/edgeFunctions';
@@ -77,6 +78,10 @@ export default function DashboardPage() {
 
     // Reference Data
     const [regions, setRegions] = useState<Region[]>([]);
+    // Issue #18: latest cachedAt across the three reference-data fetches
+    // (regions / provinces / cities). Drives the StaleCacheBanner so a user
+    // working offline for a week knows they are seeing stale taxonomy.
+    const [refsCachedAt, setRefsCachedAt] = useState<number | undefined>(undefined);
     const [provinces, setProvinces] = useState<Province[]>([]);
     const [cities, setCities] = useState<City[]>([]);
 
@@ -109,20 +114,32 @@ export default function DashboardPage() {
 
     useEffect(() => {
         if (!user?.id) return;
-        fetchRegionsOfflineAware(user.id).then((r) => setRegions(r.response));
+        // Issue #18: track the latest cachedAt across regions/provinces/cities
+        // so the StaleCacheBanner can tell the user when reference data is
+        // served from cache. Mirrors the admin monitoring page pattern.
+        fetchRegionsOfflineAware(user.id).then((r) => {
+            setRegions(r.response);
+            if (r.cachedAt) setRefsCachedAt(r.cachedAt);
+        });
     }, [user?.id]);
 
     useEffect(() => {
         if (!user?.id) return;
         if (!selectedRegion) { setProvinces([]); setSelectedProvince(''); return; }
-        fetchProvincesOfflineAware(user.id, selectedRegion).then((r) => setProvinces(r.response));
+        fetchProvincesOfflineAware(user.id, selectedRegion).then((r) => {
+            setProvinces(r.response);
+            if (r.cachedAt) setRefsCachedAt(r.cachedAt);
+        });
         setSelectedProvince(''); setSelectedCity('');
     }, [user?.id, selectedRegion]);
 
     useEffect(() => {
         if (!user?.id) return;
         if (!selectedProvince) { setCities([]); setSelectedCity(''); return; }
-        fetchCitiesOfflineAware(user.id, selectedProvince).then((r) => setCities(r.response));
+        fetchCitiesOfflineAware(user.id, selectedProvince).then((r) => {
+            setCities(r.response);
+            if (r.cachedAt) setRefsCachedAt(r.cachedAt);
+        });
         setSelectedCity('');
     }, [user?.id, selectedProvince]);
 
@@ -221,6 +238,13 @@ export default function DashboardPage() {
 
     return (
         <div className="space-y-6">
+            {/* Issue #18: stale-cache banner for reference data (regions /
+                provinces / cities). The admin monitoring page shows the same
+                pattern for the read cache. Without this, a user working
+                offline for the 7-day reference TTL has no signal that the
+                taxonomy is cached. */}
+            {refsCachedAt && <StaleCacheBanner freshness={{ cachedAt: refsCachedAt, isOnline: true }} />}
+
             {/* Error Banner - Region Assignment Required */}
             {redirectError && (
                 <div className="card border-l-4 border-red-500 bg-red-50 p-4">
