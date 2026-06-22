@@ -67,3 +67,6 @@ system-wiki/.obsidian/
 
 # Network capture artifacts (never commit — large/noisy/sensitive)
 *.har
+
+# Worktrees (project-local, ignored)
+.worktrees/
