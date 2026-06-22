@@ -335,6 +335,13 @@ self.addEventListener('fetch', (event) => {
 // Task 9 (v12) adds a { type: 'PREFETCH_ROLE', role } branch for post-login
 // role-scoped prefetch (see ROLE_PREFETCH_ROUTES above).
 self.addEventListener('message', (event) => {
+  // Defence-in-depth: the SW is shared across all same-origin scripts, so an
+  // XSS payload or compromised dependency can postMessage to it. Reject any
+  // message whose origin is not our own, or whose source is not a controlled
+  // Client (a ServiceWorker sender is not a Client; instanceof rejects it).
+  // Issue #3 (security H1).
+  if (event.origin !== self.location.origin) return;
+  if (!event.source || !(event.source instanceof Client)) return;
   const data = event.data;
   if (!data || typeof data.type !== 'string') return;
   if (data.type === 'clear-auth-cache') {

@@ -107,6 +107,25 @@ describe('offlineAwareReference', () => {
     ).rejects.toThrow('unavailable');
   });
 
+  it('online + cache write throws: does not propagate the write error (issue #1)', async () => {
+    refMocks.fetcher.mockResolvedValue([{ region_id: 1 }]);
+    // Simulate an IndexedDB write failure (quota exceeded, schema mismatch, etc.)
+    refMocks.cacheReferenceData.mockRejectedValue(new Error('IDB write failed: quota'));
+    const res = await offlineAwareReference(
+      'regions',
+      [],
+      'reference',
+      7 * 24 * 60 * 60 * 1000,
+      'userA',
+      refMocks.fetcher,
+      'err',
+    );
+    // Online fetch succeeded; the cache write failure must be swallowed so
+    // the caller still receives the fresh response (mirrors writeCache's
+    // try/catch for the encrypted read path).
+    expect(res).toEqual({ response: [{ region_id: 1 }], fromCache: false });
+  });
+
   it('network error: marks offline + falls back to fresh cache', async () => {
     refMocks.fetcher.mockRejectedValue(new TypeError('Failed to fetch'));
     refMocks.getCachedReferenceData.mockResolvedValue({

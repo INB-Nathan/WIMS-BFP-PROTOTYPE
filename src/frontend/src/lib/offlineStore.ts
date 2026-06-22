@@ -556,6 +556,17 @@ export async function cacheReferenceData<T = unknown>(
     ttlMs: number,
     cachedAt: number = Date.now()
 ): Promise<void> {
+    // Issue #10: the REFERENCE_STORE is plaintext and shared across users
+    // on the same device (per-user isolation relies entirely on the
+    // canonical `reference:` key prefix). A future caller that accidentally
+    // caches a non-public payload here would silently break the threat
+    // model. Guard the key shape in non-production builds to fail loud.
+    if (!key.startsWith('reference:') && process.env.NODE_ENV !== 'production') {
+        throw new Error(
+            `[offlineStore] cacheReferenceData: key must start with "reference:" (got "${key}"). ` +
+            'The plaintext REFERENCE_STORE is not a safe place for non-public payloads.',
+        );
+    }
     const db = await getDB();
     const record: CachedReferenceRecord = {
         key,
@@ -1307,15 +1318,23 @@ export async function clearCachedIncidents(encoderId: string): Promise<void> {
 }
 
 /**
- * Clear the entire read cache regardless of which encoder keyed it.
- * Used on logout for shared-device privacy: cached incident PII must not
- * linger for the next user. Pending offline ops (offlineOps) are deliberately
- * preserved — they are encrypted and encoder-scoped, so unsynced work survives
- * a re-login instead of being silently dropped.
+ * Clear the entire read cache, encrypted analytics cache, and plaintext
+ * reference cache regardless of which encoder keyed them. Used on logout
+ * for shared-device privacy: cached incident PII, the encrypted read cache,
+ * and the plaintext reference cache must not linger for the next user.
+ * Pending offline ops (offlineOps) are deliberately preserved — they are
+ * encrypted and encoder-scoped, so unsynced work survives a re-login
+ * instead of being silently dropped.
+ *
+ * Issue #2: prior version only cleared CACHE_STORE, leaving the plaintext
+ * REFERENCE_STORE on disk for the next user to read. This version clears
+ * all three (CACHE_STORE, READ_CACHE_STORE, REFERENCE_STORE).
  */
 export async function clearAllCachedIncidents(): Promise<void> {
     const db = await getDB();
     await db.clear(CACHE_STORE);
+    await db.clear(READ_CACHE_STORE);
+    await db.clear(REFERENCE_STORE);
 
 }
 

@@ -124,6 +124,45 @@ describe('AuthContext logout → SW cache-clear (unit)', () => {
   });
 });
 
+// Issue #4: postMessage on the logout path can throw DataCloneError,
+// InvalidStateError, or SecurityError. The rest of logout (removeUser,
+// signoutRedirect) MUST still run. This sync-guard test pins the contract
+// against the source file directly because the integration test would
+// require a full OIDC + Keycloak + IndexedDB mock chain.
+describe('AuthContext logout → postMessage error handling (issue #4)', () => {
+  it('wraps the postMessage call in a try/catch in AuthContext.tsx', () => {
+    const { readFileSync } = require('node:fs') as typeof import('node:fs');
+    const { join } = require('node:path') as typeof import('node:path');
+    const src = readFileSync(
+      join(process.cwd(), 'src', 'context', 'AuthContext.tsx'),
+      'utf8',
+    );
+    // The contract: the `clear-auth-cache` postMessage is wrapped in a
+    // dedicated try/catch (NOT just the outer logout try/catch, which would
+    // still skip removeUser + signoutRedirect). The catch must log/warn and
+    // not re-throw.
+    //
+    // We slice the source from the clear-auth-cache postMessage line and
+    // check the 8 lines above and 4 lines below for an inner try/catch.
+    const lines = src.split('\n');
+    const pmLineIdx = lines.findIndex((l) =>
+      l.includes("postMessage({ type: 'clear-auth-cache' })"),
+    );
+    expect(pmLineIdx, 'clear-auth-cache postMessage line must exist').toBeGreaterThan(-1);
+    const sliceStart = Math.max(0, pmLineIdx - 8);
+    const sliceEnd = Math.min(lines.length, pmLineIdx + 4);
+    const slice = lines.slice(sliceStart, sliceEnd).join('\n');
+    // Look for a `try {` within the 8 lines BEFORE the postMessage and a
+    // `catch` within the 4 lines AFTER. This matches a dedicated try/catch
+    // around the postMessage (not the outer logout try/catch which would be
+    // much further away).
+    const beforeLines = lines.slice(sliceStart, pmLineIdx).join('\n');
+    const afterLines = lines.slice(pmLineIdx, sliceEnd).join('\n');
+    expect(beforeLines, 'try { must immediately precede the postMessage').toMatch(/try\s*\{\s*$/m);
+    expect(afterLines, 'catch must follow the postMessage').toMatch(/catch\s*\(/);
+  });
+});
+
 describe('AuthContext logout → SW cache-clear (component smoke)', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -344,5 +383,114 @@ describe('AuthContext login → SW role prefetch (component smoke)', () => {
     await waitFor(() => expect(capture.loading).toBe(false));
     expect(capture.user).toEqual({ id: 'u1', role: 'validator' });
     expect(postMessage).not.toHaveBeenCalled();
+  });
+});
+
+// Issue #5: serverValidated flag tracks whether `user` came from a
+// successful /api/auth/session call or a localStorage cache restore.
+// On offline 503 / network error → user from cache, serverValidated = false.
+// On successful fetchSession → user from server, serverValidated = true.
+describe('AuthContext serverValidated (issue #5)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    // Clean session cache between tests so the offline-restore path
+    // doesn't leak state from the previous test.
+    try {
+      localStorage.removeItem('wims:offline_session_cache');
+    } catch {
+      /* private mode */
+    }
+  });
+
+  type ServerValidatedCapture = { loading: boolean; user: User | null; serverValidated: boolean };
+
+  function FullProbe({ onCapture }: { onCapture: (s: ServerValidatedCapture) => void }) {
+    const { user, loading, serverValidated } = useAuth();
+    onCapture({ loading, user, serverValidated });
+    return <span data-testid="loading">{String(loading)}</span>;
+  }
+
+  it('serverValidated is true after a successful /api/auth/session call', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ user: { id: 'u1', role: 'encoder' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    let capture: ServerValidatedCapture = { loading: true, user: null, serverValidated: false };
+    render(
+      <AuthProvider>
+        <FullProbe onCapture={(s) => (capture = s)} />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(capture.loading).toBe(false));
+    expect(capture.user).toEqual({ id: 'u1', role: 'encoder' });
+    expect(capture.serverValidated).toBe(true);
+  });
+
+  it('serverValidated is false when fetchSession falls back to cache (503)', async () => {
+    // Pre-seed the offline session cache so restoreSessionFromCache finds
+    // a user to restore from.
+    localStorage.setItem(
+      'wims:offline_session_cache',
+      JSON.stringify({ user: { id: 'cached-user', role: 'encoder' } }),
+    );
+
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response('Service Unavailable', { status: 503 }),
+    );
+
+    let capture: ServerValidatedCapture = { loading: true, user: null, serverValidated: false };
+    render(
+      <AuthProvider>
+        <FullProbe onCapture={(s) => (capture = s)} />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(capture.loading).toBe(false));
+    // User was restored from cache (offline read-only).
+    expect(capture.user).toEqual({ id: 'cached-user', role: 'encoder' });
+    // But serverValidated is false — privileged actions must gate on this.
+    expect(capture.serverValidated).toBe(false);
+  });
+
+  it('serverValidated is false when fetchSession fails with a network error', async () => {
+    localStorage.setItem(
+      'wims:offline_session_cache',
+      JSON.stringify({ user: { id: 'cached-user', role: 'validator' } }),
+    );
+
+    globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+
+    let capture: ServerValidatedCapture = { loading: true, user: null, serverValidated: false };
+    render(
+      <AuthProvider>
+        <FullProbe onCapture={(s) => (capture = s)} />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(capture.loading).toBe(false));
+    expect(capture.user).toEqual({ id: 'cached-user', role: 'validator' });
+    expect(capture.serverValidated).toBe(false);
+  });
+
+  it('serverValidated is false when fetchSession returns 401 (genuine auth failure)', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response('Unauthorized', { status: 401 }),
+    );
+
+    let capture: ServerValidatedCapture = { loading: true, user: null, serverValidated: false };
+    render(
+      <AuthProvider>
+        <FullProbe onCapture={(s) => (capture = s)} />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(capture.loading).toBe(false));
+    // Genuine auth failure: no user, no server validation.
+    expect(capture.user).toBeNull();
+    expect(capture.serverValidated).toBe(false);
   });
 });

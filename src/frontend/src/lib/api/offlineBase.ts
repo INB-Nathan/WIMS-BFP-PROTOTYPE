@@ -262,7 +262,14 @@ export async function offlineAwareReference<T>(
 
   try {
     const response = await fetcher();
-    await cacheReferenceData(key, response, ttlMs, Date.now());
+    // Best-effort cache write — failures are silently swallowed so a
+    // successful online fetch is never broken by a failing IndexedDB write
+    // (mirrors writeCache() used by the encrypted read path; issue #1).
+    try {
+      await cacheReferenceData(key, response, ttlMs, Date.now());
+    } catch {
+      // noop
+    }
     return { response, fromCache: false };
   } catch (err) {
     if (isNetworkError(err)) {

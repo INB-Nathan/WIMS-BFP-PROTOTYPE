@@ -27,6 +27,15 @@ export interface User {
 interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
+  /**
+   * True only when the current user was returned by a successful
+   * /api/auth/session call. False when the user is a read-only offline
+   * restore from localStorage (issue #5) or when not authenticated.
+   * Consumers that perform privileged actions should treat
+   * `serverValidated === false` as "offline read-only mode" and gate
+   * write/role-scoped operations behind a successful server re-check.
+   */
+  serverValidated: boolean;
   loading: boolean;
   loggingOut: boolean;
   login: () => Promise<void>;
@@ -39,6 +48,11 @@ const PROACTIVE_REFRESH_INTERVAL_MS = 4 * 60 * 1000; // refresh before 5-minute 
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  // Issue #5: track whether `user` came from a successful /api/auth/session
+  // call or from a localStorage cache restore. When false, the user is
+  // treated as offline read-only — privileged actions (e.g. SW role
+  // notification) MUST NOT run.
+  const [serverValidated, setServerValidated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
   const refreshInFlightRef = useRef<Promise<boolean> | null>(null);
@@ -99,6 +113,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const cached = JSON.parse(raw) as { user: User };
         if (cached.user) {
           setUser(cached.user);
+          // Issue #5: cached user is OFFLINE READ-ONLY until a successful
+          // /api/auth/session call re-validates the identity. Privileged
+          // side-effects (e.g. SW PREFETCH_ROLE) must not run from here.
+          setServerValidated(false);
           if (cached.user.id) void setActiveOfflineUser(cached.user.id);
         }
       }
@@ -121,6 +139,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await res.json();
         if (data.user) {
           setUser(data.user);
+          // Issue #5: server-validated user. Privileged side-effects are now
+          // safe to run.
+          setServerValidated(true);
           // Bind offline storage to this account — wipes prior user's offline data
           // if a different uid is now logged in (item F12).
           if (data.user.id) void setActiveOfflineUser(data.user.id);
@@ -130,6 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           notifyServiceWorkerOfRole(data.user.role);
         } else {
           setUser(null);
+          setServerValidated(false);
           localStorage.removeItem(SESSION_CACHE_KEY);
         }
       } else if (res.status === 503) {
@@ -139,6 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         // Genuine auth failure (401 after refresh, 500, etc.) — clear session.
         setUser(null);
+        setServerValidated(false);
         localStorage.removeItem(SESSION_CACHE_KEY);
       }
     } catch (err) {
@@ -228,8 +251,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // authenticated app cache (RSC payloads, navigation pages, static
       // routes) so the next user cannot inspect cached content from
       // this session. The long-lived tile cache is preserved.
+      //
+      // Issue #4: postMessage can throw DataCloneError (non-cloneable
+      // payload), InvalidStateError (controller closed), or SecurityError.
+      // The dedicated try/catch below keeps the error from escaping into the
+      // outer try/catch (which would short-circuit removeUser + signoutRedirect
+      // and leave OIDC state stale).
       if (typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) {
-        navigator.serviceWorker.controller.postMessage({ type: 'clear-auth-cache' });
+        try {
+          navigator.serviceWorker.controller.postMessage({ type: 'clear-auth-cache' });
+        } catch (pmErr) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('[AuthContext] logout: postMessage failed:', pmErr);
+          }
+        }
       }
 
       const userManager = createUserManager();
@@ -256,6 +291,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         isAuthenticated: !!user,
+        serverValidated,
         loading,
         loggingOut,
         login,

@@ -63,4 +63,35 @@ describe('offlineStore reference (unencrypted) store', () => {
     expect(await getCachedReferenceData('reference:userA:regions')).toBeUndefined();
     expect(await getCachedReferenceData('reference:userB:regions')).toBeDefined();
   });
+
+  it('clearReferenceDataForUser does NOT match a longer userId with the same prefix (issue #11)', async () => {
+    // Switching from userId "abc" to "abcd" must not delete reference:abcd:*
+    // (and vice-versa) — the regex was matching the literal prefix without
+    // requiring the trailing colon, so ^reference:abc: also matched
+    // ^reference:abcd:. The fix requires a `:` immediately after the userId.
+    await cacheReferenceData('reference:abc:regions', [1], 7 * 24 * 60 * 60 * 1000);
+    await cacheReferenceData('reference:abcd:regions', [2], 7 * 24 * 60 * 60 * 1000);
+    const deleted = await clearReferenceDataForUser('abc');
+    expect(deleted).toBe(1);
+    expect(await getCachedReferenceData('reference:abc:regions')).toBeUndefined();
+    // abcd's data must NOT have been deleted.
+    expect(await getCachedReferenceData('reference:abcd:regions')).toBeDefined();
+  });
+
+  it('cacheReferenceData rejects non-canonical keys in development (issue #10)', async () => {
+    // The reference store is plaintext and shared across users on the same
+    // device (per-user isolation relies entirely on the key prefix). A
+    // future caller that accidentally caches a non-public payload via this
+    // function would silently break the threat model. The runtime guard
+    // throws in non-production builds to fail loud.
+    const origEnv = process.env.NODE_ENV;
+    (process.env as Record<string, string>).NODE_ENV = 'development';
+    try {
+      await expect(
+        cacheReferenceData('admin:system-health:[]', { ok: true }, 60_000),
+      ).rejects.toThrow(/reference:/);
+    } finally {
+      (process.env as Record<string, string>).NODE_ENV = origEnv;
+    }
+  });
 });
