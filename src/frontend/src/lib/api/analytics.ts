@@ -12,7 +12,8 @@ export {
   fetchTypeDistributionOfflineAware,
 } from './offlineAnalytics';
 
-export type { OfflineAnalyticsResult } from './offlineAnalytics';
+// Issue #7: OfflineAnalyticsResult identity alias deleted. Consumers use
+// OfflineResult<T> from './offlineBase' directly.
 
 export {
   downloadAnalyticsExport,

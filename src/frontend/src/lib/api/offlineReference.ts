@@ -22,11 +22,10 @@ const REF_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const OFFLINE_REF_ERROR =
   'Reference data is unavailable offline. Reconnect to refresh.';
 
-export type OfflineReferenceResult<T> = OfflineResult<T>;
 
 export function fetchRegionsOfflineAware(
   userId: string,
-): Promise<OfflineReferenceResult<Region[]>> {
+): Promise<OfflineResult<Region[]>> {
   return offlineAwareReference<Region[]>(
     'regions',
     [],
@@ -41,7 +40,7 @@ export function fetchRegionsOfflineAware(
 export function fetchProvincesOfflineAware(
   userId: string,
   regionId: string | number,
-): Promise<OfflineReferenceResult<Province[]>> {
+): Promise<OfflineResult<Province[]>> {
   return offlineAwareReference<Province[]>(
     'provinces',
     [regionId],
@@ -56,7 +55,7 @@ export function fetchProvincesOfflineAware(
 export function fetchCitiesOfflineAware(
   userId: string,
   provinceId: string | number,
-): Promise<OfflineReferenceResult<City[]>> {
+): Promise<OfflineResult<City[]>> {
   return offlineAwareReference<City[]>(
     'cities',
     [provinceId],

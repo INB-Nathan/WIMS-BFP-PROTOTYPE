@@ -28,11 +28,9 @@ export interface OfflineQueueResult {
   localId: string;
 }
 
-export type OfflineValidatorQueueResult<T> = OfflineResult<T>;
 
 // Domain-aliased result type so existing consumers (validator.ts, components)
 // are unaffected.
-export type OfflineValidatorResult<T> = OfflineResult<T>;
 
 const VALIDATOR_CACHE_TTL_MS = 30 * 60 * 1000;
 
@@ -170,7 +168,7 @@ export async function fetchValidatorQueueOfflineAware<T>(
   params: Record<string, unknown>,
   fetcher: () => Promise<T>,
   userId?: string | null,
-): Promise<OfflineValidatorQueueResult<T>> {
+): Promise<OfflineResult<T>> {
   const key = queueCacheKey(userId, params);
 
   if (shouldServeOffline()) {
@@ -217,7 +215,7 @@ export async function fetchValidatorQueueOfflineAware<T>(
 
 export async function fetchOperationalMapOfflineAware(
   params: OperationalMapParams,
-): Promise<OfflineValidatorResult<MapClusterItem[]>> {
+): Promise<OfflineResult<MapClusterItem[]>> {
   return offlineAware(
     'operational-map',
     [params],
@@ -230,7 +228,7 @@ export async function fetchOperationalMapOfflineAware(
 
 export async function fetchValidatorAuditLogsOfflineAware(
   params: AuditLogParams,
-): Promise<OfflineValidatorResult<AuditResponse>> {
+): Promise<OfflineResult<AuditResponse>> {
   return offlineAware(
     'audit-logs',
     [params],
