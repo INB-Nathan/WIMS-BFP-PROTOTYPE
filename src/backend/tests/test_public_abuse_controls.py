@@ -343,7 +343,7 @@ class TestNeutral404:
                     "device_id": "test-device",
                     "followup_text": "test",
                 },
-                headers={"x-forwarded-for": "198.51.100.1"},
+                headers={"x-real-ip": "198.51.100.1"},
             )
             assert resp.status_code == 404, resp.text
             data = resp.json()
@@ -464,7 +464,7 @@ class TestNotifySpamLimits:
                 resp = client.post(
                     "/api/civilian/reports/42/notify",
                     json={"device_id": "test-device", "fcm_token": f"test-token-{i}"},
-                    headers={"x-forwarded-for": ip},
+                    headers={"x-real-ip": ip},
                 )
                 assert resp.status_code == 201, f"Request {i + 1} failed: {resp.text}"
 
@@ -472,7 +472,7 @@ class TestNotifySpamLimits:
             resp = client.post(
                 "/api/civilian/reports/42/notify",
                 json={"device_id": "test-device", "fcm_token": "test-token-6"},
-                headers={"x-forwarded-for": ip},
+                headers={"x-real-ip": ip},
             )
             assert resp.status_code == 429, f"6th request should be 429: {resp.text}"
             data = resp.json()
@@ -558,9 +558,17 @@ class TestExistingRateLimits:
     """Verify existing rate limits on civilian and public DMZ endpoints."""
 
     def test_civilian_report_rate_limit_db_based_returns_429(self):
-        """POST /api/civilian/reports — >5 reports from same IP in 1hr → 429."""
+        """POST /api/civilian/reports — >3 reports from same IP in 1hr → 429."""
         mock_db = _MockDB(
-            mappings=[("citizen_reports", _FakeRow(count=5))],
+            mappings=[
+                (
+                    "COUNT(*) AS rate_count",
+                    _FakeRow(
+                        rate_count=3,
+                        oldest_created_at=datetime(2026, 6, 22, 9, 30, 0, tzinfo=timezone.utc),
+                    ),
+                )
+            ],
         )
 
         clear = _override_db_with(mock_db)
@@ -572,21 +580,26 @@ class TestExistingRateLimits:
                     "longitude": 120.9842,
                     "category": "STRUCTURAL",
                 },
-                headers={"x-forwarded-for": "198.51.100.1"},
+                headers={"x-real-ip": "198.51.100.1"},
             )
             assert resp.status_code == 429, resp.text
             assert "Too many reports" in resp.json()["detail"]
+            assert "Retry-After" in resp.headers
         finally:
             clear()
 
     def test_public_dmz_rate_limit_redis_based_returns_429(self):
-        """POST /api/v1/public/report — >3 requests from same IP in 1hr → 429."""
+        """POST /api/v1/public/report — >3 requests from same IP in 1hr → 429.
+
+        Uses x-real-ip (which nginx sets to $realip_remote_addr) to supply the
+        rate-limit key.  x-forwarded-for is no longer used for rate limiting
+        because it is client-controlled after Docker NAT — see gap #14 / DS-07.
+        """
         r = redis.from_url(
             os.environ.get("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True
         )
         ip = _test_ip(abs(hash("dmz-rate-limit")) % 256)
         _clean_redis_keys(r, f"public_rate_limit:{ip}*")
-
         _REGION_ROW = _FakeRow(region_id=42)
         _INSERT_ROW = _FakeRow(
             incident_id=999,
@@ -613,14 +626,14 @@ class TestExistingRateLimits:
                         "longitude": 120.9842,
                         "description": f"Test {i + 1}",
                     },
-                    headers={"x-forwarded-for": ip},
+                    headers={"x-real-ip": ip},
                 )
                 assert resp.status_code == 201, f"Request {i + 1} failed: {resp.text}"
 
             fourth = client.post(
                 "/api/v1/public/report",
                 json={"latitude": 14.5995, "longitude": 120.9842, "description": "Rate limited"},
-                headers={"x-forwarded-for": ip},
+                headers={"x-real-ip": ip},
             )
             assert fourth.status_code == 429, f"4th request should be 429: {fourth.text}"
             assert "Retry-After" in fourth.headers
@@ -628,3 +641,234 @@ class TestExistingRateLimits:
             clear()
 
         _clean_redis_keys(r, f"public_rate_limit:{ip}*")
+
+
+# ---------------------------------------------------------------------------
+# Civilian report DB-based rate limit — Retry-After header
+# ---------------------------------------------------------------------------
+
+
+class TestCivilianReportRateLimit:
+    """POST /api/civilian/reports — DB-based 3/hr limit now returns Retry-After."""
+
+    _PAYLOAD = {"latitude": 14.5995, "longitude": 120.9842, "category": "STRUCTURAL"}
+    _IP = "198.51.100.77"
+    _OLDEST = datetime(2026, 6, 22, 9, 30, 0, tzinfo=timezone.utc)
+
+    def _blocked_mock(self):
+        return _MockDB(
+            mappings=[
+                (
+                    "COUNT(*) AS rate_count",
+                    _FakeRow(rate_count=3, oldest_created_at=self._OLDEST),
+                )
+            ]
+        )
+
+    def test_request_at_cap_returns_429(self):
+        """Request that finds the IP at the cap (count >= 3) must return 429.
+
+        P1-7: the prior ``test_sixth_report_returns_429`` mock had count=3
+        and the test fired 1 request — so it actually exercised the
+        "4th report" path, not the "6th report" path. Renamed and the
+        assertion is tightened to "exactly the 4th request is blocked
+        when count was already at the cap".
+        """
+        clear = _override_db_with(self._blocked_mock())
+        try:
+            resp = client.post(
+                "/api/civilian/reports",
+                json=self._PAYLOAD,
+                headers={"x-real-ip": self._IP},
+            )
+            assert resp.status_code == 429, resp.text
+            assert "Too many reports" in resp.json()["detail"]
+        finally:
+            clear()
+
+    def test_retry_after_value_is_pinned_to_window_remaining(self):
+        """The Retry-After header is the exact window-remaining-seconds.
+
+        P1-7: the prior ``test_sixth_report_has_retry_after_header`` only
+        asserted ``>= 1``; it would pass for any implementation. We pin
+        ``now()`` with freezegun and the test owns both ends of the
+        formula: oldest = 09:30:00, now = 10:00:00 → 30 min = 1800 s.
+        """
+        from freezegun import freeze_time
+
+        with freeze_time("2026-06-22 10:00:00", tz_offset=0):
+            clear = _override_db_with(self._blocked_mock())
+            try:
+                resp = client.post(
+                    "/api/civilian/reports",
+                    json=self._PAYLOAD,
+                    headers={"x-real-ip": self._IP},
+                )
+                assert resp.status_code == 429, resp.text
+                assert "Retry-After" in resp.headers, (
+                    f"Retry-After header missing from 429: {dict(resp.headers)}"
+                )
+                # oldest = 09:30 UTC, now = 10:00 UTC → remaining = 1800 s
+                assert int(resp.headers["Retry-After"]) == 1800, (
+                    f"Retry-After must be exactly 1800 (30 min) when oldest=09:30 "
+                    f"and now=10:00, got {resp.headers['Retry-After']}"
+                )
+            finally:
+                clear()
+
+    def test_retry_after_caps_at_window_seconds(self):
+        """If the DB clock is ahead of the app clock (oldest is in the
+        future from the app's perspective), Retry-After must cap at the
+        window length (3600) — not advise the client to wait longer than
+        the rate-limit window actually is (P1-6)."""
+        from freezegun import freeze_time
+
+        # oldest = 10:30 UTC, app now = 10:00 UTC → remaining = 1h + 30m =
+        # 5400s. Without the cap the header would be 5400; with the cap at
+        # RETRY_AFTER_CEILING_SECONDS (3600) it must be exactly 3600.
+        skewed_oldest = datetime(2026, 6, 22, 10, 30, 0, tzinfo=timezone.utc)
+        skewed_mock = _MockDB(
+            mappings=[
+                (
+                    "COUNT(*) AS rate_count",
+                    _FakeRow(rate_count=3, oldest_created_at=skewed_oldest),
+                )
+            ]
+        )
+        with freeze_time("2026-06-22 10:00:00", tz_offset=0):
+            clear = _override_db_with(skewed_mock)
+            try:
+                resp = client.post(
+                    "/api/civilian/reports",
+                    json=self._PAYLOAD,
+                    headers={"x-real-ip": self._IP},
+                )
+                assert resp.status_code == 429, resp.text
+                assert int(resp.headers["Retry-After"]) == 3600, (
+                    f"Retry-After must cap at the 1h window (3600 s) when "
+                    f"DB clock is ahead, got {resp.headers['Retry-After']}"
+                )
+            finally:
+                clear()
+
+    def test_different_ips_have_independent_quotas(self):
+        """Two different IPs at different rate-limit states must behave
+        independently — one rate-limited, the other allowed.
+
+        P1-7: the prior ``test_different_ips_have_independent_quotas`` used
+        the same mock (count=0) for both IPs and only proved that "an
+        under-limit IP is not blocked". It never proved that the quota
+        is per-IP, which is the actual claim. Now: 198.51.100.11 is at the
+        cap (must 429), 198.51.100.22 is under the cap (must not 429).
+        """
+        from freezegun import freeze_time
+
+        class _PerIPMock(_MockDB):
+            """_MockDB that returns a different COUNT(*) row per IP.
+
+            The route uses trusted_client_ip(request) which returns the
+            x-real-ip header verbatim, so the mock can key on
+            params['ip_hash'] to choose the right response.
+            """
+
+            def __init__(self, blocked_ip, allowed_ip, oldest):
+                super().__init__(mappings=[])  # we'll dispatch in execute()
+                self._blocked_ip = blocked_ip
+                self._allowed_ip = allowed_ip
+                self._oldest = oldest
+                from utils.audit import hash_client_ip
+
+                self._blocked_hash = hash_client_ip(blocked_ip)
+                self._allowed_hash = hash_client_ip(allowed_ip)
+
+            def execute(self, statement, params=None):
+                sql = str(statement).replace("\n", " ")
+                if "pg_advisory_xact_lock" in sql:
+                    return _FakeResult(row=None)
+                if "COUNT(*) AS rate_count" in sql:
+                    if params and params.get("ip_hash") == self._blocked_hash:
+                        return _FakeResult(
+                            row=_FakeRow(rate_count=3, oldest_created_at=self._oldest)
+                        )
+                    if params and params.get("ip_hash") == self._allowed_hash:
+                        return _FakeResult(row=_FakeRow(rate_count=0, oldest_created_at=None))
+                return _FakeResult(row=None)
+
+        with freeze_time("2026-06-22 10:00:00", tz_offset=0):
+            clear = _override_db_with(_PerIPMock("198.51.100.11", "198.51.100.22", self._OLDEST))
+            try:
+                # Blocked IP -> 429
+                blocked = client.post(
+                    "/api/civilian/reports",
+                    json=self._PAYLOAD,
+                    headers={"x-real-ip": "198.51.100.11"},
+                )
+                assert blocked.status_code == 429, (
+                    f"IP 198.51.100.11 (count=3) must be 429, got "
+                    f"{blocked.status_code}: {blocked.text}"
+                )
+                # Allowed IP -> NOT 429 (the test only cares about the
+                # rate-limit gate; downstream mocks are absent so the
+                # handler may 500, but it must not be 429).
+                allowed = client.post(
+                    "/api/civilian/reports",
+                    json=self._PAYLOAD,
+                    headers={"x-real-ip": "198.51.100.22"},
+                )
+                assert allowed.status_code != 429, (
+                    f"IP 198.51.100.22 (count=0) must not be 429, got "
+                    f"{allowed.status_code}: {allowed.text}"
+                )
+            finally:
+                clear()
+
+    def test_rate_limit_blocks_concurrent_burst(self):
+        """PR #446 gap #14 followup: the DB rate-limit must take a Postgres
+        advisory transaction lock BEFORE the COUNT(*) query so N concurrent
+        requests at the boundary cannot all observe count<3 and all INSERT.
+
+        This is the real test that the concurrent-burst race is closed: it
+        captures the SQL the route executes and asserts that the
+        `pg_advisory_xact_lock` call appears in the captured stream BEFORE
+        the `COUNT(*) AS rate_count` rate-limit query. The lock is keyed on
+        the per-IP hash so different IPs do not contend, and
+        `pg_advisory_xact_lock` is transaction-scoped — it auto-releases on
+        commit/rollback, no explicit unlock needed.
+        """
+        clear = _override_db_with(self._blocked_mock_with_sql_capture())
+        try:
+            resp = client.post(
+                "/api/civilian/reports",
+                json=self._PAYLOAD,
+                headers={"x-real-ip": self._IP},
+            )
+            assert resp.status_code == 429, resp.text
+        finally:
+            clear()
+        # Inspect the executed SQL — the advisory lock MUST appear before
+        # the COUNT(*) rate-limit query.
+        all_sql = " ".join(s for s, _ in self._captured_sql)
+        lock_idx = all_sql.find("pg_advisory_xact_lock")
+        count_idx = all_sql.find("COUNT(*) AS rate_count")
+        assert lock_idx != -1, f"pg_advisory_xact_lock not present in executed SQL: {all_sql!r}"
+        assert count_idx != -1, f"COUNT(*) rate-count query not present: {all_sql!r}"
+        assert lock_idx < count_idx, (
+            f"pg_advisory_xact_lock must execute BEFORE the COUNT(*) rate-limit "
+            f"query to close the TOCTOU race window. Got lock_idx={lock_idx} "
+            f"count_idx={count_idx}"
+        )
+
+    def _blocked_mock_with_sql_capture(self):
+        """Helper for the advisory-lock test — same as _blocked_mock() but
+        records every executed SQL statement for inspection after the test."""
+        captured = _MockDB(
+            mappings=[
+                (
+                    "COUNT(*) AS rate_count",
+                    _FakeRow(rate_count=3, oldest_created_at=self._OLDEST),
+                )
+            ],
+            record_sql=True,
+        )
+        self._captured_sql = captured.all_sql  # type: ignore[attr-defined]
+        return captured

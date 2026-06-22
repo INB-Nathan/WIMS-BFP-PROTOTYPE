@@ -350,7 +350,12 @@ class TestPublicReportRateLimit:
     """Redis sliding-window rate limit: 3 req/IP/hour."""
 
     def test_rate_limit_exceeded_returns_429_with_retry_after_header(self):
-        """4th request within the hour from the same IP returns 429 + Retry-After."""
+        """4th request within the hour from the same IP returns 429 + Retry-After.
+
+        Uses x-real-ip (which nginx sets to $realip_remote_addr) as the rate-limit
+        key.  x-forwarded-for is NOT used because it is client-controlled after
+        Docker NAT spoofing — see security gap #14 / DS-07.
+        """
         r = redis.from_url(
             os.environ.get("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True
         )
@@ -367,7 +372,7 @@ class TestPublicReportRateLimit:
                     "longitude": 120.9842,
                     "description": f"Test incident {i + 1}",
                 },
-                headers={"x-forwarded-for": test_ip},
+                headers={"x-real-ip": test_ip},
             )
             assert resp.status_code == 201, f"Request {i + 1} should succeed: {resp.text}"
 
@@ -378,7 +383,7 @@ class TestPublicReportRateLimit:
                 "longitude": 120.9842,
                 "description": "Rate limited request",
             },
-            headers={"x-forwarded-for": test_ip},
+            headers={"x-real-ip": test_ip},
         )
 
         assert fourth_resp.status_code == 429, fourth_resp.text
@@ -391,7 +396,11 @@ class TestPublicReportRateLimit:
         r.delete(key)
 
     def test_different_ips_independent_rate_limits(self):
-        """Two different IPs each have their own 3-request limit."""
+        """Two different IPs each have their own 3-request limit.
+
+        Passes x-real-ip (the header nginx sets to $realip_remote_addr) to
+        control the rate-limit key rather than x-forwarded-for — see gap #14.
+        """
         ip_a = _rfc5737_ip(10)
         ip_b = _rfc5737_ip(20)
 
@@ -405,7 +414,7 @@ class TestPublicReportRateLimit:
             resp_a = client.post(
                 "/api/v1/public/report",
                 json={"latitude": 14.5995, "longitude": 120.9842, "description": f"IP-A-{i}"},
-                headers={"x-forwarded-for": ip_a},
+                headers={"x-real-ip": ip_a},
             )
             assert resp_a.status_code == 201, f"IP-A request {i + 1} failed: {resp_a.text}"
 
@@ -413,7 +422,7 @@ class TestPublicReportRateLimit:
             resp_b = client.post(
                 "/api/v1/public/report",
                 json={"latitude": 14.5995, "longitude": 120.9842, "description": f"IP-B-{i}"},
-                headers={"x-forwarded-for": ip_b},
+                headers={"x-real-ip": ip_b},
             )
             assert resp_b.status_code == 201, f"IP-B request {i + 1} failed: {resp_b.text}"
 
@@ -474,7 +483,7 @@ class TestCivilianFollowupEndpoint:
             resp = client.post(
                 "/api/civilian/reports/42/followup",
                 json={"device_id": "device-a", "followup_text": "More details about the fire."},
-                headers={"x-forwarded-for": "198.51.100.1"},
+                headers={"x-real-ip": "198.51.100.1"},
             )
             assert resp.status_code == 201, resp.text
             data = resp.json()
@@ -516,7 +525,7 @@ class TestCivilianFollowupEndpoint:
                     "device_id": "device-a",
                     "followup_text": "Trying to update terminal report.",
                 },
-                headers={"x-forwarded-for": "198.51.100.1"},
+                headers={"x-real-ip": "198.51.100.1"},
             )
             assert resp.status_code == 409, resp.text
             assert "Terminal reports" in resp.json()["detail"]
@@ -542,7 +551,7 @@ class TestCivilianFollowupEndpoint:
             resp = client.post(
                 "/api/civilian/reports/99999/followup",
                 json={"device_id": "device-a", "followup_text": "Updating nonexistent report."},
-                headers={"x-forwarded-for": "198.51.100.1"},
+                headers={"x-real-ip": "198.51.100.1"},
             )
             assert resp.status_code == 404, resp.text
             assert "Report not found" in resp.json()["detail"]
@@ -554,7 +563,7 @@ class TestCivilianFollowupEndpoint:
         resp = client.post(
             "/api/civilian/reports/42/followup",
             json={"device_id": "device-a", "followup_text": ""},
-            headers={"x-forwarded-for": "198.51.100.1"},
+            headers={"x-real-ip": "198.51.100.1"},
         )
         assert resp.status_code == 422, resp.text
 
@@ -563,7 +572,7 @@ class TestCivilianFollowupEndpoint:
         resp = client.post(
             "/api/civilian/reports/42/followup",
             json={"device_id": "device-a"},
-            headers={"x-forwarded-for": "198.51.100.1"},
+            headers={"x-real-ip": "198.51.100.1"},
         )
         assert resp.status_code == 422, resp.text
 
@@ -572,7 +581,7 @@ class TestCivilianFollowupEndpoint:
         resp = client.post(
             "/api/civilian/reports/42/followup",
             json={"device_id": "device-a", "followup_text": "x" * 2001},
-            headers={"x-forwarded-for": "198.51.100.1"},
+            headers={"x-real-ip": "198.51.100.1"},
         )
         assert resp.status_code == 422, resp.text
 
@@ -616,7 +625,7 @@ class TestCivilianFollowupEndpoint:
             resp = client.post(
                 "/api/civilian/reports/42/followup",
                 json={"device_id": "device-a", "followup_text": "Rate limit test."},
-                headers={"x-forwarded-for": "198.51.100.1"},
+                headers={"x-real-ip": "198.51.100.1"},
             )
             assert resp.status_code == 429, resp.text
             data = resp.json()
@@ -664,7 +673,7 @@ class TestCivilianFollowupEndpoint:
             resp = client.post(
                 "/api/civilian/reports/42/followup",
                 json={"device_id": "device-a", "followup_text": "IP rate limit test."},
-                headers={"x-forwarded-for": "198.51.100.1"},
+                headers={"x-real-ip": "198.51.100.1"},
             )
             assert resp.status_code == 429, resp.text
             data = resp.json()

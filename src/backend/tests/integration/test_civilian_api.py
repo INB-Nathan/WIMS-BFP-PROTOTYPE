@@ -137,11 +137,14 @@ def _insert_report(
 
 class TestCivilianReportPublicSubmission:
     def test_public_can_submit_structured_report(self, client):
+        # PR #446 gap #14: server reads x-real-ip (set by nginx to
+        # $realip_remote_addr), not x-forwarded-for. Each test method uses a
+        # fresh IP so the per-IP rate-limit bucket is not contaminated.
         ip = f"198.51.{uuid.uuid4().hex[:4]}.{uuid.uuid4().hex[:4]}"
         response = client.post(
             "/api/civilian/reports",
             json=_payload(),
-            headers={"x-forwarded-for": ip},
+            headers={"x-real-ip": ip},
         )
 
         assert response.status_code == 201, response.text
@@ -190,11 +193,13 @@ class TestCivilianReportPublicSubmission:
             status_explanation="Insufficient information was available.",
         )
 
+        # PR #446 gap #14: server reads x-real-ip (set by nginx to
+        # $realip_remote_addr), not x-forwarded-for.
         ip = f"198.51.{uuid.uuid4().hex[:4]}.{uuid.uuid4().hex[:4]}"
         response = client.post(
             "/api/civilian/reports",
             json=_payload(previous_report_id=previous_id, device_id=str(uuid.uuid4())),
-            headers={"x-forwarded-for": ip},
+            headers={"x-real-ip": ip},
         )
 
         assert response.status_code == 201, response.text
@@ -207,10 +212,12 @@ class TestCivilianReportPublicSubmission:
         assert previous_status == "REJECTED_INSUFFICIENT"
 
     def test_invalid_coordinates_rejected(self, client):
+        # PR #446 gap #14: server reads x-real-ip (set by nginx to
+        # $realip_remote_addr), not x-forwarded-for.
         response = client.post(
             "/api/civilian/reports",
             json=_payload(latitude=150.0),
-            headers={"x-forwarded-for": "198.51.100.12"},
+            headers={"x-real-ip": "198.51.100.12"},
         )
         assert response.status_code == 422, response.text
 

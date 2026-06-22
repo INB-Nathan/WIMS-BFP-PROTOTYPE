@@ -63,7 +63,7 @@ Submit a structured civilian report.
 | previous_report_id | int | No | References a terminal report without reopening it |
 | device_id | string | Yes | Browser-generated UUID, stored in localStorage |
 
-**Rate limits**: 5 new reports per IP per hour; 1 append per device per 5 minutes.
+**Rate limits**: 3 new reports per IP per hour; 1 append per device per 5 minutes.
 
 **Safety-first public flow**: `/report` asks `safety_status` before reporting context/location so life-safety guidance appears before cognitively heavier source/location questions.
 

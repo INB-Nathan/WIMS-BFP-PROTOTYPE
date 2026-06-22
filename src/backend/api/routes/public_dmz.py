@@ -21,7 +21,13 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from schemas.public_incident import PublicIncidentCreate, PublicIncidentResponse
-from utils.audit import get_client_ip, log_system_audit, hash_client_ip
+from utils.audit import trusted_client_ip, log_system_audit, hash_client_ip
+from utils.rate_limit import (
+    PUBLIC_REPORT_HOURLY_CAP,
+    PUBLIC_REPORT_RATE_LIMIT_WINDOW_SECONDS,
+    RETRY_AFTER_CEILING_SECONDS,
+    RETRY_AFTER_FLOOR_SECONDS,
+)
 
 router = APIRouter(prefix="/api/v1/public", tags=["public-dmz"])
 
@@ -30,8 +36,11 @@ logger = logging.getLogger("wims.public_dmz")
 # ---------------------------------------------------------------------------
 # Redis Rate Limiter — 3 req/IP/hour (stricter than the auth callback limiter)
 # ---------------------------------------------------------------------------
-_PUBLIC_RATE_LIMIT_WINDOW = 3600  # 1 hour in seconds
-_PUBLIC_RATE_LIMIT_THRESHOLD = 3  # max 3 submissions per IP per hour
+# Window and cap come from utils.rate_limit (single source of truth) so the
+# threshold drop 5 → 3 (PR #446) and the Retry-After bounds cannot drift
+# between the Lua script and the Python-side constants.
+_PUBLIC_RATE_LIMIT_WINDOW = PUBLIC_REPORT_RATE_LIMIT_WINDOW_SECONDS
+_PUBLIC_RATE_LIMIT_THRESHOLD = PUBLIC_REPORT_HOURLY_CAP
 _REDIS_EMERGENCY_TTL = 3600
 
 _REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
@@ -78,11 +87,13 @@ async def rate_limit_public_dmz(request: Request) -> None:
     Raises HTTPException 429 if limit exceeded.
     Redis failures are fail-closed per D6 (public abuse surface).
     """
-    client_ip = request.headers.get("x-forwarded-for")
-    if client_ip:
-        client_ip = client_ip.split(",")[0].strip()
-    else:
-        client_ip = request.client.host if request.client else "unknown"
+    # Read from X-Real-IP, which nginx sets to $realip_remote_addr (the actual
+    # TCP socket address before real-IP-module processing).  This cannot be
+    # spoofed by the client because nginx always overwrites the header with the
+    # socket-level IP.  X-Forwarded-For is NOT used here: the real-IP module
+    # rewrites $remote_addr from the client-controlled XFF chain, so reading
+    # XFF would let an attacker rotate the rate-limit key with fake IPs.
+    client_ip = trusted_client_ip(request)
 
     key = f"public_rate_limit:{client_ip}"
     now = time.time()
@@ -92,7 +103,8 @@ async def rate_limit_public_dmz(request: Request) -> None:
         return
 
     try:
-        lua_script = """
+        lua_script = (
+            """
         local key = KEYS[1]
         local now = tonumber(ARGV[1])
         local window = tonumber(ARGV[2])
@@ -105,12 +117,30 @@ async def rate_limit_public_dmz(request: Request) -> None:
         local count = redis.call('ZCARD', key)
 
         if count >= limit then
-            -- Get oldest entry's expiry as Retry-After
+            -- Get oldest entry's expiry as Retry-After. Bounded on both
+            -- sides: floor keeps the client from immediately retrying;
+            -- ceiling (P1-6) keeps a clock-skew or stale entry from
+            -- advising the client to wait longer than the actual window.
             local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
-            local retry_after = 1
+            local retry_after = """
+            + str(RETRY_AFTER_FLOOR_SECONDS)
+            + """
             if oldest and #oldest >= 2 then
                 retry_after = math.ceil(window - (now - tonumber(oldest[2])))
-                if retry_after < 1 then retry_after = 1 end
+                if retry_after < """
+            + str(RETRY_AFTER_FLOOR_SECONDS)
+            + """ then
+                    retry_after = """
+            + str(RETRY_AFTER_FLOOR_SECONDS)
+            + """
+                end
+                if retry_after > """
+            + str(RETRY_AFTER_CEILING_SECONDS)
+            + """ then
+                    retry_after = """
+            + str(RETRY_AFTER_CEILING_SECONDS)
+            + """
+                end
             end
             return {1, retry_after}
         end
@@ -121,6 +151,7 @@ async def rate_limit_public_dmz(request: Request) -> None:
 
         return {0, 0}
         """
+        )
         result = await r.eval(
             lua_script,
             1,
@@ -241,7 +272,7 @@ def submit_public_incident(
     # means: if the audit INSERT fails, the fire_incidents row above is rolled
     # back and the caller sees a 500. The IP is salted-hashed, not stored raw.
     # ---------------------------------------------------------------------------
-    ip_hash_value = hash_client_ip(get_client_ip(request))
+    ip_hash_value = hash_client_ip(trusted_client_ip(request))
     try:
         log_system_audit(
             db=db,

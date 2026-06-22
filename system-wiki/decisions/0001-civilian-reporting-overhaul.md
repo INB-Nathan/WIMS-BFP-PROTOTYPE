@@ -109,7 +109,7 @@ return 'LOW'
 
 | Action | Limit | Key | Response |
 |---|---|---|---|
-| New initial report | 5 | IP hash per hour | 429 + `Retry-After` |
+| New initial report | 3 | IP hash per hour | 429 + `Retry-After` |
 | Append to existing report | 1 | device_id per 5 min | 429 + `Retry-After` |
 
 Append: `PATCH /api/civilian/reports/{report_id}/append` creates a new `citizen_reports` row with `linked_to_report_id` pointing to parent. Increments parent's `link_count`.
@@ -201,7 +201,7 @@ Civilian triage does not casually create official `fire_incidents` records. In t
 
 ## Consequences
 
-- `public_dmz.py` route (`POST /api/v1/public/report`) is deprecated. All public submissions route through `civilian.py`. Redis rate limiters updated to new limits (5/hr initial, 1/5min append).
+- `public_dmz.py` route (`POST /api/v1/public/report`) is deprecated. All public submissions route through `civilian.py`. Redis rate limiters updated to new limits (3/hr initial — lowered from 5/hr per PR #446 gap #14 anchor change, 1/5min append). The per-IP rate-limit key is `$realip_remote_addr` (TCP socket IP, not X-Forwarded-For) and the threshold is centralised in `src/backend/utils/rate_limit.py`.
 - `citizen_reports.description` column removed — free-text description replaced by category/sub-category + binary questions. Backward-compatible migration drops column.
 - Triage queue rebuild requires frontend rewrite of `/incidents/triage` page and new API endpoint `GET /api/triage/queue`.
 - Public entry point changed from `/report` to `/` — login moved to `/auth/login`. Tracking page moved from `/report/tracking` to `/tracking`. OIDC callback remains at `/callback`.
