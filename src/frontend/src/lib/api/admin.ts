@@ -55,4 +55,5 @@ export {
   fetchRateLimitsOfflineAware,
 } from './offlineAdmin';
 
-export type { OfflineAdminResult } from './offlineAdmin';
+// Issue #7: OfflineAdminResult identity alias deleted. Consumers use
+// OfflineResult<T> from './offlineBase' directly.

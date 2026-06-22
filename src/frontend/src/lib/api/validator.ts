@@ -23,5 +23,4 @@ export {
 
 export type {
   OfflineQueueResult,
-  OfflineValidatorQueueResult,
 } from './offlineValidator';

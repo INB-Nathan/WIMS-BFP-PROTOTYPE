@@ -226,6 +226,18 @@ self.addEventListener('fetch', (event) => {
   if (isRsc) {
     // Cache key must be a valid HTTP URL — the 'rsc:' prefix scheme is rejected
     // by the Cache API. Use a synthetic same-origin path instead.
+    //
+    // Issue #20 (open question): this key drops the query string entirely.
+    // Two RSC requests that share `canonicalPath(pathname)` but differ in
+    // `?_rsc=...` or other query params will collide in the cache. For the
+    // canonical collapse pattern (one shell per URL family) this is OK, but
+    // for incident-detail RSC payloads (where the data is per-incident) the
+    // collapse can serve one incident's RSC for another. Confirm with the
+    // Next.js team whether any served RSC payloads vary on query before
+    // changing this. The pinned sync-guard test
+    // (`__tests__/sw-cache-key.test.ts > drops the query string (current
+    // behaviour — open question for issue #20)`) documents the current
+    // 2-arg helper shape so this is not changed silently.
     const cacheKey = requestUrl.origin + '/_rsc' + canonicalPath(requestUrl.pathname);
     event.respondWith(
       fetch(request)
@@ -335,6 +347,13 @@ self.addEventListener('fetch', (event) => {
 // Task 9 (v12) adds a { type: 'PREFETCH_ROLE', role } branch for post-login
 // role-scoped prefetch (see ROLE_PREFETCH_ROUTES above).
 self.addEventListener('message', (event) => {
+  // Defence-in-depth: the SW is shared across all same-origin scripts, so an
+  // XSS payload or compromised dependency can postMessage to it. Reject any
+  // message whose origin is not our own, or whose source is not a controlled
+  // Client (a ServiceWorker sender is not a Client; instanceof rejects it).
+  // Issue #3 (security H1).
+  if (event.origin !== self.location.origin) return;
+  if (!event.source || !(event.source instanceof Client)) return;
   const data = event.data;
   if (!data || typeof data.type !== 'string') return;
   if (data.type === 'clear-auth-cache') {

@@ -169,6 +169,15 @@ describe('swRolePrefetch.test.ts ↔ public/sw.js sync guard', () => {
     expect(SW_SOURCE).toMatch(/function\s+prefetchRole\s*\(/);
   });
 
+  it('sw.js message handler validates event.origin before dispatch (issue #3)', () => {
+    // Defence-in-depth: the SW is shared across all same-origin scripts, so an
+    // XSS payload can postMessage to it. The handler MUST check event.origin
+    // === self.location.origin and event.source instanceof Client before
+    // honouring any message body.
+    expect(SW_SOURCE).toMatch(/event\.origin\s*[!=]==?\s*self\.location\.origin/);
+    expect(SW_SOURCE).toMatch(/event\.source\s+instanceof\s+Client/);
+  });
+
   it('sw.js prefetchRole uses cache.match (skip already-cached) and Promise.allSettled (best-effort)', () => {
     // cache.match before fetch + allSettled (no reject) are the two contract
     // guarantees the test file below exercises.

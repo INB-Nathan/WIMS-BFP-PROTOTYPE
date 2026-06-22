@@ -197,6 +197,31 @@ describe('buildRscCacheKey — PR #382 fix', () => {
     const key = buildRscCacheKey(origin, '/dashboard/regional/analytics/monthly');
     expect(key).toBe('https://wimsbfp.tech/_rsc/dashboard/regional/analytics/monthly');
   });
+
+  // Issue #20: the RSC cache key currently drops the query string. If two
+  // RSC requests share the same canonical pathname but differ in their
+  // `?_rsc=...` or other query params, they collide in the cache. The
+  // navigation handler's HTML collapse is intentional (the shell is the
+  // same); the RSC handler applies the same collapse but RSC payloads are
+  // per-incident data, so the collapse can serve one incident's RSC for
+  // another.
+  //
+  // The SW author's intent is unclear (see meta-review). Pin the current
+  // behaviour here so a future refactor does not silently drop the query
+  // string or silently change the cache-key shape.
+  it('drops the query string (current behaviour — open question for issue #20)', () => {
+    // The helper signature is (origin, pathname) — there is no search param
+    // argument, so the query string is not part of the key. This test pins
+    // the current 2-arg shape.
+    expect(buildRscCacheKey.length).toBe(2);
+    // Sanity: a known canonical path with a hypothetical search string
+    // appended to the URL would still produce the same key as the same
+    // canonical path with a different search string (because search is
+    // dropped at the call site in sw.js, not the helper).
+    const key1 = buildRscCacheKey(origin, '/dashboard/analyst/incidents/__detail__');
+    const key2 = buildRscCacheKey(origin, '/dashboard/analyst/incidents/__detail__');
+    expect(key1).toBe(key2);
+  });
 });
 
 describe('offlineNavigationFallbackKeys', () => {

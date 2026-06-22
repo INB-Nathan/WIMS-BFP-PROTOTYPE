@@ -34,50 +34,49 @@ import {
 const ANALYTICS_CACHE_TTL_MS = 30 * 60 * 1000;
 const OFFLINE_ANALYTICS_ERROR = 'Analytics data is unavailable offline. Reconnect to refresh this view.';
 
-// Re-export the shared result type under the domain-specific name
-// so existing consumers (analytics.ts, components) are unaffected.
-export type OfflineAnalyticsResult<T> = OfflineResult<T>;
+// Issue #7: the previous OfflineAnalyticsResult<T> = OfflineResult<T> identity
+// alias was deleted. Callers use OfflineResult<T> from offlineBase directly.
 
 export async function fetchHeatmapDataOfflineAware(
   filters: HeatmapFilters = {},
-): Promise<OfflineAnalyticsResult<HeatmapGeoJSON>> {
+): Promise<OfflineResult<HeatmapGeoJSON>> {
   return offlineAware('heatmap', [filters], 'analytics', ANALYTICS_CACHE_TTL_MS, () => legacyFetchHeatmapData(filters), OFFLINE_ANALYTICS_ERROR);
 }
 
 export async function fetchTrendDataOfflineAware(
   filters: TrendFilters = {},
-): Promise<OfflineAnalyticsResult<TrendsResponse>> {
+): Promise<OfflineResult<TrendsResponse>> {
   return offlineAware('trends', [filters], 'analytics', ANALYTICS_CACHE_TTL_MS, () => legacyFetchTrendData(filters), OFFLINE_ANALYTICS_ERROR);
 }
 
 export async function fetchComparativeDataOfflineAware(
   filters: ComparativeFilters,
-): Promise<OfflineAnalyticsResult<ComparativeResponse>> {
+): Promise<OfflineResult<ComparativeResponse>> {
   return offlineAware('comparative', [filters], 'analytics', ANALYTICS_CACHE_TTL_MS, () => legacyFetchComparativeData(filters), OFFLINE_ANALYTICS_ERROR);
 }
 
 export async function fetchTypeDistributionOfflineAware(
   filters: AnalyticsGlobalFilters = {},
-): Promise<OfflineAnalyticsResult<TypeDistributionItem[]>> {
+): Promise<OfflineResult<TypeDistributionItem[]>> {
   return offlineAware('type-distribution', [filters], 'analytics', ANALYTICS_CACHE_TTL_MS, () => legacyFetchTypeDistribution(filters), OFFLINE_ANALYTICS_ERROR);
 }
 
 export async function fetchResponseTimeByRegionOfflineAware(
   filters: AnalyticsGlobalFilters = {},
-): Promise<OfflineAnalyticsResult<ResponseTimeRegionItem[]>> {
+): Promise<OfflineResult<ResponseTimeRegionItem[]>> {
   return offlineAware('response-time-by-region', [filters], 'analytics', ANALYTICS_CACHE_TTL_MS, () => legacyFetchResponseTimeByRegion(filters), OFFLINE_ANALYTICS_ERROR);
 }
 
 export async function fetchTopNOfflineAware(
   filters: AnalyticsGlobalFilters & { metric: string; dimension: string; limit?: number },
-): Promise<OfflineAnalyticsResult<TopNItem[]>> {
+): Promise<OfflineResult<TopNItem[]>> {
   return offlineAware('top-n', [filters], 'analytics', ANALYTICS_CACHE_TTL_MS, () => legacyFetchTopN(filters), OFFLINE_ANALYTICS_ERROR);
 }
 
 export async function fetchAnalyticsFilterOptionsOfflineAware(
   field: AnalyticsFilterOptionsField,
   filters: Pick<AnalyticsGlobalFilters, 'region_id' | 'province' | 'start_date' | 'end_date'> = {},
-): Promise<OfflineAnalyticsResult<string[]>> {
+): Promise<OfflineResult<string[]>> {
   return offlineAware('filter-options', [field, filters], 'analytics', ANALYTICS_CACHE_TTL_MS, () => legacyFetchAnalyticsFilterOptions(field, filters), OFFLINE_ANALYTICS_ERROR);
 }
 
@@ -85,18 +84,18 @@ export const fetchFilterOptionsOfflineAware = fetchAnalyticsFilterOptionsOffline
 
 export async function fetchAnalystIncidentDetailOfflineAware(
   incidentId: number,
-): Promise<OfflineAnalyticsResult<AnalystIncidentDetailResponse>> {
+): Promise<OfflineResult<AnalystIncidentDetailResponse>> {
   return offlineAware('analyst-detail', [incidentId], 'analytics', ANALYTICS_CACHE_TTL_MS, () => legacyFetchAnalystIncidentDetail(incidentId), OFFLINE_ANALYTICS_ERROR);
 }
 
 export async function fetchAnalystIncidentSensitiveOfflineAware(
   incidentId: number,
-): Promise<OfflineAnalyticsResult<AnalystIncidentSensitiveResponse>> {
+): Promise<OfflineResult<AnalystIncidentSensitiveResponse>> {
   return offlineAware('analyst-sensitive', [incidentId], 'analytics', ANALYTICS_CACHE_TTL_MS, () => legacyFetchAnalystIncidentSensitive(incidentId), OFFLINE_ANALYTICS_ERROR);
 }
 
 export async function fetchAnalystIncidentWildlandDetailOfflineAware(
   incidentId: number,
-): Promise<OfflineAnalyticsResult<AnalystIncidentWildlandDetailResponse>> {
+): Promise<OfflineResult<AnalystIncidentWildlandDetailResponse>> {
   return offlineAware('analyst-wildland-detail', [incidentId], 'analytics', ANALYTICS_CACHE_TTL_MS, () => legacyFetchAnalystIncidentWildlandDetail(incidentId), OFFLINE_ANALYTICS_ERROR);
 }

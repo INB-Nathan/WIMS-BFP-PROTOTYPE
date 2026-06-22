@@ -33,21 +33,20 @@ const SESSIONS_CACHE_TTL_MS = 30_000;
 const CONFIG_CACHE_TTL_MS = 30 * 60 * 1000;
 const OFFLINE_ADMIN_ERROR = 'System health data is unavailable offline. Reconnect to refresh this view.';
 
-// Re-export the shared result type under the domain-specific name
-// so existing consumers (admin.ts, components) are unaffected.
-export type OfflineAdminResult<T> = OfflineResult<T>;
+// Issue #7: the previous OfflineAdminResult<T> = OfflineResult<T> identity
+// alias was deleted. Callers use OfflineResult<T> from offlineBase directly.
 
-export async function fetchSystemHealthOfflineAware(): Promise<OfflineAdminResult<SystemHealthResponse>> {
+export async function fetchSystemHealthOfflineAware(): Promise<OfflineResult<SystemHealthResponse>> {
   return offlineAware('system-health', [], 'admin', ADMIN_CACHE_TTL_MS, () => legacyFetchSystemHealth(), OFFLINE_ADMIN_ERROR);
 }
 
-export async function fetchSystemMetricsOfflineAware(): Promise<OfflineAdminResult<SystemMetricsResponse>> {
+export async function fetchSystemMetricsOfflineAware(): Promise<OfflineResult<SystemMetricsResponse>> {
   return offlineAware('system-metrics', [], 'admin', ADMIN_CACHE_TTL_MS, () => legacyFetchSystemMetrics(), OFFLINE_ADMIN_ERROR);
 }
 
 export async function fetchWorkerStatusOfflineAware(
   params?: { limit?: number; offset?: number }
-): Promise<OfflineAdminResult<WorkerStatusPaginatedResponse>> {
+): Promise<OfflineResult<WorkerStatusPaginatedResponse>> {
   return offlineAware(
     'worker-status',
     [params ?? {}],
@@ -58,40 +57,40 @@ export async function fetchWorkerStatusOfflineAware(
   );
 }
 
-export async function fetchActiveSessionsOfflineAware(): Promise<OfflineAdminResult<ActiveSession[]>> {
+export async function fetchActiveSessionsOfflineAware(): Promise<OfflineResult<ActiveSession[]>> {
   return offlineAware('active-sessions', [], 'admin', SESSIONS_CACHE_TTL_MS, () => legacyFetchActiveSessions(), OFFLINE_ADMIN_ERROR);
 }
 
 export async function fetchAuditLogsOfflineAware(
   params?: { limit?: number; offset?: number; q?: string; user_id?: string; action_type?: string; table_affected?: string; ip_address?: string; date_from?: string; date_to?: string },
-): Promise<OfflineAdminResult<PaginatedResponse<AuditLogEntry>>> {
+): Promise<OfflineResult<PaginatedResponse<AuditLogEntry>>> {
   return offlineAware('audit-logs', [params ?? {}], 'admin', ADMIN_CACHE_TTL_MS, () => legacyFetchAuditLogs(params), OFFLINE_ADMIN_ERROR);
 }
 
 export async function fetchAdminSecurityLogsOfflineAware(
   params?: { q?: string; severity?: string; classification?: string; limit?: number; offset?: number; source_ip?: string; date_from?: string; date_to?: string },
-): Promise<OfflineAdminResult<{ items: SecurityLog[]; total: number }>> {
+): Promise<OfflineResult<{ items: SecurityLog[]; total: number }>> {
   return offlineAware('security-logs', [params ?? {}], 'admin', ADMIN_CACHE_TTL_MS, () => legacyFetchAdminSecurityLogs(params), OFFLINE_ADMIN_ERROR);
 }
 
-export async function fetchSecurityLogsSummaryOfflineAware(): Promise<OfflineAdminResult<SecurityLogsSummary>> {
+export async function fetchSecurityLogsSummaryOfflineAware(): Promise<OfflineResult<SecurityLogsSummary>> {
   return offlineAware('security-logs-summary', [], 'admin', ADMIN_CACHE_TTL_MS, () => legacyFetchSecurityLogsSummary(), OFFLINE_ADMIN_ERROR);
 }
 
 export async function fetchAnomaliesOfflineAware(
   params?: { status?: string; severity?: string; anomaly_type?: string; limit?: number; offset?: number },
-): Promise<OfflineAdminResult<AnomalyAggregateResponse>> {
+): Promise<OfflineResult<AnomalyAggregateResponse>> {
   return offlineAware('anomalies', [params ?? {}], 'admin', ADMIN_CACHE_TTL_MS, () => legacyFetchAnomalies(params), OFFLINE_ADMIN_ERROR);
 }
 
-export async function fetchBreachesOfflineAware(): Promise<OfflineAdminResult<Breach[]>> {
+export async function fetchBreachesOfflineAware(): Promise<OfflineResult<Breach[]>> {
   return offlineAware('breaches', [], 'admin', ADMIN_CACHE_TTL_MS, () => breachFetchBreaches(), OFFLINE_ADMIN_ERROR);
 }
 
-export async function fetchAdminConfigOfflineAware(): Promise<OfflineAdminResult<SystemConfigEntry[]>> {
+export async function fetchAdminConfigOfflineAware(): Promise<OfflineResult<SystemConfigEntry[]>> {
   return offlineAware('system-config', [], 'admin', CONFIG_CACHE_TTL_MS, () => legacyFetchAdminConfig(), OFFLINE_ADMIN_ERROR);
 }
 
-export async function fetchRateLimitsOfflineAware(): Promise<OfflineAdminResult<RateLimitConfig>> {
+export async function fetchRateLimitsOfflineAware(): Promise<OfflineResult<RateLimitConfig>> {
   return offlineAware('rate-limits', [], 'admin', CONFIG_CACHE_TTL_MS, () => legacyFetchRateLimits(), OFFLINE_ADMIN_ERROR);
 }
