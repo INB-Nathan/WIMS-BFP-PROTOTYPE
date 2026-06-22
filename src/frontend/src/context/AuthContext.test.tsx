@@ -129,10 +129,11 @@ describe('AuthContext logout → SW cache-clear (unit)', () => {
 // signoutRedirect) MUST still run. This sync-guard test pins the contract
 // against the source file directly because the integration test would
 // require a full OIDC + Keycloak + IndexedDB mock chain.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 describe('AuthContext logout → postMessage error handling (issue #4)', () => {
   it('wraps the postMessage call in a try/catch in AuthContext.tsx', () => {
-    const { readFileSync } = require('node:fs') as typeof import('node:fs');
-    const { join } = require('node:path') as typeof import('node:path');
     const src = readFileSync(
       join(process.cwd(), 'src', 'context', 'AuthContext.tsx'),
       'utf8',
