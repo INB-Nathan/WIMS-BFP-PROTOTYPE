@@ -273,7 +273,7 @@ class TestDockerComposeConfig:
 
         ollama = data["services"]["ollama"]
         limits = ollama["deploy"]["resources"]["limits"]
-        assert limits["cpus"] in ("4", 4), f"Expected 4 CPUs, got {limits['cpus']}"
-        assert limits["memory"].lower() in ("8gb", "8g", "8192m"), (
-            f"Expected 8GB memory, got {limits['memory']}"
+        assert limits["cpus"] in ("2", 2), f"Expected 2 CPUs (VPS has 2 vCPUs), got {limits['cpus']}"
+        assert limits["memory"].lower() in ("4gb", "4g", "4096m"), (
+            f"Expected 4GB memory, got {limits['memory']}"
         )
