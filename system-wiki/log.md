@@ -1,3 +1,62 @@
+## [2026-06-22] fix(offline): thermo issues — 20 consolidated fixes per cross-review meta-review
+
+- **Scope:** 20 issues consolidated from a meta-review of `/tmp/thermo-{security,maintainability,arch,correctness}-review.md`. The four source reviews independently rediscovered several of the same bugs with different severities; the meta-review's "Consolidated priority" list de-duplicated them. This commit applies all 20 fixes grouped by code area.
+
+- **Group A — correctness blockers (issues #1, #2):**
+  - `#1` `offlineAwareReference` now wraps `cacheReferenceData` in try/catch (mirrors `writeCache` for the encrypted read path). A failing IndexedDB write no longer propagates to the caller of a successful fetch.
+  - `#2` `clearAllCachedIncidents` now clears all three caches (`CACHE_STORE`, `READ_CACHE_STORE`, `REFERENCE_STORE`) on logout, not just the legacy `CACHE_STORE`. The plaintext `REFERENCE_STORE` previously lingered on disk for the next user. `OPS_STORE` (offlineOps) is preserved as before.
+
+- **Group B — security/privacy (issues #3, #4, #5):**
+  - `#3` SW `message` handler now validates `event.origin === self.location.origin` and `event.source instanceof Client` before dispatching `clear-auth-cache` or `PREFETCH_ROLE`. Defence-in-depth against XSS-driven postMessage from same-origin scripts.
+  - `#4` `AuthContext.logout`'s `clear-auth-cache` `postMessage` is wrapped in a dedicated try/catch so a `DataCloneError` / `InvalidStateError` / `SecurityError` no longer aborts the rest of the logout flow (`removeUser` + `signoutRedirect`).
+  - `#5` `AuthContext` now exposes `serverValidated: boolean` on the context. It is `true` only on a successful `/api/auth/session` call. `restoreSessionFromCache` (503 / network-error fallback) sets it `false` so consumers can gate privileged actions behind a real server re-check.
+
+- **Group C — reference-store hardening (issues #10, #11):**
+  - `#10` `cacheReferenceData` now throws in non-production builds when the key does not start with the canonical `reference:` prefix, preventing accidental storage of non-public payloads in the plaintext store.
+  - `#11` regression test added for the exact prefix match in `clearReferenceDataForUser`. The existing `^reference:{uid}:` regex is already exact (the trailing `:` rejects longer prefixes like `reference:abcd:` when `uid=abc`), so no code change was needed — the test pins the contract.
+
+- **Group D — orchestrator cleanup (issues #6, #8):**
+  - `#6` moved `incrementCacheWriteCount` from `finally` to the success branch so the counter only advances on actual writes. The previous `finally`-block pattern incremented on reads too (offline hits, network-error fallbacks), inflating the counter and triggering evictions on read-heavy workloads. The counter name now matches its semantics.
+  - `#8` collapsed `offlineAware` and `offlineAwareReference` into a single private `offlineAwareImpl` that takes a `CacheBackend` (`{readFresh, write}`) parameter. The two public exports remain so the wrapper files and tests keep working without churn. ~60 lines of byte-duplicate control flow deleted.
+
+- **Group E — wrappers and types (issues #7, #9):**
+  - `#7` deleted the 5 identity type aliases (`OfflineAdminResult`, `OfflineAnalyticsResult`, `OfflineReferenceResult`, `OfflineValidatorResult`, `OfflineValidatorQueueResult`) — they were pure renames of `OfflineResult<T>` with no semantic difference. Replaced internal usage with `OfflineResult<T>` in all 4 wrapper files, removed the re-exports from `admin.ts` / `analytics.ts` / `validator.ts`, and added a sync-guard test that pins the contract against re-introduction.
+  - `#9` the 23 wrapper functions are already 1-line delegations to the shared `offlineAware` / `offlineAwareReference` orchestrator (extracted in issue #8). Added a sync-guard test that pins the contract: the wrapper files must import the shared helper, declare ≥ 3 `*OfflineAware` functions, and contain no inline try/catch/finally (the orchestrator owns the control flow).
+
+- **Group F — offlineStore structural cleanup (issues #12, #15, #16, #17):**
+  - `#12` extracted `evictExpiredInStore(storeName)` helper. The previous `evictExpiredReadCache` and `evictExpiredReferenceData` were byte-identical except for the store name. They are now thin wrappers around the new helper, which accepts the store name as a parameter. ~30 lines of duplication collapsed to ~15.
+  - `#15` extracted `devWarn(...args)` helper. The previous pattern `if (process.env.NODE_ENV !== 'production') console.warn(...)` was repeated 9 times across `offlineStore.ts`; replaced with calls to the single `devWarn` helper (1-line replacement each).
+  - `#16` parameterized `CachedReadRecord` and `CachedReferenceRecord` as `CachedRecord<TPayload>`. The two named types are now derived from a single generic. The `encrypted` field is renamed to `data` for consistency with the public `CachedResponse`; 3 callers in the encryption test were updated to use `.data` instead of `.encrypted`.
+  - `#17` changed `LegacyOfflineOpType` from a parallel string union to `Extract<OfflineOpType, 'create' | 'verify' | 'archive_action'>`. The subset relationship is now enforced at the type level. (Note: `Pick<>` is for object types; `Extract<>` is the string-union equivalent.)
+
+- **Group G — API barrel (issue #14):**
+  - `api/index.ts` now re-exports the offline-aware wrappers from all 4 domain modules: `offlineReference`, `offlineValidator` (pre-existing), and the previously-missing `offlineAdmin` + `offlineAnalytics`. Consumers can now import via the barrel (`@/lib/api`) instead of reaching into the deep paths.
+
+- **Group H — dashboard banner (issues #18, #19):**
+  - `#18` the dashboard's reference-data useEffect handlers (regions / provinces / cities) now capture `r.cachedAt` into a `refsCachedAt` state and render `<StaleCacheBanner freshness={...} />` when a cached timestamp is present. Mirrors the admin monitoring page pattern. The previous code silently ignored `r.fromCache` and `r.cachedAt`, so a user working offline for the 7-day reference TTL had no signal that the taxonomy was stale.
+  - `#19` `StaleCacheBanner`'s "render null when `cachedAt` is missing" short-circuit was previously undocumented. Added JSDoc on the `freshness` and `message` props to make the contract explicit.
+
+- **Group I — SW cache key (issue #20):**
+  - The RSC cache key currently drops the query string entirely. Two RSC requests that share a canonical pathname but differ in their `?_rsc=...` or other query params will collide in the cache. This is potentially a bug for per-incident RSC payloads, but the meta-review marks it as an "investigate, do not change" item — the SW author's intent is unclear. The safe action: pin the current 2-arg `buildRscCacheKey` shape with a sync-guard test so a future refactor does not silently drop or change the cache-key shape, and add a TODO comment in the SW that explains the design decision and the open question for the Next.js team.
+
+- **Group J — test surface gaps (issue #13):**
+  - Two focused regression tests added: (a) `setActiveOfflineUser` user-switch wipe covers the real production path, not just the standalone `clearReferenceDataForUser`; (b) `clearReferenceDataForUser` `escapeRegex` handles regex meta-characters in the userId (e.g. `userA.*`). The 814-line admin test (maintainability #10) is intentionally NOT restructured per the meta-review action ("do not restructure the existing test files in this PR").
+
+- **Validation:** `cd src/frontend && npx vitest run` → 947/947 pass (was 877 on the pre-this-branch baseline; +70 new tests). `cd src/frontend && npm run lint` → 0 errors, 20 pre-existing warnings (no new warnings from this branch). `cd src/backend && ruff check .` → 0 issues. `cd src/backend && ruff format --check .` → 225 files already formatted. `cd src/frontend && npx tsc --noEmit` → 63 pre-existing errors in 12 files (no new errors introduced; the same errors existed on the pre-this-branch baseline). `npx tsc` errors are documented in the prior T15 log entry — they are out of scope for this branch and a separate PR should fix them.
+
+- **Git log on this branch (8 commits):**
+  1. `fix(offline): thermo issues 1-5, 10, 11` — Groups A, B, C
+  2. `fix(offline): unify orchestrator + fix counter semantics (issues 6, 8)` — Group D
+  3. `fix(offline): type alias cleanup + wrapper shape contract (issues 7, 9)` — Group E
+  4. `fix(offline): offlineStore structural cleanup (issues 12, 15, 16, 17)` — Group F
+  5. `fix(offline): barrel re-export coverage (issue #14)` — Group G
+  6. `fix(dashboard): stale-cache banner + JSDoc (issues 18, 19)` — Group H
+  7. `fix(sw): document RSC cache-key query-string behaviour (issue #20)` — Group I
+  8. `test(offline): cover user-switch wipe + escapeRegex regression (issue #13)` + lint fix
+
+- **Gap register check:** the 20 issues are code-level / type-level / security / UX fixes to the existing offline-caching implementation; they do not open or close any FRS-level gaps. The pre-existing "Offline-first: verify IndexedDB encryption/sync semantics against M2" verification target is unchanged — it was partially closed by the prior T1-T15 work and no new FRS gap is introduced here.
+
+- **Wiki updates:** this log entry is the primary wiki update. `system-wiki/architecture/pwa-tests-cicd.md` was already comprehensive on the offline-caching architecture (per the prior T15 update); no structural changes are needed there because the orchestrator and storage layer are now tighter but functionally equivalent. The `frontend/frontend-infrastructure.md` row for `api/offlineBase.ts` is implicitly updated by the deletion of the 5 identity type aliases (the barrel still exports `OfflineResult<T>` and the wrapper functions unchanged).
 ## [2026-06-22] feat(offlineBase): offlineAwareReference orchestrator (unencrypted, userId-namespaced)
 
 - **Scope:** Task 2 of the `docs/superpowers/plans/2026-06-21-offline-cache-every-role.md` plan. Adds the unencrypted reference-data orchestrator that wraps the `REFERENCE_STORE` writes/reads added in Task 1.
