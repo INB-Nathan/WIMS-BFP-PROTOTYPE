@@ -24,7 +24,7 @@ Source of truth: `src/backend/main.py` and `src/backend/api/routes/*.py`
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| POST | `/api/civilian/reports` | Public | Submits citizen report with `PENDING` status and zero trust score. |
+| POST | `/api/civilian/reports` | Public; rate limit: 3/hr per IP (`CIVILIAN_REPORT_HOURLY_CAP`) | Submits citizen report with `PENDING` status and zero trust score. |
 | GET | `/api/civilian/reports/{report_id}` | Public | Securely fetches the status of a public report without authentication. |
 
 ### Triage (`api/routes/triage.py`, prefix `/api/triage`)

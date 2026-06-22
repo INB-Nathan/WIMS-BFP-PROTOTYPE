@@ -15,8 +15,16 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import get_db
-from utils.audit import hash_client_ip, log_system_audit
+from utils.audit import hash_client_ip, log_system_audit, trusted_client_ip
 from utils.public_abuse import rate_limit_public
+from utils.rate_limit import (
+    CIVILIAN_FOLLOWUP_PER_IP_HOURLY_CAP,
+    CIVILIAN_FOLLOWUP_PER_REPORT_HOURLY_CAP,
+    CIVILIAN_REPORT_HOURLY_CAP,
+    CIVILIAN_REPORT_RATE_LIMIT_WINDOW_SECONDS,
+    RETRY_AFTER_CEILING_SECONDS,
+    RETRY_AFTER_FLOOR_SECONDS,
+)
 
 from schemas.civilian import (
     CivilianFollowupCreate,
@@ -269,14 +277,21 @@ def submit_civilian_report(
 ) -> CivilianReportResponse:
     """Public endpoint: submit emergency report with no auth."""
     wkt = f"SRID=4326;POINT({body.longitude} {body.latitude})"
-    # Read from X-Real-IP, which nginx sets to $realip_remote_addr (the actual TCP socket
-    # address before real-IP-module processing) for /api/civilian/ locations.  Clients
-    # cannot spoof this — nginx always overwrites the header.  get_client_ip() is NOT used
-    # here because it reads X-Forwarded-For first, which is client-controlled (gap #14).
-    ip_hash = hash_client_ip(
-        request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")
-    )
+    # trusted_client_ip reads X-Real-IP (set by nginx to $realip_remote_addr)
+    # and falls back to the ASGI socket peer. It NEVER reads X-Forwarded-For,
+    # which is client-controlled (gap #14).
+    ip_hash = hash_client_ip(trusted_client_ip(request))
     _require_previous_report(db, body.previous_report_id)
+    # PR #446 gap #14 followup (P0-2): take a Postgres transaction-scoped
+    # advisory lock keyed on the per-IP hash BEFORE the COUNT(*) rate-limit
+    # query. This closes the TOCTOU race: N concurrent requests at the
+    # boundary previously all observed count<3 and all INSERTed, exceeding
+    # the per-IP cap. pg_advisory_xact_lock auto-releases on commit/rollback,
+    # so no explicit unlock is required.
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext('rl:civilian:' || :ip_hash))"),
+        {"ip_hash": ip_hash},
+    ).scalar()
     rate_row = db.execute(
         text("""
             SELECT COUNT(*) AS rate_count,
@@ -288,19 +303,42 @@ def submit_civilian_report(
         """),
         {"ip_hash": ip_hash},
     ).fetchone()
-    if rate_row is not None and int(rate_row.rate_count) >= 3:
+    if rate_row is not None and int(rate_row.rate_count) >= CIVILIAN_REPORT_HOURLY_CAP:
         oldest = rate_row.oldest_created_at
         if oldest is not None:
-            if oldest.tzinfo is None:
-                oldest = oldest.replace(tzinfo=timezone.utc)
-            retry_after = max(
-                1,
-                math.ceil(
-                    (oldest + timedelta(hours=1) - datetime.now(timezone.utc)).total_seconds()
+            # PR #446 P1-11: wims.citizen_reports.created_at is TIMESTAMPTZ
+            # (see postgres-init/05_citizen_reports.sql — created_at
+            # TIMESTAMPTZ DEFAULT now()), so the row returned by SQLAlchemy
+            # always has tzinfo set. The defensive
+            # ``if oldest.tzinfo is None: oldest = oldest.replace(...)``
+            # check is dead code and was removed.
+            # Retry-After must be bounded on both sides: lower bound keeps the
+            # client from immediately retrying; upper bound keeps a clock-skew
+            # or stale row from advising the client to wait longer than the
+            # rate-limit window actually is (P1-6).
+            retry_after = min(
+                RETRY_AFTER_CEILING_SECONDS,
+                max(
+                    RETRY_AFTER_FLOOR_SECONDS,
+                    math.ceil(
+                        (
+                            oldest
+                            + timedelta(seconds=CIVILIAN_REPORT_RATE_LIMIT_WINDOW_SECONDS)
+                            - datetime.now(timezone.utc)
+                        ).total_seconds()
+                    ),
                 ),
             )
         else:
-            retry_after = 3600
+            # P1-10: the if-branch should be impossible — if COUNT(*) >=
+            # CIVILIAN_REPORT_HOURLY_CAP then MIN(created_at) cannot be NULL.
+            # Assert loudly so a future schema/migration regression fails here
+            # instead of silently advising the client to wait 1 hour.
+            assert oldest is not None, (
+                f"MIN(created_at) is None despite COUNT(*) >= "
+                f"{CIVILIAN_REPORT_HOURLY_CAP}; citizen_reports schema regression"
+            )
+            retry_after = RETRY_AFTER_CEILING_SECONDS
         raise HTTPException(
             status_code=429,
             detail="Too many reports from this network. Try again later.",
@@ -550,9 +588,15 @@ def submit_civilian_followup(
         )
 
     # Rate limit: max 5 follow-ups per IP per hour on the same report
-    ip_hash = hash_client_ip(
-        request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")
-    )
+    ip_hash = hash_client_ip(trusted_client_ip(request))
+    # P0-2 TOCTOU: take a per-IP advisory lock before the count queries so
+    # concurrent follow-up submissions cannot all observe count<cap and
+    # all INSERT, bypassing the per-IP cap. pg_advisory_xact_lock is
+    # transaction-scoped and auto-releases on commit/rollback.
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext('rl:civilian-followup:' || :ip_hash))"),
+        {"ip_hash": ip_hash},
+    ).scalar()
     recent_count = db.execute(
         text("""
             SELECT COUNT(*)
@@ -573,12 +617,12 @@ def submit_civilian_followup(
         """),
         {"ip_hash": ip_hash},
     ).scalar()
-    if recent_count is not None and int(recent_count) >= 5:
+    if recent_count is not None and int(recent_count) >= CIVILIAN_FOLLOWUP_PER_REPORT_HOURLY_CAP:
         raise HTTPException(
             status_code=429,
             detail="Too many follow-ups on this report. Try again later.",
         )
-    if ip_recent is not None and int(ip_recent) >= 10:
+    if ip_recent is not None and int(ip_recent) >= CIVILIAN_FOLLOWUP_PER_IP_HOURLY_CAP:
         raise HTTPException(
             status_code=429,
             detail="Too many follow-ups from this network. Try again later.",
@@ -600,7 +644,9 @@ def submit_civilian_followup(
     if not result:
         raise HTTPException(status_code=500, detail="Failed to save follow-up")
 
-    # Log audit trail entry (no user — civilian submission)
+    # Log audit trail entry (no user — civilian submission). Use
+    # trusted_client_ip so the audit row's ip_address / ip_hash are anchored
+    # to the TCP socket IP, not the client-controlled XFF (gap #14).
     try:
         from utils.audit import log_system_audit
 
@@ -611,6 +657,7 @@ def submit_civilian_followup(
             table_affected="citizen_report_followups",
             record_id=result[0],
             request=request,
+            ip_hash=ip_hash,
         )
         db.commit()
     except Exception:
@@ -759,10 +806,10 @@ def register_notification(
             detail="Too many notification registrations for this report",
         )
 
-    # Per-IP token registration cap (5 per IP per hour, Redis fail-closed)
-    client_ip = request.headers.get("x-real-ip") or (
-        request.client.host if request.client else "unknown"
-    )
+    # Per-IP token registration cap (5 per IP per hour, Redis fail-closed).
+    # Uses trusted_client_ip (X-Real-IP / socket peer only) so the rate-limit
+    # key cannot be rotated by spoofing X-Forwarded-For (gap #14).
+    client_ip = trusted_client_ip(request)
     rate_limit_public(
         _get_redis(), client_ip, "public_notify", limit=5, window=3600, fail_closed=True
     )

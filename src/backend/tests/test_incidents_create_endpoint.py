@@ -57,7 +57,14 @@ def test_create_incident_converts_uuid_encoder_id_to_string(monkeypatch):
     assert audit_params["action"] == "CREATE_INCIDENT"
     assert audit_params["table"] == "wims.fire_incidents"
     assert audit_params["rec"] == 123
-    assert audit_params["ip"] == "198.51.100.10"
+    # PR #446 gap #14: the audit row's ip_address column must be the
+    # TRUSTED socket IP (the ASGI socket peer when no X-Real-IP is set),
+    # NOT the client-controlled XFF value. Pre-fix the audit log was
+    # pinning the XFF first-hop, which made the audit row actively wrong
+    # after the rate-limiter was anchored to $realip_remote_addr.
+    assert audit_params["ip"] == "172.18.0.5", (
+        f"Audit log must store the trusted socket IP, not the XFF hop. Got {audit_params['ip']!r}"
+    )
     assert audit_params["ua"] == "pytest-agent"
 
     audit_execute_index = next(

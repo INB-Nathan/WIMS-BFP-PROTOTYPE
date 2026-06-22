@@ -12,8 +12,56 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger("wims.audit")
 
 
-def get_client_ip(request: Request | None) -> str | None:
-    """Return the real client IP from trusted reverse-proxy headers.
+def trusted_client_ip(request: Request | None) -> str:
+    """Return the real TCP-socket client IP for the current request.
+
+    Prefers the ``X-Real-IP`` header (set by nginx to ``$realip_remote_addr``
+    for unauthenticated routes) and falls back to the ASGI socket peer.
+    **NEVER reads ``X-Forwarded-For``** — that header is client-controlled
+    when the request has traversed a trusted-proxy hop (gap #14 / DS-07).
+
+    If both ``X-Real-IP`` and ``request.client`` are missing (e.g. a
+    misconfigured ASGI middleware, a synthetic test request), returns a
+    *per-request* synthetic key of the form
+    ``"unknown:<x-request-id>:<uuid4>"`` so the fallback does not co-bucket
+    every caller into a single rate-limit / audit slot (P0-5). Always
+    returns a non-empty string so callers can hash it unconditionally.
+
+    Parameters
+    ----------
+    request : ``fastapi.Request`` or ``None`` — the ASGI request.
+
+    Returns
+    -------
+    str
+        The trustworthy client IP, or a per-request synthetic key.
+    """
+    if request is not None:
+        real_ip = request.headers.get("x-real-ip")
+        if real_ip and real_ip.strip():
+            return real_ip.strip()
+        if request.client and request.client.host:
+            return request.client.host
+        # Per-request fallback: x-request-id + uuid so two synthetic
+        # requests never share a bucket. Do NOT collapse to a single
+        # constant — that turns the fallback into a DoS amplifier.
+        rid = request.headers.get("x-request-id", "") if request else ""
+        return f"unknown:{rid}:{uuid.uuid4().hex}" if rid else f"unknown:{uuid.uuid4().hex}"
+    # Caller passed None — also fall back to a per-call uuid so two calls
+    # to trusted_client_ip(None) still get different keys.
+    return f"unknown:{uuid.uuid4().hex}"
+
+
+def _legacy_get_client_ip_from_xff(request: Request | None) -> str | None:
+    """LEGACY: Return the real client IP from trusted reverse-proxy headers.
+
+    .. deprecated::
+        Prefer :func:`trusted_client_ip` for any rate-limit, audit, or
+        abuse-trace consumer. This helper reads ``X-Forwarded-For`` FIRST,
+        which is **client-controlled** after a trusted-proxy hop and can
+        be rotated to bypass per-IP rate limits (gap #14). It is retained
+        for the 16 existing call sites that pre-date the gap #14 fix; do
+        not use it for new code.
 
     In production FastAPI sees nginx's Docker-network address in
     ``request.client.host``. Prefer the first ``X-Forwarded-For`` hop, then
@@ -35,6 +83,13 @@ def get_client_ip(request: Request | None) -> str | None:
     if request.client:
         return request.client.host
     return None
+
+
+# Backward-compat alias: the original public name still works, but the
+# implementation is the legacy XFF-first path. New code MUST import
+# ``trusted_client_ip`` instead. See ``_legacy_get_client_ip_from_xff`` for
+# the rationale.
+get_client_ip = _legacy_get_client_ip_from_xff
 
 
 # ---------------------------------------------------------------------------
@@ -274,13 +329,26 @@ def log_system_audit(
     user_agent = None
 
     if request:
-        raw_ip = get_client_ip(request)
+        # PR #446 gap #14: prefer trusted_client_ip (X-Real-IP / socket peer
+        # only, no XFF) so the audit log's ip_address and ip_hash columns
+        # are anchored to the TCP socket IP. Falls back to the per-request
+        # synthetic "unknown:<uuid>" key if both are missing.
+        raw_ip = trusted_client_ip(request)
         user_agent = request.headers.get("user-agent")
 
     effective_correlation_id = _resolve_correlation_id(request, correlation_id)
-    effective_ip_hash = (
-        ip_hash if ip_hash is not None else (hash_client_ip(raw_ip) if raw_ip else None)
-    )
+    # Audit-integrity contract: if no request was supplied, neither raw_ip
+    # nor ip_hash is populated. Otherwise we always derive ip_hash from
+    # the trusted raw_ip (trusted_client_ip is guaranteed to return a
+    # non-empty string, so we can always hash). P2-1 may revisit this
+    # contract in a follow-up PR (deferral documented in the PR #446
+    # commit message).
+    if request is None:
+        effective_ip_hash = ip_hash  # may still be None — that's the legacy contract
+    elif ip_hash is not None:
+        effective_ip_hash = ip_hash
+    else:
+        effective_ip_hash = hash_client_ip(raw_ip)
 
     try:
         db.execute(
