@@ -19,6 +19,7 @@ celery_app = Celery(
         "tasks.civilian_reports",
         "tasks.drafts",
         "tasks.exports",
+        "tasks.ip_blocklist",
         "tasks.monitoring",
         "tasks.narrative",
         "tasks.notifications",
@@ -34,6 +35,7 @@ celery_app.conf.imports = (
     "tasks.civilian_reports",
     "tasks.drafts",
     "tasks.exports",
+    "tasks.ip_blocklist",
     "tasks.kms_rotation",
     "tasks.monitoring",
     "tasks.narrative",
@@ -112,6 +114,11 @@ celery_app.conf.update(
         "execute-scheduled-reports": {
             "task": "tasks.scheduled_reports.execute_due_reports",
             "schedule": SCHEDULE_CHECK_INTERVAL,
+        },
+        # Task 7: Periodic Redis blocklist resync (every 5 min)
+        "resync-ip-blocklist": {
+            "task": "tasks.ip_blocklist.resync_ip_blocklist",
+            "schedule": 300.0,
         },
     },
 )
