@@ -92,6 +92,36 @@ Weekly update: Celery beat task `update-suricata-rules-weekly` (Sunday 03:00 UTC
 live rule reload. Rules before/after counts logged and compared for regressions.
 Docker socket mounted in celery-worker for container exec access.
 
+## IP Blocklist + Repeat-Offender Escalation (2026-06-22)
+
+FRS does not specify an IP blocklist (genuine product gap — see `frs-codebase-gap-register.md`), but the System Admin needs an enforcement lever when the XAI narrative identifies a repeat attacker. **App-layer block only** — this is NOT a volumetric DoS shield. A blocked IP is denied by the FastAPI middleware (403) after it has already passed through nginx and consumed a worker for the 403 response. Real volumetric shielding (nginx `deny` / iptables / WAF) is intentionally out of scope for a prototype on a live VPS.
+
+**Architecture:**
+- **Postgres** = durable write-path. New `wims.ip_blocklist` table (migration `65_ip_blocklist.sql`): `block_id, source_ip, blocked_at, expires_at, is_permanent, blocked_by, block_reason, threat_log_id, is_active`. RLS policy `ip_blocklist_admin_all` (SYSTEM_ADMIN-only, uses `wims.current_user_role()`). Indexes: `idx_ip_blocklist_source_ip`, partial index on `is_active=true`.
+- **Redis** = hot-path source of truth. Key scheme: `ip:block:{ip}` (one key per blocked IP). Block: `SET ip:block:{ip} "1" EX {ttl_seconds}` (24h = 86400). Permanent: `SET ip:block:{ip} "1"` (no `EX` — lives until explicit `DEL`). Middleware does `EXISTS f"ip:block:{client_ip}"` only — **zero Postgres queries in the request path**. Native Redis TTL self-expires, no Celery sweep needed for expiry. Boot resync (`BlockedIPMiddleware` startup hook) + Celery beat every 5 min (`tasks.ip_blocklist.resync_ip_blocklist`) cover Redis data loss / restart / drift. Best-effort Redis writes AFTER Postgres commit.
+- **`BlockedIPMiddleware`** (`src/backend/main.py`): Health exempt (`/health`, `/api/v1/public/health`). Fail-open if Redis down (matches `main.py:765-767` rate-limiter pattern). Returns 403 JSON `{detail: "IP blocked by admin action"}`.
+
+**Security properties (verified against 2 SOTA-model reviews, 12 revisions adopted):**
+- **X-Real-IP first, never parse X-Forwarded-For leftmost.** Nginx sets `X-Real-IP` to `$remote_addr` (after realip module) in all configs (`nginx.conf`, `nginx.local.conf`, `nginx.ci.conf`) — not client-appendable. Prod (`nginx.conf`) overwrites XFF with `$remote_addr`; local/CI appends via `$proxy_add_x_forwarded_for` (client-spoofable leftmost). The blocklist helper (`_get_request_client_ip` in `services/ip_blocklist.py`) reads `X-Real-IP` first, falls back to `request.client.host`. **Note:** the existing rate limiter (`main.py:771`) still parses XFF leftmost — same latent spoofing bug, out of scope for this feature.
+- **Self-IP guard** on all block endpoints (`block-source-ip`, `block-by-filter`, `bulk-action block_ip`): refuses with 400 if `source_ip == requester_ip`. Prevents self-lockout.
+- **Critical-IP allowlist** (`ip_blocklist.allowlist` in `system_config`, default `127.0.0.1,::1`): IPs/CIDRs that must never be blocked. Checked by `BlockedIPMiddleware` AND all block endpoints. Protects other admins, uptime monitors, VPS egress, health-checkers. **Important for NAT/CGNAT-heavy PH mobile user bases** where one public IP can represent many users.
+- **Already-active no-op:** if an active block exists for an IP, the `block_ip` service returns `{already_active: true}` without INSERT, count increment, or audit. Prevents double-click/filter-duplicate false escalation toward permanent.
+- **Repeat-offender escalation** (configurable, default threshold 3 from `ip_blocklist.repeat_offender_threshold`): `block_count` is DERIVED via `SELECT COUNT(*) FROM ip_blocklist WHERE source_ip = :ip` (no stored column). On the Nth block where `count >= threshold`, the new row is `is_permanent=true, expires_at=NULL`. Each block is a separate row; an unblock separates episodes. **Removes the stored `block_count` column** to avoid two sources of truth.
+- **24h TTL default**, permanent only via repeat-offender or manual "permanent" toggle. Unblock always available from the panel.
+- **500-IP hard cap** on `block-by-filter` execute (504 fix at 25k scale). Dry-run preview returns full counts including the cap warning; UI shows it before confirm.
+- **RLS context**: all service functions take `db` from `get_db_with_rls` (RLS GUC set; required for the `WITH CHECK` policy). Never create a standalone session for blocklist writes.
+- **Soft-delete** for threat alerts (no hard delete) — avoids FK violations on `34_security_incident` + `52_breach_notifications`. `DELETE /security-logs/{id}` + bulk `dismiss` share one `dismiss_security_log` helper.
+- **Audit-logged** end-to-end (`log_system_audit` with `action_type=BLOCK_SOURCE_IP|UNBLOCK_IP|BLOCK_BY_FILTER|BULK_SECURITY_ACTION|DELETE_SECURITY_LOG`).
+- **Fail-open** on Redis down (rate limiter + blocklist middleware both fail open — `main.py:765-767` pattern).
+- **Classification filter dropped** from `block-by-filter`: the `classification` column from migration `62_security_threat_classification.sql` never applied to the running DB (same first-init-only problem as `65_ip_blocklist.sql`). The `SecurityLogFilter.classification?` field is in the API contract but ignored server-side until migration 62 is applied. Restore note left in `services/ip_blocklist.py:block_ips_by_filter`.
+- **Pre-existing XFF bug in rate limiter** (`main.py:771`) noted but not fixed (out of scope for this feature).
+
+**Frontend (admin/monitoring only, system/page.tsx untouched):** 4 per-row action groups (HITL verdict / Block Source IP / Create Incident / Delete Alert), bulk bar, S3 filter-scoped block with 500-IP cap preview, Blocked IPs panel with repeat-offender "Confirmed Attacker" badge (red 4px left accent), confirm dialogs with pre-commit preview (HCI: count + cap warning + repeat-offender breakdown before destructive execute).
+
+**Endpoints (6 new):** `POST /api/admin/security-logs/{id}/block-source-ip`, `POST /api/admin/security-logs/block-by-filter?preview=true`, `POST /api/admin/security-logs/bulk-action`, `DELETE /api/admin/security-logs/{id}`, `DELETE /api/admin/ip-blocklist/{ip}`, `GET /api/admin/ip-blocklist`. All SYSTEM_ADMIN-only.
+
+**Spec:** `docs/superpowers/specs/2026-06-22-monitoring-threat-actions-design.md`. **Plan:** `docs/superpowers/plans/2026-06-22-monitoring-threat-actions.md`.
+
 ## Real-Time Notifications (SSE)
 FRS Module 13 defines a notification system. The SSE event stream (`GET /api/events/stream`) provides real-time push via Redis pub/sub. Channels: `incident` (status changes/corrections), `verification` (triage cluster workflow), `security` (threat/HITL events), `system` (maintenance). Role-based channel authorization enforced at connect time. Publishers injected at: `verify_incident`, `update_incident`, `correct_verified_incident`, `claim_cluster_command`, `apply_terminal_action_command`, `ingest_eve_file` (Suricata), `analyze_threat_log` (AI), and `update_security_log` (HITL). Frontend consumer hook: `useEventStream.ts`. Nginx configured with `proxy_buffering off` for the SSE location block.
 
