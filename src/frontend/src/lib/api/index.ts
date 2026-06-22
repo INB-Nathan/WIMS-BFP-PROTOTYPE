@@ -28,3 +28,35 @@ export {
   fetchOperationalMapOfflineAware,
   fetchValidatorAuditLogsOfflineAware,
 } from './offlineValidator';
+
+// Issue #14: api/index.ts re-export coverage was partial. admin/analytics/
+// offlineAdmin/offlineAnalytics were not re-exported — consumers reached
+// into the deep paths (admin.ts:18-22 imports the admin wrappers directly).
+// Add the missing re-exports so the barrel boundary is the canonical
+// surface and consumers don't have to know the deep path.
+export {
+  fetchSystemHealthOfflineAware,
+  fetchSystemMetricsOfflineAware,
+  fetchWorkerStatusOfflineAware,
+  fetchActiveSessionsOfflineAware,
+  fetchAuditLogsOfflineAware,
+  fetchAdminSecurityLogsOfflineAware,
+  fetchSecurityLogsSummaryOfflineAware,
+  fetchAnomaliesOfflineAware,
+  fetchBreachesOfflineAware,
+  fetchAdminConfigOfflineAware,
+  fetchRateLimitsOfflineAware,
+} from './offlineAdmin';
+
+export {
+  fetchAnalyticsFilterOptionsOfflineAware,
+  fetchAnalystIncidentDetailOfflineAware,
+  fetchAnalystIncidentSensitiveOfflineAware,
+  fetchComparativeDataOfflineAware,
+  fetchFilterOptionsOfflineAware,
+  fetchHeatmapDataOfflineAware,
+  fetchResponseTimeByRegionOfflineAware,
+  fetchTopNOfflineAware,
+  fetchTrendDataOfflineAware,
+  fetchTypeDistributionOfflineAware,
+} from './offlineAnalytics';

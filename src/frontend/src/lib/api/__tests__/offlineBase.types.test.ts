@@ -97,3 +97,63 @@ describe('offlineAware wrapper shape (issue #9)', () => {
     });
   }
 });
+
+/**
+ * Barrel coverage (issue #14).
+ *
+ * api/index.ts must re-export the offline-aware wrappers from all 4 domain
+ * modules so consumers can import them via the barrel (`@/lib/api`) rather
+ * than reaching into the deep paths. The previous version re-exported only
+ * `offlineReference` and `offlineValidator`; `offlineAdmin` and
+ * `offlineAnalytics` were missing, which led consumers to import directly
+ * from the deep files (e.g. admin.ts:18-22).
+ */
+
+describe('api/index.ts barrel coverage (issue #14)', () => {
+  const BARREL = readFileSync(
+    join(process.cwd(), 'src', 'lib', 'api', 'index.ts'),
+    'utf8',
+  );
+
+  const REQUIRED_REEXPORTS = [
+    // offlineAdmin (issue #14) — the previously-missing re-exports.
+    'fetchSystemHealthOfflineAware',
+    'fetchSystemMetricsOfflineAware',
+    'fetchWorkerStatusOfflineAware',
+    'fetchActiveSessionsOfflineAware',
+    'fetchAuditLogsOfflineAware',
+    'fetchAdminSecurityLogsOfflineAware',
+    'fetchSecurityLogsSummaryOfflineAware',
+    'fetchAnomaliesOfflineAware',
+    'fetchBreachesOfflineAware',
+    'fetchAdminConfigOfflineAware',
+    'fetchRateLimitsOfflineAware',
+    // offlineAnalytics (issue #14) — the previously-missing re-exports.
+    'fetchAnalyticsFilterOptionsOfflineAware',
+    'fetchAnalystIncidentDetailOfflineAware',
+    'fetchAnalystIncidentSensitiveOfflineAware',
+    'fetchComparativeDataOfflineAware',
+    'fetchFilterOptionsOfflineAware',
+    'fetchHeatmapDataOfflineAware',
+    'fetchResponseTimeByRegionOfflineAware',
+    'fetchTopNOfflineAware',
+    'fetchTrendDataOfflineAware',
+    'fetchTypeDistributionOfflineAware',
+    // offlineReference and offlineValidator were already in the barrel;
+    // include them so a future re-export deletion is caught.
+    'fetchRegionsOfflineAware',
+    'fetchProvincesOfflineAware',
+    'fetchCitiesOfflineAware',
+    'fetchOperationalMapOfflineAware',
+    'fetchValidatorAuditLogsOfflineAware',
+  ];
+
+  for (const name of REQUIRED_REEXPORTS) {
+    it(`barrel re-exports \`${name}\``, () => {
+      // Match either a named export in an `export { ... }` block sourced
+      // from an offline* module, or an `export *` from the same.
+      const re = new RegExp(`export\\s*(?:\\*\\s*from\\s*['"]\\./offline\\w+['"]|\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*['"]\\./offline\\w+['"])`);
+      expect(BARREL, `api/index.ts must re-export \`${name}\``).toMatch(re);
+    });
+  }
+});
