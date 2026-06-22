@@ -1,7 +1,7 @@
 ---
 title: Security Baseline
 created: 2026-05-14
-updated: 2026-06-20
+updated: 2026-06-22
 type: security
 tags: [wims-bfp, security, auth, rbac, rls, audit-log, ids, xai, privacy, fail-closed]
 sources: [raw/frs/frs-auth.md, raw/frs/frs-complianceanddataprivacy.md, raw/frs/frs-intrusiondetectionandnetworkingmonitoring.md, raw/frs/frs-threatdetectionwithexplainableai.md, raw/codebase/codebase-snapshot-2026-05-14.md, src/keycloak/demo-otp-provider, src/keycloak/bfp-realm.json, src/keycloak/import/bfp-realm.json]
@@ -278,3 +278,25 @@ D15 (CSV/Excel formula injection hardening) is implemented in
 - **Integration:** Called from `GET /api/regional/incidents/{id}`, `GET /api/regional/validator/incidents/{id}/history`, and `GET /api/incidents/analyst/{id}`. The `integrity_status` field is included in API responses.
 - **Audit:** Tampered chains log `INTEGRITY_VIOLATION` rows to `wims.system_audit_trails`.
 - **Limitation:** Only correction operations write hash-chain data. Regular verify/approve transitions do not (those rows show `"unverified"`).
+
+## XFF Cleanup + Civilian 429 Specificity + #419 XAI Load Guard (2026-06-22)
+
+Completes the #446 follow-up for the XFF spoofing gap. Three workstreams: (WS1) all app-layer client-IP reads migrate from `get_client_ip` (XFF-first, spoofable) to `trusted_client_ip` (X-Real-IP first, never XFF); (WS2) the civilian 429 error now shows a specific timing message instead of the alarming generic "call 911" boundary; (WS3) regression tests lock in the no-XAI-on-page-load behavior that protects the defense demo from a 504.
+
+**WS1 — XFF → `trusted_client_ip` migration:**
+- **16 `get_client_ip` usage call sites migrated** — 1 consent (Tier 1, commit `b19b8092`) + 15 audit-trace (Tier 2, commit `0158babe`). Files: `consent.py`, `incidents.py`, `validator.py` (4 sites), `afor.py`, `encoder_crud.py` (9 sites). All swap `get_client_ip(request)` → `trusted_client_ip(request)`.
+- **`get_client_ip` alias retained** with deprecation docstring. Zero production call sites remain. Tier 5 (alias removal) is a follow-up — dead-code hygiene, no security impact.
+- **nginx defense-in-depth** (Tier 3, commit `e303438e`): all 3 nginx configs (`nginx.conf`, `nginx.local.conf`, `nginx.ci.conf`) set `X-Real-IP $realip_remote_addr` on every location block with `proxy_pass` — TCP socket peer, immune to realip rewriting. `X-Forwarded-For` directives untouched (`trusted_client_ip` never reads XFF). `/api/auth/callback` is pre-auth PKCE; the old "behind a JWT/session" carve-out no longer applies.
+- **`test_nginx_forwarded_headers.py`** rewritten: new parameterized test asserts every proxying location block has the correct directive.
+
+**WS2 — Civilian 429 specificity:**
+- **Backend** (`civilian.py:344`, commit `b03a9e26`): detail string includes `"{_retry_minutes} minutes"` derived from `retry_after` via `max(1, ceil(retry_after / 60))`.
+- **Frontend transport** (`errors.ts` + `public-transport.ts`, commit `8bd15937`): `ApiRequestError` extracted to shared `errors.ts` with optional `.retryAfter` field. `public-transport.ts` throws `ApiRequestError` with `.status` + `.retryAfter` (parsed from `Retry-After` header) instead of a plain `Error`.
+- **Frontend UI** (`page.tsx`, commit `843e6ce7`): renders `"Too many reports from this network. Try again in {minutes} minutes."` on 429. The "call 911" emergency boundary stays for `server`/`unknown` errors.
+
+**WS3 — #419 XAI load guard (regression tests, commits `4311d9c2` + `372cbf7b`):**
+- **Backend regression** (`test_security_monitoring.py`): `test_summary_endpoint_does_not_call_xai` patches `analyze_threat_log`, asserts it is never called on the summary endpoint.
+- **Frontend regression** (`admin-security-monitoring.test.tsx`, `admin-system-analyze-ai.test.tsx`): no-analyze-on-mount guards for both monitoring and system pages; manual-analyze-called-exactly-once test.
+- **Deviation:** #419 bypassed the #415 blocker (justified in spec — #415 needs migration 62, not applied to the running DB; #419's tests lock in existing good behavior).
+
+**CI validation:** All 6 gates green — ruff check (0), ruff format (232 files), pytest (10 new + 1592 pre-existing pass), npm run lint (0 errors), npx vitest run (990 tests, 0 fail), next build (exit 0). Spec: `docs/superpowers/specs/2026-06-22-xff-cleanup-civilian-429-xai-load-guard-design.md`.

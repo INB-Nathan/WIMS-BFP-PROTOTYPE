@@ -1,7 +1,7 @@
 ---
 title: FRS Codebase Gap Register
 created: 2026-05-14
-updated: 2026-06-11
+updated: 2026-06-22
 type: gap
 tags: [wims-bfp, gap, frs, needs-verification]
 sources: [raw/frs, raw/codebase/codebase-snapshot-2026-05-14.md]
@@ -19,7 +19,8 @@ This register prevents agents from hallucinating completion. A module is not com
 ## High-Risk Verification Targets
 - **IP blocklist prod migration (2026-06-22):** `postgres-init/` is first-boot only (CLAUDE.md:33); `wimsbfp.tech` is already up, so `65_ip_blocklist.sql` must be applied manually to the running prod DB: `docker compose exec -T postgres psql -U postgres -d wims -f /postgres-init/65_ip_blocklist.sql`. Without it, all 6 blocklist endpoints 500 in prod. Verify after deploy.
 - **IP blocklist Redis hot-path (2026-06-22):** `BlockedIPMiddleware` uses Redis `EXISTS` only (zero Postgres). If Redis is down, middleware fails open (per `main.py:765-767` rate-limiter pattern). Boot resync + 5-min Celery resync restore Redis on restart. Verify: `docker exec wims-redis redis-cli EXISTS ip:block:{test_ip}` returns 0 for unblocked, 1 for blocked.
-- **IP blocklist rate-limiter XFF bug (pre-existing, out of scope):** The rate limiter at `main.py:771` parses `X-Forwarded-For` leftmost — same spoofable pattern the blocklist explicitly avoids. Fix in a separate change.
+- **IP blocklist rate-limiter XFF bug (pre-existing, 2026-06-22, CLOSED):** The rate limiter at `main.py:771` (and `consent.py:41`) parsed `X-Forwarded-For` leftmost — same spoofable pattern the blocklist explicitly avoided. Closed by the XFF cleanup WS1 Tier 1 (commit `b19b8092`): both call sites now use `trusted_client_ip` (X-Real-IP first, never XFF). All 15 audit-trace call sites also migrated (WS1 Tier 2, commit `0158babe`).
+- **`get_client_ip` deprecation (2026-06-22):** The deprecated `get_client_ip` alias (`_legacy_get_client_ip_from_xff`, XFF-first) is retained with its deprecation docstring, but zero production call sites remain. All 16 usage call sites (1 consent + 15 audit) were migrated to `trusted_client_ip` across WS1 Tiers 1-2 (commits `b19b8092`, `0158babe`). Tier 5 removal (alias cleanup) is a follow-up — dead-code hygiene, no security impact.
 - **IP blocklist `classification` column (deferred):** `block-by-filter` filters on real columns only (severity, source_ip, date_from, date_to, q). The `classification` column from migration `62_security_threat_classification.sql` never applied to the running DB. `SecurityLogFilter.classification?` is in the API contract but server-side ignored with a restore comment. Re-enable when migration 62 is applied to prod.
 - Immutable record hashing: verify `data_hash` covers all required incident/provenance fields.
 - Analytics sync on verification/correction: verify transaction boundaries and error handling.
