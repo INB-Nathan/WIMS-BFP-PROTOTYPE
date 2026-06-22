@@ -809,7 +809,8 @@ describe('M8: Security Monitoring page — per-row actions + filters (T11)', () 
     vi.useRealTimers();
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     mockBlockSourceIp.mockRejectedValue({
-      response: { data: { detail: 'Cannot block your own IP address' } },
+      detail: 'Cannot block your own IP address',
+      message: 'Cannot block your own IP address',
     });
 
     render(<SecurityMonitoringPage />);

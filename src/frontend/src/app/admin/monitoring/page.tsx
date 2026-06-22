@@ -91,6 +91,8 @@ export default function SecurityMonitoringPage() {
   const [auditCachedAt, setAuditCachedAt] = useState<number | undefined>(undefined);
   // T11: friendly offline state when wrapper throws and we're offline
   const [offlineUnavailable, setOfflineUnavailable] = useState<boolean>(false);
+  // Refresh key for BlockedIpsPanel — bump to force remount after filter block
+  const [blockedIpsKey, setBlockedIpsKey] = useState(0);
 
   const PAGE_SIZE = 20;
 
@@ -265,8 +267,9 @@ export default function SecurityMonitoringPage() {
       setToast({ type: 'success', text: `${action} applied to ${log_ids.length} alerts` });
       loadThreats();
     } catch (err: unknown) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setToast({ type: 'error', text: detail || 'Bulk action failed' });
+      const apiErr = err as { detail?: unknown; message?: string };
+      const detail = typeof apiErr.detail === 'string' ? apiErr.detail : undefined;
+      setToast({ type: 'error', text: detail || apiErr.message || 'Bulk action failed' });
     }
   };
 
@@ -295,9 +298,11 @@ export default function SecurityMonitoringPage() {
         text: `Blocked ${result.blocked_count} IPs (${result.permanent_count} permanent).${result.capped ? ` Capped at 500 — ${result.total_distinct_ips} total distinct.` : ''}`,
       });
       loadThreats();
+      setBlockedIpsKey((k) => k + 1); // force BlockedIpsPanel remount + reload
     } catch (err: unknown) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setToast({ type: 'error', text: detail || 'Filter block failed' });
+      const apiErr = err as { detail?: unknown; message?: string };
+      const detail = typeof apiErr.detail === 'string' ? apiErr.detail : undefined;
+      setToast({ type: 'error', text: detail || apiErr.message || 'Filter block failed' });
     }
   };
 
@@ -309,8 +314,9 @@ export default function SecurityMonitoringPage() {
       setToast({ type: 'success', text: `Blocked IP ${log.source_ip}` });
       loadThreats();
     } catch (err: unknown) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setToast({ type: 'error', text: detail || 'Failed to block IP' });
+      const apiErr = err as { detail?: unknown; message?: string };
+      const detail = typeof apiErr.detail === 'string' ? apiErr.detail : undefined;
+      setToast({ type: 'error', text: detail || apiErr.message || 'Failed to block IP' });
       console.error('blockSourceIp error', err);
     }
   }, [loadThreats]);
@@ -911,7 +917,7 @@ export default function SecurityMonitoringPage() {
       </div>
 
       {/* Blocked IPs management panel */}
-      <BlockedIpsPanel onUnblocked={loadThreats} />
+      <BlockedIpsPanel key={blockedIpsKey} onUnblocked={loadThreats} />
 
       {/* Recent XAI Narratives */}
       <div className="card">
