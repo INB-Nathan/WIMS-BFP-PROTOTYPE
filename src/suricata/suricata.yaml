@@ -15,7 +15,7 @@ suricata-version: "7.0"
 vars:
   # more specific is better for alert accuracy and performance
   address-groups:
-    HOME_NET: "[192.168.0.0/16,10.0.0.0/8,172.16.0.0/12]"
+    HOME_NET: "[192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,165.22.96.0/20]"
     #HOME_NET: "[192.168.0.0/16]"
     #HOME_NET: "[10.0.0.0/8]"
     #HOME_NET: "[172.16.0.0/12]"
@@ -2166,7 +2166,7 @@ rule-files:
 
 classification-file: /etc/suricata/classification.config
 reference-config-file: /etc/suricata/reference.config
-# threshold-file: /etc/suricata/threshold.config
+threshold-file: /var/lib/suricata/rules/threshold.config
 
 ##
 ## Include other configs

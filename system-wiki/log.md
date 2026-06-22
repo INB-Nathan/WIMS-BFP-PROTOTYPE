@@ -1,3 +1,12 @@
+## [2026-06-22] ops: tighten Suricata filters — HOME_NET + threshold suppression
+
+- **Scope:** VPS public IP (165.22.101.73) was not in HOME_NET, causing Suricata to treat all traffic as external-to-external. Combined with no threshold config, every scanner probe generated an alert.
+- **`src/suricata/suricata.yaml`:**
+  - HOME_NET updated from private-only to include `165.22.96.0/20` (VPS subnet). This makes rules correctly classify inbound traffic as external→home.
+  - Enabled `threshold-file:` (was commented out) pointing to `/var/lib/suricata/rules/threshold.config`.
+- **`src/suricata/rules/threshold.config` (new):** Suppression rules for common ET SCAN SIDs (2100494-2100578) and generic rate-limiting: max 10 alerts per SID per source IP per 60 seconds.
+- **Validation:** Suricata restarted and healthy. Alert volume expected to drop significantly since HOME_NET now matches actual traffic patterns.
+
 ## [2026-06-22] perf: backend workers 4→3, postgres tuning, security_threat_logs indexes
 
 - **Scope:** Further VPS optimization on 2 vCPUs / 8GB RAM.
