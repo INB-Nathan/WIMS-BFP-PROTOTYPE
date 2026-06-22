@@ -456,6 +456,30 @@ class TestSecurityLogsSummary:
         resp = client.get("/api/admin/security-logs/summary")
         assert resp.status_code in (401, 403)
 
+    def test_summary_endpoint_does_not_call_xai(self, client: TestClient):
+        """#419: GET /api/admin/security-logs/summary must NOT call analyze_threat_log.
+
+        The summary endpoint reads already-computed fields only. XAI enrichment
+        (Ollama) must never run during default dashboard page load — a 504
+        during the defense demo is the failure mode this test prevents.
+        """
+        from unittest.mock import patch
+
+        app.dependency_overrides[auth.get_current_wims_user] = lambda: _ADMIN
+        _, _get_db = _make_summary_db(
+            sev_rows=[("HIGH", 5)],
+            unreviewed=1,
+            total=5,
+            narrative_rows=[],
+        )
+        app.dependency_overrides[get_db_with_rls] = _get_db
+
+        with patch("api.routes.admin.security.analyze_threat_log") as mock_analyze:
+            resp = client.get("/api/admin/security-logs/summary")
+
+            assert resp.status_code == 200, f"Summary endpoint failed: {resp.status_code}"
+            mock_analyze.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Security alert email — PR #263 S1 fix: verify dashboard_link is /admin/monitoring
