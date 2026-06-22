@@ -15,8 +15,9 @@ import {
   fetchSecurityLogsSummaryOfflineAware,
   fetchAuditLogsOfflineAware,
 } from '@/lib/api/offlineAdmin';
-import { blockSourceIp, deleteSecurityLog } from '@/lib/api/securityActions';
+import { blockSourceIp, deleteSecurityLog, bulkActionSecurityLogs, blockByFilter } from '@/lib/api/securityActions';
 import { StaleCacheBanner } from '@/components/ui/StaleCacheBanner';
+import type { SecurityLogFilter } from '@/types/api';
 import { ShieldAlert, RefreshCw, AlertTriangle, Info, WifiOff } from 'lucide-react';
 
 type SeverityLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
@@ -236,6 +237,68 @@ export default function SecurityMonitoringPage() {
       setToast({ type: 'error', text: 'Failed to record verdict' });
     }
   }, [loadThreats]);
+
+  // T12: selected rows for bulk actions
+  const [selectedLogIds, setSelectedLogIds] = useState<Set<number>>(new Set());
+
+  const toggleSelect = (logId: number) => setSelectedLogIds(prev => {
+    const next = new Set(prev);
+    if (next.has(logId)) next.delete(logId);
+    else next.add(logId);
+    return next;
+  });
+
+  const toggleSelectAll = () => {
+    if (selectedLogIds.size === threatLogs.length) setSelectedLogIds(new Set());
+    else setSelectedLogIds(new Set(threatLogs.map(l => l.log_id)));
+  };
+
+  const handleBulkAction = async (action: 'block_ip' | 'dismiss' | 'false_positive') => {
+    const log_ids = Array.from(selectedLogIds);
+    if (log_ids.length === 0) return;
+    const actionLabel = action === 'block_ip' ? 'Block' : action === 'dismiss' ? 'Dismiss' : 'Mark false positive';
+    if (!window.confirm(`${actionLabel} ${log_ids.length} selected alerts?`)) return;
+    try {
+      await bulkActionSecurityLogs({ log_ids, action, ttl_hours: 24 });
+      setSelectedLogIds(new Set());
+      setToast({ type: 'success', text: `${action} applied to ${log_ids.length} alerts` });
+      loadThreats();
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setToast({ type: 'error', text: detail || 'Bulk action failed' });
+    }
+  };
+
+  const handleBlockByFilter = async () => {
+    const severityParam = activeSeverities.size > 0 ? Array.from(activeSeverities).join(',') : undefined;
+    const filters: SecurityLogFilter = {
+      severity: severityParam,
+      source_ip: sourceIp.trim() || undefined,
+      date_from: dateFrom || undefined,
+      date_to: dateTo || undefined,
+      q: searchQ.trim() || undefined,
+    };
+    try {
+      const preview = await blockByFilter(filters, { preview: true });
+      let msg = `This will block ${preview.would_block} distinct IPs`;
+      if (preview.repeat_offenders && preview.repeat_offenders > 0) {
+        msg += `. ${preview.repeat_offenders} are repeat offenders and will be blocked permanently.`;
+      }
+      if (preview.total_distinct_ips && preview.capped_at && preview.total_distinct_ips > preview.capped_at) {
+        msg += `\n\n⚠️ This will block the first ${preview.capped_at} of ${preview.total_distinct_ips} IPs. Run again with a narrower filter for the rest.`;
+      }
+      if (!window.confirm(msg)) return;
+      const result = await blockByFilter(filters, { preview: false });
+      setToast({
+        type: 'success',
+        text: `Blocked ${result.blocked_count} IPs (${result.permanent_count} permanent).${result.capped ? ` Capped at 500 — ${result.total_distinct_ips} total distinct.` : ''}`,
+      });
+      loadThreats();
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setToast({ type: 'error', text: detail || 'Filter block failed' });
+    }
+  };
 
   // T11: Block Source IP handler
   const handleBlockSourceIp = useCallback(async (log: ThreatLogItem) => {
@@ -511,7 +574,24 @@ export default function SecurityMonitoringPage() {
               );
             })}
           </div>
-          {/* T11: New filter inputs */}
+          {/* T12: S3 — Block all IPs in current filter button */}
+          {(activeSeverities.size > 0 || sourceIp || dateFrom || dateTo || searchQ) && (
+            <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
+              <button
+                onClick={handleBlockByFilter}
+                data-testid="block-by-filter-btn"
+                className="px-3 py-1.5 text-xs font-semibold rounded-md border transition-all"
+                style={{ borderColor: 'var(--bfp-maroon)', color: 'var(--bfp-maroon)', backgroundColor: 'transparent' }}
+                title="Preview and execute block by current filter"
+              >
+                Block all IPs in current filter
+              </button>
+              <span className="ml-2 text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                Preview shows counts before blocking
+              </span>
+            </div>
+          )}
+          {/* T12: New filter inputs */}
           <div className="flex gap-3 flex-wrap items-end mt-4 pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
             <div className="flex flex-col gap-1">
               <label className="text-xs font-medium" style={{ color: 'var(--text-muted)' }} htmlFor="filter-source-ip">Source IP</label>
@@ -563,6 +643,56 @@ export default function SecurityMonitoringPage() {
         </div>
       </div>
 
+      {/* T12: Bulk action bar */}
+      {selectedLogIds.size > 0 && (
+        <div
+          data-testid="bulk-action-bar"
+          className="card"
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 10,
+            borderLeft: `3px solid var(--bfp-maroon)`,
+            marginBottom: '0.5rem',
+          }}
+        >
+          <div className="card-body flex items-center gap-3 py-2">
+            <span className="text-sm font-bold" style={{ color: 'var(--bfp-maroon)' }}>
+              {selectedLogIds.size} selected
+            </span>
+            <div className="flex-1" />
+            <button
+              onClick={() => handleBulkAction('block_ip')}
+              className="px-3 py-1.5 text-xs font-semibold rounded-md transition-colors"
+              style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
+            >
+              Block Selected IPs
+            </button>
+            <button
+              onClick={() => handleBulkAction('dismiss')}
+              className="px-3 py-1.5 text-xs font-semibold rounded-md border transition-colors"
+              style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+            >
+              Dismiss Selected
+            </button>
+            <button
+              onClick={() => handleBulkAction('false_positive')}
+              className="px-3 py-1.5 text-xs font-semibold rounded-md border transition-colors"
+              style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+            >
+              Mark False Positive
+            </button>
+            <button
+              onClick={() => setSelectedLogIds(new Set())}
+              className="px-2 py-1.5 text-xs font-medium rounded-md transition-colors"
+              style={{ color: 'var(--text-muted)', backgroundColor: 'transparent' }}
+            >
+              Clear selection
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Threat Feed Table */}
       <div className="card overflow-hidden">
         <div className="card-body">
@@ -588,6 +718,15 @@ export default function SecurityMonitoringPage() {
                     borderBottom: '1px solid var(--border-color)',
                   }}
                 >
+                  {/* T12: Select-all checkbox column */}
+                  <th className="px-4 py-3 text-left" style={{ width: '48px' }}>
+                    <input
+                      type="checkbox"
+                      onChange={toggleSelectAll}
+                      checked={selectedLogIds.size === threatLogs.length && threatLogs.length > 0}
+                      data-testid="select-all-checkbox"
+                    />
+                  </th>
                   <th
                     className="px-4 py-3 text-left font-semibold text-xs uppercase tracking-wider"
                     style={{ color: 'var(--text-muted)' }}
@@ -634,7 +773,22 @@ export default function SecurityMonitoringPage() {
               </thead>
               <tbody>
                 {threatLogs.map((log) => (
-                  <tr key={log.log_id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <tr
+                    key={log.log_id}
+                    style={{
+                      borderBottom: '1px solid var(--border-color)',
+                      borderLeft: selectedLogIds.has(log.log_id) ? '3px solid var(--bfp-maroon)' : '3px solid transparent',
+                      backgroundColor: selectedLogIds.has(log.log_id) ? 'var(--table-header-bg)' : undefined,
+                    }}
+                  >
+                    {/* T12: Row checkbox */}
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedLogIds.has(log.log_id)}
+                        onChange={() => toggleSelect(log.log_id)}
+                      />
+                    </td>
                     <td className="px-4 py-3 text-xs" style={{ color: 'var(--text-primary)' }}>
                       {formatTime(log.timestamp)}
                     </td>

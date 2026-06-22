@@ -46,6 +46,8 @@ const mockUpdateAdminSecurityLog = vi.fn();
 const mockCreateIncidentFromAlert = vi.fn();
 const mockBlockSourceIp = vi.fn();
 const mockDeleteSecurityLog = vi.fn();
+const mockBulkActionSecurityLogs = vi.fn();
+const mockBlockByFilter = vi.fn();
 
 vi.mock('@/lib/api/legacy', () => ({
   fetchSecurityLogsSummary: () => mockFetchSecurityLogsSummary(),
@@ -64,6 +66,8 @@ vi.mock('@/lib/api/offlineAdmin', () => ({
 vi.mock('@/lib/api/securityActions', () => ({
   blockSourceIp: (...args: unknown[]) => mockBlockSourceIp(...args),
   deleteSecurityLog: (...args: unknown[]) => mockDeleteSecurityLog(...args),
+  bulkActionSecurityLogs: (...args: unknown[]) => mockBulkActionSecurityLogs(...args),
+  blockByFilter: (...args: unknown[]) => mockBlockByFilter(...args),
 }));
 
 const DEFAULT_SUMMARY = {
@@ -894,5 +898,334 @@ describe('M8: Security Monitoring page — per-row actions + filters (T11)', () 
       const lastCall = calls[calls.length - 1][0];
       expect(lastCall?.source_ip).toBe('10.0.0.1');
     });
+  });
+});
+
+// ── Task 12: Bulk actions + filter-scoped block (S3) ────────────────────────
+
+describe('M8: Security Monitoring page — bulk actions + S3 (Task 12)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    mockAdminUser();
+    mockFetchAuditLogs.mockResolvedValue({ items: [], total: 0 });
+    mockFetchSecurityLogsSummary.mockResolvedValue(DEFAULT_SUMMARY);
+    mockFetchAdminSecurityLogs.mockResolvedValue({
+      items: [
+        {
+          log_id: 1,
+          timestamp: '2026-06-12T10:30:00Z',
+          source_ip: '192.168.1.100',
+          severity_level: 'HIGH',
+          suricata_sid: 2001,
+          admin_action_taken: null,
+          xai_confidence: 0.88,
+        },
+        {
+          log_id: 2,
+          timestamp: '2026-06-12T09:15:00Z',
+          source_ip: '10.0.0.50',
+          severity_level: 'CRITICAL',
+          suricata_sid: 2002,
+          admin_action_taken: null,
+          xai_confidence: 0.95,
+        },
+      ],
+      total: 2,
+    });
+    mockFetchAuditLogsOfflineAware.mockImplementation(async (params?: unknown) => ({
+      response: await mockFetchAuditLogs(params),
+      fromCache: false,
+    }));
+    mockFetchSecurityLogsSummaryOfflineAware.mockImplementation(async () => ({
+      response: await mockFetchSecurityLogsSummary(),
+      fromCache: false,
+    }));
+    mockFetchAdminSecurityLogsOfflineAware.mockImplementation(async (params?: unknown) => ({
+      response: await mockFetchAdminSecurityLogs(params),
+      fromCache: false,
+    }));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it('renders checkbox column in threat table rows', async () => {
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    // Find checkboxes: header checkbox + 2 row checkboxes
+    const checkboxes = screen.getAllByRole('checkbox');
+    expect(checkboxes.length).toBe(3); // 1 header + 2 rows
+  });
+
+  it('bulk action bar is hidden when no rows are selected', async () => {
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId('bulk-action-bar')).not.toBeInTheDocument();
+  });
+
+  it('bulk action bar appears when a row checkbox is clicked', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    // checkboxes[0] = header, checkboxes[1] = first row
+    await user.click(checkboxes[1]);
+
+    expect(screen.getByTestId('bulk-action-bar')).toBeInTheDocument();
+    expect(screen.getByText(/1 selected/i)).toBeInTheDocument();
+    expect(screen.getByText(/Block Selected IPs/i)).toBeInTheDocument();
+    expect(screen.getByText(/Dismiss Selected/i)).toBeInTheDocument();
+    expect(screen.getByText(/Mark False Positive/i)).toBeInTheDocument();
+  });
+
+  it('select-all header checkbox toggles all visible rows', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    // Header checkbox (index 0)
+    await user.click(checkboxes[0]);
+
+    // Bulk bar should show 2 selected
+    expect(screen.getByTestId('bulk-action-bar')).toBeInTheDocument();
+    expect(screen.getByText(/2 selected/i)).toBeInTheDocument();
+
+    // Click again to deselect
+    await user.click(checkboxes[0]);
+    expect(screen.queryByTestId('bulk-action-bar')).not.toBeInTheDocument();
+  });
+
+  it('bulk Block action calls bulkActionSecurityLogs with block_ip', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mockBulkActionSecurityLogs.mockResolvedValue({ results: [{ log_id: 1, status: 'blocked' }, { log_id: 2, status: 'blocked' }] });
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    // Select all
+    const checkboxes = screen.getAllByRole('checkbox');
+    await user.click(checkboxes[0]);
+
+    // Click Block Selected IPs
+    await user.click(screen.getByText(/Block Selected IPs/i));
+
+    expect(window.confirm).toHaveBeenCalled();
+    expect(mockBulkActionSecurityLogs).toHaveBeenCalledWith({
+      log_ids: [1, 2],
+      action: 'block_ip',
+      ttl_hours: 24,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/block_ip applied to 2 alerts/i)).toBeInTheDocument();
+    });
+  });
+
+  it('bulk Dismiss action calls bulkActionSecurityLogs with dismiss', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mockBulkActionSecurityLogs.mockResolvedValue({ results: [{ log_id: 1, status: 'dismissed' }] });
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    // Select first row
+    const checkboxes = screen.getAllByRole('checkbox');
+    await user.click(checkboxes[1]);
+
+    await user.click(screen.getByText(/Dismiss Selected/i));
+
+    expect(mockBulkActionSecurityLogs).toHaveBeenCalledWith({
+      log_ids: [1],
+      action: 'dismiss',
+      ttl_hours: 24,
+    });
+  });
+
+  it('S3 button is hidden when no filter is active', async () => {
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId('block-by-filter-btn')).not.toBeInTheDocument();
+  });
+
+  it('S3 button becomes visible when a severity filter is active', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(mockFetchAdminSecurityLogs).toHaveBeenCalled();
+    });
+
+    // Click a severity chip to activate a filter
+    const highChip = screen.getByRole('button', { name: /HIGH/i });
+    await user.click(highChip);
+
+    expect(screen.getByTestId('block-by-filter-btn')).toBeInTheDocument();
+  });
+
+  it('S3 button visible when source_ip filter is active', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(mockFetchAdminSecurityLogs).toHaveBeenCalled();
+    });
+
+    const sourceIpInput = screen.getByPlaceholderText(/filter by source ip/i);
+    await user.type(sourceIpInput, '10.0.0');
+
+    expect(screen.getByTestId('block-by-filter-btn')).toBeInTheDocument();
+  });
+
+  it('S3 block-by-filter preview shows counts then executes on confirm', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    const previewResult = {
+      dry_run: true,
+      total_distinct_ips: 3,
+      would_block: 2,
+      repeat_offenders: 1,
+      skipped_self: 1,
+      skipped_allowlist: 0,
+      capped_at: 500,
+    };
+    const execResult = {
+      dry_run: false,
+      total_distinct_ips: 3,
+      blocked_count: 2,
+      permanent_count: 1,
+      skipped_self: 1,
+      skipped_allowlist: 0,
+      already_blocked: 0,
+      capped: false,
+    };
+
+    mockBlockByFilter
+      .mockResolvedValueOnce(previewResult)
+      .mockResolvedValueOnce(execResult);
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(mockFetchAdminSecurityLogs).toHaveBeenCalled();
+    });
+
+    // Activate a filter to show the S3 button
+    const highChip = screen.getByRole('button', { name: /HIGH/i });
+    await user.click(highChip);
+
+    const s3Btn = screen.getByTestId('block-by-filter-btn');
+    await user.click(s3Btn);
+
+    // First call should be preview
+    expect(mockBlockByFilter.mock.calls[0][1]).toEqual({ preview: true });
+
+    // Confirm should have been called
+    expect(window.confirm).toHaveBeenCalled();
+
+    // Second call should be execute
+    expect(mockBlockByFilter.mock.calls[1][1]).toEqual({ preview: false });
+
+    // Toast should show the execute result
+    await waitFor(() => {
+      expect(screen.getByText(/Blocked 2 IPs/i)).toBeInTheDocument();
+    });
+  });
+
+  it('S3 preview shows 500-IP cap warning when total exceeds cap', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    const previewResult = {
+      dry_run: true,
+      total_distinct_ips: 1000,
+      would_block: 500,
+      repeat_offenders: 10,
+      skipped_self: 0,
+      skipped_allowlist: 0,
+      capped_at: 500,
+    };
+
+    mockBlockByFilter.mockResolvedValue(previewResult);
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(mockFetchAdminSecurityLogs).toHaveBeenCalled();
+    });
+
+    // Activate a filter
+    const highChip = screen.getByRole('button', { name: /HIGH/i });
+    await user.click(highChip);
+
+    await user.click(screen.getByTestId('block-by-filter-btn'));
+
+    // Confirm message should contain the cap warning
+    const confirmMessage = confirmSpy.mock.calls[0][0];
+    expect(confirmMessage).toContain('first 500 of 1000');
+    expect(confirmMessage).toContain('repeat offenders');
+  });
+
+  it('clear selection button clears all selected rows', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    // Select first row
+    const checkboxes = screen.getAllByRole('checkbox');
+    await user.click(checkboxes[1]);
+
+    expect(screen.getByTestId('bulk-action-bar')).toBeInTheDocument();
+
+    // Click clear selection
+    await user.click(screen.getByText(/Clear selection/i));
+
+    expect(screen.queryByTestId('bulk-action-bar')).not.toBeInTheDocument();
   });
 });
