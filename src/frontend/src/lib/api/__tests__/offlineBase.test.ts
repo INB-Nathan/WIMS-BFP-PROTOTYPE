@@ -15,7 +15,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const refMocks = vi.hoisted(() => ({
   getCachedReferenceData: vi.fn(),
   cacheReferenceData: vi.fn(),
+  getReadCachedResponse: vi.fn(),
+  cacheReadResponse: vi.fn(),
+  incrementCacheWriteCount: vi.fn(),
   fetcher: vi.fn(),
+  encryptedFetcher: vi.fn(),
   markConnectivityOffline: vi.fn(),
   snapshot: {
     state: 'online' as 'online' | 'offline' | 'checking' | 'reconnecting',
@@ -29,6 +33,9 @@ const refMocks = vi.hoisted(() => ({
 vi.mock('../../offlineStore', () => ({
   getCachedReferenceData: refMocks.getCachedReferenceData,
   cacheReferenceData: refMocks.cacheReferenceData,
+  getReadCachedResponse: refMocks.getReadCachedResponse,
+  cacheReadResponse: refMocks.cacheReadResponse,
+  incrementCacheWriteCount: refMocks.incrementCacheWriteCount,
 }));
 
 vi.mock('../../connectivity', () => ({
@@ -145,5 +152,62 @@ describe('offlineAwareReference', () => {
     expect(refMocks.markConnectivityOffline).toHaveBeenCalled();
     expect(res.fromCache).toBe(true);
     expect(res.response).toEqual([{ region_id: 1 }]);
+  });
+
+  it('online + write success: increments write counter (issue #6)', async () => {
+    refMocks.fetcher.mockResolvedValue([{ region_id: 1 }]);
+    refMocks.incrementCacheWriteCount.mockResolvedValue(undefined);
+    await offlineAwareReference(
+      'regions',
+      [],
+      'reference',
+      7 * 24 * 60 * 60 * 1000,
+      'userA',
+      refMocks.fetcher,
+      'err',
+    );
+    expect(refMocks.incrementCacheWriteCount).toHaveBeenCalledTimes(1);
+  });
+
+  it('offline + cache hit: does NOT increment write counter (issue #6)', async () => {
+    refMocks.snapshot.state = 'offline';
+    refMocks.getCachedReferenceData.mockResolvedValue({
+      data: [{ region_id: 1 }],
+      cachedAt: Date.now(),
+      ttlMs: 7 * 24 * 60 * 60 * 1000,
+    });
+    refMocks.incrementCacheWriteCount.mockResolvedValue(undefined);
+    await offlineAwareReference(
+      'regions',
+      [],
+      'reference',
+      7 * 24 * 60 * 60 * 1000,
+      'userA',
+      refMocks.fetcher,
+      'err',
+    );
+    // No write occurred on the offline path — counter must not advance.
+    expect(refMocks.incrementCacheWriteCount).not.toHaveBeenCalled();
+  });
+
+  it('network error + cache fallback: does NOT increment write counter (issue #6)', async () => {
+    refMocks.fetcher.mockRejectedValue(new TypeError('Failed to fetch'));
+    refMocks.getCachedReferenceData.mockResolvedValue({
+      data: [{ region_id: 1 }],
+      cachedAt: Date.now(),
+      ttlMs: 7 * 24 * 60 * 60 * 1000,
+    });
+    refMocks.incrementCacheWriteCount.mockResolvedValue(undefined);
+    await offlineAwareReference(
+      'regions',
+      [],
+      'reference',
+      7 * 24 * 60 * 60 * 1000,
+      'userA',
+      refMocks.fetcher,
+      'err',
+    );
+    // The network-error fallback is a read, not a write — counter must not advance.
+    expect(refMocks.incrementCacheWriteCount).not.toHaveBeenCalled();
   });
 });

@@ -169,21 +169,51 @@ export async function writeCache<T>(key: string, response: T, ttlMs: number): Pr
 // ── Core offline-aware read fetcher ────────────────────────────────
 
 /**
- * Generic offline-first wrapper for read-oriented API calls.
+ * Cache backend pair (read + write). The unified orchestrator below takes
+ * one of these as a parameter; the only difference between the encrypted
+ * and reference code paths is which backend they use.
+ *
+ * Issue #8: collapses the two near-duplicate orchestrators (offlineAware,
+ * offlineAwareReference) into a single implementation parameterised on the
+ * backend.
+ */
+interface CacheBackend {
+  readFresh<T>(key: string, ttlMs: number, errorMessage: string): Promise<OfflineResult<T>>;
+  write<T>(key: string, data: T, ttlMs: number): Promise<void>;
+}
+
+const encryptedBackend: CacheBackend = {
+  readFresh: readFreshCacheOrThrow,
+  write: writeCache,
+};
+
+const referenceBackend: CacheBackend = {
+  readFresh: readFreshReferenceCacheOrThrow,
+  // writeCache-style wrapper: failures are silently swallowed so a
+  // successful online fetch is never broken by a failing IndexedDB write.
+  write: async (key, data, ttlMs) => {
+    try {
+      await cacheReferenceData(key, data, ttlMs, Date.now());
+    } catch {
+      // noop
+    }
+  },
+};
+
+/**
+ * Unified offline-first read orchestrator. Issue #8: replaces the two
+ * near-duplicate offlineAware / offlineAwareReference functions with a
+ * single implementation that takes a cache backend.
  *
  * 1. When offline → serve from cache (throw if absent).
  * 2. When online → fetch, cache the result, return fresh.
  * 3. On network error → mark connectivity offline, fall back to cache.
  * 4. Non-network errors are re-thrown.
- *
- * @param cacheKey    Logical name (e.g. 'system-health')
- * @param args        Distinguishing arguments (used in cache key)
- * @param prefix      Domain prefix for the cache key
- * @param ttlMs       Cache TTL in milliseconds
- * @param fetcher     Async function that performs the network request
- * @param errorMessage Thrown when offline and no cache is available
+ * 5. The write counter advances ONLY on an actual online write (issue #6),
+ *    so its semantics match its name.
  */
-export async function offlineAware<T>(
+async function offlineAwareImpl<T>(
+  backend: CacheBackend,
   cacheKey: string,
   args: unknown[],
   prefix: string,
@@ -194,24 +224,17 @@ export async function offlineAware<T>(
   const key = buildCacheKey(prefix, cacheKey, args);
 
   if (shouldServeOffline()) {
-    return readFreshCacheOrThrow<T>(key, ttlMs, errorMessage);
+    return backend.readFresh<T>(key, ttlMs, errorMessage);
   }
 
   try {
     const response = await fetcher();
-    await writeCache(key, response, ttlMs);
-    return { response, fromCache: false };
-  } catch (err) {
-    if (isNetworkError(err)) {
-      markConnectivityOffline();
-      return readFreshCacheOrThrow<T>(key, ttlMs, errorMessage);
-    }
-    throw err;
-  } finally {
-    // Task 10: best-effort write counter — runs on success and on failure
-    // (a successful online fetch is the common case, but a network-error
-    // fallback that hits the cache also means we wrote nothing this round,
-    // so incrementing is harmless). The counter itself is best-effort.
+    await backend.write(key, response, ttlMs);
+    // Issue #6: increment the write counter on actual writes only.
+    // The `finally`-block pattern in the previous implementation counted
+    // reads (offline hits + network-error fallbacks), which inflated the
+    // counter and triggered evictions on read-heavy workloads. Move the
+    // increment here so its semantics match the name.
     try {
       await incrementCacheWriteCount();
     } catch (writeCountErr) {
@@ -219,33 +242,49 @@ export async function offlineAware<T>(
         console.warn('[offlineBase] incrementCacheWriteCount failed:', writeCountErr);
       }
     }
+    return { response, fromCache: false };
+  } catch (err) {
+    if (isNetworkError(err)) {
+      markConnectivityOffline();
+      return backend.readFresh<T>(key, ttlMs, errorMessage);
+    }
+    throw err;
   }
 }
 
-// ── Reference (unencrypted) orchestrator ──────────────────────────
+/**
+ * Generic offline-first wrapper for read-oriented API calls.
+ *
+ * Uses the encrypted READ_CACHE_STORE backend (per-user key encryption).
+ * See `offlineAwareReference` for the plaintext reference data variant.
+ */
+export function offlineAware<T>(
+  cacheKey: string,
+  args: unknown[],
+  prefix: string,
+  ttlMs: number,
+  fetcher: () => Promise<T>,
+  errorMessage: string,
+): Promise<OfflineResult<T>> {
+  return offlineAwareImpl<T>(
+    encryptedBackend,
+    cacheKey,
+    args,
+    prefix,
+    ttlMs,
+    fetcher,
+    errorMessage,
+  );
+}
 
 /**
  * Offline-first wrapper for **unencrypted reference data** reads.
  *
- * Same control flow as `offlineAware` but writes/reads the plaintext
- * REFERENCE_STORE via `cacheReferenceData`/`getCachedReferenceData`.
- * `userId` is REQUIRED and baked into the cache key prefix so that
- * per-user isolation is preserved in the unencrypted store (pushback P1).
- *
- * 1. When offline → serve from fresh reference cache (throw if absent).
- * 2. When online → fetch, cache the result unencrypted, return fresh.
- * 3. On network error → mark connectivity offline, fall back to cache.
- * 4. Non-network errors are re-thrown.
- *
- * @param cacheKey    Logical name (e.g. 'regions')
- * @param args        Distinguishing arguments (used in cache key)
- * @param prefix      Domain prefix for the cache key (e.g. 'reference')
- * @param ttlMs       Cache TTL in milliseconds
- * @param userId      Active user id — namespaced into the cache key
- * @param fetcher     Async function that performs the network request
- * @param errorMessage Thrown when offline and no cache is available
+ * Uses the plaintext REFERENCE_STORE backend. `userId` is REQUIRED and
+ * baked into the cache key prefix so that per-user isolation is preserved
+ * in the unencrypted store (pushback P1).
  */
-export async function offlineAwareReference<T>(
+export function offlineAwareReference<T>(
   cacheKey: string,
   args: unknown[],
   prefix: string,
@@ -254,37 +293,13 @@ export async function offlineAwareReference<T>(
   fetcher: () => Promise<T>,
   errorMessage: string,
 ): Promise<OfflineResult<T>> {
-  const key = buildCacheKey(`${prefix}:${userId}`, cacheKey, args);
-
-  if (shouldServeOffline()) {
-    return readFreshReferenceCacheOrThrow<T>(key, ttlMs, errorMessage);
-  }
-
-  try {
-    const response = await fetcher();
-    // Best-effort cache write — failures are silently swallowed so a
-    // successful online fetch is never broken by a failing IndexedDB write
-    // (mirrors writeCache() used by the encrypted read path; issue #1).
-    try {
-      await cacheReferenceData(key, response, ttlMs, Date.now());
-    } catch {
-      // noop
-    }
-    return { response, fromCache: false };
-  } catch (err) {
-    if (isNetworkError(err)) {
-      markConnectivityOffline();
-      return readFreshReferenceCacheOrThrow<T>(key, ttlMs, errorMessage);
-    }
-    throw err;
-  } finally {
-    // Task 10: best-effort write counter — see offlineAware above.
-    try {
-      await incrementCacheWriteCount();
-    } catch (writeCountErr) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn('[offlineBase] incrementCacheWriteCount failed:', writeCountErr);
-      }
-    }
-  }
+  return offlineAwareImpl<T>(
+    referenceBackend,
+    cacheKey,
+    args,
+    `${prefix}:${userId}`,
+    ttlMs,
+    fetcher,
+    errorMessage,
+  );
 }
