@@ -354,7 +354,7 @@ describe('encryption at rest — analytics cache', () => {
     await cacheReadResponse('heatmap:ncr', { geometry: 'GeoJSON', count: 100 }, 60_000);
 
     const raw = analyticsCacheStore.get('heatmap:ncr')!;
-    const enc = raw.encrypted as { iv: number[]; data: number[] };
+    const enc = raw.data as { iv: number[]; data: number[] };
     expect(Array.isArray(enc.iv)).toBe(true);
     expect(Array.isArray(enc.data)).toBe(true);
 
@@ -417,10 +417,10 @@ describe('unique IV per encryption', () => {
 
   it('produces unique IV for repeated cacheReadResponse calls', async () => {
     await cacheReadResponse('same-key', { data: 1 }, 60_000);
-    const iv1 = Buffer.from((analyticsCacheStore.get('same-key')!.encrypted as { iv: number[] }).iv).toString('hex');
+    const iv1 = Buffer.from((analyticsCacheStore.get('same-key')!.data as { iv: number[] }).iv).toString('hex');
 
     await cacheReadResponse('same-key', { data: 2 }, 60_000);
-    const iv2 = Buffer.from((analyticsCacheStore.get('same-key')!.encrypted as { iv: number[] }).iv).toString('hex');
+    const iv2 = Buffer.from((analyticsCacheStore.get('same-key')!.data as { iv: number[] }).iv).toString('hex');
 
     expect(iv1).not.toBe(iv2);
   });

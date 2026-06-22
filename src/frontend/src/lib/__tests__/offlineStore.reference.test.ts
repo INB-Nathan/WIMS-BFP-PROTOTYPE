@@ -94,4 +94,51 @@ describe('offlineStore reference (unencrypted) store', () => {
       (process.env as Record<string, string>).NODE_ENV = origEnv;
     }
   });
+
+  it('evictExpiredInStore(REFERENCE_STORE) deletes only expired reference records (issue #12)', async () => {
+    const longTtl = 7 * 24 * 60 * 60 * 1000;
+    const shortTtl = 60_000;
+    const now = Date.now();
+    // Two records in REFERENCE_STORE (plaintext), one expired, one fresh.
+    await cacheReferenceData('reference:userA:regions', [1], longTtl, now - 100);
+    await cacheReferenceData('reference:userA:provinces:1', [2], shortTtl, now - 70_000);
+    // Also seed a record in the encrypted read cache so we can verify the
+    // helper only touches the store it's given.
+    const { cacheReadResponse } = await import('../offlineStore');
+    await cacheReadResponse('admin:warmup:[]', { ok: true }, 60_000);
+    const { evictExpiredInStore } = await import('../offlineStore');
+    const deleted = await evictExpiredInStore('reference-cache');
+    expect(deleted).toBe(1);
+    expect(await getCachedReferenceData('reference:userA:regions')).toBeDefined();
+    expect(await getCachedReferenceData('reference:userA:provinces:1')).toBeUndefined();
+    // The encrypted read cache must not have been touched.
+    const { getReadCachedResponse } = await import('../offlineStore');
+    expect(await getReadCachedResponse('admin:warmup:[]')).toBeDefined();
+  });
+
+  it('devWarn is the shared helper for NODE_ENV !== "production" warns (issue #15)', async () => {
+    const { devWarn } = await import('../offlineStore');
+    const origEnv = process.env.NODE_ENV;
+    const origWarn = console.warn;
+    const captured: unknown[][] = [];
+    console.warn = (...args: unknown[]) => {
+      captured.push(args);
+    };
+    try {
+      (process.env as Record<string, string>).NODE_ENV = 'development';
+      devWarn('test message', { detail: 'x' });
+      expect(captured.length).toBe(1);
+      expect(captured[0]![0]).toBe('test message');
+      expect(captured[0]![1]).toEqual({ detail: 'x' });
+
+      // In production, devWarn is a no-op.
+      captured.length = 0;
+      (process.env as Record<string, string>).NODE_ENV = 'production';
+      devWarn('test message', { detail: 'x' });
+      expect(captured.length).toBe(0);
+    } finally {
+      (process.env as Record<string, string>).NODE_ENV = origEnv;
+      console.warn = origWarn;
+    }
+  });
 });

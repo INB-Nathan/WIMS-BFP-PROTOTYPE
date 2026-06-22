@@ -27,7 +27,13 @@ const MAX_EVICTIONS_PER_PASS = 500;
 let _offlineStorageLimitMb = 50;
 
 export type OfflineOpType = 'create' | 'update' | 'submit' | 'delete' | 'verify' | 'archive_action';
-export type LegacyOfflineOpType = 'create' | 'verify' | 'archive_action';
+// Issue #17: the previous `LegacyOfflineOpType = 'create' | 'verify' | 'archive_action'`
+// was a parallel string union. It is now expressed as an Extract of OfflineOpType
+// so the subset relationship is enforced at the type level — adding a new
+// `LegacyOfflineOpType` member that is not in OfflineOpType would no longer
+// compile. (Note: `Pick<>` only works on object types; `Extract<>` is the
+// string-union equivalent.)
+export type LegacyOfflineOpType = Extract<OfflineOpType, 'create' | 'verify' | 'archive_action'>;
 export type VerifyAction = 'accept' | 'accept_replace' | 'reject';
 
 export interface VerifyPayload {
@@ -62,19 +68,18 @@ interface EncryptedPayload {
     data: number[];
 }
 
-interface CachedReadRecord {
+// Issue #16: the previous CachedReadRecord and CachedReferenceRecord were
+// near-duplicates differing only in the payload field. They are now derived
+// from a single generic CachedRecord<TPayload>.
+interface CachedRecord<TPayload> {
     key: string;
-    encrypted: EncryptedPayload;
+    data: TPayload;
     cachedAt: number;
     ttlMs: number;
 }
 
-interface CachedReferenceRecord {
-    key: string;
-    data: unknown;
-    cachedAt: number;
-    ttlMs: number;
-}
+type CachedReadRecord = CachedRecord<EncryptedPayload>;
+type CachedReferenceRecord = CachedRecord<unknown>;
 
 export interface CachedResponse<T = unknown> {
     key: string;
@@ -311,12 +316,10 @@ export async function setActiveOfflineUser(userId: string): Promise<void> {
         try {
             await clearReferenceDataForUser(prev);
         } catch (err) {
-            if (process.env.NODE_ENV !== 'production') {
-                console.warn(
-                    `[offlineStore] clearReferenceDataForUser(${prev}) failed on user switch:`,
-                    err,
-                );
-            }
+            devWarn(
+                `[offlineStore] clearReferenceDataForUser(${prev}) failed on user switch:`,
+                err,
+            );
         }
     } else if (!prev) {
         // First run under per-user keying: adopt any legacy single key so this
@@ -396,7 +399,7 @@ export async function queueIncident(
     if (totalBytes >= limitBytes) {
         if (process.env.NODE_ENV !== 'production') {
             const usedMb = (totalBytes / 1024 / 1024).toFixed(1);
-            console.warn(
+            devWarn(
                 `[offlineStore] Queue ~${usedMb}MB exceeds advisory cap of ${_offlineStorageLimitMb}MB. Skipping.`
             );
         }
@@ -512,7 +515,7 @@ export async function cacheReadResponse<T = unknown>(
     const encrypted = await encryptPayload(data);
     const record: CachedReadRecord = {
         key,
-        encrypted,
+        data: encrypted,
         cachedAt,
         ttlMs,
     };
@@ -525,7 +528,7 @@ export async function getReadCachedResponse<T = unknown>(
     const db = await getDB();
     const item: CachedReadRecord | undefined = await db.get(READ_CACHE_STORE, key);
     if (!item) return undefined;
-    const data = await decryptPayload<T>(item.encrypted);
+    const data = await decryptPayload<T>(item.data);
     return {
         key: item.key,
         data,
@@ -620,9 +623,7 @@ export async function clearReferenceDataForUser(userId: string): Promise<number>
         await tx.done;
         return deleted;
     } catch (err) {
-        if (process.env.NODE_ENV !== 'production') {
-            console.warn(`[offlineStore] clearReferenceDataForUser(${userId}) failed:`, err);
-        }
+        devWarn(`[offlineStore] clearReferenceDataForUser(${userId}) failed:`, err);
         return 0;
     }
 }
@@ -636,20 +637,36 @@ export async function clearReferenceDataForUser(userId: string): Promise<number>
 // ttlMs-bearing record.
 
 /**
- * Scan READ_CACHE_STORE and delete every record whose
- * cachedAt + ttlMs < Date.now() using the record's own ttlMs.
- * Bounded at MAX_EVICTIONS_PER_PASS deletions per call. Best-effort.
+ * Dev-only warning helper. Issue #15: replaces the 9 repeated
+ * `if (process.env.NODE_ENV !== 'production') console.warn(...)` blocks
+ * scattered through this module with a single shared function.
  */
-export async function evictExpiredReadCache(): Promise<number> {
+export function devWarn(...args: unknown[]): void {
+    if (process.env.NODE_ENV !== 'production') {
+        console.warn(...args);
+    }
+}
+
+/**
+ * Scan a record-shaped IndexedDB object store and delete every record
+ * whose `cachedAt + ttlMs < Date.now()` using the record's own ttlMs.
+ * Bounded at MAX_EVICTIONS_PER_PASS deletions per call. Best-effort.
+ *
+ * Issue #12: the previous `evictExpiredReadCache` and
+ * `evictExpiredReferenceData` were byte-identical except for the store
+ * name; this helper accepts the store name as a parameter so the same
+ * algorithm covers both.
+ */
+export async function evictExpiredInStore(storeName: string): Promise<number> {
     try {
         const db = await getDB();
         const now = Date.now();
-        const tx = db.transaction(READ_CACHE_STORE, 'readwrite');
-        const store = tx.objectStore(READ_CACHE_STORE);
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
         let cursor = await store.openCursor();
         let deleted = 0;
         while (cursor && deleted < MAX_EVICTIONS_PER_PASS) {
-            const value = cursor.value as Partial<CachedReadRecord>;
+            const value = cursor.value as { ttlMs?: unknown; cachedAt?: unknown };
             const ttl = typeof value.ttlMs === 'number' ? value.ttlMs : DEFAULT_BACK_COMPAT_TTL_MS;
             const cachedAt = typeof value.cachedAt === 'number' ? value.cachedAt : 0;
             if (cachedAt + ttl < now) {
@@ -661,44 +678,33 @@ export async function evictExpiredReadCache(): Promise<number> {
         await tx.done;
         return deleted;
     } catch (err) {
-        if (process.env.NODE_ENV !== 'production') {
-            console.warn('[offlineStore] evictExpiredReadCache failed:', err);
-        }
+        devWarn(`[offlineStore] evictExpiredInStore(${storeName}) failed:`, err);
         return 0;
     }
+}
+
+/**
+ * Scan READ_CACHE_STORE and delete every record whose
+ * cachedAt + ttlMs < Date.now() using the record's own ttlMs.
+ * Bounded at MAX_EVICTIONS_PER_PASS deletions per call. Best-effort.
+ *
+ * Kept as a thin wrapper around `evictExpiredInStore` (issue #12) so
+ * existing callers and the boot-guard / every-25-writes trigger
+ * contract do not need to change.
+ */
+export function evictExpiredReadCache(): Promise<number> {
+    return evictExpiredInStore(READ_CACHE_STORE);
 }
 
 /**
  * Scan REFERENCE_STORE and delete every record whose
  * cachedAt + ttlMs < Date.now() using the record's own ttlMs.
  * Bounded at MAX_EVICTIONS_PER_PASS deletions per call. Best-effort.
+ *
+ * Thin wrapper around `evictExpiredInStore` (issue #12).
  */
-export async function evictExpiredReferenceData(): Promise<number> {
-    try {
-        const db = await getDB();
-        const now = Date.now();
-        const tx = db.transaction(REFERENCE_STORE, 'readwrite');
-        const store = tx.objectStore(REFERENCE_STORE);
-        let cursor = await store.openCursor();
-        let deleted = 0;
-        while (cursor && deleted < MAX_EVICTIONS_PER_PASS) {
-            const value = cursor.value as Partial<CachedReferenceRecord>;
-            const ttl = typeof value.ttlMs === 'number' ? value.ttlMs : DEFAULT_BACK_COMPAT_TTL_MS;
-            const cachedAt = typeof value.cachedAt === 'number' ? value.cachedAt : 0;
-            if (cachedAt + ttl < now) {
-                await cursor.delete();
-                deleted += 1;
-            }
-            cursor = await cursor.continue();
-        }
-        await tx.done;
-        return deleted;
-    } catch (err) {
-        if (process.env.NODE_ENV !== 'production') {
-            console.warn('[offlineStore] evictExpiredReferenceData failed:', err);
-        }
-        return 0;
-    }
+export function evictExpiredReferenceData(): Promise<number> {
+    return evictExpiredInStore(REFERENCE_STORE);
 }
 
 // ─── Eviction triggers (Task 10) ──────────────────────────────────────
@@ -752,16 +758,12 @@ async function runBothEvictions(): Promise<void> {
     try {
         await evictExpiredReadCache();
     } catch (err) {
-        if (process.env.NODE_ENV !== 'production') {
-            console.warn('[offlineStore] evictExpiredReadCache (trigger) failed:', err);
-        }
+        devWarn('[offlineStore] evictExpiredReadCache (trigger) failed:', err);
     }
     try {
         await evictExpiredReferenceData();
     } catch (err) {
-        if (process.env.NODE_ENV !== 'production') {
-            console.warn('[offlineStore] evictExpiredReferenceData (trigger) failed:', err);
-        }
+        devWarn('[offlineStore] evictExpiredReferenceData (trigger) failed:', err);
     }
 }
 
