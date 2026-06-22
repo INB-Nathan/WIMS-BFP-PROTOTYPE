@@ -1278,3 +1278,31 @@ describe('T13: Blocked IPs panel mount', () => {
     expect(screen.getByTestId('blocked-ips-panel')).toBeInTheDocument();
   });
 });
+
+// ── #419: no-analyze-on-load regression guard ──────────────────────────────
+
+describe('Security Monitoring — #419 no-analyze-on-load guard', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('does not call analyzeSecurityLog on initial render', async () => {
+    vi.useRealTimers();
+    // analyzeSecurityLog is not imported by the monitoring page at all.
+    // This test is a future-regression guard: if a future change adds an
+    // analyze call on mount, this test will catch it.
+    const analyzeSpy = vi.fn();
+    vi.doMock('@/lib/api/admin', () => ({
+      ...vi.importActual('@/lib/api/admin'),
+      analyzeSecurityLog: analyzeSpy,
+    }));
+
+    const { default: MonitoringPage } = await import('./page');
+    render(<MonitoringPage />);
+
+    // Wait for initial load effects to settle
+    await waitFor(() => {
+      expect(analyzeSpy).not.toHaveBeenCalled();
+    });
+  });
+});

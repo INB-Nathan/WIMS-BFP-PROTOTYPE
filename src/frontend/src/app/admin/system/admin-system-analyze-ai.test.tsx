@@ -170,4 +170,50 @@ describe('Admin System — Analyze with AI in Threat Telemetry', () => {
             expect(screen.getByText(/Confidence: 92\.0%/)).toBeInTheDocument(); // confidence 0.92 → 92%
         });
     });
+
+    // ── #419: no-analyze-on-load + manual-analyze-still-works ───────────────
+
+    it('#419: does not call analyzeSecurityLog on initial render', async () => {
+        render(<AdminSystemPage />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Threat Telemetry')).toBeInTheDocument();
+        });
+
+        // Verify analyzeSecurityLog was NOT called on initial render
+        expect(mockAnalyzeSecurityLog).not.toHaveBeenCalled();
+    });
+
+    it('#419: manual Analyze click calls analyzeSecurityLog exactly once', async () => {
+        mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogWithoutNarrative], total: 1 });
+        mockAnalyzeSecurityLog.mockResolvedValue({
+            log_id: 1,
+            xai_narrative: 'AI-generated narrative for test.',
+            xai_confidence: 0.92,
+        });
+
+        render(<AdminSystemPage />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Threat Telemetry')).toBeInTheDocument();
+        });
+
+        // Click View to open the detail modal
+        const viewButtons = await screen.findAllByRole('button', { name: /^View$/i });
+        fireEvent.click(viewButtons[0]);
+
+        await waitFor(() => {
+            expect(screen.getByText(/Suricata Alert.*#1/)).toBeInTheDocument();
+        });
+
+        // Click Analyze with AI in the modal
+        const analyzeButtons = screen.getAllByRole('button', { name: /Analyze with AI/i });
+        const modalAnalyzeBtn = analyzeButtons[analyzeButtons.length - 1];
+        fireEvent.click(modalAnalyzeBtn);
+
+        // Verify analyzeSecurityLog was called exactly once
+        await waitFor(() => {
+            expect(mockAnalyzeSecurityLog).toHaveBeenCalledTimes(1);
+        });
+    });
 });
