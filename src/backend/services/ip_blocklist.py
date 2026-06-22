@@ -18,12 +18,15 @@ from uuid import UUID
 
 import redis.asyncio as aioredis
 from fastapi import Request
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from utils.audit import log_system_audit
 
 logger = logging.getLogger("wims.ip_blocklist")
+
+_resync_engine: Engine | None = None  # noqa: F811
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 _async_pool: aioredis.ConnectionPool | None = None
@@ -275,8 +278,221 @@ async def unblock_ip(
     return {"ip": ip, "unblocked_rows": rows}
 
 
+async def block_ips_by_filter(
+    db: Session,
+    filters: dict[str, Any],
+    blocked_by: UUID,
+    dry_run: bool,
+    requester_ip: str,
+) -> dict[str, Any]:
+    """Block all distinct source_ips matching threat-log filters.
+
+    Filters on columns that exist in security_threat_logs:
+    severity_level, source_ip, timestamp (date_from/date_to), q.
+    ``classification`` is accepted in the dict but IGNORED (column does not
+    exist on the running DB — migration 62 was never applied).
+
+    Dry-run returns aggregate counts without side effects.
+    Execute caps at 500 IPs (synchronous path safety). Per-IP logic
+    delegates to ``block_ip`` (allowlist, self-IP, repeat-offender, audit).
+    """
+    where: list[str] = []
+    params: dict[str, Any] = {}
+
+    if filters.get("severity"):
+        sevs = [
+            s.strip()
+            for s in (
+                filters["severity"].split(",")
+                if isinstance(filters["severity"], str)
+                else filters["severity"]
+            )
+            if s.strip()
+        ]
+        if len(sevs) == 1:
+            where.append("severity_level = :sev0")
+            params["sev0"] = sevs[0]
+        else:
+            placeholders = ",".join(f"sev{i}" for i in range(len(sevs)))
+            where.append(f"severity_level IN ({placeholders})")
+            for i, s in enumerate(sevs):
+                params[f"sev{i}"] = s
+
+    if filters.get("source_ip"):
+        where.append("source_ip = :source_ip")
+        params["source_ip"] = filters["source_ip"]
+
+    if filters.get("date_from"):
+        where.append("timestamp >= :date_from")
+        params["date_from"] = filters["date_from"]
+
+    if filters.get("date_to"):
+        where.append("timestamp <= :date_to")
+        params["date_to"] = filters["date_to"]
+
+    if filters.get("q"):
+        where.append("(raw_payload ILIKE :q OR xai_narrative ILIKE :q)")
+        params["q"] = f"%{filters['q']}%"
+
+    # NOTE: ``classification`` column does NOT exist on the running DB
+    # (migration 62 never applied).  Intentionally omitted.  If a future
+    # migration adds it, restore::
+    #
+    #   if filters.get("classification"):
+    #       where.append("classification = :classification")
+    #       params["classification"] = filters["classification"]
+
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+    rows = db.execute(
+        text(f"SELECT DISTINCT source_ip FROM wims.security_threat_logs{where_sql}"),
+        params,
+    ).fetchall()
+
+    distinct_ips = [r[0] for r in rows if r[0]]
+
+    # Partition: self-IP and allowlisted are excluded
+    skipped_self = 0
+    skipped_allowlist = 0
+    candidates: list[str] = []
+
+    for ip in distinct_ips:
+        if ip == requester_ip:
+            skipped_self += 1
+            continue
+        if _is_allowlisted(db, ip):
+            skipped_allowlist += 1
+            continue
+        candidates.append(ip)
+
+    if dry_run:
+        threshold = _get_repeat_offender_threshold(db)
+        repeat_offenders = 0
+        for ip in candidates:
+            c = (
+                db.execute(
+                    text("SELECT COUNT(*) FROM wims.ip_blocklist WHERE source_ip = :ip"),
+                    {"ip": ip},
+                ).scalar()
+                or 0
+            )
+            if c >= threshold:
+                repeat_offenders += 1
+
+        return {
+            "dry_run": True,
+            "total_distinct_ips": len(distinct_ips),
+            "would_block": len(candidates),
+            "repeat_offenders": repeat_offenders,
+            "skipped_self": skipped_self,
+            "skipped_allowlist": skipped_allowlist,
+            "capped_at": 500,
+        }
+
+    # Execute: cap at first 500
+    capped = len(candidates) > 500
+    to_block = candidates[:500]
+
+    blocked_count = 0
+    permanent_count = 0
+    already_blocked = 0
+
+    for ip in to_block:
+        res = await block_ip(
+            db,
+            ip,
+            blocked_by,
+            f"filter block: {filters}",
+            None,
+            24,
+            requester_ip,
+        )
+        if res.get("already_active"):
+            already_blocked += 1
+        else:
+            blocked_count += 1
+            if res.get("is_permanent"):
+                permanent_count += 1
+
+    return {
+        "dry_run": False,
+        "total_distinct_ips": len(distinct_ips),
+        "blocked_count": blocked_count,
+        "permanent_count": permanent_count,
+        "skipped_self": skipped_self,
+        "skipped_allowlist": skipped_allowlist,
+        "already_blocked": already_blocked,
+        "capped": capped,
+    }
+
+
+async def resync_blocklist_to_redis() -> int:
+    """Boot + periodic resync of active blocks from Postgres to Redis TTL keys.
+
+    Uses a non-RLS engine connection (no role GUC available at boot / Celery).
+    Reads ``DATABASE_ADMIN_URL`` first for RLS bypass, falls back to
+    ``DATABASE_URL``.
+
+    Returns the number of IPs restored to Redis.
+    """
+    global _resync_engine
+    if _resync_engine is None:
+        db_url = (
+            os.environ.get("DATABASE_ADMIN_URL")
+            or os.environ.get("DATABASE_URL")
+            or "postgresql://postgres:password@postgres:5432/wims"
+        )
+        _resync_engine = create_engine(
+            db_url,
+            pool_pre_ping=True,
+            pool_size=2,
+            max_overflow=2,
+        )
+
+    r = await _get_redis()
+    if r is None:
+        logger.warning("Redis unavailable — skip blocklist resync")
+        return 0
+
+    count = 0
+    now = datetime.now(timezone.utc)
+    try:
+        with _resync_engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT source_ip, expires_at, is_permanent "
+                    "FROM wims.ip_blocklist "
+                    "WHERE is_active = true "
+                    "AND (expires_at IS NULL OR expires_at > now())"
+                )
+            ).fetchall()
+
+        for row in rows:
+            ip, expires_at, is_permanent = row[0], row[1], row[2]
+            try:
+                if is_permanent or expires_at is None:
+                    await r.set(f"ip:block:{ip}", "1")
+                else:
+                    remaining = int((expires_at - now).total_seconds())
+                    if remaining > 0:
+                        await r.set(f"ip:block:{ip}", "1", ex=remaining)
+                count += 1
+            except Exception as e:
+                logger.warning("Resync Redis SET failed for %s: %s", ip, e)
+    except Exception as e:
+        logger.warning("Blocklist resync query failed: %s", e)
+    finally:
+        try:
+            await r.aclose()
+        except Exception:
+            pass
+
+    return count
+
+
 async def list_blocked_ips(db: Session) -> list[dict[str, Any]]:
     """List all active (is_active=true) blocked IPs with derived block_count."""
+
     rows = db.execute(
         text(
             "SELECT source_ip, blocked_at, expires_at, is_permanent, "

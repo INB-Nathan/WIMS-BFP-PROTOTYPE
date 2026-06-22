@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from services.ip_blocklist import (
     block_ip,
+    block_ips_by_filter,
     _get_request_client_ip,
 )
 
@@ -117,6 +118,112 @@ async def test_repeat_offender_escalation(db, admin_id, allowlist_config):
     rset.assert_awaited_once()
     # is_permanent was passed as the third positional arg to _redis_set_block
     assert rset.await_args.args[2] is True
+
+
+# ── block_ips_by_filter ─────────────────────────────────────────────────────────
+
+
+def _make_filter_side_effect(
+    distinct_ips: list[str],
+    allowlist_value: str = "127.0.0.1,::1",
+    threshold: str = "3",
+    count_value: int = 0,
+):
+    """Create a SQL-text-aware side_effect for db.execute in filter tests."""
+
+    def _side_effect(*args, **kwargs):
+        sql_text = str(args[0]) if args else ""
+        if "SELECT DISTINCT source_ip" in sql_text:
+            m = MagicMock()
+            m.fetchall.return_value = [(ip,) for ip in distinct_ips]
+            return m
+        if "ip_blocklist.allowlist" in sql_text and "repeat_offender" not in sql_text:
+            m = MagicMock()
+            m.scalar.return_value = allowlist_value
+            return m
+        if "ip_blocklist.repeat_offender_threshold" in sql_text:
+            m = MagicMock()
+            m.scalar.return_value = threshold
+            return m
+        if "COUNT(*) FROM wims.ip_blocklist" in sql_text:
+            m = MagicMock()
+            m.scalar.return_value = count_value
+            return m
+        m = MagicMock()
+        return m
+
+    return _side_effect
+
+
+@pytest.mark.asyncio
+async def test_block_by_filter_dry_run_returns_counts(db, admin_id):
+    """Dry-run returns aggregate counts without calling block_ip."""
+    db.execute.side_effect = _make_filter_side_effect(["1.1.1.1", "2.2.2.2", "3.3.3.3"])
+    with patch("services.ip_blocklist.block_ip", new=AsyncMock()) as blk:
+        result = await block_ips_by_filter(
+            db,
+            {"severity": "HIGH"},
+            admin_id,
+            dry_run=True,
+            requester_ip="9.9.9.9",
+        )
+    assert result["dry_run"] is True
+    assert result["total_distinct_ips"] == 3
+    assert result["would_block"] == 3
+    assert result["capped_at"] == 500
+    assert result["skipped_self"] == 0
+    assert result["skipped_allowlist"] == 0
+    blk.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_block_by_filter_execute_caps_at_500(db, admin_id):
+    """With 600 distinct IPs, only the first 500 are blocked."""
+    ips = [f"10.0.0.{i}" for i in range(600)]
+    db.execute.side_effect = _make_filter_side_effect(ips)
+    with patch(
+        "services.ip_blocklist.block_ip",
+        new=AsyncMock(return_value={"already_active": False, "is_permanent": False}),
+    ) as blk:
+        result = await block_ips_by_filter(
+            db,
+            {"severity": "HIGH"},
+            admin_id,
+            dry_run=False,
+            requester_ip="9.9.9.9",
+        )
+    assert result["capped"] is True
+    assert result["blocked_count"] == 500
+    assert result["total_distinct_ips"] == 600
+    assert result["skipped_self"] == 0
+    assert result["skipped_allowlist"] == 0
+    assert blk.await_count == 500
+
+
+@pytest.mark.asyncio
+async def test_block_by_filter_skips_self_and_allowlisted(db, admin_id):
+    """Requester IP and allowlisted IPs are excluded from the block."""
+    db.execute.side_effect = _make_filter_side_effect(
+        ["9.9.9.9", "1.2.3.4", "127.0.0.1"],
+        allowlist_value="127.0.0.1,::1",
+    )
+    with patch(
+        "services.ip_blocklist.block_ip",
+        new=AsyncMock(return_value={"already_active": False, "is_permanent": False}),
+    ) as blk:
+        result = await block_ips_by_filter(
+            db,
+            {},
+            admin_id,
+            dry_run=False,
+            requester_ip="9.9.9.9",
+        )
+    assert result["skipped_self"] == 1
+    assert result["skipped_allowlist"] == 1
+    assert result["blocked_count"] == 1
+    assert result["total_distinct_ips"] == 3
+    assert result["capped"] is False
+    assert blk.await_count == 1
 
 
 # ── _get_request_client_ip ────────────────────────────────────────────────────
