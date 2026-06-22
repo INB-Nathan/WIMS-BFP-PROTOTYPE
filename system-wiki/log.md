@@ -1,3 +1,8 @@
+## [2026-06-22] fix: raise postgres max_connections 30→75 (deploy pool exhaustion)
+
+- **Scope:** Deploy failed with `remaining connection slots are reserved for non-replication superuser connections`. The previous `max_connections=30` was too low — during redeploy, keycloak-bootstrap + backend + celery-worker + health checks all connect simultaneously and exhaust the pool.
+- **`src/docker-compose.yml`:** `max_connections` bumped from 30 to 75.
+
 ## [2026-06-22] ops: tighten Suricata filters — HOME_NET + threshold suppression
 
 - **Scope:** VPS public IP (165.22.101.73) was not in HOME_NET, causing Suricata to treat all traffic as external-to-external. Combined with no threshold config, every scanner probe generated an alert.
