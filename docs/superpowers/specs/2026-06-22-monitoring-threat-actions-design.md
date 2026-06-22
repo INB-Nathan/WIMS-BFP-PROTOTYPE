@@ -3,11 +3,17 @@
 **Date:** 2026-06-22
 **Status:** Approved (pending spec review)
 **Target branch:** `master` (also runs on `wimsbfp.tech` VPS — prod-safe)
-**Motivation:** The `/admin/monitoring` threat-log table is read-only. The XAI narrative tells the System Admin *what happened* and *who did it* (source_ip) but offers no enforcement lever — the admin cannot stop the attacker, record a verdict, escalate, or dismiss. With **25,229 HIGH threats** detected (1,261 pages at `PAGE_SIZE=20`), per-row actions alone are insufficient; the admin needs bulk and filter-scoped actions to triage at scale.
+**Motivation:** The `/admin/monitoring` threat-log table is read-only. The XAI narrative tells the System Admin *what happened* and *who did it* (source_ip) but offers no enforcement lever — the admin cannot record a verdict, escalate, dismiss, or deny the attacker access to the application. With **25,229 HIGH threats** detected (1,261 pages at `PAGE_SIZE=20`), per-row actions alone are insufficient; the admin needs bulk and filter-scoped actions to triage at scale.
 
 ## Goal
 
-Make `/admin/monitoring` threat-log rows actionable so the XAI narrative leads to enforcement, not just awareness. Handle the 25k-scale with bulk + filter-scoped actions, and auto-escalate repeat-offender IPs to permanent blocks.
+Make `/admin/monitoring` threat-log rows actionable so the XAI narrative leads to an application-level enforcement response, not just awareness. Handle the 25k-scale with bulk + filter-scoped actions, and auto-escalate repeat-offender IPs to permanent blocks.
+
+## Framing (honest scope)
+
+This is an **application-level authorization block**, not a volumetric DoS shield. A blocked IP is denied by the FastAPI middleware (403) after it has already passed through nginx and consumed a worker for the 403 response. It is a threat-response + audit + app-access-denial mechanism — the right layer for "make the XAI narrative actionable." Real volumetric shielding (nginx `deny` / iptables / WAF) is correctly a non-goal here. The motivation language does not claim to "stop the attacker" at the network edge.
+
+> **Detection-noise flag (out of scope, noted):** 25,229 HIGH alerts likely signals noisy Suricata rules or scanner traffic, not 25k distinct human attackers. Mass filter-block amplifies whatever false-positive rate the rules have. The dry-run preview + 500-IP execution cap (see below) bound the blast radius, but investigating the detection-layer noise is a separate concern from this feature.
 
 ## Non-goals (explicitly out of scope)
 
@@ -16,6 +22,9 @@ Make `/admin/monitoring` threat-log rows actionable so the XAI narrative leads t
 - Auto-block on XAI confidence threshold — dangerous automation for a prototype; a wrong narrative auto-blocks a legit IP. Human in the loop only.
 - GeoIP-based blocking, SIEM integration, email/SMS alerts — separate systems, large scope.
 - Per-SID "block all" — the filter-scoped block (S3) covers the practical case.
+- **Volumetric DoS shielding** (nginx `deny` / iptables / WAF) — this is an app-layer block only. A blocked IP still hits nginx and consumes a worker for the 403.
+- **Celery background bulk-blocking** (202 + task-poll) — the 500-IP execution cap makes the synchronous path safe; async bulk is a follow-up if the cap proves limiting.
+- **Fixing the pre-existing XFF-parsing bug in the rate limiter** (`main.py:771`) — same latent spoofing bug, but out of scope for this feature; noted for a separate fix.
 
 ## Existing surface (verified)
 
@@ -33,7 +42,9 @@ Make `/admin/monitoring` threat-log rows actionable so the XAI narrative leads t
 - `log_system_audit()` helper used throughout (lines 311, 358, 498).
 - `get_system_admin` dependency for SYSTEM_ADMIN-only routes.
 
-### Client IP extraction (reuse pattern from `src/backend/main.py:769-773`)
+### Client IP extraction (**DO NOT reuse** the rate limiter's XFF pattern — spoofable)
+
+The existing rate limiter at `src/backend/main.py:769-773` parses `X-Forwarded-For` leftmost:
 ```python
 client_ip = request.headers.get("x-forwarded-for")
 if client_ip:
@@ -41,6 +52,12 @@ if client_ip:
 else:
     client_ip = request.client.host if request.client else "unknown"
 ```
+**This is the anti-pattern the blocklist must NOT copy.** Verified against the nginx configs:
+- **Prod (`nginx.conf:82`):** `proxy_set_header X-Forwarded-For $remote_addr;` — nginx overwrites XFF with the realip-resolved IP. Leftmost XFF == real IP. *Not spoofable in prod.*
+- **Local/CI (`nginx.local.conf:71`, `nginx.ci.conf:62`):** `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` — nginx *appends* to the client-sent chain. Leftmost XFF is client-controlled. *Spoofable in local/CI.*
+- **All configs** set `proxy_set_header X-Real-IP $remote_addr;` — `X-Real-IP` is nginx-set and not client-appendable. **Trustworthy everywhere.**
+
+The blocklist uses a new `_get_request_client_ip` helper that reads `X-Real-IP` first (see Backend section below). Fixing the rate limiter's latent XFF bug is out of scope (noted in non-goals).
 `X-Real-IP` should be checked as a fallback before `request.client.host` (nginx-gateway sets it).
 
 ### Redis patterns (reuse)
@@ -89,8 +106,7 @@ CREATE TABLE IF NOT EXISTS wims.ip_blocklist (
     blocked_by      UUID,                             -- admin user_id
     block_reason    TEXT,                             -- e.g. "HIGH threat filter", "manual row block", "bulk block"
     threat_log_id   INTEGER,                          -- which alert triggered it (nullable for bulk/filter blocks)
-    is_active       BOOLEAN NOT NULL DEFAULT true,    -- soft unblock (keep history)
-    block_count     INTEGER NOT NULL DEFAULT 1        -- incremented on re-block (for repeat-offender escalation)
+    is_active       BOOLEAN NOT NULL DEFAULT true     -- soft unblock (keep history for repeat-offender counting)
 );
 
 CREATE INDEX IF NOT EXISTS idx_ip_blocklist_source_ip ON wims.ip_blocklist(source_ip);
@@ -107,59 +123,93 @@ CREATE POLICY ip_blocklist_admin_all ON wims.ip_blocklist
 
 -- Repeat-offender threshold is configurable via system_config (default 3).
 INSERT INTO wims.system_config (config_key, config_value, description)
-VALUES ('ip_blocklist.repeat_offender_threshold', '3', 'Number of times an IP is blocked before being marked permanent (confirmed attacker/bot).')
+VALUES ('ip_blocklist.repeat_offender_threshold', '3', 'Number of distinct block episodes for an IP before it is marked permanent (confirmed attacker/bot).')
+ON CONFLICT (config_key) DO NOTHING;
+
+-- Critical-IP allowlist: IPs/CIDRs that must never be blocked (other admins, uptime
+-- monitors, VPS egress, health-checkers). Comma-separated. Checked by middleware
+-- and all block endpoints. Important for NAT/CGNAT-heavy user bases (PH mobile nets).
+INSERT INTO wims.system_config (config_key, config_value, description)
+VALUES ('ip_blocklist.allowlist', '127.0.0.1,::1', 'Comma-separated IPs/CIDRs that must never be blocked (other admins, monitors, VPS egress). Checked by middleware and block endpoints.')
 ON CONFLICT (config_key) DO NOTHING;
 ```
 
 **Notes:**
-- `is_active=false` on unblock (soft, keeps history for the `block_count` repeat-offender logic).
-- `block_count` counts all blocks (active + historical) for that `source_ip`.
-- Repeat-offender check: `SELECT COUNT(*) FROM wims.ip_blocklist WHERE source_ip = :ip` (all rows, not just active) → if `>= threshold`, `is_permanent=true, expires_at=NULL`.
-- The `system_config` row for the threshold is read at block time; admin can tune it.
+- `is_active=false` on unblock (soft, keeps history for repeat-offender counting).
+- **Repeat-offender count is DERIVED, not stored:** `SELECT COUNT(*) FROM wims.ip_blocklist WHERE source_ip = :ip` (counts all rows = all distinct block episodes, active + historical). Removed the `block_count` column to avoid two sources of truth. Each block is a separate row (one per episode); an unblock separates episodes.
+- Repeat-offender check: `COUNT(*) >= threshold` → `is_permanent=true, expires_at=NULL`.
+- The `system_config` rows for threshold + allowlist are read at block time; admin can tune them.
+- **Already-active no-op:** if an active block exists for the IP (`is_active=true`), `block_ip` returns `{already_active: true}` and performs NO INSERT, NO count increment, NO audit. Prevents double-clicks and filter-duplicates from falsely escalating toward permanent.
 
-### Redis blocklist set
+### Redis blocklist — native TTL keys (hot-path source of truth)
 
-- Key: `ip:blocklist` (Redis SET of active IPs).
-- On block: `SADD ip:blocklist {ip}`. If TTL (not permanent): `SETEX ip:blocklist:ttl:{ip} {ttl_seconds} {ip}` (separate key with expiry; middleware checks both).
-- On unblock: `SREM ip:blocklist {ip}`, `DEL ip:blocklist:ttl:{ip}`.
-- On app boot: resync from Postgres (`SELECT source_ip FROM ip_blocklist WHERE is_active=true AND (expires_at IS NULL OR expires_at > now())`).
-- **Simpler TTL approach (chosen):** store `expires_at` in Postgres as source of truth; middleware checks Redis SET for fast path, then falls back to a Postgres `expires_at > now()` check if the IP is in the set. This avoids Redis TTL-key drift. Redis SET is a cache of active IPs; periodic resync keeps it fresh. **Fail-open if Redis down** (matches rate limiter).
+**Redis is the absolute source of truth for active block status during a request. Zero Postgres queries in the middleware hot path.** Postgres `ip_blocklist` is the write-path + admin-read-path (repeat-offender count, audit, panel listing).
+
+- Key: `ip:block:{ip}` (one key per blocked IP).
+- **On block:** `SET ip:block:{ip} "1" EX {ttl_seconds}` (24h = 86400). If permanent: `SET ip:block:{ip} "1"` (no `EX` — lives until explicit `DEL`).
+- **On unblock:** `DEL ip:block:{ip}`.
+- **Middleware:** `if await r.exists(f"ip:block:{client_ip}"): return 403`. That's it — no Postgres, no TTL parsing, no SET membership. Redis native expiry handles the 24h timeout automatically.
+- **On app boot:** resync from Postgres — `SELECT source_ip, expires_at, is_permanent FROM ip_blocklist WHERE is_active=true AND (expires_at IS NULL OR expires_at > now())`; for each, `SET ip:block:{ip} "1" EX {remaining_seconds}` (or no EX if permanent). Covers Redis data loss / restart.
+- **Periodic resync** (Celery beat, reuses existing infra `celery_config.py:55`): every 5 min, same resync. Covers drift if a block write succeeded in Postgres but the Redis `SET` failed (best-effort Redis after Postgres commit; the brief window where a row is in Postgres but not yet Redis is acceptable for a prototype — the next resync closes it).
+- **Fail-open if Redis down** (matches rate limiter, `main.py:765-767`): middleware passes the request through. Block writes still go to Postgres; resync restores Redis when it's back.
+
+**Why not a Redis SET + Postgres fallback:** a Postgres `expires_at > now()` check per blocked request is a DDoS vector (connection-pool exhaustion by a blocked attacker flooding requests). Native Redis TTL keys self-expire with zero Postgres load.
 
 ### Backend — new service: `src/backend/services/ip_blocklist.py`
 
 ```python
-# Core functions (async, reuse redis.asyncio pool):
-async def block_ip(ip: str, blocked_by: uuid, reason: str, threat_log_id: int | None, ttl_hours: int | None) -> dict
-    # 1. Check self-IP guard (caller passes requesting admin IP) → raise if match
-    # 2. Query repeat-offender count: SELECT COUNT(*) FROM ip_blocklist WHERE source_ip = :ip
-    # 3. Read threshold from system_config (default 3)
-    # 4. If count >= threshold → is_permanent=true, expires_at=NULL
-    #    Else → is_permanent=false, expires_at = now() + interval 'ttl_hours hours' (24h default; NULL if ttl_hours is None = manual permanent)
-    # 5. INSERT into ip_blocklist (block_count = count + 1, or 1 if first)
-    # 6. SADD ip:blocklist {ip} (Redis)
-    # 7. log_system_audit(action_type="BLOCK_SOURCE_IP", table_affected="ip_blocklist", ...)
-    # 8. Return {ip, is_permanent, expires_at, block_count, repeat_offender: bool}
+# Core functions. ALL take a `db: Session` parameter passed from the route's
+# Depends(get_db_with_rls) — the RLS policy WITH CHECK (wims.current_user_role()
+# IN ('SYSTEM_ADMIN')) requires the session to have the role GUC set. Never
+# create a standalone session for blocklist writes (the INSERT/UPDATE would fail
+# the RLS policy). Reuse the same pattern as log_system_audit(db, ...).
+# Redis via redis.asyncio pool (services/event_bus.py pattern). Redis writes are
+# best-effort AFTER the Postgres commit; periodic resync covers drift.
 
-async def unblock_ip(ip: str, unblocked_by: uuid) -> dict
+async def block_ip(db: Session, ip: str, blocked_by: uuid, reason: str,
+                   threat_log_id: int | None, ttl_hours: int | None,
+                   requester_ip: str) -> dict
+    # 1. Allowlist check: read ip_blocklist.allowlist from system_config; if ip
+    #    matches any entry (IP or CIDR) → raise 400 "IP is on the never-block allowlist"
+    # 2. Self-IP guard: if ip == requester_ip → raise 400 "Cannot block your own IP"
+    # 3. Already-active no-op: SELECT 1 FROM ip_blocklist WHERE source_ip=:ip AND
+    #    is_active=true → if exists, return {already_active: true} (NO INSERT, NO
+    #    count increment, NO audit). Prevents double-click/filter-dup escalation.
+    # 4. Query repeat-offender count: SELECT COUNT(*) FROM ip_blocklist WHERE
+    #    source_ip = :ip (all rows, active + historical = distinct block episodes)
+    # 5. Read threshold from system_config (ip_blocklist.repeat_offender_threshold, default 3)
+    # 6. If count >= threshold → is_permanent=true, expires_at=NULL
+    #    Else → is_permanent=false, expires_at = now() + interval 'ttl_hours hours'
+    #    (24h default; ttl_hours=None means manual permanent → expires_at=NULL, is_permanent=true)
+    # 7. INSERT into ip_blocklist (source_ip, blocked_by, block_reason, threat_log_id,
+    #    is_permanent, expires_at, is_active=true)
+    # 8. db.commit()  (Postgres is durable source of truth)
+    # 9. Best-effort Redis: SET ip:block:{ip} "1" EX {ttl_seconds} (or no EX if permanent)
+    # 10. log_system_audit(db, blocked_by, "BLOCK_SOURCE_IP", "ip_blocklist", block_id, ...)
+    # 11. Return {ip, is_permanent, expires_at, block_count: count+1, repeat_offender: bool, already_active: false}
+
+async def unblock_ip(db: Session, ip: str, unblocked_by: uuid) -> dict
     # 1. UPDATE ip_blocklist SET is_active=false WHERE source_ip=:ip AND is_active=true
-    # 2. SREM ip:blocklist {ip}
-    # 3. log_system_audit(action_type="UNBLOCK_IP", ...)
-    # 4. Return {ip, unblocked_rows}
+    # 2. db.commit()
+    # 3. Best-effort Redis: DEL ip:block:{ip}
+    # 4. log_system_audit(db, unblocked_by, "UNBLOCK_IP", "ip_blocklist", ...)
+    # 5. Return {ip, unblocked_rows}
 
-async def list_blocked_ips() -> list[dict]
-    # SELECT source_ip, blocked_at, expires_at, is_permanent, block_count, blocked_by
+async def list_blocked_ips(db: Session) -> list[dict]
+    # SELECT source_ip, blocked_at, expires_at, is_permanent, blocked_by, block_reason
     # WHERE is_active=true ORDER BY blocked_at DESC
+    # (block_count is derived per-row: SELECT COUNT(*) WHERE source_ip = row.source_ip)
 
-async def is_ip_blocked(ip: str) -> bool
-    # Redis SISMEMBER fast path; if Redis down, fail open (return false).
-    # (Middleware uses this; periodic resync keeps Redis fresh.)
-
-async def block_ips_by_filter(filters: dict, blocked_by: uuid, dry_run: bool) -> dict
+async def block_ips_by_filter(db: Session, filters: dict, blocked_by: uuid,
+                              dry_run: bool, requester_ip: str) -> dict
     # 1. SELECT DISTINCT source_ip FROM security_threat_logs WHERE <filters>
-    # 2. Filter out requesting admin's own IP (self-IP guard)
-    # 3. If dry_run: return {total_ips, repeat_offenders: count, would_be_permanent: count}
-    # 4. Else: for each IP, call block_ip (reuse repeat-offender logic per IP)
-    # 5. Return {blocked_count, permanent_count, skipped_self, already_blocked}
+    # 2. Filter out: requester_ip (self-IP guard), allowlisted IPs, already-active IPs
+    # 3. If dry_run: return {total_distinct_ips, would_block: len(after filters),
+    #    repeat_offenders: count (those with COUNT(*) >= threshold), capped_at: 500}
+    # 4. Else: cap to FIRST 500 IPs after filtering (hard limit — synchronous path;
+    #    Celery 202+poll is out of scope). For each, call block_ip (reuse logic).
+    # 5. Return {blocked_count, permanent_count, skipped_self, skipped_allowlist,
+    #    already_blocked, capped: bool, total_distinct_ips}
 ```
 
 ### Backend — new endpoints (all SYSTEM_ADMIN-only, audit-logged)
@@ -168,28 +218,33 @@ async def block_ips_by_filter(filters: dict, blocked_by: uuid, dry_run: bool) ->
 
 | Endpoint | Body / Params | Behavior |
 |---|---|---|
-| `POST /api/admin/security-logs/{log_id}/block-source-ip` | `{ttl_hours?: int\|"permanent"}` (default 24) | Read row's `source_ip`; self-IP guard; repeat-offender check; block; audit `BLOCK_SOURCE_IP`; set `admin_action_taken="Blocked IP"` on the threat row. |
-| `POST /api/admin/security-logs/block-by-filter` | `{severity?, source_ip?, date_from?, date_to?, q?, classification?}` + `?preview=true` for dry-run | `SELECT DISTINCT source_ip FROM security_threat_logs WHERE <filters>`; self-IP guard per IP; repeat-offender logic per IP; audit `BLOCK_BY_FILTER` with full IP list in `new_values`. Preview returns counts only. |
+| `POST /api/admin/security-logs/{log_id}/block-source-ip` | `{ttl_hours?: int\|"permanent"}` (default 24) | Read row's `source_ip`; allowlist check; self-IP guard; already-active no-op; repeat-offender check; block (Postgres + Redis TTL key); audit `BLOCK_SOURCE_IP`; set `admin_action_taken="Blocked IP"` on the threat row. |
+| `POST /api/admin/security-logs/block-by-filter` | `{severity?, source_ip?, date_from?, date_to?, q?, classification?}` + `?preview=true` for dry-run | `SELECT DISTINCT source_ip FROM security_threat_logs WHERE <filters>`; filter out self/allowlist/already-active; **dry-run returns full counts including `total_distinct_ips` and `capped_at: 500`**; **execute caps at first 500 IPs** (hard limit, synchronous path); per-IP repeat-offender logic; audit `BLOCK_BY_FILTER` with IP list in `new_values`. |
 | `POST /api/admin/security-logs/bulk-action` | `{log_ids: int[], action: "block_ip"\|"dismiss"\|"false_positive", ttl_hours?: int\|"permanent"}` | One transaction: apply action to each `log_id`. For `block_ip`: block each row's IP. For `dismiss`: soft-delete (`resolved_at=now(), admin_action_taken='Dismissed'`). For `false_positive`: `PATCH`-style HITL. One audit row with full `log_ids` in `new_values`. |
 | `DELETE /api/admin/security-logs/{log_id}` | — | Soft-delete: `resolved_at=now(), admin_action_taken='Dismissed'`; audit `DELETE_SECURITY_LOG` (action_type despite soft-delete, for audit clarity). 404 if not found. |
-| `DELETE /api/admin/ip-blocklist/{ip}` | — | Unblock: `is_active=false`, `SREM`; audit `UNBLOCK_IP`. |
-| `GET /api/admin/ip-blocklist` | `?include_inactive=false` (default) | List blocked IPs with `block_count`, `expires_at`, `is_permanent`, `blocked_by`. |
+| `DELETE /api/admin/ip-blocklist/{ip}` | — | Unblock: `is_active=false`, `DEL ip:block:{ip}`; audit `UNBLOCK_IP`. |
+| `GET /api/admin/ip-blocklist` | `?include_inactive=false` (default) | List blocked IPs with derived `block_count` (COUNT per source_ip), `expires_at`, `is_permanent`, `blocked_by`. |
 
-**Self-IP guard** (shared helper):
+**Client-IP extraction** (shared helper — **X-Real-IP primary, never parse XFF**):
 ```python
 def _get_request_client_ip(request: Request) -> str:
-    ip = request.headers.get("x-forwarded-for")
-    if ip:
-        return ip.split(",")[0].strip()
+    # nginx sets X-Real-IP to $remote_addr (after realip module) in ALL configs
+    # (nginx.conf, nginx.local.conf, nginx.ci.conf). It is NOT client-appendable.
+    # X-Forwarded-For is client-spoofable in local/CI (nginx appends with
+    # $proxy_add_x_forwarded_for) — never use its leftmost value in app code.
+    # Prod (nginx.conf) overwrites XFF with $remote_addr, but relying on that is
+    # fragile; X-Real-IP is trustworthy everywhere.
     ip = request.headers.get("x-real-ip")
     if ip:
         return ip.strip()
+    # Fallback for direct (no-proxy) access — dev/test only
     return request.client.host if request.client else "unknown"
 
-# In block endpoints:
-if source_ip == _get_request_client_ip(request):
-    raise HTTPException(400, "Cannot block your own IP address")
+# In block endpoints (self-IP guard + allowlist):
+requester_ip = _get_request_client_ip(request)
+# block_ip() checks: allowlist first, then self-IP, then already-active
 ```
+> **Note:** The existing rate limiter (`main.py:771`) parses XFF leftmost — same latent spoofing bug, but fixing it is out of scope for this feature (noted in non-goals). The blocklist uses the correct `X-Real-IP`-first helper.
 
 ### Backend — new middleware: `BlockedIPMiddleware`
 
@@ -198,15 +253,16 @@ In `src/backend/main.py`, registered before route dispatch (after the rate limit
 ```python
 @app.middleware("http")
 async def blocked_ip_middleware(request: Request, call_next):
-    # Skip health checks and auth endpoints (so a blocked IP can still... actually no.
-    # A blocked IP should be blocked from everything except /health for monitoring.)
+    # /health exempt (monitoring). Auth endpoints NOT exempt (blocked attacker
+    # can't even log in). Allowlisted IPs always pass (checked here too, defense-in-depth).
     if request.url.path in ("/health", "/api/v1/public/health"):
         return await call_next(request)
-    client_ip = _get_request_client_ip(request)  # reuse the helper
+    client_ip = _get_request_client_ip(request)  # X-Real-IP first
     r = await _get_redis()
     if r is None:
         return await call_next(request)  # fail open (Redis down ≠ site down)
-    if await r.sismember("ip:blocklist", client_ip):
+    # Zero Postgres in the hot path — Redis EXISTS only. Native TTL self-expires.
+    if await r.exists(f"ip:block:{client_ip}"):
         return JSONResponse(status_code=403, content={"detail": "IP blocked by admin action"})
     return await call_next(request)
 ```
@@ -247,7 +303,7 @@ On success: toast, row badge updates (Reviewed → Confirmed/False Positive/Bloc
 
 #### Blocked IPs panel (below the table)
 - Fetches `GET /api/admin/ip-blocklist`.
-- Lists: IP, blocked_at, expires_at (or "Permanent"), block_count, blocked_by, reason.
+- Lists: IP, blocked_at, expires_at (or "Permanent"), block_count (derived), blocked_by, reason.
 - **Unblock** button per row.
 - Repeat-offenders (`block_count >= 3`) flagged with a red "Confirmed Attacker" badge.
 - Not offline-aware (writes only; list is a plain fetch).
@@ -283,16 +339,24 @@ export interface BlockByFilterResult {
   blocked_count: number;
   permanent_count: number;
   skipped_self: number;
+  skipped_allowlist: number;
   already_blocked: number;
+  capped: boolean;
+  total_distinct_ips: number;
 }
 // (BulkResult, SecurityLogFilter similar)
 ```
 
+> **Soft-delete shared helper:** `DELETE /security-logs/{log_id}` and the bulk `dismiss` action share ONE soft-delete helper (`dismiss_security_log(db, log_id, admin_id)`: sets `resolved_at=now(), admin_action_taken='Dismissed'`, writes audit). The DELETE endpoint delegates to it; bulk calls it per `log_id` in the transaction. One logic, two entry points.
+
 ## Error handling
 
 - **Self-IP block attempt** → 400 `{detail: "Cannot block your own IP address"}`. Frontend shows error toast.
-- **Block-by-filter dry-run** → 200 with counts, no side effects.
-- **Redis down** → middleware fails open (site stays up); block writes still go to Postgres (Redis resyncs on next boot or next successful write).
+- **Allowlisted IP block attempt** → 400 `{detail: "IP is on the never-block allowlist"}`. No Postgres/Redis write.
+- **Already-active block** → 200 `{already_active: true, ...}` (no-op, no INSERT, no audit). Frontend shows info toast "IP is already blocked."
+- **Block-by-filter dry-run** → 200 with counts (`total_distinct_ips`, `would_block`, `repeat_offenders`, `capped_at: 500`), no side effects.
+- **Block-by-filter execute capped at 500** → 200 with `capped: true` if `total_distinct_ips > 500`; frontend toast: "Blocked 500 of N distinct IPs. Run again with a narrower filter for the rest."
+- **Redis down** → middleware fails open (site stays up); block writes still go to Postgres (Redis resyncs on next boot, periodic resync, or next successful write).
 - **Repeat-offender threshold misconfigured** → falls back to default 3, logs a warning.
 - **Soft-delete on a row already dismissed** → idempotent (no error, audit still written).
 - **Bulk action with empty `log_ids`** → 400 `{detail: "log_ids must not be empty"}`.
@@ -301,19 +365,25 @@ export interface BlockByFilterResult {
 ## Testing (TDD — red-green-refactor)
 
 ### Backend pytest (`src/backend/tests/`)
-- `test_block_source_ip`: block → IP in Redis + Postgres; audit row written; `admin_action_taken="Blocked IP"`.
+- `test_block_source_ip`: block → Redis TTL key (`EXISTS ip:block:{ip}`) + Postgres row; audit row written; `admin_action_taken="Blocked IP"`.
 - `test_block_self_ip`: 400, no Redis/Postgres write.
-- `test_repeat_offender_escalation`: block IP twice → 24h TTL; block third time → permanent (`is_permanent=true, expires_at=NULL`). Verify `block_count` increments.
-- `test_unblock_ip`: `is_active=false`, removed from Redis.
-- `test_blocked_ip_middleware_403`: blocked IP → 403; unblocked → through.
+- `test_block_allowlisted_ip`: 400, no Redis/Postgres write.
+- `test_block_already_active_noop`: second block of same active IP → `{already_active: true}`, no new row, no count increment, no audit.
+- `test_repeat_offender_escalation`: block+unblock, block+unblock, block third time → permanent (`is_permanent=true, expires_at=NULL`). Verify derived `block_count` = 3. (Each block is a separate row; unblock separates episodes.)
+- `test_unblock_ip`: `is_active=false`, `DEL ip:block:{ip}`.
+- `test_blocked_ip_middleware_403`: blocked IP → 403; unblocked → through; **after Redis TTL expires** → through (mock time or short TTL).
 - `test_middleware_fail_open_redis_down`: mock Redis None → request passes.
-- `test_block_by_filter_dry_run`: returns counts, no Postgres writes.
-- `test_block_by_filter_execute`: blocks N distinct IPs, self-IP skipped, repeat-offenders permanent, audit row with IP list.
+- `test_middleware_zero_postgres`: mock/verify no Postgres query issued in the middleware path.
+- `test_block_by_filter_dry_run`: returns `total_distinct_ips`, `would_block`, `repeat_offenders`, `capped_at: 500`; no Postgres writes.
+- `test_block_by_filter_execute_cap_500`: 600 distinct IPs → only 500 blocked, `capped: true`.
+- `test_block_by_filter_execute`: blocks N distinct IPs, self-IP + allowlisted skipped, repeat-offenders permanent, audit row with IP list.
 - `test_bulk_action_block`: bulk block N rows → all IPs blocked, one audit row.
-- `test_bulk_action_dismiss`: bulk dismiss → all rows `resolved_at=now(), admin_action_taken='Dismissed'`.
-- `test_delete_security_log_soft`: `resolved_at` set, row still exists, audit written.
+- `test_bulk_action_dismiss`: bulk dismiss → all rows `resolved_at=now(), admin_action_taken='Dismissed'` (shared helper).
+- `test_delete_security_log_soft`: `resolved_at` set, row still exists, audit written (delegates to same helper as bulk dismiss).
 - `test_rls_non_admin_blocked`: non-SYSTEM_ADMIN role → 403 on all blocklist endpoints.
-- `test_list_blocked_ips`: returns active blocks with `block_count`.
+- `test_rls_write_requires_rls_session`: blocklist service functions use `get_db_with_rls` session (RLS GUC set); standalone session fails the WITH CHECK policy.
+- `test_list_blocked_ips`: returns active blocks with derived `block_count`.
+- `test_xrealip_not_xff`: `_get_request_client_ip` reads `X-Real-IP` even when `X-Forwarded-For` is present (verify the helper ignores spoofable XFF).
 
 ### Frontend vitest (`src/app/admin/monitoring/`)
 Mirror the existing `admin-security-monitoring.test.tsx` mock pattern:
@@ -323,9 +393,11 @@ Mirror the existing `admin-security-monitoring.test.tsx` mock pattern:
 - Delete Alert: confirm → `deleteSecurityLog` → toast → refetch.
 - Create Incident: confirm → existing client fn → toast.
 - Bulk: select rows → bulk bar → `bulkActionSecurityLogs` with correct `log_ids`.
-- Filter-scoped block: set filter → click "Block all IPs" → preview count shown → confirm → `blockByFilter` execute → result toast.
+- Filter-scoped block: set filter → click "Block all IPs" → preview shows `total_distinct_ips` + `capped_at: 500` warning if >500 → confirm → `blockByFilter` execute → result toast (incl. `capped: true` message).
 - Blocked IPs panel: renders list → unblock button → `unblockIp` → list refreshes → repeat-offender badge on `block_count >= 3`.
 - Self-IP block: backend returns 400 → error toast shown.
+- Allowlisted IP block: backend returns 400 → error toast "IP is on the never-block allowlist."
+- Already-active block: backend returns `{already_active: true}` → info toast "IP is already blocked."
 
 ### CI pre-flight (exact commands, gotcha #12)
 1. `cd src/backend && ruff check .` → 0
@@ -337,14 +409,17 @@ Mirror the existing `admin-security-monitoring.test.tsx` mock pattern:
 
 ## Safety (prod-safe for `wimsbfp.tech`)
 
-- **Self-IP guard** on all block endpoints (no self-lockout).
-- **24h TTL default** (permanent only via repeat-offender escalation at threshold 3, or manual "permanent" toggle).
+- **Self-IP guard** on all block endpoints (no self-lockout) — uses `X-Real-IP` (nginx-set, not client-appendable), never spoofable `X-Forwarded-For` leftmost.
+- **Critical-IP allowlist** (`ip_blocklist.allowlist` in `system_config`) — never blocks other admins, uptime monitors, VPS egress, health-checkers. Important for NAT/CGNAT-heavy PH mobile user bases where one public IP represents many users.
+- **Already-active no-op** — double-clicks/filter-duplicates don't falsely escalate toward permanent.
+- **24h TTL default** via Redis native `EX` (self-expires, zero Postgres load); permanent only via repeat-offender escalation at threshold 3 or manual "permanent" toggle.
 - **Unblock always available** from the Blocked IPs panel.
-- **S3 confirm dialog shows exact count** before execution (no surprise mass-blocks); dry-run preview is mandatory before execute.
-- **Soft-delete** preserves the forensic audit trail (no hard delete, avoids FK violations on `34_security_incident` and `52_breach_notifications`).
-- **Fail-open middleware** (Redis down ≠ site down).
-- **RLS** on `ip_blocklist` (SYSTEM_ADMIN-only).
+- **S3 confirm dialog shows exact count** (`total_distinct_ips`, repeat-offender breakdown, 500-cap warning) before execution; dry-run preview is mandatory before execute; 500-IP hard cap prevents 504 on 25k-scale.
+- **Soft-delete** preserves the forensic audit trail (no hard delete, avoids FK violations on `34_security_incident` and `52_breach_notifications`); DELETE + bulk-dismiss share one helper.
+- **Fail-open middleware** (Redis down ≠ site down); **zero Postgres in the hot path** (Redis `EXISTS` only — no DDoS connection-pool vector).
+- **RLS** on `ip_blocklist` (SYSTEM_ADMIN-only); service functions use `get_db_with_rls` session (RLS GUC set for WITH CHECK policy).
 - **Audit-logged** end-to-end (every block/unblock/delete/bulk/filter action writes a `system_audit_trails` row).
+- **Prod migration step** — `postgres-init/` only runs on first DB boot (`CLAUDE.md:33`); `wimsbfp.tech` is already up, so `65_ip_blocklist.sql` must be applied manually to the running prod DB (see build order step 1b).
 
 ## Wiki updates (per AGENTS.md mandatory rule)
 
@@ -356,30 +431,41 @@ Mirror the existing `admin-security-monitoring.test.tsx` mock pattern:
 
 ## Build order (for the implementation plan)
 
-1. **Migration `65_ip_blocklist.sql`** + RLS + `system_config` row.
-2. **Backend service `services/ip_blocklist.py`** (block/unblock/list/is_blocked/block_by_filter, repeat-offender logic, Redis sync).
+1. **Migration `65_ip_blocklist.sql`** + RLS + `system_config` rows (threshold + allowlist).
+   **1b. Prod migration apply** — `postgres-init/` only runs on first DB boot (`CLAUDE.md:33`); `wimsbfp.tech` is already up. Apply to the running prod DB: `docker compose exec -T postgres psql -U postgres -d wims -f /postgres-init/65_ip_blocklist.sql` (documented in the PR; tested locally with `down -v` + `up --build`).
+2. **Backend service `services/ip_blocklist.py`** (block/unblock/list/block_by_filter; repeat-offender logic; allowlist check; already-active no-op; derived count; Redis TTL-key sync). All functions take `db: Session` from `get_db_with_rls`.
 3. **Backend endpoints** (6 new): `block-source-ip`, `block-by-filter`, `bulk-action`, `DELETE /security-logs/{log_id}` in `api/routes/admin/security.py`; `DELETE /ip-blocklist/{ip}`, `GET /ip-blocklist` in new `api/routes/admin/ip_blocklist.py` (mounted via `admin/__init__.py`).
-4. **Backend middleware** `BlockedIPMiddleware` in `main.py`.
-5. **Backend pytest** — all test cases above; run `ruff check`, `ruff format`, `pytest`.
-6. **Frontend types** in `types/api.ts` + API client functions in `legacy.ts`/`securityActions.ts`.
-7. **Frontend filters** ported to `/admin/monitoring`.
-8. **Frontend per-row actions** (HITL group + Block + Create Incident + Delete).
-9. **Frontend bulk actions** (checkboxes + bulk bar).
-10. **Frontend filter-scoped block** (S3 preview + execute).
-11. **Frontend Blocked IPs panel**.
-12. **Frontend vitest** — all test cases above.
-13. **CI pre-flight** — all 6 gates.
-14. **Wiki + gap-register updates** + commit.
+4. **Backend middleware** `BlockedIPMiddleware` in `main.py` (Redis `EXISTS` only, fail-open, X-Real-IP helper).
+5. **Backend boot resync** + **Celery beat periodic resync** (every 5 min) in `celery_config.py`.
+6. **Backend pytest** — all test cases above; run `ruff check`, `ruff format`, `pytest`.
+7. **Frontend types** in `types/api.ts` + API client functions in `legacy.ts`/`securityActions.ts`.
+8. **Frontend filters** ported to `/admin/monitoring`.
+9. **Frontend per-row actions** (HITL group + Block + Create Incident + Delete).
+10. **Frontend bulk actions** (checkboxes + bulk bar).
+11. **Frontend filter-scoped block** (S3 preview with cap warning + execute).
+12. **Frontend Blocked IPs panel**.
+13. **Frontend vitest** — all test cases above.
+14. **CI pre-flight** — all 6 gates.
+15. **Wiki + gap-register updates** + commit.
 
 ## Open questions
 
 None — all decisions locked:
-- Layer: A (app/Redis + Postgres source of truth).
+- Layer: A (app-layer; Redis native TTL keys = hot-path source of truth, Postgres = write-path/audit/read).
 - Scope: per-row + bulk + filter-scoped.
-- TTL: 24h default, permanent via repeat-offender (threshold 3) or manual toggle.
-- Delete: soft-delete.
+- TTL: 24h default (Redis `EX`, self-expires, zero Postgres load), permanent via repeat-offender (threshold 3) or manual toggle.
+- Delete: soft-delete (DELETE + bulk-dismiss share one helper).
 - HITL verdict: 3-button group on row.
-- Self-IP guard: yes.
-- Target: local + prod (`wimsbfp.tech`), prod-safe.
+- Self-IP guard: yes (X-Real-IP, not spoofable XFF).
+- Allowlist: yes (`ip_blocklist.allowlist` in `system_config`, checked by middleware + block endpoints).
+- Already-active no-op: yes (prevents false escalation).
+- block-by-filter cap: 500 IPs per execute (synchronous path; Celery 202+poll out of scope).
+- Target: local + prod (`wimsbfp.tech`), prod-safe (incl. manual prod migration step 1b).
 - Button label: "Block Source IP".
 - Repeat-offender threshold: 3 (configurable via `system_config`).
+- RLS session: service functions use `get_db_with_rls` (RLS GUC set for WITH CHECK).
+- Framing: app-layer authorization block, not volumetric DoS shield.
+
+## Revision history
+
+- **2026-06-22 (post external review):** 12 revisions after two SOTA-model security reviews (verified against codebase): (1) X-Real-IP primary, never parse XFF (spoofing fix); (2) Redis native TTL keys, zero Postgres in hot path (DDoS + TTL fix); (3) 500-IP cap on block-by-filter (504 fix); (4) prod migration apply step 1b; (5) RLS session param on all service functions; (6) already-active no-op guard; (7) critical-IP allowlist; (8) derived block_count (removed stored column); (9) shared soft-delete helper; (10) Redis best-effort + resync drift note; (11) honest framing (app-layer, not DoS shield) + detection-noise flag; (12) Celery periodic resync.
