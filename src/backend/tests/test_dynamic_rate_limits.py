@@ -296,3 +296,27 @@ class TestRateLimitMiddlewareConfig:
 
         assert response.status_code == 429
         assert response.headers.get("Retry-After") == "45"
+
+    def test_middleware_keys_on_x_real_ip_not_xff(self, client):
+        """Spoofed X-Forwarded-For must NOT change the rate-limit key.
+        The key must use X-Real-IP (set by nginx to $realip_remote_addr)."""
+        mock_redis = self._make_async_redis_mock(
+            hgetall_return={"window_seconds": "300", "threshold": "3"},
+        )
+
+        with patch.object(main_module, "_get_redis", new_callable=AsyncMock) as mock_get_redis:
+            mock_get_redis.return_value = mock_redis
+            client.post(
+                "/api/auth/callback",
+                json={"code": "test", "code_verifier": "test"},
+                headers={
+                    "X-Forwarded-For": "1.2.3.4",  # spoofed — must NOT be used
+                    "X-Real-IP": "5.6.7.8",  # trustworthy — MUST be used
+                },
+            )
+
+        eval_args = mock_redis.eval.call_args
+        # eval_args[0] = (script, numkeys=1, key, now_ts, window, threshold)
+        key = eval_args[0][2]  # KEYS[1] (the rate-limit key) is the 3rd positional arg
+        assert "5.6.7.8" in key, f"Rate-limit key must use X-Real-IP (5.6.7.8), got: {key}"
+        assert "1.2.3.4" not in key, f"Rate-limit key must NOT use spoofed XFF (1.2.3.4), got: {key}"

@@ -66,6 +66,7 @@ from api.routes.consent import router as consent_router
 from auth import resolve_wims_role_from_token as _resolve_role_from_token
 from utils.csrf import csrf_middleware
 from services.ip_blocklist import _get_request_client_ip, resync_blocklist_to_redis
+from utils.audit import trusted_client_ip
 
 # Module-level logger — must be defined before use in schema patches and rate limiter
 logger = logging.getLogger("wims.rate_limit")
@@ -777,12 +778,9 @@ async def rate_limit_middleware(request: Request, call_next):
         # Redis down → fail open
         return await call_next(request)
 
-    # Resolve client IP from X-Forwarded-For or socket
-    client_ip = request.headers.get("x-forwarded-for")
-    if client_ip:
-        client_ip = client_ip.split(",")[0].strip()
-    else:
-        client_ip = request.client.host if request.client else "unknown"
+    # Resolve client IP from X-Real-IP (set by nginx to $realip_remote_addr)
+    # or socket peer. NEVER parse X-Forwarded-For — spoofable (gap #14 / #446 follow-up).
+    client_ip = trusted_client_ip(request)
 
     # Read dynamic threshold / window from Redis (set by admin UI #363).
     # Fall back to module-level defaults when config is missing or invalid.

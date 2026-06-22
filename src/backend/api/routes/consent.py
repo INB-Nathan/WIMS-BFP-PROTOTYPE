@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from schemas.privacy import ConsentRequest, ConsentRecord
-from utils.audit import get_client_ip, hash_client_ip, log_system_audit
+from utils.audit import trusted_client_ip, hash_client_ip, log_system_audit
 from utils.public_abuse import rate_limit_public
 from utils.redis_singleton import get_redis_client
 
@@ -37,8 +37,8 @@ def record_consent(
 
     Rate limited: 5 requests per IP per hour (fail-closed per D6).
     """
-    # Extract client IP via the canonical helper (X-Forwarded-For → X-Real-IP → peer).
-    client_ip = get_client_ip(request) or "unknown"
+    # Extract client IP via trusted_client_ip (X-Real-IP → socket peer, never XFF).
+    client_ip = trusted_client_ip(request)
     # Salted SHA-256 for privacy-preserving abuse trace (D5).
     ip_hash = hash_client_ip(client_ip)
 
