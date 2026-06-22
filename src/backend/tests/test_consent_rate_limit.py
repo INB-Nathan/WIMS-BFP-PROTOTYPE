@@ -20,13 +20,13 @@ class TestConsentRateLimitKeysOnXRealIP:
         """Spoofed X-Forwarded-For must NOT be passed to rate_limit_public."""
         client = TestClient(app)
 
-        mock_result = MagicMock()
-        mock_result.fetchone.return_value = MockRow()
-        mock_db = MagicMock()
-        mock_db.execute.return_value = mock_result
-        app.dependency_overrides[get_db] = lambda: mock_db
-
         try:
+            mock_result = MagicMock()
+            mock_result.fetchone.return_value = MockRow()
+            mock_db = MagicMock()
+            mock_db.execute.return_value = mock_result
+            app.dependency_overrides[get_db] = lambda: mock_db
+
             with (
                 patch("api.routes.consent.rate_limit_public") as mock_rl,
                 patch("api.routes.consent.get_redis_client", return_value=MagicMock()),
