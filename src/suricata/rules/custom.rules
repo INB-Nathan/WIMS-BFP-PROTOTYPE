@@ -62,3 +62,8 @@ alert http any any -> any any (msg:"WIMS PRIVESC analyst endpoint 403 denied"; f
 # application rate limits — useful for incident response attribution even when
 # nginx/Redis successfully blocks the requests.
 alert http any any -> any any (msg:"WIMS RATE-LIMIT violation 429 burst"; flow:established,from_server; http.response_line; content:"429"; within:10; detection_filter:track by_src, count 20, seconds 300; classtype:policy-violation; sid:1000121; rev:1;)
+
+# ===== Directory & Route Brute-Forcing Detection (SID 1000122-1000124) =====
+alert http any any -> any any (msg:"WIMS RECON sensitive dotfile probe"; flow:established,to_server; http.uri; pcre:"/\/\.(env|git|svn|htaccess|htpasswd|aws|ssh)/i"; classtype:attempted-recon; sid:1000122; rev:1;)
+alert http any any -> any any (msg:"WIMS RECON sensitive path probe"; flow:established,to_server; http.uri; pcre:"/\/(backup|config|swagger|openapi|actuator|phpmyadmin|wp-admin|wp-login|server-status|docs|redoc)/i"; classtype:attempted-recon; sid:1000123; rev:1;)
+alert http any any -> any any (msg:"WIMS RECON 404 enumeration burst"; flow:established,from_server; http.response_line; content:"404"; within:10; detection_filter:track by_src, count 20, seconds 60; classtype:attempted-recon; sid:1000124; rev:1;)
