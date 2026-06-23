@@ -4584,3 +4584,28 @@ automatically when they reconnect.
 - **Wiki update:** This log entry. No subsystem page changes needed (audit-log-query-format is a back-end SQL concern; anomaly ack is a one-line serialization fix; breach advance error is frontend error-handling only).
 
 - **fix/metrics-edge-deny:** Explicit nginx deny for /metrics (location = /metrics { return 404; }) in both HTTP and TLS server blocks (src/nginx/nginx.conf). Enforces PR-103's network-isolation design at the edge. Updated system-wiki/pr-qa/pr-103-system-monitoring-prometheus.md to reflect enforced posture.
+
+## [2026-06-22] fix(monitoring): BlockedIpsPanel stale after filter block + catch blocks use wrong error shape
+
+- **Problem 1 — Stale BlockedIpsPanel.** `handleBlockByFilter` called `loadThreats()` after a successful block, but `BlockedIpsPanel` loads on mount only (empty `useEffect` deps). The panel showed a stale list (e.g. 4 of 20 blocked IPs). **Fix:** Added `blockedIpsKey` state counter incremented on successful block; `BlockedIpsPanel` gets `key={blockedIpsKey}` forcing remount + reload.
+- **Problem 2 — Swallowed error messages.** Three catch blocks in monitoring/page.tsx (`handleBlockByFilter`, `handleBulkAction`, `handleBlockSourceIp`) accessed `err.response.data.detail` but `ApiRequestError` (from `apiFetch`) stores detail at `err.detail` directly. **Fix:** Changed to `apiErr.detail ?? apiErr.message ?? fallback`. Also fixed the corresponding test mock shape.
+- **Files:** `src/frontend/src/app/admin/monitoring/page.tsx`, `src/frontend/src/app/admin/monitoring/admin-security-monitoring.test.tsx`.
+- **Validation:** `npx vitest run src/app/admin/monitoring/` → 57 passed, 0 failed.
+- **Wiki update:** This log entry.
+
+## [2026-06-23] feat: layered Keycloak brute force protection + SQLi/XSS rule expansion
+
+- **Keycloak brute force (3 layers):**
+  - Layer A — Suricata rules: SIDs 1000100-1000102 for `/auth/realms/bfp/token`,
+    `/auth/realms/bfp/login-actions/authenticate`, and `/auth/admin/`.
+  - Layer B — Nginx rate limiting: `keycloak_api` zone (10 req/s, burst=20) on `/auth/`.
+  - Layer C — Keycloak realm (verified): `bruteForceProtected: true` already configured.
+- **SQLi/XSS rule expansion (12 new rules, SIDs 1000103-1000114):**
+  - 5 SQLi POST body rules (OR boolean, UNION SELECT, comment bypass, DB functions, tautology)
+  - 4 XSS POST body rules (script tag, event handler, img onerror, javascript URI)
+  - 3 URI evasion patterns (comment bypass, stacked query, encoded SQL chars)
+  - All previous SQLi/XSS rules scanned `http.uri` only — POST body was a blind spot.
+  - All 30 rules validated with `suricata -T` against real `suricata.yaml` (0 failed).
+- **Files:** `src/suricata/rules/custom.rules` (+71/-29 lines), `src/nginx/nginx.conf` (+7).
+- **Branch:** `feat/keycloak-brute-force-protection`.
+- **Wiki update:** Security baseline table + POST body/XSS section; this log entry.

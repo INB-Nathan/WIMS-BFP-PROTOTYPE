@@ -84,13 +84,60 @@ default `rule-files` configuration — no custom suricata.yaml override needed.
 | Tier | Source | SID Range | Lines | Update Cadence |
 |---|---|---|---|---|
 | 1 | ET Open (full ruleset) | 2000000+ | ~68k | Weekly via suricata-update (Sun 03:00 UTC) |
-| 2 | OWASP Top 10 | 1000001–1000010 | 10 | Manual, committed to repo |
+| 2 | OWASP Top 10 + SQLi/XSS body + URI evasion | 1000001–1000010, 1000103–1000114 | 22 | Manual, committed to repo |
 | 3 | BFP-specific | 1000020–1000024 | 5 | Manual, committed to repo |
+| 4 | Keycloak brute force | 1000100–1000102 | 3 | Manual, committed to repo |
 
 Weekly update: Celery beat task `update-suricata-rules-weekly` (Sunday 03:00 UTC) executes
 `suricata-update` inside the Suricata container via Docker SDK, sends `kill -USR2` for
 live rule reload. Rules before/after counts logged and compared for regressions.
 Docker socket mounted in celery-worker for container exec access.
+
+### Nginx Edge Rate Limiting for Keycloak (2026-06-23)
+
+The `/auth/` path (proxied to Keycloak) now has edge rate limiting via nginx:
+- Zone `keycloak_api`: 10 req/s per IP (`$binary_remote_addr`), 10 MB shared memory
+- `limit_req zone=keycloak_api burst=20 nodelay` — allows short spikes, then 429
+- `limit_conn addr 10` — max 10 concurrent connections per IP
+- Applied in both dev HTTP (`listen 80; server_name localhost`) and production HTTPS
+  (`listen 443 ssl; server_name wimsbfp.tech`) server blocks.
+- Previously `/auth/` was the only API location without rate limiting — the existing
+  `public_api` (10r/s), `civilian_api` (5r/s), and `general_api` (30r/s) zones
+  covered backend and frontend paths only.
+
+### POST Body SQLi/XSS Detection Rules (2026-06-23)
+
+Extended custom Suricata rules to inspect `http.request_body` — previously all
+SQLi/XSS rules scanned `http.uri` only, missing POST body payloads:
+
+| SID | Message | Buffer | Pattern |
+|---|---|---|---|
+| 1000103 | SQLi body OR boolean | request_body | `' OR` / URL-encoded variants |
+| 1000104 | SQLi body UNION SELECT | request_body | `union` + `select` within 100 bytes |
+| 1000105 | SQLi body comment bypass | request_body | `x/*...*/` inline comment injection |
+| 1000106 | SQLi body DB functions | request_body | `xp_cmdshell`, `pg_sleep`, `WAITFOR DELAY`, benchmark |
+| 1000107 | SQLi body tautology | request_body | `1=1`, `'a'='a'` in operator context |
+| 1000108 | XSS body script tag | request_body | `<script` |
+| 1000109 | XSS body event handler | request_body | `on\w+=` event handler assignment |
+| 1000110 | XSS body img onerror | request_body | `<img` + `onerror` within 500 bytes |
+| 1000111 | XSS body javascript URI | request_body | `javascript:` URI scheme |
+| 1000112 | SQLi URI comment bypass | uri | `x/*...*/` inline comment injection (URI) |
+| 1000113 | SQLi URI stacked query | uri | `; DROP/DELETE/EXEC/TRUNCATE/...` |
+| 1000114 | SQLi URI encoded chars | uri | `%27` `%3D` `%3B` `%22` `%60` `--` (URL-encoded SQL chars) |
+
+### Keycloak Realm Brute Force Detection (2026-06-23, verified)
+
+The `bfp` realm already has Keycloak's built-in brute force detection enabled
+(no code change needed for this implementation):
+- `bruteForceProtected: true`
+- `failureFactor: 5` — locks after 5 consecutive failures within 12h
+- `maxFailureWaitSeconds: 900` — initial 15-min wait
+- `waitIncrementSeconds: 300` — +5 min per re-lockout cycle
+- `maxDeltaTimeSeconds: 43200` — failure counter resets after 12h idle
+- `maxTemporaryLockouts: 0` — unlimited temporary lockouts (deferred: consider 20)
+- `permanentLockout: false`
+
+Config: `src/keycloak/bfp-realm.json` + `src/keycloak/import/bfp-realm.json`
 
 ## IP Blocklist + Repeat-Offender Escalation (2026-06-22)
 
