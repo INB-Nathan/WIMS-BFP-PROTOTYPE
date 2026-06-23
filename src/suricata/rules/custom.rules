@@ -21,3 +21,36 @@ alert http any any -> any any (msg:"WIMS BFP Export abuse"; flow:established,to_
 alert http any any -> any any (msg:"WIMS BFP Admin enumeration"; flow:established,to_server; http.uri; content:"/api/admin"; nocase; detection_filter:track by_src, count 30, seconds 60; classtype:attempted-recon; sid:1000022; rev:1;)
 alert http any any -> any any (msg:"WIMS BFP Region hopping heuristic"; flow:established,to_server; http.uri; content:"/api/ref/"; nocase; detection_filter:track by_src, count 40, seconds 30; classtype:policy-violation; sid:1000023; rev:1;)
 alert http any any -> any any (msg:"WIMS BFP Public report spam"; flow:established,to_server; http.method; content:"POST"; http.uri; pcre:"/\/api\/(v1\/public\/report|civilian\/reports)/"; detection_filter:track by_src, count 5, seconds 3600; classtype:policy-violation; sid:1000024; rev:1;)
+
+# ===== Keycloak Brute Force Protection =====
+alert http $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (
+    msg:"WIMS Keycloak token brute-force";
+    flow:established,to_server;
+    http.method; content:"POST";
+    http.uri; content:"/auth/realms/bfp/token"; nocase;
+    detection_filter:track by_src, count 10, seconds 60;
+    classtype:attempted-recon;
+    sid:1000100;
+    rev:1;
+)
+
+alert http $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (
+    msg:"WIMS Keycloak login-actions brute-force";
+    flow:established,to_server;
+    http.method; content:"POST";
+    http.uri; content:"/auth/realms/bfp/login-actions/authenticate"; nocase;
+    detection_filter:track by_src, count 10, seconds 60;
+    classtype:attempted-recon;
+    sid:1000101;
+    rev:1;
+)
+
+alert http $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (
+    msg:"WIMS Keycloak admin console brute-force";
+    flow:established,to_server;
+    http.uri; content:"/auth/admin/"; nocase;
+    detection_filter:track by_src, count 5, seconds 60;
+    classtype:attempted-recon;
+    sid:1000102;
+    rev:1;
+)
