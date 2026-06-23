@@ -165,7 +165,8 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
         text("""
             SELECT log_id, timestamp, source_ip, destination_ip, suricata_sid,
                    severity_level, raw_payload, xai_narrative, xai_confidence,
-                   admin_action_taken, resolved_at, reviewed_by
+                   admin_action_taken, resolved_at, reviewed_by,
+                   suricata_signature, classification
             FROM wims.security_threat_logs
             WHERE log_id = :log_id
         """),
@@ -178,10 +179,21 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
     severity_level = row[5]
     raw_payload = row[6] or ""
     suricata_sid = row[4]
+    # Include the signature + classification in the prompt so the XAI LLM
+    # can explain what the alert means.  Custom WIMS SIDs 1000001-1000134 are
+    # NOT in any public Suricata feed, so SID=1000001 is opaque to Ollama.
+    # The human-readable signature ("WIMS OWASP A03 SQLi UNION SELECT") tells
+    # the LLM the attack type; the classification ("high_signal_threat") tells
+    # the threat model.  Without these, the LLM can only guess from the raw
+    # payload, producing generic narratives that don't tell humans what the
+    # attack is or what to do for future purposes.
+    suricata_signature = row[12] or ""
+    classification = row[13] or ""
 
     prompt = (
-        f"Analyze this Suricata IDS alert: severity={severity_level}, "
-        f"SID={suricata_sid}, payload={raw_payload}. "
+        f"Analyze this Suricata IDS alert: severity={json.dumps(severity_level)}, "
+        f'SID={suricata_sid}, signature="{suricata_signature}", '
+        f"classification={classification}, payload={json.dumps(raw_payload)}. "
         "Output strictly JSON with keys: "
         "'anomaly_description' (string), "
         "'log_evidence' (string), "

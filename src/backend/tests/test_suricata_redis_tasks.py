@@ -288,3 +288,45 @@ class TestProcessAiQueue:
             result = process_ai_queue()
 
         assert result == 0
+
+
+class TestInsertLogColumns:
+    """_insert_log must include classification, suricata_signature, suricata_category."""
+
+    def test_insert_log_includes_all_eight_columns(self):
+        """_insert_log builds row_data with all 8 columns and INSERTs them."""
+        from tasks.suricata_redis import _insert_log
+
+        row = {
+            "source_ip": "10.0.0.1",
+            "destination_ip": "10.0.0.2",
+            "suricata_sid": 2000001,
+            "severity_level": "HIGH",
+            "raw_payload": '{"alert": "test"}',
+            "classification": "high_signal_threat",
+            "suricata_signature": "ET EXPLOIT test",
+            "suricata_category": "Web Application Attack",
+        }
+
+        mock_db = MagicMock()
+        mock_result = MagicMock()
+        mock_result.scalar.return_value = 42
+        mock_db.execute.return_value = mock_result
+
+        result = _insert_log(mock_db, row)
+
+        assert result == 42
+        call_args = mock_db.execute.call_args
+        assert call_args is not None, "db.execute must be called"
+
+        # Inspect the SQL text for the 3 missing columns
+        sql_str = str(call_args[0][0])
+        assert "classification" in sql_str, "SQL must include classification column"
+        assert "suricata_signature" in sql_str, "SQL must include suricata_signature column"
+        assert "suricata_category" in sql_str, "SQL must include suricata_category column"
+
+        # Inspect the bound parameters
+        params = call_args[0][1]
+        assert params.get("classification") == "high_signal_threat"
+        assert params.get("suricata_signature") == "ET EXPLOIT test"
+        assert params.get("suricata_category") == "Web Application Attack"

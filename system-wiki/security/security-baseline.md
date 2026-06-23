@@ -61,6 +61,9 @@ FRS Module 4 requires SHA-256 data hashes, append-only audit logs, and immutable
 ## IDS/XAI
 FRS Modules 7 and 8 define Suricata network monitoring and Qwen2.5-3B explainability. Relevant code/config: `src/suricata/`, admin security-log routes, and AI service paths. Real-time security event push via SSE (`GET /api/events/stream`) notifies SYSTEM_ADMIN clients of threat detection, AI analysis completion, and HITL confirmations.
 
+### XAI Prompt Completeness (2026-06-23)
+`analyze_threat_log()` in `src/backend/services/ai_service.py` now includes `suricata_signature` and `classification` in the Ollama prompt (added between `SID=` and `payload=`). Custom WIMS SIDs 1000001-1000134 are NOT in any public Suricata feed, so the bare SID is opaque to Ollama — the human-readable signature (e.g. "WIMS OWASP A03 SQLi UNION SELECT") tells the LLM the attack type, and the classification (e.g. "high_signal_threat") tells the threat model. Without these, the LLM could only guess from the raw payload, producing generic narratives that failed the user's goal: XAI must tell humans **what the attack is and what to do for future purposes**. Regression test: `test_analyze_threat_log_prompt_includes_signature_and_classification` in `tests/integration/test_ai_ids_api.py` (captures the Ollama request body via `respx` and asserts both fields are present in the prompt).
+
 ### Network Topology (M7a)
 
 Suricata runs with `network_mode: "host"` — directly attached to the host's network stack.
@@ -459,3 +462,46 @@ Completes the #446 follow-up for the XFF spoofing gap. Three workstreams: (WS1) 
 - **Deviation:** #419 bypassed the #415 blocker (justified in spec — #415 needs migration 62, not applied to the running DB; #419's tests lock in existing good behavior).
 
 **CI validation:** All 6 gates green — ruff check (0), ruff format (232 files), pytest (10 new + 1592 pre-existing pass), npm run lint (0 errors), npx vitest run (990 tests, 0 fail), next build (exit 0). Spec: `docs/superpowers/specs/2026-06-22-xff-cleanup-civilian-429-xai-load-guard-design.md`.
+
+## Outbound URL Allowlist (V13.2.4, 2026-06-23)
+
+`ExternalServiceClient` (used by Ollama, OpenBao, and Nominatim) now enforces a
+hostname-based outbound URL allowlist for SSRF mitigation:
+- **Derivation:** hostnames parsed from `OLLAMA_URL` (default `ollama`),
+  `OPENBAO_ADDR` (default `openbao`), `NOMINATIM_URL` (default
+  `nominatim.openstreetmap.org`), plus `EXTERNAL_SERVICE_ALLOWED_HOSTS` env var
+  (comma-separated, additive), plus Docker internal hostnames (`wims-postgres`,
+  `wims-redis`, `wims-keycloak`, `keycloak`, `redis`, `postgres`).
+- **Enforcement:** URL hostname checked by string comparison (no DNS)
+  at the start of every `request_async`/`request_sync` call. Rejected hosts
+  raise `ExternalServiceError("URL host not in allowlist: {host}")`.
+- **Audit:** The full derived allowlist is logged at INFO at client init time.
+- **Spec:** `docs/superpowers/specs/2026-06-23-asvs-findings-remediation-design.md`,
+  Workstream 4.
+
+## ASVS L2 Remediation (2026-06-23)
+
+Six ASVS L2 findings closed in a single remediation batch. All changes
+landed in the working tree of `feat/keycloak-brute-force-protection`
+(uncommitted — awaiting user review). Subagent reports at
+`/tmp/ws{1,4,5,6,23}-report.md`.
+
+| ASVS req | Risk | Fix summary | TDD evidence |
+|---|---|---|---|
+| **V16.4.1** | HIGH | `raw_payload` + `severity_level` wrapped in `json.dumps()` in `analyze_threat_log()` prompt to prevent delimiter-breakout log injection. Scope: XAI prompt only (highest-risk channel). | `test_analyze_threat_log_escapes_raw_payload` |
+| **V16.5.1** | MED | `@app.exception_handler(Exception)` returns generic 500. HTTPException handler NOT overridden. 7 real 5xx leakers cleaned in `sessions.py` (3x) + `admin/backups.py` (4x) — `f-string str(e)` replaced with generic messages, full exception logged server-side. | `test_unhandled_exception_returns_generic_500` + `test_http_exception_4xx_keeps_original_detail` |
+| **V16.5.3** | HIGH | `rate_limit_middleware` now fail-closed on Redis down for `/api/auth/callback` POST (returns 503 + `Retry-After: 30`). Dev escape hatch: `RATE_LIMIT_FAIL_OPEN=true`. `blocked_ip_middleware` fail-open deliberately preserved (documented asymmetry). | 3 tests in `test_rate_limit_fail_closed.py` |
+| **V13.2.4** | MED | `ExternalServiceClient` hostname allowlist (see section above). | 3 tests in `TestAllowlist` |
+| **V14.2.4** | MED | New `docs/compliance/data-retention.md` + migration `68_data_retention.sql` (6 config keys + `data_retention_erased_at` column) + Celery beat task `tasks/data_retention.py` (daily 03:00 UTC, self-registers to avoid editing `main.py`). Per-table strategies: soft-archive VERIFIED `fire_incidents`, hard-delete non-VERIFIED, **real blob-erasure** for `incident_sensitive_details` (NULL all PII + `pii_blob_enc` + `encryption_iv` + `data_retention_erased_at=now()`, preserves FK), no-op for IVH + audit_trails. Deferred: key-destruction crypto-shred. | 5 tests in `test_data_retention.py` |
+| **V14.3.3** | MED | `localStorage.setItem` now stores only `{id, role}` (was full user with email/name). `Pick<User, 'id'\|'role'>` type. `serverValidated=false` on offline restore. | 3 tests in `AuthContext.test.tsx` |
+
+**Compliance rate:** 88.93% → 91.07% (224/280 reqs COMPLIANT, 4 NON-COMPLIANT, 21 NOT-VERIFIED, 31 NOT-APPLICABLE). Deferred (NOT-VERIFIED): V13.2.5 (nginx-side, application-layer sufficient), V13.4.4 (TRACE method), V16.2.5 (logger call sites beyond XAI prompt).
+
+**Subagent reports:**
+- `/tmp/ws1-report.md` — V16.4.1 XAI prompt fix
+- `/tmp/ws4-report.md` — V13.2.4 outbound URL allowlist
+- `/tmp/ws5-report.md` — V14.2.4 data retention policy
+- `/tmp/ws6-report.md` — V14.3.3 localStorage PII
+- `/tmp/ws23-report.md` — V16.5.3 + V16.5.1 (fail-closed + generic error handler)
+
+**Full regression:** 59/59 backend (33 baseline + 14 new + 12 in test_external_service), 19/19 frontend vitest, 0 frontend lint errors, ruff check + format clean. Pre-existing test infrastructure issue found and documented: persistent Redis breaker state (`cb:<service_name>:*` keys) survives between pytest invocations — clear with `docker exec wims-redis redis-cli --scan --pattern 'cb:*' | xargs redis-cli DEL` before test runs.
