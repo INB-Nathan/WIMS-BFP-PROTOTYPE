@@ -73,3 +73,7 @@ alert http any any -> any any (msg:"WIMS OWASP A10 SSRF URI internal target"; fl
 alert http any any -> any any (msg:"WIMS OWASP A10 SSRF URI dangerous scheme"; flow:established,to_server; http.uri; pcre:"/(file|gopher|dict|ldap|sftp|expect):\/\//i"; classtype:web-application-attack; sid:1000126; rev:1;)
 alert http any any -> any any (msg:"WIMS OWASP A10 SSRF body internal target"; flow:established,to_server; http.request_body; pcre:"/(169\.254\.169\.254|127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\]|0177\.0\.0\.1)/i"; classtype:web-application-attack; sid:1000127; rev:1;)
 alert http any any -> any any (msg:"WIMS OWASP A10 SSRF body dangerous scheme"; flow:established,to_server; http.request_body; pcre:"/(file|gopher|dict|ldap|sftp|expect):\/\//i"; classtype:web-application-attack; sid:1000128; rev:1;)
+
+# ===== HTTP Method Tampering Detection (SID 1000129-1000130) =====
+alert http any any -> any any (msg:"WIMS OWASP A05 HTTP TRACE method"; flow:established,to_server; http.method; content:"TRACE"; classtype:attempted-recon; sid:1000129; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A05 HTTP CONNECT method"; flow:established,to_server; http.method; content:"CONNECT"; classtype:attempted-recon; sid:1000130; rev:1;)
