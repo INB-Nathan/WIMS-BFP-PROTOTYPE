@@ -81,3 +81,7 @@ alert http any any -> any any (msg:"WIMS OWASP A05 HTTP CONNECT method"; flow:es
 # ===== Open Redirect Detection (SID 1000131-1000132) =====
 alert http any any -> any any (msg:"WIMS OWASP A01 open redirect protocol-relative"; flow:established,to_server; http.uri; pcre:"/(next|redirect|url|return|callback|continue|dest|destination|go|out)=(\/\/|%2f%2f)/i"; classtype:web-application-attack; sid:1000131; rev:1;)
 alert http any any -> any any (msg:"WIMS OWASP A01 open redirect external URL"; flow:established,to_server; http.uri; pcre:"/(next|redirect|url|return|callback|continue|dest|destination|go|out)=(https?%3a|https?:\/\/)/i"; classtype:web-application-attack; sid:1000132; rev:1;)
+
+# ===== CRLF Injection / Response Splitting Detection (SID 1000133-1000134) =====
+alert http any any -> any any (msg:"WIMS OWASP A03 CRLF injection URI"; flow:established,to_server; http.uri; pcre:"/(%0d%0a|%0a%0d|%0d|%0a)/i"; classtype:web-application-attack; sid:1000133; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A03 CRLF injection body header injection"; flow:established,to_server; http.request_body; pcre:"/(%0d%0a|%0a%0d)(Set-Cookie|Location|Content-Type|HTTP\/)/i"; classtype:web-application-attack; sid:1000134; rev:1;)
