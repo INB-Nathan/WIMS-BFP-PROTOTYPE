@@ -261,6 +261,12 @@ services:
       - NEXT_PUBLIC_APP_URL=http://localhost
       - FIREBASE_SERVICE_ACCOUNT_JSON=${FIREBASE_SERVICE_ACCOUNT_JSON:-}
       - FIREBASE_CREDENTIALS_PATH=${FIREBASE_CREDENTIALS_PATH:-}
+      - SMTP_HOST=${SMTP_HOST:-mailhog}
+      - SMTP_PORT=${SMTP_PORT:-1025}
+      - SMTP_FROM=${SMTP_FROM:-noreply@wims-bfp.local}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_STARTTLS=${SMTP_STARTTLS:-false}
       - OPENBAO_ADDR=${OPENBAO_ADDR:-http://openbao:8200}
       - OPENBAO_TOKEN=
       - OPENBAO_TOKEN_FILE=/openbao-creds/.wims-app-token
