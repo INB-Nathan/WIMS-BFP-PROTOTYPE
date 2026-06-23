@@ -77,3 +77,7 @@ alert http any any -> any any (msg:"WIMS OWASP A10 SSRF body dangerous scheme"; 
 # ===== HTTP Method Tampering Detection (SID 1000129-1000130) =====
 alert http any any -> any any (msg:"WIMS OWASP A05 HTTP TRACE method"; flow:established,to_server; http.method; content:"TRACE"; classtype:attempted-recon; sid:1000129; rev:1;)
 alert http any any -> any any (msg:"WIMS OWASP A05 HTTP CONNECT method"; flow:established,to_server; http.method; content:"CONNECT"; classtype:attempted-recon; sid:1000130; rev:1;)
+
+# ===== Open Redirect Detection (SID 1000131-1000132) =====
+alert http any any -> any any (msg:"WIMS OWASP A01 open redirect protocol-relative"; flow:established,to_server; http.uri; pcre:"/(next|redirect|url|return|callback|continue|dest|destination|go|out)=(\/\/|%2f%2f)/i"; classtype:web-application-attack; sid:1000131; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A01 open redirect external URL"; flow:established,to_server; http.uri; pcre:"/(next|redirect|url|return|callback|continue|dest|destination|go|out)=(https?%3a|https?:\/\/)/i"; classtype:web-application-attack; sid:1000132; rev:1;)
