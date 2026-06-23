@@ -260,3 +260,19 @@ All use password `Password123!` (set by `scripts/seed-dev-users.sh`):
 ### Key Security Headers
 
 `X-Content-Type-Options: nosniff`, `Content-Security-Policy: frame-src 'self'; frame-ancestors 'self'; object-src 'none'`, `Strict-Transport-Security: max-age=31536000; includeSubDomains`
+
+### Live email & FCM wiring (2026-06-23)
+
+Email (Gmail SMTP) and FCM (Firebase Cloud Messaging) are wired to real external services. Both channels were previously dev-trapped (MailHog for email, placeholder creds for FCM).
+
+**Compose changes** (`src/docker-compose.yml`):
+- celery-worker `environment:` adds 6 `SMTP_*` lines (host/port/from/user/password/starttls) — resolves B1.
+- celery-worker `volumes:` adds `./firebase-creds.json:/app/firebase-creds.json:ro`; the corresponding `FIREBASE_CREDENTIALS_PATH` env is now a literal `/app/firebase-creds.json` — resolves B3.
+
+**Keycloak realm update**: `${env.SMTP_*}` placeholders in `src/keycloak/import/bfp-realm.json:1523-1533` are resolved at first import only; `start-dev --import-realm` skips existing realms. The live realm's smtpServer is updated by `scripts/update-keycloak-smtp.sh`, which sources `SMTP_*` from `.env` and runs a chained `docker exec sh -c "kcadm config credentials && kcadm update realms/bfp"` so the session token is preserved. Resolves B2.
+
+**Host-side files** (gitignored, not in repo):
+- `/opt/wims-bfp/src/.env` — `SMTP_*` (Gmail) and `NEXT_PUBLIC_FIREBASE_*` (frontend build args).
+- `/opt/wims-bfp/src/firebase-creds.json` — service-account JSON, `chmod 600`.
+
+**Frontend rebuild required** when `NEXT_PUBLIC_FIREBASE_*` change (baked at build time). See `docs/superpowers/specs/2026-06-23-live-notifications-design.md` and `docs/superpowers/plans/2026-06-23-live-notifications.md` for full context.

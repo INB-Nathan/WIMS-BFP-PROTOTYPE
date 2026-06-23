@@ -4947,3 +4947,13 @@ automatically when they reconnect.
 - **TDD (RED→GREEN):** 5 new integration tests pass.
 - **Validation:** `ruff check` clean, `ruff format --check` clean on all 5 files. Full regression suite: 38/38 passing.
 - **No scope creep:** only the specified files modified.
+
+## 2026-06-23 — Live email & FCM push wiring
+
+Wired WIMS-BFP's existing email and FCM notification channels to real external services (Gmail SMTP, Firebase Cloud Messaging). Three verified blockers resolved:
+
+- B1: celery-worker had no `SMTP_*` env and no `env_file`; `send_email_task` fell back to mailhog. Fix: add 6 `SMTP_*` lines to celery-worker environment.
+- B2: Keycloak's `start-dev --import-realm` resolves `${env.SMTP_*}` placeholders once at first import and stores the resolved values in the Postgres-backed Keycloak DB. Restart does not re-resolve. Fix: `scripts/update-keycloak-smtp.sh` runs a chained `docker exec sh -c "kcadm config credentials && kcadm update realms/bfp"` to update the live realm.
+- B3: `firebase-creds.json` was not volume-mounted into the celery-worker container. Fix: add `./firebase-creds.json:/app/firebase-creds.json:ro` to celery-worker volumes and set `FIREBASE_CREDENTIALS_PATH=/app/firebase-creds.json` literally.
+
+Spec: `docs/superpowers/specs/2026-06-23-live-notifications-design.md` (v2). Plan: `docs/superpowers/plans/2026-06-23-live-notifications.md`. No application code changes; no new dependencies; no schema changes.
