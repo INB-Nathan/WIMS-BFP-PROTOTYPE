@@ -9,13 +9,14 @@ needs access to the raw Keycloak UUID (which is masked in admin user list).
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from auth import get_system_admin
 from auth import get_db_with_rls
 from services.keycloak_admin import get_user_sessions, logout_user_sessions
+from utils.audit import log_system_audit
 
 router = APIRouter(tags=["sessions"])
 
@@ -46,6 +47,7 @@ def list_user_sessions(
 @router.delete("/sessions/{user_id}")
 def terminate_user_sessions(
     user_id: str,
+    request: Request,
     _admin: Annotated[dict, Depends(get_system_admin)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
@@ -58,6 +60,17 @@ def terminate_user_sessions(
     """
     keycloak_id = _resolve_keycloak_id(user_id, db)
     logout_user_sessions(keycloak_id)
+    # RP-19: forced session termination is a logout event — record it.
+    log_system_audit(
+        db,
+        _admin.get("user_id"),
+        "LOGOUT",
+        "wims.users",
+        None,
+        request,
+        new_values={"target_user_id": user_id, "initiated_by": "admin_terminate_sessions"},
+    )
+    db.commit()
     return {"status": "ok", "user_id": user_id}
 
 
@@ -65,6 +78,7 @@ def terminate_user_sessions(
 def revoke_user_session(
     user_id: str,
     session_id: str,
+    request: Request,
     current_user: dict = Depends(get_system_admin),
     db: Session = Depends(get_db_with_rls),
 ):
@@ -93,4 +107,19 @@ def revoke_user_session(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to revoke session: {str(e)}")
 
+    # RP-19: single-session revocation is a logout event — record it.
+    log_system_audit(
+        db,
+        current_user.get("user_id"),
+        "LOGOUT",
+        "wims.users",
+        None,
+        request,
+        new_values={
+            "target_user_id": user_id,
+            "session_id": session_id,
+            "initiated_by": "admin_revoke_session",
+        },
+    )
+    db.commit()
     return {"status": "ok", "session_id": session_id}

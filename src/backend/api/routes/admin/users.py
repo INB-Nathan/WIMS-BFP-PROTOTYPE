@@ -396,6 +396,7 @@ def get_active_sessions(
 @router.post("/users/{user_id}/logout")
 def force_logout_user(
     user_id: str,
+    request: Request,
     _admin: Annotated[dict, Depends(get_system_admin)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
@@ -418,5 +419,17 @@ def force_logout_user(
     except Exception as e:
         logger.warning(f"Failed to logout user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to revoke sessions")
+
+    # RP-19: record the forced logout so session termination is non-repudiable.
+    log_system_audit(
+        db,
+        _admin.get("user_id"),
+        "LOGOUT",
+        "wims.users",
+        None,
+        request,
+        new_values={"target_user_id": user_id, "initiated_by": "admin_force_logout"},
+    )
+    db.commit()
 
     return {"status": "ok"}

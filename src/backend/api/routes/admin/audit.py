@@ -1,8 +1,11 @@
 """System Admin API — audit oversight routes."""
 
+import csv
+import io
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -16,6 +19,44 @@ router = APIRouter()
 
 class AuditLogsAnalyzeRequest(BaseModel):
     audit_ids: list[int]
+
+
+def _build_audit_where(
+    *,
+    user_id: Optional[int],
+    action_type: Optional[str],
+    table_affected: Optional[str],
+    ip_address: Optional[str],
+    date_from: Optional[str],
+    date_to: Optional[str],
+    q: Optional[str],
+) -> tuple[str, dict]:
+    """Build the shared WHERE clause + params for audit-log list and export."""
+    where_clauses: list[str] = []
+    params: dict = {}
+    if user_id is not None:
+        where_clauses.append("sat.user_id = :user_id")
+        params["user_id"] = user_id
+    if action_type is not None:
+        where_clauses.append("sat.action_type = :action_type")
+        params["action_type"] = action_type
+    if table_affected is not None:
+        where_clauses.append("sat.table_affected = :table_affected")
+        params["table_affected"] = table_affected
+    if ip_address is not None:
+        where_clauses.append("sat.ip_address = :ip_address")
+        params["ip_address"] = ip_address
+    if date_from is not None:
+        where_clauses.append("sat.timestamp >= CAST(:date_from AS timestamptz)")
+        params["date_from"] = date_from
+    if date_to is not None:
+        where_clauses.append("sat.timestamp <= CAST(:date_to AS timestamptz)")
+        params["date_to"] = date_to
+    if q and q.strip():
+        where_clauses.append("sat.search_vector @@ websearch_to_tsquery('english', :q)")
+        params["q"] = q.strip()
+    where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+    return where_sql, params
 
 
 @router.get("/audit-logs")
@@ -125,6 +166,85 @@ def get_audit_logs(
         "limit": limit,
         "offset": offset,
     }
+
+
+@router.get("/audit-logs/export")
+def export_audit_logs(
+    _admin: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+    user_id: Optional[int] = Query(default=None),
+    action_type: Optional[str] = Query(default=None),
+    table_affected: Optional[str] = Query(default=None),
+    ip_address: Optional[str] = Query(default=None),
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    q: Optional[str] = Query(default=None),
+):
+    """Export the system audit trail as CSV (RP-23). Honors the same filters as
+    the list endpoint. SYSTEM_ADMIN only."""
+    where_sql, params = _build_audit_where(
+        user_id=user_id,
+        action_type=action_type,
+        table_affected=table_affected,
+        ip_address=ip_address,
+        date_from=date_from,
+        date_to=date_to,
+        q=q,
+    )
+
+    rows = db.execute(
+        text(f"""
+            SELECT sat.audit_id, sat.timestamp, u.username, sat.user_id,
+                   sat.action_type, sat.table_affected, sat.record_id,
+                   sat.result, sat.ip_address, sat.correlation_id, sat.user_agent
+            FROM wims.system_audit_trails sat
+            LEFT JOIN wims.users u ON sat.user_id = u.user_id
+            {where_sql}
+            ORDER BY sat.timestamp DESC
+        """),
+        params,
+    ).fetchall()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        [
+            "audit_id",
+            "timestamp",
+            "username",
+            "user_id",
+            "action_type",
+            "table_affected",
+            "record_id",
+            "result",
+            "ip_address",
+            "correlation_id",
+            "user_agent",
+        ]
+    )
+    for r in rows:
+        writer.writerow(
+            [
+                r[0],
+                r[1].isoformat() if r[1] else "",
+                r[2] or "",
+                str(r[3]) if r[3] else "",
+                r[4],
+                r[5] or "",
+                r[6] if r[6] is not None else "",
+                r[7] or "",
+                r[8] or "",
+                r[9] or "",
+                (r[10] or "").replace("\n", " "),
+            ]
+        )
+
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=system_audit_trail.csv"},
+    )
 
 
 @router.post("/audit-logs/analyze")

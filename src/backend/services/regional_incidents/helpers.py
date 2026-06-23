@@ -44,6 +44,99 @@ def get_security_provider() -> SecurityProvider:
     return _sp_instance
 
 
+# ── Incident data-hash (RP-06) ────────────────────────────────────────────────
+# Detail fields from incident_nonsensitive_details that are folded into the
+# SHA-256 data_hash. Previously the hash covered only 6 provenance fields, so
+# a direct DB edit of substantive incident details (casualties, damages, etc.)
+# went undetected (RP-06, High). This MUST stay a superset of the correctable
+# fields in validator.correct_verified_incident's ALLOWED_NSD_FIELDS — any
+# correctable field that is not hashed could be changed without altering the
+# hash, defeating tamper-evidence.
+HASHED_NSD_FIELDS: tuple[str, ...] = (
+    "alarm_level",
+    "general_category",
+    "sub_category",
+    "specific_type",
+    "occupancy_type",
+    "estimated_damage_php",
+    "civilian_injured",
+    "civilian_deaths",
+    "firefighter_injured",
+    "firefighter_deaths",
+    "families_affected",
+    "water_tankers_used",
+    "foam_liters_used",
+    "breathing_apparatus_used",
+    "responder_type",
+    "fire_origin",
+    "extent_of_damage",
+    "structures_affected",
+    "households_affected",
+    "individuals_affected",
+    "fire_station_name",
+    "total_response_time_minutes",
+    "total_gas_consumed_liters",
+    "stage_of_fire",
+    "recommendations",
+)
+
+
+def compute_incident_data_hash(
+    db: Session,
+    incident_id: int,
+    *,
+    encoder_id: Any,
+    keycloak_id: Any,
+    region_id: Any,
+    created_at: datetime,
+    verification_status: str = "VERIFIED",
+) -> str:
+    """Compute the canonical SHA-256 data_hash for an incident (RP-06).
+
+    The hash anchors BOTH provenance (who/when) AND the substantive detail
+    fields in incident_nonsensitive_details, so tampering with detail fields
+    directly at the DB layer changes the recomputed hash and is detectable.
+
+    Used by both write-paths — the verification transition
+    (lifecycle.verify_incident) and the correction flow
+    (validator.correct_verified_incident) — so the stored hash stays
+    consistent and comparable across the incident lifecycle. Callers in the
+    correction path must run this AFTER updating the detail row so the new
+    values are reflected.
+
+    The field list is a fixed set of trusted column-name constants
+    (HASHED_NSD_FIELDS); it never contains user input, so building the SELECT
+    column list by join is injection-safe.
+    """
+    detail_row = db.execute(
+        text(
+            "SELECT "
+            + ", ".join(HASHED_NSD_FIELDS)
+            + " FROM wims.incident_nonsensitive_details WHERE incident_id = :iid"
+        ),
+        {"iid": incident_id},
+    ).fetchone()
+
+    if detail_row is not None:
+        details = {
+            field: ("" if value is None else str(value))
+            for field, value in zip(HASHED_NSD_FIELDS, detail_row)
+        }
+    else:
+        details = {field: "" for field in HASHED_NSD_FIELDS}
+
+    canonical = {
+        "encoder_id": str(encoder_id),
+        "keycloak_id": str(keycloak_id),
+        "incident_id": str(incident_id),
+        "region_id": str(region_id),
+        "verification_status": verification_status,
+        "created_at": created_at.isoformat(),
+        "details": details,
+    }
+    return hashlib.sha256(json.dumps(canonical, sort_keys=True).encode()).hexdigest()
+
+
 # ── Category canonicalization ─────────────────────────────────────────────────
 
 _CATEGORY_CANONICAL: dict[str, str] = {

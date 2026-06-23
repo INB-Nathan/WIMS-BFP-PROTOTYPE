@@ -241,10 +241,13 @@ class TestUpdateIncident:
 
     def test_update_verified_blocked(self, client_with_encoder, test_incident, db_session):
         """Cannot update a VERIFIED incident."""
-        # Force status to VERIFIED
+        # Force status to VERIFIED. A data_hash is required by the
+        # verified_requires_data_hash CHECK constraint (RP-20).
         db_session.execute(
             text(
-                "UPDATE wims.fire_incidents SET verification_status = 'VERIFIED' WHERE incident_id = :iid"
+                "UPDATE wims.fire_incidents "
+                "SET verification_status = 'VERIFIED', data_hash = repeat('a', 64) "
+                "WHERE incident_id = :iid"
             ),
             {"iid": test_incident},
         )
@@ -291,7 +294,9 @@ class TestDeleteIncident:
         """Cannot delete a VERIFIED incident."""
         db_session.execute(
             text(
-                "UPDATE wims.fire_incidents SET verification_status = 'VERIFIED' WHERE incident_id = :iid"
+                "UPDATE wims.fire_incidents "
+                "SET verification_status = 'VERIFIED', data_hash = repeat('a', 64) "
+                "WHERE incident_id = :iid"
             ),
             {"iid": test_incident},
         )

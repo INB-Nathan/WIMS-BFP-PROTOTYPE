@@ -298,6 +298,55 @@ def apply_schema_patches() -> None:
             logger.warning("Schema patch (no_update_verified) failed (non-fatal): %s", exc)
             db.rollback()
 
+        # RP-05: incident_verification_history is append-only. A no_delete_ivh
+        # rule exists (17_immutable_records.sql) but there was no UPDATE block,
+        # so a DB-level actor could rewrite verification history. Add the
+        # matching UPDATE rule.
+        try:
+            db.execute(
+                text("DROP RULE IF EXISTS no_update_ivh ON wims.incident_verification_history")
+            )
+            db.execute(
+                text("""
+                    CREATE RULE no_update_ivh AS
+                        ON UPDATE TO wims.incident_verification_history
+                        DO INSTEAD NOTHING
+                """)
+            )
+            db.commit()
+            logger.info("Schema patch applied: no_update_ivh rule (IVH is append-only) [RP-05]")
+        except Exception as exc:
+            logger.warning("Schema patch (no_update_ivh) failed (non-fatal): %s", exc)
+            db.rollback()
+
+        # RP-20: a VERIFIED incident must carry a data_hash. The app verify
+        # path always sets it; this CHECK rejects direct DB inserts/updates that
+        # would create a VERIFIED row with no integrity hash (and thus no audit
+        # provenance). NOT VALID so pre-existing rows are not retro-scanned —
+        # the constraint still enforces on every new INSERT/UPDATE.
+        try:
+            db.execute(
+                text(
+                    "ALTER TABLE wims.fire_incidents "
+                    "DROP CONSTRAINT IF EXISTS verified_requires_data_hash"
+                )
+            )
+            db.execute(
+                text("""
+                    ALTER TABLE wims.fire_incidents
+                        ADD CONSTRAINT verified_requires_data_hash
+                        CHECK (verification_status <> 'VERIFIED' OR data_hash IS NOT NULL)
+                        NOT VALID
+                """)
+            )
+            db.commit()
+            logger.info(
+                "Schema patch applied: verified_requires_data_hash CHECK constraint [RP-20]"
+            )
+        except Exception as exc:
+            logger.warning("Schema patch (verified_requires_data_hash) failed (non-fatal): %s", exc)
+            db.rollback()
+
         try:
             _apply_ref_table_rls(db)
             db.commit()

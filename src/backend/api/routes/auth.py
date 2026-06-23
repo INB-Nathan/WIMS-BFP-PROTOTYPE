@@ -15,7 +15,7 @@ import secrets
 from typing import Annotated, Optional
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr
 from keycloak import KeycloakOpenID
 from keycloak.exceptions import KeycloakError
@@ -24,6 +24,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user, get_db_with_rls
+from database import get_db
+from utils.audit import log_system_audit, trusted_client_ip
 from services.email.sender import send_email_async
 from services.keycloak_admin import (
     _KC_BASE_URL,
@@ -359,3 +361,72 @@ async def verify_email(
             "message": f"Email changed to {pending_email} in identity provider, but database sync failed. Contact support if your email is missing from your profile.",
         }
     return {"status": "ok", "message": f"Email successfully changed to {pending_email}."}
+
+
+# ── Auth-lifecycle audit (RP-08, RP-18, RP-19) ────────────────────────────────
+# Authentication is delegated to Keycloak, so failed logins, self-service
+# password resets, and logouts happen inside Keycloak and never reach the WIMS
+# backend. The frontend reports these events here so they land in
+# wims.system_audit_trails and the user cannot deny them. The event is recorded
+# with the trusted client IP (X-Real-IP / socket peer) and the supplied
+# username; user_id is left NULL when it cannot be resolved without leaking
+# whether an account exists.
+
+# Map of client-reportable event -> default audit result tag.
+_AUTH_EVENT_RESULTS = {
+    "FAILED_LOGIN": "failure",
+    "PASSWORD_RESET": "success",
+    "LOGOUT": "success",
+}
+
+# Per-IP cap on client-reported events to keep this public endpoint from being
+# used to flood the audit trail.
+SECURITY_EVENT_RATE_LIMIT = 30
+SECURITY_EVENT_RATE_WINDOW = 60
+
+
+class SecurityEventRequest(BaseModel):
+    event_type: str
+    username: Optional[str] = None
+
+
+@router.post("/security-event", status_code=202)
+async def record_security_event(
+    body: SecurityEventRequest,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Record a client-reported authentication-lifecycle event in the audit trail.
+
+    Called by the frontend on Keycloak failed login (FAILED_LOGIN), forgot-password
+    initiation (PASSWORD_RESET), and client logout (LOGOUT). Public — Keycloak owns
+    the credential check; this only writes a non-repudiation record.
+    """
+    event_type = (body.event_type or "").upper().strip()
+    if event_type not in _AUTH_EVENT_RESULTS:
+        raise HTTPException(status_code=422, detail="Unsupported event_type")
+
+    # Light per-IP rate limit so the endpoint can't be used to flood audit rows.
+    r = await _get_redis()
+    if r is not None:
+        ip_for_key = trusted_client_ip(request)
+        await _check_rate_limit(
+            r,
+            f"rate:sec_event:{ip_for_key}",
+            SECURITY_EVENT_RATE_LIMIT,
+            SECURITY_EVENT_RATE_WINDOW,
+        )
+
+    username = (body.username or "").strip()[:255] or None
+    log_system_audit(
+        db,
+        None,  # user_id left NULL — username is captured below without an RLS-gated lookup
+        event_type,
+        "wims.users",
+        None,
+        request,
+        new_values={"username": username, "reported_by": "client"},
+        result=_AUTH_EVENT_RESULTS[event_type],
+    )
+    db.commit()
+    return {"status": "recorded", "event_type": event_type}

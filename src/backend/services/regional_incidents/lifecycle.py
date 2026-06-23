@@ -7,8 +7,6 @@ request parsing, and response plumbing live there; transition rules live here.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -20,7 +18,10 @@ from sqlalchemy.orm import Session
 
 from services.analytics_read_model import sync_incident_to_analytics
 from services.duplicate_detection import check_for_duplicate
-from services.regional_incidents.helpers import DuplicateClientIdError
+from services.regional_incidents.helpers import (
+    DuplicateClientIdError,
+    compute_incident_data_hash,
+)
 from services.regional_incidents.policies import (
     ENCODER_DELETABLE_STATUSES,
     ENCODER_SUBMITTABLE_STATUSES,
@@ -602,15 +603,16 @@ def verify_incident_command(
     parent_to_archive: int | None = None
     effective_original_id: int | None = None
     if target_status == "VERIFIED":
-        canonical = {
-            "encoder_id": str(inc_encoder_id),
-            "keycloak_id": str(inc_keycloak_id),
-            "incident_id": str(incident_id),
-            "region_id": str(inc_region_id),
-            "verification_status": "VERIFIED",
-            "created_at": inc_created_at.isoformat(),
-        }
-        data_hash = hashlib.sha256(json.dumps(canonical, sort_keys=True).encode()).hexdigest()
+        # RP-06: hash covers provenance + substantive detail fields so that
+        # direct DB tampering of incident details is detectable.
+        data_hash = compute_incident_data_hash(
+            db,
+            incident_id,
+            encoder_id=inc_encoder_id,
+            keycloak_id=inc_keycloak_id,
+            region_id=inc_region_id,
+            created_at=inc_created_at,
+        )
 
         meta_row = db.execute(
             text("""
@@ -780,10 +782,11 @@ def bulk_approve_pending_incidents(
                    nd.city_municipality, nd.province_district,
                    nd.barangay_id, nd.barangay,
                    sd.street_address, sd.landmark, sd.establishment_name,
-                   nd.fire_station_name
+                   nd.fire_station_name, u.keycloak_id
             FROM wims.fire_incidents fi2
             LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi2.incident_id
             LEFT JOIN wims.incident_sensitive_details sd ON sd.incident_id = fi2.incident_id
+            LEFT JOIN wims.users u ON u.user_id = fi2.encoder_id
             WHERE fi2.incident_id = ANY(:ids) AND fi2.is_archived = FALSE
             """
         ),
@@ -821,7 +824,7 @@ def bulk_approve_pending_incidents(
             (
                 iid,
                 prev_status,
-                _,
+                enc_id,
                 _created_at,
                 notif_dt,
                 gen_cat,
@@ -838,6 +841,7 @@ def bulk_approve_pending_incidents(
                 lmark,
                 estab_name,
                 fire_station,
+                inc_kc_id,
             ) = row
 
             dup_result = check_for_duplicate(
@@ -866,15 +870,28 @@ def bulk_approve_pending_incidents(
                 held_for_review.append({"id": iid, "matching_incident_id": dup_id})
                 continue
 
+            # RP-06/RP-20: bulk-approved incidents must carry the same integrity
+            # data_hash as single-verify approvals (previously they were set
+            # VERIFIED with a NULL hash, leaving them tamper-undetectable).
+            bulk_data_hash = compute_incident_data_hash(
+                db,
+                iid,
+                encoder_id=enc_id,
+                keycloak_id=inc_kc_id,
+                region_id=region_id,
+                created_at=_created_at,
+            )
             db.execute(
                 text(
                     """
                     UPDATE wims.fire_incidents
-                    SET verification_status = 'VERIFIED', updated_at = now()
+                    SET verification_status = 'VERIFIED',
+                        data_hash = :data_hash,
+                        updated_at = now()
                     WHERE incident_id = :iid
                     """
                 ),
-                {"iid": iid},
+                {"iid": iid, "data_hash": bulk_data_hash},
             )
             deps.insert_incident_verification_history(
                 db,
