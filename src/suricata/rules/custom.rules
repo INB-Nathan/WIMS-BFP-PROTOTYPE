@@ -50,23 +50,23 @@ alert http any any -> any any (msg:"WIMS OWASP A03 SQLi URI encoded chars"; flow
 # Alert rules: fire when that same flow gets a 403 response (from_server direction).
 # Together they detect: someone requested a privileged endpoint and was denied.
 alert http any any -> any any (msg:"WIMS PRIVESC admin endpoint set flowbit"; flow:established,to_server; http.uri; content:"/api/admin"; nocase; flowbits:set,priv_admin; noalert; sid:1000115; rev:1;)
-alert http any any -> any any (msg:"WIMS PRIVESC admin endpoint 403 denied"; flow:established,from_server; http.response_line; content:"403"; within:10; flowbits:isset,priv_admin; detection_filter:track by_src, count 5, seconds 60; classtype:attempted-recon; sid:1000116; rev:1;)
+alert http any any -> any any (msg:"WIMS PRIVESC admin endpoint 403 denied"; flow:established,from_server; http.response_line; content:"403"; within:10; flowbits:isset,priv_admin; detection_filter:track by_dst, count 5, seconds 60; classtype:attempted-recon; sid:1000116; rev:2;)
 alert http any any -> any any (msg:"WIMS PRIVESC validator endpoint set flowbit"; flow:established,to_server; http.uri; content:"/api/validator"; nocase; flowbits:set,priv_validator; noalert; sid:1000117; rev:1;)
-alert http any any -> any any (msg:"WIMS PRIVESC validator endpoint 403 denied"; flow:established,from_server; http.response_line; content:"403"; within:10; flowbits:isset,priv_validator; detection_filter:track by_src, count 10, seconds 60; classtype:attempted-recon; sid:1000118; rev:1;)
+alert http any any -> any any (msg:"WIMS PRIVESC validator endpoint 403 denied"; flow:established,from_server; http.response_line; content:"403"; within:10; flowbits:isset,priv_validator; detection_filter:track by_dst, count 10, seconds 60; classtype:attempted-recon; sid:1000118; rev:2;)
 alert http any any -> any any (msg:"WIMS PRIVESC analyst endpoint set flowbit"; flow:established,to_server; http.uri; content:"/api/incidents/analyst"; nocase; flowbits:set,priv_analyst; noalert; sid:1000119; rev:1;)
-alert http any any -> any any (msg:"WIMS PRIVESC analyst endpoint 403 denied"; flow:established,from_server; http.response_line; content:"403"; within:10; flowbits:isset,priv_analyst; detection_filter:track by_src, count 10, seconds 60; classtype:attempted-recon; sid:1000120; rev:1;)
+alert http any any -> any any (msg:"WIMS PRIVESC analyst endpoint 403 denied"; flow:established,from_server; http.response_line; content:"403"; within:10; flowbits:isset,priv_analyst; detection_filter:track by_dst, count 10, seconds 60; classtype:attempted-recon; sid:1000120; rev:2;)
 
 # ===== Rate-Limit Violation — 429 burst detection (SID 1000121) =====
 # Fires when the same IP accumulates 20+ HTTP 429 (Too Many Requests) responses
 # in 300 seconds across any endpoint. Indicates someone persistently hitting
 # application rate limits — useful for incident response attribution even when
 # nginx/Redis successfully blocks the requests.
-alert http any any -> any any (msg:"WIMS RATE-LIMIT violation 429 burst"; flow:established,from_server; http.response_line; content:"429"; within:10; detection_filter:track by_src, count 20, seconds 300; classtype:policy-violation; sid:1000121; rev:1;)
+alert http any any -> any any (msg:"WIMS RATE-LIMIT violation 429 burst"; flow:established,from_server; http.response_line; content:"429"; within:10; detection_filter:track by_dst, count 20, seconds 300; classtype:policy-violation; sid:1000121; rev:2;)
 
 # ===== Directory & Route Brute-Forcing Detection (SID 1000122-1000124) =====
 alert http any any -> any any (msg:"WIMS RECON sensitive dotfile probe"; flow:established,to_server; http.uri; pcre:"/\/\.(env|git|svn|htaccess|htpasswd|aws|ssh)/i"; classtype:attempted-recon; sid:1000122; rev:1;)
 alert http any any -> any any (msg:"WIMS RECON sensitive path probe"; flow:established,to_server; http.uri; pcre:"/\/(backup|config|swagger|openapi|actuator|phpmyadmin|wp-admin|wp-login|server-status|docs|redoc)/i"; classtype:attempted-recon; sid:1000123; rev:1;)
-alert http any any -> any any (msg:"WIMS RECON 404 enumeration burst"; flow:established,from_server; http.response_line; content:"404"; within:10; detection_filter:track by_src, count 20, seconds 60; classtype:attempted-recon; sid:1000124; rev:1;)
+alert http any any -> any any (msg:"WIMS RECON 404 enumeration burst"; flow:established,from_server; http.response_line; content:"404"; within:10; detection_filter:track by_dst, count 20, seconds 60; classtype:attempted-recon; sid:1000124; rev:2;)
 
 # ===== OWASP A10 SSRF Detection (SID 1000125-1000128) =====
 alert http any any -> any any (msg:"WIMS OWASP A10 SSRF URI internal target"; flow:established,to_server; http.uri; pcre:"/(169\.254\.169\.254|127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\]|0177\.0\.0\.1)/i"; classtype:web-application-attack; sid:1000125; rev:1;)
