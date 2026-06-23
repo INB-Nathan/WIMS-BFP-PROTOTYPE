@@ -26,10 +26,12 @@ def _reset_csrf_cache():
 
 @pytest.fixture(autouse=True)
 def _disable_rate_limiter(monkeypatch: pytest.MonkeyPatch):
-    """Mock Redis unavailable so the rate-limiter fail-opens for every test.
+    """Set RATE_LIMIT_FAIL_OPEN so the rate-limiter passes through for CSRF tests.
     Without this, repeated POSTs to /api/auth/callback hit the sliding-window
     threshold (5 req/15min) and return 429 instead of the expected CSRF or auth response.
+    Also mock Redis unavailable to avoid real Redis calls.
     """
+    monkeypatch.setenv("RATE_LIMIT_FAIL_OPEN", "true")
 
     async def _mock_redis_unavailable():
         return None

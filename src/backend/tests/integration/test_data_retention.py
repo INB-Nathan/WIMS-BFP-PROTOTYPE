@@ -169,15 +169,17 @@ class TestFireIncidentsRetention:
         verified_id, draft_id = None, None
         try:
             # VERIFIED row: 8 years old
+            # Must provide data_hash — RP-20 CHECK constraint enforces that
+            # VERIFIED rows carry an integrity hash.
             result = db_session.execute(
                 text("""
                     INSERT INTO wims.fire_incidents
-                        (region_id, location, verification_status, is_archived, created_at)
+                        (region_id, location, verification_status, is_archived, created_at, data_hash)
                     VALUES
-                        (:rid, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography, :status, :archived, now() - INTERVAL '8 years')
+                        (:rid, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography, :status, :archived, now() - INTERVAL '8 years', :hash)
                     RETURNING incident_id
                 """),
-                {"rid": 2, "lng": 121.0, "lat": 14.0, "status": "VERIFIED", "archived": False},
+                {"rid": 2, "lng": 121.0, "lat": 14.0, "status": "VERIFIED", "archived": False, "hash": "test-data-hash-for-verified-retention-test"},
             )
             verified_id = result.fetchone()[0]
 
