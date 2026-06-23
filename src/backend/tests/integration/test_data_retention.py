@@ -179,7 +179,14 @@ class TestFireIncidentsRetention:
                         (:rid, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography, :status, :archived, now() - INTERVAL '8 years', :hash)
                     RETURNING incident_id
                 """),
-                {"rid": 2, "lng": 121.0, "lat": 14.0, "status": "VERIFIED", "archived": False, "hash": "test-data-hash-for-verified-retention-test"},
+                {
+                    "rid": 2,
+                    "lng": 121.0,
+                    "lat": 14.0,
+                    "status": "VERIFIED",
+                    "archived": False,
+                    "hash": "test-data-hash-for-verified-retention-test",
+                },
             )
             verified_id = result.fetchone()[0]
 
