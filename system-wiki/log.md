@@ -4606,6 +4606,12 @@ automatically when they reconnect.
   - 3 URI evasion patterns (comment bypass, stacked query, encoded SQL chars)
   - All previous SQLi/XSS rules scanned `http.uri` only — POST body was a blind spot.
   - All 30 rules validated with `suricata -T` against real `suricata.yaml` (0 failed).
-- **Files:** `src/suricata/rules/custom.rules` (+71/-29 lines), `src/nginx/nginx.conf` (+7).
+- **Privilege escalation + rate-limit detection (SIDs 1000115-1000121):**
+  - 6 privilege escalation rules: flowbit-based 403 detection for admin (5/60s),
+    validator and analyst endpoints (10/60s each). Noalert request-side rules set
+    flowbit; response-side rules fire on 403 + flowbit + detection_filter.
+  - 1 rate-limit violation rule: 429 response burst detection (20 hits / 300s per IP).
+  - All 37 rules validated with `suricata -T` against real `suricata.yaml` (0 failed).
+- **Files:** `src/suricata/rules/custom.rules` (+120/-29 lines), `src/nginx/nginx.conf` (+7).
 - **Branch:** `feat/keycloak-brute-force-protection`.
-- **Wiki update:** Security baseline table + POST body/XSS section; this log entry.
+- **Wiki update:** Security baseline table + POST body/XSS + priv escalation + rate-limit sections; this log entry.

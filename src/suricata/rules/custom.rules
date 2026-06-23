@@ -44,3 +44,21 @@ alert http any any -> any any (msg:"WIMS OWASP A03 XSS body javascript URI"; flo
 alert http any any -> any any (msg:"WIMS OWASP A03 SQLi URI comment bypass"; flow:established,to_server; http.uri; pcre:"/[a-z]\/\*.*\*\//i"; classtype:web-application-attack; sid:1000112; rev:1;)
 alert http any any -> any any (msg:"WIMS OWASP A03 SQLi URI stacked query"; flow:established,to_server; http.uri; pcre:"/\;([%20%09%0a%0d ])*(DROP|DELETE|EXEC|TRUNCATE|ALTER|CREATE|UPDATE|INSERT|SHUTDOWN)/i"; classtype:web-application-attack; sid:1000113; rev:1;)
 alert http any any -> any any (msg:"WIMS OWASP A03 SQLi URI encoded chars"; flow:established,to_server; http.uri; pcre:"/(%27|%3D|%3B|%22|%60|%2D%2D)/i"; classtype:web-application-attack; sid:1000114; rev:1;)
+
+# ===== Privilege Escalation Attempts — 403-to-privileged-URI detection (SID 1000115-1000120) =====
+# Flowbit noalert rules: set a flowbit when a privileged URI is hit (to_server direction).
+# Alert rules: fire when that same flow gets a 403 response (from_server direction).
+# Together they detect: someone requested a privileged endpoint and was denied.
+alert http any any -> any any (msg:"WIMS PRIVESC admin endpoint set flowbit"; flow:established,to_server; http.uri; content:"/api/admin"; nocase; flowbits:set,priv_admin; noalert; sid:1000115; rev:1;)
+alert http any any -> any any (msg:"WIMS PRIVESC admin endpoint 403 denied"; flow:established,from_server; http.response_line; content:"403"; within:10; flowbits:isset,priv_admin; detection_filter:track by_src, count 5, seconds 60; classtype:attempted-recon; sid:1000116; rev:1;)
+alert http any any -> any any (msg:"WIMS PRIVESC validator endpoint set flowbit"; flow:established,to_server; http.uri; content:"/api/validator"; nocase; flowbits:set,priv_validator; noalert; sid:1000117; rev:1;)
+alert http any any -> any any (msg:"WIMS PRIVESC validator endpoint 403 denied"; flow:established,from_server; http.response_line; content:"403"; within:10; flowbits:isset,priv_validator; detection_filter:track by_src, count 10, seconds 60; classtype:attempted-recon; sid:1000118; rev:1;)
+alert http any any -> any any (msg:"WIMS PRIVESC analyst endpoint set flowbit"; flow:established,to_server; http.uri; content:"/api/incidents/analyst"; nocase; flowbits:set,priv_analyst; noalert; sid:1000119; rev:1;)
+alert http any any -> any any (msg:"WIMS PRIVESC analyst endpoint 403 denied"; flow:established,from_server; http.response_line; content:"403"; within:10; flowbits:isset,priv_analyst; detection_filter:track by_src, count 10, seconds 60; classtype:attempted-recon; sid:1000120; rev:1;)
+
+# ===== Rate-Limit Violation — 429 burst detection (SID 1000121) =====
+# Fires when the same IP accumulates 20+ HTTP 429 (Too Many Requests) responses
+# in 300 seconds across any endpoint. Indicates someone persistently hitting
+# application rate limits — useful for incident response attribution even when
+# nginx/Redis successfully blocks the requests.
+alert http any any -> any any (msg:"WIMS RATE-LIMIT violation 429 burst"; flow:established,from_server; http.response_line; content:"429"; within:10; detection_filter:track by_src, count 20, seconds 300; classtype:policy-violation; sid:1000121; rev:1;)

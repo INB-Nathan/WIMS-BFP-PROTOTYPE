@@ -87,6 +87,7 @@ default `rule-files` configuration — no custom suricata.yaml override needed.
 | 2 | OWASP Top 10 + SQLi/XSS body + URI evasion | 1000001–1000010, 1000103–1000114 | 22 | Manual, committed to repo |
 | 3 | BFP-specific | 1000020–1000024 | 5 | Manual, committed to repo |
 | 4 | Keycloak brute force | 1000100–1000102 | 3 | Manual, committed to repo |
+| 5 | Privilege escalation + rate-limit abuse | 1000115–1000121 | 7 | Manual, committed to repo |
 
 Weekly update: Celery beat task `update-suricata-rules-weekly` (Sunday 03:00 UTC) executes
 `suricata-update` inside the Suricata container via Docker SDK, sends `kill -USR2` for
@@ -124,6 +125,47 @@ SQLi/XSS rules scanned `http.uri` only, missing POST body payloads:
 | 1000112 | SQLi URI comment bypass | uri | `x/*...*/` inline comment injection (URI) |
 | 1000113 | SQLi URI stacked query | uri | `; DROP/DELETE/EXEC/TRUNCATE/...` |
 | 1000114 | SQLi URI encoded chars | uri | `%27` `%3D` `%3B` `%22` `%60` `--` (URL-encoded SQL chars) |
+
+### Privilege Escalation Detection (2026-06-23)
+
+Flowbit-based rules that pair a `to_server` noalert rule (sets a flowbit when a
+privileged URI is requested) with a `from_server` alert rule (fires when the same
+flow returns HTTP 403). This detects a non-privileged user requesting a
+privileged endpoint and being denied — a privilege escalation probe.
+
+Three privilege tiers monitored:
+
+| SID | Category | URI Pattern | Threshold | Alert Type |
+|---|---|---|---|---|
+| 1000115 (noalert) | Admin system | `/api/admin` | — | flowbit:set,priv_admin |
+| 1000116 | Admin escalation | `/api/admin` → 403 | 5 hits / 60s | attempted-recon |
+| 1000117 (noalert) | Validator | `/api/validator` | — | flowbit:set,priv_validator |
+| 1000118 | Validator escalation | `/api/validator` → 403 | 10 hits / 60s | attempted-recon |
+| 1000119 (noalert) | National Analyst | `/api/incidents/analyst` | — | flowbit:set,priv_analyst |
+| 1000120 | Analyst escalation | `/api/incidents/analyst` → 403 | 10 hits / 60s | attempted-recon |
+
+**What this detects:** Systematic cross-role endpoint probing that a legitimate
+user would not exhibit. A single HTTP 403 from a mistyped URL is ignored;
+5+ admin 403s in 60s triggers an alert.
+
+**What this cannot detect:** IDOR (same URI, different IDs); JWT token
+tampering; business-logic privilege escalation (e.g., workflow skips).
+These require application-layer detection.
+
+### Rate-Limit Violation Detection (2026-06-23)
+
+A `from_server` rule fires when the same source IP accumulates 20+ HTTP 429
+(Too Many Requests) responses within 300 seconds across any endpoint.
+
+| SID | Message | Buffer | Threshold |
+|---|---|---|---|
+| 1000121 | RATE-LIMIT violation 429 burst | http.response_line `429` | 20 hits / 300s |
+
+**Why this is useful despite nginx already rate-limiting:** The nginx `limit_req`
+zones block excess requests at the edge, but Suricata provides alerting
+visibility that rate-limit abuse IS happening against a specific IP. When
+correlated with other alerts (SQLi, brute force, scanner UA), this confirms
+ongoing attack activity at the incident response layer.
 
 ### Keycloak Realm Brute Force Detection (2026-06-23, verified)
 
