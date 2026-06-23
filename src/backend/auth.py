@@ -46,6 +46,12 @@ WIMS_ROLES_FROM_KEYCLOAK = (
     "SYSTEM_ADMIN",
 )
 
+# Roles that must never be created via Just-In-Time auto-provisioning from a
+# raw Keycloak role grant (EP-31 / audit gap #29). A SYSTEM_ADMIN account has
+# to be onboarded through the admin API (POST /api/admin/users), which is the
+# M12-gated path. See get_current_wims_user() for enforcement.
+JIT_PRIVILEGED_ROLES = frozenset({"SYSTEM_ADMIN"})
+
 
 def resolve_wims_role_from_token(payload: dict) -> str | None:
     """Extract WIMS role from Keycloak JWT.
@@ -393,6 +399,50 @@ async def get_current_wims_user(
                     status_code=403, detail="User not found in WIMS and no valid role in token"
                 )
 
+            # ── Privilege-escalation guard (EP-31 / audit gap #29) ──────────
+            # Privileged roles must NOT be silently auto-provisioned from a raw
+            # Keycloak role grant. Otherwise a Keycloak-realm admin granting
+            # SYSTEM_ADMIN out-of-band would become a live WIMS admin on their
+            # first API call, bypassing the M12 onboarding gate. Such accounts
+            # must be created through the admin API (POST /api/admin/users).
+            # We refuse and write a non-repudiable audit row for the attempt.
+            if jit_role in JIT_PRIVILEGED_ROLES:
+                from utils.audit import log_system_audit
+
+                logger.error(
+                    "JIT provisioning REFUSED for %s: privileged role %s must be "
+                    "onboarded via the admin API (M12 gate), not a raw Keycloak grant "
+                    "(keycloak_id=%s)",
+                    preferred_username,
+                    jit_role,
+                    keycloak_sub,
+                )
+                try:
+                    log_system_audit(
+                        db,
+                        None,
+                        "JIT_PROVISION_BLOCKED",
+                        "wims.users",
+                        None,
+                        request,
+                        new_values={
+                            "username": preferred_username,
+                            "keycloak_id": keycloak_sub,
+                            "attempted_role": jit_role,
+                        },
+                        result="failure",
+                    )
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "Privileged role requires WIMS admin onboarding; "
+                        "auto-provisioning is not permitted for this account."
+                    ),
+                )
+
             jit_user_id = uuid.uuid4()
             try:
                 db.execute(
@@ -433,6 +483,30 @@ async def get_current_wims_user(
                     f"JIT provisioned user {preferred_username} "
                     f"(keycloak_id={keycloak_sub}, role={jit_role})"
                 )
+                # Non-repudiable record of the auto-provisioning event so a
+                # silently-created account can never be denied (EP-31).
+                from utils.audit import log_system_audit
+
+                try:
+                    log_system_audit(
+                        db,
+                        jit_user_id,
+                        "JIT_PROVISION",
+                        "wims.users",
+                        None,
+                        request,
+                        new_values={
+                            "username": preferred_username,
+                            "keycloak_id": keycloak_sub,
+                            "role": jit_role,
+                        },
+                        result="success",
+                    )
+                    db.commit()
+                except Exception:
+                    db.rollback()
+            except HTTPException:
+                raise
             except Exception as e:
                 db.rollback()
                 logger.error(f"JIT provisioning failed for {preferred_username}: {e}")

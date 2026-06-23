@@ -12,7 +12,9 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Download,
 } from 'lucide-react';
+import { API_BASE } from '@/lib/api/transport';
 
 const PAGE_SIZE = 50;
 
@@ -69,6 +71,7 @@ export default function AdminAuditPage() {
   const [items, setItems] = useState<AuditLogEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
@@ -176,6 +179,40 @@ export default function AdminAuditPage() {
     e.preventDefault();
     handleApplyFilters();
   };
+
+  // RP-23: export the (filtered) system audit trail as CSV.
+  const handleExportCsv = useCallback(async () => {
+    setExporting(true);
+    setError(null);
+    try {
+      const params = buildParams();
+      const qs = new URLSearchParams();
+      Object.entries(params).forEach(([key, value]) => {
+        if (key === 'limit' || key === 'offset') return; // export honors filters, not pagination
+        if (value !== undefined && value !== null && `${value}` !== '') {
+          qs.set(key, `${value}`);
+        }
+      });
+      const url = `${API_BASE.replace(/\/$/, '')}/admin/audit-logs/export${
+        qs.toString() ? `?${qs.toString()}` : ''
+      }`;
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+      const blob = await res.blob();
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = 'system_audit_trail.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+    } catch (e: unknown) {
+      setError((e as { message?: string })?.message ?? 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  }, [buildParams]);
 
   const toggleRowExpand = (auditId: number) => {
     setExpandedRows((prev) => {
@@ -372,14 +409,24 @@ export default function AdminAuditPage() {
             <span className="text-xs text-gray-400">Last checked: {formatLastCheckedAgo(lastChecked)}</span>
           )}
         </div>
-        <button
-          onClick={loadAuditLogs}
-          disabled={loading}
-          className="flex items-center gap-1 text-sm font-medium disabled:opacity-50"
-          style={{ color: 'var(--bfp-maroon)' }}
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleExportCsv}
+            disabled={exporting || loading}
+            className="flex items-center gap-1 text-sm font-medium disabled:opacity-50"
+            style={{ color: 'var(--bfp-maroon)' }}
+          >
+            <Download className="w-4 h-4" /> {exporting ? 'Exporting…' : 'Export CSV'}
+          </button>
+          <button
+            onClick={loadAuditLogs}
+            disabled={loading}
+            className="flex items-center gap-1 text-sm font-medium disabled:opacity-50"
+            style={{ color: 'var(--bfp-maroon)' }}
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
       </div>
 
       {/* Error state */}

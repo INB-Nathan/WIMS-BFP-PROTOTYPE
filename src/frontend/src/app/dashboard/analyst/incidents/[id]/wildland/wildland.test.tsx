@@ -127,8 +127,8 @@ describe('AnalystWildlandDetailPage — offline-aware read rewire', () => {
       expect(mockFetchWildlandOfflineAware).toHaveBeenCalledWith(42);
     });
 
-    // Wildland detail rendered.
-    expect(screen.getByText(/REF-42/)).toBeInTheDocument();
+    // Wildland detail rendered — findByText waits for async state flush.
+    expect(await screen.findByText(/REF-42/)).toBeInTheDocument();
     // No stale cache banner when not from cache.
     expect(screen.queryByText(/Showing cached data/i)).toBeNull();
   });
@@ -147,8 +147,8 @@ describe('AnalystWildlandDetailPage — offline-aware read rewire', () => {
       expect(mockFetchWildlandOfflineAware).toHaveBeenCalledWith(42);
     });
 
-    expect(screen.getByText(/REF-42/)).toBeInTheDocument();
-    expect(screen.getByText(/Showing cached data/i)).toBeInTheDocument();
+    expect(await screen.findByText(/REF-42/)).toBeInTheDocument();
+    expect(await screen.findByText(/Showing cached data/i)).toBeInTheDocument();
   });
 
   it('cache-miss offline: wrapper throws, page shows "unavailable offline" state', async () => {

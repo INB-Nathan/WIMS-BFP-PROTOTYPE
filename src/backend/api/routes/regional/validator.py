@@ -31,6 +31,7 @@ from services.regional_incidents import (
 )
 from services.regional_incidents.helpers import (
     build_audit_log_query as _build_audit_log_query,
+    compute_incident_data_hash,
     verify_incident_hash_chain as _verify_incident_hash_chain,
 )
 from utils.audit import trusted_client_ip, log_system_audit
@@ -457,15 +458,17 @@ async def correct_verified_incident(
             params,
         )
 
-        canonical = {
-            "encoder_id": str(inc_encoder_id),
-            "keycloak_id": str(inc_keycloak_id),
-            "incident_id": str(inc_id),
-            "region_id": str(inc_region_id),
-            "verification_status": "VERIFIED",
-            "created_at": inc_created_at.isoformat(),
-        }
-        new_data_hash = hashlib.sha256(json.dumps(canonical, sort_keys=True).encode()).hexdigest()
+        # RP-06: recompute over provenance + the now-updated detail fields so
+        # the new hash reflects the corrected values (computed AFTER the
+        # incident_nonsensitive_details UPDATE above).
+        new_data_hash = compute_incident_data_hash(
+            db,
+            inc_id,
+            encoder_id=inc_encoder_id,
+            keycloak_id=inc_keycloak_id,
+            region_id=inc_region_id,
+            created_at=inc_created_at,
+        )
 
         db.execute(
             text("UPDATE wims.fire_incidents SET data_hash = :h WHERE incident_id = :iid"),

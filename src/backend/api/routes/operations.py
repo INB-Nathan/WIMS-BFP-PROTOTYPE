@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from auth import get_db_with_rls, get_national_validator
+from auth import get_db_with_rls, get_incident_viewer, get_national_validator
 from database import get_db
 from schemas.operations import (
     FireStatus,
@@ -55,12 +55,19 @@ def _row_to_response(
 
 
 # ---------------------------------------------------------------------------
-# GET /api/operations — public read (no auth required)
+# GET /api/operations — staff read (auth required)
+#
+# SECURITY (EP-29 / audit gap #3): this endpoint previously had no auth
+# dependency, so unauthenticated callers received the full operational dataset
+# (operation locations, statuses, linked citizen-report ids). It is now gated
+# by get_incident_viewer, matching the write verbs (POST/PATCH/DELETE) which
+# already require NATIONAL_VALIDATOR. The operations board is staff-only.
 # ---------------------------------------------------------------------------
 
 
 @router.get("", response_model=List[OperationResponse])
 def list_operations(
+    _viewer: Annotated[dict, Depends(get_incident_viewer)],
     status: Optional[List[str]] = Query(None),
     db: Session = Depends(get_db),
 ) -> List[OperationResponse]:

@@ -156,8 +156,12 @@ def test_241_valid_hash_chain_passes_verification(corrected_incident):
 
 
 def test_241_tampered_ivh_row_hash_detected(corrected_incident, db):
-    """Tampering with ivh_row_hash in the DB must be detected as 'tampered'."""
-    # Find a hash-chain IVH row
+    """The no_update_ivh rule (RP-05) makes IVH append-only: a direct UPDATE to
+    ivh_row_hash is silently blocked, so the hash chain stays valid.  This test
+    verifies the *prevention* side of tamper-resistance (UPDATE is a no-op).
+    Detection of tampered rows inserted via other means is covered by
+    test_241_tamper_logs_violation_to_audit_trail.
+    """
     row = db.execute(
         text(
             "SELECT history_id, ivh_row_hash "
@@ -171,7 +175,6 @@ def test_241_tampered_ivh_row_hash_detected(corrected_incident, db):
     assert row is not None, "No hash-chain IVH row found"
 
     history_id, original_hash = row
-    # Flip the first hex char to produce a corrupt hash
     tampered_hash = ("f" if original_hash[0] != "f" else "0") + original_hash[1:]
 
     db.execute(
@@ -183,24 +186,37 @@ def test_241_tampered_ivh_row_hash_detected(corrected_incident, db):
     )
     db.commit()
 
+    # The no_update_ivh rule must have blocked the UPDATE — hash should be unchanged
+    actual_hash = db.execute(
+        text("SELECT ivh_row_hash FROM wims.incident_verification_history WHERE history_id = :hid"),
+        {"hid": history_id},
+    ).scalar()
+    assert actual_hash == original_hash, (
+        f"no_update_ivh rule must have blocked the UPDATE — "
+        f"expected {original_hash!r}, got {actual_hash!r}"
+    )
+
     from services.regional_incidents.helpers import verify_incident_hash_chain
     from database import _AdminSessionLocal
 
     session = _AdminSessionLocal()
     try:
         result = verify_incident_hash_chain(session, corrected_incident, log_violations=False)
-        assert result["integrity_status"] == "tampered", (
-            f"Expected 'tampered' after hash corruption, got '{result['integrity_status']}'"
+        # Tamper was blocked at the DB layer — chain must still be valid
+        assert result["integrity_status"] == "valid", (
+            f"Hash chain should be valid since tamper was blocked by no_update_ivh rule. "
+            f"Got '{result['integrity_status']}'. Violations: {result['violations']}"
         )
-        assert len(result["violations"]) >= 1, (
-            f"Expected at least 1 violation, got {len(result['violations'])}"
-        )
+        assert result["violations"] == [], f"Expected no violations, got: {result['violations']}"
     finally:
         session.close()
 
 
 def test_241_tampered_prev_hash_chain_break_detected(corrected_incident, db):
-    """Breaking the prev_ivh_hash chain must be detected as 'tampered'."""
+    """The no_update_ivh rule (RP-05) makes IVH append-only: a direct UPDATE to
+    prev_ivh_hash is silently blocked, so the chain break never takes effect.
+    This test verifies that prevention holds (UPDATE is a no-op → chain stays valid).
+    """
     rows = db.execute(
         text(
             "SELECT history_id, ivh_row_hash "
@@ -245,7 +261,7 @@ def test_241_tampered_prev_hash_chain_break_detected(corrected_incident, db):
 
     assert len(rows) >= 2, "Need at least 2 hash-chain rows to test chain break"
 
-    # Tamper with the second row's prev_ivh_hash to break the chain
+    # Attempt to break the second row's prev_ivh_hash chain
     second_history_id = rows[1][0]
     fake_prev_hash = "0" * 64
 
@@ -258,20 +274,29 @@ def test_241_tampered_prev_hash_chain_break_detected(corrected_incident, db):
     )
     db.commit()
 
+    # The no_update_ivh rule must have blocked the UPDATE — prev_ivh_hash should be unchanged
+    actual_prev = db.execute(
+        text(
+            "SELECT prev_ivh_hash FROM wims.incident_verification_history WHERE history_id = :hid"
+        ),
+        {"hid": second_history_id},
+    ).scalar()
+    assert actual_prev != fake_prev_hash, (
+        "no_update_ivh rule must have blocked the chain-break UPDATE"
+    )
+
     from services.regional_incidents.helpers import verify_incident_hash_chain
     from database import _AdminSessionLocal
 
     session = _AdminSessionLocal()
     try:
         result = verify_incident_hash_chain(session, corrected_incident, log_violations=False)
-        assert result["integrity_status"] == "tampered", (
-            f"Expected 'tampered' after chain break, got '{result['integrity_status']}'"
+        # Chain break was blocked at the DB layer — chain must still be valid
+        assert result["integrity_status"] == "valid", (
+            f"Hash chain should be valid since chain-break was blocked by no_update_ivh rule. "
+            f"Got '{result['integrity_status']}'. Violations: {result['violations']}"
         )
-        chain_break_violation = any(
-            "chain broken" in v.lower() or "prev_ivh_hash" in v.lower()
-            for v in result["violations"]
-        )
-        assert chain_break_violation, f"Expected chain-break violation, got: {result['violations']}"
+        assert result["violations"] == [], f"Expected no violations, got: {result['violations']}"
     finally:
         session.close()
 
@@ -322,31 +347,51 @@ def test_241_tamper_logs_violation_to_audit_trail(corrected_incident, db):
     """When tampering is detected with log_violations=True, an INTEGRITY_VIOLATION
     audit row must be persisted in wims.system_audit_trails.
 
-    This test proves the self-committing audit session works — the audit row
-    survives even when the caller's session is never committed.
+    The no_update_ivh rule (RP-05) blocks direct UPDATEs to IVH, so this test
+    simulates a pre-rule tamper scenario by INSERTing a new IVH row that has a
+    deliberately incorrect ivh_row_hash.  The verify_incident_hash_chain function
+    must detect the bad row hash and write an INTEGRITY_VIOLATION audit entry via
+    its self-committing session.
     """
-    # Find a hash-chain IVH row and tamper with its ivh_row_hash
-    row = db.execute(
+    # Get the last real IVH row so we can link our bad row into the chain
+    last_row = db.execute(
         text(
-            "SELECT history_id, ivh_row_hash "
+            "SELECT ivh_row_hash, new_data_hash "
             "FROM wims.incident_verification_history "
             "WHERE target_type = 'OFFICIAL' AND target_id = :iid "
             "  AND ivh_row_hash IS NOT NULL "
-            "ORDER BY action_timestamp DESC LIMIT 1"
+            "ORDER BY action_timestamp DESC, history_id DESC LIMIT 1"
         ),
         {"iid": corrected_incident},
     ).fetchone()
-    assert row is not None, "No hash-chain IVH row found to tamper"
+    assert last_row is not None, "No hash-chain IVH row found"
+    last_real_hash, last_new_data_hash = last_row
 
-    history_id, original_hash = row
-    tampered_hash = ("f" if original_hash[0] != "f" else "0") + original_hash[1:]
-
+    # Insert a new IVH row whose ivh_row_hash is deliberately wrong (all zeros).
+    # The recomputed hash will differ → ivh_row_hash mismatch violation.
+    # new_data_hash matches fire_incidents.data_hash so the anchor check passes
+    # and we get exactly one violation (row hash), keeping the assertion clean.
     db.execute(
-        text(
-            "UPDATE wims.incident_verification_history "
-            "SET ivh_row_hash = :th WHERE history_id = :hid"
-        ),
-        {"th": tampered_hash, "hid": history_id},
+        text("""
+            INSERT INTO wims.incident_verification_history
+              (target_type, target_id, action_by_user_id,
+               previous_status, new_status, notes,
+               old_data_hash, new_data_hash, corrected_fields,
+               prev_ivh_hash, ivh_row_hash, action_timestamp)
+            VALUES
+              ('OFFICIAL', :iid, :uid,
+               'VERIFIED', 'VERIFIED', 'simulated-tamper-for-audit-test',
+               NULL, :ndh, ARRAY[]::text[],
+               :prev_hash, :bad_hash,
+               NOW() + interval '10 seconds')
+        """),
+        {
+            "iid": corrected_incident,
+            "uid": str(_VALIDATOR_UID),
+            "ndh": last_new_data_hash,
+            "prev_hash": last_real_hash,
+            "bad_hash": "0" * 64,
+        },
     )
     db.commit()
 
@@ -358,7 +403,8 @@ def test_241_tamper_logs_violation_to_audit_trail(corrected_incident, db):
     try:
         result = verify_incident_hash_chain(session, corrected_incident, log_violations=True)
         assert result["integrity_status"] == "tampered", (
-            f"Expected 'tampered', got '{result['integrity_status']}'"
+            f"Expected 'tampered' after simulated tamper via INSERT, "
+            f"got '{result['integrity_status']}'"
         )
 
         # The audit row should already be committed by the self-committing

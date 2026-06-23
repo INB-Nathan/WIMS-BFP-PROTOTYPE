@@ -39,6 +39,12 @@ function CallbackContent() {
                 });
                 if (!res.ok) {
                     const data = await res.json().catch(() => ({}));
+                    // RP-08: record the failed login/sync in the audit trail.
+                    fetch('/api/auth/security-event', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ event_type: 'FAILED_LOGIN' }),
+                    }).catch(() => {});
                     setError(data.error || 'Sync failed');
                     router.replace('/login');
                     return;
