@@ -4615,3 +4615,29 @@ automatically when they reconnect.
 - **Files:** `src/suricata/rules/custom.rules` (+120/-29 lines), `src/nginx/nginx.conf` (+7).
 - **Branch:** `feat/keycloak-brute-force-protection`.
 - **Wiki update:** Security baseline table + POST body/XSS + priv escalation + rate-limit sections; this log entry.
+
+## [2026-06-23] feat: Suricata gap detection rules (recon, SSRF, method tamper, redirect, CRLF) + post-impl fix pass
+
+- **Scope:** 13 new custom rules (SIDs 1000122-1000134) closing 5 attack category gaps identified in a blind-spot analysis. All rules went through a 3-reviewer review pass (correctness, security, cleanliness) and a 16-rule fix pass before the wiki update.
+- **Implementation (5 commits, Tasks 1-5):**
+  - 1000122-1000124: directory brute-forcing (dotfile probe, sensitive path probe, 404 enumeration burst)
+  - 1000125-1000128: SSRF (internal target in URI/body, dangerous schemes with `:%3[aA]` colon variants)
+  - 1000129-1000130: HTTP method tampering (TRACE/CONNECT with `nocase`)
+  - 1000131-1000132: open redirect (protocol-relative with `\\` variant, external URL with OAuth FP guard)
+  - 1000133-1000134: CRLF injection / response splitting (URI + body, anchored to header injection)
+- **Fix pass (2 commits, after 3-reviewer review):**
+  - **Commit A `a4868446`:** All 5 `from_server` `detection_filter` rules migrated from `track by_src` to `track by_dst` (SIDs 1000116, 1000118, 1000120, 1000121, 1000124). The pre-existing PRIVESC/RATE-LIMIT rules from a prior commit had the same bug. Suricata's `by_src` on `from_server` tracks the server's IP, not the attacker's — the rules were aggregating all clients into one bucket per server IP, making them effectively server-wide flood detectors. `by_dst` correctly tracks the client (attacker) IP for response-direction rules. All bumped to `rev:2`.
+  - **Commit B `2948559d`:** 12 rules updated. (1) `WIMS RECON` msg prefix renamed to `WIMS BFP` to match the 5-category taxonomy (cleanliness reviewer flagged the 6th category). (2) 1000123 dropped `docs`/`redoc`/`config` from pcre alternation (FastAPI exposes them as legitimate endpoints — every doc-page load was generating an alert). (3) SSRF internal-target regex extended with `127.1`, `0x7f000001`, `2130706433`, `169.254.170.2`, `100.100.100.200`, `fd00:ec2::254`, `[::ffff:...]`, `metadata.google.internal`. (4) Dangerous-scheme regex extended with `%3[aA]` URL-encoded colon variant. (5) 1000131 open-redirect regex extended with `\\\\` and `%5c%5c` (IE/Edge backslash bypass). (6) 1000132 dropped `redirect` from param alternation (OIDC `redirect_uri` FP) + added `detection_filter:track by_src, count 5, seconds 60` (single OAuth bounce no longer alerts). (7) 1000133 CRLF URI anchored to header-injection pattern (removed broad standalone `%0d`/`%0a` alternates that fired on legitimate base64 data in query params). All bumped to `rev:2`.
+- **Deferred (with justification, in wiki):**
+  - CORS probing (cross-flow header correlation not possible with Suricata flowbits)
+  - SMTP injection (MailHog bound to `127.0.0.1:1025`, not externally accessible)
+  - HTTP/2 fingerprinting (low value, requires JA3/JA4 config)
+  - Production HTTPS blindness (architectural change: needs SSL key disclosure, Docker bridge port mirroring, or inline IPS mode — all out of scope for rule additions)
+  - Post-auth business logic abuse (IDOR — inherently undetectable at network layer)
+  - URL-encoded dotfile bypass (`%2e` variant) on 1000122-1000123
+  - 1000134 header list expansion
+  - base64-encoded SSRF (Suricata can't base64-decode in pcre)
+- **Validation:** `suricata -T` after each of 7 commits — `50 rules successfully loaded, 0 rules failed` consistently.
+- **Files:** `src/suricata/rules/custom.rules` (+13 rules, 16 revised to `rev:2`), `system-wiki/security/security-baseline.md` (tier 6 + gap detection section + known limitations), `system-wiki/log.md` (this entry).
+- **Branch:** `feat/keycloak-brute-force-protection`.
+- **Wiki update:** Security baseline tier table + new "Recon & Exploitation Gap Rules" section with cross-cutting fix note + known limitations; this log entry.

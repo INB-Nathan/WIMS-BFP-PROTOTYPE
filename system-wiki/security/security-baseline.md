@@ -88,6 +88,7 @@ default `rule-files` configuration — no custom suricata.yaml override needed.
 | 3 | BFP-specific | 1000020–1000024 | 5 | Manual, committed to repo |
 | 4 | Keycloak brute force | 1000100–1000102 | 3 | Manual, committed to repo |
 | 5 | Privilege escalation + rate-limit abuse | 1000115–1000121 | 7 | Manual, committed to repo |
+| 6 | Recon + SSRF + method tamper + redirect + CRLF | 1000122–1000134 | 13 | Manual, committed to repo |
 
 Weekly update: Celery beat task `update-suricata-rules-weekly` (Sunday 03:00 UTC) executes
 `suricata-update` inside the Suricata container via Docker SDK, sends `kill -USR2` for
@@ -166,6 +167,75 @@ zones block excess requests at the edge, but Suricata provides alerting
 visibility that rate-limit abuse IS happening against a specific IP. When
 correlated with other alerts (SQLi, brute force, scanner UA), this confirms
 ongoing attack activity at the incident response layer.
+
+### Recon & Exploitation Gap Rules (2026-06-23)
+
+13 rules covering attack categories that previously had zero custom detection,
+all at `rev:2` after the post-implementation FP/bypass review pass.
+
+**Directory brute-forcing (SIDs 1000122-1000124, `rev:2`):**
+- 1000122: Sensitive dotfile probe (`/.env`, `/.git`, `/.svn`, `/.htaccess`)
+- 1000123: Sensitive path probe (`/backup`, `/swagger`, `/openapi`, `/actuator`,
+  `/api/configuration` — `docs`/`redoc`/`config` removed because they are
+  legitimate FastAPI endpoints in this app)
+- 1000124: 404 enumeration burst — 20+ 404 responses from same destination IP
+  in 60s (uses `track by_dst` to track the client, not the server)
+
+**SSRF (SIDs 1000125-1000128, `rev:2`):**
+- 1000125/1000127: Internal target SSRF in URI/body. Covers IPv4 (`127.0.0.1`,
+  `127.1`, `0x7f000001`, `2130706433`, `0.0.0.0`, octal `0177.0.0.1`), IPv6
+  (`[::1]`, `[::ffff:127.0.0.1]`), cloud metadata (`169.254.169.254` AWS,
+  `169.254.170.2` AWS ECS, `100.100.100.200` Alibaba, `fd00:ec2::254` AWS IMDSv6,
+  `metadata.google.internal` GCP), plus `localhost` keyword.
+- 1000126/1000128: Dangerous URL schemes (`file://`, `gopher://`, `dict://`,
+  `ldap://`, `sftp://`, `expect://`) with both literal `:` and URL-encoded
+  `%3a`/`%3A` colon variants.
+
+**HTTP method tampering (SIDs 1000129-1000130, `rev:2`):**
+- 1000129: TRACE method (XST attack vector) — `nocase` to catch `Trace`/`trace`/etc.
+- 1000130: CONNECT method (proxy tunneling abuse) — `nocase`.
+
+**Open redirect (SIDs 1000131-1000132, `rev:2`):**
+- 1000131: Protocol-relative redirect in 9 redirect-param names — matches
+  `//`, `%2f%2f`, `\\` (IE/Edge), `%5c%5c` (URL-encoded backslash).
+- 1000132: External URL redirect in 9 redirect-param names (excluding
+  `redirect` to avoid OIDC `redirect_uri` FP) with `detection_filter:track by_src,
+  count 5, seconds 60` so single OAuth bounces don't alert.
+
+**CRLF injection (SIDs 1000133-1000134, `rev:2`):**
+- 1000133: CRLF sequences in URI — anchored to header injection pattern
+  (`Set-Cookie|Location|Content-Type|HTTP/`) to avoid FP on legitimate base64 /
+  multi-line data in query params.
+- 1000134: CRLF + header injection in body — same pattern in `http.request_body`.
+
+**Cross-cutting fix applied (Commit A `a4868446`):** All 5 `from_server` rules
+with `detection_filter` were migrated from `track by_src` to `track by_dst`.
+In Suricata, `by_src` on `from_server` tracks the server's IP (the packet's
+source), not the attacker's. The previous code aggregated all attackers into
+one bucket per server IP, making the rules effectively server-wide flood
+detectors rather than per-attacker detection. Affected SIDs: 1000116, 1000118,
+1000120, 1000121 (pre-existing PRIVESC/RATE-LIMIT rules), 1000124 (new 404
+burst).
+
+**Known limitations (documented, not addressed by rules):**
+- CORS probing: requires cross-flow header correlation, complex with Suricata flowbits.
+- SMTP injection: MailHog bound to `127.0.0.1:1025`, not externally accessible.
+- HTTP/2 fingerprinting: very low value for prototype, requires JA3/JA4 config.
+- Production HTTPS blindness (port 443): Suricata in host mode sees only TLS
+  ciphertext on 443. All HTTP-level rules in this file are dev-only (port 80) or
+  only see TLS handshake metadata in production. Fixing requires SSL key
+  disclosure, Docker bridge port mirroring, or inline IPS mode — all
+  architectural changes beyond rule additions.
+- Post-auth business logic abuse (IDOR, workflow skip, bulk approve):
+  inherently undetectable at network layer. Same URI, same headers, valid JWT.
+  Requires application-layer anomaly detection.
+- URL-encoded dotfile bypass (`%2e` variant) on 1000122-1000123: deferred, low
+  signal in this stack (libhtp does single-decode so most variants decode to
+  the matched form).
+- 1000134 header list is narrow (Set-Cookie, Location, Content-Type, HTTP/):
+  deferred; an exhaustive list requires per-app response-building knowledge.
+- base64-encoded SSRF (e.g. `url=aHR0cDovLzE2OS4yNTQuMTY5LjI1NA==`):
+  architectural limit — Suricata cannot base64-decode inside pcre.
 
 ### Keycloak Realm Brute Force Detection (2026-06-23, verified)
 
