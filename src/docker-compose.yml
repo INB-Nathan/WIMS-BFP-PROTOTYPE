@@ -260,7 +260,7 @@ services:
       - AFOR_TEMPLATE_PATH=/app/AFOR-FORMATTED.xlsx
       - NEXT_PUBLIC_APP_URL=http://localhost
       - FIREBASE_SERVICE_ACCOUNT_JSON=${FIREBASE_SERVICE_ACCOUNT_JSON:-}
-      - FIREBASE_CREDENTIALS_PATH=${FIREBASE_CREDENTIALS_PATH:-}
+      - FIREBASE_CREDENTIALS_PATH=/app/firebase-creds.json
       - SMTP_HOST=${SMTP_HOST:-mailhog}
       - SMTP_PORT=${SMTP_PORT:-1025}
       - SMTP_FROM=${SMTP_FROM:-noreply@wims-bfp.local}
@@ -277,6 +277,7 @@ services:
       - ./postgres-init:/postgres-init:ro
       - incident_attachments_data:/app/storage
       - openbao_data:/openbao-creds:ro
+      - ./firebase-creds.json:/app/firebase-creds.json:ro
       # SECURITY NOTE: Docker socket mount is required for live Suricata rule
       # reload (suricata-update + kill -USR2). Without the socket, the Celery
       # worker cannot exec into the wims-suricata container to trigger a
