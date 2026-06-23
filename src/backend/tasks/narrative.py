@@ -15,7 +15,7 @@ logger = logging.getLogger("wims.narrative")
 def batch_generate_narratives(limit: int = 50):
     """
     Generate AI narratives for up to `limit` VERIFIED incidents
-    that have ai_narrative IS NULL.
+    that have neither ai_narrative_enc nor ai_narrative.
     Intended for Celery beat or one-time backfill.
 
     Processes incidents sequentially with a fresh DB session per call
@@ -32,6 +32,7 @@ def batch_generate_narratives(limit: int = 50):
                 FROM wims.fire_incidents
                 WHERE verification_status = 'VERIFIED'
                   AND is_archived = FALSE
+                  AND ai_narrative_enc IS NULL
                   AND ai_narrative IS NULL
                 ORDER BY created_at DESC
                 LIMIT :lim

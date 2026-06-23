@@ -15,7 +15,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from services.event_bus import publish_security_event
+from services.kms import get_crypto_provider
 from utils.config import get_config
+from utils.crypto import SecurityProviderError
 from utils.external_service import (
     CircuitBreakerOpenError,
     ExternalServiceClient,
@@ -267,7 +269,10 @@ async def generate_incident_narrative(
             SELECT
                 fi.incident_id,
                 fi.verification_status,
-                fi.ai_narrative,
+                fi.ai_narrative_enc,
+                fi.ai_narrative_encryption_iv,
+                fi.ai_narrative_crypto_provider,
+                fi.ai_narrative_key_version,
                 nd.general_category,
                 nd.alarm_level,
                 nd.civilian_injured,
@@ -303,18 +308,18 @@ async def generate_incident_narrative(
         f"You are a Bureau of Fire Protection analyst. "
         f"Summarize this fire incident in 2-3 plain English sentences for a policy report. "
         f"Incident details: "
-        f"Category={row[3] or 'Unknown'}, "
-        f"Alarm Level={row[4] or 'Unknown'}, "
-        f"Location={row[15] or 'Unknown'}, {row[14] or 'Unknown'}, "
-        f"Civilian injured={row[5] or 0}, "
-        f"Civilian deaths={row[6] or 0}, "
-        f"Firefighter injured={row[7] or 0}, "
-        f"Firefighter deaths={row[8] or 0}, "
-        f"Estimated damage (PHP)={row[9] or 0}, "
-        f"Fire station={row[10] or 'Unknown'}, "
-        f"Response time (min)={row[11] or 'Unknown'}, "
-        f"Extent of damage={row[12] or 'Unknown'}, "
-        f"Fire stage={row[13] or 'Unknown'}. "
+        f"Category={row[6] or 'Unknown'}, "
+        f"Alarm Level={row[7] or 'Unknown'}, "
+        f"Location={row[18] or 'Unknown'}, {row[17] or 'Unknown'}, "
+        f"Civilian injured={row[8] or 0}, "
+        f"Civilian deaths={row[9] or 0}, "
+        f"Firefighter injured={row[10] or 0}, "
+        f"Firefighter deaths={row[11] or 0}, "
+        f"Estimated damage (PHP)={row[12] or 0}, "
+        f"Fire station={row[13] or 'Unknown'}, "
+        f"Response time (min)={row[14] or 'Unknown'}, "
+        f"Extent of damage={row[15] or 'Unknown'}, "
+        f"Fire stage={row[16] or 'Unknown'}. "
         f"Output strictly JSON with keys 'narrative' (string, 2-3 sentences) "
         f"and 'confidence' (float 0.0-1.0)."
     )
@@ -345,17 +350,59 @@ async def generate_incident_narrative(
             detail=f"Ollama narrative generation failed: {str(e)[:200]}",
         ) from e
 
+    # ── Encrypt narrative before storing ────────────────────────────────────
+    aad = f"incident_id:{incident_id}:ai_narrative".encode("utf-8")
+    try:
+        provider = get_crypto_provider()
+        nonce_b64, ct_b64 = provider.encrypt_json({"narrative": narrative}, aad)
+        crypto_provider_val = provider.crypto_provider
+        key_version_val = provider.current_version
+        enc_iv = nonce_b64 if crypto_provider_val == "env_aesgcm" else None
+    except (SecurityProviderError, Exception) as exc:
+        logger.error(
+            "Narrative encryption unavailable for incident_id=%s (%s); falling through",
+            incident_id,
+            exc,
+        )
+        # Encryption unavailable — store plaintext as fallback
+        db.execute(
+            text("""
+                UPDATE wims.fire_incidents
+                SET ai_narrative = :narrative,
+                    ai_narrative_confidence = :confidence
+                WHERE incident_id = :iid
+            """),
+            {
+                "narrative": narrative,
+                "confidence": confidence,
+                "iid": incident_id,
+            },
+        )
+        db.commit()
+        return {
+            "incident_id": incident_id,
+            "ai_narrative": narrative,
+            "ai_narrative_confidence": confidence,
+        }
+
     db.execute(
         text("""
             UPDATE wims.fire_incidents
-            SET ai_narrative = :narrative,
-                ai_narrative_confidence = :confidence
+            SET ai_narrative_enc              = :blob,
+                ai_narrative_encryption_iv     = :iv,
+                ai_narrative_crypto_provider   = :crypto_provider,
+                ai_narrative_key_version       = :key_version,
+                ai_narrative                   = NULL,
+                ai_narrative_confidence        = :confidence
             WHERE incident_id = :iid
         """),
         {
-            "narrative": narrative,
-            "confidence": confidence,
             "iid": incident_id,
+            "blob": ct_b64,
+            "iv": enc_iv,
+            "crypto_provider": crypto_provider_val,
+            "key_version": key_version_val,
+            "confidence": confidence,
         },
     )
     db.commit()
