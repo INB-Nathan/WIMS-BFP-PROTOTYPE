@@ -4582,3 +4582,5 @@ automatically when they reconnect.
 - **Validation:** `pytest tests/test_audit_utils.py` → 8 passed. Frontend `npx vitest run src/app/admin/breach/` → PASS (23). `npm run lint` → 0 errors. `ruff check` clean.
 - **Deviation:** None from user request. Bug 2 error message deliberately softened from definitive "not been changed" to honest "could not be verified" to match the true semantics (db already committed).
 - **Wiki update:** This log entry. No subsystem page changes needed (audit-log-query-format is a back-end SQL concern; anomaly ack is a one-line serialization fix; breach advance error is frontend error-handling only).
+
+- **fix/metrics-edge-deny:** Explicit nginx deny for /metrics (location = /metrics { return 404; }) in both HTTP and TLS server blocks (src/nginx/nginx.conf). Enforces PR-103's network-isolation design at the edge. Updated system-wiki/pr-qa/pr-103-system-monitoring-prometheus.md to reflect enforced posture.

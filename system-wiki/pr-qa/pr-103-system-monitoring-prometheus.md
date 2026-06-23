@@ -152,7 +152,7 @@ Same applies to `celery_config.py`: PR #104 adds `narrative` task schedule, PR #
 ## Security Notes
 - ✅ Both monitoring endpoints protected by `get_system_admin` (403 for non-admin)
 - ✅ `/metrics` is unauthenticated (standard Prometheus practice — scrape target must be network-isolated)
-- ✅ Network isolation assumed via Docker Compose internal network
+- ✅ Network isolation enforced at nginx edge: `location = /metrics { return 404; }` in both HTTP and TLS server blocks (src/nginx/nginx.conf). Scrapers reach backend:8000 directly over the Docker compose network; the public gateway never proxies /metrics.
 - ⚠️ `psutil` imported inside the endpoint function to avoid startup errors if psutil is unavailable. This is defensive but works.
 
 ## Test Coverage
