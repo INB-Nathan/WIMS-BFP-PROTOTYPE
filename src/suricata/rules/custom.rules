@@ -67,3 +67,9 @@ alert http any any -> any any (msg:"WIMS RATE-LIMIT violation 429 burst"; flow:e
 alert http any any -> any any (msg:"WIMS RECON sensitive dotfile probe"; flow:established,to_server; http.uri; pcre:"/\/\.(env|git|svn|htaccess|htpasswd|aws|ssh)/i"; classtype:attempted-recon; sid:1000122; rev:1;)
 alert http any any -> any any (msg:"WIMS RECON sensitive path probe"; flow:established,to_server; http.uri; pcre:"/\/(backup|config|swagger|openapi|actuator|phpmyadmin|wp-admin|wp-login|server-status|docs|redoc)/i"; classtype:attempted-recon; sid:1000123; rev:1;)
 alert http any any -> any any (msg:"WIMS RECON 404 enumeration burst"; flow:established,from_server; http.response_line; content:"404"; within:10; detection_filter:track by_src, count 20, seconds 60; classtype:attempted-recon; sid:1000124; rev:1;)
+
+# ===== OWASP A10 SSRF Detection (SID 1000125-1000128) =====
+alert http any any -> any any (msg:"WIMS OWASP A10 SSRF URI internal target"; flow:established,to_server; http.uri; pcre:"/(169\.254\.169\.254|127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\]|0177\.0\.0\.1)/i"; classtype:web-application-attack; sid:1000125; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A10 SSRF URI dangerous scheme"; flow:established,to_server; http.uri; pcre:"/(file|gopher|dict|ldap|sftp|expect):\/\//i"; classtype:web-application-attack; sid:1000126; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A10 SSRF body internal target"; flow:established,to_server; http.request_body; pcre:"/(169\.254\.169\.254|127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\]|0177\.0\.0\.1)/i"; classtype:web-application-attack; sid:1000127; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A10 SSRF body dangerous scheme"; flow:established,to_server; http.request_body; pcre:"/(file|gopher|dict|ldap|sftp|expect):\/\//i"; classtype:web-application-attack; sid:1000128; rev:1;)
