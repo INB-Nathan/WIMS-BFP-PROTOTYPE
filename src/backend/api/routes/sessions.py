@@ -7,16 +7,17 @@ Endpoints accept the internal WIMS user_id (UUID) so the frontend never
 needs access to the raw Keycloak UUID (which is masked in admin user list).
 """
 
+import logging
 from typing import Annotated
 
+from auth import get_db_with_rls, get_system_admin
 from fastapi import APIRouter, Depends, HTTPException, Request
+from services.keycloak_admin import get_user_sessions, logout_user_sessions
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-
-from auth import get_system_admin
-from auth import get_db_with_rls
-from services.keycloak_admin import get_user_sessions, logout_user_sessions
 from utils.audit import log_system_audit
+
+logger = logging.getLogger("wims.admin.sessions")
 
 router = APIRouter(tags=["sessions"])
 
@@ -91,8 +92,9 @@ def revoke_user_session(
     try:
         sessions = adm.get_sessions(keycloak_id)
         session_ids = [s.get("id") for s in sessions]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Keycloak error: {str(e)}")
+    except Exception:
+        logger.exception("Failed to revoke session")
+        raise HTTPException(status_code=500, detail="Failed to revoke session")
 
     if session_id not in session_ids:
         raise HTTPException(status_code=404, detail="Session not found for this user")
@@ -102,10 +104,12 @@ def revoke_user_session(
     except AttributeError:
         try:
             adm.connection.raw_delete(f"sessions/{session_id}")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to revoke session: {str(e)}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to revoke session: {str(e)}")
+        except Exception:
+            logger.exception("Failed to revoke session")
+            raise HTTPException(status_code=500, detail="Failed to revoke session")
+    except Exception:
+        logger.exception("Failed to revoke session")
+        raise HTTPException(status_code=500, detail="Failed to revoke session")
 
     # RP-19: single-session revocation is a logout event — record it.
     log_system_audit(

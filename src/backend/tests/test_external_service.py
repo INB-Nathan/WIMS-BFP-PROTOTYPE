@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+import respx
 
 from utils.external_service import (
     CircuitBreakerOpenError,
@@ -21,6 +22,23 @@ from utils.external_service import (
     ExternalServiceError,
     ResponseSizeExceededError,
 )
+
+
+# ── Allowlist compat fixture ─────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _allowlist_compat_for_existing_tests(monkeypatch):
+    """Add test hostnames to the outbound URL allowlist so existing tests pass.
+
+    Without this, all existing tests that call request_async/request_sync with
+    non-production hostnames (example, example.com) would fail the allowlist
+    check added by WS4 (V13.2.4 outbound URL allowlist).
+    """
+    monkeypatch.setenv(
+        "EXTERNAL_SERVICE_ALLOWED_HOSTS",
+        "example,example.com,nominatim.example",
+    )
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -541,3 +559,77 @@ class TestRegressionGuards:
         # Existing Ollama behavior: TimeoutException → 502 immediately, no retry.
         # The wrapper preserves that behavior when retry_on_timeout=False.
         assert call_count[0] == 1
+
+
+# ── Outbound URL allowlist (V13.2.4) ─────────────────────────────────────────
+
+
+class TestAllowlist:
+    """V13.2.4 outbound URL allowlist enforcement."""
+
+    @pytest.mark.unit
+    def test_client_rejects_url_not_in_allowlist(self, monkeypatch):
+        """A URL whose host is not in the derived allowlist is rejected with
+        ExternalServiceError before any HTTP call is made."""
+        monkeypatch.setenv("OLLAMA_URL", "http://wims-ollama:11434")
+
+        client = ExternalServiceClient(
+            service_name="ollama",
+            cb_failure_threshold=10,
+        )
+
+        # Mock the HTTP layer — the allowlist check should reject BEFORE httpx
+        with patch("utils.external_service.httpx.AsyncClient") as mock_client_cls:
+            with pytest.raises(
+                ExternalServiceError,
+                match="URL host not in allowlist",
+            ):
+                asyncio.run(client.request_async("GET", "http://evil.example.com/steal-data"))
+
+        # httpx must never be reached
+        mock_client_cls.assert_not_called()
+
+    @pytest.mark.unit
+    @respx.mock
+    def test_client_accepts_url_in_allowlist(self, monkeypatch):
+        """A URL whose host IS in the derived allowlist succeeds."""
+        monkeypatch.setenv("OLLAMA_URL", "http://wims-ollama:11434")
+
+        client = ExternalServiceClient(
+            service_name="ollama",
+            cb_failure_threshold=10,
+        )
+
+        # Mock the Ollama API
+        respx.get("http://wims-ollama:11434/api/tags").respond(
+            status_code=200,
+            json={"models": []},
+        )
+
+        resp = asyncio.run(client.request_async("GET", "http://wims-ollama:11434/api/tags"))
+
+        assert resp.status_code == 200
+
+    @pytest.mark.unit
+    @respx.mock
+    def test_client_accepts_env_override_host(self, monkeypatch):
+        """EXTERNAL_SERVICE_ALLOWED_HOSTS env var adds hosts to the allowlist."""
+        monkeypatch.setenv(
+            "EXTERNAL_SERVICE_ALLOWED_HOSTS",
+            "evil.example.com",
+        )
+
+        client = ExternalServiceClient(
+            service_name="test-override",
+            cb_failure_threshold=10,
+        )
+
+        # Mock the HTTP layer
+        respx.get("http://evil.example.com/test").respond(
+            status_code=200,
+            json={"ok": True},
+        )
+
+        resp = asyncio.run(client.request_async("GET", "http://evil.example.com/test"))
+
+        assert resp.status_code == 200

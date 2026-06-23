@@ -495,3 +495,157 @@ describe('AuthContext serverValidated (issue #5)', () => {
     expect(capture.serverValidated).toBe(false);
   });
 });
+
+// ── WS6 (V14.3.3): localStorage minimal PII cache ───────────────────────────
+//
+// Verifies that only { id, role } is stored in localStorage (not full user
+// with email/name), and that offline restore + online overwrite work correctly.
+
+describe('AuthContext localStorage PII cache (WS6, V14.3.3)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    try {
+      localStorage.removeItem('wims:offline_session_cache');
+    } catch {
+      /* private mode */
+    }
+  });
+
+  type WS6Capture = {
+    loading: boolean;
+    user: User | null;
+    serverValidated: boolean;
+  };
+
+  function WS6Probe({ onCapture }: { onCapture: (s: WS6Capture) => void }) {
+    const { user, loading, serverValidated } = useAuth();
+    onCapture({ loading, user, serverValidated });
+    return <span data-testid="loading">{String(loading)}</span>;
+  }
+
+  it('test_localstorage_cache_excludes_email_and_name', async () => {
+    // Mock a successful login returning full user with PII fields
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          user: {
+            id: 'u1',
+            sub: 'sub-123',
+            email: 'test@example.com',
+            preferred_username: 'testuser',
+            role: 'encoder',
+            assignedRegionId: 1,
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    let capture: WS6Capture = {
+      loading: true,
+      user: null,
+      serverValidated: false,
+    };
+    render(
+      <AuthProvider>
+        <WS6Probe onCapture={(s) => (capture = s)} />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(capture.loading).toBe(false));
+
+    // Check what was written to localStorage
+    const raw = localStorage.getItem('wims:offline_session_cache');
+    expect(raw).not.toBeNull();
+    const cached = JSON.parse(raw!);
+
+    // Must have id and role
+    expect(cached.user.id).toBe('u1');
+    expect(cached.user.role).toBe('encoder');
+
+    // Must NOT have PII fields
+    expect(cached.user).not.toHaveProperty('email');
+    expect(cached.user).not.toHaveProperty('preferred_username');
+  });
+
+  it('test_offline_restore_uses_minimal_user', async () => {
+    // Pre-populate localStorage with minimal user (only id, role)
+    localStorage.setItem(
+      'wims:offline_session_cache',
+      JSON.stringify({ user: { id: 'cached-user', role: 'encoder' } }),
+    );
+
+    // Simulate 503 on fetchSession
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response('Service Unavailable', { status: 503 }),
+    );
+
+    let capture: WS6Capture = {
+      loading: true,
+      user: null,
+      serverValidated: false,
+    };
+    render(
+      <AuthProvider>
+        <WS6Probe onCapture={(s) => (capture = s)} />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(capture.loading).toBe(false));
+
+    // Auth state has minimal user
+    expect(capture.user).toEqual({ id: 'cached-user', role: 'encoder' });
+    // serverValidated is false — offline read-only mode
+    expect(capture.serverValidated).toBe(false);
+
+    // Ensure no extra PII fields leaked into user state
+    expect(capture.user).not.toHaveProperty('email');
+    expect(capture.user).not.toHaveProperty('preferred_username');
+  });
+
+  it('test_online_fetch_overwrites_minimal_user', async () => {
+    // Pre-populate localStorage with minimal user
+    localStorage.setItem(
+      'wims:offline_session_cache',
+      JSON.stringify({ user: { id: 'cached-user', role: 'encoder' } }),
+    );
+
+    // Mock online fetchSession returning full user
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          user: {
+            id: 'u1',
+            email: 'test@example.com',
+            preferred_username: 'testuser',
+            role: 'validator',
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    let capture: WS6Capture = {
+      loading: true,
+      user: null,
+      serverValidated: false,
+    };
+    render(
+      <AuthProvider>
+        <WS6Probe onCapture={(s) => (capture = s)} />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(capture.loading).toBe(false));
+
+    // Full user from server replaces minimal cache
+    expect(capture.user).toEqual({
+      id: 'u1',
+      email: 'test@example.com',
+      preferred_username: 'testuser',
+      role: 'validator',
+    });
+    // serverValidated is true — came from successful server call
+    expect(capture.serverValidated).toBe(true);
+  });
+});

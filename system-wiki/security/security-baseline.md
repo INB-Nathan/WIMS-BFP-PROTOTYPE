@@ -61,6 +61,9 @@ FRS Module 4 requires SHA-256 data hashes, append-only audit logs, and immutable
 ## IDS/XAI
 FRS Modules 7 and 8 define Suricata network monitoring and Qwen2.5-3B explainability. Relevant code/config: `src/suricata/`, admin security-log routes, and AI service paths. Real-time security event push via SSE (`GET /api/events/stream`) notifies SYSTEM_ADMIN clients of threat detection, AI analysis completion, and HITL confirmations.
 
+### XAI Prompt Completeness (2026-06-23)
+`analyze_threat_log()` in `src/backend/services/ai_service.py` now includes `suricata_signature` and `classification` in the Ollama prompt (added between `SID=` and `payload=`). Custom WIMS SIDs 1000001-1000134 are NOT in any public Suricata feed, so the bare SID is opaque to Ollama — the human-readable signature (e.g. "WIMS OWASP A03 SQLi UNION SELECT") tells the LLM the attack type, and the classification (e.g. "high_signal_threat") tells the threat model. Without these, the LLM could only guess from the raw payload, producing generic narratives that failed the user's goal: XAI must tell humans **what the attack is and what to do for future purposes**. Regression test: `test_analyze_threat_log_prompt_includes_signature_and_classification` in `tests/integration/test_ai_ids_api.py` (captures the Ollama request body via `respx` and asserts both fields are present in the prompt).
+
 ### Network Topology (M7a)
 
 Suricata runs with `network_mode: "host"` — directly attached to the host's network stack.
@@ -84,13 +87,172 @@ default `rule-files` configuration — no custom suricata.yaml override needed.
 | Tier | Source | SID Range | Lines | Update Cadence |
 |---|---|---|---|---|
 | 1 | ET Open (full ruleset) | 2000000+ | ~68k | Weekly via suricata-update (Sun 03:00 UTC) |
-| 2 | OWASP Top 10 | 1000001–1000010 | 10 | Manual, committed to repo |
+| 2 | OWASP Top 10 + SQLi/XSS body + URI evasion | 1000001–1000010, 1000103–1000114 | 22 | Manual, committed to repo |
 | 3 | BFP-specific | 1000020–1000024 | 5 | Manual, committed to repo |
+| 4 | Keycloak brute force | 1000100–1000102 | 3 | Manual, committed to repo |
+| 5 | Privilege escalation + rate-limit abuse | 1000115–1000121 | 7 | Manual, committed to repo |
+| 6 | Recon + SSRF + method tamper + redirect + CRLF | 1000122–1000134 | 13 | Manual, committed to repo |
 
 Weekly update: Celery beat task `update-suricata-rules-weekly` (Sunday 03:00 UTC) executes
 `suricata-update` inside the Suricata container via Docker SDK, sends `kill -USR2` for
 live rule reload. Rules before/after counts logged and compared for regressions.
 Docker socket mounted in celery-worker for container exec access.
+
+### Nginx Edge Rate Limiting for Keycloak (2026-06-23)
+
+The `/auth/` path (proxied to Keycloak) now has edge rate limiting via nginx:
+- Zone `keycloak_api`: 10 req/s per IP (`$binary_remote_addr`), 10 MB shared memory
+- `limit_req zone=keycloak_api burst=20 nodelay` — allows short spikes, then 429
+- `limit_conn addr 10` — max 10 concurrent connections per IP
+- Applied in both dev HTTP (`listen 80; server_name localhost`) and production HTTPS
+  (`listen 443 ssl; server_name wimsbfp.tech`) server blocks.
+- Previously `/auth/` was the only API location without rate limiting — the existing
+  `public_api` (10r/s), `civilian_api` (5r/s), and `general_api` (30r/s) zones
+  covered backend and frontend paths only.
+
+### POST Body SQLi/XSS Detection Rules (2026-06-23)
+
+Extended custom Suricata rules to inspect `http.request_body` — previously all
+SQLi/XSS rules scanned `http.uri` only, missing POST body payloads:
+
+| SID | Message | Buffer | Pattern |
+|---|---|---|---|
+| 1000103 | SQLi body OR boolean | request_body | `' OR` / URL-encoded variants |
+| 1000104 | SQLi body UNION SELECT | request_body | `union` + `select` within 100 bytes |
+| 1000105 | SQLi body comment bypass | request_body | `x/*...*/` inline comment injection |
+| 1000106 | SQLi body DB functions | request_body | `xp_cmdshell`, `pg_sleep`, `WAITFOR DELAY`, benchmark |
+| 1000107 | SQLi body tautology | request_body | `1=1`, `'a'='a'` in operator context |
+| 1000108 | XSS body script tag | request_body | `<script` |
+| 1000109 | XSS body event handler | request_body | `on\w+=` event handler assignment |
+| 1000110 | XSS body img onerror | request_body | `<img` + `onerror` within 500 bytes |
+| 1000111 | XSS body javascript URI | request_body | `javascript:` URI scheme |
+| 1000112 | SQLi URI comment bypass | uri | `x/*...*/` inline comment injection (URI) |
+| 1000113 | SQLi URI stacked query | uri | `; DROP/DELETE/EXEC/TRUNCATE/...` |
+| 1000114 | SQLi URI encoded chars | uri | `%27` `%3D` `%3B` `%22` `%60` `--` (URL-encoded SQL chars) |
+
+### Privilege Escalation Detection (2026-06-23)
+
+Flowbit-based rules that pair a `to_server` noalert rule (sets a flowbit when a
+privileged URI is requested) with a `from_server` alert rule (fires when the same
+flow returns HTTP 403). This detects a non-privileged user requesting a
+privileged endpoint and being denied — a privilege escalation probe.
+
+Three privilege tiers monitored:
+
+| SID | Category | URI Pattern | Threshold | Alert Type |
+|---|---|---|---|---|
+| 1000115 (noalert) | Admin system | `/api/admin` | — | flowbit:set,priv_admin |
+| 1000116 | Admin escalation | `/api/admin` → 403 | 5 hits / 60s | attempted-recon |
+| 1000117 (noalert) | Validator | `/api/validator` | — | flowbit:set,priv_validator |
+| 1000118 | Validator escalation | `/api/validator` → 403 | 10 hits / 60s | attempted-recon |
+| 1000119 (noalert) | National Analyst | `/api/incidents/analyst` | — | flowbit:set,priv_analyst |
+| 1000120 | Analyst escalation | `/api/incidents/analyst` → 403 | 10 hits / 60s | attempted-recon |
+
+**What this detects:** Systematic cross-role endpoint probing that a legitimate
+user would not exhibit. A single HTTP 403 from a mistyped URL is ignored;
+5+ admin 403s in 60s triggers an alert.
+
+**What this cannot detect:** IDOR (same URI, different IDs); JWT token
+tampering; business-logic privilege escalation (e.g., workflow skips).
+These require application-layer detection.
+
+### Rate-Limit Violation Detection (2026-06-23)
+
+A `from_server` rule fires when the same source IP accumulates 20+ HTTP 429
+(Too Many Requests) responses within 300 seconds across any endpoint.
+
+| SID | Message | Buffer | Threshold |
+|---|---|---|---|
+| 1000121 | RATE-LIMIT violation 429 burst | http.response_line `429` | 20 hits / 300s |
+
+**Why this is useful despite nginx already rate-limiting:** The nginx `limit_req`
+zones block excess requests at the edge, but Suricata provides alerting
+visibility that rate-limit abuse IS happening against a specific IP. When
+correlated with other alerts (SQLi, brute force, scanner UA), this confirms
+ongoing attack activity at the incident response layer.
+
+### Recon & Exploitation Gap Rules (2026-06-23)
+
+13 rules covering attack categories that previously had zero custom detection,
+all at `rev:2` after the post-implementation FP/bypass review pass.
+
+**Directory brute-forcing (SIDs 1000122-1000124, `rev:2`):**
+- 1000122: Sensitive dotfile probe (`/.env`, `/.git`, `/.svn`, `/.htaccess`)
+- 1000123: Sensitive path probe (`/backup`, `/swagger`, `/openapi`, `/actuator`,
+  `/api/configuration` — `docs`/`redoc`/`config` removed because they are
+  legitimate FastAPI endpoints in this app)
+- 1000124: 404 enumeration burst — 20+ 404 responses from same destination IP
+  in 60s (uses `track by_dst` to track the client, not the server)
+
+**SSRF (SIDs 1000125-1000128, `rev:2`):**
+- 1000125/1000127: Internal target SSRF in URI/body. Covers IPv4 (`127.0.0.1`,
+  `127.1`, `0x7f000001`, `2130706433`, `0.0.0.0`, octal `0177.0.0.1`), IPv6
+  (`[::1]`, `[::ffff:127.0.0.1]`), cloud metadata (`169.254.169.254` AWS,
+  `169.254.170.2` AWS ECS, `100.100.100.200` Alibaba, `fd00:ec2::254` AWS IMDSv6,
+  `metadata.google.internal` GCP), plus `localhost` keyword.
+- 1000126/1000128: Dangerous URL schemes (`file://`, `gopher://`, `dict://`,
+  `ldap://`, `sftp://`, `expect://`) with both literal `:` and URL-encoded
+  `%3a`/`%3A` colon variants.
+
+**HTTP method tampering (SIDs 1000129-1000130, `rev:2`):**
+- 1000129: TRACE method (XST attack vector) — `nocase` to catch `Trace`/`trace`/etc.
+- 1000130: CONNECT method (proxy tunneling abuse) — `nocase`.
+
+**Open redirect (SIDs 1000131-1000132, `rev:2`):**
+- 1000131: Protocol-relative redirect in 9 redirect-param names — matches
+  `//`, `%2f%2f`, `\\` (IE/Edge), `%5c%5c` (URL-encoded backslash).
+- 1000132: External URL redirect in 9 redirect-param names (excluding
+  `redirect` to avoid OIDC `redirect_uri` FP) with `detection_filter:track by_src,
+  count 5, seconds 60` so single OAuth bounces don't alert.
+
+**CRLF injection (SIDs 1000133-1000134, `rev:2`):**
+- 1000133: CRLF sequences in URI — anchored to header injection pattern
+  (`Set-Cookie|Location|Content-Type|HTTP/`) to avoid FP on legitimate base64 /
+  multi-line data in query params.
+- 1000134: CRLF + header injection in body — same pattern in `http.request_body`.
+
+**Cross-cutting fix applied (Commit A `a4868446`):** All 5 `from_server` rules
+with `detection_filter` were migrated from `track by_src` to `track by_dst`.
+In Suricata, `by_src` on `from_server` tracks the server's IP (the packet's
+source), not the attacker's. The previous code aggregated all attackers into
+one bucket per server IP, making the rules effectively server-wide flood
+detectors rather than per-attacker detection. Affected SIDs: 1000116, 1000118,
+1000120, 1000121 (pre-existing PRIVESC/RATE-LIMIT rules), 1000124 (new 404
+burst).
+
+**Known limitations (documented, not addressed by rules):**
+- CORS probing: requires cross-flow header correlation, complex with Suricata flowbits.
+- SMTP injection: MailHog bound to `127.0.0.1:1025`, not externally accessible.
+- HTTP/2 fingerprinting: very low value for prototype, requires JA3/JA4 config.
+- Production HTTPS blindness (port 443): Suricata in host mode sees only TLS
+  ciphertext on 443. All HTTP-level rules in this file are dev-only (port 80) or
+  only see TLS handshake metadata in production. Fixing requires SSL key
+  disclosure, Docker bridge port mirroring, or inline IPS mode — all
+  architectural changes beyond rule additions.
+- Post-auth business logic abuse (IDOR, workflow skip, bulk approve):
+  inherently undetectable at network layer. Same URI, same headers, valid JWT.
+  Requires application-layer anomaly detection.
+- URL-encoded dotfile bypass (`%2e` variant) on 1000122-1000123: deferred, low
+  signal in this stack (libhtp does single-decode so most variants decode to
+  the matched form).
+- 1000134 header list is narrow (Set-Cookie, Location, Content-Type, HTTP/):
+  deferred; an exhaustive list requires per-app response-building knowledge.
+- base64-encoded SSRF (e.g. `url=aHR0cDovLzE2OS4yNTQuMTY5LjI1NA==`):
+  architectural limit — Suricata cannot base64-decode inside pcre.
+
+### Keycloak Realm Brute Force Detection (2026-06-23, verified)
+
+The `bfp` realm already has Keycloak's built-in brute force detection enabled
+(no code change needed for this implementation):
+- `bruteForceProtected: true`
+- `failureFactor: 5` — locks after 5 consecutive failures within 12h
+- `maxFailureWaitSeconds: 900` — initial 15-min wait
+- `waitIncrementSeconds: 300` — +5 min per re-lockout cycle
+- `maxDeltaTimeSeconds: 43200` — failure counter resets after 12h idle
+- `maxTemporaryLockouts: 0` — unlimited temporary lockouts (deferred: consider 20)
+- `permanentLockout: false`
+
+Config: `src/keycloak/bfp-realm.json` + `src/keycloak/import/bfp-realm.json`
 
 ## IP Blocklist + Repeat-Offender Escalation (2026-06-22)
 
@@ -300,3 +462,46 @@ Completes the #446 follow-up for the XFF spoofing gap. Three workstreams: (WS1) 
 - **Deviation:** #419 bypassed the #415 blocker (justified in spec — #415 needs migration 62, not applied to the running DB; #419's tests lock in existing good behavior).
 
 **CI validation:** All 6 gates green — ruff check (0), ruff format (232 files), pytest (10 new + 1592 pre-existing pass), npm run lint (0 errors), npx vitest run (990 tests, 0 fail), next build (exit 0). Spec: `docs/superpowers/specs/2026-06-22-xff-cleanup-civilian-429-xai-load-guard-design.md`.
+
+## Outbound URL Allowlist (V13.2.4, 2026-06-23)
+
+`ExternalServiceClient` (used by Ollama, OpenBao, and Nominatim) now enforces a
+hostname-based outbound URL allowlist for SSRF mitigation:
+- **Derivation:** hostnames parsed from `OLLAMA_URL` (default `ollama`),
+  `OPENBAO_ADDR` (default `openbao`), `NOMINATIM_URL` (default
+  `nominatim.openstreetmap.org`), plus `EXTERNAL_SERVICE_ALLOWED_HOSTS` env var
+  (comma-separated, additive), plus Docker internal hostnames (`wims-postgres`,
+  `wims-redis`, `wims-keycloak`, `keycloak`, `redis`, `postgres`).
+- **Enforcement:** URL hostname checked by string comparison (no DNS)
+  at the start of every `request_async`/`request_sync` call. Rejected hosts
+  raise `ExternalServiceError("URL host not in allowlist: {host}")`.
+- **Audit:** The full derived allowlist is logged at INFO at client init time.
+- **Spec:** `docs/superpowers/specs/2026-06-23-asvs-findings-remediation-design.md`,
+  Workstream 4.
+
+## ASVS L2 Remediation (2026-06-23)
+
+Six ASVS L2 findings closed in a single remediation batch. All changes
+landed in the working tree of `feat/keycloak-brute-force-protection`
+(uncommitted — awaiting user review). Subagent reports at
+`/tmp/ws{1,4,5,6,23}-report.md`.
+
+| ASVS req | Risk | Fix summary | TDD evidence |
+|---|---|---|---|
+| **V16.4.1** | HIGH | `raw_payload` + `severity_level` wrapped in `json.dumps()` in `analyze_threat_log()` prompt to prevent delimiter-breakout log injection. Scope: XAI prompt only (highest-risk channel). | `test_analyze_threat_log_escapes_raw_payload` |
+| **V16.5.1** | MED | `@app.exception_handler(Exception)` returns generic 500. HTTPException handler NOT overridden. 7 real 5xx leakers cleaned in `sessions.py` (3x) + `admin/backups.py` (4x) — `f-string str(e)` replaced with generic messages, full exception logged server-side. | `test_unhandled_exception_returns_generic_500` + `test_http_exception_4xx_keeps_original_detail` |
+| **V16.5.3** | HIGH | `rate_limit_middleware` now fail-closed on Redis down for `/api/auth/callback` POST (returns 503 + `Retry-After: 30`). Dev escape hatch: `RATE_LIMIT_FAIL_OPEN=true`. `blocked_ip_middleware` fail-open deliberately preserved (documented asymmetry). | 3 tests in `test_rate_limit_fail_closed.py` |
+| **V13.2.4** | MED | `ExternalServiceClient` hostname allowlist (see section above). | 3 tests in `TestAllowlist` |
+| **V14.2.4** | MED | New `docs/compliance/data-retention.md` + migration `68_data_retention.sql` (6 config keys + `data_retention_erased_at` column) + Celery beat task `tasks/data_retention.py` (daily 03:00 UTC, self-registers to avoid editing `main.py`). Per-table strategies: soft-archive VERIFIED `fire_incidents`, hard-delete non-VERIFIED, **real blob-erasure** for `incident_sensitive_details` (NULL all PII + `pii_blob_enc` + `encryption_iv` + `data_retention_erased_at=now()`, preserves FK), no-op for IVH + audit_trails. Deferred: key-destruction crypto-shred. | 5 tests in `test_data_retention.py` |
+| **V14.3.3** | MED | `localStorage.setItem` now stores only `{id, role}` (was full user with email/name). `Pick<User, 'id'\|'role'>` type. `serverValidated=false` on offline restore. | 3 tests in `AuthContext.test.tsx` |
+
+**Compliance rate:** 88.93% → 91.07% (224/280 reqs COMPLIANT, 4 NON-COMPLIANT, 21 NOT-VERIFIED, 31 NOT-APPLICABLE). Deferred (NOT-VERIFIED): V13.2.5 (nginx-side, application-layer sufficient), V13.4.4 (TRACE method), V16.2.5 (logger call sites beyond XAI prompt).
+
+**Subagent reports:**
+- `/tmp/ws1-report.md` — V16.4.1 XAI prompt fix
+- `/tmp/ws4-report.md` — V13.2.4 outbound URL allowlist
+- `/tmp/ws5-report.md` — V14.2.4 data retention policy
+- `/tmp/ws6-report.md` — V14.3.3 localStorage PII
+- `/tmp/ws23-report.md` — V16.5.3 + V16.5.1 (fail-closed + generic error handler)
+
+**Full regression:** 59/59 backend (33 baseline + 14 new + 12 in test_external_service), 19/19 frontend vitest, 0 frontend lint errors, ruff check + format clean. Pre-existing test infrastructure issue found and documented: persistent Redis breaker state (`cb:<service_name>:*` keys) survives between pytest invocations — clear with `docker exec wims-redis redis-cli --scan --pattern 'cb:*' | xargs redis-cli DEL` before test runs.

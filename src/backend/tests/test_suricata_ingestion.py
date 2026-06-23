@@ -331,3 +331,45 @@ class TestIngestEveFile:
             assert "192.168.1.100" in row[4]
         finally:
             os.unlink(path)
+
+    def test_ingest_persists_classification_signature_category(self, db_session):
+        """After ingest with signature-bearing alert, classification,
+        suricata_signature, and suricata_category are NOT NULL in DB."""
+        ev = {
+            "event_type": "alert",
+            "src_ip": "203.0.113.44",
+            "dest_ip": "10.10.0.15",
+            "timestamp": "2025-03-14T12:00:00.123456+0000",
+            "alert": {
+                "signature_id": 2024218,
+                "signature": "ET WEB_SERVER Possible SQL Injection Attempt UNION SELECT",
+                "category": "Web Application Attack",
+                "severity": 3,
+            },
+        }
+        line = json.dumps(ev)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write(line + "\n")
+            path = f.name
+        try:
+            ingest_eve_file(path, db_session=db_session)
+            db_session.commit()
+
+            row = db_session.execute(
+                text("""
+                    SELECT classification, suricata_signature, suricata_category
+                    FROM wims.security_threat_logs
+                    ORDER BY log_id DESC
+                    LIMIT 1
+                """)
+            ).fetchone()
+
+            assert row is not None, "Row should exist after ingest"
+            assert row[0] is not None, "classification should NOT be NULL"
+            assert row[0] == "high_signal_threat", f"Expected high_signal_threat, got {row[0]}"
+            assert row[1] is not None, "suricata_signature should NOT be NULL"
+            assert row[1] == "ET WEB_SERVER Possible SQL Injection Attempt UNION SELECT"
+            assert row[2] is not None, "suricata_category should NOT be NULL"
+            assert row[2] == "Web Application Attack"
+        finally:
+            os.unlink(path)

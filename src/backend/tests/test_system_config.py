@@ -419,6 +419,8 @@ class TestAiTimeoutConsumer:
             None,
             None,
             None,
+            "",
+            "",
         )
 
         def execute_side_effect(query, params=None):

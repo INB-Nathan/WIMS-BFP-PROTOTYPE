@@ -21,3 +21,67 @@ alert http any any -> any any (msg:"WIMS BFP Export abuse"; flow:established,to_
 alert http any any -> any any (msg:"WIMS BFP Admin enumeration"; flow:established,to_server; http.uri; content:"/api/admin"; nocase; detection_filter:track by_src, count 30, seconds 60; classtype:attempted-recon; sid:1000022; rev:1;)
 alert http any any -> any any (msg:"WIMS BFP Region hopping heuristic"; flow:established,to_server; http.uri; content:"/api/ref/"; nocase; detection_filter:track by_src, count 40, seconds 30; classtype:policy-violation; sid:1000023; rev:1;)
 alert http any any -> any any (msg:"WIMS BFP Public report spam"; flow:established,to_server; http.method; content:"POST"; http.uri; pcre:"/\/api\/(v1\/public\/report|civilian\/reports)/"; detection_filter:track by_src, count 5, seconds 3600; classtype:policy-violation; sid:1000024; rev:1;)
+
+# ===== Keycloak Brute Force Protection =====
+alert http $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"WIMS Keycloak token brute-force"; flow:established,to_server; http.method; content:"POST"; http.uri; content:"/auth/realms/bfp/token"; nocase; detection_filter:track by_src, count 10, seconds 60; classtype:attempted-recon; sid:1000100; rev:1;)
+alert http $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"WIMS Keycloak login-actions brute-force"; flow:established,to_server; http.method; content:"POST"; http.uri; content:"/auth/realms/bfp/login-actions/authenticate"; nocase; detection_filter:track by_src, count 10, seconds 60; classtype:attempted-recon; sid:1000101; rev:1;)
+alert http $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"WIMS Keycloak admin console brute-force"; flow:established,to_server; http.uri; content:"/auth/admin/"; nocase; detection_filter:track by_src, count 5, seconds 60; classtype:attempted-recon; sid:1000102; rev:1;)
+
+# ===== OWASP A03 SQLi — POST body (SID 1000103-1000107) =====
+alert http any any -> any any (msg:"WIMS OWASP A03 SQLi body OR boolean"; flow:established,to_server; http.request_body; pcre:"/(\s|%20|%09|%0a|%0d|\+|'|%27)(%4f|%6f|O|o)(%52|%72|R|r)(\s|%20|%09|%0a|%0d|\+)/i"; classtype:web-application-attack; sid:1000103; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A03 SQLi body UNION SELECT"; flow:established,to_server; http.request_body; content:"union"; nocase; content:"select"; nocase; distance:0; within:100; classtype:web-application-attack; sid:1000104; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A03 SQLi body comment bypass"; flow:established,to_server; http.request_body; pcre:"/[a-z]\/\*.*\*\//i"; classtype:web-application-attack; sid:1000105; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A03 SQLi body DB functions"; flow:established,to_server; http.request_body; pcre:"/(\bxp_cmdshell\b|\bpg_sleep\b|\bDBMS_PIPE\b|\bWAITFOR\s+DELAY\b|\bbenchmark\s*\(|\bSLEEP\s*\()/i"; classtype:web-application-attack; sid:1000106; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A03 SQLi body tautology"; flow:established,to_server; http.request_body; pcre:"/(\s|%20|%09|%0a|%0d|\+|'|%27)(\d+\s*=\s*\d+|'.*'\s*=\s*'.*')(\s|%20|%09|%0a|%0d|\+|'|%27)/i"; classtype:web-application-attack; sid:1000107; rev:1;)
+
+# ===== OWASP A03 XSS — POST body (SID 1000108-1000111) =====
+alert http any any -> any any (msg:"WIMS OWASP A03 XSS body script tag"; flow:established,to_server; http.request_body; content:"<script"; nocase; classtype:web-application-attack; sid:1000108; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A03 XSS body event handler"; flow:established,to_server; http.request_body; pcre:"/\bon\w+\s*=\s*['\"]?[^'\"\s>]+['\"]?\s*[ >]/"; classtype:web-application-attack; sid:1000109; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A03 XSS body img onerror"; flow:established,to_server; http.request_body; content:"<img"; nocase; content:"onerror"; nocase; distance:0; within:500; classtype:web-application-attack; sid:1000110; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A03 XSS body javascript URI"; flow:established,to_server; http.request_body; pcre:"/\bjavascript\s*:\s*/i"; classtype:web-application-attack; sid:1000111; rev:1;)
+
+# ===== OWASP A03 SQLi — URI evasion patterns (SID 1000112-1000114) =====
+alert http any any -> any any (msg:"WIMS OWASP A03 SQLi URI comment bypass"; flow:established,to_server; http.uri; pcre:"/[a-z]\/\*.*\*\//i"; classtype:web-application-attack; sid:1000112; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A03 SQLi URI stacked query"; flow:established,to_server; http.uri; pcre:"/\;([%20%09%0a%0d ])*(DROP|DELETE|EXEC|TRUNCATE|ALTER|CREATE|UPDATE|INSERT|SHUTDOWN)/i"; classtype:web-application-attack; sid:1000113; rev:1;)
+alert http any any -> any any (msg:"WIMS OWASP A03 SQLi URI encoded chars"; flow:established,to_server; http.uri; pcre:"/(%27|%3D|%3B|%22|%60|%2D%2D)/i"; classtype:web-application-attack; sid:1000114; rev:1;)
+
+# ===== Privilege Escalation Attempts — 403-to-privileged-URI detection (SID 1000115-1000120) =====
+# Flowbit noalert rules: set a flowbit when a privileged URI is hit (to_server direction).
+# Alert rules: fire when that same flow gets a 403 response (from_server direction).
+# Together they detect: someone requested a privileged endpoint and was denied.
+alert http any any -> any any (msg:"WIMS PRIVESC admin endpoint set flowbit"; flow:established,to_server; http.uri; content:"/api/admin"; nocase; flowbits:set,priv_admin; noalert; sid:1000115; rev:1;)
+alert http any any -> any any (msg:"WIMS PRIVESC admin endpoint 403 denied"; flow:established,from_server; http.response_line; content:"403"; within:10; flowbits:isset,priv_admin; detection_filter:track by_dst, count 5, seconds 60; classtype:attempted-recon; sid:1000116; rev:2;)
+alert http any any -> any any (msg:"WIMS PRIVESC validator endpoint set flowbit"; flow:established,to_server; http.uri; content:"/api/validator"; nocase; flowbits:set,priv_validator; noalert; sid:1000117; rev:1;)
+alert http any any -> any any (msg:"WIMS PRIVESC validator endpoint 403 denied"; flow:established,from_server; http.response_line; content:"403"; within:10; flowbits:isset,priv_validator; detection_filter:track by_dst, count 10, seconds 60; classtype:attempted-recon; sid:1000118; rev:2;)
+alert http any any -> any any (msg:"WIMS PRIVESC analyst endpoint set flowbit"; flow:established,to_server; http.uri; content:"/api/incidents/analyst"; nocase; flowbits:set,priv_analyst; noalert; sid:1000119; rev:1;)
+alert http any any -> any any (msg:"WIMS PRIVESC analyst endpoint 403 denied"; flow:established,from_server; http.response_line; content:"403"; within:10; flowbits:isset,priv_analyst; detection_filter:track by_dst, count 10, seconds 60; classtype:attempted-recon; sid:1000120; rev:2;)
+
+# ===== Rate-Limit Violation — 429 burst detection (SID 1000121) =====
+# Fires when the same IP accumulates 20+ HTTP 429 (Too Many Requests) responses
+# in 300 seconds across any endpoint. Indicates someone persistently hitting
+# application rate limits — useful for incident response attribution even when
+# nginx/Redis successfully blocks the requests.
+alert http any any -> any any (msg:"WIMS RATE-LIMIT violation 429 burst"; flow:established,from_server; http.response_line; content:"429"; within:10; detection_filter:track by_dst, count 20, seconds 300; classtype:policy-violation; sid:1000121; rev:2;)
+
+# ===== Directory & Route Brute-Forcing Detection (SID 1000122-1000124) =====
+alert http any any -> any any (msg:"WIMS BFP sensitive dotfile probe"; flow:established,to_server; http.uri; pcre:"/\/\.(env|git|svn|htaccess|htpasswd|aws|ssh)/i"; classtype:attempted-recon; sid:1000122; rev:2;)
+alert http any any -> any any (msg:"WIMS BFP sensitive path probe"; flow:established,to_server; http.uri; pcre:"/\/(backup|swagger|openapi|actuator|phpmyadmin|wp-admin|wp-login|server-status|api\/configuration)/i"; classtype:attempted-recon; sid:1000123; rev:2;)
+alert http any any -> any any (msg:"WIMS BFP 404 enumeration burst"; flow:established,from_server; http.response_line; content:"404"; within:10; detection_filter:track by_dst, count 20, seconds 60; classtype:attempted-recon; sid:1000124; rev:2;)
+
+# ===== OWASP A10 SSRF Detection (SID 1000125-1000128) =====
+alert http any any -> any any (msg:"WIMS OWASP A10 SSRF URI internal target"; flow:established,to_server; http.uri; pcre:"/(169\.254\.169\.254|169\.254\.170\.2|100\.100\.100\.200|fd00:ec2::254|127\.0\.0\.1|127\.1|localhost|0\.0\.0\.0|0x7f000001|2130706433|\[::1\]|\[::ffff:127\.0\.0\.1\]|\[::ffff:169\.254\.169\.254\]|metadata\.google\.internal|0177\.0\.0\.1)/i"; classtype:web-application-attack; sid:1000125; rev:2;)
+alert http any any -> any any (msg:"WIMS OWASP A10 SSRF URI dangerous scheme"; flow:established,to_server; http.uri; pcre:"/(file|gopher|dict|ldap|sftp|expect)(:|%3[aA])\/\//i"; classtype:web-application-attack; sid:1000126; rev:2;)
+alert http any any -> any any (msg:"WIMS OWASP A10 SSRF body internal target"; flow:established,to_server; http.request_body; pcre:"/(169\.254\.169\.254|169\.254\.170\.2|100\.100\.100\.200|fd00:ec2::254|127\.0\.0\.1|127\.1|localhost|0\.0\.0\.0|0x7f000001|2130706433|\[::1\]|\[::ffff:127\.0\.0\.1\]|\[::ffff:169\.254\.169\.254\]|metadata\.google\.internal|0177\.0\.0\.1)/i"; classtype:web-application-attack; sid:1000127; rev:2;)
+alert http any any -> any any (msg:"WIMS OWASP A10 SSRF body dangerous scheme"; flow:established,to_server; http.request_body; pcre:"/(file|gopher|dict|ldap|sftp|expect)(:|%3[aA])\/\//i"; classtype:web-application-attack; sid:1000128; rev:2;)
+
+# ===== HTTP Method Tampering Detection (SID 1000129-1000130) =====
+alert http any any -> any any (msg:"WIMS OWASP A05 HTTP TRACE method"; flow:established,to_server; http.method; content:"TRACE"; nocase; classtype:attempted-recon; sid:1000129; rev:2;)
+alert http any any -> any any (msg:"WIMS OWASP A05 HTTP CONNECT method"; flow:established,to_server; http.method; content:"CONNECT"; nocase; classtype:attempted-recon; sid:1000130; rev:2;)
+
+# ===== Open Redirect Detection (SID 1000131-1000132) =====
+alert http any any -> any any (msg:"WIMS OWASP A01 open redirect protocol-relative"; flow:established,to_server; http.uri; pcre:"/(next|redirect|url|return|callback|continue|dest|destination|go|out)=(\/\/|%2f%2f|%5c%5c|\\\\)/i"; classtype:web-application-attack; sid:1000131; rev:2;)
+alert http any any -> any any (msg:"WIMS OWASP A01 open redirect external URL"; flow:established,to_server; http.uri; pcre:"/(next|url|return|callback|continue|dest|destination|go|out)=(https?%3a|https?:\/\/)/i"; detection_filter:track by_src, count 5, seconds 60; classtype:web-application-attack; sid:1000132; rev:2;)
+
+# ===== CRLF Injection / Response Splitting Detection (SID 1000133-1000134) =====
+alert http any any -> any any (msg:"WIMS OWASP A03 CRLF injection URI"; flow:established,to_server; http.uri; pcre:"/(%0d%0a|%0a%0d)(Set-Cookie|Location|Content-Type|HTTP\/)/i"; classtype:web-application-attack; sid:1000133; rev:2;)
+alert http any any -> any any (msg:"WIMS OWASP A03 CRLF injection body header injection"; flow:established,to_server; http.request_body; pcre:"/(%0d%0a|%0a%0d)(Set-Cookie|Location|Content-Type|HTTP\/)/i"; classtype:web-application-attack; sid:1000134; rev:1;)

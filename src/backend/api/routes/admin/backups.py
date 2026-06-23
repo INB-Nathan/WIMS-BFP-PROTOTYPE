@@ -80,8 +80,9 @@ async def trigger_backup(
     db_url = os.environ.get("DATABASE_URL", "")
     try:
         parsed = urllib.parse.urlparse(db_url)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Invalid DATABASE_URL: {e}")
+    except Exception:
+        logger.exception("Invalid DATABASE_URL")
+        raise HTTPException(status_code=500, detail="Invalid DATABASE_URL")
 
     if parsed.scheme != "postgresql":
         raise HTTPException(status_code=500, detail="DATABASE_URL must use postgresql:// scheme")
@@ -137,11 +138,11 @@ async def trigger_backup(
 
         encrypted_path = encrypt_backup(output_path)
         filename = encrypted_path.name
-    except Exception as e:
-        logger.error(f"Backup encryption failed: {e}")
+    except Exception:
+        logger.exception("Backup encryption failed")
         raise HTTPException(
             status_code=500,
-            detail=f"Backup created but encryption failed: {e}",
+            detail="Backup created but encryption failed",
         )
 
     size_bytes = encrypted_path.stat().st_size
@@ -264,14 +265,16 @@ async def restore_backup(
             tmp_sql = decrypt_backup(tmp_enc)
         except HTTPException:
             raise
-        except Exception as e:
-            raise HTTPException(status_code=422, detail=f"Decryption failed: {e}")
+        except Exception:
+            logger.exception("Backup decryption failed")
+            raise HTTPException(status_code=422, detail="Decryption failed")
 
         db_url = os.environ.get("DATABASE_URL", "")
         try:
             parsed = urllib.parse.urlparse(db_url)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Invalid DATABASE_URL: {e}")
+        except Exception:
+            logger.exception("Invalid DATABASE_URL")
+            raise HTTPException(status_code=500, detail="Invalid DATABASE_URL")
 
         if parsed.scheme != "postgresql":
             raise HTTPException(

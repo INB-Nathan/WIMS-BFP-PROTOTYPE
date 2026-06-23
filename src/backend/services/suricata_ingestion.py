@@ -140,9 +140,11 @@ def _insert_row(db: Session, row: dict) -> int | None:
     result = db.execute(
         text("""
             INSERT INTO wims.security_threat_logs
-                (source_ip, destination_ip, suricata_sid, severity_level, raw_payload)
+                (source_ip, destination_ip, suricata_sid, severity_level, raw_payload,
+                 classification, suricata_signature, suricata_category)
             VALUES
-                (:source_ip, :destination_ip, :suricata_sid, :severity_level, :raw_payload)
+                (:source_ip, :destination_ip, :suricata_sid, :severity_level, :raw_payload,
+                 :classification, :suricata_signature, :suricata_category)
             RETURNING log_id
         """),
         row,

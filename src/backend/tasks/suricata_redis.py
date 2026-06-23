@@ -64,13 +64,18 @@ def _insert_log(db, row: dict) -> int | None:
         "suricata_sid": row.get("suricata_sid"),
         "severity_level": row.get("severity_level", "MEDIUM"),
         "raw_payload": row.get("raw_payload", "")[:65535] if row.get("raw_payload") else None,
+        "classification": row.get("classification"),
+        "suricata_signature": row.get("suricata_signature"),
+        "suricata_category": row.get("suricata_category"),
     }
     result = db.execute(
         text("""
             INSERT INTO wims.security_threat_logs
-                (source_ip, destination_ip, suricata_sid, severity_level, raw_payload)
+                (source_ip, destination_ip, suricata_sid, severity_level, raw_payload,
+                 classification, suricata_signature, suricata_category)
             VALUES
-                (:source_ip, :destination_ip, :suricata_sid, :severity_level, :raw_payload)
+                (:source_ip, :destination_ip, :suricata_sid, :severity_level, :raw_payload,
+                 :classification, :suricata_signature, :suricata_category)
             RETURNING log_id
         """),
         row_data,

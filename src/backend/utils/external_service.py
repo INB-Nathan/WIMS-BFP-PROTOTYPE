@@ -12,6 +12,7 @@ import logging
 import os
 import threading
 import time
+import urllib.parse
 from typing import Any
 
 import httpx
@@ -111,6 +112,72 @@ class ExternalServiceClient:
                     "ExternalServiceClient(%s): Redis unavailable, using in-memory breaker",
                     service_name,
                 )
+
+        # ── Outbound URL allowlist (V13.2.4) ─────────────────────────────
+        self._allowed_hosts: set[str] = self._build_allowlist()
+        logger.info(
+            "ExternalServiceClient(%s): allowlist hosts: %s",
+            service_name,
+            sorted(self._allowed_hosts),
+        )
+
+    # ── Allowlist helpers ─────────────────────────────────────────────────────
+
+    @staticmethod
+    def _build_allowlist() -> set[str]:
+        """Build the outbound URL hostname allowlist from env vars and defaults.
+
+        Derives hostnames from:
+        - OLLAMA_URL (default http://ollama:11434)
+        - OPENBAO_ADDR (default http://openbao:8200)
+        - NOMINATIM_URL (default https://nominatim.openstreetmap.org)
+        - EXTERNAL_SERVICE_ALLOWED_HOSTS (comma-separated, additive)
+        - Docker internal service hostnames (backplane admin tasks)
+        """
+        hosts: set[str] = set()
+
+        for var, default in [
+            ("OLLAMA_URL", "http://ollama:11434"),
+            ("OPENBAO_ADDR", "http://openbao:8200"),
+            ("NOMINATIM_URL", "https://nominatim.openstreetmap.org"),
+        ]:
+            raw = os.environ.get(var, default)
+            hostname = urllib.parse.urlparse(raw).hostname
+            if hostname:
+                hosts.add(hostname)
+
+        # EXTERNAL_SERVICE_ALLOWED_HOSTS — additive, comma-separated
+        extra = os.environ.get("EXTERNAL_SERVICE_ALLOWED_HOSTS", "")
+        if extra:
+            for h in extra.split(","):
+                h = h.strip()
+                if h:
+                    hosts.add(h)
+
+        # Docker internal services reachable by hostname for backplane ops
+        docker_hosts = {
+            "wims-postgres",
+            "wims-redis",
+            "wims-keycloak",
+            "keycloak",
+            "redis",
+            "postgres",
+        }
+        hosts.update(docker_hosts)
+
+        return hosts
+
+    def _check_allowlist(self, url: str) -> None:
+        """Raise ExternalServiceError if the URL's host is not in the allowlist.
+
+        Parses the URL with urllib.parse — no DNS resolution (avoids DoS
+        vector and unnecessary latency).
+        """
+        host = urllib.parse.urlparse(url).hostname
+        if host is None:
+            raise ExternalServiceError(f"URL has no hostname: {url}")
+        if host not in self._allowed_hosts:
+            raise ExternalServiceError(f"URL host not in allowlist: {host}")
 
     # ── Circuit breaker helpers ───────────────────────────────────────────────
 
@@ -255,7 +322,9 @@ class ExternalServiceClient:
         Returns an httpx.Response on success.
         Raises ExternalServiceError or subclasses on failure.
         """
-        # Check circuit breaker before anything else
+        # Check outbound URL allowlist before anything else (V13.2.4)
+        self._check_allowlist(url)
+        # Check circuit breaker
         self._check_open()
         with self._lock:
             half_open_probe = self._breaker_state == _BreakerState.HALF_OPEN
@@ -372,6 +441,8 @@ class ExternalServiceClient:
         Returns an httpx.Response on success.
         Raises ExternalServiceError or subclasses on failure.
         """
+        # Check outbound URL allowlist before anything else (V13.2.4)
+        self._check_allowlist(url)
         self._check_open()
         with self._lock:
             half_open_probe = self._breaker_state == _BreakerState.HALF_OPEN

@@ -110,7 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const raw = localStorage.getItem(SESSION_CACHE_KEY);
       if (raw) {
-        const cached = JSON.parse(raw) as { user: User };
+        const cached = JSON.parse(raw) as { user: Pick<User, 'id' | 'role'> };
         if (cached.user) {
           setUser(cached.user);
           // Issue #5: cached user is OFFLINE READ-ONLY until a successful
@@ -145,7 +145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Bind offline storage to this account — wipes prior user's offline data
           // if a different uid is now logged in (item F12).
           if (data.user.id) void setActiveOfflineUser(data.user.id);
-          try { localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ user: data.user })); } catch { /* private mode */ }
+          try { localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ user: { id: data.user.id, role: data.user.role } })); } catch { /* private mode */ }
           // Post-login role prefetch (Task 14): notify the active service worker
           // of the signed-in role so it can pre-warm that role's routes.
           notifyServiceWorkerOfRole(data.user.role);

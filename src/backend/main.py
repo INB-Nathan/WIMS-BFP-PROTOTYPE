@@ -78,6 +78,31 @@ logger = logging.getLogger("wims.rate_limit")
 app = FastAPI(title="WIMS-BFP Backend")
 app.middleware("http")(csrf_middleware)
 
+
+# ---------------------------------------------------------------------------
+# Global exception handler — V16.5.1 (Generic 500 for *unhandled* exceptions)
+# ---------------------------------------------------------------------------
+# FastAPI's built-in HTTPException handler is NOT overridden — 4xx errors
+# (401, 403, 404, 422) need their specific messages for the frontend.
+# This handler is for UNHANDLED exceptions only.
+# ---------------------------------------------------------------------------
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Generic 500 response for unhandled exceptions (V16.5.1).
+
+    Do NOT override the HTTPException handler — FastAPI's built-in
+    handler returns 4xx details verbatim, which the frontend needs.
+    This handler is for *unhandled* exceptions only.
+    """
+    logger.exception("Unhandled exception in request handler")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An unexpected error occurred. Please try again later."},
+    )
+
+
 _schema_patches_attempted = False
 _schema_patches_in_progress = False
 _schema_patches_lock = threading.Lock()
@@ -829,8 +854,17 @@ async def rate_limit_middleware(request: Request, call_next):
 
     r = await _get_redis()
     if r is None:
-        # Redis down → fail open
-        return await call_next(request)
+        # Redis down → fail closed (V16.5.3) with dev escape hatch
+        if os.environ.get("RATE_LIMIT_FAIL_OPEN", "").lower() in ("true", "1", "yes"):
+            logger.warning(
+                "RATE_LIMIT_FAIL_OPEN is set — failing open on /api/auth/callback (dev only)"
+            )
+            return await call_next(request)
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Authentication service temporarily unavailable"},
+            headers={"Retry-After": "30"},
+        )
 
     # Resolve client IP from X-Real-IP (set by nginx to $realip_remote_addr)
     # or socket peer. NEVER parse X-Forwarded-For — spoofable (gap #14 / #446 follow-up).
@@ -884,7 +918,10 @@ async def rate_limit_middleware(request: Request, call_next):
 @app.middleware("http")
 async def blocked_ip_middleware(request: Request, call_next):
     """App-layer IP block check. Redis EXISTS only — zero Postgres in hot path.
-    Fail-open if Redis is down (matches rate limiter). X-Real-IP first (not XFF)."""
+    Fail-open if Redis is down (deliberate design choice — separate from V16.5.3
+    fail-closed on the auth callback rate limiter). The IP blocklist is a defense
+    layer; if it fails closed, legitimate users get 403s for blocked IPs' routes.
+    X-Real-IP first (not XFF)."""
     if request.url.path in ("/health", "/api/v1/public/health"):
         return await call_next(request)
     client_ip = _get_request_client_ip(request)
@@ -1250,3 +1287,23 @@ async def get_analytics_summary(
             {"general_category": r[0], "count": r[1]} for r in by_category_rows
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Debug routes (V16.5.1 test support) — disabled by default
+# ---------------------------------------------------------------------------
+# Toggle at module level or via DEBUG_ROUTES_ENABLED env var.
+# Test code sets main.DEBUG_ROUTES_ENABLED = True to activate.
+DEBUG_ROUTES_ENABLED: bool = os.environ.get("DEBUG_ROUTES_ENABLED", "").lower() in (
+    "true",
+    "1",
+    "yes",
+)
+
+
+@app.get("/api/__test_raise_500", include_in_schema=False)
+async def _test_raise_500():
+    """Debug-only endpoint to verify the global exception handler (V16.5.1)."""
+    if not DEBUG_ROUTES_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    raise RuntimeError("internal database password leaked in traceback")
