@@ -104,6 +104,11 @@ class CitizenReport(Base):
         ForeignKey("wims.fire_incidents.incident_id"),
         nullable=True,
     )
+    # ── Encrypted witness PII blob (PR #429) ────────────────────────
+    witness_pii_blob_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    witness_encryption_iv: Mapped[str | None] = mapped_column(Text, nullable=True)
+    witness_crypto_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    witness_key_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     @validates("location")
     def _validate_location(self, _key: str, value: object) -> object:

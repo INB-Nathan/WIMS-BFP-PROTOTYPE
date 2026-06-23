@@ -15,7 +15,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import get_db
+from services.kms import get_crypto_provider
 from utils.audit import hash_client_ip, log_system_audit, trusted_client_ip
+from utils.crypto import SecurityProviderError
 from utils.public_abuse import rate_limit_public
 from utils.rate_limit import (
     CIVILIAN_FOLLOWUP_PER_IP_HOURLY_CAP,
@@ -77,6 +79,73 @@ def _get_redis() -> redis.Redis:
                     max_connections=10,
                 )
     return _redis_client
+
+
+def _encrypt_witness_pii(
+    db: Session,
+    report_id: int,
+    witness_name: str | None,
+    witness_phone: str | None,
+    device_id: str | None,
+    ip_hash: str | None,
+) -> None:
+    """Encrypt witness PII into witness_pii_blob_enc and NULL plaintext columns.
+
+    Idempotent: skips if no PII is present or if blob already exists.
+    The AAD binds the ciphertext to ``citizen_report:{report_id}``.
+    """
+    pii_for_blob = {}
+    if witness_name:
+        pii_for_blob["witness_name"] = witness_name
+    if witness_phone:
+        pii_for_blob["witness_phone"] = witness_phone
+    if device_id:
+        pii_for_blob["device_id"] = str(device_id)
+    if ip_hash:
+        pii_for_blob["ip_hash"] = ip_hash
+
+    if not pii_for_blob:
+        return
+
+    try:
+        aad = f"citizen_report:{report_id}".encode("utf-8")
+        provider = get_crypto_provider()
+        nonce_b64, ct_b64 = provider.encrypt_json(pii_for_blob, aad)
+    except (SecurityProviderError, Exception) as exc:
+        logger.warning(
+            "Witness PII encryption unavailable for report_id=%s (%s); falling through",
+            report_id,
+            exc,
+        )
+        # Not fail-closed: civilian reports are public submissions and encryption
+        # unavailability should not block the report. PII stays in plaintext
+        # columns as a fallback.
+        return
+
+    enc_iv = nonce_b64 if provider.crypto_provider == "env_aesgcm" else None
+
+    db.execute(
+        text("""
+            UPDATE wims.citizen_reports SET
+                witness_pii_blob_enc   = :blob,
+                witness_encryption_iv  = :iv,
+                witness_crypto_provider = :crypto_provider,
+                witness_key_version    = :key_version,
+                witness_name           = NULL,
+                witness_phone          = NULL,
+                device_id              = NULL,
+                ip_hash                = NULL
+            WHERE report_id = :rid
+              AND witness_pii_blob_enc IS NULL
+        """),
+        {
+            "rid": report_id,
+            "blob": ct_b64,
+            "iv": enc_iv,
+            "crypto_provider": provider.crypto_provider,
+            "key_version": provider.current_version,
+        },
+    )
 
 
 REJECTION_GUIDANCE = {
@@ -178,9 +247,38 @@ def _require_previous_report(db: Session, previous_report_id: int | None) -> Non
 
 
 def _response_from_row(row) -> CivilianReportResponse:
+    """Build response, decrypting witness PII blob if present."""
     status = row.status
     rejection_guidance = REJECTION_GUIDANCE.get(status)
     guidance = rejection_guidance or STATUS_GUIDANCE.get(status)
+
+    # ── Decrypt witness PII blob ──────────────────────────────────────────
+    witness_name = row.witness_name  # legacy plaintext fallback
+    witness_phone = row.witness_phone  # legacy plaintext fallback
+    witness_pii_blob_enc = getattr(row, "witness_pii_blob_enc", None)
+
+    if witness_pii_blob_enc:
+        try:
+            aad = f"citizen_report:{row.report_id}".encode("utf-8")
+            provider = get_crypto_provider(
+                {"crypto_provider": getattr(row, "witness_crypto_provider", None)}
+            )
+            decrypted = provider.decrypt_json(
+                getattr(row, "witness_encryption_iv", None),
+                witness_pii_blob_enc,
+                aad,
+                getattr(row, "witness_key_version", None) or 1,
+            )
+            witness_name = decrypted.get("witness_name") or witness_name
+            witness_phone = decrypted.get("witness_phone") or witness_phone
+        except Exception:
+            logger.error(
+                "Witness PII blob decryption failed for report_id=%s",
+                row.report_id,
+                exc_info=True,
+            )
+            # Fail-closed: PII fields stay as their NULL fallback
+
     return CivilianReportResponse(
         report_id=row.report_id,
         latitude=float(row.lat),
@@ -189,8 +287,8 @@ def _response_from_row(row) -> CivilianReportResponse:
         sub_category=row.sub_category,
         reporting_context=row.reporting_context,
         safety_status=row.safety_status,
-        witness_name=row.witness_name,
-        witness_phone=row.witness_phone,
+        witness_name=witness_name,
+        witness_phone=witness_phone,
         trust_score=row.trust_score,
         status=status,
         status_explanation=row.status_explanation,
@@ -253,6 +351,10 @@ def _fetch_report_response(
                    cr.link_count,
                    cr.previous_report_id,
                    cr.created_at,
+                   cr.witness_pii_blob_enc,
+                   cr.witness_encryption_iv,
+                   cr.witness_crypto_provider,
+                   cr.witness_key_version,
                    fs.station_name AS nearest_station_name,
                    fs.phone AS nearest_station_phone,
                    cl.status AS related_cluster_status
@@ -399,6 +501,18 @@ def submit_civilian_report(
     if row is None:
         raise HTTPException(status_code=500, detail="Failed to create report")
 
+    report_id = int(row[0])
+
+    # ── Encrypt witness PII into blob, NULL out plaintext columns ──────────
+    _encrypt_witness_pii(
+        db,
+        report_id=report_id,
+        witness_name=body.witness_name,
+        witness_phone=body.witness_phone,
+        device_id=body.device_id,
+        ip_hash=ip_hash,
+    )
+
     # ---------------------------------------------------------------------------
     # Audit log entry (D20 / issue #394). The INSERT and the audit are kept
     # in a SINGLE transaction so that fail-closed semantics hold: if the
@@ -411,7 +525,7 @@ def submit_civilian_report(
             user_id=None,
             action_type="CIVILIAN_REPORT_SUBMIT",
             table_affected="wims.citizen_reports",
-            record_id=int(row[0]),
+            record_id=report_id,
             request=request,
             ip_hash=ip_hash,
             sensitive=True,
@@ -424,7 +538,7 @@ def submit_civilian_report(
             status_code=500, detail="Failed to record civilian report audit trail"
         ) from exc
 
-    return _fetch_report_response(db, row[0])
+    return _fetch_report_response(db, report_id)
 
 
 @router.post("/reports/duplicate-suggestions", response_model=DuplicateSuggestionResponse)
@@ -555,6 +669,19 @@ def append_civilian_report(
             "description": body.description,
         },
     ).fetchone()
+
+    append_report_id = int(result[0])
+
+    # ── Encrypt witness PII into blob, NULL out plaintext columns ──────────
+    _encrypt_witness_pii(
+        db,
+        report_id=append_report_id,
+        witness_name=body.witness_name,
+        witness_phone=body.witness_phone,
+        device_id=body.device_id,
+        ip_hash=None,  # append route does not capture a new ip_hash
+    )
+
     db.execute(
         text("UPDATE wims.citizen_reports SET link_count = link_count + 1 WHERE report_id = :rid"),
         {"rid": report_id},
@@ -562,7 +689,7 @@ def append_civilian_report(
     db.commit()
     if not result:
         raise HTTPException(status_code=500, detail="Failed to append report")
-    return _fetch_report_response(db, result[0])
+    return _fetch_report_response(db, append_report_id)
 
 
 @router.post(

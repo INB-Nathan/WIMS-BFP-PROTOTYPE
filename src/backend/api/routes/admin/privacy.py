@@ -174,7 +174,9 @@ def export_subject_data(
                 "SELECT report_id, witness_name, witness_phone, ip_hash, device_id, "
                 "phone_latitude, phone_longitude, category, sub_category, "
                 "reporting_context, safety_status, reported_at, created_at, status, "
-                "verified_incident_id "
+                "verified_incident_id, "
+                "witness_pii_blob_enc, witness_encryption_iv, "
+                "witness_crypto_provider, witness_key_version "
                 "FROM wims.citizen_reports WHERE report_id = :rid"
             ),
             {"rid": report_id},
@@ -183,6 +185,39 @@ def export_subject_data(
             raise HTTPException(status_code=404, detail="Report not found")
 
         report = _row_to_dict(report_row)
+
+        # ── Decrypt witness PII blob if present ───────────────────────────
+        if report.get("witness_pii_blob_enc"):
+            try:
+                aad = f"citizen_report:{report_id}".encode("utf-8")
+                provider = get_crypto_provider(
+                    {"crypto_provider": report.get("witness_crypto_provider")}
+                )
+                pii = provider.decrypt_json(
+                    report.get("witness_encryption_iv"),
+                    report["witness_pii_blob_enc"],
+                    aad,
+                    report.get("witness_key_version", 1),
+                )
+                report["witness_name"] = pii.get("witness_name")
+                report["witness_phone"] = pii.get("witness_phone")
+            except Exception:
+                logger.error(
+                    "CRITICAL: Witness PII blob decryption failed during privacy export — "
+                    "report_id=%s",
+                    report_id,
+                )
+                report["decryption_failed"] = True
+
+        # Never expose raw blob columns
+        for col in (
+            "witness_pii_blob_enc",
+            "witness_encryption_iv",
+            "witness_crypto_provider",
+            "witness_key_version",
+        ):
+            report.pop(col, None)
+
         for k, v in list(report.items()):
             if hasattr(v, "isoformat"):
                 report[k] = v.isoformat()
@@ -311,11 +346,16 @@ def anonymize_subject(
                 "UPDATE wims.citizen_reports SET "
                 "witness_name = NULL, witness_phone = NULL, "
                 "ip_hash = NULL, device_id = NULL, "
-                "phone_latitude = NULL, phone_longitude = NULL "
+                "phone_latitude = NULL, phone_longitude = NULL, "
+                "witness_pii_blob_enc = NULL, witness_encryption_iv = NULL, "
+                "witness_crypto_provider = NULL, witness_key_version = NULL "
                 "WHERE report_id = :rid "
                 "AND (witness_name, witness_phone, ip_hash, device_id, "
-                "phone_latitude, phone_longitude) "
-                "IS DISTINCT FROM (NULL, NULL, NULL, NULL, NULL, NULL)"
+                "phone_latitude, phone_longitude, "
+                "witness_pii_blob_enc, witness_encryption_iv, "
+                "witness_crypto_provider, witness_key_version) "
+                "IS DISTINCT FROM (NULL, NULL, NULL, NULL, NULL, NULL, "
+                "NULL, NULL, NULL, NULL)"
             ),
             {"rid": report_id},
         )

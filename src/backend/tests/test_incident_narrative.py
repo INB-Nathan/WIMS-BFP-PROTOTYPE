@@ -15,7 +15,7 @@ Run in Docker:
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -205,7 +205,16 @@ def test_narrative_stores_in_db(verified_incident, db):
     async def mock_post(*args, **kwargs):
         return MockResponse()
 
-    with patch("services.ai_service.httpx.AsyncClient") as mock_client_class:
+    mock_provider = MagicMock()
+    mock_provider.crypto_provider = "env_aesgcm"
+    mock_provider.kms_key_name = None
+    mock_provider.current_version = 1
+    mock_provider.encrypt_json.return_value = ("mock-nonce-b64", "mock-ct-b64")
+
+    with (
+        patch("services.ai_service.httpx.AsyncClient") as mock_client_class,
+        patch("services.ai_service.get_crypto_provider", return_value=mock_provider),
+    ):
         mock_instance = AsyncMock()
         mock_instance.post = mock_post
         mock_instance.__aenter__.return_value = mock_instance
@@ -220,6 +229,18 @@ def test_narrative_stores_in_db(verified_incident, db):
     assert data["incident_id"] == verified_incident
     assert data["ai_narrative"] == "Test narrative."
     assert data["ai_narrative_confidence"] == 0.85
+
+    # Verify encrypted blob was stored in DB, plaintext ai_narrative is NULL
+    db_row = db.execute(
+        text(
+            "SELECT ai_narrative_enc, ai_narrative FROM wims.fire_incidents WHERE incident_id = :iid"
+        ),
+        {"iid": verified_incident},
+    ).fetchone()
+    assert db_row is not None
+    assert db_row[0] == "mock-ct-b64", "ai_narrative_enc should be set"
+    assert db_row[1] is None, "plaintext ai_narrative should be NULL"
+    mock_provider.encrypt_json.assert_called_once()
 
 
 def test_narrative_response_has_expected_fields(verified_incident):
@@ -237,7 +258,16 @@ def test_narrative_response_has_expected_fields(verified_incident):
     async def mock_post(*args, **kwargs):
         return MockResponse()
 
-    with patch("services.ai_service.httpx.AsyncClient") as mock_client_class:
+    mock_provider = MagicMock()
+    mock_provider.crypto_provider = "env_aesgcm"
+    mock_provider.kms_key_name = None
+    mock_provider.current_version = 1
+    mock_provider.encrypt_json.return_value = ("mock-nonce-b64", "mock-ct-b64")
+
+    with (
+        patch("services.ai_service.httpx.AsyncClient") as mock_client_class,
+        patch("services.ai_service.get_crypto_provider", return_value=mock_provider),
+    ):
         mock_instance = AsyncMock()
         mock_instance.post = mock_post
         mock_instance.__aenter__.return_value = mock_instance

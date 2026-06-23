@@ -1,3 +1,23 @@
+## [2026-06-23] feat(#429): encrypt witness PII and AI narratives at rest
+
+- **Scope:** Witness PII (`citizen_reports.witness_name`, `witness_phone`, `device_id`, `ip_hash`) and AI narratives (`fire_incidents.ai_narrative`) were stored as plaintext. Extended the AES-256-GCM encrypted-blob pattern from `incident_sensitive_details` to cover remaining PII at rest.
+- **Files created:**
+  - `src/postgres-init/69_citizen_reports_pii_encryption.sql` — adds `witness_pii_blob_enc`, `witness_encryption_iv`, `witness_crypto_provider`, `witness_key_version` to `citizen_reports`
+  - `src/postgres-init/70_incident_ai_narrative_encryption.sql` — adds `ai_narrative_enc`, `ai_narrative_encryption_iv`, `ai_narrative_crypto_provider`, `ai_narrative_key_version` to `fire_incidents`; adds composite index for batch-narrative query
+  - `src/backend/scripts/encrypt_citizen_reports_backlog.py` — backfill existing plaintext witness rows
+  - `src/backend/scripts/encrypt_ai_narratives_backlog.py` — backfill existing plaintext narrative rows
+- **Files modified:**
+  - `src/backend/models/citizen_report.py` — 4 new mapped columns
+  - `src/backend/api/routes/civilian.py` — `_encrypt_witness_pii()` helper; encrypt on submit/append; decrypt on read in `_response_from_row()`; `_fetch_report_response()` SELECT includes blob columns
+  - `src/backend/services/ai_service.py` — encrypt narrative before DB write in `generate_incident_narrative()`; fall back to plaintext if encryption unavailable (not fail-closed — civilian reports are public submission, blocking on crypto unavailability is worse than plaintext)
+  - `src/backend/api/routes/admin/privacy.py` — decrypt witness PII blob in export; NULL blob columns in anonymize
+  - `src/backend/tasks/narrative.py` — batch query checks both `ai_narrative_enc IS NULL AND ai_narrative IS NULL`
+  - `src/backend/tests/test_privacy.py` — `_report_row` fixture adds 4 blob columns; new `test_export_report_decrypts_witness_pii`
+  - `src/backend/tests/test_incident_narrative.py` — mock `get_crypto_provider` in narrative tests; assert `ai_narrative_enc` set and `ai_narrative` NULL
+- **AAD namespaces:** `citizen_report:{report_id}` (witness), `incident_id:{id}:ai_narrative` (narrative) — distinct from `incident_id:{id}` (sensitive details) to prevent ciphertext swap
+- **Decrypt-failure policy:** Log CRITICAL, fields stay NULL (fail-closed on read, same as `_decrypt_sensitive_details`)
+- **Not in scope:** `security_threat_logs.xai_narrative` (deferred)
+
 ## [2026-06-22] fix: raise postgres max_connections 30→75 (deploy pool exhaustion)
 
 - **Scope:** Deploy failed with `remaining connection slots are reserved for non-replication superuser connections`. The previous `max_connections=30` was too low — during redeploy, keycloak-bootstrap + backend + celery-worker + health checks all connect simultaneously and exhaust the pool.

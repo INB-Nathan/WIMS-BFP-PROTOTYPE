@@ -103,6 +103,10 @@ def _report_row(status="ACTIONED", verified_incident_id=None):
         "created_at": _NOW,
         "status": status,
         "verified_incident_id": verified_incident_id,
+        "witness_pii_blob_enc": None,
+        "witness_encryption_iv": None,
+        "witness_crypto_provider": None,
+        "witness_key_version": None,
     }
     return row
 
@@ -295,6 +299,72 @@ class TestExportReportSubject:
         assert sd["caller_number"] == "09179999999"
         assert "pii_blob_enc" not in sd
         assert "encryption_iv" not in sd
+
+    def test_export_report_decrypts_witness_pii(self, client: TestClient):
+        """Report export decrypts witness_pii_blob_enc and injects witness_name/witness_phone."""
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_admin
+        mock_db = _make_db()
+
+        # Report row with encrypted witness blob
+        enc_report_row = MagicMock()
+        enc_report_row._mapping = {
+            "report_id": _REPORT_ID,
+            "witness_name": None,
+            "witness_phone": None,
+            "ip_hash": None,
+            "device_id": None,
+            "phone_latitude": 14.5995,
+            "phone_longitude": 120.9842,
+            "category": "STRUCTURAL",
+            "sub_category": None,
+            "reporting_context": "WITNESS",
+            "safety_status": "I_AM_SAFE",
+            "reported_at": _NOW,
+            "created_at": _NOW,
+            "status": "ACTIONED",
+            "verified_incident_id": None,
+            "witness_pii_blob_enc": "enc-blob-b64",
+            "witness_encryption_iv": "iv-b64",
+            "witness_crypto_provider": "env_aesgcm",
+            "witness_key_version": 1,
+        }
+
+        mock_db.execute.side_effect = [
+            MagicMock(fetchone=lambda: enc_report_row),
+            MagicMock(fetchall=lambda: _consent_rows()),
+            MagicMock(),  # audit INSERT
+        ]
+
+        def mock_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        mock_provider = MagicMock()
+        mock_provider.decrypt_json.return_value = {
+            "witness_name": "Encrypted Witness",
+            "witness_phone": "09189999999",
+            "device_id": "a1b2c3d4-...",
+            "ip_hash": "hash123",
+        }
+
+        with patch("api.routes.admin.privacy.get_crypto_provider", return_value=mock_provider):
+            resp = client.get(
+                f"/api/admin/privacy/export?subject_type=REPORT&subject_id={_REPORT_ID}"
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        cr = body["citizen_report"]
+        assert cr["witness_name"] == "Encrypted Witness"
+        assert cr["witness_phone"] == "09189999999"
+        # Blob columns must be stripped
+        assert "witness_pii_blob_enc" not in cr
+        assert "witness_encryption_iv" not in cr
+        assert "witness_crypto_provider" not in cr
+        assert "witness_key_version" not in cr
+        # Provider was called for witness blob decryption
+        mock_provider.decrypt_json.assert_called_once()
 
     def test_export_after_anonymize_returns_no_pii(self, client: TestClient):
         """Export after anonymization: witness/report data present but zero caller/owner/occupant PII.
