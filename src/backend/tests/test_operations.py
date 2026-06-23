@@ -17,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import auth
-from auth import get_db_with_rls, get_national_validator
+from auth import get_db_with_rls, get_incident_viewer, get_national_validator
 from database import get_db
 from main import app
 
@@ -143,9 +143,10 @@ def _make_db(op_rows=None, linked_rows=None, rowcount=1):
 
 class TestListOperations:
     def test_list_operations_public(self, client: TestClient):
-        """GET /api/operations returns 200 without any auth token."""
+        """GET /api/operations returns 200 with viewer-level auth (encoder or above)."""
         mock_db, get_db_override = _make_db(op_rows=[_op_row()])
         app.dependency_overrides[get_db] = get_db_override
+        app.dependency_overrides[get_incident_viewer] = lambda: _mock_encoder()
 
         resp = client.get("/api/operations")
 
@@ -160,6 +161,7 @@ class TestListOperations:
         """GET /api/operations returns empty list when no ops exist."""
         mock_db, get_db_override = _make_db(op_rows=[])
         app.dependency_overrides[get_db] = get_db_override
+        app.dependency_overrides[get_incident_viewer] = lambda: _mock_encoder()
 
         resp = client.get("/api/operations")
 
@@ -173,6 +175,7 @@ class TestListOperations:
         link_row.report_id = 42
         mock_db, get_db_override = _make_db(op_rows=[_op_row()], linked_rows=[link_row])
         app.dependency_overrides[get_db] = get_db_override
+        app.dependency_overrides[get_incident_viewer] = lambda: _mock_encoder()
 
         resp = client.get("/api/operations")
 
@@ -472,6 +475,7 @@ class TestMapFields:
         row.radius_meters = 250.0
         mock_db, get_db_override = _make_db(op_rows=[row])
         app.dependency_overrides[get_db] = get_db_override
+        app.dependency_overrides[get_incident_viewer] = lambda: _mock_encoder()
 
         resp = client.get("/api/operations")
 

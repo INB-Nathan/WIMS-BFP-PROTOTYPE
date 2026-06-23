@@ -286,13 +286,18 @@ def apply_schema_patches() -> None:
                             AND NEW.verification_status != 'REPLACED'
                             AND NOT (NEW.is_archived = TRUE AND OLD.is_archived = FALSE)
                             AND NOT (NEW.is_archived = FALSE AND OLD.is_archived = TRUE)
+                            AND NOT (
+                                NEW.data_hash IS DISTINCT FROM OLD.data_hash
+                                AND NEW.verification_status = 'VERIFIED'
+                                AND NEW.is_archived = OLD.is_archived
+                            )
                         )
                         DO INSTEAD NOTHING
                 """)
             )
             db.commit()
             logger.info(
-                "Schema patch applied: no_update_verified rule updated to allow archival and unarchival"
+                "Schema patch applied: no_update_verified rule updated to allow archival and data_hash correction"
             )
         except Exception as exc:
             logger.warning("Schema patch (no_update_verified) failed (non-fatal): %s", exc)
