@@ -55,6 +55,44 @@ vi.mock('@/lib/api/operations', () => ({
   createOperation: vi.fn().mockResolvedValue({}),
   updateOperation: vi.fn().mockResolvedValue({}),
   deleteOperation: vi.fn().mockResolvedValue(undefined),
+  fetchLinkableReports: vi.fn().mockResolvedValue([
+    {
+      report_id: 7,
+      status: 'PENDING',
+      category: 'STRUCTURAL',
+      sub_category: 'Residential',
+      reported_at: '2026-06-10T07:45:00Z',
+      latitude: 14.61,
+      longitude: 120.99,
+      trust_score: 70,
+      safety_status: 'I_AM_SAFE',
+      reporting_context: 'WITNESS',
+      linked_operation_id: null,
+      linked_operation_label: null,
+      distance_meters: 120,
+      link_disabled: false,
+      disabled_reason: null,
+    },
+    {
+      report_id: 8,
+      status: 'LINKED',
+      category: 'STRUCTURAL',
+      sub_category: 'Warehouse',
+      reported_at: '2026-06-10T07:40:00Z',
+      latitude: 14.62,
+      longitude: 121,
+      trust_score: 60,
+      safety_status: 'UNKNOWN',
+      reporting_context: 'WITNESS',
+      linked_operation_id: 99,
+      linked_operation_label: 'Operation #99',
+      distance_meters: 240,
+      link_disabled: true,
+      disabled_reason: 'Already linked to Operation #99',
+    },
+  ]),
+  linkReport: vi.fn().mockResolvedValue({}),
+  unlinkReport: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock('@/context/AuthContext', () => ({
@@ -100,6 +138,7 @@ vi.mock('react-leaflet', () => ({
   TileLayer: () => <div />,
   Circle: ({ children }: { children?: React.ReactNode }) => <div data-testid="operation-circle">{children}</div>,
   CircleMarker: ({ children }: { children?: React.ReactNode }) => <div data-testid="linked-report-marker">{children}</div>,
+  Marker: () => <div data-testid="leaflet-marker" />,
   Popup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   useMap: () => ({
     getZoom: () => 12,
@@ -415,6 +454,62 @@ describe('Operations Board — Map Centering and Linked Reports', () => {
       const reportHeadings = screen.getAllByText('Report #5');
       expect(reportHeadings.length).toBeGreaterThanOrEqual(1);
       expect(document.querySelectorAll('[data-testid="linked-report-marker"]').length).toBe(1);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Validator link search (TDD — Task 6)
+// ---------------------------------------------------------------------------
+
+describe('Operations Board — Validator Link Search', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Restore validator AuthContext override in case a prior test's vi.doMock leaked
+    vi.doMock('@/context/AuthContext', () => ({
+      useAuth: vi.fn().mockReturnValue({
+        user: { id: 'test-user', role: 'NATIONAL_VALIDATOR', assignedRegionId: null },
+        isAuthenticated: true,
+        loading: false,
+        loggingOut: false,
+        login: vi.fn(),
+        logout: vi.fn(),
+        refreshSession: vi.fn(),
+      }),
+    }));
+  });
+
+  it('validator can search and link reports from the selected operation panel', async () => {
+    const { default: HomePage } = await import('../page?validator-link-search');
+    render(<HomePage />);
+
+    await waitFor(() => expect(screen.getByText('Quezon City, Barangay Tatalon')).toBeDefined());
+    screen.getByText('Quezon City, Barangay Tatalon').click();
+    screen.getByText('Add civilian reports').click();
+
+    await waitFor(() => expect(screen.getByText('Report #7')).toBeDefined());
+    expect(screen.getByText('Already linked to Operation #99')).toBeDefined();
+    screen.getByRole('button', { name: 'Link report 7' }).click();
+
+    const { linkReport } = await import('@/lib/api/operations');
+    await waitFor(() => expect(linkReport).toHaveBeenCalledWith(1, 7));
+  });
+
+  it('create operation can select a report and suggest fields from the first selected report', async () => {
+    const { default: HomePage } = await import('../page?create-with-linked-report');
+    render(<HomePage />);
+
+    await waitFor(() => expect(screen.getByText('New Operation')).toBeDefined());
+    screen.getByText('New Operation').click();
+    await waitFor(() => expect(screen.getByText('Select civilian reports')).toBeDefined());
+    screen.getByText('Select civilian reports').click();
+
+    await waitFor(() => expect(screen.getByText('Report #7')).toBeDefined());
+    screen.getByRole('button', { name: 'Select report 7' }).click();
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue(/Report #7 \(14\.61/)).toBeDefined();
+      expect(screen.getByText(/1 selected report/)).toBeDefined();
     });
   });
 });

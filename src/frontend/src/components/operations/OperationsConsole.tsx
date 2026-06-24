@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import OperationsMap from '@/components/OperationsMap';
 import type { FireStatus, Operation } from '@/lib/api/operations';
 import { LinkedReportCard } from './LinkedReportCard';
+import { LinkableReportSearch } from './LinkableReportSearch';
 
 const STATUS_BADGE: Record<FireStatus, { label: string; className: string }> = {
   ACTIVE: { label: 'Active', className: 'bg-red-100 text-red-700 border-red-200' },
@@ -13,14 +15,17 @@ export function OperationsConsole({
   selectedOperationId,
   onSelectOperation,
   canManageReports,
+  onLinkReport,
   onUnlinkReport,
 }: {
   operations: Operation[];
   selectedOperationId: number | null;
   onSelectOperation: (operationId: number) => void;
   canManageReports: boolean;
+  onLinkReport: (operationId: number, reportId: number) => void;
   onUnlinkReport: (operationId: number, reportId: number) => void;
 }) {
+  const [showReportSearch, setShowReportSearch] = useState(false);
   const selectedOperation =
     operations.find((op) => op.operation_id === selectedOperationId) ?? operations[0] ?? null;
   const selectedReports = selectedOperation?.linked_reports ?? [];
@@ -84,9 +89,13 @@ export function OperationsConsole({
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-black text-slate-900">Linked civilian reports</h3>
               {canManageReports && (
-                <span className="rounded-full bg-red-50 px-2 py-1 text-[11px] font-bold text-red-700">
-                  Validator controls
-                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowReportSearch((value) => !value)}
+                  className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-bold text-red-700 hover:bg-red-50"
+                >
+                  Add civilian reports
+                </button>
               )}
             </div>
             {selectedReports.length === 0 ? (
@@ -94,9 +103,6 @@ export function OperationsConsole({
                 {canManageReports
                   ? 'No civilian reports linked yet. Add civilian reports from this panel.'
                   : 'No civilian reports linked.'}
-                {canManageReports && (
-                  <p className="mt-2 font-bold text-red-700">Add civilian reports</p>
-                )}
               </div>
             ) : (
               <div className="space-y-2">
@@ -111,6 +117,13 @@ export function OperationsConsole({
                   />
                 ))}
               </div>
+            )}
+            {canManageReports && selectedOperation && showReportSearch && (
+              <LinkableReportSearch
+                operation={selectedOperation}
+                mode="link"
+                onLink={(reportId) => onLinkReport(selectedOperation.operation_id, reportId)}
+              />
             )}
           </section>
         )}

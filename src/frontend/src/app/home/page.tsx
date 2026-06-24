@@ -16,7 +16,9 @@ import {
   type Operation,
   type FireStatus,
   type OperationCreate,
+  type LinkableReportDetail,
 } from '@/lib/api/operations';
+import { LinkableReportSearch } from '@/components/operations/LinkableReportSearch';
 
 type TabValue = 'ON-GOING' | 'FIRE OUT' | 'ALL';
 
@@ -202,6 +204,7 @@ export default function HomePage() {
               selectedOperationId={selectedOperationId}
               onSelectOperation={setSelectedOperationId}
               canManageReports={isValidator}
+              onLinkReport={(operationId, reportId) => void handleLink(operationId, reportId)}
               onUnlinkReport={(operationId, reportId) => void handleUnlink(operationId, reportId)}
             />
           )}
@@ -266,6 +269,28 @@ function OperationFormModal({
   const [radius, setRadius] = useState<number | null>(initial?.radius_meters ?? null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedReports, setSelectedReports] = useState<LinkableReportDetail[]>([]);
+  const [showReportPicker, setShowReportPicker] = useState(false);
+
+  function handleSelectReport(report: LinkableReportDetail) {
+    setSelectedReports((current) => {
+      if (current.some((item) => item.report_id === report.report_id)) return current;
+      return [...current, report];
+    });
+    if (selectedReports.length === 0) {
+      if (report.latitude != null && report.longitude != null) {
+        setLat(report.latitude);
+        setLng(report.longitude);
+        if (!location) setLocation(`Report #${report.report_id} (${report.latitude.toFixed(5)}, ${report.longitude.toFixed(5)})`);
+      }
+      if (report.reported_at && !startTime) {
+        setStartTime(new Date(report.reported_at).toISOString().slice(0, 16));
+      }
+      if (!notes) {
+        setNotes(`Report #${report.report_id}: ${report.category}${report.sub_category ? ` / ${report.sub_category}` : ''}`);
+      }
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -281,6 +306,7 @@ function OperationFormModal({
         latitude: lat ?? undefined,
         longitude: lng ?? undefined,
         radius_meters: radius ?? undefined,
+        linked_report_ids: selectedReports.map((report) => report.report_id),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
@@ -399,6 +425,43 @@ function OperationFormModal({
               onChange={(e) => setSizeHa(e.target.value)}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
+          </div>
+          <div className="rounded-lg border border-slate-200 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-xs font-bold text-slate-700">Linked civilian reports</p>
+                <p className="text-xs text-slate-500">{selectedReports.length} selected report(s)</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowReportPicker((value) => !value)}
+                className="rounded-md border border-red-200 px-2 py-1 text-xs font-bold text-red-700 hover:bg-red-50"
+              >
+                Select civilian reports
+              </button>
+            </div>
+            {selectedReports.length === 0 && (
+              <p className="mt-2 text-xs text-amber-700">No civilian reports linked yet. You can save without links.</p>
+            )}
+            {selectedReports.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {selectedReports.map((report) => (
+                  <span key={report.report_id} className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700">
+                    Report #{report.report_id}
+                  </span>
+                ))}
+              </div>
+            )}
+            {showReportPicker && (
+              <div className="mt-3">
+                <LinkableReportSearch
+                  operation={null}
+                  mode="select"
+                  selectedReportIds={selectedReports.map((report) => report.report_id)}
+                  onSelect={handleSelectReport}
+                />
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">Notes</label>
