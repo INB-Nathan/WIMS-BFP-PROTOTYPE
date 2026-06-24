@@ -575,6 +575,9 @@ def unlink_report(
     ).fetchone()
     if not op:
         raise HTTPException(status_code=404, detail="Operation not found")
+    junction = _get_existing_operation_for_report(db, report_id)
+    if not junction or junction.linked_operation_id != operation_id:
+        raise HTTPException(status_code=404, detail="Report is not linked to this operation")
     report = _get_report_for_link(db, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Citizen report not found")

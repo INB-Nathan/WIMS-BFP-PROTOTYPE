@@ -95,12 +95,21 @@ def _make_db(op_rows=None, linked_rows=None, rowcount=1):
     Build a mock Session that returns op_rows on the first execute and
     linked_rows (report IDs) on subsequent executes for the junction query.
 
+    When linked_rows is None (the default), a junction row for operation 1
+    and report 5 is provided so that unlink/junction-dependent tests work
+    without modification.  Tests that need no junction row should pass
+    linked_rows=[] explicitly.
+
     Captures INSERT params so tests can verify submitted payload values.
     """
     if op_rows is None:
         op_rows = [_op_row()]
     if linked_rows is None:
-        linked_rows = []
+        junction = MagicMock()
+        junction.report_id = 5
+        junction.operation_id = 1
+        junction.linked_operation_id = 1
+        linked_rows = [junction]
 
     captured_inserts: list[dict] = []  # (sql, params) tuples
 
@@ -527,7 +536,7 @@ class TestDeleteOperation:
 class TestLinkReport:
     def test_link_report_validator(self, client: TestClient):
         """POST /api/operations/{id}/link with validator returns 201."""
-        mock_db, get_db_override = _make_db()
+        mock_db, get_db_override = _make_db(linked_rows=[])
         app.dependency_overrides[get_db_with_rls] = get_db_override
         app.dependency_overrides[get_national_validator] = _mock_validator
         app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
@@ -693,6 +702,11 @@ class TestReportLinkStatusTransitions:
             sql = str(query)
             if "SELECT * FROM wims.operations" in sql:
                 result.fetchone.return_value = op
+            elif "operation_citizen_reports" in sql and "WHERE report_id = :rid" in sql:
+                # Junction row exists for operation 1 — matches the unlink
+                result.fetchone.return_value = _CitizenReportStatusRow(
+                    report_id=5, status="LINKED", linked_operation_id=1
+                )
             elif "SELECT report_id, status FROM wims.citizen_reports" in sql:
                 result.fetchone.return_value = report
             elif "UPDATE wims.citizen_reports" in sql:
@@ -716,6 +730,51 @@ class TestReportLinkStatusTransitions:
 
         assert resp.status_code == 200
         assert [params["status"] for params in executed_updates] == expected_updates
+
+    def test_unlink_report_404_when_junction_belongs_to_other_operation(self, client: TestClient):
+        op = _op_row(operation_id=1)
+        executed_updates: list[dict] = []
+        executed_deletes: list[dict] = []
+
+        def execute_side_effect(query, params=None):
+            result = MagicMock()
+            sql = str(query)
+            if "SELECT * FROM wims.operations" in sql:
+                result.fetchone.return_value = op
+            elif "operation_citizen_reports" in sql and "WHERE report_id = :rid" in sql:
+                # Junction row exists but for operation 2, not 1
+                result.fetchone.return_value = _CitizenReportStatusRow(
+                    report_id=5, status="LINKED", linked_operation_id=2
+                )
+            elif "SELECT report_id, status FROM wims.citizen_reports" in sql:
+                result.fetchone.return_value = _CitizenReportStatusRow(report_id=5, status="LINKED")
+            elif "UPDATE wims.citizen_reports" in sql:
+                executed_updates.append(params)
+                result.rowcount = 1
+            elif "DELETE FROM wims.operation_citizen_reports" in sql:
+                executed_deletes.append(params)
+            elif "SELECT report_id FROM wims.operation_citizen_reports" in sql:
+                result.fetchall.return_value = []
+            else:
+                result.fetchone.return_value = None
+                result.fetchall.return_value = []
+            result.rowcount = getattr(result, "rowcount", 1)
+            return result
+
+        mock_db = MagicMock()
+        mock_db.execute.side_effect = execute_side_effect
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.delete("/api/operations/1/link/5")
+
+        assert resp.status_code == 404
+        assert "not linked to this operation" in resp.json()["detail"]
+        # No status mutation should occur
+        assert executed_updates == []
+        # No DELETE should occur
+        assert executed_deletes == []
 
 
 class TestUnlinkReport:
