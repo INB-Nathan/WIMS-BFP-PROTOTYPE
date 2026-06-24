@@ -1,137 +1,107 @@
-# Repository Guidelines
+# Agent Instructions
 
-## Project Structure & Module Organization
+## Priority & Decision Hierarchy
 
-This repository is a Dockerized WIMS-BFP full-stack prototype. Primary implementation lives in `src/`: `src/backend/` contains the FastAPI API, Celery tasks, models, schemas, and pytest tests; `src/frontend/` contains the Next.js App Router application, React components, client libraries, public assets, and Vitest tests. Database bootstrap SQL is in `src/postgres-init/`. Keycloak files are in `src/keycloak/`, Nginx config is in `src/nginx/`, and Suricata rules/log mounts are in `src/suricata/`. Project notes live in `docs/`; seed and utility scripts live in `scripts/`.
+When rules conflict, use this order of precedence:
 
-## Gotchas — Read These Before Every Review
+1. **User instructions** — direct requests, AGENTS.md (this file), CLAUDE.md
+2. **System instructions** — this file and `docs/agents/*.md`
+3. **System wiki** — `system-wiki/` (implementation knowledgebase)
+4. **Coding conventions** — style guides, naming, patterns
 
-Each is a real mistake a sub-agent made.
+## Priority Rules
+
+### Priority 1 — Never Violate
+- **Verify claims from source.** Don't cite a line you didn't read. Before stating anything about a file, check it.
+- **Follow the spec.** Don't bypass issue/PRD/acceptance-criterion/API-contract/migration-number instructions unless you can justify the deviation and show it improves correctness, safety, or maintainability.
+- **Read before citing.** If you say file.ts:42, read line 42 first.
+
+### Priority 2 — Always Follow
+- **Gotchas** — Read `docs/agents/gotchas.md` before every review. 15 real mistakes sub-agents made.
+- **Wiki maintenance** — Follow `docs/agents/wiki-maintenance.md` for system-wiki updates.
+- **CI verification** — Run the full CI pre-flight in `docs/agents/ci-preflight.md` before pushing or opening a PR.
+
+### Priority 3 — Development Conventions
+- **Coding standards** — See `docs/agents/coding-standards.md` for style, testing, commits, commands.
+- **Platform notes** — See `docs/agents/platform-notes.md` for environment-specific gotchas.
+
+## Gotchas — Read Before Every Review
+
+Full 15-item list with explanations: `docs/agents/gotchas.md`
+
+**Most-critical (Priority 1):**
 
 1. **Don't cite a line you didn't read.** If you say file.ts:42, read line 42 first.
-2. **Count explicitly.** Say "X of Y", not "all" or "most".
-3. **Read the actual config.** Don't assume .env secrets; check for hardcoded values.
-4. **Search before claiming.** `rg` for the function/symbol first.
-5. **Check every service.** One 0.0.0.0 binding means not all are localhost-only.
-6. **Check every image tag.** Two `:latest` means not all are pinned.
-7. **Verify security claims.** Zero evidence in the file means don't claim it.
-8. **Re-read after edits.** Line numbers shift. Verify before citing.
-9. **No exceptions mean no rule.** If one service lacks health conditions, the pattern isn't universal.
-10. **Prove it with a specific line and file.** "Clean code" needs receipts.
-11. **Don't assume a commit's parent branch without verifying.** Seeing a commit in `git log --oneline` for the whole repo doesn't mean it's on master. Always run `git branch --contains <commit>` before claiming a branch is behind.
-12. **Validate CI before merging.** Running local lint/tests isn't enough — GitHub CI runs `npm run lint`, `ruff check`, `ruff format --check`, `pytest`, and `vitest` in a fresh environment. Run the exact CI commands locally first, or you'll get red merge gates.
-13. **Don't switch implementation approach without asking.** If the user's request implies a fundamentally different architecture than what you were planning (e.g., Pi-driven vs CI-driven, local vs remote), and changing approaches would conflict with existing files, agents, chains, or workflows, ask the user first. Don't silently build the wrong thing.
-14. **Arch Linux requires a venv for pytest.** On Arch, `pip install` fails with `--break-system-packages` by default. Always create and activate a venv before running pytest locally: `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && pytest`.
-15. **Never cite an FRS module without reading the source file.** The module map (`system-wiki/concepts/frs-module-map.md`) is a routing index with abbreviated names — not a requirements summary. Module names are misleading (e.g., Module 15 is "Reference Data Service", not "Offline-First"). Before stating "FRS Module N requires X," always `read system-wiki/raw/frs/frs-*.md` for that module and quote the exact line. If the FRS doesn't say it, don't claim it does.
-16. **Don't bypass the spec unless you can justify it.** If an implementation deviates from an issue, PRD, acceptance criterion, file name, API contract, migration number, or explicit user instruction, the agent must state the deviation, explain why it is necessary, and show how it materially improves correctness, safety, maintainability, or user value. Otherwise, follow the spec exactly or ask first.
+2. **Verify security claims.** Zero evidence in the file means don't claim it.
+3. **Never cite an FRS module without reading the source.** The module map is a routing index — not a requirements summary.
+4. **Don't bypass the spec unless you can justify it.** State the deviation, explain why, and show how it improves correctness, safety, maintainability, or user value.
+5. **Don't switch implementation approach without asking.** If your plan conflicts with existing architecture, ask first.
 
-## Mandatory System Wiki Update Rule
+> Read all 15 in `docs/agents/gotchas.md` before every review.
 
-For any non-trivial code, workflow, schema, infrastructure, test behavior, or documentation-source change, agents MUST update the project-local system wiki before finishing:
+## System Wiki Update Rule
+
+For any non-trivial change to code, workflow, schema, infrastructure, test behavior, or documentation:
 
 1. Update the relevant `system-wiki/` synthesis page.
 2. Append an entry to `system-wiki/log.md`.
-3. Update `system-wiki/gaps/frs-codebase-gap-register.md` only when the change creates, closes, or modifies an FRS/codebase gap.
+3. Update `system-wiki/gaps/frs-codebase-gap-register.md` when FRS alignment changes.
 4. Do not edit `system-wiki/raw/` unless replacing it with a newer authoritative source batch.
+
+**Update required when:** new feature, new API route, DB migration, new service, auth change, workflow change.
+**Not required when:** bugfix under 20 LOC, typo fixes, refactoring w/o behavior change, test-only maintenance.
 
 Before the final response, explicitly confirm whether the wiki was updated, or briefly state why no wiki update was needed.
 
-## System Wiki & Agent Context Routing
+> Thresholds and details: `docs/agents/wiki-maintenance.md`
 
-A project-local system knowledgebase lives in `system-wiki/`. This is the authoritative agent-routing wiki for the current implementation state of this repository, separate from any thesis-level wiki or external research vault.
+## Context Loading
 
-Before making non-trivial changes, agents should read:
+Before non-trivial changes, read in order:
 
-1. `AGENTS.md`
+1. This file (`AGENTS.md`)
 2. `system-wiki/SCHEMA.md`
 3. `system-wiki/index.md`
 4. `system-wiki/mocs/system-map.md`
-5. The relevant subsystem page listed in `system-wiki/operations/agent-routing-guide.md`
+5. The relevant subsystem page from `system-wiki/operations/agent-routing-guide.md`
 
-Key system-wiki pages:
+Key pages:
 
-- `system-wiki/mocs/system-map.md`: high-level entry point and source-of-truth flow.
-- `system-wiki/operations/agent-routing-guide.md`: subsystem-specific context packs for auth, incident workflow, validation, immutable records, analytics, public DMZ, and reference data work.
-- `system-wiki/concepts/frs-module-map.md`: 15-module FRS-to-code routing map.
-- `system-wiki/backend/api-route-map.md`: FastAPI route ownership snapshot.
-- `system-wiki/frontend/route-map.md`: Next.js route surface map.
-- `system-wiki/database/schema-overview.md`: PostgreSQL/PostGIS table and migration map.
-- `system-wiki/security/security-baseline.md`: auth/RBAC/RLS/audit/IDS/XAI security baseline.
-- `system-wiki/gaps/frs-codebase-gap-register.md`: known FRS/codebase gaps and verification targets.
+- `system-wiki/operations/agent-routing-guide.md` — subsystem-specific context packs (auth, incidents, validation, immutable records, analytics, DMZ, reference data)
+- `system-wiki/concepts/frs-module-map.md` — 15-module FRS-to-code routing map
+- `system-wiki/backend/api-route-map.md` — FastAPI route ownership snapshot
+- `system-wiki/frontend/route-map.md` — Next.js route surface map
+- `system-wiki/database/schema-overview.md` — PostgreSQL/PostGIS table and migration map
+- `system-wiki/security/security-baseline.md` — auth/RBAC/RLS/audit/IDS/XAI baseline
+- `system-wiki/gaps/frs-codebase-gap-register.md` — known gaps and verification targets
 
-Raw FRS files are copied under `system-wiki/raw/frs/` and must be treated as source material. Do not edit raw wiki sources directly unless replacing them with a newer authoritative FRS batch. When desk checks reveal the current true system state, update the relevant synthesis page plus `system-wiki/gaps/frs-codebase-gap-register.md` and append the change to `system-wiki/log.md`.
+Raw FRS files: `system-wiki/raw/frs/`. Treat as source material — do not edit unless replacing with a newer authoritative batch.
 
 ## Agent Skills
 
-### Issue Tracker
+- **Issue tracker** — GitHub Issues via `gh` CLI. See `docs/agents/issue-tracker.md`.
+- **Triage labels** — Five canonical labels. See `docs/agents/triage-labels.md`.
+- **Domain docs** — Use AGENTS.md + system-wiki/ for context. See `docs/agents/domain.md`.
 
-Issues and PRDs are tracked in GitHub Issues for `x1n4te/WIMS-BFP-PROTOTYPE` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+## Build & Test Quick Reference
 
-### Triage Labels
+| Action | Command |
+|--------|---------|
+| Full stack up | `cd src && docker compose up --build` |
+| Full stack down | `cd src && docker compose down` |
+| Backend tests | `cd src/backend && pytest -v` |
+| Frontend dev | `cd src/frontend && npm run dev` |
+| Frontend build | `cd src/frontend && npm run build` |
+| Frontend lint | `cd src/frontend && npm run lint` |
+| Frontend tests | `cd src/frontend && npx vitest run` |
 
-The canonical triage labels are `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
-
-### Domain Docs
-
-Single-repo context: use `AGENTS.md`, `CLAUDE.md`, and `system-wiki/` for domain and architecture context. See `docs/agents/domain.md`.
-
-## Build, Test, and Development Commands
-
-- `cd src && docker compose up --build`: build and run the local stack.
-- `cd src && docker compose down`: stop the local stack without deleting volumes.
-- `cd src/backend && pytest -v`: run backend unit and integration tests from `src/backend/tests`.
-- `cd src/frontend && npm run dev`: start the Next.js dev server.
-- `cd src/frontend && npm run build`: create a production frontend build.
-- `cd src/frontend && npm run lint`: run ESLint.
-- `cd src/frontend && npx vitest run`: run frontend tests.
-
-Install frontend dependencies with `npm ci` in `src/frontend/` (prefer when `package-lock.json` exists) or `npm install`. For non-Docker backend work, install `src/backend/requirements.txt` in a Python 3.10+ virtual environment.
-
-## Coding Style & Naming Conventions
-
-Use Python 3.10+ style in the backend: 4-space indentation, typed FastAPI route signatures where practical, `snake_case` for functions/modules, and explicit Pydantic schemas in `schemas/`. Keep routes grouped by domain under `src/backend/api/routes/`.
-
-Frontend code is TypeScript/React. Use `PascalCase` for components, `camelCase` for functions and variables, and colocate tests beside code. Follow existing ESLint and Next.js conventions; avoid broad formatting churn.
-
-## Testing Guidelines
-
-Backend pytest discovery is configured in `src/backend/pytest.ini` with `testpaths = tests`. Name tests `test_*.py`; place integration-heavy cases under `src/backend/tests/integration/`. Frontend tests use Vitest, React Testing Library, and jsdom; name files `*.test.ts` or `*.test.tsx`. Run relevant tests before opening a PR.
-
-## Commit & Pull Request Guidelines
-
-Recent history uses Conventional Commit-style subjects, often with issue references, such as `feat(#46): ...`, `fix(auth): ...`, and `style: ...`. Keep subjects imperative and scoped when useful.
-
-Pull requests should include a short problem/solution summary, linked issues, test results, and screenshots for visible UI changes. Call out schema, auth, environment, or data-volume impacts explicitly. Never commit real secrets; Docker Compose values are development defaults only.
-
-## CI Pre-flight
-
-Before pushing or opening a PR, run the full CI pre-flight routine defined in
-`docs/agents/ci-preflight.md`. The four blocking gates are: backend ruff lint,
-backend ruff format, backend pytest, and frontend lint/test/build.
-The single most common blocker is `ruff format` — always run `ruff format .`
-(auto-fix) before committing Python changes.
-
-> Frontend build requires `NEXT_PUBLIC_AUTH_API_URL` and `NEXT_PUBLIC_BASE_URL` env vars.
-> Safe dummy values: `NEXT_PUBLIC_AUTH_API_URL=http://localhost:8080/auth`
-> `NEXT_PUBLIC_BASE_URL=http://localhost:3000`.
-
-## Infrastructure & Services
-
-The Docker stack runs **14 services** (postgres, redis, mailhog, keycloak,
-keycloak-bootstrap, openbao, openbao-bootstrap, ollama, ollama-model-pull,
-backend, celery-worker, frontend, wims-suricata, nginx-gateway).
-
-**Offline/PWA subsystem:** The frontend has a full offline-first stack with
-IndexedDB stores (`offlineOps`, `cachedIncidents`, `analytics-cache`), singleton
-connectivity monitor, dual-path sync engine (PR #271 offlineOps + PR #272 legacy
-incident-queue), per-user key isolation, and offline-aware API wrappers for all
-roles (encoder, validator, analyst, admin). See `system-wiki/architecture/pwa-tests-cicd.md`.
+> Full CI pre-flight (gates 1-5): `docs/agents/ci-preflight.md`
+> All commands + infra: `docs/agents/coding-standards.md`
 
 ## Before Final Response Checklist
 
-- Relevant tests/checks were run, or skipped with a clear reason.
-- `git status` was reviewed when files were edited.
-- If non-trivial behavior changed, the relevant `system-wiki/` synthesis page was updated.
-- If non-trivial behavior changed, `system-wiki/log.md` was updated.
-- If FRS alignment changed, `system-wiki/gaps/frs-codebase-gap-register.md` was updated.
-- The final response states whether wiki updates were made or were not needed.
+- [ ] Relevant tests/checks were run, or skipped with a clear reason.
+- [ ] `git status` was reviewed when files were edited.
+- [ ] If non-trivial behavior changed: system-wiki synthesis page, `log.md` updated.
+- [ ] If FRS alignment changed: `system-wiki/gaps/frs-codebase-gap-register.md` updated.
+- [ ] Final response states whether wiki updates were made or were not needed.

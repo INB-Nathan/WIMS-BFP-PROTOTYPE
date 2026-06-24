@@ -5028,3 +5028,36 @@ Spec: `docs/superpowers/specs/2026-06-23-live-notifications-design.md` (v2). Pla
 - **No scope creep:** zero application code changes; zero new tests; zero new SMTP creds; zero realm JSON changes (the `emailTheme: wims-bfp` field is already set on the live persistent DB from PR #453); zero Dockerfile/compose changes; zero kcadm steps; the only VPS deploy step is `git pull --ff-only origin master && docker compose ... restart keycloak` to refresh the theme cache.
 - **Lesson:** verify parseability, not just identifier consistency. A 17-row self-review table that cites every identifier to the Keycloak 24 source is necessary but not sufficient — running the templates through the live FreeMarker version (or `FreeMarkerException` checks) would have caught this. Future Keycloak spec authors should: (1) verify the FreeMarker version Keycloak ships with, (2) verify the auto-escape default for the output format in use, (3) if auto-escape is on, do NOT use `?html` on output expressions, (4) rely on auto-escape for XSS protection, (5) use `<#assign>` + `?has_content` + `?then` for null/empty-string safety only.
 - **Validation:** pending V1-V3 re-trigger after VPS deploy. The user (operator) will re-trigger V1 (password reset) to confirm the email arrives with WIMS-BFP branding. V2 (email verification) and V3 (execute actions) follow the same pattern.
+
+## [2026-06-24] feat(test): disabled-user password reset rejection tests
+
+- **Scope:** Two integration tests verifying a disabled/deactivated Keycloak user cannot trigger a password reset email and cannot use a pre-issued reset token.
+- **Files modified:**
+  - `src/backend/tests/integration/test_keycloak_password_reset.py` — added `_skip_if_keycloak_not_using_mailhog()`, `_mailhog_message_sent_to()`, `_disabled_user_email()`, `_create_user()` helpers; `disabled_user_id` fixture (unique email per invocation); two test methods: `test_disabled_user_cannot_trigger_password_reset` and `test_disabled_user_preissued_token_does_not_present_password_form`
+  - `system-wiki/gaps/frs-codebase-gap-register.md` — new entry for disabled-user password-reset CI gap
+  - `docs/superpowers/specs/2026-06-24-password-reset-deactivated-account-test-design.md` — created
+- **Design notes:**
+  - Tests are MailHog-dependent and skip in normal CI (no Keycloak/MailHog in backend CI job)
+  - `_skip_if_keycloak_not_using_mailhog()` verifies realm SMTP host is `mailhog` before running MailHog assertions
+  - `disabled_user_id` uses a unique email per invocation to avoid state collision with other tests
+  - Test B baseline-resets the password, disables mid-flow, re-enables before Direct Grant assertion, and checks sentinel password negative
+- **CI status:** Skipped in normal backend CI (no Keycloak/MailHog services). Full-stack regression guard requires a dedicated CI job.
+- **ASVS mapping:** V2.4 anti-automation (account recovery abuse evidence). Not added as a new ASVS key — recorded as project-specific gap entry.
+
+## 2026-06-24 — AGENTS.md restructured into thin command-and-control + docs/agents/
+
+- **Problem:** AGENTS.md grew to ~250 lines acting as onboarding guide, coding standards, architecture map, operational handbook, review checklist, and wiki governance policy all in one file. Agents followed better when the top-level file stayed concise.
+- **Restructure:**
+  - AGENTS.md trimmed to ~85 lines (thin command-and-control): Priority & Decision Hierarchy, Priority Rules (P1/P2/P3), summarized Gotchas, summarized Wiki Update Rule, Context Loading, Build & Test Quick Reference, Before Final Response Checklist.
+  - Added Priority & Decision Hierarchy (new — order of precedence: user instructions > system instructions > system wiki > coding conventions).
+  - Added Priority Rules with 3 tiers (Never Violate / Always Follow / Development Conventions).
+  - Added wiki update thresholds (explicit when-required / not-required list).
+- **New docs/agents/ files created (4):**
+  - `docs/agents/gotchas.md` — 15 gotchas (moved from AGENTS.md, #14 Arch Linux venv moved to platform-notes.md). Priority-tagged: Priority 1 (Evidence & Integrity) and Priority 2 (Methodology).
+  - `docs/agents/wiki-maintenance.md` — Wiki update rule + defined thresholds for when updates are/aren't required.
+  - `docs/agents/coding-standards.md` — Project structure, Python/TS conventions, testing guidelines, commit/PR conventions, infrastructure overview, build/test/dev commands table.
+  - `docs/agents/platform-notes.md` — Arch Linux venv note, Docker frontend-build env vars, SQL migration gotchas.
+- **Existing docs/agents/ kept as-is (4):** `ci-preflight.md`, `domain.md` (minor wording update), `issue-tracker.md`, `triage-labels.md`.
+- **Cross-reference compatibility:** All existing references to "AGENTS.md mandatory wiki update rule", "AGENTS.md gotcha #N", and "per AGENTS.md" remain valid — the sections still exist in AGENTS.md as summarized stubs with pointers to the detail files.
+- **No content loss:** Every rule, gotcha, command, convention, and checklist item from the previous AGENTS.md is preserved across the docs/agents/ files.
+- **`docs/agents/domain.md`:** Updated description wording to match new structure.

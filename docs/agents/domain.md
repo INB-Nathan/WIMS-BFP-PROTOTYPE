@@ -6,7 +6,8 @@ How the engineering skills should consume this repo's domain documentation when 
 
 This is a single-repo WIMS-BFP prototype. The repo does not currently use root `CONTEXT.md`, `CONTEXT-MAP.md`, or `docs/adr/` files. Domain and architecture context live in:
 
-- `AGENTS.md` for repository-wide agent rules and the system-wiki update policy.
+- `AGENTS.md` for repository-wide agent rules, priority hierarchy, and context routing.
+- `docs/agents/*.md` for operational detail (gotchas, wiki maintenance, coding standards, CI pre-flight).
 - `CLAUDE.md` for architecture, commands, and implementation patterns.
 - `system-wiki/` for the authoritative implementation knowledgebase.
 - `system-wiki/decisions/` for recorded architecture decisions.
