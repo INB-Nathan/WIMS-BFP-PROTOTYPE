@@ -61,7 +61,7 @@ Submit a structured civilian report.
 | eyewitness_name | string | No | Optional follow-up contact |
 | eyewitness_contact | string | No | Optional follow-up contact |
 | previous_report_id | int | No | References a terminal report without reopening it |
-| device_id | string | Yes | Browser-generated UUID, stored in localStorage |
+| device_id | string | Yes | Browser-generated UUID, stored in localStorage. **Plaintext at rest** in `wims.citizen_reports.device_id` — not PII (random UUID, browser-side only). The encrypted blob (`witness_pii_blob_enc`) only holds `witness_name` and `witness_phone`. The ownership check (`_require_device_ownership`) queries this plaintext column. |
 
 **Rate limits**: 3 new reports per IP per hour; 1 append per device per 5 minutes.
 
