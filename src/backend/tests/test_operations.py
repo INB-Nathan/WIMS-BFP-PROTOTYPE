@@ -425,7 +425,9 @@ class TestCreateOperation:
         executed_sql = "\n".join(str(call.args[0]) for call in mock_db.execute.call_args_list)
         assert "INSERT INTO wims.operation_citizen_reports" in executed_sql
         linked_insert_params = [
-            item["params"] for item in captured_inserts if "operation_citizen_reports" in item["sql"]
+            item["params"]
+            for item in captured_inserts
+            if "operation_citizen_reports" in item["sql"]
         ]
         assert linked_insert_params == [{"oid": 1, "rid": 5}, {"oid": 1, "rid": 6}]
 
@@ -561,7 +563,9 @@ class TestReportLinkStatusTransitions:
             if "SELECT * FROM wims.operations" in sql:
                 result.fetchone.return_value = op
             elif "operation_citizen_reports" in sql and "WHERE report_id = :rid" in sql:
-                result.fetchone.return_value = _CitizenReportStatusRow(report_id=5, linked_operation_id=2)
+                result.fetchone.return_value = _CitizenReportStatusRow(
+                    report_id=5, linked_operation_id=2
+                )
             else:
                 result.fetchone.return_value = None
                 result.fetchall.return_value = []
@@ -578,7 +582,10 @@ class TestReportLinkStatusTransitions:
 
         assert resp.status_code == 409
         assert resp.json()["detail"] == "Report already linked to Operation #2"
-        assert not any("INSERT INTO wims.operation_citizen_reports" in str(call.args[0]) for call in mock_db.execute.call_args_list)
+        assert not any(
+            "INSERT INTO wims.operation_citizen_reports" in str(call.args[0])
+            for call in mock_db.execute.call_args_list
+        )
 
     def test_link_report_same_operation_is_idempotent(self, client: TestClient):
         op = _op_row(operation_id=1)
@@ -589,7 +596,9 @@ class TestReportLinkStatusTransitions:
             if "SELECT * FROM wims.operations" in sql:
                 result.fetchone.return_value = op
             elif "operation_citizen_reports" in sql and "WHERE report_id = :rid" in sql:
-                result.fetchone.return_value = _CitizenReportStatusRow(report_id=5, linked_operation_id=1)
+                result.fetchone.return_value = _CitizenReportStatusRow(
+                    report_id=5, linked_operation_id=1
+                )
             elif "SELECT report_id FROM wims.operation_citizen_reports" in sql:
                 linked = MagicMock()
                 linked.report_id = 5
@@ -609,15 +618,27 @@ class TestReportLinkStatusTransitions:
         resp = client.post("/api/operations/1/link", json={"report_id": 5})
 
         assert resp.status_code == 201
-        assert not any("INSERT INTO wims.operation_citizen_reports" in str(call.args[0]) for call in mock_db.execute.call_args_list)
+        assert not any(
+            "INSERT INTO wims.operation_citizen_reports" in str(call.args[0])
+            for call in mock_db.execute.call_args_list
+        )
 
     @pytest.mark.parametrize(
         ("initial_status", "expected_status"),
-        [("PENDING", "LINKED"), ("UNDER_REVIEW", "LINKED"), ("LINKED", "LINKED"), ("ACTIONED", "ACTIONED")],
+        [
+            ("PENDING", "LINKED"),
+            ("UNDER_REVIEW", "LINKED"),
+            ("LINKED", "LINKED"),
+            ("ACTIONED", "ACTIONED"),
+        ],
     )
-    def test_link_report_applies_expected_status_transition(self, client: TestClient, initial_status, expected_status):
+    def test_link_report_applies_expected_status_transition(
+        self, client: TestClient, initial_status, expected_status
+    ):
         op = _op_row(operation_id=1)
-        report = _CitizenReportStatusRow(report_id=5, status=initial_status, linked_operation_id=None)
+        report = _CitizenReportStatusRow(
+            report_id=5, status=initial_status, linked_operation_id=None
+        )
         executed_updates: list[dict] = []
 
         def execute_side_effect(query, params=None):
@@ -660,7 +681,9 @@ class TestReportLinkStatusTransitions:
         ("initial_status", "expected_updates"),
         [("LINKED", ["UNDER_REVIEW"]), ("ACTIONED", [])],
     )
-    def test_unlink_report_applies_expected_status_transition(self, client: TestClient, initial_status, expected_updates):
+    def test_unlink_report_applies_expected_status_transition(
+        self, client: TestClient, initial_status, expected_updates
+    ):
         op = _op_row(operation_id=1)
         report = _CitizenReportStatusRow(report_id=5, status=initial_status, linked_operation_id=1)
         executed_updates: list[dict] = []

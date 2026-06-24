@@ -28,7 +28,9 @@ LINKABLE_REPORT_STATUSES = {"PENDING", "UNDER_REVIEW", "LINKED", "ACTIONED"}
 
 def _get_report_for_link(db: Session, report_id: int):
     return db.execute(
-        text("SELECT report_id, status FROM wims.citizen_reports WHERE report_id = :rid FOR UPDATE"),
+        text(
+            "SELECT report_id, status FROM wims.citizen_reports WHERE report_id = :rid FOR UPDATE"
+        ),
         {"rid": report_id},
     ).fetchone()
 
@@ -120,7 +122,9 @@ def _linked_report_row_to_schema(row: Any) -> OperationLinkedReport:
         reporting_context=row.reporting_context,
         linked_operation_id=getattr(row, "linked_operation_id", None),
         linked_operation_label=getattr(row, "linked_operation_label", None),
-        distance_meters=float(row.distance_meters) if getattr(row, "distance_meters", None) is not None else None,
+        distance_meters=float(row.distance_meters)
+        if getattr(row, "distance_meters", None) is not None
+        else None,
     )
 
 
@@ -320,11 +324,15 @@ def list_linkable_reports(
         where.append("COALESCE(cr.reported_at, cr.created_at) <= :end")
         params["end"] = end
 
-    origin_select = "NULL::double precision AS origin_latitude, NULL::double precision AS origin_longitude"
+    origin_select = (
+        "NULL::double precision AS origin_latitude, NULL::double precision AS origin_longitude"
+    )
     distance_expr = "NULL::double precision AS distance_meters"
     if operation_id is not None:
         params["operation_id"] = operation_id
-        origin_select = "op_origin.latitude AS origin_latitude, op_origin.longitude AS origin_longitude"
+        origin_select = (
+            "op_origin.latitude AS origin_latitude, op_origin.longitude AS origin_longitude"
+        )
         distance_expr = """
             CASE
                 WHEN op_origin.latitude IS NOT NULL AND op_origin.longitude IS NOT NULL THEN
@@ -345,7 +353,11 @@ def list_linkable_reports(
             ) AS distance_meters
         """
 
-    origin_join = "LEFT JOIN wims.operations op_origin ON op_origin.operation_id = :operation_id" if operation_id is not None else ""
+    origin_join = (
+        "LEFT JOIN wims.operations op_origin ON op_origin.operation_id = :operation_id"
+        if operation_id is not None
+        else ""
+    )
     rows = db.execute(
         text(
             f"""
@@ -371,7 +383,7 @@ def list_linkable_reports(
             FROM wims.citizen_reports cr
             LEFT JOIN wims.operation_citizen_reports ocr ON ocr.report_id = cr.report_id
             {origin_join}
-            WHERE {' AND '.join(where)}
+            WHERE {" AND ".join(where)}
             ORDER BY distance_meters ASC NULLS LAST, COALESCE(cr.reported_at, cr.created_at) DESC
             LIMIT 100
             """,

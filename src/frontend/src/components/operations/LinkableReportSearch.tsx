@@ -1,8 +1,31 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer, useState } from 'react';
 import { Search } from 'lucide-react';
 import { fetchLinkableReports, type LinkableReportDetail, type Operation } from '@/lib/api/operations';
+
+type FetchState = {
+  loading: boolean;
+  error: string | null;
+  reports: LinkableReportDetail[];
+};
+type FetchAction =
+  | { type: 'FETCH_START' }
+  | { type: 'FETCH_SUCCESS'; reports: LinkableReportDetail[] }
+  | { type: 'FETCH_ERROR'; error: string };
+
+function fetchReducer(state: FetchState, action: FetchAction): FetchState {
+  switch (action.type) {
+    case 'FETCH_START':
+      return { ...state, loading: true, error: null };
+    case 'FETCH_SUCCESS':
+      return { loading: false, error: null, reports: action.reports };
+    case 'FETCH_ERROR':
+      return { ...state, loading: false, error: action.error };
+    default:
+      return state;
+  }
+}
 
 export function LinkableReportSearch({
   operation,
@@ -18,14 +41,12 @@ export function LinkableReportSearch({
   onSelect?: (report: LinkableReportDetail) => void;
 }) {
   const [query, setQuery] = useState('');
-  const [reports, setReports] = useState<LinkableReportDetail[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [state, dispatch] = useReducer(fetchReducer, { loading: true, error: null, reports: [] });
+  const { loading, error, reports } = state;
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
+    dispatch({ type: 'FETCH_START' });
     fetchLinkableReports({
       operation_id: operation?.operation_id,
       q: query || undefined,
@@ -33,13 +54,10 @@ export function LinkableReportSearch({
       longitude: operation?.longitude ?? undefined,
     })
       .then((data) => {
-        if (!cancelled) setReports(data);
+        if (!cancelled) dispatch({ type: 'FETCH_SUCCESS', reports: data });
       })
       .catch(() => {
-        if (!cancelled) setError('Unable to load linkable reports.');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) dispatch({ type: 'FETCH_ERROR', error: 'Unable to load linkable reports.' });
       });
     return () => {
       cancelled = true;
