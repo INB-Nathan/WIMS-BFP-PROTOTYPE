@@ -221,6 +221,33 @@ class TestCivilianReportPublicSubmission:
         )
         assert response.status_code == 422, response.text
 
+    def test_submit_then_track_returns_report(self, client):
+        """Submit through the public HTTP API, then GET status with the same device_id.
+
+        Pins the post-encrypt ownership round-trip. Regression test for PR #448's
+        _encrypt_witness_pii() NULL-ing the plaintext device_id column. This test
+        MUST go through client.post (not the _insert_report() helper) so the
+        production encrypt-on-submit path actually runs.
+        """
+        device_id = str(uuid.uuid4())
+        submit_response = client.post(
+            "/api/civilian/reports",
+            json=_payload(device_id=device_id),
+        )
+        assert submit_response.status_code == 201, submit_response.text
+        report_id = submit_response.json()["report_id"]
+
+        track_response = client.get(
+            f"/api/civilian/reports/{report_id}?device_id={device_id}"
+        )
+
+        assert track_response.status_code == 200, track_response.text
+        data = track_response.json()
+        assert data["report_id"] == report_id
+        assert data["category"] == "STRUCTURAL"
+        assert data["reporting_context"] == "WITNESS"
+        assert data["safety_status"] == "I_AM_SAFE"
+
     def test_append_creates_linked_child_and_increments_parent(self, client, db_session):
         device_id = str(uuid.uuid4())
         parent_id = _insert_report(db_session, device_id=device_id)
