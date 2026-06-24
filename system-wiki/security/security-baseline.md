@@ -110,6 +110,25 @@ The `/auth/` path (proxied to Keycloak) now has edge rate limiting via nginx:
   `public_api` (10r/s), `civilian_api` (5r/s), and `general_api` (30r/s) zones
   covered backend and frontend paths only.
 
+### Password-Reset Rate Limit (2026-06-24)
+
+A dedicated `reset_credentials` zone protects the Keycloak password-reset endpoint
+from single-IP abuse without degrading login/admin-console traffic:
+- **Map:** `$reset_post_only` evaluates to `$realip_remote_addr` for POST requests
+  and `""` (empty) for GET/other methods. An empty zone key is not counted by nginx,
+  so the reset form page loads freely; only POST submissions consume tokens.
+- **Zone:** `reset_credentials:10m` at `1r/m` — a legitimate user submits once and
+  never hits the limit; a single-IP attacker can send at most 60 POSTs/hour.
+- **Burst:** `burst=2 nodelay` — tolerates the rare double-submit without 429.
+- **Connections:** `limit_conn addr 10` — same per-IP connection limit as the
+  shared `/auth/` block.
+- **Location:** `= /auth/realms/bfp/login-actions/reset-credentials` — exact-match
+  takes precedence over the prefix `location /auth/`, returning 429 before the
+  shared rate limiter is checked.
+- **Configs:** `nginx.conf` (2 server blocks), `nginx.ci.conf` (1), `nginx.local.conf` (2).
+  Each block copies `proxy_set_header` lines from the adjacent `/auth/` block to
+  preserve per-config upstream names and XFF behaviour.
+
 ### POST Body SQLi/XSS Detection Rules (2026-06-23)
 
 Extended custom Suricata rules to inspect `http.request_body` — previously all
