@@ -276,3 +276,29 @@ Email (Gmail SMTP) and FCM (Firebase Cloud Messaging) are wired to real external
 - `/opt/wims-bfp/src/firebase-creds.json` — service-account JSON, `chmod 600`.
 
 **Frontend rebuild required** when `NEXT_PUBLIC_FIREBASE_*` change (baked at build time). See `docs/superpowers/specs/2026-06-23-live-notifications-design.md` and `docs/superpowers/plans/2026-06-23-live-notifications.md` for full context.
+
+## Keycloak Email Theme (WIMS-BFP branding)
+
+The `bfp` realm uses a custom email theme at `src/keycloak/themes/wims-bfp/email/`. The theme overrides the 3 default Keycloak transactional email templates (password reset, email verification, execute actions) with WIMS-BFP-branded versions.
+
+**File structure (10 new files in `email/`):**
+- `email/theme.properties` (1 line: `parent=base`)
+- `email/messages/messages_en.properties` (3 subject-line overrides: `passwordResetSubject`, `emailVerificationSubject`, `executeActionsSubject`)
+- `email/resources/img/bfp-logo.png` (BFP logo, referenced by `${url.resourcesUrl}/img/bfp-logo.png`)
+- `email/html/template.ftl` (shared `<#macro emailLayout>` wrapper, ~70 lines)
+- `email/html/{password-reset,email-verification,executeActions}.ftl` (3 HTML body templates, ~20 lines each)
+- `email/text/{password-reset,email-verification,executeActions}.ftl` (3 plain-text body templates, ~12 lines each)
+
+**Realm config:** `emailTheme: wims-bfp` is set as a top-level field in BOTH `src/keycloak/bfp-realm.json` and `src/keycloak/import/bfp-realm.json`. The live persistent DB on the VPS gets this field via `kcadm.sh update realms/bfp -s emailTheme=wims-bfp` (B2 pattern from the live-notifications work — Keycloak does not re-resolve realm-level fields on container restart).
+
+**Deploy notes:**
+- No Dockerfile or compose change needed — the volume mount at `src/docker-compose.yml:60` picks up the new `email/` subdirectory automatically
+- After editing the theme files, restart Keycloak with `docker compose restart keycloak` (or `up -d --force-recreate keycloak` if `restart` doesn't pick up the changes due to caching)
+- The logo URL uses `${url.resourcesUrl}` (a FreeMarker context variable injected by `UrlBean`) — this is portable across local, staging, and production
+- FreeMarker render errors are surfaced in Keycloak logs when the email flow is triggered (not at startup) — check `docker logs wims-keycloak` after a test email send
+
+**Visual style:** maroon `#8B0000` header, BFP logo (48x48), "Bureau of Fire Protection" + "WIMS-BFP Incident Management System" tagline, 600px max width, table-based layout, inline CSS. Matches the 7 backend app-level Jinja2 templates in `src/backend/services/email/templates/`.
+
+**Security:** all 6 body templates use the `<#assign displayName = (user.firstName?has_content)?then(user.firstName, user.username)>` pattern with `?html` applied to the final value. This handles BOTH null and empty string and avoids the FreeMarker operator-precedence XSS bug (where `?html` was previously only escaping the fallback, not the primary value).
+
+**`parent=base` means base templates CAN be inherited** for templates we don't override. The 3 target flows (password reset, email verification, execute actions) use the new themed templates; other email types (event notifications) still use the base theme defaults.
