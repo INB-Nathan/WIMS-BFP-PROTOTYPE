@@ -99,10 +99,6 @@ def _encrypt_witness_pii(
         pii_for_blob["witness_name"] = witness_name
     if witness_phone:
         pii_for_blob["witness_phone"] = witness_phone
-    if device_id:
-        pii_for_blob["device_id"] = str(device_id)
-    if ip_hash:
-        pii_for_blob["ip_hash"] = ip_hash
 
     if not pii_for_blob:
         return
@@ -132,9 +128,7 @@ def _encrypt_witness_pii(
                 witness_crypto_provider = :crypto_provider,
                 witness_key_version    = :key_version,
                 witness_name           = NULL,
-                witness_phone          = NULL,
-                device_id              = NULL,
-                ip_hash                = NULL
+                witness_phone          = NULL
             WHERE report_id = :rid
               AND witness_pii_blob_enc IS NULL
         """),
