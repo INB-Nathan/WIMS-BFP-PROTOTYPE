@@ -248,6 +248,32 @@ class TestCivilianReportPublicSubmission:
         assert data["reporting_context"] == "WITNESS"
         assert data["safety_status"] == "I_AM_SAFE"
 
+    def test_submit_then_list_includes_report(self, client):
+        """Submit through the public HTTP API, then GET the list of own reports with the same device_id.
+
+        Pins the list-my-reports round-trip. Same root cause as the track test:
+        _encrypt_witness_pii() NULLs device_id, so get_my_reports()'s
+        `WHERE device_id = :device_id` matches zero rows. Goes through client.post,
+        not the _insert_report() helper, so the production encrypt-on-submit path runs.
+        """
+        device_id = str(uuid.uuid4())
+        submit_response = client.post(
+            "/api/civilian/reports",
+            json=_payload(device_id=device_id),
+        )
+        assert submit_response.status_code == 201, submit_response.text
+        report_id = submit_response.json()["report_id"]
+
+        list_response = client.get(
+            f"/api/civilian/reports?device_id={device_id}"
+        )
+
+        assert list_response.status_code == 200, list_response.text
+        reports = list_response.json()["reports"]
+        assert any(r["report_id"] == report_id for r in reports), (
+            f"Expected the just-submitted report_id={report_id} in the list response: {reports}"
+        )
+
     def test_append_creates_linked_child_and_increments_parent(self, client, db_session):
         device_id = str(uuid.uuid4())
         parent_id = _insert_report(db_session, device_id=device_id)
