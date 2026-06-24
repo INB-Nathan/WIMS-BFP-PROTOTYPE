@@ -11,6 +11,7 @@ from auth import get_db_with_rls, get_incident_viewer, get_national_validator
 from database import get_db
 from schemas.operations import (
     FireStatus,
+    LinkableReportSearchResponse,
     LinkReportRequest,
     OperationCreate,
     OperationLinkedReport,
@@ -192,6 +193,123 @@ def list_operations(
         )
         for r in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# GET /api/operations/linkable-reports — validator-only report search
+# ---------------------------------------------------------------------------
+
+
+@router.get("/linkable-reports", response_model=list[LinkableReportSearchResponse])
+def list_linkable_reports(
+    current_user: Annotated[dict, Depends(get_national_validator)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+    operation_id: Optional[int] = Query(None),
+    q: Optional[str] = Query(None),
+    status: Optional[List[str]] = Query(None),
+    category: Optional[str] = Query(None),
+    start: Optional[datetime] = Query(None),
+    end: Optional[datetime] = Query(None),
+    latitude: Optional[float] = Query(None, ge=-90, le=90),
+    longitude: Optional[float] = Query(None, ge=-180, le=180),
+) -> list[LinkableReportSearchResponse]:
+    allowed_statuses = {"PENDING", "UNDER_REVIEW", "LINKED", "ACTIONED"}
+    requested_statuses = [s for s in (status or []) if s in allowed_statuses]
+
+    params: dict[str, object] = {}
+    where = ["cr.status IN ('PENDING', 'UNDER_REVIEW', 'LINKED', 'ACTIONED')"]
+    where.append("cr.status NOT LIKE 'REJECTED_%'")
+
+    if requested_statuses:
+        placeholders = ", ".join(f":status{i}" for i in range(len(requested_statuses)))
+        where.append(f"cr.status IN ({placeholders})")
+        params.update({f"status{i}": s for i, s in enumerate(requested_statuses)})
+    if q:
+        where.append("(cr.category ILIKE :q OR cr.sub_category ILIKE :q)")
+        params["q"] = f"%{q}%"
+    if category:
+        where.append("cr.category = :category")
+        params["category"] = category
+    if start:
+        where.append("COALESCE(cr.reported_at, cr.created_at) >= :start")
+        params["start"] = start
+    if end:
+        where.append("COALESCE(cr.reported_at, cr.created_at) <= :end")
+        params["end"] = end
+
+    origin_select = "NULL::double precision AS origin_latitude, NULL::double precision AS origin_longitude"
+    distance_expr = "NULL::double precision AS distance_meters"
+    if operation_id is not None:
+        params["operation_id"] = operation_id
+        origin_select = "op_origin.latitude AS origin_latitude, op_origin.longitude AS origin_longitude"
+        distance_expr = """
+            CASE
+                WHEN op_origin.latitude IS NOT NULL AND op_origin.longitude IS NOT NULL THEN
+                    ST_DistanceSphere(
+                        cr.location::geometry,
+                        ST_SetSRID(ST_MakePoint(op_origin.longitude, op_origin.latitude), 4326)
+                    )
+                ELSE NULL
+            END AS distance_meters
+        """
+    elif latitude is not None and longitude is not None:
+        params["latitude"] = latitude
+        params["longitude"] = longitude
+        distance_expr = """
+            ST_DistanceSphere(
+                cr.location::geometry,
+                ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)
+            ) AS distance_meters
+        """
+
+    origin_join = "LEFT JOIN wims.operations op_origin ON op_origin.operation_id = :operation_id" if operation_id is not None else ""
+    rows = db.execute(
+        text(
+            f"""
+            SELECT
+                cr.report_id,
+                cr.status,
+                cr.category,
+                cr.sub_category,
+                cr.reported_at,
+                cr.created_at,
+                ST_Y(cr.location::geometry) AS latitude,
+                ST_X(cr.location::geometry) AS longitude,
+                cr.trust_score,
+                cr.safety_status,
+                cr.reporting_context,
+                ocr.operation_id AS linked_operation_id,
+                CASE
+                    WHEN ocr.operation_id IS NOT NULL THEN 'Operation #' || ocr.operation_id::text
+                    ELSE NULL
+                END AS linked_operation_label,
+                {origin_select},
+                {distance_expr}
+            FROM wims.citizen_reports cr
+            LEFT JOIN wims.operation_citizen_reports ocr ON ocr.report_id = cr.report_id
+            {origin_join}
+            WHERE {' AND '.join(where)}
+            ORDER BY distance_meters ASC NULLS LAST, COALESCE(cr.reported_at, cr.created_at) DESC
+            LIMIT 100
+            """,
+        ),
+        params,
+    ).fetchall()
+
+    response: list[LinkableReportSearchResponse] = []
+    for row in rows:
+        base = _linked_report_row_to_schema(row)
+        disabled = row.linked_operation_id is not None and row.linked_operation_id != operation_id
+        response.append(
+            LinkableReportSearchResponse(
+                **base.model_dump(),
+                link_disabled=disabled,
+                disabled_reason=(
+                    f"Already linked to Operation #{row.linked_operation_id}" if disabled else None
+                ),
+            )
+        )
+    return response
 
 
 # ---------------------------------------------------------------------------

@@ -72,5 +72,10 @@ class OperationResponse(BaseModel):
         from_attributes = True
 
 
+class LinkableReportSearchResponse(OperationLinkedReport):
+    link_disabled: bool = False
+    disabled_reason: Optional[str] = None
+
+
 class LinkReportRequest(BaseModel):
     report_id: int

@@ -262,6 +262,57 @@ class TestListOperationsLinkedReportDetails:
 
 
 # ---------------------------------------------------------------------------
+# 1b. GET /api/operations/linkable-reports — validator-only search
+# ---------------------------------------------------------------------------
+
+
+class TestLinkableReportsSearch:
+    def test_linkable_reports_requires_validator(self, client: TestClient):
+        _, get_db_override = _make_db()
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_encoder
+
+        resp = client.get("/api/operations/linkable-reports")
+
+        assert resp.status_code == 403
+
+    def test_linkable_reports_returns_disabled_already_linked_cards(self, client: TestClient):
+        linked_row = _LinkedReportRow(operation_id=2, report_id=9, status="LINKED")
+
+        def execute_side_effect(query, params=None):
+            result = MagicMock()
+            sql = str(query)
+            if "FROM wims.citizen_reports cr" in sql:
+                result.fetchall.return_value = [linked_row]
+            else:
+                result.fetchall.return_value = []
+            result.fetchone.return_value = None
+            result.rowcount = 1
+            return result
+
+        mock_db = MagicMock()
+        mock_db.execute.side_effect = execute_side_effect
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.get("/api/operations/linkable-reports?operation_id=1")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data[0]["report_id"] == 9
+        assert data[0]["linked_operation_id"] == 2
+        assert data[0]["link_disabled"] is True
+        assert data[0]["disabled_reason"] == "Already linked to Operation #2"
+        executed_sql = "\n".join(str(call.args[0]) for call in mock_db.execute.call_args_list)
+        assert "REJECTED_%" in executed_sql
+        assert "ST_Y(cr.location::geometry)" in executed_sql
+        assert "ST_X(cr.location::geometry)" in executed_sql
+        assert "phone_latitude" not in executed_sql
+        assert "phone_longitude" not in executed_sql
+
+
+# ---------------------------------------------------------------------------
 # 2. POST /api/operations — validator → 201
 # ---------------------------------------------------------------------------
 
