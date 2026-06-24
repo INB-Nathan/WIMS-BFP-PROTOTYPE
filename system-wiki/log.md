@@ -5061,3 +5061,13 @@ Spec: `docs/superpowers/specs/2026-06-23-live-notifications-design.md` (v2). Pla
 - **Cross-reference compatibility:** All existing references to "AGENTS.md mandatory wiki update rule", "AGENTS.md gotcha #N", and "per AGENTS.md" remain valid — the sections still exist in AGENTS.md as summarized stubs with pointers to the detail files.
 - **No content loss:** Every rule, gotcha, command, convention, and checklist item from the previous AGENTS.md is preserved across the docs/agents/ files.
 - **`docs/agents/domain.md`:** Updated description wording to match new structure.
+
+## 2026-06-24 — AGENTS.md restructured into navigational pattern with subsystem AGENTS.md files
+
+- **Problem:** The previous commit (AGENTS.md thin + docs/agents/) created a flat docs/agents/ directory instead of following the navigational pattern used by top-tier repos (Airflow, Codex). Root AGENTS.md still carried too much detail.
+- **Restructure:**
+  - Root `AGENTS.md` rewritten as navigational index (~180 lines): Core Principles (how to think), Repository Map, Architecture Constraints (never-violate boundaries), Context Loading table (links to subsystem AGENTS.md), Build & Test Quick Reference, Before Final Response Checklist.
+  - **New subsystem files (5):** `backend/AGENTS.md` (backend rules/CI/test patterns), `frontend/AGENTS.md` (frontend rules/commands/conventions), `infra/AGENTS.md` (Docker stack/platform notes/env vars), `system-wiki/AGENTS.md` (wiki update rule/context loading), `docs/AGENTS.md` (domain docs/issue tracker/triage labels).
+  - **Deleted (4):** `docs/agents/wiki-maintenance.md` (→ `system-wiki/AGENTS.md`), `docs/agents/coding-standards.md` (→ `backend/AGENTS.md` + `frontend/AGENTS.md`), `docs/agents/platform-notes.md` (→ `infra/AGENTS.md`), `docs/agents/domain.md` (→ `docs/AGENTS.md`).
+  - **Kept (4):** `docs/agents/gotchas.md` (referenced from root AGENTS.md), `docs/agents/ci-preflight.md` (detailed CI reference), `docs/agents/issue-tracker.md` and `docs/agents/triage-labels.md` (referenced from `docs/AGENTS.md`).
+- **Design rationale:** Root AGENTS.md now answers "how to think, where things are, what must never break, where to go next." Subsystem AGENTS.md files own domain-specific rules. Detailed operational docs remain in docs/agents/ for reference depth without bloating the entry-point files.

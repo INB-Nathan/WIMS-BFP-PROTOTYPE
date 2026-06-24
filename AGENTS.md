@@ -1,102 +1,86 @@
-# Agent Instructions
+# WIMS Agent Instructions
 
-## Priority & Decision Hierarchy
+## Core Principles — How to Think
 
-When rules conflict, use this order of precedence:
+Agent behavior rules that apply everywhere, regardless of subsystem.
 
-1. **User instructions** — direct requests, AGENTS.md (this file), CLAUDE.md
-2. **System instructions** — this file and `docs/agents/*.md`
-3. **System wiki** — `system-wiki/` (implementation knowledgebase)
-4. **Coding conventions** — style guides, naming, patterns
+- **Search before claiming.** `rg` for the function or symbol before asserting anything about it.
+- **Read before editing.** Read related files, tests, interfaces, configs, and call sites before modifying.
+- **Verify before citing.** If you say file.ts:42, read line 42 first. Don't cite what you haven't read.
+- **Count explicitly.** Say "X of Y", not "all" or "most".
+- **Prefer minimal diffs.** Smallest correct change. Avoid unrelated refactors.
+- **Claims require evidence.** For bugs, security findings, or architectural conclusions, cite the file, command output, or test result that supports the claim.
+- **Don't bypass the spec.** If you deviate from an issue, PRD, acceptance criterion, API contract, migration number, or explicit user instruction, state the deviation and justify why it improves correctness, safety, or maintainability.
+- **Don't switch approach without asking.** If your plan conflicts with existing architecture, ask first.
+- **Validate CI before pushing.** Local lint/tests aren't enough. Run the full CI pre-flight (`docs/agents/ci-preflight.md`) before opening a PR.
 
-## Priority Rules
+> Full 15-item gotcha list: `docs/agents/gotchas.md`. Read before every review.
 
-### Priority 1 — Never Violate
-- **Verify claims from source.** Don't cite a line you didn't read. Before stating anything about a file, check it.
-- **Follow the spec.** Don't bypass issue/PRD/acceptance-criterion/API-contract/migration-number instructions unless you can justify the deviation and show it improves correctness, safety, or maintainability.
-- **Read before citing.** If you say file.ts:42, read line 42 first.
+## Repository Map
 
-### Priority 2 — Always Follow
-- **Gotchas** — Read `docs/agents/gotchas.md` before every review. 15 real mistakes sub-agents made.
-- **Wiki maintenance** — Follow `docs/agents/wiki-maintenance.md` for system-wiki updates.
-- **CI verification** — Run the full CI pre-flight in `docs/agents/ci-preflight.md` before pushing or opening a PR.
+| Path | Purpose |
+|------|---------|
+| `src/backend/` | FastAPI API, Celery tasks, models, schemas, pytest tests |
+| `src/frontend/` | Next.js App Router, React components, client libs, public assets, Vitest tests |
+| `src/postgres-init/` | 74 SQL bootstrap files (lexical order, `ON_ERROR_STOP=1`) |
+| `src/keycloak/` | Realm imports and custom providers |
+| `src/nginx/` | Nginx edge gateway config |
+| `src/suricata/` | Suricata IDS rules/log mounts |
+| `src/openbao/` | OpenBao KMS init/bootstrap |
+| `docs/` | User, architecture, and operational documentation |
+| `docs/agents/` | Agent reference docs (gotchas, CI pre-flight, issue tracker) |
+| `scripts/` | Seed and utility scripts |
+| `system-wiki/` | Project-local agent knowledgebase (authoritative implementation docs) |
+| `CLAUDE.md` | Architecture overview, key patterns, env vars (Claude Code integration) |
 
-### Priority 3 — Development Conventions
-- **Coding standards** — See `docs/agents/coding-standards.md` for style, testing, commits, commands.
-- **Platform notes** — See `docs/agents/platform-notes.md` for environment-specific gotchas.
+## Architecture Constraints
 
-## Gotchas — Read Before Every Review
+Never violate these boundaries:
 
-Full 15-item list with explanations: `docs/agents/gotchas.md`
+- **Frontend never accesses PostgreSQL directly.** All data goes through the FastAPI backend.
+- **All business logic lives in `backend/services/`.** Routes stay thin — parse request, call service, marshal response.
+- **Celery workers never call external APIs directly.** Route through a service or util.
+- **Pydantic schemas define API contracts.** `backend/schemas/` is the contract layer; routes and services consume these types.
+- **RBAC is enforced server-side.** JWT roles extracted in `auth.py`. Frontend role checks are UI-only, never a security boundary.
+- **Row-Level Security is mandatory.** Every `wims.*` table has RLS policies bound to `wims.current_user_id` GUC. Test data must be seeded through admin session (`_AdminSessionLocal`) to bypass RLS.
+- **Audit records are append-only.** `wims.audit_log` and `wims.security_threat_logs` are insert-only via triggers. No updates or deletes.
+- **PII is encrypted at rest.** AES-256-GCM via `backend/utils/crypto.py`. Plaintext PII columns must be NULL for new writes.
+- **PostGIS is the source of truth for spatial data.** All geometry operations go through PostGIS functions.
+- **Offline/PWA:** Frontend has offline-first IndexedDB stores with dual-path sync engine. See `system-wiki/architecture/pwa-tests-cicd.md`.
 
-**Most-critical (Priority 1):**
+## Context Loading — What to Read When
 
-1. **Don't cite a line you didn't read.** If you say file.ts:42, read line 42 first.
-2. **Verify security claims.** Zero evidence in the file means don't claim it.
-3. **Never cite an FRS module without reading the source.** The module map is a routing index — not a requirements summary.
-4. **Don't bypass the spec unless you can justify it.** State the deviation, explain why, and show how it improves correctness, safety, maintainability, or user value.
-5. **Don't switch implementation approach without asking.** If your plan conflicts with existing architecture, ask first.
+Start here, then navigate to the subsystem that owns your work.
 
-> Read all 15 in `docs/agents/gotchas.md` before every review.
+| Working on... | Read first |
+|---|---|
+| Any change | This file (`AGENTS.md`), `CLAUDE.md` |
+| Backend API, services, tests | `backend/AGENTS.md`, then `system-wiki/backend/api-route-map.md` |
+| Frontend, UI, PWA | `frontend/AGENTS.md`, then `system-wiki/frontend/route-map.md` |
+| Docker, CI/CD, nginx, Suricata | `infra/AGENTS.md` |
+| system-wiki, FRS alignment | `system-wiki/AGENTS.md` |
+| GitHub issues, triage | `docs/AGENTS.md` (issue tracker, triage labels sections) |
 
-## System Wiki Update Rule
-
-For any non-trivial change to code, workflow, schema, infrastructure, test behavior, or documentation:
-
-1. Update the relevant `system-wiki/` synthesis page.
-2. Append an entry to `system-wiki/log.md`.
-3. Update `system-wiki/gaps/frs-codebase-gap-register.md` when FRS alignment changes.
-4. Do not edit `system-wiki/raw/` unless replacing it with a newer authoritative source batch.
-
-**Update required when:** new feature, new API route, DB migration, new service, auth change, workflow change.
-**Not required when:** bugfix under 20 LOC, typo fixes, refactoring w/o behavior change, test-only maintenance.
-
-Before the final response, explicitly confirm whether the wiki was updated, or briefly state why no wiki update was needed.
-
-> Thresholds and details: `docs/agents/wiki-maintenance.md`
-
-## Context Loading
-
-Before non-trivial changes, read in order:
-
-1. This file (`AGENTS.md`)
-2. `system-wiki/SCHEMA.md`
-3. `system-wiki/index.md`
-4. `system-wiki/mocs/system-map.md`
-5. The relevant subsystem page from `system-wiki/operations/agent-routing-guide.md`
-
-Key pages:
-
-- `system-wiki/operations/agent-routing-guide.md` — subsystem-specific context packs (auth, incidents, validation, immutable records, analytics, DMZ, reference data)
-- `system-wiki/concepts/frs-module-map.md` — 15-module FRS-to-code routing map
-- `system-wiki/backend/api-route-map.md` — FastAPI route ownership snapshot
-- `system-wiki/frontend/route-map.md` — Next.js route surface map
-- `system-wiki/database/schema-overview.md` — PostgreSQL/PostGIS table and migration map
-- `system-wiki/security/security-baseline.md` — auth/RBAC/RLS/audit/IDS/XAI baseline
-- `system-wiki/gaps/frs-codebase-gap-register.md` — known gaps and verification targets
-
-Raw FRS files: `system-wiki/raw/frs/`. Treat as source material — do not edit unless replacing with a newer authoritative batch.
-
-## Agent Skills
-
-- **Issue tracker** — GitHub Issues via `gh` CLI. See `docs/agents/issue-tracker.md`.
-- **Triage labels** — Five canonical labels. See `docs/agents/triage-labels.md`.
-- **Domain docs** — Use AGENTS.md + system-wiki/ for context. See `docs/agents/domain.md`.
+For cross-cutting changes (auth, schema, security), also read:
+- `system-wiki/security/security-baseline.md`
+- `system-wiki/database/schema-overview.md`
+- `system-wiki/operations/agent-routing-guide.md`
 
 ## Build & Test Quick Reference
 
 | Action | Command |
 |--------|---------|
-| Full stack up | `cd src && docker compose up --build` |
-| Full stack down | `cd src && docker compose down` |
-| Backend tests | `cd src/backend && pytest -v` |
+| Full stack up (fresh) | `cd src && docker compose down -v && docker compose up --build -d` |
+| Full stack up (restart) | `cd src && docker compose down && docker compose up --build -d` |
+| Backend lint | `cd src/backend && ruff check .` |
+| Backend format | `cd src/backend && ruff format --check .` (auto-fix: `ruff format .`) |
+| Backend tests | `cd src/backend && pytest -v --tb=short` |
 | Frontend dev | `cd src/frontend && npm run dev` |
 | Frontend build | `cd src/frontend && npm run build` |
 | Frontend lint | `cd src/frontend && npm run lint` |
 | Frontend tests | `cd src/frontend && npx vitest run` |
-
-> Full CI pre-flight (gates 1-5): `docs/agents/ci-preflight.md`
-> All commands + infra: `docs/agents/coding-standards.md`
+| Local CI simulation | `cd src && make ci-local` |
+| Full CI pre-flight | `docs/agents/ci-preflight.md` (gates 1-5) |
 
 ## Before Final Response Checklist
 
