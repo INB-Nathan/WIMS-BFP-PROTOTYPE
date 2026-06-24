@@ -55,8 +55,8 @@ Start here, then navigate to the subsystem that owns your work.
 | Working on... | Read first |
 |---|---|
 | Any change | This file (`AGENTS.md`), `CLAUDE.md` |
-| Backend API, services, tests | `backend/AGENTS.md`, then `system-wiki/backend/api-route-map.md` |
-| Frontend, UI, PWA | `frontend/AGENTS.md`, then `system-wiki/frontend/route-map.md` |
+| Backend API, services, tests | `src/backend/AGENTS.md`, then `system-wiki/backend/api-route-map.md` |
+| Frontend, UI, PWA | `src/frontend/AGENTS.md`, then `system-wiki/frontend/route-map.md` |
 | Docker, CI/CD, nginx, Suricata | `infra/AGENTS.md` |
 | system-wiki, FRS alignment | `system-wiki/AGENTS.md` |
 | GitHub issues, triage | `docs/AGENTS.md` (issue tracker, triage labels sections) |
