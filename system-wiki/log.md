@@ -5043,3 +5043,50 @@ Spec: `docs/superpowers/specs/2026-06-23-live-notifications-design.md` (v2). Pla
   - Test B baseline-resets the password, disables mid-flow, re-enables before Direct Grant assertion, and checks sentinel password negative
 - **CI status:** Skipped in normal backend CI (no Keycloak/MailHog services). Full-stack regression guard requires a dedicated CI job.
 - **ASVS mapping:** V2.4 anti-automation (account recovery abuse evidence). Not added as a new ASVS key — recorded as project-specific gap entry.
+
+## 2026-06-24 — AGENTS.md restructured into thin command-and-control + docs/agents/
+
+- **Problem:** AGENTS.md grew to ~250 lines acting as onboarding guide, coding standards, architecture map, operational handbook, review checklist, and wiki governance policy all in one file. Agents followed better when the top-level file stayed concise.
+- **Restructure:**
+  - AGENTS.md trimmed to ~85 lines (thin command-and-control): Priority & Decision Hierarchy, Priority Rules (P1/P2/P3), summarized Gotchas, summarized Wiki Update Rule, Context Loading, Build & Test Quick Reference, Before Final Response Checklist.
+  - Added Priority & Decision Hierarchy (new — order of precedence: user instructions > system instructions > system wiki > coding conventions).
+  - Added Priority Rules with 3 tiers (Never Violate / Always Follow / Development Conventions).
+  - Added wiki update thresholds (explicit when-required / not-required list).
+- **New docs/agents/ files created (4):**
+  - `docs/agents/gotchas.md` — 15 gotchas (moved from AGENTS.md, #14 Arch Linux venv moved to platform-notes.md). Priority-tagged: Priority 1 (Evidence & Integrity) and Priority 2 (Methodology).
+  - `docs/agents/wiki-maintenance.md` — Wiki update rule + defined thresholds for when updates are/aren't required.
+  - `docs/agents/coding-standards.md` — Project structure, Python/TS conventions, testing guidelines, commit/PR conventions, infrastructure overview, build/test/dev commands table.
+  - `docs/agents/platform-notes.md` — Arch Linux venv note, Docker frontend-build env vars, SQL migration gotchas.
+- **Existing docs/agents/ kept as-is (4):** `ci-preflight.md`, `domain.md` (minor wording update), `issue-tracker.md`, `triage-labels.md`.
+- **Cross-reference compatibility:** All existing references to "AGENTS.md mandatory wiki update rule", "AGENTS.md gotcha #N", and "per AGENTS.md" remain valid — the sections still exist in AGENTS.md as summarized stubs with pointers to the detail files.
+- **No content loss:** Every rule, gotcha, command, convention, and checklist item from the previous AGENTS.md is preserved across the docs/agents/ files.
+- **`docs/agents/domain.md`:** Updated description wording to match new structure.
+
+## 2026-06-24 — AGENTS.md restructured into navigational pattern with subsystem AGENTS.md files
+
+- **Problem:** The previous commit (AGENTS.md thin + docs/agents/) created a flat docs/agents/ directory instead of following the navigational pattern used by top-tier repos (Airflow, Codex). Root AGENTS.md still carried too much detail.
+- **Restructure:**
+  - Root `AGENTS.md` rewritten as navigational index (~180 lines): Core Principles (how to think), Repository Map, Architecture Constraints (never-violate boundaries), Context Loading table (links to subsystem AGENTS.md), Build & Test Quick Reference, Before Final Response Checklist.
+  - **New subsystem files (5):** `backend/AGENTS.md` (backend rules/CI/test patterns), `frontend/AGENTS.md` (frontend rules/commands/conventions), `infra/AGENTS.md` (Docker stack/platform notes/env vars), `system-wiki/AGENTS.md` (wiki update rule/context loading), `docs/AGENTS.md` (domain docs/issue tracker/triage labels).
+  - **Deleted (4):** `docs/agents/wiki-maintenance.md` (→ `system-wiki/AGENTS.md`), `docs/agents/coding-standards.md` (→ `backend/AGENTS.md` + `frontend/AGENTS.md`), `docs/agents/platform-notes.md` (→ `infra/AGENTS.md`), `docs/agents/domain.md` (→ `docs/AGENTS.md`).
+  - **Kept (4):** `docs/agents/gotchas.md` (referenced from root AGENTS.md), `docs/agents/ci-preflight.md` (detailed CI reference), `docs/agents/issue-tracker.md` and `docs/agents/triage-labels.md` (referenced from `docs/AGENTS.md`).
+- **Design rationale:** Root AGENTS.md now answers "how to think, where things are, what must never break, where to go next." Subsystem AGENTS.md files own domain-specific rules. Detailed operational docs remain in docs/agents/ for reference depth without bloating the entry-point files.
+
+## 2026-06-24 — AGENTS.md structure tightened after subsystem split
+
+- **Scope:** Follow-up cleanup to the root/subsystem AGENTS.md split. Root `AGENTS.md` now stays focused on behavior, repo navigation, architecture constraints, context loading, and final-response checks.
+- **Changes:** Replaced the root build/test command table with a short verification section that points agents to subsystem AGENTS files and `docs/agents/ci-preflight.md`; corrected the `src/postgres-init/` SQL bootstrap count to 91 after verifying the directory in `AGENTS.md` and `CLAUDE.md`; clarified repository-root-relative paths in `src/backend/AGENTS.md`, `src/frontend/AGENTS.md`, and `infra/AGENTS.md`.
+- **No FRS impact:** This is agent-instruction/documentation structure only; no product behavior, schema, API, or acceptance criteria changed.
+
+## 2026-06-24 — Root AGENTS.md size limit and stack AGENTS relocation
+
+- **Scope:** Follow-up cleanup to keep the top-level agent instruction file concise and align subsystem AGENTS files with real repository directories.
+- **Changes:** Added a hard 120-line maximum to root `AGENTS.md`, with explicit routing rules: keep root concise, move subsystem-specific rules into subsystem AGENTS files, and move detailed procedures into `docs/` or `system-wiki/`. Moved the stack/infrastructure instructions from artificial `infra/AGENTS.md` to `src/AGENTS.md`, then removed the empty `infra/` directory. Updated root context loading and verification links to point to `src/AGENTS.md`.
+- **No FRS impact:** Agent-instruction structure only; no product behavior, schema, API, or acceptance criteria changed.
+
+## [2026-06-25] feat: operations linked civilian reports — tracking copy + wiki updates
+
+- **Scope:** Updated the civilian tracking page `LINKED` status copy from "Linked to Another Report" (Filipino sub-text) to "Linked to Active BFP Operation" with neutral English sub-text "Your report has been linked to an active BFP operation." Added a TDD test asserting the new heading and sub-heading, and that "another report" is absent. Updated system-wiki route-map and api-route-map with Operations console details and linked-report endpoint references.
+- **Files changed:** `src/frontend/src/app/tracking/page.tsx`, `src/frontend/src/app/tracking/page.test.tsx`, `system-wiki/frontend/route-map.md`, `system-wiki/backend/api-route-map.md`.
+- **Tests:** 3/3 tracking tests pass (1 new LINKED-copy test + 2 existing).
+- **Deviation:** None from the plan.

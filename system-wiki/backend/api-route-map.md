@@ -164,6 +164,11 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 - `public_dmz.py` is the unauthenticated public submission surface; fail closed on all adjacent changes and read [[security/security-baseline]].
 - `ref.py` is the reference data read API tied to `wims.ref_*` tables in [[database/schema-overview]].
 
+## Operations (Linked Reports)
+- `GET /api/operations` returns operation rows with `linked_report_ids` and PII-free `linked_reports` detail objects derived from `wims.citizen_reports.location` via PostGIS.
+- `GET /api/operations/linkable-reports` is `NATIONAL_VALIDATOR`-only and returns eligible non-rejected civilian reports for operation linking, including disabled already-linked cards.
+- `POST /api/operations/{operation_id}/link` and `DELETE /api/operations/{operation_id}/link/{report_id}` enforce one-operation-per-report and transactional status transitions.
+
 ## Related
 - [[concepts/frs-module-map]]
 - [[operations/agent-routing-guide]]
