@@ -254,7 +254,6 @@ class TestListOperationsLinkedReportDetails:
                 "distance_meters": 42.0,
             }
         ]
-        serialized = str(data["linked_reports"])
         for lr in data["linked_reports"]:
             assert "witness" not in lr, f"PII key witness found in {lr}"
             assert "phone" not in lr, f"PII key phone found in {lr}"

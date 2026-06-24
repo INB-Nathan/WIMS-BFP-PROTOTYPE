@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Annotated, List, Optional
+from typing import Annotated, Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
@@ -22,7 +22,7 @@ from utils.audit import log_system_audit
 router = APIRouter(prefix="/api/operations", tags=["operations"])
 
 
-def _linked_report_row_to_schema(row) -> OperationLinkedReport:
+def _linked_report_row_to_schema(row: Any) -> OperationLinkedReport:
     return OperationLinkedReport(
         report_id=row.report_id,
         status=str(row.status),
@@ -90,15 +90,18 @@ def _fetch_linked_reports_for_operations(
 
 
 def _row_to_response(
-    row,
+    row: Any,
     linked_report_ids: list[int] | None = None,
     db: Session | None = None,
     linked_reports: list[OperationLinkedReport] | None = None,
 ) -> OperationResponse:
     """Convert a DB row to an OperationResponse.
 
-    When called from list_operations, linked_report_ids are pre-fetched in a batch.
-    When called from create/update/link/unlink, a single-row query is done via db.
+    When called from list_operations, linked_report_ids and linked_reports are
+    pre-fetched in a batch via _fetch_linked_reports_for_operations to avoid N+1.
+    When called from create/update/link/unlink, linked_report_ids is loaded via
+    a single-row query against `db`, and linked_reports is left empty (callers
+    in those paths do not need full report details).
     """
     if linked_report_ids is None and db is not None:
         result = db.execute(
