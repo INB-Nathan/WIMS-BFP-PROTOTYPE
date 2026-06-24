@@ -148,42 +148,55 @@ SMTP_PASSWORD=
 
 **Why not just change the host/port and keep the rest:** the file's purpose is to document the deploy-host's expected `.env` shape, and the comment block currently leads the operator to Google's App Password flow. If we leave that comment in place, the next operator will be confused about which auth method to use. The new comment block explains the *why* (DigitalOcean block) and the *how* (Brevo SMTP key, port 2525).
 
-### S2 — `src/docker-compose.yml`: change `SMTP_HOST`/`SMTP_PORT` defaults in Keycloak service and celery-worker
+### S2 — `src/docker-compose.yml`: change `SMTP_HOST`, `SMTP_PORT`, `SMTP_STARTTLS`, and (Keycloak only) `SMTP_AUTH` defaults
 
-The Keycloak service env block at `src/docker-compose.yml:80-90` currently has:
+The Keycloak service env block at `src/docker-compose.yml:80-90` has all 11 SMTP_* lines (HOST, PORT, FROM, FROM_DISPLAY, REPLYTO, REPLYTO_DISPLAY, SSL, STARTTLS, AUTH, USER, PASSWORD). The celery-worker env block at `src/docker-compose.yml:264-269` has only 6 of them (HOST, PORT, FROM, USER, PASSWORD, STARTTLS). The other 5 (DISPLAY, REPLYTO, REPLYTO_DISPLAY, SSL, AUTH) are **not** read by `sender.py` at all — they are consumed by the Keycloak realm JSON's `${env.SMTP_*:default}` placeholders only. (Confirmed by reading `src/backend/services/email/sender.py:18-23`, which reads exactly the 6 keys the celery-worker env block exposes.)
+
+Current Keycloak block defaults that are wrong for Brevo on port 2525:
 
 ```yaml
-      SMTP_HOST: ${SMTP_HOST:-mailhog}
-      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_HOST: ${SMTP_HOST:-mailhog}     # line 80 — wrong host
+      SMTP_PORT: ${SMTP_PORT:-1025}        # line 81 — wrong port
       ...
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
+      SMTP_SSL: ${SMTP_SSL:-false}         # line 87 — actually correct for port 2525
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}  # line 88 — WRONG: Brevo port 2525 is plaintext SMTP that
+                                              # the server requires to be upgraded via STARTTLS. Default
+                                              # false on a non-localhost host = credentials sent in cleartext
+                                              # AUTH PLAIN over the wire.
+      SMTP_AUTH: ${SMTP_AUTH:-false}       # line 89 — WRONG: Brevo port 2525 requires AUTH.
 ```
 
-Change the default values for `SMTP_HOST` and `SMTP_PORT` to `smtp-relay.brevo.com` and `2525`. The other vars (FROM, FROM_DISPLAY, REPLYTO, REPLYTO_DISPLAY, SSL, STARTTLS, AUTH, USER, PASSWORD) keep their current defaults; the operator's `.env` overrides are authoritative at deploy time.
-
-**Concretely, change lines 80 and 81 from:**
+Current celery-worker block defaults that are wrong for Brevo on port 2525:
 
 ```yaml
-      SMTP_HOST: ${SMTP_HOST:-mailhog}
-      SMTP_PORT: ${SMTP_PORT:-1025}
+      - SMTP_HOST=${SMTP_HOST:-mailhog}        # line 264 — wrong host
+      - SMTP_PORT=${SMTP_PORT:-1025}           # line 265 — wrong port
+      ...
+      - SMTP_STARTTLS=${SMTP_STARTTLS:-false}  # line 269 — WRONG: same STARTTLS issue
 ```
 
-**to:**
+**Apply these 7 line edits to align the in-compose defaults with Brevo on port 2525:**
 
-```yaml
-      SMTP_HOST: ${SMTP_HOST:-smtp-relay.brevo.com}
-      SMTP_PORT: ${SMTP_PORT:-2525}
-```
+In the **Keycloak service** env block, change 4 lines:
+- Line 80: `SMTP_HOST: ${SMTP_HOST:-mailhog}` → `SMTP_HOST: ${SMTP_HOST:-smtp-relay.brevo.com}`
+- Line 81: `SMTP_PORT: ${SMTP_PORT:-1025}` → `SMTP_PORT: ${SMTP_PORT:-2525}`
+- Line 88: `SMTP_STARTTLS: ${SMTP_STARTTLS:-false}` → `SMTP_STARTTLS: ${SMTP_STARTTLS:-true}`
+- Line 89: `SMTP_AUTH: ${SMTP_AUTH:-false}` → `SMTP_AUTH: ${SMTP_AUTH:-true}`
 
-Apply the same two-line change to the celery-worker service env block at `src/docker-compose.yml:264-265`. (The other 4 celery-worker SMTP_* lines at `:266-269` are unchanged — they already default to mailhog-relative values and the operator's `.env` overrides.)
+In the **celery-worker** env block, change 3 lines:
+- Line 264: `- SMTP_HOST=${SMTP_HOST:-mailhog}` → `- SMTP_HOST=${SMTP_HOST:-smtp-relay.brevo.com}`
+- Line 265: `- SMTP_PORT=${SMTP_PORT:-1025}` → `- SMTP_PORT=${SMTP_PORT:-2525}`
+- Line 269: `- SMTP_STARTTLS=${SMTP_STARTTLS:-false}` → `- SMTP_STARTTLS=${SMTP_STARTTLS:-true}`
 
-**Why this is needed in addition to S1:** compose interpolation `${SMTP_HOST:-default}` reads the default *only* if `.env` does not set `SMTP_HOST`. The default exists so that `docker compose config` is valid even when `.env` is missing (e.g. for first-boot, for `docker compose up` in a fresh checkout). If the default says `mailhog`, a fresh operator who follows the README and only edits `.env.production.example` would still get the wrong default. Setting the in-compose default to Brevo aligns the "no env file" path with the "with env file" path.
+**Why STARTTLS and AUTH must change too (not just HOST/PORT):** the spec's stated rationale for S2 is to align the "no .env file" path with the "with .env file" path — i.e. a fresh checkout that runs `docker compose config` without a populated `.env` should see the production-shape defaults, not MailHog defaults. Changing only HOST and PORT would leave a broken default: Brevo host + port 2525 + STARTTLS off = credentials sent in cleartext AUTH PLAIN over the wire. This is exactly the leak R3 is meant to catch in a *deployed* environment; flipping the compose defaults means the same protection applies in the *not-yet-deployed* environment too. R3 still applies at deploy time.
+
+**Why `SMTP_SSL` is intentionally NOT changed** (line 87 in Keycloak block, `false`): port 2525 is plaintext SMTP that the server requires to be upgraded via STARTTLS. Port 465 is the implicit-SSL port. We are not using 465. `SMTP_SSL=false` is correct for port 2525. Verified against Brevo docs.
+
+**Why the celery-worker does not need an `SMTP_AUTH` line change:** `sender.py` does not read `SMTP_AUTH`. The auth decision is implicit: `sender.py:127-128` does `username=SMTP_USER or None, password=SMTP_PASSWORD or None` and `aiosmtplib` will attempt AUTH only if a username and password are both provided. With `.env` populated, USER and PASSWORD are non-empty (the Brevo SMTP key), so AUTH happens. Without `.env`, USER and PASSWORD are empty, so AUTH is skipped. The Keycloak side needs an explicit `SMTP_AUTH` line because the realm JSON's `smtpServer.auth` field is read literally by Keycloak.
 
 **Why this does NOT need a Keycloak compose rebuild:** the Keycloak service block already reads `SMTP_*` via compose interpolation (lines 80-90). The realm JSON's `${env.SMTP_*:default}` placeholders are resolved at first `start-dev --import-realm`. The mechanism for getting the new values into a *running* Keycloak is `scripts/update-keycloak-smtp.sh` (S3) — `docker compose` restart is NOT sufficient (verified by the live-notifications spec's B2 blocker, which this spec inherits as a known constraint).
 
-### S3 — `scripts/update-keycloak-smtp.sh`: change default values for `SMTP_FROM_DISPLAY`, `SMTP_REPLYTO`, `SMTP_REPLYTO_DISPLAY`, `SMTP_SSL`, `SMTP_STARTTLS`, `SMTP_AUTH`
+### S3 — `scripts/update-keycloak-smtp.sh`: verify defaults are correct for Brevo on 2525 (no code changes)
 
 The current script at `scripts/update-keycloak-smtp.sh:32-37` has:
 
@@ -259,7 +272,7 @@ The system-wiki is stale in three places relevant to this spec. Update:
 | # | File | Action | Change |
 |---|------|--------|--------|
 | 1 | `src/.env.production.example` | **Edit** | Replace 16-line Gmail block (lines 29-44) with Brevo block (S1) |
-| 2 | `src/docker-compose.yml` | **Edit** | Change 2 lines in Keycloak service env (`SMTP_HOST`, `SMTP_PORT` defaults to Brevo + 2525); same 2 lines in celery-worker env (S2) |
+| 2 | `src/docker-compose.yml` | **Edit** | Change 4 lines in Keycloak service env (HOST, PORT, STARTTLS, AUTH defaults) and 3 lines in celery-worker env (HOST, PORT, STARTTLS defaults) (S2) |
 | 3 | `scripts/update-keycloak-smtp.sh` | **Edit** | Add 1 paragraph of header comment documenting the default-provider assumption (S3) |
 | 4 | `.env.example` | **Edit** | Add 2 lines of comment pointing dev to Brevo production setup (S4) |
 | 5 | `system-wiki/backend/services.md` | **Edit** | Update "Email Service (M13b)" section to document 7 templates + Brevo on 2525 (S5.1) |
@@ -350,7 +363,7 @@ All four blocking gates pass with no new failures. Specifically:
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| DigitalOcean does in fact block port 2525 (undocumented) | Low — DO docs only list 25/465/587; no public report of 2525 being blocked; 2525 has been the standard "ISP blocks 587" workaround for 15+ years | High — all email stops | The spec's V1 + V2 + V3 are the tripwire. If the deploy shows `connection timed out` or `connection refused` to `smtp-relay.brevo.com:2525` in the celery-worker or keycloak logs, the response is to fall back to port 465 (encrypted, also supported by Brevo; 465 is also in the DO block list per the same docs but the spec's V1 will distinguish timeout from auth-failure to know which fallback applies). If 465 is also blocked, the response is to rewrite `sender.py` to use Brevo's HTTP API (`sib-api-v3-sdk`); the spec's boundary keeps the transport change isolated to `sender.py` only. |
+| DigitalOcean does in fact block port 2525 (undocumented) | Low — DO docs only list 25/465/587; no public report of 2525 being blocked; 2525 has been the standard "ISP blocks 587" workaround for 15+ years | High — all email stops | The spec's V1 + V2 + V3 are the tripwire. If the deploy shows `connection timed out` or `connection refused` to `smtp-relay.brevo.com:2525` in the celery-worker or keycloak logs, the response is to rewrite `sender.py` to use Brevo's HTTP API (`sib-api-v3-sdk` — the `sib-api-v3-sdk` package wraps Brevo's REST API and works over HTTPS on port 443, which DO does NOT block). The spec's design boundary keeps that transport change isolated to `sender.py` only — callers (`auth.py:222`, `tasks/notifications.py:194`, etc.) do not need to change because the function signatures `send_email_async(to, template_name, context) -> None` and `send_email(to, template_name, context) -> None` stay the same. The Celery retry logic in `tasks/notifications.py:168` will need to be revisited at that point (4xx is permanent, 5xx is transient — different from SMTP's "everything is transient"), but that is a follow-up spec, not a same-deploy patch. Port 465 is NOT a viable fallback because the DO docs list 465 as blocked alongside 25/587. |
 | Brevo SMTP key leaks (committed to repo, logged, exposed in error message) | Low — the key is generated in Brevo's dashboard, never enters `.env.example`, and the file is gitignored | High — recipient spoofing, brand damage | R4 verifies no keys in tracked files. The operator should `chmod 600 src/.env` on the deploy host. Brevo's SMTP keys can be revoked and rotated from the dashboard without code changes. |
 | Brevo free-tier exhaustion (300/day) | Low for thesis — normal load is 1-10/day, stress is <100/day | Medium — email stops | Brevo sends a warning email at 80% of the daily quota. The operator can monitor via the Brevo dashboard. If load grows, upgrade plan or switch to AWS SES. The HTTP API escape hatch via `sib-api-v3-sdk` is also available without changing providers. |
 | Brevo STARTTLS on port 2525 has a known bug (server-side) | Very low — port 2525 with STARTTLS is Brevo's standard documented offering | Medium — connection drops after STARTTLS handshake | The aiosmtplib library (`sender.py:124-130`) handles STARTTLS via the `start_tls=True` parameter. If STARTTLS fails, `aiosmtplib` raises `SMTPException` which the Celery task catches and retries (`tasks/notifications.py:168`). The auth.py direct path catches the exception and returns 502 to the client (`api/routes/auth.py:239-249`). |
@@ -424,19 +437,27 @@ All four blocking gates pass with no new failures. Specifically:
 - The Risks table has Likelihood + Impact + Mitigation for each of the 10 risks. ✅
 
 **Type / identifier consistency:**
-- Env var names (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_DISPLAY`, `SMTP_REPLYTO`, `SMTP_REPLYTO_DISPLAY`, `SMTP_SSL`, `SMTP_STARTTLS`, `SMTP_AUTH`) match the 11 keys in `sender.py:18-23` and the 11 keys in `bfp-realm.json:1523-1533`. ✅
+- Env var names split into two scopes (the asymmetry is the one fact a plan author will trip on if it is not foregrounded):
+  - **`sender.py:18-23` reads exactly 6 keys**: `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_STARTTLS`. Verified by direct read.
+  - **The Keycloak realm JSON at `bfp-realm.json:1523-1533` and `import/bfp-realm.json:1523-1534` consumes the full 11 keys** via `${env.SMTP_*:default}` placeholders. The 5 keys NOT read by `sender.py` (`SMTP_FROM_DISPLAY`, `SMTP_REPLYTO`, `SMTP_REPLYTO_DISPLAY`, `SMTP_SSL`, `SMTP_AUTH`) are Keycloak-only and only shape the kcadm JSON payload that `scripts/update-keycloak-smtp.sh` sends to `kcadm.sh update realms/bfp`.
+  - **The compose env blocks reflect the same split**: the Keycloak service block at `src/docker-compose.yml:80-90` has all 11 SMTP_* lines; the celery-worker block at `src/docker-compose.yml:264-269` has only the 6 that `sender.py` reads. (Initial draft of this spec conflated the two readers in this self-review entry; corrected.) ✅
 - Function names (`send_email_async`, `send_email`, `send_email_task`, `send_weekly_report_email`) match `sender.py:95,138` and `tasks/notifications.py:172,253`. ✅
 - File paths (`src/.env.production.example`, `src/docker-compose.yml`, `scripts/update-keycloak-smtp.sh`, `.env.example`, `src/keycloak/bfp-realm.json`, `src/keycloak/import/bfp-realm.json`) match the actual repo layout. ✅
 - Celery task name `tasks.notifications.send_email` matches `tasks/notifications.py:167`. ✅
 - Brevo host `smtp-relay.brevo.com` and port 2525 match the Brevo docs cited in the Problem section. ✅
 - DO block list `25, 465, 587` matches the DO docs cited (last verified 2026-06-22). ✅
+- The Risks table's primary-risk mitigation no longer claims port 465 as a fallback (465 is in the DO block list per the same docs; the realistic fallback is the HTTP API). ✅
 
-**Gaps found in self-review, fixed inline:**
+**Gaps found in self-review, fixed inline (v1 + post-meta-analysis pass):**
 - Initially S1's new `.env.production.example` block had `SMTP_USER=<brevo-smtp-key>` and `SMTP_PASSWORD=<brevo-smtp-key>` as the same value; clarified in S1 that Brevo uses the same SMTP key for both AUTH PLAIN fields, which is by design. ✅
 - Initially S2 didn't state the line-anchor for the celery-worker env block edit; corrected to "lines 264-265" (matching the live-notifications spec's line-citation convention). ✅
 - Initially the secondary finding about `scheduled_reports.py` not directly using SMTP was implicit in "Not Changed"; promoted to an explicit finding in the Problem section so the plan author doesn't go looking for SMTP_* refs in that file. ✅
 - Initially V1's email-template example used `security_alert` with hardcoded context keys that didn't match the template; replaced with the weekly-report Celery beat trigger (which is the actual production path and the one the operator can force-run for verification). ✅
 - Initially "Out of Scope" didn't list DNS records; added (with reference to the live-notifications deploy that already added them). ✅
+- **(v1 → v1.1, post-meta-analysis)** The v1 self-review falsely claimed "11 keys in `sender.py:18-23`"; corrected to "6 keys in `sender.py:18-23` and the other 5 are Keycloak-only." The asymmetry is now foregrounded under "Type / identifier consistency" so the plan author does not silently treat the 11 as a single uniform set. ✅
+- **(v1 → v1.1, post-meta-analysis)** S2 originally proposed changing only `SMTP_HOST` and `SMTP_PORT` defaults in compose. That left the "no .env file" path with Brevo host/port + STARTTLS off + AUTH off = credentials in cleartext. S2 now also flips the compose defaults for `SMTP_STARTTLS` (Keycloak + celery-worker) and `SMTP_AUTH` (Keycloak only) to `true`, and explains why `SMTP_SSL` stays `false` (2525 is the STARTTLS port, not the implicit-SSL port). Total S2 surface is 7 line edits, not 4. ✅
+- **(v1 → v1.1, post-meta-analysis)** The Risks table's primary-risk mitigation previously listed port 465 as a fallback; 465 is in the DO block list. Replaced with "go straight to Brevo's HTTP API (`sib-api-v3-sdk` over port 443)" as the only realistic fallback. The mitigation paragraph also notes that this fallback is a follow-up spec, not a same-deploy patch, because the Celery retry logic in `tasks/notifications.py:168` would need to change to distinguish 4xx (permanent) from 5xx (transient). ✅
+- **(v1 → v1.1, post-meta-analysis)** The spec is acknowledged as over-built for the diff size (4 code lines + 2 comment blocks + 4 wiki edits). A 4-line config change does not require 8 solution sections, 6 verification steps, and 10 risks. The repetition is what allowed the factual drift to slip past self-review. The spec is kept at this size because the *strategic* decision (SMTP on 2525 over HTTP API) is a load-bearing one that benefits from explicit reasoning; the plan will compress the per-file edit steps into the bit-sized task structure. ✅
 
 ---
 
