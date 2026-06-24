@@ -123,6 +123,10 @@ def _make_db(op_rows=None, linked_rows=None, rowcount=1):
         elif "wims.operations" in sql or "operations" in sql:
             result.fetchall.return_value = op_rows
             result.fetchone.return_value = op_rows[0] if op_rows else None
+        elif "citizen_reports" in sql:
+            rid = (params or {}).get("rid", 5)
+            result.fetchone.return_value = _CitizenReportStatusRow(report_id=rid)
+            result.fetchall.return_value = []
         else:
             result.fetchall.return_value = []
             result.fetchone.return_value = None
@@ -138,6 +142,13 @@ def _make_db(op_rows=None, linked_rows=None, rowcount=1):
         yield mock_db
 
     return mock_db, _get_db_override
+
+
+class _CitizenReportStatusRow:
+    def __init__(self, report_id=5, status="PENDING", linked_operation_id=None):
+        self.report_id = report_id
+        self.status = status
+        self.linked_operation_id = linked_operation_id
 
 
 class _LinkedReportRow:
@@ -366,6 +377,58 @@ class TestCreateOperation:
         resp = client.post("/api/operations", json=self._payload)
         assert resp.status_code in (401, 403)
 
+    def test_create_operation_accepts_initial_linked_report_ids(self, client: TestClient):
+        op = _op_row(operation_id=1)
+        captured_inserts: list[dict] = []
+
+        def execute_side_effect(query, params=None):
+            result = MagicMock()
+            sql = str(query)
+            if "INSERT INTO" in sql:
+                captured_inserts.append({"sql": sql, "params": params})
+                if "RETURNING" in sql:
+                    result.fetchone.return_value = op
+            elif "operation_citizen_reports" in sql and "WHERE report_id = :rid" in sql:
+                result.fetchone.return_value = None
+            elif "SELECT report_id, status FROM wims.citizen_reports" in sql:
+                result.fetchone.return_value = _CitizenReportStatusRow(
+                    report_id=params["rid"],
+                    status="PENDING",
+                    linked_operation_id=None,
+                )
+            elif "SELECT report_id FROM wims.operation_citizen_reports" in sql:
+                result.fetchall.return_value = []
+            else:
+                result.fetchone.return_value = None
+                result.fetchall.return_value = []
+            result.rowcount = 1
+            return result
+
+        mock_db = MagicMock()
+        mock_db.execute.side_effect = execute_side_effect
+        mock_db.captured_inserts = captured_inserts
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.post(
+            "/api/operations",
+            json={
+                "fire_status": "ACTIVE",
+                "start_time": "2026-06-10T08:00:00Z",
+                "location": "Test City",
+                "linked_report_ids": [5, 6],
+            },
+        )
+
+        assert resp.status_code == 201
+        executed_sql = "\n".join(str(call.args[0]) for call in mock_db.execute.call_args_list)
+        assert "INSERT INTO wims.operation_citizen_reports" in executed_sql
+        linked_insert_params = [
+            item["params"] for item in captured_inserts if "operation_citizen_reports" in item["sql"]
+        ]
+        assert linked_insert_params == [{"oid": 1, "rid": 5}, {"oid": 1, "rid": 6}]
+
 
 # ---------------------------------------------------------------------------
 # 3. PATCH /api/operations/{id} — validator → 200
@@ -486,6 +549,150 @@ class TestLinkReport:
 # ---------------------------------------------------------------------------
 # 6. DELETE /api/operations/{id}/link/{report_id} — validator only
 # ---------------------------------------------------------------------------
+
+
+class TestReportLinkStatusTransitions:
+    def test_link_report_conflict_when_report_belongs_to_other_operation(self, client: TestClient):
+        op = _op_row(operation_id=1)
+
+        def execute_side_effect(query, params=None):
+            result = MagicMock()
+            sql = str(query)
+            if "SELECT * FROM wims.operations" in sql:
+                result.fetchone.return_value = op
+            elif "operation_citizen_reports" in sql and "WHERE report_id = :rid" in sql:
+                result.fetchone.return_value = _CitizenReportStatusRow(report_id=5, linked_operation_id=2)
+            else:
+                result.fetchone.return_value = None
+                result.fetchall.return_value = []
+            result.rowcount = 1
+            return result
+
+        mock_db = MagicMock()
+        mock_db.execute.side_effect = execute_side_effect
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.post("/api/operations/1/link", json={"report_id": 5})
+
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "Report already linked to Operation #2"
+        assert not any("INSERT INTO wims.operation_citizen_reports" in str(call.args[0]) for call in mock_db.execute.call_args_list)
+
+    def test_link_report_same_operation_is_idempotent(self, client: TestClient):
+        op = _op_row(operation_id=1)
+
+        def execute_side_effect(query, params=None):
+            result = MagicMock()
+            sql = str(query)
+            if "SELECT * FROM wims.operations" in sql:
+                result.fetchone.return_value = op
+            elif "operation_citizen_reports" in sql and "WHERE report_id = :rid" in sql:
+                result.fetchone.return_value = _CitizenReportStatusRow(report_id=5, linked_operation_id=1)
+            elif "SELECT report_id FROM wims.operation_citizen_reports" in sql:
+                linked = MagicMock()
+                linked.report_id = 5
+                result.fetchall.return_value = [linked]
+            else:
+                result.fetchone.return_value = None
+                result.fetchall.return_value = []
+            result.rowcount = 1
+            return result
+
+        mock_db = MagicMock()
+        mock_db.execute.side_effect = execute_side_effect
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.post("/api/operations/1/link", json={"report_id": 5})
+
+        assert resp.status_code == 201
+        assert not any("INSERT INTO wims.operation_citizen_reports" in str(call.args[0]) for call in mock_db.execute.call_args_list)
+
+    @pytest.mark.parametrize(
+        ("initial_status", "expected_status"),
+        [("PENDING", "LINKED"), ("UNDER_REVIEW", "LINKED"), ("LINKED", "LINKED"), ("ACTIONED", "ACTIONED")],
+    )
+    def test_link_report_applies_expected_status_transition(self, client: TestClient, initial_status, expected_status):
+        op = _op_row(operation_id=1)
+        report = _CitizenReportStatusRow(report_id=5, status=initial_status, linked_operation_id=None)
+        executed_updates: list[dict] = []
+
+        def execute_side_effect(query, params=None):
+            result = MagicMock()
+            sql = str(query)
+            if "SELECT * FROM wims.operations" in sql:
+                result.fetchone.return_value = op
+            elif "operation_citizen_reports" in sql and "WHERE report_id = :rid" in sql:
+                result.fetchone.return_value = None
+            elif "SELECT report_id, status FROM wims.citizen_reports" in sql:
+                result.fetchone.return_value = report
+            elif "UPDATE wims.citizen_reports" in sql:
+                executed_updates.append(params)
+                result.rowcount = 1
+            elif "SELECT report_id FROM wims.operation_citizen_reports" in sql:
+                linked = MagicMock()
+                linked.report_id = 5
+                result.fetchall.return_value = [linked]
+            else:
+                result.fetchone.return_value = None
+                result.fetchall.return_value = []
+            result.rowcount = getattr(result, "rowcount", 1)
+            return result
+
+        mock_db = MagicMock()
+        mock_db.execute.side_effect = execute_side_effect
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.post("/api/operations/1/link", json={"report_id": 5})
+
+        assert resp.status_code == 201
+        if initial_status == "ACTIONED":
+            assert executed_updates == []
+        else:
+            assert executed_updates[0]["status"] == expected_status
+
+    @pytest.mark.parametrize(
+        ("initial_status", "expected_updates"),
+        [("LINKED", ["UNDER_REVIEW"]), ("ACTIONED", [])],
+    )
+    def test_unlink_report_applies_expected_status_transition(self, client: TestClient, initial_status, expected_updates):
+        op = _op_row(operation_id=1)
+        report = _CitizenReportStatusRow(report_id=5, status=initial_status, linked_operation_id=1)
+        executed_updates: list[dict] = []
+
+        def execute_side_effect(query, params=None):
+            result = MagicMock()
+            sql = str(query)
+            if "SELECT * FROM wims.operations" in sql:
+                result.fetchone.return_value = op
+            elif "SELECT report_id, status FROM wims.citizen_reports" in sql:
+                result.fetchone.return_value = report
+            elif "UPDATE wims.citizen_reports" in sql:
+                executed_updates.append(params)
+                result.rowcount = 1
+            elif "SELECT report_id FROM wims.operation_citizen_reports" in sql:
+                result.fetchall.return_value = []
+            else:
+                result.fetchone.return_value = None
+                result.fetchall.return_value = []
+            result.rowcount = getattr(result, "rowcount", 1)
+            return result
+
+        mock_db = MagicMock()
+        mock_db.execute.side_effect = execute_side_effect
+        app.dependency_overrides[get_db_with_rls] = lambda: mock_db
+        app.dependency_overrides[get_national_validator] = _mock_validator
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.delete("/api/operations/1/link/5")
+
+        assert resp.status_code == 200
+        assert [params["status"] for params in executed_updates] == expected_updates
 
 
 class TestUnlinkReport:

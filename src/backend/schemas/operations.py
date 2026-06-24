@@ -23,6 +23,7 @@ class OperationCreate(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     radius_meters: Optional[float] = None
+    linked_report_ids: list[int] = []
 
 
 class OperationUpdate(BaseModel):

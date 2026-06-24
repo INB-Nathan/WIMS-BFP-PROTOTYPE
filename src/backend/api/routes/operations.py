@@ -23,6 +23,89 @@ from utils.audit import log_system_audit
 router = APIRouter(prefix="/api/operations", tags=["operations"])
 
 
+LINKABLE_REPORT_STATUSES = {"PENDING", "UNDER_REVIEW", "LINKED", "ACTIONED"}
+
+
+def _get_report_for_link(db: Session, report_id: int):
+    return db.execute(
+        text("SELECT report_id, status FROM wims.citizen_reports WHERE report_id = :rid FOR UPDATE"),
+        {"rid": report_id},
+    ).fetchone()
+
+
+def _get_existing_operation_for_report(db: Session, report_id: int):
+    return db.execute(
+        text(
+            "SELECT operation_id AS linked_operation_id "
+            "FROM wims.operation_citizen_reports WHERE report_id = :rid"
+        ),
+        {"rid": report_id},
+    ).fetchone()
+
+
+def _apply_link_status_transition(db: Session, report_id: int, old_status: str) -> str:
+    if old_status == "ACTIONED":
+        return old_status
+    if old_status not in LINKABLE_REPORT_STATUSES:
+        raise HTTPException(status_code=400, detail="Report status is not linkable")
+    db.execute(
+        text("UPDATE wims.citizen_reports SET status = :status WHERE report_id = :rid"),
+        {"status": "LINKED", "rid": report_id},
+    )
+    return "LINKED"
+
+
+def _apply_unlink_status_transition(db: Session, report_id: int, old_status: str) -> str:
+    if old_status == "ACTIONED":
+        return old_status
+    if old_status == "LINKED":
+        db.execute(
+            text("UPDATE wims.citizen_reports SET status = :status WHERE report_id = :rid"),
+            {"status": "UNDER_REVIEW", "rid": report_id},
+        )
+        return "UNDER_REVIEW"
+    return old_status
+
+
+def _link_report_to_operation(
+    db: Session,
+    operation_id: int,
+    report_id: int,
+    current_user: dict,
+) -> None:
+    existing = _get_existing_operation_for_report(db, report_id)
+    if existing and existing.linked_operation_id == operation_id:
+        return
+    if existing and existing.linked_operation_id != operation_id:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Report already linked to Operation #{existing.linked_operation_id}",
+        )
+
+    report = _get_report_for_link(db, report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Citizen report not found")
+    old_status = str(report.status)
+    new_status = _apply_link_status_transition(db, report_id, old_status)
+
+    db.execute(
+        text(
+            "INSERT INTO wims.operation_citizen_reports (operation_id, report_id) "
+            "VALUES (:oid, :rid)"
+        ),
+        {"oid": operation_id, "rid": report_id},
+    )
+    log_system_audit(
+        db=db,
+        user_id=current_user["user_id"],
+        action_type="LINK_REPORT",
+        table_affected="operation_citizen_reports",
+        record_id=report_id,
+        old_values={"status": old_status},
+        new_values={"status": new_status, "operation_id": operation_id},
+    )
+
+
 def _linked_report_row_to_schema(row: Any) -> OperationLinkedReport:
     return OperationLinkedReport(
         report_id=row.report_id,
@@ -344,6 +427,8 @@ def create_operation(
             "rad": payload.radius_meters,
         },
     ).fetchone()
+    for report_id in payload.linked_report_ids:
+        _link_report_to_operation(db, row.operation_id, report_id, current_user)
     log_system_audit(
         db=db,
         user_id=current_user["user_id"],
@@ -455,25 +540,7 @@ def link_report(
     ).fetchone()
     if not op:
         raise HTTPException(status_code=404, detail="Operation not found")
-    try:
-        db.execute(
-            text(
-                "INSERT INTO wims.operation_citizen_reports (operation_id, report_id)"
-                " VALUES (:oid, :rid)"
-                " ON CONFLICT DO NOTHING"
-            ),
-            {"oid": operation_id, "rid": payload.report_id},
-        )
-    except Exception as exc:
-        db.rollback()
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    log_system_audit(
-        db=db,
-        user_id=current_user["user_id"],
-        action_type="LINK_REPORT",
-        table_affected="operation_citizen_reports",
-        record_id=payload.report_id,
-    )
+    _link_report_to_operation(db, operation_id, payload.report_id, current_user)
     db.commit()
     return _row_to_response(op, db=db)
 
@@ -496,6 +563,11 @@ def unlink_report(
     ).fetchone()
     if not op:
         raise HTTPException(status_code=404, detail="Operation not found")
+    report = _get_report_for_link(db, report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Citizen report not found")
+    old_status = str(report.status)
+    new_status = _apply_unlink_status_transition(db, report_id, old_status)
     db.execute(
         text(
             "DELETE FROM wims.operation_citizen_reports"
@@ -509,6 +581,8 @@ def unlink_report(
         action_type="UNLINK_REPORT",
         table_affected="operation_citizen_reports",
         record_id=report_id,
+        old_values={"status": old_status, "operation_id": operation_id},
+        new_values={"status": new_status},
     )
     db.commit()
     return _row_to_response(op, db=db)
