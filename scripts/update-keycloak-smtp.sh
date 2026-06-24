@@ -11,6 +11,12 @@
 #   ./scripts/update-keycloak-smtp.sh [path-to-env-file]
 #
 # Default env-file path: ./.env (relative to the script's CWD)
+# Default values below (SMTP_SSL, SMTP_STARTTLS, SMTP_AUTH, DISPLAY, REPLYTO)
+# are tuned for Brevo SMTP on port 2525 (plaintext SMTP upgraded via STARTTLS,
+# AUTH required). For other providers (SendGrid, Mailgun, etc.), check the
+# provider's SMTP docs for the right STARTTLS/SSL/AUTH combination on the
+# chosen port before running this script.
+
 set -euo pipefail
 
 ENV_FILE="${1:-.env}"
