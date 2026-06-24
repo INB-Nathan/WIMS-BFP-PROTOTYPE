@@ -114,8 +114,12 @@ def _make_db(op_rows=None, linked_rows=None, rowcount=1):
             if "RETURNING" in sql:
                 result.fetchone.return_value = op_rows[0] if op_rows else None
         elif "operation_citizen_reports" in sql and "SELECT" in sql:
-            result.fetchall.return_value = linked_rows
-            result.fetchone.return_value = linked_rows[0] if linked_rows else None
+            if "ST_Y" in sql:
+                result.fetchall.return_value = []
+                result.fetchone.return_value = None
+            else:
+                result.fetchall.return_value = linked_rows
+                result.fetchone.return_value = linked_rows[0] if linked_rows else None
         elif "wims.operations" in sql or "operations" in sql:
             result.fetchall.return_value = op_rows
             result.fetchone.return_value = op_rows[0] if op_rows else None
@@ -134,6 +138,25 @@ def _make_db(op_rows=None, linked_rows=None, rowcount=1):
         yield mock_db
 
     return mock_db, _get_db_override
+
+
+class _LinkedReportRow:
+    def __init__(self, operation_id=1, report_id=5, status="PENDING"):
+        self.operation_id = operation_id
+        self.report_id = report_id
+        self.status = status
+        self.category = "STRUCTURAL"
+        self.sub_category = "Residential"
+        self.reported_at = "2026-06-10T07:55:00+00:00"
+        self.created_at = "2026-06-10T07:56:00+00:00"
+        self.latitude = 14.5995
+        self.longitude = 120.9842
+        self.trust_score = 80
+        self.safety_status = "I_AM_SAFE"
+        self.reporting_context = "WITNESS"
+        self.linked_operation_id = operation_id
+        self.linked_operation_label = f"Operation #{operation_id}"
+        self.distance_meters = 42.0
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +204,62 @@ class TestListOperations:
 
         assert resp.status_code == 200
         assert 42 in resp.json()[0]["linked_report_ids"]
+
+
+class TestListOperationsLinkedReportDetails:
+    def test_list_operations_returns_linked_reports_without_pii(self, client: TestClient):
+        row = _op_row()
+        linked_row = _LinkedReportRow()
+
+        def execute_side_effect(query, params=None):
+            result = MagicMock()
+            sql = str(query)
+            if "ST_Y(cr.location::geometry)" in sql and "operation_citizen_reports" in sql:
+                result.fetchall.return_value = [linked_row]
+            elif "operation_citizen_reports" in sql and "SELECT" in sql:
+                result.fetchall.return_value = [linked_row]
+            elif "wims.operations" in sql:
+                result.fetchall.return_value = [row]
+                result.fetchone.return_value = row
+            else:
+                result.fetchall.return_value = []
+                result.fetchone.return_value = None
+            result.rowcount = 1
+            return result
+
+        mock_db = MagicMock()
+        mock_db.execute.side_effect = execute_side_effect
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[get_incident_viewer] = lambda: _mock_encoder()
+
+        resp = client.get("/api/operations")
+
+        assert resp.status_code == 200
+        data = resp.json()[0]
+        assert data["linked_report_ids"] == [5]
+        assert data["linked_reports"] == [
+            {
+                "report_id": 5,
+                "status": "PENDING",
+                "category": "STRUCTURAL",
+                "sub_category": "Residential",
+                "reported_at": "2026-06-10T07:55:00Z",
+                "latitude": 14.5995,
+                "longitude": 120.9842,
+                "trust_score": 80,
+                "safety_status": "I_AM_SAFE",
+                "reporting_context": "WITNESS",
+                "linked_operation_id": 1,
+                "linked_operation_label": "Operation #1",
+                "distance_meters": 42.0,
+            }
+        ]
+        serialized = str(data["linked_reports"])
+        for lr in data["linked_reports"]:
+            assert "witness" not in lr, f"PII key witness found in {lr}"
+            assert "phone" not in lr, f"PII key phone found in {lr}"
+            assert "device" not in lr, f"PII key device found in {lr}"
+            assert "ip_hash" not in lr, f"PII key ip_hash found in {lr}"
 
 
 # ---------------------------------------------------------------------------

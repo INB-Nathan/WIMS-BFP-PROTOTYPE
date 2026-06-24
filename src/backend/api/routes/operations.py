@@ -13,6 +13,7 @@ from schemas.operations import (
     FireStatus,
     LinkReportRequest,
     OperationCreate,
+    OperationLinkedReport,
     OperationResponse,
     OperationUpdate,
 )
@@ -21,8 +22,78 @@ from utils.audit import log_system_audit
 router = APIRouter(prefix="/api/operations", tags=["operations"])
 
 
+def _linked_report_row_to_schema(row) -> OperationLinkedReport:
+    return OperationLinkedReport(
+        report_id=row.report_id,
+        status=str(row.status),
+        category=row.category,
+        sub_category=row.sub_category,
+        reported_at=row.reported_at or getattr(row, "created_at", None),
+        latitude=float(row.latitude) if row.latitude is not None else None,
+        longitude=float(row.longitude) if row.longitude is not None else None,
+        trust_score=row.trust_score,
+        safety_status=row.safety_status,
+        reporting_context=row.reporting_context,
+        linked_operation_id=getattr(row, "linked_operation_id", None),
+        linked_operation_label=getattr(row, "linked_operation_label", None),
+        distance_meters=float(row.distance_meters) if getattr(row, "distance_meters", None) is not None else None,
+    )
+
+
+def _fetch_linked_reports_for_operations(
+    db: Session,
+    operation_ids: list[int],
+) -> dict[int, list[OperationLinkedReport]]:
+    if not operation_ids:
+        return {}
+    placeholders = ", ".join(f":oid{i}" for i in range(len(operation_ids)))
+    params = {f"oid{i}": oid for i, oid in enumerate(operation_ids)}
+    rows = db.execute(
+        text(
+            f"""
+            SELECT
+                ocr.operation_id,
+                cr.report_id,
+                cr.status,
+                cr.category,
+                cr.sub_category,
+                cr.reported_at,
+                cr.created_at,
+                ST_Y(cr.location::geometry) AS latitude,
+                ST_X(cr.location::geometry) AS longitude,
+                cr.trust_score,
+                cr.safety_status,
+                cr.reporting_context,
+                ocr.operation_id AS linked_operation_id,
+                ('Operation #' || ocr.operation_id::text) AS linked_operation_label,
+                CASE
+                    WHEN op.latitude IS NOT NULL AND op.longitude IS NOT NULL THEN
+                        ST_DistanceSphere(
+                            cr.location::geometry,
+                            ST_SetSRID(ST_MakePoint(op.longitude, op.latitude), 4326)
+                        )
+                    ELSE NULL
+                END AS distance_meters
+            FROM wims.operation_citizen_reports ocr
+            JOIN wims.citizen_reports cr ON cr.report_id = ocr.report_id
+            JOIN wims.operations op ON op.operation_id = ocr.operation_id
+            WHERE ocr.operation_id IN ({placeholders})
+            ORDER BY cr.reported_at DESC NULLS LAST, cr.created_at DESC
+            """,
+        ),
+        params,
+    ).fetchall()
+    grouped: dict[int, list[OperationLinkedReport]] = {oid: [] for oid in operation_ids}
+    for row in rows:
+        grouped.setdefault(row.operation_id, []).append(_linked_report_row_to_schema(row))
+    return grouped
+
+
 def _row_to_response(
-    row, linked_report_ids: list[int] | None = None, db: Session | None = None
+    row,
+    linked_report_ids: list[int] | None = None,
+    db: Session | None = None,
+    linked_reports: list[OperationLinkedReport] | None = None,
 ) -> OperationResponse:
     """Convert a DB row to an OperationResponse.
 
@@ -37,6 +108,8 @@ def _row_to_response(
         linked_report_ids = [r.report_id for r in result]
     elif linked_report_ids is None:
         linked_report_ids = []
+    if linked_reports is None:
+        linked_reports = []
     return OperationResponse(
         operation_id=row.operation_id,
         fire_status=row.fire_status,
@@ -51,6 +124,7 @@ def _row_to_response(
         longitude=getattr(row, "longitude", None),
         radius_meters=getattr(row, "radius_meters", None),
         linked_report_ids=linked_report_ids,
+        linked_reports=linked_reports,
     )
 
 
@@ -105,7 +179,16 @@ def list_operations(
     for lr in link_rows:
         linked_by_op[lr.operation_id].append(lr.report_id)
 
-    return [_row_to_response(r, linked_by_op.get(r.operation_id, [])) for r in rows]
+    linked_reports_by_op = _fetch_linked_reports_for_operations(db, op_ids)
+
+    return [
+        _row_to_response(
+            r,
+            linked_by_op.get(r.operation_id, []),
+            linked_reports=linked_reports_by_op.get(r.operation_id, []),
+        )
+        for r in rows
+    ]
 
 
 # ---------------------------------------------------------------------------
