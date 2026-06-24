@@ -89,13 +89,28 @@ def _payload(**overrides):
     return payload
 
 
-def _insert_report(
+def _insert_report_raw_bypassing_encryption(
     db: Session,
     *,
     status: str = "PENDING",
     status_explanation: str | None = None,
     device_id: str | None = None,
 ) -> int:
+    """Insert a citizen_reports row directly via SQLAlchemy.
+
+    WARNING — this helper inserts rows directly into wims.citizen_reports via
+    SQLAlchemy, bypassing the FastAPI route, the rate-limit gate, and the
+    _encrypt_witness_pii() post-INSERT update. It is suitable for setting up
+    state in tests that do NOT exercise the encrypt-on-submit / ownership-check
+    round-trip (e.g. status transitions, queue ordering, triage logic).
+
+    For tests that exercise the submit-then-track / submit-then-append /
+    submit-then-notify flows, you MUST go through the public HTTP API
+    (client.post('/api/civilian/reports', ...)) so the real encrypt-on-submit
+    path runs. Using this helper for those tests will silently hide any
+    regression in the encryption layer — which is exactly how the
+    PR #448 device_id regression slipped through.
+    """
     validated_by = None
     if status == "ACTIONED":
         user_row = db.execute(
@@ -162,7 +177,7 @@ class TestCivilianReportPublicSubmission:
         assert "report_id" in data
 
     def test_duplicate_suggestions_return_nearby_active_reports(self, client, db_session):
-        existing_id = _insert_report(db_session)
+        existing_id = _insert_report_raw_bypassing_encryption(db_session)
 
         response = client.post(
             "/api/civilian/reports/duplicate-suggestions",
@@ -176,7 +191,7 @@ class TestCivilianReportPublicSubmission:
         assert suggestions[0]["distance_m"] >= 0
 
     def test_life_safety_duplicate_suggestions_are_suppressed(self, client, db_session):
-        _insert_report(db_session)
+        _insert_report_raw_bypassing_encryption(db_session)
 
         response = client.post(
             "/api/civilian/reports/duplicate-suggestions",
@@ -187,7 +202,7 @@ class TestCivilianReportPublicSubmission:
         assert response.json()["suggestions"] == []
 
     def test_previous_report_reference_is_preserved(self, client, db_session):
-        previous_id = _insert_report(
+        previous_id = _insert_report_raw_bypassing_encryption(
             db_session,
             status="REJECTED_INSUFFICIENT",
             status_explanation="Insufficient information was available.",
@@ -226,7 +241,7 @@ class TestCivilianReportPublicSubmission:
 
         Pins the post-encrypt ownership round-trip. Regression test for PR #448's
         _encrypt_witness_pii() NULL-ing the plaintext device_id column. This test
-        MUST go through client.post (not the _insert_report() helper) so the
+        MUST go through client.post (not the _insert_report_raw_bypassing_encryption() helper) so the
         production encrypt-on-submit path actually runs.
         """
         device_id = str(uuid.uuid4())
@@ -254,7 +269,7 @@ class TestCivilianReportPublicSubmission:
         Pins the list-my-reports round-trip. Same root cause as the track test:
         _encrypt_witness_pii() NULLs device_id, so get_my_reports()'s
         `WHERE device_id = :device_id` matches zero rows. Goes through client.post,
-        not the _insert_report() helper, so the production encrypt-on-submit path runs.
+        not the _insert_report_raw_bypassing_encryption() helper, so the production encrypt-on-submit path runs.
         """
         device_id = str(uuid.uuid4())
         submit_response = client.post(
@@ -276,7 +291,7 @@ class TestCivilianReportPublicSubmission:
 
     def test_append_creates_linked_child_and_increments_parent(self, client, db_session):
         device_id = str(uuid.uuid4())
-        parent_id = _insert_report(db_session, device_id=device_id)
+        parent_id = _insert_report_raw_bypassing_encryption(db_session, device_id=device_id)
         response = client.patch(
             f"/api/civilian/reports/{parent_id}/append",
             json=_payload(device_id=device_id, safety_status="SOMEONE_ELSE_NEEDS_HELP"),
@@ -295,7 +310,7 @@ class TestCivilianReportPublicSubmission:
 
     def test_tracking_timeline_returns_parent_and_appends(self, client, db_session):
         device_id = str(uuid.uuid4())
-        parent_id = _insert_report(db_session, device_id=device_id)
+        parent_id = _insert_report_raw_bypassing_encryption(db_session, device_id=device_id)
         append_response = client.patch(
             f"/api/civilian/reports/{parent_id}/append",
             json=_payload(device_id=device_id, safety_status="SOMEONE_ELSE_NEEDS_HELP"),
@@ -320,7 +335,7 @@ class TestCivilianReportPublicSubmission:
     )
     def test_append_blocked_on_terminal_parent(self, client, db_session, status, explanation):
         device_id = str(uuid.uuid4())
-        parent_id = _insert_report(
+        parent_id = _insert_report_raw_bypassing_encryption(
             db_session, status=status, status_explanation=explanation, device_id=device_id
         )
 
@@ -334,7 +349,7 @@ class TestCivilianReportPublicSubmission:
 
     def test_tracking_returns_terminal_guidance_and_station_context(self, client, db_session):
         device_id = str(uuid.uuid4())
-        report_id = _insert_report(
+        report_id = _insert_report_raw_bypassing_encryption(
             db_session,
             status="REJECTED_TIMEOUT",
             status_explanation=(
@@ -390,8 +405,8 @@ def test_get_report_clusters_cache_and_stale_fallback(client, db_session):
     )
 
     try:
-        report_ids = [_insert_report(db_session, status="PENDING") for _ in range(3)]
-        linked_id = _insert_report(db_session, status="LINKED")
+        report_ids = [_insert_report_raw_bypassing_encryption(db_session, status="PENDING") for _ in range(3)]
+        linked_id = _insert_report_raw_bypassing_encryption(db_session, status="LINKED")
         _insert_cluster(db_session, [*report_ids, linked_id])
 
         # 1. Fresh DB hit
@@ -453,7 +468,7 @@ def test_get_report_clusters_national_mode(client, db_session):
     """National mode (no lat/lon): min 10 reports, cap 25, no center."""
 
     # Need 10+ reports to meet national minimum
-    report_ids = [_insert_report(db_session, status="PENDING") for _ in range(12)]
+    report_ids = [_insert_report_raw_bypassing_encryption(db_session, status="PENDING") for _ in range(12)]
     _insert_cluster(db_session, report_ids)
 
     resp = client.get("/api/civilian/report-clusters")
@@ -471,7 +486,7 @@ def test_get_report_clusters_national_mode(client, db_session):
 def test_get_report_clusters_national_below_threshold_returns_empty(client, db_session):
     """National mode with fewer than 10 reports returns empty areas."""
 
-    report_ids = [_insert_report(db_session, status="PENDING") for _ in range(5)]
+    report_ids = [_insert_report_raw_bypassing_encryption(db_session, status="PENDING") for _ in range(5)]
     _insert_cluster(db_session, report_ids)
 
     resp = client.get("/api/civilian/report-clusters")
@@ -484,7 +499,7 @@ def test_get_report_clusters_national_below_threshold_returns_empty(client, db_s
 def test_get_report_clusters_local_mode(client, db_session):
     """Local mode (lat/lon): min 3 reports, cap 50, center returned."""
 
-    report_ids = [_insert_report(db_session, status="PENDING") for _ in range(4)]
+    report_ids = [_insert_report_raw_bypassing_encryption(db_session, status="PENDING") for _ in range(4)]
     _insert_cluster(db_session, report_ids)
 
     resp = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
@@ -501,7 +516,7 @@ def test_get_report_clusters_local_mode(client, db_session):
 def test_get_report_clusters_local_below_threshold_returns_empty(client, db_session):
     """Local mode with fewer than 3 reports returns empty areas."""
 
-    report_ids = [_insert_report(db_session, status="PENDING") for _ in range(2)]
+    report_ids = [_insert_report_raw_bypassing_encryption(db_session, status="PENDING") for _ in range(2)]
     _insert_cluster(db_session, report_ids)
 
     resp = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
@@ -515,13 +530,13 @@ def test_get_report_clusters_excludes_terminal_report_statuses(client, db_sessio
     """Reports with ACTIONED or REJECTED_* statuses are excluded from areas."""
 
     # Reports in terminal statuses — should be excluded
-    actioned = _insert_report(db_session, status="ACTIONED")
-    rejected_bogus = _insert_report(db_session, status="REJECTED_BOGUS", status_explanation="spam")
-    rejected_dup = _insert_report(db_session, status="REJECTED_DUPLICATE", status_explanation="dup")
-    rejected_insuf = _insert_report(
+    actioned = _insert_report_raw_bypassing_encryption(db_session, status="ACTIONED")
+    rejected_bogus = _insert_report_raw_bypassing_encryption(db_session, status="REJECTED_BOGUS", status_explanation="spam")
+    rejected_dup = _insert_report_raw_bypassing_encryption(db_session, status="REJECTED_DUPLICATE", status_explanation="dup")
+    rejected_insuf = _insert_report_raw_bypassing_encryption(
         db_session, status="REJECTED_INSUFFICIENT", status_explanation="n/a"
     )
-    rejected_timeout = _insert_report(
+    rejected_timeout = _insert_report_raw_bypassing_encryption(
         db_session, status="REJECTED_TIMEOUT", status_explanation="timeout"
     )
 
@@ -539,7 +554,7 @@ def test_get_report_clusters_excludes_terminal_report_statuses(client, db_sessio
 def test_get_report_clusters_excludes_closed_actioned_clusters(client, db_session):
     """Clusters with CLUSTER_ACTIONED or CLUSTER_CLOSED status are excluded."""
 
-    report_ids = [_insert_report(db_session, status="PENDING") for _ in range(4)]
+    report_ids = [_insert_report_raw_bypassing_encryption(db_session, status="PENDING") for _ in range(4)]
     cluster_id = _insert_cluster(db_session, report_ids)
 
     # Mark cluster as CLUSTER_CLOSED
@@ -560,9 +575,9 @@ def test_get_report_clusters_excludes_closed_actioned_clusters(client, db_sessio
 def test_get_report_clusters_includes_pending_under_review_linked(client, db_session):
     """Count pressure includes PENDING, UNDER_REVIEW, and LINKED statuses."""
 
-    pending_reports = [_insert_report(db_session, status="PENDING") for _ in range(2)]
-    under_review = _insert_report(db_session, status="UNDER_REVIEW")
-    linked = _insert_report(db_session, status="LINKED")
+    pending_reports = [_insert_report_raw_bypassing_encryption(db_session, status="PENDING") for _ in range(2)]
+    under_review = _insert_report_raw_bypassing_encryption(db_session, status="UNDER_REVIEW")
+    linked = _insert_report_raw_bypassing_encryption(db_session, status="LINKED")
 
     _insert_cluster(db_session, [*pending_reports, under_review, linked])
 
@@ -577,7 +592,7 @@ def test_get_report_clusters_includes_pending_under_review_linked(client, db_ses
 def test_get_report_clusters_privacy_fields_absent(client, db_session):
     """Response must not leak raw IDs, exact counts, timestamps, or sensitive data."""
 
-    report_ids = [_insert_report(db_session, status="PENDING") for _ in range(4)]
+    report_ids = [_insert_report_raw_bypassing_encryption(db_session, status="PENDING") for _ in range(4)]
     _insert_cluster(db_session, report_ids)
 
     resp = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
@@ -622,7 +637,7 @@ def test_get_report_clusters_privacy_fields_absent(client, db_session):
 def test_get_report_clusters_count_and_age_buckets(client, db_session):
     """Count bucket uses relative ranges; age bucket uses relative time windows."""
 
-    report_ids = [_insert_report(db_session, status="PENDING") for _ in range(7)]
+    report_ids = [_insert_report_raw_bypassing_encryption(db_session, status="PENDING") for _ in range(7)]
     _insert_cluster(db_session, report_ids)
 
     resp = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
@@ -643,7 +658,7 @@ def test_get_report_clusters_count_and_age_buckets(client, db_session):
 def test_get_report_clusters_dynamic_radius_bounds(client, db_session):
     """Dynamic radius must be in [100, 1000], rounded up to 100m increments."""
 
-    report_ids = [_insert_report(db_session, status="PENDING") for _ in range(4)]
+    report_ids = [_insert_report_raw_bypassing_encryption(db_session, status="PENDING") for _ in range(4)]
     _insert_cluster(db_session, report_ids)
 
     resp = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
@@ -660,7 +675,7 @@ def test_get_report_clusters_dynamic_radius_bounds(client, db_session):
 def test_get_report_clusters_area_id_is_ephemeral(client, db_session):
     """area_id must be a derived hash, not the raw cluster_id."""
 
-    report_ids = [_insert_report(db_session, status="PENDING") for _ in range(4)]
+    report_ids = [_insert_report_raw_bypassing_encryption(db_session, status="PENDING") for _ in range(4)]
     _insert_cluster(db_session, report_ids)
 
     resp = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
@@ -686,7 +701,7 @@ def test_get_report_clusters_returns_truncated_false_when_under_cap(client, db_s
     """With fewer clusters than the cap, truncated flag is False."""
 
     for _ in range(3):
-        report_ids = [_insert_report(db_session, status="PENDING") for _ in range(4)]
+        report_ids = [_insert_report_raw_bypassing_encryption(db_session, status="PENDING") for _ in range(4)]
         _insert_cluster(db_session, report_ids)
 
     # With only 3 clusters and cap 50 (local), truncation should be False.
@@ -700,11 +715,11 @@ def test_get_report_clusters_requires_active_report_in_cluster(client, db_sessio
     """A cluster with only terminal-status reports (no active) is excluded."""
 
     # Create one cluster with pending (active) reports + one cluster with only rejected (terminal)
-    pending_ids = [_insert_report(db_session, status="PENDING") for _ in range(4)]
+    pending_ids = [_insert_report_raw_bypassing_encryption(db_session, status="PENDING") for _ in range(4)]
     _insert_cluster(db_session, pending_ids)
 
     rejected_ids = [
-        _insert_report(db_session, status="REJECTED_TIMEOUT", status_explanation="timeout")
+        _insert_report_raw_bypassing_encryption(db_session, status="REJECTED_TIMEOUT", status_explanation="timeout")
         for _ in range(4)
     ]
     _insert_cluster(db_session, rejected_ids)
@@ -721,7 +736,7 @@ def test_get_report_clusters_requires_active_report_in_cluster(client, db_sessio
 def test_get_report_clusters_response_has_required_top_level_fields(client, db_session):
     """Verify all required top-level fields are present in the response."""
 
-    report_ids = [_insert_report(db_session, status="PENDING") for _ in range(4)]
+    report_ids = [_insert_report_raw_bypassing_encryption(db_session, status="PENDING") for _ in range(4)]
     _insert_cluster(db_session, report_ids)
 
     resp = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
