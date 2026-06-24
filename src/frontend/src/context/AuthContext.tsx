@@ -236,6 +236,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(SESSION_CACHE_KEY);
     setLoggingOut(true);
     try {
+      // RP-19: record self-service logout for non-repudiation before session teardown.
+      try {
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 1500);
+        await fetch('/api/auth/security-event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ event_type: 'LOGOUT', username: user?.preferred_username ?? null }),
+          signal: ctrl.signal,
+        }).catch(() => {});
+        clearTimeout(tid);
+      } catch { /* non-fatal — logout must always complete */ }
       await fetch('/api/auth/logout', { method: 'POST' });
 
       // Shared-device privacy: purge the local read cache so cached incident PII
@@ -284,7 +296,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoggingOut(false);
       router.push('/login');
     }
-  }, [router]);
+  }, [router, user]);
 
   return (
     <AuthContext.Provider

@@ -142,6 +142,15 @@ This register prevents agents from hallucinating completion. A module is not com
 - **M14 (Public Submission — Zero-Trust Anonymous Reporting)**: CLOSED — FRS `#177`: `POST /api/v1/public/report` un-deprecated; writes to `wims.fire_incidents` with `encoder_id = NULL`, `verification_status = 'PENDING_VALIDATION'`; region resolved via nearest `ref_fire_stations` (`ORDER BY location <-> ST_GeogFromText(:wkt)`) following the `civilian.py` pattern — `wims.ref_regions` has no PostGIS geometry (only `region_id, region_name, region_code`); fallback to `ref_regions ORDER BY region_id LIMIT 1` when no stations found; Redis sliding-window rate limit 3/IP/hour with `Retry-After` header on 429; `_FakeRow` Row-like test helper for mock injection. **Polygon geometry on `ref_regions` remains a future enhancement** (would enable true centroid-based resolution); current approach is functionally correct per FRS M14.
 - **M11b (CSRF Protection)**: CLOSED — SameSite=Strict + `__Host-` prefix on auth cookies (`sync/route.ts`, `refresh/route.ts`, `logout/route.ts`, `auth.py`), Origin/Referer validation middleware (`utils/csrf.py` + registered in `main.py`), nginx CORS restricted to `$scheme://$host`, Docker env vars (`CSRF_TRUSTED_ORIGINS`), CSRF test suite (`tests/test_csrf_middleware.py`), and pen-test checklist (`docs/pentest/CSRF-CHECKLIST.md`).
 
+### [2026-06-25] RP-19 LOGOUT audit — frontend call wired (WS-A)
+
+- **Gap:** `logout()` in `AuthContext.tsx` called `/api/auth/logout` and `signoutRedirect` without first recording the event in `wims.system_audit_trails`. A user could deny initiating a self-service logout (repudiation gap RP-19 per `AuditGapsPlan-v2.md`).
+- **Backend:** `POST /api/auth/security-event` already existed in `auth.py` (added in a prior PR batch alongside RP-08 FAILED_LOGIN and RP-18 PASSWORD_RESET handlers). Endpoint uses `get_db` (no RLS), records with `user_id=NULL`, per-IP rate limit 30/60s.
+- **Frontend fix:** `logout()` now POSTs `{ event_type: "LOGOUT", username: user?.preferred_username ?? null }` to `/api/auth/security-event` with a 1500ms AbortController timeout and `.catch(()=>{})` fail-safe before calling `/api/auth/logout`. Session teardown always completes regardless of the audit call outcome.
+- **Tests added:** `src/backend/tests/test_security_events.py` (4 cases: LOGOUT→202+uid=NULL, unknown→422, 31st→429, FAILED_LOGIN→202); `src/frontend/src/context/AuthContext.test.tsx` new describe block (2 cases: ordering + resilience when fetch rejects).
+- **Branch:** `fix/rp19-logout-audit`
+- **Remaining open:** RP-05 (IVH UPDATE block), RP-06 (data_hash coverage), RP-08+RP-18 server-side via Keycloak SPI (WS-B), RP-20 (direct-insert detection, WS-C), RP-23 (CSV export audit, WS-D).
+
 ## Related
 - [[concepts/frs-module-map]]
 - [[security/security-baseline]]

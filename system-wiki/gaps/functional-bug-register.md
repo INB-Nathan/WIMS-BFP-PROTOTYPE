@@ -19,6 +19,7 @@ Functional bugs reported by teammates during evaluation. All map to M12 User Man
 | # | Bug | Detail | Reported By | Status |
 |---|---|---|---|---|
 | F-10 | TOTP setup page left-edge clipping | `.pf-v5-c-login__main` base `overflow: hidden` with min horizontal padding 0.75rem (12px) clips the `.wims-totp-setup` card's box-shadow and step-number circles on desktop. Fix: raised panel min padding to 1.5rem (24px) on TOTP pages via `:has(.wims-totp-setup)` override; raised card left/right padding to `clamp(1.25rem,2vw,1.5rem)`; raised step-item left padding `0.5rem` → `0.9rem`. CSS-only. #231. | Issue triage | Fixed in code; pending visual verify |
+| F-13 | RP-19: Self-service LOGOUT not recorded in audit trail | `logout()` in `AuthContext.tsx` called `/api/auth/logout` (session teardown) and `signoutRedirect` without first recording the event in `wims.system_audit_trails`. Keycloak owns the credential check and backend session revocation, but the non-repudiation record was missing — a user could deny initiating the logout. Fix: `logout()` now POSTs `{ event_type: "LOGOUT", username }` to `POST /api/auth/security-event` (auth.py, added in prior PR batch) with 1500ms AbortController timeout, `.catch(()=>{})` fail-safe; session teardown always continues regardless of outcome. Backend endpoint already existed (RP-08+RP-18+RP-19 handler). AuditGapsPlan-v2.md WS-A. | Audit gap review | Fixed in fix/rp19-logout-audit |
 
 ---
 
