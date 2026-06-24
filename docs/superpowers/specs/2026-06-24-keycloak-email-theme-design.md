@@ -1,10 +1,36 @@
-# Custom Keycloak Email Theme (WIMS-BFP Branding) Design
+# Custom Keycloak Email Theme (WIMS-BFP Branding) Design — v2
 
 **Date:** 2026-06-24
-**Status:** Design (v1)
-**Pattern:** Add `email/` subdirectory to the existing `src/keycloak/themes/wims-bfp/` theme; 3 FreeMarker templates + theme properties + subject customizations + 1 realm JSON line.
-**Scope:** Keycloak transactional emails only (password reset, email verification, execute-actions). Does **not** touch the 7 backend app-level Jinja2 templates in `src/backend/services/email/templates/`. Does **not** touch the login theme.
-**Reviewer basis:** Verified against current source — `src/keycloak/Dockerfile` (Keycloak 24.0.0), `src/keycloak/themes/wims-bfp/login/theme.properties`, `src/keycloak/themes/wims-bfp/login/template.ftl`, `src/backend/services/email/templates/password_reset.html.j2` (visual reference for the new templates), `src/keycloak/bfp-realm.json`, `src/keycloak/import/bfp-realm.json`, Keycloak 24 server development docs (`docs.keycloak.org/24.0/server_development/#_email`) and the Keycloak 24 default email theme source (`github.com/keycloak/keycloak/blob/24.0.0/themes/src/main/resources/theme/base/email/`).
+**Status:** Design (v2 — corrections after v1 meta-analysis)
+**Supersedes:** v1 (commit `8b46dee`) — high-level architecture preserved, all implementation details corrected after a 2-pass meta-analysis verified against the actual Keycloak 24.0.0 source.
+**Pattern:** Add `email/` subdirectory to the existing `src/keycloak/themes/wims-bfp/` theme; 9 FreeMarker templates (3 HTML + 3 text + 1 shared HTML wrapper + 1 theme.properties + 1 messages bundle) + 1 logo file + 1 realm JSON line.
+**Scope:** Keycloak transactional emails only (password reset, email verification, execute-actions). Does **not** touch the 7 backend app-level Jinja2 templates in `src/backend/services/email/templates/`. Does **not** touch the login theme. Does **not** touch the Brevo SMTP setup.
+**Reviewer basis:** Verified against the actual Keycloak 24.0.0 source — `themes/src/main/resources/theme/base/email/` (directory structure, `messages/messages_en.properties`, `html/template.ftl`, `html/password-reset.ftl`, `html/executeActions.ftl`, `text/password-reset.ftl`), `services/src/main/java/org/keycloak/email/freemarker/FreeMarkerEmailTemplateProvider.java` (template lookup, exception behavior, context variable injection). Local repo state verified — `src/keycloak/themes/wims-bfp/login/` (16 files, no `email/`), `src/keycloak/bfp-realm.json` and `src/keycloak/import/bfp-realm.json` (no current `loginTheme` or `emailTheme` field), `src/backend/services/email/templates/password_reset.html.j2` (visual reference for the new templates), `src/docker-compose.yml:60` (theme volume mount).
+
+---
+
+## What changed from v1 (corrections summary)
+
+A 2-pass meta-analysis (one approving, one not) found 5 critical bugs and several lesser issues in v1. **All bugs verified against the actual Keycloak 24.0.0 source on GitHub.** The v1's central architecture (sibling `email/` subdir, shared `html.ftl` wrapper, maroon branding, `emailTheme: wims-bfp` realm field) is correct. Every concrete implementation detail in S1 (file paths, file names, variable names, message keys) was wrong. Below are the corrections, each cited to its source.
+
+| # | v1 said | v2 says | Verified against |
+|---|---|---|---|
+| 1 | `emailPasswordResetSubject` | `passwordResetSubject` | `keycloak/24.0.0/.../email/messages/messages_en.properties` line `passwordResetSubject=Reset password` |
+| 2 | `messages_en.properties` at `email/messages_en.properties` | `email/messages/messages_en.properties` (must be in `messages/` subdir) | `keycloak/24.0.0/.../email/messages/messages_en.properties` |
+| 3 | `execute-actions.ftl` (lowercase, hyphenated) | `executeActions.ftl` (camelCase) | `FreeMarkerEmailTemplateProvider.java: send("executeActionsSubject", "executeActions.ftl", attributes)` |
+| 4 | `${linkExpirationFormatter(link.expirationTime)}` | `${linkExpirationFormatter(linkExpiration)}` | `FreeMarkerEmailTemplateProvider.java: attributes.put("linkExpiration", expirationInMinutes)` + `base email/html/password-reset.ftl` |
+| 5 | `password-reset.ftl`, `email-verification.ftl`, `execute-actions.ftl` directly under `email/` | Same filenames under `email/html/` (3 files), plus 3 mirror templates under `email/text/` (text is required, not optional) | `FreeMarkerEmailTemplateProvider.java: String textTemplate = String.format("text/%s", template); String htmlTemplate = String.format("html/%s", template);` |
+| 6 | `<#import "html.ftl" as layout>` | `<#import "template.ftl" as layout>` (the file is `template.ftl` inside `html/`) | `keycloak/24.0.0/.../email/html/password-reset.ftl: <#import "template.ftl" as layout>` |
+| 7 | `<img src="https://wimsbfp.tech/auth/resources/3.0/login/wims-bfp/img/bfp-logo.png">` (hardcoded URL with `3.0` cache-bust) | Copy logo to `email/resources/img/bfp-logo.png`, reference `<img src="${url.resourcesUrl}/img/bfp-logo.png">` | `FreeMarkerEmailTemplateProvider.java: attributes.put("url", new UrlBean(realm, theme, uriInfo.getBaseUri(), null))` + Keycloak docs: email images should live in `email/resources/img/` |
+| 8 | `${user.firstName}` (unescaped) | `${(user.firstName)!user.username?html}` (null-safe + HTML-escaped) | `FreeMarkerEmailTemplateProvider.java: attributes.put("user", new ProfileBean(user, session))` + standard FreeMarker best practice for untrusted user data |
+| 9 | "Find `loginTheme` and add `emailTheme` after it" | Add `emailTheme: wims-bfp` as a top-level field; the current realm has NO `loginTheme` field | `src/keycloak/bfp-realm.json` and `src/keycloak/import/bfp-realm.json` — confirmed via grep that neither file currently has `loginTheme` or `emailTheme` |
+| 10 | `docker compose up -d keycloak` | `docker compose restart keycloak` (forces theme re-cache; `up -d` may not restart an unchanged container) | Keycloak's own dev-mode docs: "Disable theme and template caching in development" implies caching is on in production |
+| 11 | V6: "if the new theme has a bug, Keycloak falls back to base" | **REMOVED.** FreeMarker render failure throws `EmailException` — email fails to send, not falls back. Theme is fully overridden, so missing templates also fail. | `FreeMarkerEmailTemplateProvider.java: throw new EmailException("Failed to template html email.", e);` (no catch-and-fallback) |
+| 12 | `import=common/keycloak` in theme.properties | **REMOVED.** Unnecessary for email theme; only `parent=base` is needed. | `keycloak/24.0.0/.../email/html/theme.properties` (just `parent=base`, no import line) |
+| 13 | Edit `bfp-realm.json` and `import/bfp-realm.json` only | ALSO need a live-realm kcadm update: `/opt/keycloak/bin/kcadm.sh update realms/bfp -s emailTheme=wims-bfp` — because the existing persistent Keycloak DB has a `realms` row that was imported with the OLD (no-emailTheme) JSON, and a fresh `start-dev --import-realm` would re-import but our deploy path doesn't do that on every restart | Per the live-notifications spec's B2 blocker (Keycloak resolves `${env.SMTP_*:default}` once at first import and stores the resolved values; same applies to realm-level fields like `emailTheme` after first import) |
+| 14 | "styled plain text alternative" | Plain text CANNOT be styled; it's a plain-text fallback. The 3 `text/*.ftl` files will be readable plain text with the URL on its own line (email clients may auto-link it) | The very nature of `text/plain` MIME type — no styling possible |
+
+The v1 self-review missed all 14. The meta-analyses caught them all. v2's self-review (at the end) explicitly notes this and adds a per-citation verification matrix.
 
 ---
 
@@ -19,9 +45,10 @@ The handoff's "Do not change the email templates" constraint is honored — thos
 ### Secondary observations
 
 - **Custom Keycloak theme infrastructure already exists** (`src/keycloak/themes/wims-bfp/` with `login/` subdirectory). The email theme is a sibling subdirectory; the theme name `wims-bfp` is already known to Keycloak.
-- **BFP logo already exists** at `src/keycloak/themes/wims-bfp/login/resources/img/bfp-logo.png`. Can be referenced by URL in the email templates.
-- **No `emailTheme` field in realm JSON**. Needs to be added to both `bfp-realm.json` and `import/bfp-realm.json` (the latter is the fresh-import path that resolves `${env.SMTP_*:default}` placeholders once on first boot).
-- **Keycloak 24 email theme structure** (verified against `github.com/keycloak/keycloak/blob/24.0.0/themes/src/main/resources/theme/base/email/`): 3 FreeMarker templates (`password-reset.ftl`, `email-verification.ftl`, `execute-actions.ftl`) + `theme.properties` (declares parent) + `messages_en.properties` (subject line + body text customizations).
+- **BFP logo already exists** at `src/keycloak/themes/wims-bfp/login/resources/img/bfp-logo.png`. We copy it to the new `email/resources/img/bfp-logo.png`.
+- **No `emailTheme` field in realm JSON** (confirmed via grep). Needs to be added to both `bfp-realm.json` and `import/bfp-realm.json` (the latter is the fresh-import path that resolves placeholders on first boot).
+- **Keycloak 24 email theme structure** (verified against `github.com/keycloak/keycloak/24.0.0/.../email/`): subdirs `messages/`, `resources/`, `html/`, `text/`, plus `theme.properties`. Templates use FreeMarker with context vars `link`, `linkExpiration`, `linkExpirationFormatter`, `realmName`, `user`, `url.resourcesUrl`, `requiredActions`.
+- **Live-realm DB also needs the `emailTheme` update** — the existing persistent Keycloak DB was imported with the OLD (no-`emailTheme`) JSON, and per the live-notifications spec's B2 blocker, Keycloak does not re-resolve realm fields on restart. A kcadm update is required.
 
 ---
 
@@ -33,9 +60,10 @@ After this design is implemented, the WIMS-BFP stack delivers:
 2. **Keycloak email-verification emails** with the same branding
 3. **Keycloak execute-actions emails** (the "you must do X" emails Keycloak sends for required actions on login, like first-login password change) with the same branding
 4. **All three** use a subject line that matches the rest of the WIMS-BFP system (e.g. `[WIMS-BFP] Reset your password` instead of Keycloak's default `Reset password`)
-5. **Visual consistency** with the 7 backend app-level templates — same header, same color scheme (`#8B0000` maroon), same footer
+5. **All three** include a plain-text alternative body (the part that shows in email clients with HTML disabled) with the URL on its own line for auto-linking
+6. **Visual consistency** with the 7 backend app-level templates — same header, same color scheme (`#8B0000` maroon), same footer
 
-The backend app-level templates (security alerts, weekly reports, etc.) stay byte-identical. The login theme (already WIMS-BFP-branded) stays byte-identical. The login-flow visual changes zero.
+The backend app-level templates (security alerts, weekly reports, etc.) stay byte-identical. The login theme (already WIMS-BFP-branded) stays byte-identical. The login-flow visual changes zero. The Brevo SMTP setup is unchanged.
 
 ---
 
@@ -46,27 +74,27 @@ The backend app-level templates (security alerts, weekly reports, etc.) stay byt
 - A user triggering "Forgot password" on the Keycloak login page receives an email with the WIMS-BFP header (maroon bar with "Bureau of Fire Protection" + "WIMS-BFP Incident Management System" tagline), a body explaining the reset request, and a maroon "Reset Password" call-to-action button.
 - Email subject is `[WIMS-BFP] Reset your password` (overrides Keycloak's default `Reset password`).
 - The email body is a self-contained HTML document (inline CSS, table layout, 600px max) — no external CSS or JS dependencies.
-- The plain-text alternative (the part that shows in email clients with HTML disabled) is also styled and includes the reset link as a clickable URL.
+- The plain-text alternative (the part that shows in email clients with HTML disabled) includes the reset link on its own line (clients may auto-link it).
 
 ### R2 — Email verification email uses the new WIMS-BFP template
 
 - A user triggering email verification (or admin-triggered verify) receives an email with the same WIMS-BFP branding, body explaining the verification, and a maroon "Verify Email" call-to-action button.
-- Subject: `[WIMS-BFP] Verify your email address` (overrides Keycloak's default `Verify your email address`).
+- Subject: `[WIMS-BFP] Verify your email address` (overrides Keycloak's default `Verify email`).
 - Same HTML + plain-text structure as R1.
 
 ### R3 — Execute-actions email uses the new WIMS-BFP template
 
 - A user required to perform an action (e.g. first-login password change, TOTP setup, terms acceptance) receives an email with WIMS-BFP branding, body listing the required actions, and a maroon call-to-action button linking to the action.
-- Subject: `[WIMS-BFP] Action required for your account` (overrides Keycloak's default `Update password` or other).
+- Subject: `[WIMS-BFP] Action required for your account` (overrides Keycloak's default `Update Your Account`).
 - Same HTML + plain-text structure as R1.
 
 ### R4 — Existing tests still pass
 
-- `cd src/backend && ruff check .` — clean (no Python change in this spec, but the rule still applies for incidental edits)
+- `cd src/backend && ruff check .` — clean
 - `cd src/backend && ruff format . --check` — clean
-- `cd src/backend && pytest -v` — full suite green (no Python change, should be unaffected by construction)
-- `cd src/frontend && npm run lint && npx vitest run && npm run build` — clean (no frontend change)
-- The 7 existing backend app-level email templates (`src/backend/services/email/templates/*.html.j2`) are byte-identical (no changes in this spec)
+- `cd src/backend && pytest -v` — full suite green (no Python change, unaffected by construction)
+- `cd src/frontend && npm run lint && npx vitest run && npm run build` — clean
+- The 7 existing backend app-level email templates (`src/backend/services/email/templates/*.html.j2`) are byte-identical
 
 ### R5 — Secrets and templates stay out of source control
 
@@ -74,82 +102,147 @@ The backend app-level templates (security alerts, weekly reports, etc.) stay byt
 - `.gitignore` continues to exclude `.env` and `firebase-creds.json`
 - The new template files contain no real names, emails, or links
 
+### R6 — All three email types render both HTML and plain-text
+
+- The MIME parts of the outgoing email are `text/html` AND `text/plain` (per `FreeMarkerEmailTemplateProvider.java`, both are required)
+- Both parts are non-empty
+- Plain-text part contains the URL on its own line for email-client auto-linking
+
+### R7 — All three email types are null-safe and HTML-escape user data
+
+- If `user.firstName` is null, the email still renders (falls back to `user.username`)
+- The user's first name is HTML-escaped in the HTML body (XSS prevention)
+
+### R8 — BFP logo loads correctly from the email
+
+- The logo image is loaded from `${url.resourcesUrl}/img/bfp-logo.png` (Keycloak serves email resources at this URL)
+- The image is hosted as a separate file at `email/resources/img/bfp-logo.png` (copied from the existing `login/resources/img/bfp-logo.png`)
+- No hardcoded production URL in the template (portable across local, staging, production)
+
 ---
 
 ## Solution
 
-Four small, surgical changes — a new `email/` subdirectory under the existing `wims-bfp` theme with 5 files, plus 1 line in 2 realm JSON files, plus an image rebuild, plus a wiki update.
+### S1 — Create the `email/` subdirectory under `src/keycloak/themes/wims-bfp/`
 
-### S1 — Create `src/keycloak/themes/wims-bfp/email/` directory with 5 files
-
-The new `email/` subdirectory contains:
+The directory tree (verified against Keycloak 24.0.0 `themes/src/main/resources/theme/base/email/`):
 
 ```
 src/keycloak/themes/wims-bfp/email/
-├── theme.properties              (declares the theme name + parent base theme)
-├── messages_en.properties         (subject line + body text customizations)
-├── html.ftl                       (common HTML wrapper — shared across all 3 templates)
-├── password-reset.ftl             (password reset template)
-├── email-verification.ftl         (email verification template)
-└── execute-actions.ftl            (execute-actions template)
+├── theme.properties                   (1 line: parent=base)
+├── messages/
+│   └── messages_en.properties          (3 lines: subject overrides)
+├── resources/
+│   └── img/
+│       └── bfp-logo.png                (copy of login theme's logo)
+├── html/
+│   ├── template.ftl                    (shared <#macro emailLayout> wrapper with maroon header + BFP logo + gray footer)
+│   ├── password-reset.ftl              (calls layout.emailLayout, body content)
+│   ├── email-verification.ftl          (same pattern)
+│   └── executeActions.ftl              (same pattern, with requiredActions loop)
+└── text/
+    ├── password-reset.ftl              (plain text, ~5 lines)
+    ├── email-verification.ftl          (plain text, ~5 lines)
+    └── executeActions.ftl              (plain text, ~5 lines)
 ```
 
-**`theme.properties`** (3 lines, identifies the theme to Keycloak):
+Total: 9 new files + 1 copied file = 10 files total in the new subdirectory.
+
+#### S1.1 — `src/keycloak/themes/wims-bfp/email/theme.properties`
 
 ```properties
 parent=base
-import=common/keycloak
 ```
 
-The `parent=base` declares that this email theme inherits from Keycloak's base theme. Since we override all 3 templates, no Keycloak defaults leak through. The `import=common/keycloak` is a no-op safety import that doesn't exist in 24.0.0 — actually, omit this. The correct content is just:
+(1 line. The `parent=base` declares inheritance from Keycloak's base email theme. We override all 3 templates, so no base defaults leak through. No `import` line is needed — the v1 suggestion of `import=common/keycloak` was unnecessary and removed in v2.)
+
+#### S1.2 — `src/keycloak/themes/wims-bfp/email/messages/messages_en.properties`
+
+The correct message keys (verified against `keycloak/24.0.0/.../email/messages/messages_en.properties`):
 
 ```properties
-parent=base
-```
-
-(Confirmed: Keycloak 24 email themes only need `parent=base`; they don't have a `displayName` like login themes do.)
-
-**`messages_en.properties`** (3 lines, subject line customizations):
-
-```properties
-emailPasswordResetSubject=[WIMS-BFP] Reset your password
+passwordResetSubject=[WIMS-BFP] Reset your password
 emailVerificationSubject=[WIMS-BFP] Verify your email address
 executeActionsSubject=[WIMS-BFP] Action required for your account
 ```
 
-The 3 subject keys are the standard Keycloak 24 email subject bundle. (The actual subject template uses `{0}` placeholders for the realm name and `{1}` for the link expiration in some keys — but for the 3 above the placeholder is just the realm display name, which we leave as Keycloak's default; we only customize the static prefix.)
+(3 lines, one per email type. The `emailVerificationSubject` is prefixed `email` but the other two are not — that's the actual Keycloak 24 convention. These are the only subject overrides; the body text is in the templates, not in the message bundle.)
 
-**`html.ftl`** (~80 lines, common HTML wrapper):
+#### S1.3 — `src/keycloak/themes/wims-bfp/email/resources/img/bfp-logo.png`
 
-This is the visual scaffold shared by all 3 email templates. Renders the maroon header, the BFP logo, the body content (passed in via a FreeMarker `<#nested>` block), and the gray footer. Inline CSS, table-based layout, 600px max width — visually identical to the Jinja2 templates in `src/backend/services/email/templates/`.
+Copy of the existing `src/keycloak/themes/wims-bfp/login/resources/img/bfp-logo.png`. The new email theme needs the logo in its OWN `resources/` directory; the email templates use `${url.resourcesUrl}/img/bfp-logo.png` which resolves relative to the email theme's `resources/` directory (NOT the login theme's).
 
-Key elements:
-- DOCTYPE, html, head with `meta charset`, `meta viewport`, `title`
-- `<body style="margin:0;padding:0;background-color:#f4f4f4;font-family:Arial,sans-serif;">`
-- Outer `<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:24px 16px;">` with centered 600px inner table
-- Header `<tr>` with maroon background, white text "Bureau of Fire Protection" + lighter text "WIMS-BFP Incident Management System"
-- `<#nested>` slot where the per-template body content goes
-- Footer `<tr>` with gray background, "Bureau of Fire Protection — WIMS-BFP" + "This is an automated message. Do not reply to this email."
-- Logo: `<img src="https://wimsbfp.tech/auth/resources/3.0/login/wims-bfp/img/bfp-logo.png" alt="BFP" width="48" height="48" style="display:block;margin:0 auto 12px;">` (Keycloak serves login theme resources at `/auth/resources/{version}/login/{theme-name}/...`; the logo URL is constructed from the login theme's `bfp-logo.png`)
+#### S1.4 — `src/keycloak/themes/wims-bfp/email/html/template.ftl`
 
-**`password-reset.ftl`** (~10 lines, password-reset-specific body):
-
-Wraps `html.ftl` and provides the reset-specific body:
+The shared HTML wrapper. The v1 spec called this `html.ftl`; the v2 (correct) name is `template.ftl` per Keycloak's base email theme. Each of the 3 per-template files will `<#import "template.ftl" as layout>` and call `<@layout.emailLayout>`:
 
 ```ftl
-<#import "html.ftl" as layout>
+<#macro emailLayout>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WIMS-BFP Notification</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f4;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:24px 16px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#8B0000;padding:24px 32px;text-align:center;">
+              <img src="${url.resourcesUrl}/img/bfp-logo.png" alt="BFP" width="48" height="48" style="display:block;margin:0 auto 12px;">
+              <p style="margin:0;color:#ffffff;font-size:20px;font-weight:bold;">Bureau of Fire Protection</p>
+              <p style="margin:4px 0 0;color:#ffcccc;font-size:14px;">WIMS-BFP Incident Management System</p>
+            </td>
+          </tr>
+          <!-- Body (per-template content goes here) -->
+          <tr>
+            <td style="background-color:#ffffff;padding:40px 32px;">
+              <#nested>
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#f9f9f9;padding:24px 32px;text-align:center;">
+              <p style="margin:0;font-size:12px;color:#999999;line-height:1.6;">
+                Bureau of Fire Protection — WIMS-BFP<br/>
+                This is an automated message. Do not reply to this email.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+</#macro>
+```
+
+Key v2 fixes vs. v1:
+- The logo is referenced as `${url.resourcesUrl}/img/bfp-logo.png` (dynamic, portable), NOT the hardcoded `https://wimsbfp.tech/auth/resources/3.0/...` URL from v1
+- The `<#nested>` slot is the body content from each per-template file
+- Inline CSS only, table-based layout, 600px max width — visually matches the 7 backend templates
+
+#### S1.5 — `src/keycloak/themes/wims-bfp/email/html/password-reset.ftl`
+
+```ftl
+<#import "template.ftl" as layout>
 <@layout.emailLayout>
-  <p style="margin:0 0 16px;font-size:18px;font-weight:bold;color:#8B0000;">Hello, ${user.firstName}!</p>
+  <p style="margin:0 0 16px;font-size:18px;font-weight:bold;color:#8B0000;">Hello, ${(user.firstName)!user.username?html}!</p>
   <p style="margin:0 0 16px;font-size:16px;color:#333333;line-height:1.6;">
     We received a request to reset your WIMS-BFP account password. Click the button below to set a new password.
   </p>
   <p style="margin:0 0 24px;font-size:16px;color:#333333;line-height:1.6;">
-    This link expires in <strong>${linkExpirationFormatter(link.expirationTime)}</strong> and can only be used once.
+    This link expires in <strong>${linkExpirationFormatter(linkExpiration)}</strong> and can only be used once.
   </p>
   <table cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
     <tr>
       <td style="background-color:#8B0000;border-radius:4px;padding:12px 32px;text-align:center;">
-        <a href="${link}" style="color:#ffffff;font-size:16px;font-weight:bold;text-decoration:none;display:inline-block;">Reset Password</a>
+        <a href="${link?html}" style="color:#ffffff;font-size:16px;font-weight:bold;text-decoration:none;display:inline-block;">Reset Password</a>
       </td>
     </tr>
   </table>
@@ -159,24 +252,29 @@ Wraps `html.ftl` and provides the reset-specific body:
 </@layout.emailLayout>
 ```
 
-The FreeMarker variables `${user.firstName}`, `${link}`, `${linkExpirationFormatter(...)}` are the standard Keycloak email-template context variables. Verified against the Keycloak 24 default email templates.
+Key v2 fixes vs. v1:
+- The expiration expression is `${linkExpirationFormatter(linkExpiration)}` (v1 had `${linkExpirationFormatter(link.expirationTime)}` — wrong context-var path)
+- The link is escaped with `?html` (XSS prevention)
+- `user.firstName` is null-safe with fallback to `user.username`, and HTML-escaped
 
-**`email-verification.ftl`** (~10 lines, same structure, different body):
+#### S1.6 — `src/keycloak/themes/wims-bfp/email/html/email-verification.ftl`
+
+Same structure as S1.5, with the body content changed to verification language and the button text changed to "Verify Email":
 
 ```ftl
-<#import "html.ftl" as layout>
+<#import "template.ftl" as layout>
 <@layout.emailLayout>
-  <p style="margin:0 0 16px;font-size:18px;font-weight:bold;color:#8B0000;">Hello, ${user.firstName}!</p>
+  <p style="margin:0 0 16px;font-size:18px;font-weight:bold;color:#8B0000;">Hello, ${(user.firstName)!user.username?html}!</p>
   <p style="margin:0 0 16px;font-size:16px;color:#333333;line-height:1.6;">
     Please verify your email address to complete your WIMS-BFP account setup. Click the button below to confirm this email is yours.
   </p>
   <p style="margin:0 0 24px;font-size:16px;color:#333333;line-height:1.6;">
-    This link expires in <strong>${linkExpirationFormatter(link.expirationTime)}</strong> and can only be used once.
+    This link expires in <strong>${linkExpirationFormatter(linkExpiration)}</strong> and can only be used once.
   </p>
   <table cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
     <tr>
       <td style="background-color:#8B0000;border-radius:4px;padding:12px 32px;text-align:center;">
-        <a href="${link}" style="color:#ffffff;font-size:16px;font-weight:bold;text-decoration:none;display:inline-block;">Verify Email</a>
+        <a href="${link?html}" style="color:#ffffff;font-size:16px;font-weight:bold;text-decoration:none;display:inline-block;">Verify Email</a>
       </td>
     </tr>
   </table>
@@ -186,27 +284,31 @@ The FreeMarker variables `${user.firstName}`, `${link}`, `${linkExpirationFormat
 </@layout.emailLayout>
 ```
 
-**`execute-actions.ftl`** (~10 lines, same structure, action-listing body):
+#### S1.7 — `src/keycloak/themes/wims-bfp/email/html/executeActions.ftl`
+
+Note the filename: `executeActions.ftl` (camelCase, no hyphen) — verified against `FreeMarkerEmailTemplateProvider.java: send("executeActionsSubject", "executeActions.ftl", ...)`.
 
 ```ftl
-<#import "html.ftl" as layout>
+<#import "template.ftl" as layout>
 <@layout.emailLayout>
-  <p style="margin:0 0 16px;font-size:18px;font-weight:bold;color:#8B0000;">Hello, ${user.firstName}!</p>
+  <p style="margin:0 0 16px;font-size:18px;font-weight:bold;color:#8B0000;">Hello, ${(user.firstName)!user.username?html}!</p>
   <p style="margin:0 0 16px;font-size:16px;color:#333333;line-height:1.6;">
     You have one or more required actions on your WIMS-BFP account. Click the button below to review and complete them.
   </p>
-  <table cellpadding="0" cellspacing="0" style="margin:0 0 16px;">
-    <#list requiredActions as reqAction>
-      <tr><td style="font-size:16px;color:#333333;line-height:1.6;padding:2px 0;">&bull; ${msg("requiredAction.${reqAction}")}</td></tr>
-    </#list>
-  </table>
+  <#if requiredActions?? && requiredActions?size gt 0>
+    <table cellpadding="0" cellspacing="0" style="margin:0 0 16px;">
+      <#list requiredActions as reqAction>
+        <tr><td style="font-size:16px;color:#333333;line-height:1.6;padding:2px 0;">&bull; ${msg("requiredAction.${reqAction}")?html}</td></tr>
+      </#list>
+    </table>
+  </#if>
   <p style="margin:0 0 24px;font-size:16px;color:#333333;line-height:1.6;">
-    This link expires in <strong>${linkExpirationFormatter(link.expirationTime)}</strong> and can only be used once.
+    This link expires in <strong>${linkExpirationFormatter(linkExpiration)}</strong> and can only be used once.
   </p>
   <table cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
     <tr>
       <td style="background-color:#8B0000;border-radius:4px;padding:12px 32px;text-align:center;">
-        <a href="${link}" style="color:#ffffff;font-size:16px;font-weight:bold;text-decoration:none;display:inline-block;">Review Required Actions</a>
+        <a href="${link?html}" style="color:#ffffff;font-size:16px;font-weight:bold;text-decoration:none;display:inline-block;">Review Required Actions</a>
       </td>
     </tr>
   </table>
@@ -216,38 +318,130 @@ The FreeMarker variables `${user.firstName}`, `${link}`, `${linkExpirationFormat
 </@layout.emailLayout>
 ```
 
-### S2 — Add `emailTheme: wims-bfp` to both realm JSON files
+The `requiredActions` list is null-checked (`??`) and size-checked (`gt 0`) to prevent rendering issues if the list is empty.
 
-In **`src/keycloak/bfp-realm.json`** (the live-updated realm used by `scripts/update-keycloak-smtp.sh` after first boot):
+#### S1.8 — `src/keycloak/themes/wims-bfp/email/text/password-reset.ftl`
 
-Find the `"loginTheme": "wims-bfp"` field (or similar) and add `"emailTheme": "wims-bfp"` on the next line. If `loginTheme` is not currently set, add the field in the same theme-related section.
+Plain-text version. Cannot be styled; just readable text with the URL on its own line for client auto-linking:
 
-In **`src/keycloak/import/bfp-realm.json`** (the fresh-import realm used on `--import-realm` first boot):
+```ftl
+<#ftl output_format="plainText">
+Hello ${(user.firstName)!user.username},
 
-Same change as above. Both realm files need the field so the email theme is set regardless of which path activated the realm.
+We received a request to reset your WIMS-BFP account password. Click the link below to set a new password.
 
-**Why the field goes in both files:** `bfp-realm.json` is the canonical live-updated file (used by `update-keycloak-smtp.sh` etc.). `import/bfp-realm.json` is the fresh-import copy (used on first boot with `start-dev --import-realm`). Both need the same `emailTheme` field so the email theme is set on a fresh deployment AND on an in-place update.
+${link}
 
-### S3 — Rebuild the Keycloak Docker image
+This link expires in ${linkExpirationFormatter(linkExpiration)} and can only be used once.
 
-The new `email/` subdirectory needs to be copied into the `wims-keycloak` image. The current `Dockerfile` (verified at `src/keycloak/Dockerfile`) only installs the `wims-demo-otp-provider.jar` provider jar; it does not install themes. Themes are mounted as a volume at compose time (per `src/docker-compose.yml:60`: `./keycloak/themes/wims-bfp:/opt/keycloak/themes/wims-bfp:ro`).
+If you did not request a password reset, please ignore this email or contact your system administrator.
 
-**Good news:** the new `email/` subdirectory is picked up by the existing volume mount automatically — no Dockerfile change needed. As long as the files exist at `src/keycloak/themes/wims-bfp/email/` on the deploy host, the running `wims-keycloak` container will see them.
-
-**Rebuild needed:** only if the user does a full `docker compose build keycloak` to refresh the image (e.g. to ship a new version of the OTP provider jar). For the `wims-keycloak` image, no rebuild is needed for theme changes — the volume mount handles it.
-
-**Restart needed:** the `wims-keycloak` container needs to be restarted so Keycloak re-reads the theme directory at startup. Restart command:
-```bash
-cd /opt/wims-bfp/src && docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d keycloak
+— Bureau of Fire Protection — WIMS-BFP
+This is an automated message. Do not reply to this email.
 ```
 
-### S4 — System-wiki update (mandatory per AGENTS.md)
+#### S1.9 — `src/keycloak/themes/wims-bfp/email/text/email-verification.ftl`
+
+```ftl
+<#ftl output_format="plainText">
+Hello ${(user.firstName)!user.username},
+
+Please verify your email address to complete your WIMS-BFP account setup. Click the link below to confirm this email is yours.
+
+${link}
+
+This link expires in ${linkExpirationFormatter(linkExpiration)} and can only be used once.
+
+If you did not create a WIMS-BFP account, please ignore this email.
+
+— Bureau of Fire Protection — WIMS-BFP
+This is an automated message. Do not reply to this email.
+```
+
+#### S1.10 — `src/keycloak/themes/wims-bfp/email/text/executeActions.ftl`
+
+```ftl
+<#ftl output_format="plainText">
+Hello ${(user.firstName)!user.username},
+
+You have one or more required actions on your WIMS-BFP account. Click the link below to review and complete them.
+
+<#if requiredActions?? && requiredActions?size gt 0>Required actions:
+<#list requiredActions as reqAction>- ${msg("requiredAction.${reqAction}")}
+</#list>
+</#if>
+
+${link}
+
+This link expires in ${linkExpirationFormatter(linkExpiration)} and can only be used once.
+
+If you did not request this, please contact your system administrator.
+
+— Bureau of Fire Protection — WIMS-BFP
+This is an automated message. Do not reply to this email.
+```
+
+### S2 — Add `emailTheme: wims-bfp` to BOTH realm JSON files (top-level field)
+
+In **`src/keycloak/bfp-realm.json`** AND **`src/keycloak/import/bfp-realm.json`**: add 1 line at the top level of the realm JSON object. Suggested placement: near the `"displayName"` field (top-level realm metadata).
+
+Concretely, find `"displayName": "..."` (around line 5-10 of each file) and add immediately after:
+
+```json
+  "emailTheme": "wims-bfp",
+```
+
+**Why top-level, not next to `loginTheme`:** neither file currently has a `loginTheme` field (confirmed via grep of both files). The login theme is selected by other means (Keycloak admin config or compose env). Adding `emailTheme` at the top level puts it next to other realm-level theme fields. There is no `loginTheme` to "add after" in the current codebase.
+
+**Why both files:** `bfp-realm.json` is the live-updated file (used by `update-keycloak-smtp.sh` and similar scripts after first boot). `import/bfp-realm.json` is the fresh-import copy (used on first boot with `start-dev --import-realm`). Both need the same field so the email theme is set regardless of which path activated the realm.
+
+### S3 — Live-realm kcadm update for the existing persistent DB
+
+The existing Keycloak DB on the VPS was imported from the OLD (no-`emailTheme`) JSON. Per the live-notifications spec's B2 blocker, Keycloak does not re-resolve realm-level fields on restart. So even after S2 + a container restart, the live realm will still have no `emailTheme` set. To apply the change to the running Keycloak:
+
+```bash
+ssh -i ~/.ssh/id_ed25519_pi root@165.22.101.73
+cd /opt/wims-bfp
+docker exec wims-keycloak /opt/keycloak/bin/kcadm.sh config credentials \
+  --server http://localhost:8080/auth --realm master \
+  --user "$KEYCLOAK_ADMIN" --password "$KEYCLOAK_ADMIN_PASSWORD"
+docker exec wims-keycloak /opt/keycloak/bin/kcadm.sh update realms/bfp \
+  -s emailTheme=wims-bfp
+docker exec wims-keycloak /opt/keycloak/bin/kcadm.sh get realms/bfp -r master \
+  | python3 -c 'import sys,json; d=json.load(sys.stdin); print("emailTheme:", d.get("emailTheme"))'
+```
+
+Expected output: `emailTheme: wims-bfp`. If `None` is shown, the update did not apply; investigate why (likely the kcadm credentials didn't work).
+
+### S4 — Restart `wims-keycloak` with the right command
+
+`docker compose up -d keycloak` may not restart an already-running container if the service definition hasn't changed. The reliable command is:
+
+```bash
+cd /opt/wims-bfp/src && \
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production \
+  restart keycloak
+```
+
+This forces a restart regardless of service-definition changes. Keycloak's theme cache (which loads at startup) gets refreshed.
+
+If even `restart` is not picking up the new theme (Keycloak 24 has a known aggressive cache), fall back to:
+
+```bash
+cd /opt/wims-bfp/src && \
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production \
+  up -d --force-recreate keycloak
+```
+
+`--force-recreate` destroys the container and creates a new one with the same image but fresh filesystem state. The theme cache is definitely fresh.
+
+### S5 — System-wiki update (mandatory per AGENTS.md)
 
 Per AGENTS.md, non-trivial changes require wiki updates. Update:
 
-- **`system-wiki/architecture/infrastructure-config.md`** (or whatever page documents the Keycloak theme setup) — add a "Keycloak email theme" section noting the 3 FreeMarker templates, the `emailTheme: wims-bfp` realm field, and the visual design (maroon `#8B0000` header, BFP logo, 600px max width).
-- **`system-wiki/log.md`** — append a `2026-06-24` entry following the same shape as the live-notifications and device-id entries: problem (Keycloak default emails aren't branded), fix (3 FreeMarker templates + realm field + theme.properties), files changed, validation, scope limits.
-- **`system-wiki/gaps/frs-codebase-gap-register.md`** — close the gap (search for any email-related entry; if one exists, add a closing note; if not, create one).
+- **`system-wiki/architecture/infrastructure-config.md`** (or appropriate page) — add a "Keycloak email theme" section noting the 9 new files, the `emailTheme: wims-bfp` realm field, the visual design (maroon `#8B0000` header, BFP logo via `${url.resourcesUrl}`, 600px max width), and the deploy command (`restart` or `up -d --force-recreate`).
+- **`system-wiki/log.md`** — append a `2026-06-24` entry following the same shape as the live-notifications and device-id entries: problem (Keycloak default emails aren't branded), fix (9 FreeMarker files + realm field + logo copy + kcadm update), files changed, validation, scope limits. Note that v1 was approved but caught with 5+ critical bugs in a 2-pass meta-analysis; the v2 corrections are the basis for implementation.
+- **`system-wiki/gaps/frs-codebase-gap-register.md`** — close the email-related gap (search for any email entry; if one exists, add a closing note; if not, create one).
 
 ---
 
@@ -256,25 +450,29 @@ Per AGENTS.md, non-trivial changes require wiki updates. Update:
 | # | File | Action | Change |
 |---|------|--------|--------|
 | 1 | `src/keycloak/themes/wims-bfp/email/theme.properties` | **Create** | 1 line: `parent=base` |
-| 2 | `src/keycloak/themes/wims-bfp/email/messages_en.properties` | **Create** | 3 lines: subject line overrides for password reset, email verification, execute actions |
-| 3 | `src/keycloak/themes/wims-bfp/email/html.ftl` | **Create** | ~80 lines: common HTML wrapper with maroon header, BFP logo, gray footer; `<#nested>` slot for body content |
-| 4 | `src/keycloak/themes/wims-bfp/email/password-reset.ftl` | **Create** | ~10 lines: password-reset-specific body content wrapped via `<@layout.emailLayout>` |
-| 5 | `src/keycloak/themes/wims-bfp/email/email-verification.ftl` | **Create** | ~10 lines: email-verification-specific body content |
-| 6 | `src/keycloak/themes/wims-bfp/email/execute-actions.ftl` | **Create** | ~10 lines: execute-actions-specific body content listing required actions |
-| 7 | `src/keycloak/bfp-realm.json` | **Edit** | Add `"emailTheme": "wims-bfp"` field (1 line) |
-| 8 | `src/keycloak/import/bfp-realm.json` | **Edit** | Add `"emailTheme": "wims-bfp"` field (1 line) |
-| 9 | `system-wiki/architecture/infrastructure-config.md` (or appropriate page) | **Edit** | Add "Keycloak email theme" section |
-| 10 | `system-wiki/log.md` | **Append** | New `2026-06-24` entry |
-| 11 | `system-wiki/gaps/frs-codebase-gap-register.md` | **Edit** | Close email-related gap (or create new one) |
+| 2 | `src/keycloak/themes/wims-bfp/email/messages/messages_en.properties` | **Create** | 3 lines: subject overrides (using `passwordResetSubject`, NOT `emailPasswordResetSubject`) |
+| 3 | `src/keycloak/themes/wims-bfp/email/resources/img/bfp-logo.png` | **Create (copy from login)** | Binary file (BFP logo PNG) |
+| 4 | `src/keycloak/themes/wims-bfp/email/html/template.ftl` | **Create** | ~70 lines: shared HTML wrapper with maroon header, BFP logo, gray footer, `<#nested>` slot |
+| 5 | `src/keycloak/themes/wims-bfp/email/html/password-reset.ftl` | **Create** | ~20 lines: password reset body content |
+| 6 | `src/keycloak/themes/wims-bfp/email/html/email-verification.ftl` | **Create** | ~20 lines: email verification body content |
+| 7 | `src/keycloak/themes/wims-bfp/email/html/executeActions.ftl` | **Create** | ~25 lines: execute actions body content with requiredActions list |
+| 8 | `src/keycloak/themes/wims-bfp/email/text/password-reset.ftl` | **Create** | ~12 lines: plain text version |
+| 9 | `src/keycloak/themes/wims-bfp/email/text/email-verification.ftl` | **Create** | ~12 lines: plain text version |
+| 10 | `src/keycloak/themes/wims-bfp/email/text/executeActions.ftl` | **Create** | ~18 lines: plain text version with requiredActions list |
+| 11 | `src/keycloak/bfp-realm.json` | **Edit** | Add `"emailTheme": "wims-bfp"` (1 line, top-level) |
+| 12 | `src/keycloak/import/bfp-realm.json` | **Edit** | Add `"emailTheme": "wims-bfp"` (1 line, top-level) |
+| 13 | `system-wiki/architecture/infrastructure-config.md` (or appropriate page) | **Edit** | Add "Keycloak email theme" section |
+| 14 | `system-wiki/log.md` | **Append** | New `2026-06-24` entry |
+| 15 | `system-wiki/gaps/frs-codebase-gap-register.md` | **Edit** | Close email-related gap (or create new one) |
 
 ### Not Changed
 
-- **`src/backend/services/email/templates/*.html.j2`** — the 7 backend app-level Jinja2 templates stay byte-identical (out of scope per the original "Do not change the email templates" constraint)
-- **`src/keycloak/themes/wims-bfp/login/`** — the existing 16-file login theme stays byte-identical
+- **`src/backend/services/email/templates/*.html.j2`** — the 7 backend app-level Jinja2 templates stay byte-identical
+- **`src/keycloak/themes/wims-bfp/login/`** — the existing 16-file login theme stays byte-identical (the BFP logo is COPIED to the new email `resources/`, not moved or removed)
 - **`src/keycloak/Dockerfile`** — no change; the volume mount at `src/docker-compose.yml:60` picks up the new `email/` subdirectory automatically
 - **`src/docker-compose.yml`** — no change; the theme volume mount already covers the new `email/` subdirectory
-- **No new Python, no new tests** — this is a Keycloak theme + 2 realm JSON lines + wiki updates
-- **No SMTP credential change** — the Brevo SMTP setup (PR #452) stays exactly as deployed
+- **No new Python, no new tests, no new SMTP creds, no frontend changes**
+- **Brevo SMTP setup** (PR #452) stays exactly as deployed
 
 ---
 
@@ -282,28 +480,34 @@ Per AGENTS.md, non-trivial changes require wiki updates. Update:
 
 ### V1 — Fresh template renders for password reset
 
-1. Restart `wims-keycloak` to pick up the new theme: `cd /opt/wims-bfp/src && docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d keycloak`
-2. Wait ~30s for Keycloak to become healthy
-3. Trigger a password reset for `nathan_encoder` (or any test user): visit `https://wimsbfp.tech/auth/realms/bfp/login-actions/reset-credentials`, enter their email
-4. Check the email arrives at the user's inbox (it already did at V2 of the email-provider switch; the new variable is the **template**)
-5. **Confirm the new template is in use** by:
-   - Inspecting the email source: should have subject `[WIMS-BFP] Reset your password` (not the default `Reset password`)
-   - Inspecting the email body: should have the maroon `#8B0000` header, the "Bureau of Fire Protection" + "WIMS-BFP Incident Management System" text, the BFP logo image (loaded from `https://wimsbfp.tech/auth/resources/3.0/login/wims-bfp/img/bfp-logo.png`), and the maroon "Reset Password" call-to-action button
+1. Apply the 9 new files (S1.1–S1.10), the 2 realm JSON lines (S2), and the 1 logo file (S1.3).
+2. Update the live realm via kcadm (S3).
+3. Restart Keycloak (S4, `restart keycloak` first; if needed, `up -d --force-recreate keycloak`).
+4. Wait ~30s for Keycloak to become healthy.
+5. Trigger a password reset for `nathan_encoder` (or any test user): visit `https://wimsbfp.tech/auth/realms/bfp/login-actions/reset-credentials`, enter their email.
+6. Check the email arrives at the user's inbox.
+7. **Confirm the new template is in use:**
+   - Email subject: `[WIMS-BFP] Reset your password` (NOT Keycloak's default `Reset password`)
+   - Email source has BOTH `Content-Type: text/html; ...` AND `Content-Type: text/plain; ...` parts
+   - HTML body: maroon `#8B0000` header, "Bureau of Fire Protection" + "WIMS-BFP Incident Management System" text, BFP logo image (loaded from `https://wimsbfp.tech/auth/resources/<version>/email/wims-bfp/img/bfp-logo.png`), maroon "Reset Password" button
+   - Plain-text body: contains the URL on its own line
 
 ### V2 — Email verification template renders
 
-1. From Keycloak admin console (or via API), trigger an email verification for any test user
-2. Confirm the email arrives
-3. Inspect the subject: `[WIMS-BFP] Verify your email address`
-4. Inspect the body: same WIMS-BFP branding as V1, but the call-to-action button text says "Verify Email" (not "Reset Password")
+1. From Keycloak admin console, trigger an email verification for a test user.
+2. Confirm the email arrives.
+3. **Confirm the new template is in use:**
+   - Subject: `[WIMS-BFP] Verify your email address`
+   - HTML body: same WIMS-BFP branding, "Verify Email" call-to-action button
 
 ### V3 — Execute-actions template renders
 
-1. From Keycloak admin console, set a "required action" on a test user (e.g. "Update Password")
-2. Trigger an execute-actions email (e.g. admin "Send email" with the "Execute actions" template)
-3. Confirm the email arrives
-4. Inspect the subject: `[WIMS-BFP] Action required for your account`
-5. Inspect the body: same WIMS-BFP branding, with a bulleted list of required actions, and the "Review Required Actions" call-to-action button
+1. From Keycloak admin console, set a required action (e.g. "Update Password") on a test user.
+2. Trigger an execute-actions email.
+3. Confirm the email arrives.
+4. **Confirm the new template is in use:**
+   - Subject: `[WIMS-BFP] Action required for your account`
+   - HTML body: bulleted list of required actions (e.g. "- Update Password"), "Review Required Actions" button
 
 ### V4 — Existing tests still pass
 
@@ -313,7 +517,7 @@ cd src/backend && ruff check . && ruff format . --check && python -m pytest -v
 cd src/frontend && npm run lint && npx vitest run && npm run build
 ```
 
-All 4 blocking gates pass. (No Python or test change in this spec, so the test suite is unaffected by construction. The `ruff` checks pass because no Python is touched. The frontend build passes because no frontend is touched.)
+All 4 blocking gates pass. (No Python or test change in this spec, so the test suite is unaffected by construction.)
 
 ### V5 — No regressions in the existing email flows
 
@@ -321,17 +525,7 @@ All 4 blocking gates pass. (No Python or test change in this spec, so the test s
 2. The Brevo SMTP setup (PR #452) is unchanged
 3. The Keycloak login theme is unchanged
 4. The 4 DNS records for `wimsbfp.tech` in the OrderBox/ResellerClub panel are unchanged
-
-### V6 — Theme fallback works (resilience check)
-
-If the new theme has a bug, Keycloak falls back to its base theme — emails still get sent, just without WIMS-BFP branding. To verify:
-
-1. Temporarily break the new theme (e.g. add a syntax error to `html.ftl`)
-2. Trigger a password reset
-3. Confirm: email still arrives, but with Keycloak's default generic template
-4. Revert the syntax error
-
-This isn't a hard requirement (Keycloak's fallback is a built-in feature), but a quick test confirms the resilience.
+5. The `update-keycloak-smtp.sh` script still works (it doesn't touch the theme field; only the SMTP transport)
 
 ---
 
@@ -339,21 +533,22 @@ This isn't a hard requirement (Keycloak's fallback is a built-in feature), but a
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| FreeMarker template syntax error | Low (templates are simple) | Medium — email falls back to default template, not a complete failure | V6 fallback check; FreeMarker errors are logged at startup, container restart will surface them |
-| `bfp-logo.png` URL changes with Keycloak version | Low (Keycloak 24 has stable URL pattern `/auth/resources/{version}/login/{theme-name}/...`) | Low — broken image, still readable | Logo URL is a literal in the template; if Keycloak 25 changes the URL, update the template |
-| Existing `emailTheme: wims-bfp` in realm JSON doesn't apply after restart | Very low (Keycloak reads this field at theme lookup, not at startup) | Low — emails still arrive, with default template | Restart is part of the deploy plan; verify V1 after restart |
-| New theme templates leak the Brevo API key or other secrets | None (templates contain no secrets; only static copy and FreeMarker context vars) | — | R5 verifies no secrets in tracked files |
-| User marks the password-reset email as "not spam" but the BFP logo image is missing/404s | Low (logo URL is in the public theme resources) | Very low — broken image, still readable | Logo URL is tested as part of V1; if 404, fall back to a text-only header |
-| Keycloak 24's `emailTheme` field is named differently in 24.0.x patch versions | Low (verified as `emailTheme` in 24.0.0 source) | High — theme doesn't apply | Verified against the Keycloak 24.0.0 source on GitHub; field name is stable across patch versions |
-| The `bfp-realm.json` field placement breaks the JSON structure | Low (we add 1 line in an existing theme-related section) | High — Keycloak fails to start, no auth | V1 + V2 + V3 explicitly verify auth still works after the change |
+| FreeMarker template syntax error | Low (templates are simple) | **High — email fails to send** (not graceful fallback) | Validate templates with a local Keycloak test before deploy; FreeMarker errors are logged at startup, container restart surfaces them |
+| Wrong FreeMarker context var name | Low (each var is verified in this spec) | High — `?` substitutions return empty strings; layout breaks | R6 (null-safety) and R7 (`?html` escaping) catch most cases; manual V1-V3 verification catches the rest |
+| Keycloak 24 caches the theme aggressively | Medium (documented behavior) | Medium — new theme not picked up after restart | Use `restart` first; fall back to `up -d --force-recreate` |
+| `bfp-logo.png` not loaded by email client (security policy) | Medium (Gmail often blocks external images) | Low — broken image, still readable with `alt` text | The `alt="BFP"` text ensures the brand is communicated even if the image is blocked |
+| The kcadm `emailTheme` update fails silently (e.g. wrong credentials) | Low | Medium — JSON says `wims-bfp` but live realm is unset | The V1 step's verification (`kcadm.sh get realms/bfp | python3 -c 'print("emailTheme:", d.get("emailTheme"))'`) catches this; expect `emailTheme: wims-bfp` (not `None`) |
+| Email lands in spam | Likely on first send | Medium | Same as the email-provider switch: warm up the domain reputation, ask Gmail recipients to mark "not spam" once, monitor `p=none` DMARC reports |
+| User data in `user.firstName` is empty | Common (especially for OAuth-federated users) | Low — `?html` escaping handles it, fallback to `user.username` displays the username | R7 (null-safety) and the `(user.firstName)!user.username` pattern |
+| Theme directory structure mismatch (e.g. `email/html/` vs flat `email/`) | **High in v1, FIXED in v2** | High — Keycloak doesn't find templates | v2 uses the exact Keycloak 24.0.0 base-theme structure (verified against `keycloak/24.0.0/.../email/`). The structure is non-negotiable. |
 
 ---
 
 ## FRS / Security Context
 
-- **Email content is project-owned**, not FRS-mandated. The FRS references transactional email as the delivery path; the exact visual design is a project decision, not a regulatory requirement.
+- **Email content is project-owned**, not FRS-mandated. The FRS references transactional email as the delivery path; the exact visual design is a project decision.
 - **No new secrets introduced.** The new theme templates contain no API keys, no real user data, no real links. All Brevo SMTP credentials stay in `.env.production` (gitignored) per the email-provider switch.
-- **No new attack surface.** FreeMarker templates are processed server-side by Keycloak; there is no user-controlled input rendered into the templates. The `${user.firstName}`, `${link}`, `${linkExpirationFormatter(...)}` are all server-side context variables provided by Keycloak.
+- **No new attack surface.** FreeMarker templates are processed server-side by Keycloak. User-controlled input (`user.firstName`) is HTML-escaped with `?html` to prevent XSS in the rendered email. The `${link}` and `${requiredActions}` are server-side context variables provided by Keycloak; they are escaped with `?html` where they appear in HTML attributes.
 - **The 7 backend app-level templates are out of scope.** This spec is about the Keycloak-driven path only. If the user wants to redesign the 7 Jinja2 templates (e.g. add `List-Unsubscribe` headers for spam classification), that's a separate spec.
 
 ---
@@ -367,17 +562,19 @@ This isn't a hard requirement (Keycloak's fallback is a built-in feature), but a
 - **Adding a custom Keycloak email sender** (e.g. routing all email through a single branded wrapper) — over-engineering for the current need
 - **Embedding the BFP logo as a base64 data URL in the email** — would bloat email size; URL reference is the standard pattern
 - **A/B testing the email design** — single design is fine for a thesis prototype
-- **Re-running the `update-keycloak-smtp.sh` script with new values** — that script updates SMTP transport, not the email theme; the theme is set via `emailTheme: wims-bfp` in the realm JSON (S2)
+- **Styling the plain-text alternative** — plain text cannot be styled; clients may auto-link URLs
 
 ---
 
-## Resolved Questions (v1)
+## Resolved Questions (v2)
 
 1. **Why not modify the 7 backend templates instead?** — those are for the app-level email flow (`tasks/notifications.py:194`, `auth.py:222`). Keycloak's transactional email flow uses Keycloak's own templates, not the app's. They're separate paths. Modifying the 7 templates wouldn't change the password-reset email.
-2. **Why FreeMarker and not Jinja2?** — Keycloak's theme templates are FreeMarker, period. We can't change Keycloak's template engine. The 7 backend templates are Jinja2 because that's what the Python backend uses. They are different paths, different engines, different purposes.
-3. **Why reuse the BFP logo via URL, not embed as base64?** — email clients may not load external images (security policy), but if they do, the URL is the standard pattern; if they don't, the email is still readable with the `alt` text. Base64 embedding bloats the email by ~5-10 KB and some clients strip it.
-4. **What about `executeActionsSubject` placeholder** — does it need `{0}` and `{1}`? — in Keycloak 24, the subject is templated with `link.expirationTime` and `realm.displayName` automatically. We just set the static prefix; the placeholder values are filled in by Keycloak.
-5. **Can the email theme be applied via a different method (admin console, kcadm) instead of editing realm JSON?** — yes, but the JSON approach is consistent with the rest of the project's realm config and is the same one used for the SMTP `smtpServer` block. Single source of truth.
+2. **Why FreeMarker and not Jinja2?** — Keycloak's theme templates are FreeMarker. We can't change Keycloak's template engine. The 7 backend templates are Jinja2 because that's what the Python backend uses. They are different paths, different engines, different purposes.
+3. **Why reuse the BFP logo via `${url.resourcesUrl}`?** — Keycloak injects the `url` bean (containing `resourcesUrl`) into the FreeMarker context. Using `${url.resourcesUrl}` is portable across local, staging, production. The hardcoded URL with `3.0` in v1 was a regression from this.
+4. **Why both HTML and text templates?** — `FreeMarkerEmailTemplateProvider.java` constructs BOTH `text/<template>` and `html/<template>`, and throws `EmailException` if either render fails. Plain text is not optional.
+5. **Why `passwordResetSubject` (not `emailPasswordResetSubject`)?** — verified against `keycloak/24.0.0/.../messages/messages_en.properties` line `passwordResetSubject=Reset password`. The `email` prefix is used inconsistently in Keycloak's bundle; the actual key is `passwordResetSubject`.
+6. **Why is the V6 fallback claim removed?** — `FreeMarkerEmailTemplateProvider.java` shows that any FreeMarker render failure throws `EmailException`, not a graceful fallback. The "fallback to base theme" behavior only applies to MISSING templates inherited from the parent, not to broken templates. A broken theme = broken emails, not "unbranded but functional" emails.
+7. **Why the kcadm update in S3?** — the existing Keycloak DB on the VPS has a `realms` row imported with the OLD (no-`emailTheme`) JSON. Per the live-notifications spec's B2 blocker, Keycloak does not re-resolve realm-level fields on restart. The kcadm update applies the change to the live DB row.
 
 ## Deferred to Plan Author
 
@@ -388,40 +585,73 @@ This isn't a hard requirement (Keycloak's fallback is a built-in feature), but a
 
 ---
 
-## Self-Review
+## Self-Review (v2)
 
-**Spec coverage:**
-- R1 (password reset template) → V1, files 3+4
-- R2 (email verification template) → V2, files 3+5
-- R3 (execute-actions template) → V3, files 3+6
-- R4 (existing tests pass) → V4
-- R5 (no secrets) → V5 + automated check in deploy
-- All 3 templates use the shared `html.ftl` wrapper (file 3)
-- All 3 templates' subject lines overridden in `messages_en.properties` (file 2)
-- Theme declaration in `theme.properties` (file 1)
-- Both realm JSONs updated (S2)
-- System-wiki updated (S4)
+**v1 self-review missed all 14 corrections.** The v1 self-review was structurally complete but the factual claims about Keycloak 24 internals were wrong. The corrections came from a 2-pass meta-analysis, with each fix cited to the actual Keycloak 24.0.0 source on GitHub. v2's self-review explicitly addresses this failure mode.
 
-**Placeholder scan:**
-- No "TBD", "TODO", "implement later", "fill in details"
-- All file contents are concrete (paths, line counts, exact text)
-- Verification steps include exact commands and expected subject/body text
-- The Risks table has Likelihood + Impact + Mitigation for each risk
+**1. Spec coverage:**
 
-**Type / identifier consistency:**
-- `emailTheme: wims-bfp` field name matches Keycloak 24 source
-- `parent=base` declaration matches Keycloak 24 email theme convention
-- The 3 message keys (`emailPasswordResetSubject`, `emailVerificationSubject`, `executeActionsSubject`) match Keycloak 24 source
-- `${user.firstName}`, `${link}`, `${linkExpirationFormatter(link.expirationTime)}` are the standard Keycloak email-template context vars
-- `bfp-logo.png` exists at `src/keycloak/themes/wims-bfp/login/resources/img/bfp-logo.png` (verified)
-- The maroon `#8B0000` color matches the 7 backend templates and the login theme's `wims-custom.css`
+| Spec section | Plan task | Notes |
+|---|---|---|
+| R1 (password reset template) | V1, files 4, 5, 8 | ✅ |
+| R2 (email verification template) | V2, files 4, 6, 9 | ✅ |
+| R3 (execute-actions template) | V3, files 4, 7, 10 | ✅ |
+| R4 (existing tests pass) | V4 | ✅ |
+| R5 (no secrets) | V5 | ✅ |
+| R6 (HTML + plain-text) | V1-V3 (verify both MIME parts) | ✅ |
+| R7 (null-safety + HTML escape) | V1-V3 (verify body renders when firstName is empty) | ✅ |
+| R8 (logo loads via ${url.resourcesUrl}) | V1-V3 (inspect email source for logo URL) | ✅ |
+| S1 (9 new files) | Task 1 | ✅ |
+| S2 (2 realm JSON lines) | Task 2 | ✅ |
+| S3 (kcadm live update) | Task 3 | ✅ |
+| S4 (restart) | Task 4 | ✅ |
+| S5 (wiki) | Task 5 | ✅ |
 
-**Gaps found in self-review, fixed inline:**
-- Initially S1 listed 5 files but didn't call out the `html.ftl` import/`<#nested>` mechanism clearly; the body templates' use of `<@layout.emailLayout>` is now explicit
-- Initially V1 didn't include the BFP logo URL construction; added the `/auth/resources/{version}/login/{theme-name}/...` pattern with the explicit version `3.0`
-- Initially "Resolved Questions" didn't address the local-keycloak-theme build context (volume mount vs image); clarified in S3 that volume mount handles it, no image rebuild needed
-- Initially "Files Changed" didn't include the wiki updates separately; now listed as items 9, 10, 11 per AGENTS.md mandatory rule
+**2. Placeholder scan:** No "TBD", "TODO", "implement later", "fill in details". All file contents are concrete. All verification steps include exact commands and expected outputs.
+
+**3. Type / identifier consistency (cited):**
+
+| Claim | Verified against | Status |
+|---|---|---|
+| `passwordResetSubject` (not `emailPasswordResetSubject`) | `keycloak/24.0.0/.../email/messages/messages_en.properties` | ✅ |
+| `emailVerificationSubject` | same | ✅ |
+| `executeActionsSubject` | same | ✅ |
+| `executeActions.ftl` (camelCase) | `FreeMarkerEmailTemplateProvider.java: send("executeActionsSubject", "executeActions.ftl", attributes)` | ✅ |
+| `password-reset.ftl` (kebab-case) | same file: `send("passwordResetSubject", "password-reset.ftl", attributes)` | ✅ |
+| `email-verification.ftl` (kebab-case) | inferred from pattern; verified in `themes/src/main/resources/theme/base/email/html/email-verification.ftl` | ✅ |
+| `${link}` (string) | `addLinkInfoIntoAttributes: attributes.put("link", link)` | ✅ |
+| `${linkExpiration}` (long, top-level) | `addLinkInfoIntoAttributes: attributes.put("linkExpiration", expirationInMinutes)` | ✅ |
+| `${linkExpirationFormatter(linkExpiration)}` | `themes/.../email/html/password-reset.ftl: msg("passwordResetBodyHtml",link, linkExpiration, realmName, linkExpirationFormatter(linkExpiration))` | ✅ |
+| `${user}` (ProfileBean with firstName) | `attributes.put("user", new ProfileBean(user, session))` | ✅ |
+| `${url.resourcesUrl}` | `attributes.put("url", new UrlBean(realm, theme, uriInfo.getBaseUri(), null))` | ✅ |
+| `${requiredActions}` list | base email/html/executeActions.ftl: `<#list requiredActions>` | ✅ |
+| `parent=base` (only line in theme.properties) | `themes/.../email/html/theme.properties` (when downloaded) — verified through Keycloak's source listing | ✅ |
+| `email/messages/messages_en.properties` path | `themes/.../email/messages/messages_en.properties` | ✅ |
+| `email/html/<template>` and `email/text/<template>` subdirs | `FreeMarkerEmailTemplateProvider.java: String textTemplate = String.format("text/%s", template); String htmlTemplate = String.format("html/%s", template);` | ✅ |
+| EmailException on render failure (no fallback) | `FreeMarkerEmailTemplateProvider.java: throw new EmailException("Failed to template html email.", e);` | ✅ |
+| `${kcSanitize(msg(...)?no_esc}` pattern in base | `themes/.../email/html/password-reset.ftl` | ✅ (we don't use this pattern; we use our own body content) |
+
+**4. Gaps found in self-review, fixed inline (v2 vs. v1):**
+
+- v1 had `<#import "html.ftl" as layout>`; v2 has `<#import "template.ftl" as layout>` to match Keycloak's base template file name (v1 was wrong)
+- v1 had `${linkExpirationFormatter(link.expirationTime)}`; v2 has `${linkExpirationFormatter(linkExpiration)}` because `linkExpiration` is a top-level context var (v1 was wrong)
+- v1 had hardcoded `https://wimsbfp.tech/auth/resources/3.0/...`; v2 has `${url.resourcesUrl}` for portability (v1 was wrong)
+- v1 had `messages_en.properties` at the wrong path; v2 places it at `email/messages/messages_en.properties` (v1 was wrong)
+- v1 had `emailPasswordResetSubject`; v2 has `passwordResetSubject` (v1 was wrong)
+- v1 had `execute-actions.ftl`; v2 has `executeActions.ftl` (v1 was wrong)
+- v1 had 3 FreeMarker files; v2 has 9 (3 HTML + 3 text + 1 shared wrapper + 1 theme.properties + 1 messages bundle) because text templates are REQUIRED by `FreeMarkerEmailTemplateProvider.java`
+- v1 claimed V6 fallback works; v2 removes V6 because the throw-EmailException behavior makes it unsafe to rely on
+- v1 had no S3 (live-realm kcadm update); v2 adds it because the existing persistent DB needs the field set
+- v1 had no kcadm step; v2 has S3
+- v1 said `docker compose up -d keycloak`; v2 says `restart keycloak` (or `up -d --force-recreate`) because `up -d` may not restart an unchanged container
+- v1 said "find loginTheme and add after"; v2 says "add at top level, no loginTheme currently exists" (verified via grep)
+- v1 had `${user.firstName}` unescaped; v2 uses `${(user.firstName)!user.username?html}` for null-safety and XSS prevention
+- v1 had `import=common/keycloak` in theme.properties; v2 has only `parent=base` because the import line is unnecessary
+
+**5. Why the v1 self-review failed (lesson for v2):**
+
+v1's self-review claimed structural correctness but failed to verify the implementation details against the actual Keycloak source. v2's self-review now includes a 17-row identifier-consistency table where each claim is cited to the Keycloak 24.0.0 source file and line. This is the v1 lesson: structural completeness is not factual correctness. Every identifier in a Keycloak spec must be verified against the Keycloak source, not assumed from Keycloak's general documentation or other community examples (which may target different versions).
 
 ---
 
-*This is a design spec (v1). The implementation plan will be at `docs/superpowers/plans/2026-06-24-keycloak-email-theme.md`. Once the spec is approved, invoke the writing-plans skill to produce the plan.*
+*This is a design spec (v2). The implementation plan will be at `docs/superpowers/plans/2026-06-24-keycloak-email-theme.md`. Once the spec is approved, invoke the writing-plans skill to produce the plan.*
