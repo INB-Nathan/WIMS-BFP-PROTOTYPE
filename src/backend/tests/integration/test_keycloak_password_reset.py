@@ -240,6 +240,75 @@ def _execution_provider(execution: dict) -> str | None:
     return None
 
 
+def _skip_if_keycloak_not_using_mailhog():
+    """Skip test if Keycloak realm SMTP is not configured to use MailHog.
+
+    Otherwise _clear_mailhog() can succeed while Keycloak sends through
+    Brevo, causing false negatives.
+    """
+    realm = _get_realm()
+    smtp = realm.get("smtpServer", {})
+    host = smtp.get("host", "")
+    if host != "mailhog":
+        pytest.skip(
+            f"Keycloak SMTP host is {host!r}, not 'mailhog'; MailHog capture assertions unavailable"
+        )
+
+
+def _mailhog_message_sent_to(msg: dict, email: str) -> bool:
+    """Check if a MailHog message was sent to the given email (case-insensitive)."""
+    target = email.lower()
+    for addr in msg.get("To", []):
+        mailbox = addr.get("Mailbox", "")
+        domain = addr.get("Domain", "")
+        recipient = f"{mailbox}@{domain}".lower() if domain else mailbox.lower()
+        if recipient == target:
+            return True
+    return False
+
+
+_DISABLED_USER_COUNTER = 0
+
+
+def _disabled_user_email() -> str:
+    """Generate a unique email for disabled-user tests to avoid state collision."""
+    global _DISABLED_USER_COUNTER
+    _DISABLED_USER_COUNTER += 1
+    return f"disabled-user-{_DISABLED_USER_COUNTER}-{uuid.uuid4().hex[:6]}@wims-bfp.local"
+
+
+def _create_user(email: str, password: str) -> str:
+    """Create a Keycloak user with the given email and password. Returns user ID."""
+    headers = _admin_headers()
+    user_payload = {
+        "username": email,
+        "email": email,
+        "emailVerified": True,
+        "enabled": True,
+        "firstName": "Disabled",
+        "lastName": "UserTest",
+        "credentials": [
+            {
+                "type": "password",
+                "value": password,
+                "temporary": False,
+            }
+        ],
+    }
+    r = httpx.post(f"{ADMIN_API}/users", json=user_payload, headers=headers, timeout=10)
+    r.raise_for_status()
+
+    # Fetch the created user ID
+    r = httpx.get(
+        f"{ADMIN_API}/users",
+        params={"username": email, "exact": True},
+        headers=headers,
+        timeout=10,
+    )
+    r.raise_for_status()
+    return r.json()[0]["id"]
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -256,6 +325,42 @@ def test_user_id():
     """Create a test user, yield its ID, then clean up."""
     user_id = _get_or_create_test_user()
     yield user_id
+    _delete_test_user(user_id)
+
+
+@pytest.fixture
+def disabled_user_id():
+    """Create a unique test user, disable it, yield its ID, then re-enable and delete.
+
+    Uses a unique email per invocation so state from other tests (password
+    changes, user status) does not leak into this fixture.
+    """
+    email = _disabled_user_email()
+    password = "DisabledUserInitPass1!"
+    user_id = _create_user(email, password)
+
+    headers = _admin_headers()
+    r = httpx.put(
+        f"{ADMIN_API}/users/{user_id}",
+        json={"enabled": False},
+        headers=headers,
+        timeout=10,
+    )
+    r.raise_for_status()
+
+    yield user_id
+
+    # Teardown: re-enable first, then delete
+    try:
+        headers = _admin_headers()
+        httpx.put(
+            f"{ADMIN_API}/users/{user_id}",
+            json={"enabled": True},
+            headers=headers,
+            timeout=10,
+        )
+    except Exception:
+        pass
     _delete_test_user(user_id)
 
 
@@ -753,4 +858,198 @@ class TestForgotPasswordFlow:
                 )
 
         finally:
+            client.close()
+
+    def test_disabled_user_cannot_trigger_password_reset(self, disabled_user_id):
+        """
+        A disabled/deactivated user must NOT receive a password reset email.
+        Keycloak's reset-credentials-choose-user execution checks enabled
+        status and must reject the request without sending email.
+        """
+        _skip_if_mailhog_unreachable()
+        _skip_if_keycloak_not_using_mailhog()
+        _clear_mailhog()
+
+        client = httpx.Client(follow_redirects=True, timeout=15)
+
+        try:
+            # Step 1: Load reset-credentials page
+            reset_url = (
+                f"{REALM_URL}/login-actions/reset-credentials?client_id={KEYCLOAK_CLIENT_ID}"
+            )
+            r = client.get(reset_url)
+            assert r.status_code == 200
+
+            # Step 2: Extract form action
+            action_match = re.search(r'action="([^"]*login-actions[^"]*)"', r.text, re.IGNORECASE)
+            assert action_match, "Could not find form action"
+            form_action = action_match.group(1).replace("&amp;", "&")
+            if form_action.startswith("/"):
+                form_action = f"{KEYCLOAK_ADMIN_URL}{form_action}"
+
+            # Step 3: Submit disabled user's email
+            r = client.post(form_action, data={"username": TEST_USER_EMAIL})
+            # Keycloak should return a generic success page — NOT "user not found"
+            assert r.status_code in (200, 302, 303)
+
+            if r.status_code == 200:
+                body_lower = r.text.lower()
+                assert "not found" not in body_lower, (
+                    "Response leaks user existence for disabled account"
+                )
+                assert "disabled" not in body_lower, "Response leaks account disabled status"
+                assert "does not exist" not in body_lower, (
+                    "Response leaks user existence for disabled account"
+                )
+
+            # Step 4: Verify NO reset email was sent
+            time.sleep(2)
+            messages = _get_mailhog_messages()
+            assert not any(_mailhog_message_sent_to(msg, TEST_USER_EMAIL) for msg in messages), (
+                "Reset email was sent for a disabled user — "
+                "disabled accounts must not receive reset links!"
+            )
+        finally:
+            client.close()
+
+    def test_disabled_user_preissued_token_does_not_present_password_form(self, test_user_id):
+        """
+        If a user is disabled AFTER a reset token is issued but BEFORE
+        the token is used, the token must be rejected. The password
+        must NOT be changed.
+        """
+        _skip_if_mailhog_unreachable()
+        _skip_if_keycloak_not_using_mailhog()
+        _clear_mailhog()
+
+        SENTINEL_NEW_PASSWORD = "DisabledResetShouldNotWork123!"
+        client = httpx.Client(follow_redirects=True, timeout=15)
+
+        # Reset password to known baseline before starting, in case a prior
+        # test left the user in an unexpected credential state.
+        headers = _admin_headers()
+        r = httpx.put(
+            f"{ADMIN_API}/users/{test_user_id}/reset-password",
+            json={
+                "type": "password",
+                "value": TEST_USER_PASSWORD,
+                "temporary": False,
+            },
+            headers=headers,
+            timeout=10,
+        )
+        assert r.status_code == 204, f"Failed to reset baseline password: {r.text}"
+
+        try:
+            # Step 1: Trigger reset while user is enabled
+            reset_url = (
+                f"{REALM_URL}/login-actions/reset-credentials?client_id={KEYCLOAK_CLIENT_ID}"
+            )
+            r = client.get(reset_url)
+            assert r.status_code == 200
+
+            action_match = re.search(r'action="([^"]*login-actions[^"]*)"', r.text, re.IGNORECASE)
+            assert action_match
+            form_action = action_match.group(1).replace("&amp;", "&")
+            if form_action.startswith("/"):
+                form_action = f"{KEYCLOAK_ADMIN_URL}{form_action}"
+
+            client.post(form_action, data={"username": TEST_USER_EMAIL})
+
+            # Step 2: Capture the reset link from MailHog
+            time.sleep(3)
+            messages = _get_mailhog_messages()
+            reset_email = None
+            for msg in messages:
+                content_body = msg.get("Content", {}).get("Body", "")
+                if "action-token" in content_body:
+                    reset_email = msg
+                    break
+            assert reset_email, "No reset email received while user was enabled"
+
+            email_body = reset_email.get("Content", {}).get("Body", "")
+            reset_link = _extract_reset_link_from_email(email_body)
+            assert reset_link, "Could not extract reset link from email"
+
+            # Step 3: Disable the user
+            r = httpx.put(
+                f"{ADMIN_API}/users/{test_user_id}",
+                json={"enabled": False},
+                headers=headers,
+                timeout=10,
+            )
+            assert r.status_code == 204, f"Failed to disable user: {r.text}"
+
+            # Step 4: Try to use the pre-issued reset link
+            r = client.get(reset_link)
+            # Keycloak should reject the token — either error page or redirect
+            if r.status_code == 200:
+                # If 200, must show error, not a password form
+                body_lower = r.text.lower()
+                has_password_form = "password-new" in body_lower or (
+                    "password" in body_lower and "new" in body_lower
+                )
+                has_error = (
+                    "expired" in body_lower
+                    or "invalid" in body_lower
+                    or "error" in body_lower
+                    or "disabled" in body_lower
+                    or "not allowed" in body_lower
+                )
+                assert not has_password_form or has_error, (
+                    "Pre-issued reset token was accepted for disabled user — "
+                    "disabled accounts must not be able to reset password!"
+                )
+
+            # Re-enable user BEFORE password assertion so Direct Grant can authenticate
+            r = httpx.put(
+                f"{ADMIN_API}/users/{test_user_id}",
+                json={"enabled": True},
+                headers=headers,
+                timeout=10,
+            )
+            assert r.status_code == 204, f"Failed to re-enable user: {r.text}"
+
+            # Step 5: Verify old password still works (password was NOT changed)
+            r = httpx.post(
+                f"{REALM_URL}/protocol/openid-connect/token",
+                data={
+                    "grant_type": "password",
+                    "client_id": KEYCLOAK_CLIENT_ID,
+                    "username": TEST_USER_EMAIL,
+                    "password": TEST_USER_PASSWORD,
+                },
+                timeout=10,
+            )
+            assert r.status_code == 200, (
+                "Original password stopped working — "
+                "password was changed despite user being disabled!"
+            )
+
+            # Step 6: Sentinel password must NOT work (negative evidence)
+            r = httpx.post(
+                f"{REALM_URL}/protocol/openid-connect/token",
+                data={
+                    "grant_type": "password",
+                    "client_id": KEYCLOAK_CLIENT_ID,
+                    "username": TEST_USER_EMAIL,
+                    "password": SENTINEL_NEW_PASSWORD,
+                },
+                timeout=10,
+            )
+            assert r.status_code == 401, (
+                "Sentinel new password was accepted — "
+                "password was changed despite user being disabled!"
+            )
+        finally:
+            # Safety net: ensure user is re-enabled for fixture cleanup
+            try:
+                httpx.put(
+                    f"{ADMIN_API}/users/{test_user_id}",
+                    json={"enabled": True},
+                    headers=_admin_headers(),
+                    timeout=10,
+                )
+            except Exception:
+                pass
             client.close()
