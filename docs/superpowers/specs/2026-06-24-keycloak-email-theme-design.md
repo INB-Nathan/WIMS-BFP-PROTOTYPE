@@ -680,3 +680,73 @@ v1's self-review claimed structural correctness but failed to verify the impleme
 ---
 
 *This is a design spec (v2). The implementation plan will be at `docs/superpowers/plans/2026-06-24-keycloak-email-theme.md`. Once the spec is approved, invoke the writing-plans skill to produce the plan.*
+
+---
+
+# v2.1.1 patch — FreeMarker auto-escape rejects `?html` (post-deploy fix, 2026-06-24)
+
+**Status:** Patch applied (commits on `master` after PR #453 merge). Closes the `KEYCLOAK-EMAIL-THEME-AUTO-ESCAPE` gap in the system-wiki.
+
+## Problem
+
+The v2.1 implementation used `${displayName?html}`, `${link?html}`, and `${msg(...)?html}` in the 3 HTML templates. After PR #453 merged and the live realm was set to `emailTheme: wims-bfp`, triggering a password reset (V1 tripwire) returned Keycloak's user-facing error:
+
+> "Failed to send email, please try again later."
+
+`docker logs wims-keycloak` showed:
+
+```
+freemarker.core.ParseException: Syntax error in template "html/password-reset.ftl" in line 8, column 98:
+  Using ?html (legacy escaping) is not allowed when auto-escaping is on
+  with a markup output format (HTML), to avoid double-escaping mistakes.
+  at freemarker.core.FMParser.BuiltIn(FMParser.java:1225)
+Caused by: org.keycloak.email.EmailException: Failed to template html email.
+  at org.keycloak.email.freemarker.FreeMarkerEmailTemplateProvider.processTemplate(:237)
+  at org.keycloak.email.freemarker.FreeMarkerEmailTemplateProvider.sendPasswordReset(:117)
+```
+
+## Root cause
+
+**Keycloak 24 ships FreeMarker 2.3.32.** Since FreeMarker 2.3.30, the default for HTML output format is `auto_esc=true` (auto-escaping on). When auto-escape is on for a markup output format, the `?html` legacy escape builtin is **rejected by the parser** as a safety feature to prevent double-escaping mistakes. This is a FreeMarker-level change, not a Keycloak-level one.
+
+The v2.1 self-review (item 8 in the corrections table) was wrong: the v2 fix used `${(user.firstName)!user.username?html}` and the v2.1 implementation (the explicit `<#assign>` pattern) carried that `?html` call forward, but **none of the v2/v2.1 reviews verified that `?html` is parseable under Keycloak 24's FreeMarker 2.3.32 with auto-escape on**. The v2.1 self-review table also had 17 identifier-consistency rows; none of them tested the actual parseability of the templates against the live FreeMarker version.
+
+## Fix (applied)
+
+Remove `?html` from all 7 call sites in the 3 HTML templates. XSS protection is then provided by FreeMarker's auto-escape, which is on for HTML output format and converts `& < > " '` to entities. Net effect:
+
+| Expression | Before (v2.1) | After (v2.1.1) | XSS safety |
+|---|---|---|---|
+| `${displayName?html}` | parses in v2.0 FreeMarker, double-escapes under auto-escape | `${displayName}` | auto-escape |
+| `${link?html}` | same | `${link}` | auto-escape (`&` → `&amp;` is valid in `href`; browser un-escapes) |
+| `${msg("requiredAction.${reqAction}")?html}` | same | `${msg(...)}` | auto-escape |
+
+The `<#assign displayName = (user.firstName?has_content)?then(user.firstName, user.username)>` pattern is preserved unchanged. `?has_content` and `?then` are not `?html` — they are conditional / boolean builtins and parse fine under auto-escape. The null/empty-string safety they provide is independent of the output-time escape (auto-escape applies at the `${...}` output site, not at the `<#assign>` assignment site).
+
+Text templates (`text/*.ftl`) start with `<#ftl output_format="plainText">` which sets the output format to plain text, so auto-escape is **off** for them. The text templates do not use `?html` and require no change.
+
+## What this teaches future spec authors
+
+- **Verify parseability**, not just identifier consistency. Reading the FreeMarker source or running a quick parse against the live Keycloak version would have caught this. The v2.1 self-review table verified identifiers (`user.firstName`, `link`, `linkExpiration`, `linkExpirationFormatter`, message keys, template names) but not whether the FreeMarker syntax (including all `?html` and other builtins) actually compiles in Keycloak 24's FreeMarker version.
+- **FreeMarker auto-escape is the canonical XSS protection** for HTML output format since 2.3.30. `?html` is the legacy escape for older FreeMarker or non-markup output formats. Do not use both — the parser will reject `?html` under auto-escape.
+- **The operator-precedence XSS bug** the v2.1 spec worried about (`${(user.firstName)!user.username?html}` — `?html` only escapes the fallback, not the primary value) **does not apply when auto-escape is on**: FreeMarker auto-escapes the resolved `${...}` value before any builtin runs, so the operator-precedence concern is moot. The explicit `<#assign>` pattern is still good for null/empty safety, but the `?html` on the output is not needed and is in fact rejected.
+
+## Files changed (3 code files, 7 `?html` call sites removed)
+
+- `src/keycloak/themes/wims-bfp/email/html/password-reset.ftl` — 1 comment expanded (explains the new pattern), `${displayName?html}` → `${displayName}` (line 8 → 11), `${link?html}` → `${link}` (line 18)
+- `src/keycloak/themes/wims-bfp/email/html/email-verification.ftl` — 2 sites
+- `src/keycloak/themes/wims-bfp/email/html/executeActions.ftl` — 3 sites
+- `src/keycloak/themes/wims-bfp/email/text/*.ftl` — **no change** (no `?html` to begin with)
+
+## Out of scope (unchanged)
+
+- The 3 `text/*.ftl` templates
+- The `html/template.ftl` shared wrapper
+- The `theme.properties`, `messages_en.properties`, `bfp-logo.png` bootstrap files
+- Both realm JSON files (`emailTheme: wims-bfp` already set, both pre- and post-import)
+- The Brevo SMTP setup
+- The VPS deploy path (no kcadm update needed; realm field already set in PR #453)
+
+## Deploy path
+
+`git pull --ff-only origin master` on the VPS, then `docker compose ... restart keycloak` to refresh the theme cache. No kcadm step (realm `emailTheme` already `wims-bfp` from PR #453).
