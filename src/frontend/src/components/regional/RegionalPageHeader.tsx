@@ -54,7 +54,7 @@ export function RegionalPageHeader({
           }}
         >
           <FileText className="h-3.5 w-3.5" aria-hidden />
-          Manual Entry
+          + Add New Incident
         </Link>
         <Link
           href="/afor/import"

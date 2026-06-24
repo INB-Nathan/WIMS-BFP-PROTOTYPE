@@ -389,7 +389,20 @@ async def get_current_wims_user(
                 "NATIONAL_ANALYST",
                 "SYSTEM_ADMIN",
             }
-            jit_role = next((r for r in realm_roles if r in wims_roles), None)
+            # Collect all token roles from both realm_access and resource_access.
+            _token_roles: set[str] = set(realm_roles)
+            for _cd in token_payload.get("resource_access", {}).values():
+                if isinstance(_cd, dict):
+                    _token_roles.update(_cd.get("roles") or [])
+            # Pick the highest-privilege WIMS role present in the token.
+            # WIMS_ROLES_FROM_KEYCLOAK is in ascending-privilege order; keep
+            # overwriting so SYSTEM_ADMIN (last entry) wins even when a lower
+            # role (e.g. CIVILIAN_REPORTER via default-roles-bfp composite)
+            # also appears — prevents the EP-28 first-match bypass.
+            jit_role = None
+            for _r in WIMS_ROLES_FROM_KEYCLOAK:
+                if _r in _token_roles and _r in wims_roles:
+                    jit_role = _r
             if not jit_role:
                 logger.warning(
                     f"JIT provisioning skipped for {preferred_username}: "

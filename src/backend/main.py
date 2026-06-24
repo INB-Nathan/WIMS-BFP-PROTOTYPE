@@ -63,10 +63,10 @@ from api.routes.auth import router as auth_router
 from api.routes.consent import router as consent_router
 
 # WIMS role resolution — canonical source in auth.py
-from auth import resolve_wims_role_from_token as _resolve_role_from_token
+from auth import resolve_wims_role_from_token as _resolve_role_from_token, JIT_PRIVILEGED_ROLES
 from utils.csrf import csrf_middleware
 from services.ip_blocklist import _get_request_client_ip, resync_blocklist_to_redis
-from utils.audit import trusted_client_ip
+from utils.audit import trusted_client_ip, log_system_audit
 
 # Module-level logger — must be defined before use in schema patches and rate limiter
 logger = logging.getLogger("wims.rate_limit")
@@ -1040,6 +1040,7 @@ AUTH_REDIRECT_URI = os.environ.get("AUTH_REDIRECT_URI", "http://localhost:3000/a
 
 @app.post("/api/auth/callback")
 async def auth_callback(
+    request: Request,
     body: AuthCallbackRequest,
     db: Annotated[Session, Depends(get_db)],
 ):
@@ -1088,6 +1089,60 @@ async def auth_callback(
             detail="No valid WIMS role found in Keycloak token — access denied",
         )
 
+    # ── JIT privilege guard (EP-28 fix) ─────────────────────────────────
+    # Block auto-provisioning of privileged roles via the login callback.
+    # We inspect ALL raw token roles (realm + client), not just the single
+    # resolved role, because _resolve_role_from_token picks the lowest-
+    # privilege match. If default-roles-bfp adds REGIONAL_ENCODER and the
+    # user also has SYSTEM_ADMIN, resolve returns REGIONAL_ENCODER — we
+    # must still catch SYSTEM_ADMIN in the raw list.
+    _raw_token_roles: set[str] = set(payload.get("realm_access", {}).get("roles", []))
+    for _cd in payload.get("resource_access", {}).values():
+        if isinstance(_cd, dict):
+            _raw_token_roles.update(_cd.get("roles") or [])
+    _privileged_in_token = _raw_token_roles & JIT_PRIVILEGED_ROLES
+
+    existing = db.execute(
+        text("SELECT user_id FROM wims.users WHERE keycloak_id = CAST(:kid AS uuid)"),
+        {"kid": keycloak_sub},
+    ).fetchone()
+    if existing is None and _privileged_in_token:
+        _attempted = ", ".join(sorted(_privileged_in_token))
+        logger.error(
+            "JIT provisioning via /api/auth/callback REFUSED for %s: privileged role(s) [%s] "
+            "must be onboarded via the admin API (M12 gate), not a raw Keycloak grant "
+            "(keycloak_id=%s)",
+            preferred_username,
+            _attempted,
+            keycloak_sub,
+        )
+        try:
+            log_system_audit(
+                db,
+                None,
+                "JIT_PROVISION_BLOCKED",
+                "wims.users",
+                None,
+                request,
+                new_values={
+                    "username": preferred_username,
+                    "keycloak_id": keycloak_sub,
+                    "attempted_role": _attempted,
+                    "path": "/api/auth/callback",
+                },
+                result="failure",
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Privileged role requires WIMS admin onboarding; "
+                "auto-provisioning is not permitted for this account."
+            ),
+        )
+
     try:
         result = db.execute(
             text("""
@@ -1095,7 +1150,6 @@ async def auth_callback(
                 VALUES (CAST(:kid AS uuid), :username, :role)
                 ON CONFLICT (keycloak_id) DO UPDATE SET
                     username = EXCLUDED.username,
-                    role = EXCLUDED.role,
                     last_login = now(),
                     updated_at = now()
                 RETURNING user_id
@@ -1120,6 +1174,7 @@ async def auth_callback(
 
 @app.get("/api/user/me")
 async def get_me(
+    request: Request,
     token_payload: Annotated[dict, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
@@ -1147,6 +1202,52 @@ async def get_me(
                 status_code=403,
                 detail="No valid WIMS role found in Keycloak token — access denied",
             )
+        # ── JIT privilege guard (EP-28 fix) ─────────────────────────────
+        # Check ALL raw token roles, not just the resolved primary role.
+        # A token carrying [REGIONAL_ENCODER + SYSTEM_ADMIN] must be blocked
+        # even though _resolve_role_from_token picks REGIONAL_ENCODER first.
+        _raw_me_roles: set[str] = set(token_payload.get("realm_access", {}).get("roles", []))
+        for _cd in token_payload.get("resource_access", {}).values():
+            if isinstance(_cd, dict):
+                _raw_me_roles.update(_cd.get("roles") or [])
+        _privileged_me = _raw_me_roles & JIT_PRIVILEGED_ROLES
+
+        if _privileged_me:
+            _attempted_me = ", ".join(sorted(_privileged_me))
+            logger.error(
+                "JIT provisioning via /api/user/me REFUSED for %s: privileged role(s) [%s] "
+                "must be onboarded via the admin API (M12 gate), not a raw Keycloak grant "
+                "(keycloak_id=%s)",
+                preferred_username,
+                _attempted_me,
+                keycloak_sub,
+            )
+            try:
+                log_system_audit(
+                    db,
+                    None,
+                    "JIT_PROVISION_BLOCKED",
+                    "wims.users",
+                    None,
+                    request,
+                    new_values={
+                        "username": preferred_username,
+                        "keycloak_id": keycloak_sub,
+                        "attempted_role": _attempted_me,
+                        "path": "/api/user/me",
+                    },
+                    result="failure",
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Privileged role requires WIMS admin onboarding; "
+                    "auto-provisioning is not permitted for this account."
+                ),
+            )
         try:
             result = db.execute(
                 text("""
@@ -1154,7 +1255,6 @@ async def get_me(
                     VALUES (CAST(:kid AS uuid), :username, :role)
                     ON CONFLICT (keycloak_id) DO UPDATE SET
                         username = EXCLUDED.username,
-                        role = EXCLUDED.role,
                         last_login = now(),
                         updated_at = now()
                     RETURNING user_id, username, role, assigned_region_id

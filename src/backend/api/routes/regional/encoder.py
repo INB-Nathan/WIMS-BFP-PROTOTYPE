@@ -295,6 +295,7 @@ def get_regional_incident_detail(
                        fi.is_archived
                 FROM wims.fire_incidents fi
                 WHERE fi.incident_id = :iid
+                  AND (fi.is_archived = FALSE OR fi.verification_status = 'VERIFIED')
             """),
             {"iid": incident_id},
         ).fetchone()
@@ -313,6 +314,7 @@ def get_regional_incident_detail(
                 FROM wims.fire_incidents fi
                 WHERE fi.incident_id = :iid
                   AND fi.encoder_id = CAST(:encoder_id AS uuid)
+                  AND (fi.is_archived = FALSE OR fi.verification_status = 'VERIFIED')
             """),
             {"iid": incident_id, "encoder_id": str(encoder_id)},
         ).fetchone()

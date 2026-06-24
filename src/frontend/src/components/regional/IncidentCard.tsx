@@ -5,7 +5,7 @@ import { Archive } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { MetricPill } from "@/components/ui/MetricPill";
 import { InfoBlock } from "@/components/ui/InfoBlock";
-import { formatIncidentDate, displayValue, statusBorderColor } from "@/lib/incident-utils";
+import { formatIncidentDate, statusBorderColor } from "@/lib/incident-utils";
 import { formatClassification } from "@/lib/afor-utils";
 import type { RegionalIncidentListItem } from "@/lib/api";
 
@@ -108,7 +108,12 @@ export function IncidentCard({
         <div className="grid gap-x-6 gap-y-3 border-t border-gray-100 pt-4 text-sm sm:grid-cols-2">
           <InfoBlock label="Responder Type" value={inc.responder_type} />
           <InfoBlock label="Fire Station" value={inc.fire_station_name} />
-          <InfoBlock label="Caller / Contact" value={`${displayValue(inc.caller_name)} / ${displayValue(inc.caller_number)}`} />
+          <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>Caller / Contact</div>
+              <div className="mt-0.5 text-sm font-medium break-words leading-relaxed" style={{ color: 'var(--text-primary)' }}>
+                {[inc.caller_name, inc.caller_number].filter(Boolean).join(' / ')}
+              </div>
+            </div>
           <InfoBlock label="Extent of Damage" value={inc.extent_of_damage} />
         </div>
       </div>

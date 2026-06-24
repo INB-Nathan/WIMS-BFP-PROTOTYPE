@@ -904,6 +904,8 @@ export function IncidentForm({
     if (!formState.responder_type) submitErrors.add('responder_type');
     if (!formState.fire_station_name) submitErrors.add('fire_station_name');
     if (!formState.notification_dt_date) submitErrors.add('notification_dt_date');
+    if (!formState.notification_dt_time) submitErrors.add('notification_dt_time');
+    if (!formState.incident_address?.trim()) submitErrors.add('incident_address');
     if (!formState.province_district?.trim()) submitErrors.add('province_district');
     if (!formState.city_municipality?.trim()) submitErrors.add('city_municipality');
     if (!formState.alarm_level) submitErrors.add('alarm_level');
@@ -1527,6 +1529,27 @@ export function IncidentForm({
 
   // ── JSX helpers ────────────────────────────────────────────────────────────
 
+  // Manila-time today and current time — used for max constraints on date/time inputs
+  const todayManilaDate = (() => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date());
+    return [
+      parts.find((p) => p.type === 'year')?.value ?? '',
+      parts.find((p) => p.type === 'month')?.value ?? '',
+      parts.find((p) => p.type === 'day')?.value ?? '',
+    ].join('-');
+  })();
+
+  const currentManilaTime = (() => {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(new Date());
+    const h = (parts.find((p) => p.type === 'hour')?.value ?? '00').padStart(2, '0');
+    const min = (parts.find((p) => p.type === 'minute')?.value ?? '00').padStart(2, '0');
+    return `${h}:${min}`;
+  })();
+
   const inputCls = 'w-full border border-gray-300 rounded p-2 text-gray-900 font-medium text-sm';
   const errCls = (field: string) =>
     `w-full rounded p-2 text-gray-900 font-medium text-sm border ${fieldErrors.has(field) ? 'border-red-500 bg-red-50' : 'border-gray-300'}`;
@@ -1644,12 +1667,12 @@ export function IncidentForm({
                   Set to today
                 </button>
               </div>
-              <input name="notification_dt_date" type="date" className={errCls('notification_dt_date')} value={formState.notification_dt_date} onChange={handleChange} />
+              <input name="notification_dt_date" type="date" className={errCls('notification_dt_date')} value={formState.notification_dt_date} onChange={handleChange} max={todayManilaDate} />
             </div>
 
             <div data-field-error={fieldErrors.has('notification_dt_time') ? 'true' : undefined}>
               <label className={labelCls}>Time Fire Notification Received{reqMark}</label>
-              <input name="notification_dt_time" type="time" className={errCls('notification_dt_time')} value={formState.notification_dt_time} onChange={handleChange} />
+              <input name="notification_dt_time" type="time" className={errCls('notification_dt_time')} value={formState.notification_dt_time} onChange={handleChange} max={formState.notification_dt_date === todayManilaDate ? currentManilaTime : undefined} />
             </div>
 
             <div data-field-error={fieldErrors.has('region') ? 'true' : undefined}>
