@@ -30,6 +30,14 @@ export default function HomePage() {
   const { user, loading: authLoading } = useAuth();
   const role = (user as { role?: string } | null)?.role ?? null;
   const isValidator = role === 'NATIONAL_VALIDATOR';
+  const auditHref =
+    role === 'SYSTEM_ADMIN'
+      ? '/admin/audit'
+      : role === 'NATIONAL_VALIDATOR'
+      ? '/dashboard/validator/audit'
+      : role === 'REGIONAL_ENCODER'
+      ? '/dashboard/regional/audit'
+      : null;
 
   const [ops, setOps] = useState<Operation[]>([]);
   const [opsLoading, setOpsLoading] = useState(true);
@@ -123,13 +131,15 @@ export default function HomePage() {
             />
             <Search className="w-4 h-4 text-gray-400" />
           </div>
-          <Link
-            href={isValidator ? '/dashboard/validator/audit' : '/dashboard/regional/audit'}
-            className="text-sm font-bold text-white px-5 py-2 rounded-lg transition-colors"
-            style={{ backgroundColor: '#16a34a' }}
-          >
-            View All Logs
-          </Link>
+          {auditHref && (
+            <Link
+              href={auditHref}
+              className="text-sm font-bold text-white px-5 py-2 rounded-lg transition-colors"
+              style={{ backgroundColor: '#16a34a' }}
+            >
+              View All Logs
+            </Link>
+          )}
         </div>
       </div>
 
