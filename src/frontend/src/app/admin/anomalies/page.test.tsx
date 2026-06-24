@@ -507,8 +507,9 @@ describe('M8: Anomaly Detection page — offline-aware read caching (T11)', () =
     await waitFor(() => {
       expect(mockFetchAnomaliesOfflineAware).toHaveBeenCalled();
     });
-    // Stale cache banner should be visible
-    expect(screen.getByText(/Showing cached data/i)).toBeInTheDocument();
+    // Stale cache banner should be visible (use findByText to wait for the
+    // async mockResolvedValue to settle and the React state to update)
+    expect(await screen.findByText(/Showing cached data/i)).toBeInTheDocument();
     // Underlying data should still render from the cached response
     await waitFor(() => {
       expect(screen.getByText('BULK DELETE')).toBeInTheDocument();

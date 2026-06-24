@@ -318,3 +318,18 @@ Third batch audit. V14 has 9 L1+L2 reqs (catalog labels it "Data Protection").
   `AuthContext.test.tsx` (RED→GREEN). Frontend lint clean (0 errors).
   `fetchSession` on next online call overwrites minimal cache with full
   user from `/api/auth/session`.
+
+### [2026-06-24] Disabled-user password-reset tests (local/dev only)
+
+- **What:** Two integration tests verify disabled users cannot trigger
+  password reset emails (`test_disabled_user_cannot_trigger_password_reset`)
+  and cannot use pre-issued reset tokens
+  (`test_disabled_user_preissued_token_does_not_present_password_form`).
+- **Evidence:** `src/backend/tests/integration/test_keycloak_password_reset.py`
+- **CI status:** Tests skip in normal CI — no Keycloak or MailHog services
+  in the backend CI job (only postgres+redis). Full-stack regression guard
+  requires a dedicated CI job.
+- **Risk:** REQUIRES-VERIFICATION-IN-PROD
+- **ASVS mapping:** V2.4 anti-automation (account recovery abuse evidence).
+  Not recorded as a new `asvs-l2-state.json` key — requirement ID is
+  version-specific and V2.5.x does not exist in ASVS 5.0.
