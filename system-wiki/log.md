@@ -5071,3 +5071,22 @@ Spec: `docs/superpowers/specs/2026-06-23-live-notifications-design.md` (v2). Pla
   - **Deleted (4):** `docs/agents/wiki-maintenance.md` (→ `system-wiki/AGENTS.md`), `docs/agents/coding-standards.md` (→ `backend/AGENTS.md` + `frontend/AGENTS.md`), `docs/agents/platform-notes.md` (→ `infra/AGENTS.md`), `docs/agents/domain.md` (→ `docs/AGENTS.md`).
   - **Kept (4):** `docs/agents/gotchas.md` (referenced from root AGENTS.md), `docs/agents/ci-preflight.md` (detailed CI reference), `docs/agents/issue-tracker.md` and `docs/agents/triage-labels.md` (referenced from `docs/AGENTS.md`).
 - **Design rationale:** Root AGENTS.md now answers "how to think, where things are, what must never break, where to go next." Subsystem AGENTS.md files own domain-specific rules. Detailed operational docs remain in docs/agents/ for reference depth without bloating the entry-point files.
+
+## 2026-06-24 — AGENTS.md structure tightened after subsystem split
+
+- **Scope:** Follow-up cleanup to the root/subsystem AGENTS.md split. Root `AGENTS.md` now stays focused on behavior, repo navigation, architecture constraints, context loading, and final-response checks.
+- **Changes:** Replaced the root build/test command table with a short verification section that points agents to subsystem AGENTS files and `docs/agents/ci-preflight.md`; corrected the `src/postgres-init/` SQL bootstrap count to 91 after verifying the directory in `AGENTS.md` and `CLAUDE.md`; clarified repository-root-relative paths in `src/backend/AGENTS.md`, `src/frontend/AGENTS.md`, and `infra/AGENTS.md`.
+- **No FRS impact:** This is agent-instruction/documentation structure only; no product behavior, schema, API, or acceptance criteria changed.
+
+## 2026-06-24 — Root AGENTS.md size limit and stack AGENTS relocation
+
+- **Scope:** Follow-up cleanup to keep the top-level agent instruction file concise and align subsystem AGENTS files with real repository directories.
+- **Changes:** Added a hard 120-line maximum to root `AGENTS.md`, with explicit routing rules: keep root concise, move subsystem-specific rules into subsystem AGENTS files, and move detailed procedures into `docs/` or `system-wiki/`. Moved the stack/infrastructure instructions from artificial `infra/AGENTS.md` to `src/AGENTS.md`, then removed the empty `infra/` directory. Updated root context loading and verification links to point to `src/AGENTS.md`.
+- **No FRS impact:** Agent-instruction structure only; no product behavior, schema, API, or acceptance criteria changed.
+
+## [2026-06-25] feat: operations linked civilian reports — tracking copy + wiki updates
+
+- **Scope:** Updated the civilian tracking page `LINKED` status copy from "Linked to Another Report" (Filipino sub-text) to "Linked to Active BFP Operation" with neutral English sub-text "Your report has been linked to an active BFP operation." Added a TDD test asserting the new heading and sub-heading, and that "another report" is absent. Updated system-wiki route-map and api-route-map with Operations console details and linked-report endpoint references.
+- **Files changed:** `src/frontend/src/app/tracking/page.tsx`, `src/frontend/src/app/tracking/page.test.tsx`, `system-wiki/frontend/route-map.md`, `system-wiki/backend/api-route-map.md`.
+- **Tests:** 3/3 tracking tests pass (1 new LINKED-copy test + 2 existing).
+- **Deviation:** None from the plan.
