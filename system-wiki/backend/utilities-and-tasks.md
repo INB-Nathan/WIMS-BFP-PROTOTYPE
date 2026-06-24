@@ -193,6 +193,8 @@ Renders a Jinja2 HTML template and sends it via `services.email.sender.send_emai
 
 **Returns:** `{"ok": True, "to": ..., "template": ...}` on success.
 
+**Production transport (2026-06-24):** Brevo SMTP relay on port 2525 (`smtp-relay.brevo.com`); STARTTLS=true, AUTH required. Port 2525 is not in the DigitalOcean Droplet outbound block list (which is 25/465/587). Local dev continues to use MailHog on port 1025 with no auth and no TLS. See [[services#email-service-m13b]] for the full env-var scoping (6 keys read by `sender.py`; 5 Keycloak-only).
+
 **Deferred triggers** (not wired in this PR):
 - Keycloak account lockout (#138)
 - Weekly analytics report Celery beat (#176)
