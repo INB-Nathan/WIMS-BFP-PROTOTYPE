@@ -1,8 +1,8 @@
 # Custom Keycloak Email Theme (WIMS-BFP Branding) Design — v2
 
 **Date:** 2026-06-24
-**Status:** Design (v2 — corrections after v1 meta-analysis)
-**Supersedes:** v1 (commit `8b46dee`) — high-level architecture preserved, all implementation details corrected after a 2-pass meta-analysis verified against the actual Keycloak 24.0.0 source.
+**Status:** Design (v2.1 — patches after v2 meta-analysis)
+**Supersedes:** v2 (commit `62d281b`) — high-level architecture and structure preserved; v2.1 patches 4 FreeMarker-correctness and 2 operational-wording issues identified in the v2 meta-analysis.
 **Pattern:** Add `email/` subdirectory to the existing `src/keycloak/themes/wims-bfp/` theme; 9 FreeMarker templates (3 HTML + 3 text + 1 shared HTML wrapper + 1 theme.properties + 1 messages bundle) + 1 logo file + 1 realm JSON line.
 **Scope:** Keycloak transactional emails only (password reset, email verification, execute-actions). Does **not** touch the 7 backend app-level Jinja2 templates in `src/backend/services/email/templates/`. Does **not** touch the login theme. Does **not** touch the Brevo SMTP setup.
 **Reviewer basis:** Verified against the actual Keycloak 24.0.0 source — `themes/src/main/resources/theme/base/email/` (directory structure, `messages/messages_en.properties`, `html/template.ftl`, `html/password-reset.ftl`, `html/executeActions.ftl`, `text/password-reset.ftl`), `services/src/main/java/org/keycloak/email/freemarker/FreeMarkerEmailTemplateProvider.java` (template lookup, exception behavior, context variable injection). Local repo state verified — `src/keycloak/themes/wims-bfp/login/` (16 files, no `email/`), `src/keycloak/bfp-realm.json` and `src/keycloak/import/bfp-realm.json` (no current `loginTheme` or `emailTheme` field), `src/backend/services/email/templates/password_reset.html.j2` (visual reference for the new templates), `src/docker-compose.yml:60` (theme volume mount).
@@ -36,7 +36,7 @@ The v1 self-review missed all 14. The meta-analyses caught them all. v2's self-r
 
 ## Problem
 
-After the email-provider switch (PR #452, merged at `e4c53d2`), the SMTP transport works end-to-end. V1 (direct send), V1b (Celery task), V2 (Keycloak password reset — verified by the user at 2026-06-24 17:00 PST, email arrived at `nathancabrales10@gmail.com` even if it landed in spam), and V4 (idempotency) all pass.
+After the email-provider switch (PR #452, merged at `e4c53d2`), the SMTP transport works end-to-end. V1 (direct send), V1b (Celery task), V2 (Keycloak password reset — verified by the user at 2026-06-24 17:00 PST, email arrived at the test user's Gmail inbox even if it landed in spam), and V4 (idempotency) all pass.
 
 But the **Keycloak transactional emails** (password reset, email verification, execute-actions) use **Keycloak's built-in default email templates** — generic-looking HTML with no WIMS-BFP branding. The user-visible result: a password-reset email arrives in the user's inbox, but the layout/colors don't match the rest of the WIMS-BFP system (the 7 backend app-level templates at `src/backend/services/email/templates/` are all WIMS-BFP-branded with maroon `#8B0000`, "Bureau of Fire Protection" tagline, table layout, 600px max width).
 
@@ -146,7 +146,7 @@ src/keycloak/themes/wims-bfp/email/
     └── executeActions.ftl              (plain text, ~5 lines)
 ```
 
-Total: 9 new files + 1 copied file = 10 files total in the new subdirectory.
+Total: 7 FreeMarker templates (4 HTML + 3 text) + 1 theme.properties + 1 messages_en.properties + 1 PNG logo = 10 files total in the new subdirectory.
 
 #### S1.1 — `src/keycloak/themes/wims-bfp/email/theme.properties`
 
@@ -231,8 +231,13 @@ Key v2 fixes vs. v1:
 
 ```ftl
 <#import "template.ftl" as layout>
+<#-- displayName: null-safe + empty-string-safe fallback. The <#assign> + ?then pattern
+     handles BOTH the null/missing case AND the empty-string case (FreeMarker's !
+     operator only handles null/missing, not empty strings). The result is then
+     HTML-escaped with ?html to prevent XSS in the rendered email. -->
+<#assign displayName = (user.firstName?has_content)?then(user.firstName, user.username)>
 <@layout.emailLayout>
-  <p style="margin:0 0 16px;font-size:18px;font-weight:bold;color:#8B0000;">Hello, ${(user.firstName)!user.username?html}!</p>
+  <p style="margin:0 0 16px;font-size:18px;font-weight:bold;color:#8B0000;">Hello, ${displayName?html}!</p>
   <p style="margin:0 0 16px;font-size:16px;color:#333333;line-height:1.6;">
     We received a request to reset your WIMS-BFP account password. Click the button below to set a new password.
   </p>
@@ -252,10 +257,10 @@ Key v2 fixes vs. v1:
 </@layout.emailLayout>
 ```
 
-Key v2 fixes vs. v1:
+Key v2.1 fixes vs. v2:
+- The greeting uses the explicit `<#assign displayName>` pattern with `?has_content` + `?then` (handles BOTH null and empty string) and `?html` escaping applied to the final value. v2's `${(user.firstName)!user.username?html}` had a FreeMarker operator-precedence bug: `?html` (a built-in) has higher precedence than `!` (the default-value operator), so the `?html` was actually only escaping the fallback (`user.username`), not the primary value (`user.firstName`). This is a real XSS vector.
 - The expiration expression is `${linkExpirationFormatter(linkExpiration)}` (v1 had `${linkExpirationFormatter(link.expirationTime)}` — wrong context-var path)
-- The link is escaped with `?html` (XSS prevention)
-- `user.firstName` is null-safe with fallback to `user.username`, and HTML-escaped
+- The link is escaped with `?html` (XSS prevention on the URL attribute)
 
 #### S1.6 — `src/keycloak/themes/wims-bfp/email/html/email-verification.ftl`
 
@@ -263,8 +268,9 @@ Same structure as S1.5, with the body content changed to verification language a
 
 ```ftl
 <#import "template.ftl" as layout>
+<#assign displayName = (user.firstName?has_content)?then(user.firstName, user.username)>
 <@layout.emailLayout>
-  <p style="margin:0 0 16px;font-size:18px;font-weight:bold;color:#8B0000;">Hello, ${(user.firstName)!user.username?html}!</p>
+  <p style="margin:0 0 16px;font-size:18px;font-weight:bold;color:#8B0000;">Hello, ${displayName?html}!</p>
   <p style="margin:0 0 16px;font-size:16px;color:#333333;line-height:1.6;">
     Please verify your email address to complete your WIMS-BFP account setup. Click the button below to confirm this email is yours.
   </p>
@@ -290,8 +296,9 @@ Note the filename: `executeActions.ftl` (camelCase, no hyphen) — verified agai
 
 ```ftl
 <#import "template.ftl" as layout>
+<#assign displayName = (user.firstName?has_content)?then(user.firstName, user.username)>
 <@layout.emailLayout>
-  <p style="margin:0 0 16px;font-size:18px;font-weight:bold;color:#8B0000;">Hello, ${(user.firstName)!user.username?html}!</p>
+  <p style="margin:0 0 16px;font-size:18px;font-weight:bold;color:#8B0000;">Hello, ${displayName?html}!</p>
   <p style="margin:0 0 16px;font-size:16px;color:#333333;line-height:1.6;">
     You have one or more required actions on your WIMS-BFP account. Click the button below to review and complete them.
   </p>
@@ -326,7 +333,8 @@ Plain-text version. Cannot be styled; just readable text with the URL on its own
 
 ```ftl
 <#ftl output_format="plainText">
-Hello ${(user.firstName)!user.username},
+<#assign displayName = (user.firstName?has_content)?then(user.firstName, user.username)>
+Hello ${displayName},
 
 We received a request to reset your WIMS-BFP account password. Click the link below to set a new password.
 
@@ -344,7 +352,8 @@ This is an automated message. Do not reply to this email.
 
 ```ftl
 <#ftl output_format="plainText">
-Hello ${(user.firstName)!user.username},
+<#assign displayName = (user.firstName?has_content)?then(user.firstName, user.username)>
+Hello ${displayName},
 
 Please verify your email address to complete your WIMS-BFP account setup. Click the link below to confirm this email is yours.
 
@@ -362,9 +371,10 @@ This is an automated message. Do not reply to this email.
 
 ```ftl
 <#ftl output_format="plainText">
-Hello ${(user.firstName)!user.username},
+<#assign displayName = (user.firstName?has_content)?then(user.firstName, user.username)>
+Hello ${displayName},
 
-You have one or more required actions on your WIMS-BFP account. Click the link below to review and complete them.
+You have one or more required actions on your WIMS-BFP account. Click the button below to review and complete them.
 
 <#if requiredActions?? && requiredActions?size gt 0>Required actions:
 <#list requiredActions as reqAction>- ${msg("requiredAction.${reqAction}")}
@@ -401,15 +411,29 @@ The existing Keycloak DB on the VPS was imported from the OLD (no-`emailTheme`) 
 
 ```bash
 ssh -i ~/.ssh/id_ed25519_pi root@165.22.101.73
-cd /opt/wims-bfp
-docker exec wims-keycloak /opt/keycloak/bin/kcadm.sh config credentials \
-  --server http://localhost:8080/auth --realm master \
-  --user "$KEYCLOAK_ADMIN" --password "$KEYCLOAK_ADMIN_PASSWORD"
+cd /opt/wims-bfp/src
+
+# Source the prod env so the kcadm credentials are available
+set -a && . .env.production && set +a
+
+# 1) Authenticate the kcadm session to the master realm
+docker exec \
+  -e KEYCLOAK_ADMIN \
+  -e KEYCLOAK_ADMIN_PASSWORD \
+  wims-keycloak /opt/keycloak/bin/kcadm.sh config credentials \
+    --server http://localhost:8080/auth --realm master \
+    --user "$KEYCLOAK_ADMIN" --password "$KEYCLOAK_ADMIN_PASSWORD"
+
+# 2) Apply the emailTheme update to the bfp realm
 docker exec wims-keycloak /opt/keycloak/bin/kcadm.sh update realms/bfp \
   -s emailTheme=wims-bfp
+
+# 3) Verify the update applied
 docker exec wims-keycloak /opt/keycloak/bin/kcadm.sh get realms/bfp -r master \
   | python3 -c 'import sys,json; d=json.load(sys.stdin); print("emailTheme:", d.get("emailTheme"))'
 ```
+
+**Why source `.env.production` first:** the kcadm credentials (`KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD`) live in the env file. If the host shell has not sourced it, the `-e KEYCLOAK_ADMIN` and `-e KEYCLOAK_ADMIN_PASSWORD` flags above pass empty strings, and kcadm fails with an auth error. Sourcing the env file first makes the credentials available for `docker exec -e` to forward.
 
 Expected output: `emailTheme: wims-bfp`. If `None` is shown, the update did not apply; investigate why (likely the kcadm credentials didn't work).
 
@@ -484,8 +508,8 @@ Per AGENTS.md, non-trivial changes require wiki updates. Update:
 2. Update the live realm via kcadm (S3).
 3. Restart Keycloak (S4, `restart keycloak` first; if needed, `up -d --force-recreate keycloak`).
 4. Wait ~30s for Keycloak to become healthy.
-5. Trigger a password reset for `nathan_encoder` (or any test user): visit `https://wimsbfp.tech/auth/realms/bfp/login-actions/reset-credentials`, enter their email.
-6. Check the email arrives at the user's inbox.
+5. Trigger a password reset for the test user: visit `https://wimsbfp.tech/auth/realms/bfp/login-actions/reset-credentials`, enter a real test email address (e.g. `test-user@example.com` if using Mailtrap/Mailhog, or the operator's own Gmail for live verification).
+6. Check the email arrives at the test inbox.
 7. **Confirm the new template is in use:**
    - Email subject: `[WIMS-BFP] Reset your password` (NOT Keycloak's default `Reset password`)
    - Email source has BOTH `Content-Type: text/html; ...` AND `Content-Type: text/plain; ...` parts
@@ -533,13 +557,14 @@ All 4 blocking gates pass. (No Python or test change in this spec, so the test s
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| FreeMarker template syntax error | Low (templates are simple) | **High — email fails to send** (not graceful fallback) | Validate templates with a local Keycloak test before deploy; FreeMarker errors are logged at startup, container restart surfaces them |
+| FreeMarker template syntax error | Low (templates are simple) | **High — email fails to send** (not graceful fallback) | Validate templates with a local Keycloak test before deploy; **FreeMarker render errors are surfaced in Keycloak logs when the email flow is triggered** (not at startup — the templates are not rendered until the user requests a password reset / verification / etc.) |
 | Wrong FreeMarker context var name | Low (each var is verified in this spec) | High — `?` substitutions return empty strings; layout breaks | R6 (null-safety) and R7 (`?html` escaping) catch most cases; manual V1-V3 verification catches the rest |
 | Keycloak 24 caches the theme aggressively | Medium (documented behavior) | Medium — new theme not picked up after restart | Use `restart` first; fall back to `up -d --force-recreate` |
 | `bfp-logo.png` not loaded by email client (security policy) | Medium (Gmail often blocks external images) | Low — broken image, still readable with `alt` text | The `alt="BFP"` text ensures the brand is communicated even if the image is blocked |
-| The kcadm `emailTheme` update fails silently (e.g. wrong credentials) | Low | Medium — JSON says `wims-bfp` but live realm is unset | The V1 step's verification (`kcadm.sh get realms/bfp | python3 -c 'print("emailTheme:", d.get("emailTheme"))'`) catches this; expect `emailTheme: wims-bfp` (not `None`) |
+| The kcadm `emailTheme` update fails silently (e.g. wrong credentials) | Low | Medium — JSON says `wims-bfp` but live realm is unset | The V1 step's verification (`kcadm.sh get realms/bfp | python3 -c 'print("emailTheme:", d.get("emailTheme"))'`) catches this; expect `emailTheme: wims-bfp` (not `None`). v2.1 fixes the underlying fragility by sourcing `.env.production` first so the `-e KEYCLOAK_ADMIN` and `-e KEYCLOAK_ADMIN_PASSWORD` flags don't pass empty strings |
 | Email lands in spam | Likely on first send | Medium | Same as the email-provider switch: warm up the domain reputation, ask Gmail recipients to mark "not spam" once, monitor `p=none` DMARC reports |
-| User data in `user.firstName` is empty | Common (especially for OAuth-federated users) | Low — `?html` escaping handles it, fallback to `user.username` displays the username | R7 (null-safety) and the `(user.firstName)!user.username` pattern |
+| User data in `user.firstName` is empty (OAuth-federated users often have no first name) | Common | Low — `?has_content` + `?then` handles both null and empty string, fallback to `user.username` displays the username | R7 (null-safety) and the `<#assign displayName = (user.firstName?has_content)?then(user.firstName, user.username)>` pattern |
+| FreeMarker operator-precedence bug in greeting expression | High in v2, **FIXED in v2.1** | High — unescaped user data in HTML body = XSS vector | v2.1 uses the explicit `<#assign displayName>` pattern with `?html` applied to the final value, not the default. v2's `${(user.firstName)!user.username?html}` was buggy because `?html` (a built-in) has higher precedence than `!` (the default-value operator), so the `?html` was only escaping the fallback (`user.username`), not the primary value (`user.firstName`). |
 | Theme directory structure mismatch (e.g. `email/html/` vs flat `email/`) | **High in v1, FIXED in v2** | High — Keycloak doesn't find templates | v2 uses the exact Keycloak 24.0.0 base-theme structure (verified against `keycloak/24.0.0/.../email/`). The structure is non-negotiable. |
 
 ---
