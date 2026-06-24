@@ -1543,7 +1543,8 @@
   },
   "eventsEnabled": false,
   "eventsListeners": [
-    "jboss-logging"
+    "jboss-logging",
+    "wims-audit-event-listener"
   ],
   "enabledEventTypes": [],
   "adminEventsEnabled": false,

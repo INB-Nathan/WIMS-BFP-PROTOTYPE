@@ -113,3 +113,159 @@ def test_failed_login_event_returns_202(client_no_redis):
     assert res.json()["event_type"] == "FAILED_LOGIN"
     assert mock_db.execute.called
     assert mock_db.commit.called
+
+
+# ====== KC Event SPI tests (POST /api/auth/keycloak-event) ======
+
+def _make_client(secret: str = VALID_SECRET) -> tuple[TestClient, MagicMock]:
+    """Return a TestClient with get_db mocked and _KC_SECRET patched to secret."""
+    mock_db = MagicMock()
+    mock_db.execute.return_value = MagicMock()
+
+    def _mock_get_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = _mock_get_db
+    client = TestClient(app, raise_server_exceptions=False)
+    return client, mock_db
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_overrides():
+    yield
+    app.dependency_overrides.pop(get_db, None)
+
+
+# ---------------------------------------------------------------------------
+# Bearer auth tests
+# ---------------------------------------------------------------------------
+
+
+def test_missing_authorization_header_returns_401():
+    client, _ = _make_client()
+    with patch.object(security_events_module, "_KC_SECRET", VALID_SECRET):
+        r = client.post(KC_EVENT_URL, json={"event_type": "LOGIN_ERROR"})
+    assert r.status_code == 401
+
+
+def test_wrong_secret_returns_401():
+    client, _ = _make_client()
+    with patch.object(security_events_module, "_KC_SECRET", VALID_SECRET):
+        r = client.post(
+            KC_EVENT_URL,
+            json={"event_type": "LOGIN_ERROR"},
+            headers={"Authorization": "Bearer wrong-secret"},
+        )
+    assert r.status_code == 401
+
+
+def test_unset_backend_secret_fail_closed():
+    """If WIMS_KEYCLOAK_EVENT_SECRET is blank at import, every request → 401."""
+    client, _ = _make_client()
+    with patch.object(security_events_module, "_KC_SECRET", ""):
+        r = client.post(
+            KC_EVENT_URL,
+            json={"event_type": "LOGIN_ERROR"},
+            headers={"Authorization": f"Bearer {VALID_SECRET}"},
+        )
+    assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Event mapping + audit write tests
+# ---------------------------------------------------------------------------
+
+
+def test_valid_secret_login_error_returns_202_failed_login():
+    client, mock_db = _make_client()
+    with (
+        patch.object(security_events_module, "_KC_SECRET", VALID_SECRET),
+        patch("api.routes.security_events.log_system_audit") as mock_audit,
+    ):
+        r = client.post(
+            KC_EVENT_URL,
+            json={
+                "event_type": "LOGIN_ERROR",
+                "username": "testuser",
+                "error": "invalid_user_credentials",
+            },
+            headers={"Authorization": f"Bearer {VALID_SECRET}"},
+        )
+
+    assert r.status_code == 202
+    data = r.json()
+    assert data["action_type"] == "FAILED_LOGIN"
+    mock_audit.assert_called_once()
+    call_kwargs = mock_audit.call_args
+    # action_type and result are positional (2nd and 3rd args after db)
+    assert call_kwargs[0][2] == "FAILED_LOGIN"  # action_type
+    assert call_kwargs[1].get("result") == "failure"
+    nv = call_kwargs[1].get("new_values", {})
+    assert nv.get("source") == "keycloak_spi"
+    assert nv.get("username") == "testuser"
+
+
+def test_user_id_is_always_none():
+    """log_system_audit must receive user_id=None (no account-existence lookup)."""
+    client, mock_db = _make_client()
+    with (
+        patch.object(security_events_module, "_KC_SECRET", VALID_SECRET),
+        patch("api.routes.security_events.log_system_audit") as mock_audit,
+    ):
+        client.post(
+            KC_EVENT_URL,
+            json={"event_type": "UPDATE_PASSWORD", "username": "admin"},
+            headers={"Authorization": f"Bearer {VALID_SECRET}"},
+        )
+
+    mock_audit.assert_called_once()
+    # Second positional arg after db is user_id
+    assert mock_audit.call_args[0][1] is None
+
+
+def test_kc_event_unknown_event_type_returns_422():
+    client, _ = _make_client()
+    with patch.object(security_events_module, "_KC_SECRET", VALID_SECRET):
+        r = client.post(
+            KC_EVENT_URL,
+            json={"event_type": "SOME_UNKNOWN_EVENT"},
+            headers={"Authorization": f"Bearer {VALID_SECRET}"},
+        )
+    assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# All four event type mappings
+# ---------------------------------------------------------------------------
+
+_EXPECTED_MAPPINGS = [
+    ("LOGIN_ERROR", "FAILED_LOGIN", "failure"),
+    ("USER_DISABLED_BY_BRUTE_FORCE", "FAILED_LOGIN", "failure"),
+    ("UPDATE_PASSWORD", "PASSWORD_RESET", "success"),
+    ("RESET_PASSWORD_EMAIL", "PASSWORD_RESET", "success"),
+]
+
+
+@pytest.mark.parametrize("kc_event,wims_action,expected_result", _EXPECTED_MAPPINGS)
+def test_four_events_round_trip(kc_event: str, wims_action: str, expected_result: str):
+    """Each Keycloak EventType maps to the correct WIMS action_type and result."""
+    client, _ = _make_client()
+    with (
+        patch.object(security_events_module, "_KC_SECRET", VALID_SECRET),
+        patch("api.routes.security_events.log_system_audit") as mock_audit,
+    ):
+        r = client.post(
+            KC_EVENT_URL,
+            json={"event_type": kc_event, "username": "u", "keycloak_event_id": "kc-id-1"},
+            headers={"Authorization": f"Bearer {VALID_SECRET}"},
+        )
+
+    assert r.status_code == 202, f"Expected 202 for {kc_event}, got {r.status_code}"
+    assert r.json()["action_type"] == wims_action
+    mock_audit.assert_called_once()
+    args, kwargs = mock_audit.call_args
+    assert args[2] == wims_action
+    assert kwargs.get("result") == expected_result
+    nv = kwargs.get("new_values", {})
+    assert nv.get("keycloak_event_id") == "kc-id-1"
+
