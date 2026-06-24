@@ -18,6 +18,21 @@
 - **Decrypt-failure policy:** Log CRITICAL, fields stay NULL (fail-closed on read, same as `_decrypt_sensitive_details`)
 - **Not in scope:** `security_threat_logs.xai_narrative` (deferred)
 
+## [2026-06-24] feat(nginx): password-reset POST rate limit (1r/m burst=2 per IP)
+
+- **Scope:** Added a dedicated nginx `limit_req_zone` for the Keycloak password-reset
+  endpoint `/auth/realms/bfp/login-actions/reset-credentials`, separated from the
+  shared `keycloak_api` zone so reset abuse does not degrade login/admin console traffic.
+- **Mechanism:** `map $request_method $reset_post_only` — POST is keyed by
+  `$realip_remote_addr`, GET/other methods produce empty string (not counted).
+- **Rate:** 1r/m burst=2 — legitimate user submits once, never hits limit.
+- **Files modified:**
+  - `src/nginx/nginx.conf` — Insert A + Insert B in 2 server blocks (HTTP + HTTPS)
+  - `src/nginx/nginx.ci.conf` — Insert A + Insert B in 1 server block (CI HTTP)
+  - `src/nginx/nginx.local.conf` — Insert A + Insert B in 2 server blocks (HTTP + HTTPS)
+- **Spec:** `docs/superpowers/specs/2026-06-24-password-reset-abuse-detection-design.md` (v2.1)
+- **Commit:** `0232a10e` on `feat/password-reset-abuse-detection`
+
 ## [2026-06-23] ASVS L2 V16/V13/V14 Findings Remediation (6 findings closed in 1 batch)
 
 - **Scope:** Remediated 6 ASVS L2 findings (3 NON-COMPLIANT + 3 NOT-VERIFIED) identified in the prior batch audit. Spec: `docs/superpowers/specs/2026-06-23-asvs-findings-remediation-design.md` (user-approved, 2 rounds of pre-flight review).
