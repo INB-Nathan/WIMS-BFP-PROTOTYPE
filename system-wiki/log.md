@@ -1,3 +1,18 @@
+## [2026-06-25] fix(rp20): direct-insert audit trigger on wims.fire_incidents (WS-C)
+
+- **Scope:** RP-20 non-repudiation gap — an INSERT into `wims.fire_incidents` executed via psql or admin tool (bypassing the application session) was not recorded in `wims.system_audit_trails`. Closed by a PostgreSQL AFTER INSERT trigger that fires only when the `app.audit_source` GUC is absent/not `'app'`.
+- **Files created:**
+  - `src/postgres-init/63_fire_incidents_insert_audit_trigger.sql` — idempotent SECURITY DEFINER trigger function + `DROP TRIGGER IF EXISTS` + `CREATE TRIGGER`
+  - `src/backend/tests/test_direct_insert_audit_trigger.py` — 5 tests: insert w/o GUC → DIRECT_DB_INSERT row; insert w/ GUC → no row; idempotency replay; source-inspection for GUC in `get_db()` and `get_db_with_rls()`
+- **Files modified:**
+  - `src/backend/database.py` — `get_db()` now executes `SET LOCAL app.audit_source = 'app'`
+  - `src/backend/auth.py` — `get_db_with_rls()` now executes `SET LOCAL app.audit_source = 'app'`
+  - `src/backend/services/suricata_ingestion.py` — `ingest_eve_file()` now sets GUC before batch loop
+  - `src/backend/tasks/suricata_redis.py` — `subscribe_suricata_alerts()` now sets GUC after `set_rls_context`; `from sqlalchemy import text` added at module level
+  - `src/backend/main.py` — `"63_fire_incidents_insert_audit_trigger.sql"` added to `_SQL_FILE_SCHEMA_PATCHES` allowlist and called in `apply_schema_patches()`
+- **Wiki updated:** `functional-bug-register.md` (F-13), `security-baseline.md` (Direct-Insert Detection section), `admin-hub.md` (DIRECT_DB_INSERT action type), `frs-codebase-gap-register.md` (RP-20 entry)
+- **Audit action:** `DIRECT_DB_INSERT` in `wims.system_audit_trails`, `record_id = incident_id`, `new_values = {incident_id, region_id}` (IDs only, no PII), `result = 'success'`, `user_id = NULL`
+
 ## [2026-06-23] feat(#429): encrypt witness PII and AI narratives at rest
 
 - **Scope:** Witness PII (`citizen_reports.witness_name`, `witness_phone`, `device_id`, `ip_hash`) and AI narratives (`fire_incidents.ai_narrative`) were stored as plaintext. Extended the AES-256-GCM encrypted-blob pattern from `incident_sensitive_details` to cover remaining PII at rest.

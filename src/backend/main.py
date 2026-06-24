@@ -166,6 +166,7 @@ _SQL_FILE_SCHEMA_PATCHES = {
     "61_check_constraints.sql",
     "62_audit_correlation_columns.sql",
     "63_ivh_ip_address.sql",
+    "63_fire_incidents_insert_audit_trigger.sql",
     "64_consent_log_ip_hash.sql",
 }
 
@@ -583,6 +584,12 @@ def apply_schema_patches() -> None:
             db,
             "63_ivh_ip_address.sql",
             "ip_address column on incident_verification_history",
+        )
+        # Migration 63 (RP-20): direct-insert detection trigger on fire_incidents
+        _apply_postgres_init_sql_patch(
+            db,
+            "63_fire_incidents_insert_audit_trigger.sql",
+            "DIRECT_DB_INSERT trigger on wims.fire_incidents",
         )
         # Migration 64: stop storing raw IP in consent_log (PR #428, D5 privacy)
         _apply_postgres_init_sql_patch(

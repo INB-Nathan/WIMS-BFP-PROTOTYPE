@@ -58,6 +58,15 @@ FRS Module 4 requires SHA-256 data hashes, append-only audit logs, and immutable
 - `wims.system_audit_trails` now has `old_values` and `new_values` JSONB columns (GH #242, migration `60_audit_forensics_columns.sql`) for forensic completeness per ASVS V7.3.1.
 - `log_system_audit()` accepts optional `old_values`/`new_values` params; UPDATE call sites in `users.py` and `config.py` populate them. Non-JSON-serializable types (UUID, datetime, Decimal) are safely coerced via `default=str`.
 
+### Direct-Insert Detection (RP-20, 2026-06-25)
+
+`wims.fire_incidents` is now guarded against undetected out-of-band INSERTs:
+
+- **Trigger:** `trg_detect_direct_fire_incident_insert` (AFTER INSERT, SECURITY DEFINER) on `wims.fire_incidents` — deployed via `63_fire_incidents_insert_audit_trigger.sql` and applied on every restart by `apply_schema_patches()`.
+- **GUC guard:** Every application session (`get_db()`, `get_db_with_rls()`, Suricata ingestion paths) executes `SET LOCAL app.audit_source = 'app'` at the start of its transaction. The trigger checks `current_setting('app.audit_source', true)`; if `'app'`, it returns immediately. If absent or any other value, the trigger inserts a `DIRECT_DB_INSERT` row into `wims.system_audit_trails` with `record_id = NEW.incident_id` and `new_values = {incident_id, region_id}` (IDs only — no PII).
+- **`SECURITY DEFINER` + `SET search_path`:** The function runs as its definer (postgres), bypassing RLS on `system_audit_trails` so the audit INSERT always succeeds regardless of which role performed the direct INSERT. `SET search_path = wims, pg_catalog` prevents search_path injection.
+- **Action type `DIRECT_DB_INSERT` is visible** on the `/admin/audit` page with all standard filters.
+
 ## IDS/XAI
 FRS Modules 7 and 8 define Suricata network monitoring and Qwen2.5-3B explainability. Relevant code/config: `src/suricata/`, admin security-log routes, and AI service paths. Real-time security event push via SSE (`GET /api/events/stream`) notifies SYSTEM_ADMIN clients of threat detection, AI analysis completion, and HITL confirmations.
 

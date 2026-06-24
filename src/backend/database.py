@@ -91,6 +91,7 @@ def get_db():
     """
     db = _AdminSessionLocal()
     try:
+        db.execute(text("SET LOCAL app.audit_source = 'app'"))
         yield db
     finally:
         db.close()
