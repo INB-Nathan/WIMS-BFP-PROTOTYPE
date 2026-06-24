@@ -30,7 +30,7 @@
 | # | File | Action | Why |
 |---|------|--------|-----|
 | 1 | `src/.env.production.example` | **Edit** | Replace 16-line Gmail block (lines 29-44) with Brevo block (S1) |
-| 2 | `src/docker-compose.yml` | **Edit** | Change 4 lines in Keycloak service env (HOST, PORT, STARTTLS, AUTH defaults at lines 80, 81, 88, 89) and 3 lines in celery-worker env (HOST, PORT, STARTTLS defaults at lines 264, 265, 269) (S2) |
+| 2 | `src/docker-compose.yml` | **Edit** | Change 4 lines in Keycloak service env (HOST, PORT, STARTTLS, AUTH defaults at lines 80, 81, 87, 88) and 3 lines in celery-worker env (HOST, PORT, STARTTLS defaults at lines 264, 265, 269) (S2) |
 | 3 | `scripts/update-keycloak-smtp.sh` | **Edit** | Add 1 paragraph of header comment documenting the defaults-tuned-for-Brevo assumption (S3). No logic changes. |
 | 4 | `.env.example` | **Edit** | Add 2 lines of comment pointing dev to the Brevo production setup (S4). No env var value changes. |
 | 5 | `system-wiki/backend/services.md` | **Edit** | Update "Email Service (M13b)" section to document 7 templates (not 4) and Brevo on port 2525 (S5.1) |
@@ -125,7 +125,7 @@ cd /home/xynate/WIMS-BFP-NEW/LOCAL-WIMS-BFP-PROTOTYPE && git add src/.env.produc
 The Keycloak service env block (lines 80-90) and the celery-worker env block (lines 264-269) currently default to MailHog-shaped values (`SMTP_HOST=mailhog`, `SMTP_PORT=1025`, `SMTP_STARTTLS=false`, `SMTP_AUTH=false`). The operator's `.env` overrides these at deploy time, but the defaults are used when `.env` is missing (e.g. fresh checkout, first-boot). For the "no `.env` file" path to produce a coherent production default, the 7 lines below need to flip.
 
 **Files:**
-- Modify: `src/docker-compose.yml` — 4 lines in Keycloak service env (lines 80, 81, 88, 89) and 3 lines in celery-worker env (lines 264, 265, 269)
+- Modify: `src/docker-compose.yml` — 4 lines in Keycloak service env (lines 80, 81, 87, 88) and 3 lines in celery-worker env (lines 264, 265, 269)
 
 **Interfaces:**
 - Consumes: nothing (defaults that `docker compose config` resolves)
@@ -139,7 +139,7 @@ echo "---"
 sed -n '263,270p' /home/xynate/WIMS-BFP-NEW/LOCAL-WIMS-BFP-PROTOTYPE/src/docker-compose.yml
 ```
 
-Expected output: the Keycloak service env block (8 spaces indent, `SMTP_*: ${...:-default}` form) and the celery-worker env block (6 spaces indent + `- ` prefix, list form). The 7 line numbers (80, 81, 88, 89, 264, 265, 269) should match the targets. If they don't, anchor on the surrounding content (the `# SMTP configuration` comment for Keycloak, the `FIREBASE_CREDENTIALS_PATH` line for celery-worker).
+Expected output: the Keycloak service env block (8 spaces indent, `SMTP_*: ${...:-default}` form) and the celery-worker env block (6 spaces indent + `- ` prefix, list form). The 7 line numbers (80, 81, 87, 88, 264, 265, 269) should match the targets. If they don't, anchor on the surrounding content (the `# SMTP configuration` comment for Keycloak, the `FIREBASE_CREDENTIALS_PATH` line for celery-worker).
 
 - [ ] **Step 2: Edit the 4 Keycloak service env lines**
 
@@ -158,7 +158,7 @@ Anchor pattern (YAML form, 6-space indent for `environment:` children):
       SMTP_AUTH: ${SMTP_AUTH:-false}          # CHANGE
 ```
 
-DO NOT change `SMTP_SSL` (line 87). Port 2525 is the STARTTLS port, not the implicit-SSL port. `SMTP_SSL=false` is correct for port 2525.
+DO NOT change `SMTP_SSL` (line 86). Port 2525 is the STARTTLS port, not the implicit-SSL port. `SMTP_SSL=false` is correct for port 2525.
 
 - [ ] **Step 3: Edit the 3 celery-worker env lines**
 
@@ -220,7 +220,7 @@ requirements (plaintext + STARTTLS, AUTH required). SMTP_SSL
 stays false — 2525 is the STARTTLS port, not 465.
 
 7 line edits: 4 in Keycloak service env (HOST, PORT,
-STARTTLS, AUTH at lines 80, 81, 88, 89) and 3 in celery-worker
+STARTTLS, AUTH at lines 80, 81, 87, 88) and 3 in celery-worker
 env (HOST, PORT, STARTTLS at lines 264, 265, 269). The
 celery-worker has no SMTP_AUTH line; sender.py does not read
 SMTP_AUTH (auth is implicit from non-empty USER/PASSWORD)."
@@ -503,7 +503,7 @@ Open `system-wiki/log.md`. Append a new entry at the end (most recent first) wit
 - **Fix:** Config-only swap. Both the application transport (`sender.py:18-23` reads 6 env vars) and the Keycloak `smtpServer` block (consumes 11 env vars via `${env.SMTP_*:default}`) move to Brevo on port 2525. The split is intentional: `sender.py` reads HOST/PORT/FROM/USER/PASSWORD/STARTTLS; the other 5 (DISPLAY, REPLYTO, REPLYTO_DISPLAY, SSL, AUTH) are Keycloak-only. The 11-key asymmetry is the one fact a plan author will trip on if it is not foregrounded.
 - **Files changed (8):**
   - `src/.env.production.example` — replaced 16-line Gmail block with Brevo block (operator-facing documentation).
-  - `src/docker-compose.yml` — flipped 7 line defaults: Keycloak service env (HOST, PORT, STARTTLS, AUTH at lines 80, 81, 88, 89) and celery-worker env (HOST, PORT, STARTTLS at lines 264, 265, 269). `SMTP_SSL` stays false (2525 is the STARTTLS port, not 465).
+  - `src/docker-compose.yml` — flipped 7 line defaults: Keycloak service env (HOST, PORT, STARTTLS, AUTH at lines 80, 81, 87, 88) and celery-worker env (HOST, PORT, STARTTLS at lines 264, 265, 269). `SMTP_SSL` stays false (2525 is the STARTTLS port, not 465).
   - `scripts/update-keycloak-smtp.sh` — added 5-line header comment documenting the defaults-tuned-for-Brevo assumption. No logic change.
   - `.env.example` — added 2 comment lines pointing dev to the Brevo production setup. No env var value change (local dev still uses MailHog on 1025).
   - `system-wiki/backend/services.md` — replaced the "Email Service (M13b)" section with a Brevo-flavoured version; corrected the template count from 4 to 7.
@@ -647,7 +647,7 @@ If any of Steps 1-5 fails, the implementer must investigate and fix before marki
 
 **3. Type / identifier consistency:**
 - Env var names (`SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_STARTTLS`, `SMTP_FROM_DISPLAY`, `SMTP_REPLYTO`, `SMTP_REPLYTO_DISPLAY`, `SMTP_SSL`, `SMTP_AUTH`) match the 6+5 split documented in the spec (v1.1 self-review). ✅
-- Line numbers (`80, 81, 88, 89` for Keycloak; `264, 265, 269` for celery-worker) match the actual `src/docker-compose.yml` per the spec's "Reviewer basis" section. The plan's Step 1 of Task 2 includes a `sed -n` verification that re-anchors on content if line numbers have drifted. ✅
+- Line numbers (`80, 81, 87, 88` for Keycloak; `264, 265, 269` for celery-worker) match the actual `src/docker-compose.yml` per the spec's "Reviewer basis" section. The plan's Step 1 of Task 2 includes a `sed -n` verification that re-anchors on content if line numbers have drifted. ✅
 - File paths (`src/.env.production.example`, `src/docker-compose.yml`, `scripts/update-keycloak-smtp.sh`, `.env.example`, `system-wiki/backend/services.md`, `system-wiki/backend/utilities-and-tasks.md`, `system-wiki/gaps/frs-codebase-gap-register.md`, `system-wiki/log.md`) match the actual repo layout. ✅
 - Brevo host `smtp-relay.brevo.com` and port `2525` match the spec and the Brevo docs cited in the spec. ✅
 - Commit hash placeholder `<TBD at commit time>` in Task 5 Step 6 is intentionally a placeholder for the actual hash; the implementer pastes the real hash from `git rev-parse HEAD` at commit time. ✅

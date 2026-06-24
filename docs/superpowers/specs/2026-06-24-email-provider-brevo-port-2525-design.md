@@ -158,12 +158,12 @@ Current Keycloak block defaults that are wrong for Brevo on port 2525:
       SMTP_HOST: ${SMTP_HOST:-mailhog}     # line 80 — wrong host
       SMTP_PORT: ${SMTP_PORT:-1025}        # line 81 — wrong port
       ...
-      SMTP_SSL: ${SMTP_SSL:-false}         # line 87 — actually correct for port 2525
-      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}  # line 88 — WRONG: Brevo port 2525 is plaintext SMTP that
+      SMTP_SSL: ${SMTP_SSL:-false}         # line 86 — actually correct for port 2525
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}  # line 87 — WRONG: Brevo port 2525 is plaintext SMTP that
                                               # the server requires to be upgraded via STARTTLS. Default
                                               # false on a non-localhost host = credentials sent in cleartext
                                               # AUTH PLAIN over the wire.
-      SMTP_AUTH: ${SMTP_AUTH:-false}       # line 89 — WRONG: Brevo port 2525 requires AUTH.
+      SMTP_AUTH: ${SMTP_AUTH:-false}       # line 88 — WRONG: Brevo port 2525 requires AUTH.
 ```
 
 Current celery-worker block defaults that are wrong for Brevo on port 2525:
@@ -180,8 +180,8 @@ Current celery-worker block defaults that are wrong for Brevo on port 2525:
 In the **Keycloak service** env block, change 4 lines:
 - Line 80: `SMTP_HOST: ${SMTP_HOST:-mailhog}` → `SMTP_HOST: ${SMTP_HOST:-smtp-relay.brevo.com}`
 - Line 81: `SMTP_PORT: ${SMTP_PORT:-1025}` → `SMTP_PORT: ${SMTP_PORT:-2525}`
-- Line 88: `SMTP_STARTTLS: ${SMTP_STARTTLS:-false}` → `SMTP_STARTTLS: ${SMTP_STARTTLS:-true}`
-- Line 89: `SMTP_AUTH: ${SMTP_AUTH:-false}` → `SMTP_AUTH: ${SMTP_AUTH:-true}`
+- Line 87: `SMTP_STARTTLS: ${SMTP_STARTTLS:-false}` → `SMTP_STARTTLS: ${SMTP_STARTTLS:-true}`
+- Line 88: `SMTP_AUTH: ${SMTP_AUTH:-false}` → `SMTP_AUTH: ${SMTP_AUTH:-true}`
 
 In the **celery-worker** env block, change 3 lines:
 - Line 264: `- SMTP_HOST=${SMTP_HOST:-mailhog}` → `- SMTP_HOST=${SMTP_HOST:-smtp-relay.brevo.com}`
@@ -190,7 +190,7 @@ In the **celery-worker** env block, change 3 lines:
 
 **Why STARTTLS and AUTH must change too (not just HOST/PORT):** the spec's stated rationale for S2 is to align the "no .env file" path with the "with .env file" path — i.e. a fresh checkout that runs `docker compose config` without a populated `.env` should see the production-shape defaults, not MailHog defaults. Changing only HOST and PORT would leave a broken default: Brevo host + port 2525 + STARTTLS off = credentials sent in cleartext AUTH PLAIN over the wire. This is exactly the leak R3 is meant to catch in a *deployed* environment; flipping the compose defaults means the same protection applies in the *not-yet-deployed* environment too. R3 still applies at deploy time.
 
-**Why `SMTP_SSL` is intentionally NOT changed** (line 87 in Keycloak block, `false`): port 2525 is plaintext SMTP that the server requires to be upgraded via STARTTLS. Port 465 is the implicit-SSL port. We are not using 465. `SMTP_SSL=false` is correct for port 2525. Verified against Brevo docs.
+**Why `SMTP_SSL` is intentionally NOT changed** (line 86 in Keycloak block, `false`): port 2525 is plaintext SMTP that the server requires to be upgraded via STARTTLS. Port 465 is the implicit-SSL port. We are not using 465. `SMTP_SSL=false` is correct for port 2525. Verified against Brevo docs.
 
 **Why the celery-worker does not need an `SMTP_AUTH` line change:** `sender.py` does not read `SMTP_AUTH`. The auth decision is implicit: `sender.py:127-128` does `username=SMTP_USER or None, password=SMTP_PASSWORD or None` and `aiosmtplib` will attempt AUTH only if a username and password are both provided. With `.env` populated, USER and PASSWORD are non-empty (the Brevo SMTP key), so AUTH happens. Without `.env`, USER and PASSWORD are empty, so AUTH is skipped. The Keycloak side needs an explicit `SMTP_AUTH` line because the realm JSON's `smtpServer.auth` field is read literally by Keycloak.
 
