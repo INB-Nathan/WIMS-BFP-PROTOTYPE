@@ -4977,3 +4977,20 @@ Spec: `docs/superpowers/specs/2026-06-23-live-notifications-design.md` (v2). Pla
 - **Recommended next-session focus:** pick a provider (the handoff's hypothesis is SendGrid or Brevo for the free tier; verify before committing), then spec → plan → TDD → CI pre-flight → wiki update, following the `2026-06-24-civilian-device-id-ownership-design.md` spec format and the `2026-06-23-live-notifications.md` plan format.
 - **Not in scope:** FCM (already wired, now testable after device_id fix), Keycloak auth flow changes, email template content changes.
 - **Side note:** With the device_id fix deployed, FCM token registration is testable for new submissions. The next session (or a separate one) should verify FCM end-to-end.
+
+## 2026-06-24 — Email provider switch to Brevo SMTP on port 2525
+
+- **Problem:** The WIMS-BFP email channel was broken at the network layer on the production VPS. DigitalOcean Droplets block outbound 25/465/587 by default (verified against `docs.digitalocean.com/support/why-is-smtp-blocked/`, last verified 2026-06-22). The live-notifications work at `25d5eca` wired `aiosmtplib` + Gmail SMTP correctly, but emails never arrived because the TCP connection timed out. Keycloak transactional email (password reset, email verification) was affected too. The previous session's handoff (`system-wiki/sessions/2026-06-24_email-provider-switch-handoff.md`) recommended an HTTP-API migration; the next session's diligence found that hypothesis over-broad — port 2525 is the standard "ISP blocks 587" alternative and is NOT in the DO block list, and Brevo supports it explicitly.
+- **Fix:** Config-only swap. Both the application transport (`sender.py:18-23` reads 6 env vars) and the Keycloak `smtpServer` block (consumes 11 env vars via `${env.SMTP_*:default}`) move to Brevo on port 2525. The split is intentional: `sender.py` reads HOST/PORT/FROM/USER/PASSWORD/STARTTLS; the other 5 (DISPLAY, REPLYTO, REPLYTO_DISPLAY, SSL, AUTH) are Keycloak-only. The 11-key asymmetry is the one fact a plan author will trip on if it is not foregrounded.
+- **Files changed (8):**
+  - `src/.env.production.example` — replaced 16-line Gmail block with Brevo block (operator-facing documentation).
+  - `src/docker-compose.yml` — flipped 7 line defaults: Keycloak service env (HOST, PORT, STARTTLS, AUTH at lines 80, 81, 87, 88) and celery-worker env (HOST, PORT, STARTTLS at lines 264, 265, 269). `SMTP_SSL` stays false (2525 is the STARTTLS port, not 465).
+  - `scripts/update-keycloak-smtp.sh` — added 5-line header comment documenting the defaults-tuned-for-Brevo assumption. No logic change.
+  - `.env.example` — added 2 comment lines pointing dev to the Brevo production setup. No env var value change (local dev still uses MailHog on 1025).
+  - `system-wiki/backend/services.md` — replaced the "Email Service (M13b)" section with a Brevo-flavoured version; corrected the template count from 4 to 7.
+  - `system-wiki/backend/utilities-and-tasks.md` — added a one-paragraph note on the production transport under the `send_email_task` subsection.
+  - `system-wiki/gaps/frs-codebase-gap-register.md` — closed the `BREVO-EMAIL-CHANNEL` gap.
+  - `system-wiki/log.md` — this entry.
+- **Spec:** `docs/superpowers/specs/2026-06-24-email-provider-brevo-port-2525-design.md` (v1.1). Plan: `docs/superpowers/plans/2026-06-24-email-provider-brevo-port-2525.md`.
+- **No scope creep:** zero application code changes (`sender.py`, `tasks/notifications.py`, `auth.py`, `admin/security.py`, `scheduled_reports.py` all unchanged), zero new dependencies (`aiosmtplib>=3.0.0` stays), zero schema, zero new tests (the existing `aiosmtplib` mock in `test_email_infra.py:85-118` is port-agnostic), zero frontend changes, MailHog remains in the dev stack.
+- **Validation:** TBD by implementer (this entry is committed before the spec's V1-V6 deploy-time tripwires run).

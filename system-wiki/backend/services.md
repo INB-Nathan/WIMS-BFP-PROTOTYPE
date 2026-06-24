@@ -303,36 +303,50 @@ Ingests Suricata EVE JSON log files into `wims.security_threat_logs`.
 
 Jinja2 HTML email rendering and SMTP delivery via aiosmtplib.
 
-**Environment config:**
+**Production transport:** Brevo SMTP relay on port 2525 (`smtp-relay.brevo.com`). Port 2525 is the standard alternative SMTP submission port used when an ISP or hosting provider blocks 587. DigitalOcean Droplets block outbound 25/465/587 by default (`docs.digitalocean.com/support/why-is-smtp-blocked/`, last verified 2026-06-22); port 2525 is not in the block list. The connection is plaintext SMTP that the server requires to be upgraded via STARTTLS (`SMTP_STARTTLS=true`); AUTH PLAIN uses a per-key SMTP key from Brevo (not the account password).
 
-| Variable | Default | Description |
-|---|---|---|
-| `SMTP_HOST` | `mailhog` | SMTP server hostname |
-| `SMTP_PORT` | `1025` | SMTP server port |
-| `SMTP_FROM` | `no-reply@bfp.gov.ph` | From address |
-| `SMTP_USER` | `""` | SMTP auth username (optional) |
-| `SMTP_PASSWORD` | `""` | SMTP auth password (optional) |
-| `SMTP_STARTTLS` | `false` | Enable STARTTLS (`true`/`1`/`yes` for production relays) |
+**Local dev transport:** MailHog on the Docker-internal network (host=`mailhog`, port=`1025`, no auth, no TLS). MailHog remains in the stack for local dev convenience and is not removed by the Brevo migration.
+
+**Environment config (11 vars; `sender.py` reads only the 6 marked ★):**
+
+| Variable | Default | Read by | Description |
+|---|---|---|---|
+| ★ `SMTP_HOST` | `smtp-relay.brevo.com` (prod) / `mailhog` (dev) | `sender.py`, Keycloak | SMTP server hostname |
+| ★ `SMTP_PORT` | `2525` (prod) / `1025` (dev) | `sender.py`, Keycloak | SMTP server port (Brevo on 2525; MailHog on 1025) |
+| ★ `SMTP_FROM` | `noreply@wimsbfp.tech` (prod) / `no-reply@bfp.gov.ph` (dev) | `sender.py`, Keycloak | From address |
+| ★ `SMTP_USER` | (empty) | `sender.py`, Keycloak | Brevo SMTP key (or empty for MailHog) |
+| ★ `SMTP_PASSWORD` | (empty) | `sender.py`, Keycloak | Brevo SMTP key (or empty for MailHog) |
+| ★ `SMTP_STARTTLS` | `true` (prod) / `false` (dev) | `sender.py`, Keycloak | Enable STARTTLS upgrade (true for Brevo on 2525; false for MailHog) |
+| `SMTP_FROM_DISPLAY` | `WIMS-BFP` | Keycloak only | From display name |
+| `SMTP_REPLYTO` | `no-reply@wimsbfp.tech` | Keycloak only | Reply-to address |
+| `SMTP_REPLYTO_DISPLAY` | `WIMS-BFP No Reply` | Keycloak only | Reply-to display name |
+| `SMTP_SSL` | `false` | Keycloak only | Implicit SSL (false for port 2525; true only for port 465) |
+| `SMTP_AUTH` | `true` (prod) / `false` (dev) | Keycloak only | Whether Keycloak attempts SMTP AUTH (Brevo on 2525 requires true; `sender.py` does not read this — its auth is implicit from non-empty USER/PASSWORD) |
 
 **Functions:**
 
 | Function | Signature | Returns | Description |
 |---|---|---|---|
 | `render_email(template_name, context)` | `(str, dict)` | `tuple[str, str]` | Loads `.html.j2` template, extracts subject from `{# subject: ... #}` header, renders body. Returns `(subject, html)`. |
-| `send_email_async(to, template_name, context)` | `(str\|list[str], str, dict)` | `None` | Renders template (with error logging), creates multipart/alternative message (HTML + plain-text), sends via aiosmtplib. Template render errors are logged and re-raised. |
+| `send_email_async(to, template_name, context)` | `(str\|list[str], str, dict)` | `None` | Renders template (with error logging), creates multipart/alternative message (HTML + plain-text), sends via aiosmtplib. Called directly from `api/routes/auth.py:222` (email-verification flow) and from `tasks/notifications.py:194` (via the sync wrapper). |
 | `send_email(to, template_name, context)` | `(str\|list[str], str, dict)` | `None` | Synchronous wrapper for Celery tasks via `asyncio.run()`. |
 | `_load_subject(template_name, context)` | `(str, dict)` | `str` | Extracts and renders subject line from template header. Caches raw subject string per template name. |
 | `_html_to_plain_text(html)` | `str` | `str` | Converts HTML body to plain text for multipart/alternative emails. |
 
-**Templates:** 4 `.html.j2` files in `services/email/templates/`:
+**Templates:** 7 `.html.j2` files in `services/email/templates/`:
 
 | Template | Context Variables | Subject |
 |---|---|---|
 | `password_reset` | `full_name`, `reset_link`, `expiry_minutes` | "Reset your WIMS-BFP password" |
 | `account_locked` | `full_name`, `unlock_time`, `support_contact` | "WIMS-BFP Account Locked — Action Required" |
 | `security_alert` | `severity`, `summary`, `detected_at`, `dashboard_link` | "[{{ severity\|upper }}] WIMS-BFP Security Alert — Action Required" |
+| `breach_alert` | (template-specific) | (template-specific) |
+| `email_verification` | `username`, `pending_email`, `code` | (template-specific) |
+| `scheduled_report` | `report_name`, `format`, `generated_at`, `filters_summary`, `dashboard_link` | (template-specific) |
 | `weekly_report` | `week_range`, `total_incidents`, `top_region`, `report_link` | "WIMS-BFP Weekly Report: {{ week_range }}" |
 
 All templates use table-based layout, inline CSS, 600px max width, and BFP maroon `#8B0000` branding. The security alert template uses severity-aware CSS: critical→dark red, high→red, medium→orange, else→neutral gray `#95a5a6`.
+
+**Retry semantics:** `tasks/notifications.py:168` uses `autoretry_for=(aiosmtplib.SMTPException, ConnectionError, TimeoutError, OSError)` with `retry_backoff=True, retry_backoff_max=600, max_retries=5` for the Celery task path. The direct async call from `auth.py:222` does NOT retry (returns 502 to the client). The asymmetry is intentional: real-time user-facing actions fail fast; background notifications retry silently.
 
 **Associated Celery task:** `tasks.notifications.send_email_task` (see [[utilities-and-tasks]]).
