@@ -220,10 +220,13 @@ vi.mock('@/context/AuthContext', () => ({
   useAuth: () => mockUseAuth(),
 }));
 
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
-}));
+vi.mock('next/navigation', () => {
+  const stableSearchParams = new URLSearchParams();
+  return {
+    useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+    useSearchParams: () => stableSearchParams,
+  };
+});
 
 vi.mock('next/image', () => ({
   __esModule: true,
@@ -303,12 +306,14 @@ describe('TriagePage', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Select cluster 1/ }));
     await userEvent.click(screen.getByRole('button', { name: /Inspect \/ Act/ }));
 
-    // The spatial panel testid is present on the dynamic-import loading fallback
-    // AND on the mounted inner component. Wait for the inner react-leaflet map
-    // to actually mount so the testid-on-fallback cannot pass silently.
-    const spatialPanel = await screen.findByTestId('triage-spatial-panel');
+    // The spatial panel testid is present on both the dynamic-import loading
+    // fallback AND on the mounted inner component. Query inside waitFor so we
+    // re-resolve the DOM on each tick — the loading fallback is removed when
+    // the inner map mounts, so a stale reference from find-by-testid would
+    // miss the leaflet-container.
+    await screen.findByTestId('triage-spatial-panel');
     await waitFor(() => {
-      expect(spatialPanel.querySelector('.leaflet-container')).toBeTruthy();
+      expect(screen.getByTestId('triage-spatial-panel').querySelector('.leaflet-container')).toBeTruthy();
     }, { timeout: 5000 });
     expect(screen.getByTestId('triage-evidence-panel')).toBeInTheDocument();
     expect(screen.getByTestId('triage-action-rail')).toBeInTheDocument();
