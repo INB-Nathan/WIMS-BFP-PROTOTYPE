@@ -1,6 +1,6 @@
 """M8: Behavioral anomaly detection — Celery beat task (60s).
 
-Five detectors run against wims.system_audit_trails using SQL sliding windows:
+Six detectors run against wims.system_audit_trails using SQL sliding windows:
   - BULK_DELETE              >10 delete-class actions per user in any 5-min window (HIGH)
   - OFF_HOURS                High-sensitivity actions 22:00–05:59 Asia/Manila (MEDIUM)
   - PRIVILEGE_ESCALATION     ROLE_CHANGE_TO_% events (HIGH)
@@ -8,10 +8,11 @@ Five detectors run against wims.system_audit_trails using SQL sliding windows:
   - SUSPICIOUS_QUERY_PATTERN >10 PII_EXPORT actions per user in any 5-min window (HIGH)
                              Audit-trail proxy: pg_stat_statements is not enabled
                              in this stack (GH #280).
-
-Deferred (not implemented — M8 remains PARTIAL):
-  - Impossible Travel (geo) — needs IP geolocation database, not in-stack;
-    RAPID_IP_SWITCH ships as the achievable proxy (GH #281)
+  - IMPOSSIBLE_TRAVEL        Same user, 2 logins from IPs whose great-circle distance
+                             exceeds the distance physically feasible given the time gap
+                             (speed > 900 km/h assumed infeasible). Requires
+                             GEOIP_DB_PATH env var pointing to a MaxMind GeoLite2-City
+                             .mmdb file. Gracefully skipped when DB unavailable.
 
 Row-count bounds: RAPID_IP_SWITCH and BULK_DELETE use ORDER BY timestamp DESC
 LIMIT to cap scanned rows at _MAX_AUDIT_ROWS (10 000) per detector invocation.
@@ -37,6 +38,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import os
 from typing import Any
 
 from sqlalchemy import text
@@ -364,6 +367,147 @@ def _detect_suspicious_query_pattern(db: Session) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# Impossible Travel helpers
+# ---------------------------------------------------------------------------
+
+_IMPOSSIBLE_TRAVEL_MAX_SPEED_KMH = 900  # commercial aviation ceiling
+_IMPOSSIBLE_TRAVEL_MIN_DISTANCE_KM = 500  # ignore hops within the same metro
+_EARTH_RADIUS_KM = 6_371.0
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Return great-circle distance in km between two lat/lon points."""
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * _EARTH_RADIUS_KM * math.asin(math.sqrt(a))
+
+
+def _load_geoip_reader():
+    """Return an open geoip2 City reader, or None if unavailable."""
+    db_path = os.environ.get("GEOIP_DB_PATH", "")
+    if not db_path or not os.path.isfile(db_path):
+        return None
+    try:
+        import geoip2.database  # type: ignore[import-untyped]
+
+        return geoip2.database.Reader(db_path)
+    except Exception:
+        return None
+
+
+def _geolocate(reader, ip: str):
+    """Return (lat, lon, country_iso) for ip, or None on failure."""
+    try:
+        rec = reader.city(ip)
+        lat = rec.location.latitude
+        lon = rec.location.longitude
+        country = rec.country.iso_code or "??"
+        if lat is None or lon is None:
+            return None
+        return (lat, lon, country)
+    except Exception:
+        return None
+
+
+def _detect_impossible_travel(db: Session) -> list[dict[str, Any]]:
+    """Return anomaly dicts for logins where a user's consecutive IPs imply
+    travel faster than _IMPOSSIBLE_TRAVEL_MAX_SPEED_KMH km/h.
+
+    Algorithm:
+    1. Load MaxMind GeoLite2-City reader from GEOIP_DB_PATH. Skip if absent.
+    2. Query the last 24h of LOGIN_SUCCESS audit rows, ordered per user.
+    3. For each consecutive pair of logins from different IPs, compute:
+       - great-circle distance between geolocated coordinates
+       - hours elapsed between the two events
+       - implied speed = distance / hours
+    4. Emit an anomaly if speed > threshold AND distance > minimum.
+
+    Skips loopback/private IPs (cannot be geolocated).
+    """
+    reader = _load_geoip_reader()
+    if reader is None:
+        return []
+
+    try:
+        rows = db.execute(
+            text("""
+                SELECT user_id, ip_address, timestamp
+                FROM wims.system_audit_trails
+                WHERE action_type IN ('LOGIN_SUCCESS', 'LOGIN')
+                  AND timestamp >= now() - interval '24 hours'
+                  AND user_id IS NOT NULL
+                  AND ip_address IS NOT NULL
+                  AND ip_address NOT IN ('127.0.0.1', '::1', 'localhost')
+                ORDER BY user_id, timestamp ASC
+            """)
+        ).fetchall()
+    except Exception as exc:
+        logger.warning("Impossible Travel query failed: %s", exc)
+        reader.close()
+        return []
+
+    results = []
+    # Group by user
+    by_user: dict[str, list[tuple[str, Any]]] = {}
+    for row in rows:
+        uid = str(row[0])
+        by_user.setdefault(uid, []).append((row[1], row[2]))
+
+    for user_id, events in by_user.items():
+        seen_ips: set[str] = set()
+        for i in range(len(events) - 1):
+            ip_a, ts_a = events[i]
+            ip_b, ts_b = events[i + 1]
+            if ip_a == ip_b or ip_b in seen_ips:
+                continue
+            seen_ips.add(ip_a)
+
+            geo_a = _geolocate(reader, ip_a)
+            geo_b = _geolocate(reader, ip_b)
+            if geo_a is None or geo_b is None:
+                continue
+
+            lat_a, lon_a, country_a = geo_a
+            lat_b, lon_b, country_b = geo_b
+            distance_km = _haversine_km(lat_a, lon_a, lat_b, lon_b)
+            if distance_km < _IMPOSSIBLE_TRAVEL_MIN_DISTANCE_KM:
+                continue
+
+            delta_sec = (ts_b - ts_a).total_seconds()
+            if delta_sec <= 0:
+                continue
+            speed_kmh = distance_km / (delta_sec / 3600)
+
+            if speed_kmh > _IMPOSSIBLE_TRAVEL_MAX_SPEED_KMH:
+                window_key = ts_a.strftime("%Y%m%d%H%M")
+                results.append(
+                    {
+                        "anomaly_type": "IMPOSSIBLE_TRAVEL",
+                        "subject_user_id": user_id,
+                        "severity": "HIGH",
+                        "details": {
+                            "ip_a": ip_a,
+                            "ip_b": ip_b,
+                            "country_a": country_a,
+                            "country_b": country_b,
+                            "distance_km": round(distance_km, 1),
+                            "elapsed_seconds": int(delta_sec),
+                            "implied_speed_kmh": round(speed_kmh, 1),
+                            "timestamp_a": str(ts_a),
+                            "timestamp_b": str(ts_b),
+                        },
+                        "dedup_key": f"IMPOSSIBLE_TRAVEL:{user_id}:{ip_a}:{ip_b}:{window_key}",
+                        "source_ip": ip_b,
+                    }
+                )
+
+    reader.close()
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Dual-write helper
 # ---------------------------------------------------------------------------
 
@@ -435,6 +579,7 @@ _DETECTORS = [
     _detect_privilege_escalation,
     _detect_rapid_ip_switch,
     _detect_suspicious_query_pattern,
+    _detect_impossible_travel,
 ]
 
 
