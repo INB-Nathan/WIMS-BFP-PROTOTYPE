@@ -12,7 +12,7 @@
  *       of SW state and that the logout path exists in the rendered tree.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
+import { render, waitFor, fireEvent } from '@testing-library/react';
 import React from 'react';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
@@ -121,6 +121,101 @@ describe('AuthContext logout → SW cache-clear (unit)', () => {
     }
 
     expect(threw).toBe(false);
+  });
+});
+
+// ── RP-19: LOGOUT audit non-repudiation ──────────────────────────────────────
+// logout() must POST to /api/auth/security-event with event_type=LOGOUT and the
+// current username BEFORE calling /api/auth/logout. The call is fire-and-forget:
+// if it rejects or the endpoint is unreachable, logout must still complete and
+// signoutRedirect must be reached.
+describe('AuthContext logout → LOGOUT audit (RP-19)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    try { localStorage.removeItem('wims:offline_session_cache'); } catch { /* private mode */ }
+  });
+
+  it('fires /api/auth/security-event before /api/auth/logout with correct body', async () => {
+    const callOrder: string[] = [];
+    let securityEventBody: Record<string, unknown> | null = null;
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/api/auth/session')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ user: { id: 'u1', role: 'encoder', preferred_username: 'testuser' } }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      if (u.includes('/api/auth/security-event')) {
+        callOrder.push('security-event');
+        securityEventBody = JSON.parse((init?.body as string) ?? '{}') as Record<string, unknown>;
+        return Promise.resolve(new Response(JSON.stringify({ status: 'recorded' }), { status: 202 }));
+      }
+      if (u.includes('/api/auth/logout')) {
+        callOrder.push('auth-logout');
+        return Promise.resolve(new Response('{}', { status: 200 }));
+      }
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    });
+
+    const { getByTestId } = render(
+      <AuthProvider>
+        <ChildWithLogout />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(getByTestId('loading-state').textContent).toBe('false'));
+
+    fireEvent.click(getByTestId('logout-btn'));
+
+    await waitFor(() => {
+      expect(callOrder).toContain('security-event');
+      expect(callOrder).toContain('auth-logout');
+    });
+
+    expect(callOrder.indexOf('security-event')).toBeLessThan(callOrder.indexOf('auth-logout'));
+    expect(securityEventBody).toMatchObject({ event_type: 'LOGOUT', username: 'testuser' });
+  });
+
+  it('logout completes and signoutRedirect is reached when security-event fetch rejects', async () => {
+    const { createUserManager } = await import('@/lib/oidc');
+    const mockSignoutRedirect = vi.fn().mockResolvedValue(undefined);
+    (createUserManager as ReturnType<typeof vi.fn>).mockReturnValue({
+      getUser: vi.fn().mockResolvedValue({ id_token: 'mock-id-token' }),
+      removeUser: vi.fn().mockResolvedValue(undefined),
+      signoutRedirect: mockSignoutRedirect,
+    });
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.includes('/api/auth/session')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ user: { id: 'u1', role: 'encoder', preferred_username: 'testuser' } }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      if (u.includes('/api/auth/security-event')) {
+        return Promise.reject(new TypeError('Network error'));
+      }
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    });
+
+    const { getByTestId } = render(
+      <AuthProvider>
+        <ChildWithLogout />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(getByTestId('loading-state').textContent).toBe('false'));
+
+    fireEvent.click(getByTestId('logout-btn'));
+
+    await waitFor(() => expect(mockSignoutRedirect).toHaveBeenCalled());
   });
 });
 

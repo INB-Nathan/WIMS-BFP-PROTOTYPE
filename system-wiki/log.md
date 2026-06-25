@@ -5044,6 +5044,25 @@ Spec: `docs/superpowers/specs/2026-06-23-live-notifications-design.md` (v2). Pla
 - **CI status:** Skipped in normal backend CI (no Keycloak/MailHog services). Full-stack regression guard requires a dedicated CI job.
 - **ASVS mapping:** V2.4 anti-automation (account recovery abuse evidence). Not added as a new ASVS key — recorded as project-specific gap entry.
 
+## [2026-06-25] fix(#RP-19): wire LOGOUT audit in AuthContext.tsx (WS-A)
+
+- **Scope:** RP-19 non-repudiation gap — `logout()` in `AuthContext.tsx` recorded no audit event before session teardown. A user could deny initiating a self-service logout. The backend `POST /api/auth/security-event` endpoint (RP-08/RP-18/RP-19 handler) already existed in `auth.py` from the prior batch; only the frontend call was missing.
+- **Files modified:**
+  - `src/frontend/src/context/AuthContext.tsx` — `logout()` POSTs `{ event_type: "LOGOUT", username }` to `/api/auth/security-event` with 1500ms AbortController + `.catch(()=>{})` before calling `/api/auth/logout`; `user` added to `useCallback` deps.
+- **Files created:**
+  - `src/backend/tests/test_security_events.py` — 4 backend tests: LOGOUT→202 + uid=NULL in audit row; unknown event_type→422; 31st request→429 (rate limit); FAILED_LOGIN→202.
+- **Files modified (tests):**
+  - `src/frontend/src/context/AuthContext.test.tsx` — new `describe('AuthContext logout → LOGOUT audit (RP-19)')` with 2 tests: security-event fires before /api/auth/logout with correct body; logout completes even when security-event fetch rejects.
+- **Files modified (wiki):**
+  - `system-wiki/gaps/functional-bug-register.md` — F-13 entry for RP-19.
+  - `system-wiki/gaps/frs-codebase-gap-register.md` — `[2026-06-25] RP-19 LOGOUT audit` closure entry.
+- **Design notes:**
+  - Fail-safe: logout ALWAYS completes regardless of audit call outcome (`.catch(()=>{})` + outer try/catch).
+  - `user_id` is NULL in the audit row — the endpoint is unauthenticated by design; username is captured for correlation.
+  - AbortController 1500ms prevents audit stall from blocking the signoutRedirect.
+  - Remaining repudiation gaps (RP-05, RP-06, RP-08+RP-18 server-side via Keycloak SPI, RP-20, RP-23) are WS-B/C/D — separate PRs.
+- **Branch:** `fix/rp19-logout-audit`
+  
 ## 2026-06-24 — AGENTS.md restructured into thin command-and-control + docs/agents/
 
 - **Problem:** AGENTS.md grew to ~250 lines acting as onboarding guide, coding standards, architecture map, operational handbook, review checklist, and wiki governance policy all in one file. Agents followed better when the top-level file stayed concise.
