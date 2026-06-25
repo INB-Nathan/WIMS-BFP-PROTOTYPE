@@ -296,6 +296,19 @@ describe('TriagePage', () => {
     });
   });
 
+  it('renders cluster modal with spatial, evidence, and action panels', async () => {
+    const { default: TriagePage } = await import('./page');
+    render(<TriagePage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Select cluster 1/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Inspect \/ Act/ }));
+
+    expect(await screen.findByTestId('triage-spatial-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('triage-evidence-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('triage-action-rail')).toBeInTheDocument();
+    expect(screen.getByTestId('triage-action-tabs')).toBeInTheDocument();
+  });
+
   // ---------------------------------------------------------------------------
   // Preserved page-level behavior (metrics, polling, claim CTA) plus modal
   // action behavior (Escape, Close, tab nav, split/merge visibility, two-step
