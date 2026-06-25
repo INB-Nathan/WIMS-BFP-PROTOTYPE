@@ -220,10 +220,13 @@ vi.mock('@/context/AuthContext', () => ({
   useAuth: () => mockUseAuth(),
 }));
 
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
-}));
+vi.mock('next/navigation', () => {
+  const stableSearchParams = new URLSearchParams();
+  return {
+    useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+    useSearchParams: () => stableSearchParams,
+  };
+});
 
 vi.mock('next/image', () => ({
   __esModule: true,
@@ -231,6 +234,22 @@ vi.mock('next/image', () => ({
     // eslint-disable-next-line @next/next/no-img-element
     return <img {...props} alt={String(props.alt ?? '')} />;
   },
+}));
+
+vi.mock('@/components/triage/TriageCanvasMap', () => ({
+  TriageCanvasMap: ({ items, onSelectItem }: { items: TriageClusterEntry[]; onSelectItem: (item: TriageClusterEntry) => void }) => (
+    <div data-testid="triage-canvas-map">
+      {items.map((item) => (
+        <button
+          key={item.cluster_id ?? item.anchor_report_id ?? item.reports[0]?.report_id}
+          type="button"
+          onClick={() => onSelectItem(item)}
+        >
+          Select {item.cluster_id != null ? `cluster ${item.cluster_id}` : `report ${item.reports[0]?.report_id}`}
+        </button>
+      ))}
+    </div>
+  ),
 }));
 
 describe('TriagePage', () => {
@@ -243,15 +262,75 @@ describe('TriagePage', () => {
     window.history.pushState({}, '', '/incidents/triage');
   });
 
-  it('renders clusters table with cluster row data', async () => {
+  // ---------------------------------------------------------------------------
+  // New spatial workspace contract — the page renders a map and an
+  // investigation board in place of the previous table-first layout.
+  // ---------------------------------------------------------------------------
+
+  it('renders map canvas and investigation board instead of table-first sections', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    await waitFor(() => {
-      expect(screen.getByTestId('clusters-table')).toBeInTheDocument();
-    });
-    expect(screen.getByText('Clusters')).toBeInTheDocument();
-    expect(screen.getByText('HIGH')).toBeInTheDocument();
+
+    expect(await screen.findByTestId('triage-canvas-map')).toBeInTheDocument();
+    expect(screen.getByTestId('triage-investigation-board')).toBeInTheDocument();
+    expect(screen.queryByTestId('clusters-table')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('singletons-table')).not.toBeInTheDocument();
   });
+
+  it('selecting a map item updates the board without opening the modal', async () => {
+    const { default: TriagePage } = await import('./page');
+    render(<TriagePage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Select cluster 1/ }));
+
+    expect(screen.getByText('Cluster #1')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('opens inspection modal only from Inspect Act CTA', async () => {
+    const { default: TriagePage } = await import('./page');
+    render(<TriagePage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Select cluster 1/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Inspect \/ Act/ }));
+
+    await waitFor(() => {
+      expect(document.getElementById('triage-modal-title')?.textContent).toBe('Cluster 1');
+    });
+  });
+
+  it('renders cluster modal with spatial, evidence, and action panels', async () => {
+    const { default: TriagePage } = await import('./page');
+    render(<TriagePage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Select cluster 1/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Inspect \/ Act/ }));
+
+    // The spatial panel testid is present on both the dynamic-import loading
+    // fallback AND on the mounted inner component. Query inside waitFor so we
+    // re-resolve the DOM on each tick — the loading fallback is removed when
+    // the inner map mounts, so a stale reference from find-by-testid would
+    // miss the leaflet-container.
+    await screen.findByTestId('triage-spatial-panel');
+    await waitFor(() => {
+      expect(screen.getByTestId('triage-spatial-panel').querySelector('.leaflet-container')).toBeTruthy();
+    }, { timeout: 5000 });
+    expect(screen.getByTestId('triage-evidence-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('triage-action-rail')).toBeInTheDocument();
+    expect(screen.getByTestId('triage-action-tabs')).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Preserved page-level behavior (metrics, polling, claim CTA) plus modal
+  // action behavior (Escape, Close, tab nav, split/merge visibility, two-step
+  // confirm). The modal opens through the board's `Inspect / Act` CTA, so
+  // each test below selects a triage item first to populate the board.
+  // ---------------------------------------------------------------------------
+
+  async function openCluster1Modal() {
+    await userEvent.click(await screen.findByRole('button', { name: /Select cluster 1/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Inspect \/ Act/ }));
+  }
 
   it('renders metrics bar with correct counts and polled time', async () => {
     const { default: TriagePage } = await import('./page');
@@ -268,28 +347,13 @@ describe('TriagePage', () => {
     expect(screen.getByText(/Polled/)).toBeInTheDocument();
   });
 
-  it('renders both clusters and singletons tables', async () => {
-    const { default: TriagePage } = await import('./page');
-    render(<TriagePage />);
-    await waitFor(() => {
-      expect(screen.getByTestId('clusters-table')).toBeInTheDocument();
-      expect(screen.getByTestId('singletons-table')).toBeInTheDocument();
-    });
-    // Singleton table renders the singleton row data
-    expect(screen.getByText('MEDIUM')).toBeInTheDocument();
-    expect(screen.getByText(/COLLAPSE/)).toBeInTheDocument();
-  });
-
   it('shows Inspect on singleton and opens singleton-mode modal', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    // Wait for inspects to appear (data loaded) before querying
-    const inspectBtns = await screen.findAllByRole('button', { name: 'Inspect' });
-    // First Inspect is cluster, second is singleton
-    const singletonInspect = inspectBtns[inspectBtns.length - 1];
-    await userEvent.click(singletonInspect);
+    // Select the singleton (cluster_id: null) in the map, then open the modal.
+    await userEvent.click(await screen.findByRole('button', { name: /Select report 20/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Inspect \/ Act/ }));
     await waitFor(() => {
-      // Singleton modal shows "Singleton report" in the dialog title
       const title = document.getElementById('triage-modal-title');
       expect(title).toBeInTheDocument();
       expect(title?.textContent).toBe('Singleton report');
@@ -299,9 +363,7 @@ describe('TriagePage', () => {
   it('opens cluster inspection modal when Inspect is clicked', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtns = await screen.findAllByRole('button', { name: 'Inspect' });
-    const inspectBtn = inspectBtns[0];
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     await waitFor(() => {
       const title = document.getElementById('triage-modal-title');
       expect(title).toBeInTheDocument();
@@ -315,10 +377,7 @@ describe('TriagePage', () => {
   it('shows keyboard shortcut hint in modal header', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     await waitFor(() => {
       // Use a regex matcher because the Esc label is inside a styled <span>
       expect(screen.getByText(/Esc\s+close/)).toBeInTheDocument();
@@ -328,10 +387,7 @@ describe('TriagePage', () => {
   it('closes modal on Escape key', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     const modalTitle = document.getElementById('triage-modal-title');
     expect(modalTitle).toBeInTheDocument();
     expect(modalTitle?.textContent).toBe('Cluster 1');
@@ -344,10 +400,7 @@ describe('TriagePage', () => {
   it('displays merge candidate list when Merge tab is selected', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     // Switch to the Merge tab — candidates are only visible in that tab
     const mergeTab = await screen.findByRole('button', { name: /Merge/ });
     await userEvent.click(mergeTab);
@@ -359,10 +412,7 @@ describe('TriagePage', () => {
   it('closes modal on Escape even when focus is inside an input', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     await waitFor(() => expect(document.getElementById('triage-modal-title')?.textContent).toBe('Cluster 1'));
 
     // The merge source input lives behind the Merge tab; switch to it first.
@@ -377,10 +427,7 @@ describe('TriagePage', () => {
   it('closes modal from the explicit Close button', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
 
     await userEvent.click(screen.getByRole('button', { name: 'Close inspection modal' }));
@@ -390,10 +437,7 @@ describe('TriagePage', () => {
   it('closes modal from the backdrop and restores body scrolling', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     const backdrop = await screen.findByTestId('triage-modal-backdrop');
     expect(document.body.style.overflow).toBe('hidden');
 
@@ -406,11 +450,9 @@ describe('TriagePage', () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
 
-    const inspectBtns = await screen.findAllByRole('button', { name: 'Inspect' });
     // Open cluster 3 which has HTML in description and follow-ups
-    // inspectBtns[0] = cluster 1, [1] = cluster 3 (HTML one), [2] = singleton
-    const clusterInspect = inspectBtns[1];
-    await userEvent.click(clusterInspect);
+    await userEvent.click(await screen.findByRole('button', { name: /Select cluster 3/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Inspect \/ Act/ }));
 
     await waitFor(() => {
       expect(screen.getByText('Cluster 3')).toBeInTheDocument();
@@ -432,9 +474,10 @@ describe('TriagePage', () => {
     });
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    await waitFor(() => screen.getByTestId('clusters-table'));
+    // Select cluster 1 in the map (the board now hosts the Claim CTA)
+    await userEvent.click(await screen.findByRole('button', { name: /Select cluster 1/ }));
     // Claim button rendered only for VALIDATOR/NATIONAL_VALIDATOR on unassigned clusters
-    expect(screen.queryByRole('button', { name: 'Claim' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Claim cluster/ })).not.toBeInTheDocument();
   });
 
   // ---------------------------------------------------------------------------
@@ -445,10 +488,7 @@ describe('TriagePage', () => {
   it('renders the action tab nav with Terminal as the default tab', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     await waitFor(() => {
       expect(screen.getByTestId('triage-action-tabs')).toBeInTheDocument();
     });
@@ -461,10 +501,7 @@ describe('TriagePage', () => {
   it('switches to the Correct tab and shows the no-target empty state', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     const correctTab = await screen.findByRole('button', { name: /Correct/ });
     await userEvent.click(correctTab);
     await waitFor(() => {
@@ -478,10 +515,7 @@ describe('TriagePage', () => {
   it('switches to the Split tab and shows leaving/staying preview', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     const splitTab = await screen.findByRole('button', { name: /Split/ });
     await userEvent.click(splitTab);
     await waitFor(() => {
@@ -496,10 +530,7 @@ describe('TriagePage', () => {
   it('switches to the Merge tab and shows the source → target flow', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     const mergeTab = await screen.findByRole('button', { name: /Merge/ });
     await userEvent.click(mergeTab);
     await waitFor(() => {
@@ -515,10 +546,7 @@ describe('TriagePage', () => {
   it('picking a merge candidate fills the source id and pre-fills the note', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     const mergeTab = await screen.findByRole('button', { name: /Merge/ });
     await userEvent.click(mergeTab);
     const candidate = await screen.findByTestId('triage-candidate-99');
@@ -532,10 +560,9 @@ describe('TriagePage', () => {
   it('hides Split and Merge tabs in singleton mode', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    // Open the singleton (the last Inspect button)
-    const inspectBtns = await screen.findAllByRole('button', { name: 'Inspect' });
-    const singletonInspect = inspectBtns[inspectBtns.length - 1];
-    await userEvent.click(singletonInspect);
+    // Select the singleton in the map and open the modal
+    await userEvent.click(await screen.findByRole('button', { name: /Select report 20/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Inspect \/ Act/ }));
     await waitFor(() => {
       expect(screen.getByTestId('triage-action-tabs')).toBeInTheDocument();
     });
@@ -551,10 +578,7 @@ describe('TriagePage', () => {
   it('switches to the Activity tab and shows the empty state', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     const activityTab = await screen.findByRole('button', { name: /Activity/ });
     await userEvent.click(activityTab);
     await waitFor(() => {
@@ -566,10 +590,7 @@ describe('TriagePage', () => {
   it('renders a destructive confirm dialog when applying REJECTED_BOGUS', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     // Pick Bogus (destructive tone)
     const bogusLabel = await screen.findByText('Bogus');
     await userEvent.click(bogusLabel);
@@ -587,10 +608,7 @@ describe('TriagePage', () => {
   it('does NOT show a confirm dialog for the non-destructive ACTIONED status', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     // Actioned is the default selection; the commit should apply without a confirm
     const commit = await screen.findByTestId('triage-commit-terminal');
     await userEvent.click(commit);
@@ -603,10 +621,7 @@ describe('TriagePage', () => {
   it('Cancel on the destructive confirm dialog closes it without applying', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     await userEvent.click(await screen.findByText('Bogus'));
     await userEvent.click(await screen.findByTestId('triage-commit-terminal'));
     await waitFor(() => screen.getByTestId('triage-confirm-dialog'));
@@ -620,10 +635,7 @@ describe('TriagePage', () => {
   it('renders a confirm dialog for the Merge action with source/target preview', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     const mergeTab = await screen.findByRole('button', { name: /Merge/ });
     await userEvent.click(mergeTab);
     // Pick the suggested candidate
@@ -639,10 +651,7 @@ describe('TriagePage', () => {
   it('renders Why-this-status guidance for the selected terminal status', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    const inspectBtn = await waitFor(() =>
-      screen.getAllByRole('button', { name: 'Inspect' })[0],
-    );
-    await userEvent.click(inspectBtn);
+    await openCluster1Modal();
     // The "Why this status" details is in the DOM and open by default
     expect(screen.getByText('Why this status?')).toBeInTheDocument();
     // The actioned hint is rendered
@@ -653,9 +662,8 @@ describe('TriagePage', () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
     // Open cluster 3 which has followups
-    const inspectBtns = await screen.findAllByRole('button', { name: 'Inspect' });
-    const cluster3Inspect = inspectBtns[1];
-    await userEvent.click(cluster3Inspect);
+    await userEvent.click(await screen.findByRole('button', { name: /Select cluster 3/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Inspect \/ Act/ }));
     await waitFor(() => {
       expect(document.getElementById('triage-modal-title')?.textContent).toBe('Cluster 3');
     });
@@ -666,12 +674,123 @@ describe('TriagePage', () => {
     expect(screen.getAllByText('alert(1)').length).toBeGreaterThan(0);
   });
 
-  it('clusters table renders Claim button for unassigned clusters when validator', async () => {
+  it('renders Claim button for unassigned cluster when validator is selected', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
-    await waitFor(() => screen.getByTestId('clusters-table'));
+    // The Claim CTA lives in the investigation board. Select cluster 1 (unassigned).
+    await userEvent.click(await screen.findByRole('button', { name: /Select cluster 1/ }));
     // Mock data has unassigned clusters; role is NATIONAL_VALIDATOR
-    const claimBtns = screen.getAllByRole('button', { name: 'Claim' });
-    expect(claimBtns.length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /Claim cluster/ })).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Prioritized behavior tests from the spec's "Testing and Verification
+  // Strategy" section. The whole-branch review (I1) flagged these as missing
+  // regression coverage. The implementation behavior is correct; these tests
+  // guard against future regressions.
+  // ---------------------------------------------------------------------------
+
+  it('closing the modal preserves the selected item on the page', async () => {
+    const { default: TriagePage } = await import('./page');
+    render(<TriagePage />);
+
+    // Select cluster 3 (LOW priority, not the default first item) on the map.
+    // Using a non-default item is critical: the refresh-repair useEffect at
+    // page.tsx:209-237 re-selects the highest-priority item (cluster 1) when
+    // selectedIdentity is null, so selecting cluster 1 would make the test
+    // pass even if selection was incorrectly cleared on close.
+    await userEvent.click(await screen.findByRole('button', { name: /Select cluster 3/ }));
+    expect(screen.getByText('Cluster #3')).toBeInTheDocument();
+
+    // Open the modal via Inspect / Act
+    await userEvent.click(screen.getByRole('button', { name: /Inspect \/ Act/ }));
+    await waitFor(() => {
+      expect(document.getElementById('triage-modal-title')).toBeInTheDocument();
+    });
+
+    // Close the modal via Escape
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape', keyCode: 27 });
+    await waitFor(() => {
+      expect(document.getElementById('triage-modal-title')).toBeNull();
+    });
+
+    // The board should STILL show Cluster #3 (selection was not cleared on close).
+    // Use getByRole('heading') to target the headline specifically — the ranked
+    // queue also renders "Cluster #X" text inside <button> elements.
+    expect(screen.getByRole('heading', { name: /^Cluster #3$/ })).toBeInTheDocument();
+    // Assert that cluster 1 is NOT the headline — if the implementation had
+    // cleared selectedIdentity on close, the refresh-repair useEffect would
+    // have re-defaulted to cluster 1 (highest priority).
+    expect(screen.queryByRole('heading', { name: /^Cluster #1$/ })).not.toBeInTheDocument();
+  });
+
+  it('refresh while the modal is open does not disrupt active action form state', async () => {
+    const { default: TriagePage } = await import('./page');
+    render(<TriagePage />);
+    await openCluster1Modal();
+    await waitFor(() => {
+      expect(screen.getByTestId('triage-panel-terminal')).toBeInTheDocument();
+    });
+
+    // Type a custom explanation into the terminal form
+    const explanationArea = (await screen.findByLabelText('Citizen-visible explanation')) as HTMLTextAreaElement;
+    await userEvent.clear(explanationArea);
+    await userEvent.type(explanationArea, 'CUSTOM_EXPLANATION_VALUE');
+
+    // userEvent.click dispatches the event directly on the button, bypassing
+    // the modal's visual layering (triage-modal.css:7-11: position: fixed;
+    // inset: 0; z-index: 50). A real user could not click the Refresh button
+    // while the modal is open, but the form-state preservation behavior across
+    // a re-render is what we're testing.
+    await userEvent.click(screen.getByRole('button', { name: /Refresh/ }));
+
+    // Modal should still be open
+    expect(document.getElementById('triage-modal-title')).toBeInTheDocument();
+
+    // The explanation field should still contain the typed value
+    const updatedExplanation = (await screen.findByLabelText('Citizen-visible explanation')) as HTMLTextAreaElement;
+    expect(updatedExplanation.value).toBe('CUSTOM_EXPLANATION_VALUE');
+  });
+
+  it('refresh that removes the selected item shows an amber notice and selects the next highest-priority item', async () => {
+    const { fetchTriageQueue } = await import('@/lib/api');
+    // Pull the default mock queue to base the filtered queue on it
+    const fullQueue = await vi.mocked(fetchTriageQueue)();
+    const filteredQueue: TriageQueueResponse = {
+      ...fullQueue,
+      total_reports: 2,
+      clusters: fullQueue.clusters.filter((c) => c.cluster_id !== 1),
+    };
+    // The page's mount effect re-runs on every render because the
+    // useSearchParams mock returns a new URLSearchParams on every call, which
+    // invalidates the useCallback'd loadQueue. Use a flag that flips just
+    // before the user-triggered refresh so the pre-refetch re-runs still
+    // resolve to the full queue (keeping the selection visible) and the
+    // refresh call resolves to the filtered queue.
+    let useFilteredQueue = false;
+    vi.mocked(fetchTriageQueue).mockImplementation(() => {
+      return Promise.resolve(useFilteredQueue ? filteredQueue : fullQueue);
+    });
+
+    const { default: TriagePage } = await import('./page');
+    render(<TriagePage />);
+
+    // Select cluster 1 on the map
+    await userEvent.click(await screen.findByRole('button', { name: /Select cluster 1/ }));
+    expect(screen.getByText('Cluster #1')).toBeInTheDocument();
+
+    // Flip the flag and click Refresh — the next resolve will be the filtered queue
+    useFilteredQueue = true;
+    await userEvent.click(screen.getByRole('button', { name: /Refresh/ }));
+
+    // Wait for the amber notice
+    await waitFor(() => {
+      expect(screen.getByText(/next highest-priority/)).toBeInTheDocument();
+    });
+
+    // The board should no longer show Cluster #1
+    expect(screen.queryByText('Cluster #1')).not.toBeInTheDocument();
+    // The next highest-priority item is the singleton (report 20, MEDIUM severity)
+    expect(screen.getByText('Report #20')).toBeInTheDocument();
   });
 });

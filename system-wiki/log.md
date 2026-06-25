@@ -5103,6 +5103,13 @@ Spec: `docs/superpowers/specs/2026-06-23-live-notifications-design.md` (v2). Pla
 - **Changes:** Added a hard 120-line maximum to root `AGENTS.md`, with explicit routing rules: keep root concise, move subsystem-specific rules into subsystem AGENTS files, and move detailed procedures into `docs/` or `system-wiki/`. Moved the stack/infrastructure instructions from artificial `infra/AGENTS.md` to `src/AGENTS.md`, then removed the empty `infra/` directory. Updated root context loading and verification links to point to `src/AGENTS.md`.
 - **No FRS impact:** Agent-instruction structure only; no product behavior, schema, API, or acceptance criteria changed.
 
+## [2026-06-25] docs: record civilian triage spatial workspace
+
+- **Scope:** Task 5 of the civilian triage spatial workspace plan. Verified all triage tests pass (focused + full suite), lint clean. Updated `system-wiki/frontend/route-map.md` with new spatial triage workspace description for `/incidents/triage`. Added Phase E — Spatial Triage Workspace section to `system-wiki/operations/civilian-triage-hci-polish.md`. Added this log entry.
+- **Files changed:** `system-wiki/frontend/route-map.md`, `system-wiki/operations/civilian-triage-hci-polish.md`, `system-wiki/log.md`.
+- **Verification:** Focused triage tests: 34/34 PASS. Lint: 0 errors, 27 pre-existing warnings. Full suite: 1008/1008 PASS.
+- **Deviation:** None from the plan.
+
 ## [2026-06-25] feat: operations linked civilian reports — tracking copy + wiki updates
 
 - **Scope:** Updated the civilian tracking page `LINKED` status copy from "Linked to Another Report" (Filipino sub-text) to "Linked to Active BFP Operation" with neutral English sub-text "Your report has been linked to an active BFP operation." Added a TDD test asserting the new heading and sub-heading, and that "another report" is absent. Updated system-wiki route-map and api-route-map with Operations console details and linked-report endpoint references.

@@ -2,9 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AlertTriangle, ClipboardList, Clock, Filter, Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
+import { Filter, Loader2, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { TriageInspectionModal } from '@/components/triage';
+import {
+  TriageCanvasMap,
+  TriageInspectionModal,
+  TriageInvestigationBoard,
+  getTriageItemIdentity,
+  sortTriageItemsByPriority,
+  type TriageItemIdentity,
+} from '@/components/triage';
 import '@/components/triage/triage-modal.css';
 import {
   claimTriageCluster,
@@ -24,12 +31,6 @@ const FILTERS = [
 
 type InspectionMode = 'cluster' | 'singleton';
 
-function statusTone(severity: string) {
-  if (severity === 'HIGH') return 'bg-red-100 text-red-700 border-red-200';
-  if (severity === 'MEDIUM') return 'bg-amber-100 text-amber-700 border-amber-200';
-  return 'bg-slate-100 text-slate-700 border-slate-200';
-}
-
 export default function TriagePage() {
   const { user, loading: authLoading } = useAuth();
   const role = (user as { role?: string })?.role ?? null;
@@ -43,6 +44,9 @@ export default function TriagePage() {
   const [inspectionMode, setInspectionMode] = useState<InspectionMode>('cluster');
   const [lastPolled, setLastPolled] = useState<Date | null>(null);
   const [claiming, setClaiming] = useState<number | null>(null);
+  const [selectedIdentity, setSelectedIdentity] = useState<TriageItemIdentity | null>(null);
+  const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
+  const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
 
   const canAccess =
     role === 'ENCODER' ||
@@ -107,6 +111,22 @@ export default function TriagePage() {
     setInspectionMode(mode);
   }
 
+  function selectTriageItem(item: TriageClusterEntry) {
+    const identity = getTriageItemIdentity(item);
+    if (!identity) return;
+    setSelectedIdentity(identity);
+    setSelectedReportId(item.reports[0]?.report_id ?? null);
+    setSelectionNotice(null);
+  }
+
+  function inspectSelectedItem(item: TriageClusterEntry) {
+    const identity = getTriageItemIdentity(item);
+    if (!identity) return;
+    setSelectedIdentity(identity);
+    setSelectedReportId(item.reports[0]?.report_id ?? null);
+    void openInspection(item, identity.type);
+  }
+
   async function claimCluster(clusterId: number | null) {
     if (!clusterId) return;
     setClaiming(clusterId);
@@ -168,6 +188,45 @@ export default function TriagePage() {
     return sortedSingletons.filter((item) => item.reports.some((r: TriageReportEntry) => r.status === 'PENDING'));
   }, [sortedSingletons, unreviewedOnly]);
 
+  const allTriageItems = useMemo(() => {
+    return sortTriageItemsByPriority([...sortedClusters, ...filteredSingletons]);
+  }, [sortedClusters, filteredSingletons]);
+
+  const selectedItem = useMemo(() => {
+    if (!selectedIdentity) return allTriageItems[0] ?? null;
+    return allTriageItems.find((item) => {
+      const identity = getTriageItemIdentity(item);
+      return identity?.type === selectedIdentity.type && identity.id === selectedIdentity.id;
+    }) ?? null;
+  }, [allTriageItems, selectedIdentity]);
+
+  useEffect(() => {
+    if (allTriageItems.length === 0) {
+      setSelectedIdentity(null);
+      setSelectedReportId(null);
+      return;
+    }
+
+    if (!selectedIdentity) {
+      const firstIdentity = getTriageItemIdentity(allTriageItems[0]);
+      setSelectedIdentity(firstIdentity);
+      setSelectedReportId(allTriageItems[0].reports[0]?.report_id ?? null);
+      return;
+    }
+
+    const stillExists = allTriageItems.some((item) => {
+      const identity = getTriageItemIdentity(item);
+      return identity?.type === selectedIdentity.type && identity.id === selectedIdentity.id;
+    });
+
+    if (!stillExists) {
+      const next = allTriageItems[0];
+      setSelectedIdentity(getTriageItemIdentity(next));
+      setSelectedReportId(next.reports[0]?.report_id ?? null);
+      setSelectionNotice('Selected triage item changed after refresh. Showing the next highest-priority item.');
+    }
+  }, [allTriageItems, selectedIdentity]);
+
   if (authLoading) {
     return <div className="p-8 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-slate-500" /></div>;
   }
@@ -214,147 +273,44 @@ export default function TriagePage() {
         {lastPolled && <span>Polled {lastPolled.toLocaleTimeString()}</span>}
       </div>
 
-      <div className="rounded-md border border-slate-200 bg-white" data-testid="clusters-table">
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-          <div className="flex items-center gap-2 font-medium text-slate-900">
-            <ClipboardList className="h-4 w-4 text-red-700" />
-            Clusters
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="flex justify-center p-12"><Loader2 className="h-8 w-8 animate-spin text-slate-500" /></div>
-        ) : sortedClusters.length === 0 ? (
-          <div className="p-12 text-center text-slate-600">No clusters matching current filters.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs font-medium uppercase text-slate-500">
-                <tr>
-                  <th className="px-3 py-2">#</th>
-                  <th className="px-3 py-2">Severity</th>
-                  <th className="px-3 py-2">Life Safety</th>
-                  <th className="px-3 py-2">Timeout Risk</th>
-                  <th className="px-3 py-2">Assigned To</th>
-                  <th className="px-3 py-2">Members</th>
-                  <th className="px-3 py-2">Avg Trust</th>
-                  <th className="px-3 py-2">Station</th>
-                  <th className="px-3 py-2">Age</th>
-                  <th className="px-3 py-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {sortedClusters.map((cluster) => (
-                  <tr key={cluster.cluster_id}>
-                    <td className="px-3 py-3">{cluster.cluster_id}</td>
-                    <td className="px-3 py-3">
-                      <span className={`rounded-md border px-2 py-1 text-xs font-medium ${statusTone(cluster.severity)}`}>{cluster.severity}</span>
-                    </td>
-                    <td className="px-3 py-3">
-                      {cluster.has_life_safety && <AlertTriangle className="h-4 w-4 text-red-700" />}
-                    </td>
-                    <td className="px-3 py-3">
-                      {cluster.is_danger && <span className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-red-100 px-2 py-1 text-xs font-bold text-red-800 animate-pulse"><AlertTriangle className="h-3 w-3" />2h+</span>}
-                      {!cluster.is_danger && cluster.is_timeout_risk && <Clock className="h-4 w-4 text-amber-700" />}
-                    </td>
-                    <td className="px-3 py-3">{cluster.assigned_to ?? '—'}</td>
-                    <td className="px-3 py-3">{cluster.member_count}{cluster.related_count > 0 ? ` (+${cluster.related_count} related)` : ''}</td>
-                    <td className="px-3 py-3">{Math.round(cluster.avg_trust)}</td>
-                    <td className="px-3 py-3">{cluster.station.name ?? 'N/A'}</td>
-                    <td className="px-3 py-3 text-xs text-slate-500">{new Date(cluster.oldest_report_at).toLocaleString()}</td>
-                    <td className="px-3 py-3">
-                      <div className="flex gap-2">
-                        {cluster.assigned_to === null && role === 'NATIONAL_VALIDATOR' && (
-                          <button
-                            disabled={claiming === cluster.cluster_id}
-                            onClick={() => void claimCluster(cluster.cluster_id)}
-                            className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                          >
-                            <ShieldCheck className="h-3 w-3" />
-                            Claim
-                          </button>
-                        )}
-                        <button onClick={() => void openInspection(cluster, 'cluster')} className="rounded-md bg-red-700 px-2 py-1 text-xs font-medium text-white hover:bg-red-800">
-                          Inspect
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <div className="rounded-md border border-slate-200 bg-white">
+        {selectionNotice && (
+          <div className="m-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            {selectionNotice}
           </div>
         )}
-      </div>
-
-      <div className="rounded-md border border-slate-200 bg-white" data-testid="singletons-table">
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-          <div className="flex items-center gap-2 font-medium text-slate-900">
-            <ClipboardList className="h-4 w-4 text-red-700" />
-            Individual Reports
-          </div>
-        </div>
 
         {loading ? (
-          <div className="flex justify-center p-12"><Loader2 className="h-8 w-8 animate-spin text-slate-500" /></div>
-        ) : filteredSingletons.length === 0 ? (
-          <div className="p-12 text-center text-slate-600">No individual reports matching current filters.</div>
+          <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+            <div className="flex h-[min(68vh,680px)] min-h-[420px] items-center justify-center rounded-xl border border-slate-200 bg-slate-50">
+              <Loader2 className="h-8 w-8 animate-spin text-slate-500" />
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading investigation board...</div>
+          </div>
+        ) : allTriageItems.length === 0 ? (
+          <div className="p-12 text-center text-slate-600">No civilian reports matching current filters.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs font-medium uppercase text-slate-500">
-                <tr>
-                  <th className="px-3 py-2">#</th>
-                  <th className="px-3 py-2">Severity</th>
-                  <th className="px-3 py-2">Life Safety</th>
-                  <th className="px-3 py-2">Timeout Risk</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Category</th>
-                  <th className="px-3 py-2">Trust</th>
-                  <th className="px-3 py-2">Station</th>
-                  <th className="px-3 py-2">Age</th>
-                  <th className="px-3 py-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {filteredSingletons.map((singleton) => {
-                  const report = singleton.reports?.[0];
-                  if (!report) return null;
-                  const terminalStatus = report.status === 'ACTIONED' || report.status.startsWith('REJECTED_');
-                  return (
-                    <tr key={singleton.anchor_report_id ?? report.report_id}>
-                      <td className="px-3 py-3">{report.report_id}</td>
-                      <td className="px-3 py-3">
-                        <span className={`rounded-md border px-2 py-1 text-xs font-medium ${statusTone(singleton.severity)}`}>{singleton.severity}</span>
-                      </td>
-                      <td className="px-3 py-3">
-                        {singleton.has_life_safety && <AlertTriangle className="h-4 w-4 text-red-700" />}
-                      </td>
-                      <td className="px-3 py-3">
-                        {singleton.is_danger && <span className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-red-100 px-2 py-1 text-xs font-bold text-red-800 animate-pulse"><AlertTriangle className="h-3 w-3" />2h+</span>}
-                        {!singleton.is_danger && singleton.is_timeout_risk && <Clock className="h-4 w-4 text-amber-700" />}
-                      </td>
-                      <td className="px-3 py-3 text-xs">{report.status}</td>
-                      <td className="px-3 py-3 text-xs">{report.category ?? 'N/A'} / {report.sub_category ?? 'none'}</td>
-                      <td className="px-3 py-3">{report.trust_breakdown.score}</td>
-                      <td className="px-3 py-3">{singleton.station.name ?? 'N/A'}</td>
-                      <td className="px-3 py-3 text-xs text-slate-500">{new Date(singleton.oldest_report_at).toLocaleString()}</td>
-                      <td className="px-3 py-3">
-                        {terminalStatus ? (
-                          <button onClick={() => void openInspection(singleton, 'singleton')} className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">
-                            Correct
-                          </button>
-                        ) : (
-                          <button onClick={() => void openInspection(singleton, 'singleton')} className="rounded-md bg-red-700 px-2 py-1 text-xs font-medium text-white hover:bg-red-800">
-                            Inspect
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+            <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm" aria-label="Civilian triage map canvas">
+              <TriageCanvasMap
+                items={allTriageItems}
+                selectedIdentity={selectedIdentity}
+                selectedReportId={selectedReportId}
+                onSelectItem={selectTriageItem}
+                onSelectReport={setSelectedReportId}
+              />
+            </section>
+            <TriageInvestigationBoard
+              items={allTriageItems}
+              selectedItem={selectedItem}
+              selectedReportId={selectedReportId}
+              role={role}
+              claiming={claiming}
+              onInspect={inspectSelectedItem}
+              onSelectItem={selectTriageItem}
+              onSelectReport={setSelectedReportId}
+              onClaimCluster={(clusterId) => void claimCluster(clusterId)}
+            />
           </div>
         )}
       </div>

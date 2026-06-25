@@ -11,6 +11,7 @@ import { ReportsListPanel } from './ReportsListPanel';
 import { SplitActionPanel } from './SplitActionPanel';
 import { TerminalActionPanel } from './TerminalActionPanel';
 import { TriageActionTabs } from './TriageActionTabs';
+import { TriageSpatialPanel } from './TriageSpatialPanel';
 import {
   TERMINAL_OPTIONS,
   selectedReportIds,
@@ -238,19 +239,17 @@ export function TriageInspectionModal({
         )}
 
         <div className="triage-modal__body">
-          <aside className="triage-modal__rail">
-            <TriageActionTabs
-              tab={state.tab}
-              setTab={state.setTab}
+          <aside className="triage-modal__spatial">
+            <TriageSpatialPanel
+              cluster={openCluster}
+              selectedReportId={state.correctionReportId ?? reportIds[0] ?? null}
+              suggestedReportIds={suggestedReportIds}
               inspectionMode={inspectionMode}
-              selectedCount={reportIds.length}
-              totalCount={openCluster.reports.length}
-              correctionReportId={state.correctionReportId}
-              mergeCandidateCount={state.mergeCandidates.length}
+              onSelectReport={(reportId) => state.toggleSelected(reportId)}
             />
           </aside>
 
-          <div className="triage-modal__center">
+          <main className="triage-modal__center" data-testid="triage-evidence-panel">
             <ReportsListPanel
               cluster={openCluster}
               inspectionMode={inspectionMode}
@@ -259,9 +258,20 @@ export function TriageInspectionModal({
               onStartCorrection={state.startCorrection}
               suggestedReportIds={suggestedReportIds}
             />
-          </div>
+          </main>
 
-          <aside className="triage-modal__right" data-testid="triage-action-panel">
+          <aside className="triage-modal__right" data-testid="triage-action-rail">
+            <div className="triage-action-rail__tabs">
+              <TriageActionTabs
+                tab={state.tab}
+                setTab={state.setTab}
+                inspectionMode={inspectionMode}
+                selectedCount={reportIds.length}
+                totalCount={openCluster.reports.length}
+                correctionReportId={state.correctionReportId}
+                mergeCandidateCount={state.mergeCandidates.length}
+              />
+            </div>
             {state.tab === 'terminal' && (
               <TerminalActionPanel
                 cluster={openCluster}

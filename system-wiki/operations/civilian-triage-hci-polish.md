@@ -1,7 +1,7 @@
 ---
 title: Civilian Triage Queue — HCI Polish
 created: 2026-05-20
-updated: 2026-06-21
+updated: 2026-06-25
 type: operation
 tags: [wims-bfp, civilian-reporting, triage, validator, hci, ux, frontend]
 sources: [src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/components/triage/, system-wiki/subsystems/civilian-reporting-phase2.md]
@@ -144,6 +144,18 @@ The four destructive paths (terminal, correction, split, merge) used to share th
 Validation: 27 triage tests pass (13 original + 14 new), 732 tests in the full frontend suite, `npx eslint src/components/triage/ src/app/incidents/triage/page.tsx` clean, no new `tsc` errors.
 
 ---
+
+## Phase E — Spatial Triage Workspace
+
+The queue page now uses a map-first triage canvas paired with an investigation board. Selecting a cluster or singleton marker updates the board without opening the modal. The modal opens only through the explicit `Inspect / Act` CTA.
+
+The inspection modal is retained as the guarded action surface. Its body is refit into three regions:
+
+1. spatial panel with derived cluster centroid/spread or singleton location
+2. report evidence panel using shared evidence cards
+3. action rail with Terminal / Correct / Split / Merge / Activity controls and existing confirmation safeguards
+
+Cluster geometry is derived client-side from valid report coordinates. Reports with invalid or missing runtime coordinates remain visible in evidence/list surfaces and are omitted from map markers with a `No usable location` hint.
 
 ## Related Files
 
