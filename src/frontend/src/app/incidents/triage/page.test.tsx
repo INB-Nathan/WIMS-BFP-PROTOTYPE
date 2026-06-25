@@ -303,7 +303,13 @@ describe('TriagePage', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Select cluster 1/ }));
     await userEvent.click(screen.getByRole('button', { name: /Inspect \/ Act/ }));
 
-    expect(await screen.findByTestId('triage-spatial-panel')).toBeInTheDocument();
+    // The spatial panel testid is present on the dynamic-import loading fallback
+    // AND on the mounted inner component. Wait for the inner react-leaflet map
+    // to actually mount so the testid-on-fallback cannot pass silently.
+    const spatialPanel = await screen.findByTestId('triage-spatial-panel');
+    await waitFor(() => {
+      expect(spatialPanel.querySelector('.leaflet-container')).toBeTruthy();
+    }, { timeout: 5000 });
     expect(screen.getByTestId('triage-evidence-panel')).toBeInTheDocument();
     expect(screen.getByTestId('triage-action-rail')).toBeInTheDocument();
     expect(screen.getByTestId('triage-action-tabs')).toBeInTheDocument();
@@ -670,5 +676,103 @@ describe('TriagePage', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Select cluster 1/ }));
     // Mock data has unassigned clusters; role is NATIONAL_VALIDATOR
     expect(screen.getByRole('button', { name: /Claim cluster/ })).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Prioritized behavior tests from the spec's "Testing and Verification
+  // Strategy" section. The whole-branch review (I1) flagged these as missing
+  // regression coverage. The implementation behavior is correct; these tests
+  // guard against future regressions.
+  // ---------------------------------------------------------------------------
+
+  it('closing the modal preserves the selected item on the page', async () => {
+    const { default: TriagePage } = await import('./page');
+    render(<TriagePage />);
+
+    // Select cluster 1 on the map
+    await userEvent.click(await screen.findByRole('button', { name: /Select cluster 1/ }));
+    expect(screen.getByText('Cluster #1')).toBeInTheDocument();
+
+    // Open the modal via Inspect / Act
+    await userEvent.click(screen.getByRole('button', { name: /Inspect \/ Act/ }));
+    await waitFor(() => {
+      expect(document.getElementById('triage-modal-title')).toBeInTheDocument();
+    });
+
+    // Close the modal via Escape
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape', keyCode: 27 });
+    await waitFor(() => {
+      expect(document.getElementById('triage-modal-title')).toBeNull();
+    });
+
+    // The board should STILL show Cluster #1 (selection was not cleared on close)
+    expect(screen.getByText('Cluster #1')).toBeInTheDocument();
+  });
+
+  it('refresh while the modal is open does not disrupt active action form state', async () => {
+    const { default: TriagePage } = await import('./page');
+    render(<TriagePage />);
+    await openCluster1Modal();
+    await waitFor(() => {
+      expect(screen.getByTestId('triage-panel-terminal')).toBeInTheDocument();
+    });
+
+    // Type a custom explanation into the terminal form
+    const explanationArea = (await screen.findByLabelText('Citizen-visible explanation')) as HTMLTextAreaElement;
+    await userEvent.clear(explanationArea);
+    await userEvent.type(explanationArea, 'CUSTOM_EXPLANATION_VALUE');
+
+    // Click the page's Refresh button (the modal's backdrop does not intercept
+    // bubbled events from the underlying page elements)
+    await userEvent.click(screen.getByRole('button', { name: /Refresh/ }));
+
+    // Modal should still be open
+    expect(document.getElementById('triage-modal-title')).toBeInTheDocument();
+
+    // The explanation field should still contain the typed value
+    const updatedExplanation = (await screen.findByLabelText('Citizen-visible explanation')) as HTMLTextAreaElement;
+    expect(updatedExplanation.value).toBe('CUSTOM_EXPLANATION_VALUE');
+  });
+
+  it('refresh that removes the selected item shows an amber notice and selects the next highest-priority item', async () => {
+    const { fetchTriageQueue } = await import('@/lib/api');
+    // Pull the default mock queue to base the filtered queue on it
+    const fullQueue = await vi.mocked(fetchTriageQueue)();
+    const filteredQueue: TriageQueueResponse = {
+      ...fullQueue,
+      total_reports: 2,
+      clusters: fullQueue.clusters.filter((c) => c.cluster_id !== 1),
+    };
+    // The page's mount effect re-runs on every render because the
+    // useSearchParams mock returns a new URLSearchParams on every call, which
+    // invalidates the useCallback'd loadQueue. Use a flag that flips just
+    // before the user-triggered refresh so the pre-refetch re-runs still
+    // resolve to the full queue (keeping the selection visible) and the
+    // refresh call resolves to the filtered queue.
+    let useFilteredQueue = false;
+    vi.mocked(fetchTriageQueue).mockImplementation(() => {
+      return Promise.resolve(useFilteredQueue ? filteredQueue : fullQueue);
+    });
+
+    const { default: TriagePage } = await import('./page');
+    render(<TriagePage />);
+
+    // Select cluster 1 on the map
+    await userEvent.click(await screen.findByRole('button', { name: /Select cluster 1/ }));
+    expect(screen.getByText('Cluster #1')).toBeInTheDocument();
+
+    // Flip the flag and click Refresh — the next resolve will be the filtered queue
+    useFilteredQueue = true;
+    await userEvent.click(screen.getByRole('button', { name: /Refresh/ }));
+
+    // Wait for the amber notice
+    await waitFor(() => {
+      expect(screen.getByText(/next highest-priority/)).toBeInTheDocument();
+    });
+
+    // The board should no longer show Cluster #1
+    expect(screen.queryByText('Cluster #1')).not.toBeInTheDocument();
+    // The next highest-priority item is the singleton (report 20, MEDIUM severity)
+    expect(screen.getByText('Report #20')).toBeInTheDocument();
   });
 });
