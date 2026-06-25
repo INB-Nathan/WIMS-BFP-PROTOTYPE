@@ -23,6 +23,7 @@ class OperationCreate(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     radius_meters: Optional[float] = None
+    linked_report_ids: list[int] = []
 
 
 class OperationUpdate(BaseModel):
@@ -34,6 +35,22 @@ class OperationUpdate(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     radius_meters: Optional[float] = None
+
+
+class OperationLinkedReport(BaseModel):
+    report_id: int
+    status: str
+    category: str
+    sub_category: Optional[str] = None
+    reported_at: Optional[datetime] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    trust_score: Optional[int] = None
+    safety_status: Optional[str] = None
+    reporting_context: Optional[str] = None
+    linked_operation_id: Optional[int] = None
+    linked_operation_label: Optional[str] = None
+    distance_meters: Optional[float] = None
 
 
 class OperationResponse(BaseModel):
@@ -50,9 +67,15 @@ class OperationResponse(BaseModel):
     longitude: Optional[float] = None
     radius_meters: Optional[float] = None
     linked_report_ids: list[int] = []
+    linked_reports: list[OperationLinkedReport] = []
 
     class Config:
         from_attributes = True
+
+
+class LinkableReportSearchResponse(OperationLinkedReport):
+    link_disabled: bool = False
+    disabled_reason: Optional[str] = None
 
 
 class LinkReportRequest(BaseModel):

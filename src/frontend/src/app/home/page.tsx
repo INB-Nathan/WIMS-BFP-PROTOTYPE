@@ -3,9 +3,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
-import { Search, Loader2, Pencil, Plus, Trash2, Link2, Map as MapIcon, List } from 'lucide-react';
+import { Search, Loader2, Pencil, Plus, Trash2, Link2 } from 'lucide-react';
 import { MapPickerInner } from '@/components/MapPickerInner';
-import OperationsMap from '@/components/OperationsMap';
+import { OperationsConsole } from '@/components/operations/OperationsConsole';
 import {
   fetchOperations,
   createOperation,
@@ -16,7 +16,9 @@ import {
   type Operation,
   type FireStatus,
   type OperationCreate,
+  type LinkableReportDetail,
 } from '@/lib/api/operations';
+import { LinkableReportSearch } from '@/components/operations/LinkableReportSearch';
 
 type TabValue = 'ON-GOING' | 'FIRE OUT' | 'ALL';
 
@@ -46,7 +48,7 @@ export default function HomePage() {
   const [editTarget, setEditTarget] = useState<Operation | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [linkingTarget, setLinkingTarget] = useState<Operation | null>(null);
-  const [viewMode, setViewMode] = useState<'table' | 'map'>('table');
+  const [selectedOperationId, setSelectedOperationId] = useState<number | null>(null);
 
   const loadOps = useCallback(async () => {
     setOpsLoading(true);
@@ -86,6 +88,16 @@ export default function HomePage() {
       (op.notes ?? '').toLowerCase().includes(searchTerm.toLowerCase());
     return matchTab && matchSearch;
   });
+
+  useEffect(() => {
+    if (filteredOps.length === 0) {
+      setSelectedOperationId(null);
+      return;
+    }
+    if (selectedOperationId == null || !filteredOps.some((op) => op.operation_id === selectedOperationId)) {
+      setSelectedOperationId(filteredOps[0].operation_id);
+    }
+  }, [filteredOps, selectedOperationId]);
 
   async function handleStatusChange(id: number, status: FireStatus) {
     await updateOperation(id, { fire_status: status });
@@ -161,74 +173,23 @@ export default function HomePage() {
             )}
           </div>
 
-          {/* Filter tabs + View toggle */}
-          <div className="flex gap-2 flex-wrap items-center justify-between">
-            <div className="flex gap-2 flex-wrap">
-              {(['ON-GOING', 'FIRE OUT', 'ALL'] as TabValue[]).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`rounded-md border px-3 py-1.5 text-sm font-medium ${
-                    activeTab === tab
-                      ? 'border-red-300 bg-red-50 text-red-700'
-                      : 'border-slate-300 bg-white text-slate-700'
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-1 rounded-md border border-slate-300 overflow-hidden">
+          {/* Filter tabs */}
+          <div className="flex gap-2 flex-wrap">
+            {(['ON-GOING', 'FIRE OUT', 'ALL'] as TabValue[]).map((tab) => (
               <button
-                onClick={() => setViewMode('table')}
-                className={`flex items-center gap-1 px-3 py-1.5 text-sm font-medium ${
-                  viewMode === 'table'
-                    ? 'bg-red-50 text-red-700'
-                    : 'bg-white text-slate-600 hover:bg-slate-50'
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`rounded-md border px-3 py-1.5 text-sm font-medium ${
+                  activeTab === tab
+                    ? 'border-red-300 bg-red-50 text-red-700'
+                    : 'border-slate-300 bg-white text-slate-700'
                 }`}
               >
-                <List className="h-4 w-4" /> Table
+                {tab}
               </button>
-              <button
-                onClick={() => setViewMode('map')}
-                className={`flex items-center gap-1 px-3 py-1.5 text-sm font-medium border-l border-slate-300 ${
-                  viewMode === 'map'
-                    ? 'bg-red-50 text-red-700'
-                    : 'bg-white text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                <MapIcon className="h-4 w-4" /> Map
-              </button>
-            </div>
+            ))}
           </div>
 
-          {/* Map view */}
-          {viewMode === 'map' && !opsLoading && (
-            <div className="space-y-4">
-              <OperationsMap operations={filteredOps} />
-              {filteredOps.filter((op) => op.latitude == null || op.longitude == null).length > 0 && (
-                <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
-                  <p className="text-sm font-medium text-amber-800">
-                    {filteredOps.filter((op) => op.latitude == null || op.longitude == null).length} operation(s)
-                    without map coordinates
-                  </p>
-                  <ul className="mt-2 space-y-1">
-                    {filteredOps
-                      .filter((op) => op.latitude == null || op.longitude == null)
-                      .map((op) => (
-                        <li key={op.operation_id} className="text-sm text-amber-700">
-                          {op.location} — {op.fire_status}
-                        </li>
-                      ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Table view */}
-          {viewMode === 'table' && (
-          <div>
           {opsLoading ? (
             <div className="flex justify-center p-8">
               <Loader2 className="h-6 w-6 animate-spin text-slate-500" />
@@ -238,91 +199,15 @@ export default function HomePage() {
               No operations found.
             </div>
           ) : (
-            <div className="rounded-md border border-slate-200 overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs font-medium uppercase text-slate-500">
-                  <tr>
-                    <th className="px-3 py-2">Location</th>
-                    <th className="px-3 py-2">Size (ha)</th>
-                    <th className="px-3 py-2">Start Time</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2">Linked Reports</th>
-                    <th className="px-3 py-2">Last Updated</th>
-                    {isValidator && <th className="px-3 py-2">Actions</th>}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {filteredOps.map((op) => (
-                    <tr key={op.operation_id} className="hover:bg-slate-50">
-                      <td className="px-3 py-3 font-medium" style={{ color: 'var(--text-primary)' }}>
-                        {op.location}
-                      </td>
-                      <td className="px-3 py-3 text-slate-600">{op.size_hectares ?? '—'}</td>
-                      <td className="px-3 py-3 text-xs text-slate-500">
-                        {new Date(op.start_time).toLocaleString()}
-                      </td>
-                      <td className="px-3 py-3">
-                        {isValidator ? (
-                          <select
-                            value={op.fire_status}
-                            onChange={(e) =>
-                              void handleStatusChange(op.operation_id, e.target.value as FireStatus)
-                            }
-                            className={`rounded-md border px-2 py-1 text-xs font-medium ${STATUS_BADGE[op.fire_status].className}`}
-                          >
-                            <option value="ACTIVE">Active</option>
-                            <option value="CONTAINED">Contained</option>
-                            <option value="FIRE_OUT">Fire Out</option>
-                          </select>
-                        ) : (
-                          <span
-                            className={`rounded-md border px-2 py-1 text-xs font-medium ${STATUS_BADGE[op.fire_status].className}`}
-                          >
-                            {STATUS_BADGE[op.fire_status].label}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-3 text-xs text-slate-500">
-                        <button
-                          onClick={() => setLinkingTarget(op)}
-                          className="inline-flex items-center gap-1 hover:text-blue-600 transition-colors"
-                          title="Manage linked reports"
-                        >
-                          <Link2 className="h-3 w-3" />
-                          {op.linked_report_ids.length}
-                        </button>
-                      </td>
-                      <td className="px-3 py-3 text-xs text-slate-500">
-                        {new Date(op.updated_at).toLocaleString()}
-                      </td>
-                      {isValidator && (
-                        <td className="px-3 py-3">
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => setEditTarget(op)}
-                              className="rounded-md border border-slate-300 p-1 text-slate-600 hover:bg-slate-50"
-                              aria-label="Edit operation"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              onClick={() => void handleDelete(op.operation_id)}
-                              className="rounded-md border border-red-200 p-1 text-red-600 hover:bg-red-50"
-                              aria-label="Delete operation"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <OperationsConsole
+              operations={filteredOps}
+              selectedOperationId={selectedOperationId}
+              onSelectOperation={setSelectedOperationId}
+              canManageReports={isValidator}
+              onLinkReport={(operationId, reportId) => void handleLink(operationId, reportId)}
+              onUnlinkReport={(operationId, reportId) => void handleUnlink(operationId, reportId)}
+            />
           )}
-          </div>
-        )}
         </div>
       </div>
 
@@ -384,6 +269,28 @@ function OperationFormModal({
   const [radius, setRadius] = useState<number | null>(initial?.radius_meters ?? null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedReports, setSelectedReports] = useState<LinkableReportDetail[]>([]);
+  const [showReportPicker, setShowReportPicker] = useState(false);
+
+  function handleSelectReport(report: LinkableReportDetail) {
+    setSelectedReports((current) => {
+      if (current.some((item) => item.report_id === report.report_id)) return current;
+      return [...current, report];
+    });
+    if (selectedReports.length === 0) {
+      if (report.latitude != null && report.longitude != null) {
+        setLat(report.latitude);
+        setLng(report.longitude);
+        if (!location) setLocation(`Report #${report.report_id} (${report.latitude.toFixed(5)}, ${report.longitude.toFixed(5)})`);
+      }
+      if (report.reported_at && !startTime) {
+        setStartTime(new Date(report.reported_at).toISOString().slice(0, 16));
+      }
+      if (!notes) {
+        setNotes(`Report #${report.report_id}: ${report.category}${report.sub_category ? ` / ${report.sub_category}` : ''}`);
+      }
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -399,6 +306,7 @@ function OperationFormModal({
         latitude: lat ?? undefined,
         longitude: lng ?? undefined,
         radius_meters: radius ?? undefined,
+        linked_report_ids: selectedReports.map((report) => report.report_id),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
@@ -409,11 +317,11 @@ function OperationFormModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-4"
       onClick={onClose}
     >
       <form
-        className="w-full max-w-md rounded-md bg-white p-5 shadow-xl space-y-4"
+        className="z-[1001] w-full max-w-md rounded-md bg-white p-5 shadow-xl space-y-4"
         onClick={(e) => e.stopPropagation()}
         onSubmit={(e) => void handleSubmit(e)}
       >
@@ -518,6 +426,43 @@ function OperationFormModal({
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
           </div>
+          <div className="rounded-lg border border-slate-200 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-xs font-bold text-slate-700">Linked civilian reports</p>
+                <p className="text-xs text-slate-500">{selectedReports.length} selected report(s)</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowReportPicker((value) => !value)}
+                className="rounded-md border border-red-200 px-2 py-1 text-xs font-bold text-red-700 hover:bg-red-50"
+              >
+                Select civilian reports
+              </button>
+            </div>
+            {selectedReports.length === 0 && (
+              <p className="mt-2 text-xs text-amber-700">No civilian reports linked yet. You can save without links.</p>
+            )}
+            {selectedReports.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {selectedReports.map((report) => (
+                  <span key={report.report_id} className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700">
+                    Report #{report.report_id}
+                  </span>
+                ))}
+              </div>
+            )}
+            {showReportPicker && (
+              <div className="mt-3">
+                <LinkableReportSearch
+                  operation={null}
+                  mode="select"
+                  selectedReportIds={selectedReports.map((report) => report.report_id)}
+                  onSelect={handleSelectReport}
+                />
+              </div>
+            )}
+          </div>
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">Notes</label>
             <textarea
@@ -593,11 +538,11 @@ function ReportLinkingModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-md bg-white p-5 shadow-xl space-y-4"
+        className="z-[1001] w-full max-w-md rounded-md bg-white p-5 shadow-xl space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-base font-semibold text-slate-900">

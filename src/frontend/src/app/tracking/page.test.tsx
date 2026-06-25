@@ -46,6 +46,23 @@ describe('ReportTrackerPage', () => {
     expect(await screen.findByText('ACTIONED')).toBeDefined();
   });
 
+  it('uses neutral active-operation copy for linked reports', async () => {
+    vi.mocked(fetchReportStatus).mockResolvedValue({
+      report_id: 42,
+      status: 'LINKED',
+      created_at: '2026-05-19T08:00:00Z',
+    } as unknown as CivilianReportTrackingResponse);
+    localStorage.setItem('wims_civilian_device_id', 'device-a');
+    window.history.pushState({}, '', '/tracking?id=42');
+
+    const { default: ReportTrackerPage } = await import('./page');
+    render(<ReportTrackerPage />);
+
+    expect(await screen.findByText('Linked to Active BFP Operation')).toBeInTheDocument();
+    expect(screen.getByText(/linked to an active BFP operation/i)).toBeInTheDocument();
+    expect(screen.queryByText(/another report/i)).toBeNull();
+  });
+
   it('renders the bilingual 911 emergency boundary on a PENDING report (not only REJECTED_*)', async () => {
     vi.mocked(fetchReportStatus).mockResolvedValue({
       report_id: 42,
