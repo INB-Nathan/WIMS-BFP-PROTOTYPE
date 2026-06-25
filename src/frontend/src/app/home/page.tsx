@@ -317,11 +317,11 @@ function OperationFormModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-4"
       onClick={onClose}
     >
       <form
-        className="w-full max-w-md rounded-md bg-white p-5 shadow-xl space-y-4"
+        className="z-[1001] w-full max-w-md rounded-md bg-white p-5 shadow-xl space-y-4"
         onClick={(e) => e.stopPropagation()}
         onSubmit={(e) => void handleSubmit(e)}
       >
@@ -538,11 +538,11 @@ function ReportLinkingModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-md bg-white p-5 shadow-xl space-y-4"
+        className="z-[1001] w-full max-w-md rounded-md bg-white p-5 shadow-xl space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-base font-semibold text-slate-900">
