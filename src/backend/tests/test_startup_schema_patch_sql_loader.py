@@ -143,7 +143,10 @@ class TestSqlFileSchemaPatchesMembership:
             # initialization — that's acceptable because it's idempotent DDL init.
             assert has_create, f"Allowlisted file should contain DDL: {filename}"
             if has_insert:
-                # Only 27_reference_sequence.sql has INSERT (ON CONFLICT DO UPDATE, idempotent)
-                assert filename == "27_reference_sequence.sql", (
-                    f"Unexpected INSERT in allowlisted file: {filename}"
-                )
+                # Permitted files that contain INSERT inside DDL (not standalone seed data):
+                # 27_reference_sequence.sql — INSERT ON CONFLICT DO UPDATE (idempotent DDL init)
+                # 63_fire_incidents_insert_audit_trigger.sql — INSERT inside trigger function body
+                assert filename in {
+                    "27_reference_sequence.sql",
+                    "63_fire_incidents_insert_audit_trigger.sql",
+                }, f"Unexpected INSERT in allowlisted file: {filename}"
