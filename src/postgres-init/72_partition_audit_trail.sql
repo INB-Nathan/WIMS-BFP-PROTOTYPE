@@ -134,7 +134,7 @@ CREATE POLICY audit_trails_read_admin_or_self
     ON wims.system_audit_trails FOR SELECT
     USING (
         wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST')
-        OR user_id = wims.current_user_id()
+        OR user_id = wims.current_user_uuid()
     );
 
 DROP POLICY IF EXISTS audit_trails_insert_service ON wims.system_audit_trails;
