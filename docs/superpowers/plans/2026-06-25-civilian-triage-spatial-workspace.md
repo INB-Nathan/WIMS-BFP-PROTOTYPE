@@ -44,7 +44,7 @@ Modify:
 - `src/frontend/src/app/incidents/triage/page.tsx` — replace table-first layout with workspace; own selection state; keep queue loading/filter/claim/reload behavior.
 - `src/frontend/src/app/incidents/triage/page.test.tsx` — rewrite page layout tests away from `clusters-table` / `singletons-table`; keep modal action behavior assertions.
 - `src/frontend/src/components/triage/TriageInspectionModal.tsx` — relocate `TriageActionTabs` into action rail and insert `TriageSpatialPanel` as first body column.
-- `src/frontend/src/components/triage/ReportsListPanel.tsx` — reuse `TriageEvidenceCard` for report cards where practical.
+- `src/frontend/src/components/triage/ReportsListPanel.tsx` — optional reuse point for `TriageEvidenceCard`; only modify if the modal refit actually replaces the existing card markup.
 - `src/frontend/src/components/triage/triage-modal.css` — enlarge modal, change grid columns to spatial/evidence/action, style compact action tabs, add responsive behavior.
 - `src/frontend/src/components/triage/*.test.tsx` if existing modal tests need selector updates after rail relocation.
 - `system-wiki/frontend/route-map.md` — document new `/incidents/triage` workspace.
@@ -339,8 +339,14 @@ export interface TriageEvidenceCardProps {
   onStartCorrection?: (report: TriageReportEntry) => void;
 }
 
+const LIFE_SAFETY_STATUSES = new Set(['I_NEED_HELP', 'SOMEONE_ELSE_NEEDS_HELP']);
+
+function hasLifeSafetySignal(report: TriageReportEntry): boolean {
+  return LIFE_SAFETY_STATUSES.has(report.safety_status ?? '');
+}
+
 function statusTone(report: TriageReportEntry): string {
-  if (report.safety_status) return 'border-red-300 bg-red-50 text-red-900';
+  if (hasLifeSafetySignal(report)) return 'border-red-300 bg-red-50 text-red-900';
   if (report.is_timeout_risk) return 'border-amber-300 bg-amber-50 text-amber-900';
   if (report.trust_breakdown.score >= 75) return 'border-emerald-300 bg-emerald-50 text-emerald-900';
   return 'border-slate-200 bg-white text-slate-900';
@@ -384,7 +390,7 @@ export function TriageEvidenceCard({
       {!compact && description && <p className="mt-2 line-clamp-3 text-slate-700">{description}</p>}
 
       <div className="mt-3 flex flex-wrap gap-2 text-xs">
-        {report.safety_status && (
+        {hasLifeSafetySignal(report) && (
           <span className="inline-flex items-center gap-1 rounded-md bg-red-100 px-2 py-1 font-bold text-red-800">
             <AlertTriangle className="h-3 w-3" /> Life safety
           </span>
@@ -1144,7 +1150,7 @@ git commit -m "feat(triage): replace queue tables with spatial workspace"
 - Create: `src/frontend/src/components/triage/TriageSpatialPanel.tsx`
 - Create: `src/frontend/src/components/triage/TriageSpatialPanelInner.tsx`
 - Modify: `src/frontend/src/components/triage/TriageInspectionModal.tsx`
-- Modify: `src/frontend/src/components/triage/ReportsListPanel.tsx`
+- Modify: `src/frontend/src/components/triage/ReportsListPanel.tsx` only if replacing its existing report card markup with `TriageEvidenceCard`; otherwise leave unchanged.
 - Modify: `src/frontend/src/components/triage/triage-modal.css`
 - Modify: modal-related tests in `src/frontend/src/app/incidents/triage/page.test.tsx` if selectors need updates
 
@@ -1315,14 +1321,7 @@ with:
       selectedReportId={state.correctionReportId ?? reportIds[0] ?? null}
       suggestedReportIds={state.mergeCandidates.map((candidate) => candidate.anchor_report_id).filter((id): id is number => typeof id === 'number')}
       inspectionMode={inspectionMode}
-      onSelectReport={(reportId) => {
-        state.setSelected((current) => {
-          const next = new Set(current);
-          if (next.has(reportId)) next.delete(reportId);
-          else next.add(reportId);
-          return next;
-        });
-      }}
+      onSelectReport={(reportId) => state.toggleSelected(reportId)}
     />
   </aside>
 
@@ -1331,7 +1330,7 @@ with:
       cluster={openCluster}
       inspectionMode={inspectionMode}
       selected={state.selected}
-      onToggle={state.toggleReport}
+      onToggle={state.toggleSelected}
       onStartCorrection={state.startCorrection}
       suggestedReportIds={state.mergeCandidates.map((candidate) => candidate.anchor_report_id).filter((id): id is number => typeof id === 'number')}
     />
@@ -1441,7 +1440,9 @@ Expected: PASS.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/frontend/src/components/triage/TriageSpatialPanel.tsx src/frontend/src/components/triage/TriageSpatialPanelInner.tsx src/frontend/src/components/triage/TriageInspectionModal.tsx src/frontend/src/components/triage/ReportsListPanel.tsx src/frontend/src/components/triage/triage-modal.css src/frontend/src/app/incidents/triage/page.test.tsx
+git add src/frontend/src/components/triage/TriageSpatialPanel.tsx src/frontend/src/components/triage/TriageSpatialPanelInner.tsx src/frontend/src/components/triage/TriageInspectionModal.tsx src/frontend/src/components/triage/triage-modal.css src/frontend/src/app/incidents/triage/page.test.tsx
+# Add ReportsListPanel.tsx only if you actually refactored its card markup:
+# git add src/frontend/src/components/triage/ReportsListPanel.tsx
 git commit -m "feat(triage): refit inspection modal with spatial panel"
 ```
 
