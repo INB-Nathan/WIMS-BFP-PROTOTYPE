@@ -689,9 +689,13 @@ describe('TriagePage', () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
 
-    // Select cluster 1 on the map
-    await userEvent.click(await screen.findByRole('button', { name: /Select cluster 1/ }));
-    expect(screen.getByText('Cluster #1')).toBeInTheDocument();
+    // Select cluster 3 (LOW priority, not the default first item) on the map.
+    // Using a non-default item is critical: the refresh-repair useEffect at
+    // page.tsx:209-237 re-selects the highest-priority item (cluster 1) when
+    // selectedIdentity is null, so selecting cluster 1 would make the test
+    // pass even if selection was incorrectly cleared on close.
+    await userEvent.click(await screen.findByRole('button', { name: /Select cluster 3/ }));
+    expect(screen.getByText('Cluster #3')).toBeInTheDocument();
 
     // Open the modal via Inspect / Act
     await userEvent.click(screen.getByRole('button', { name: /Inspect \/ Act/ }));
@@ -705,8 +709,14 @@ describe('TriagePage', () => {
       expect(document.getElementById('triage-modal-title')).toBeNull();
     });
 
-    // The board should STILL show Cluster #1 (selection was not cleared on close)
-    expect(screen.getByText('Cluster #1')).toBeInTheDocument();
+    // The board should STILL show Cluster #3 (selection was not cleared on close).
+    // Use getByRole('heading') to target the headline specifically — the ranked
+    // queue also renders "Cluster #X" text inside <button> elements.
+    expect(screen.getByRole('heading', { name: /^Cluster #3$/ })).toBeInTheDocument();
+    // Assert that cluster 1 is NOT the headline — if the implementation had
+    // cleared selectedIdentity on close, the refresh-repair useEffect would
+    // have re-defaulted to cluster 1 (highest priority).
+    expect(screen.queryByRole('heading', { name: /^Cluster #1$/ })).not.toBeInTheDocument();
   });
 
   it('refresh while the modal is open does not disrupt active action form state', async () => {
@@ -722,8 +732,11 @@ describe('TriagePage', () => {
     await userEvent.clear(explanationArea);
     await userEvent.type(explanationArea, 'CUSTOM_EXPLANATION_VALUE');
 
-    // Click the page's Refresh button (the modal's backdrop does not intercept
-    // bubbled events from the underlying page elements)
+    // userEvent.click dispatches the event directly on the button, bypassing
+    // the modal's visual layering (triage-modal.css:7-11: position: fixed;
+    // inset: 0; z-index: 50). A real user could not click the Refresh button
+    // while the modal is open, but the form-state preservation behavior across
+    // a re-render is what we're testing.
     await userEvent.click(screen.getByRole('button', { name: /Refresh/ }));
 
     // Modal should still be open
