@@ -425,11 +425,13 @@ def test_get_report_clusters_cache_and_stale_fallback(client, db_session):
         assert data1.get("stale") is False
         assert data1.get("degraded") is False
 
-        # 2. Cache hit (DB not called)
+        # 2. Cache hit (DB not called for cluster query).
+        # get_db() executes SET LOCAL app.audit_source='app' once per request
+        # (WS-C GUC guard), so call_count is 1 even on the cache-hit path.
         with mock.patch("sqlalchemy.orm.Session.execute") as mock_exec:
             resp2 = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
             assert resp2.status_code == 200
-            assert mock_exec.call_count == 0
+            assert mock_exec.call_count == 1  # GUC SET only; no cluster query on cache hit
             assert resp2.json()["areas"] == data1["areas"]
 
         # 3. DB fails, fresh cache expired -> serve stale

@@ -122,11 +122,23 @@ class TestSqlFileSchemaPatchesMembership:
 
     def test_all_allowlisted_files_are_schema_only(self):
         """Every allowlisted file should be a schema migration, not seed/reference data."""
+        # All DDL forms accepted across schema-patch files in this repo.
+        _DDL_KEYWORDS = (
+            "CREATE TABLE",
+            "ALTER TABLE",
+            "CREATE OR REPLACE FUNCTION",
+            "CREATE FUNCTION",
+            "CREATE TRIGGER",
+            "DROP TRIGGER",
+            "DROP FUNCTION",
+            "CREATE UNIQUE INDEX",
+            "CREATE INDEX",
+        )
         for filename in sorted(_SQL_FILE_SCHEMA_PATCHES):
             path = _POSTGRES_INIT_DIR / filename
             content = path.read_text()
             has_insert = "INSERT INTO" in content.upper()
-            has_create = "CREATE TABLE" in content.upper() or "ALTER TABLE" in content.upper()
+            has_create = any(kw in content.upper() for kw in _DDL_KEYWORDS)
             # 27_reference_sequence.sql has both CREATE TABLE and an INSERT for
             # initialization — that's acceptable because it's idempotent DDL init.
             assert has_create, f"Allowlisted file should contain DDL: {filename}"
