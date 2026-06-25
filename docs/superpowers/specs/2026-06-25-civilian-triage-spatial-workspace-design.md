@@ -16,9 +16,10 @@ Recent Operations Board work introduced a split map + panel console for active o
 - Let validators visualize clusters and individual reports before opening the inspection modal.
 - Keep map exploration fluid: selecting a marker updates the board, but does not auto-open the modal.
 - Preserve the current `TriageInspectionModal` as the primary inspection/action surface.
-- Enlarge and reorganize the modal into a balanced three-panel inspection console.
+- Add net-new triage map surfaces for the page canvas and modal spatial panel.
+- Restructure the modal by relocating the existing action-tab rail into the action column and adding a new spatial panel.
 - Preserve existing terminal, correction, split, merge, preview, confirmation, audit, and keyboard-safety behavior.
-- Reuse the current triage API/data shape unless implementation proves a specific field is missing.
+- Reuse the current triage API/data shape for raw report data, while deriving cluster centroid/spread on the client unless backend fields prove necessary.
 
 ## Non-goals
 
@@ -100,16 +101,31 @@ The implementation should choose the smaller diff that preserves scanability and
 
 ## Map Canvas Design
 
+The map canvas is net-new for triage. It should follow the existing dynamic Leaflet import / SSR-guard pattern used by other map surfaces and should reuse `OperationsMap` implementation ideas where appropriate: `Circle`, `CircleMarker`, `Popup`, and `useMap`-based centering.
+
 The map canvas should show both workflow types:
 
-- clustered report groups, using count/radius/spread visual cues
+- clustered report groups, using derived count/radius/spread visual cues
 - singleton reports, using distinct individual markers
 - selected cluster radius or spatial spread
 - severity and urgency through existing BFP palette-compatible styling
 - marker affordances for life-safety and timeout-risk signals
 - a compact legend explaining cluster marker, singleton marker, selected marker, suggested/related item if shown
 
-Reports with missing or invalid coordinates must remain visible in the board/list. They should not render map markers and should show a `No usable location` hint.
+Cluster geometry must be derived from member reports when backend aggregate geometry is absent:
+
+- centroid: average latitude/longitude of valid member report coordinates
+- spread/radius: maximum valid member distance from centroid, with a minimum visible radius for small clusters
+- bounds: valid member coordinate bounds, used for optional fit-to-selection behavior
+
+Reports with missing or invalid coordinates must remain visible in the board/list. They should not render map markers and should show a `No usable location` hint. Because `TriageReportEntry.latitude` and `longitude` are typed as non-null numbers, the implementation must still apply runtime coordinate guards for `null`, `undefined`, `NaN`, `0,0`, and coordinates outside the expected Philippines bounds.
+
+Dense/overlapping markers should prioritize operational clarity:
+
+- selected item renders above unselected items
+- clustered reports render as a cluster circle/count before individual member markers
+- singleton markers at nearly identical coordinates should be visually offset or spiderfied only at high zoom
+- marker popups/board selection must identify the exact report or cluster without relying on hover precision
 
 ## Investigation Board Design
 
@@ -129,16 +145,19 @@ The board may also show nearby/ranked items so validators can move through work 
 
 ## Modal Design
 
-`TriageInspectionModal` is retained and improved.
+`TriageInspectionModal` is retained and structurally refit. This is not a simple enlargement of an existing map; triage currently has no modal spatial panel. The work is to add a new spatial panel and relocate existing modal navigation/actions without changing destructive-action semantics.
 
 ### Shell
 
 - Large overlay: approximately 90–95vw by 90vh on desktop.
+- Use a bounded desktop size so ultrawide displays do not create unreadable line lengths; target max width around 1600px unless implementation testing suggests otherwise.
 - Keep explicit close button.
 - Preserve sticky maroon summary header.
 - Use the larger header area for cluster/report ID, severity, life-safety, timeout-risk, member count, station, and oldest report age.
 
 ### Three-panel body
+
+The existing modal body is already a grid, but its columns are currently action-tab rail, report evidence, and action panel. The target anatomy changes the meaning of the columns. The action-tab rail must move into the action column header or a compact action-column subnav, and a new spatial panel must be added.
 
 Desktop anatomy:
 
@@ -148,12 +167,15 @@ Desktop anatomy:
 ├──────────────────┬────────────────────────┬─────────────────┤
 │ Spatial panel     │ Report evidence panel  │ Action rail      │
 │                  │                        │                 │
-│ larger map        │ selected cards         │ terminal         │
-│ radius/spread     │ trust/signals          │ correct          │
-│ marker selection  │ followups/status       │ split/merge      │
-│ nearby hints      │ terminal rows          │ previews/confirm │
+│ new map           │ selected cards         │ compact tabs     │
+│ radius/spread     │ trust/signals          │ terminal         │
+│ marker selection  │ followups/status       │ correct          │
+│ nearby hints      │ terminal rows          │ split/merge      │
+│                  │                        │ previews/confirm │
 └──────────────────┴────────────────────────┴─────────────────┘
 ```
+
+Initial desktop grid ratio should favor the map and evidence over the action rail, for example `40% / 35% / 25%` or `45% / 35% / 20%`. The implementation should verify this at 1366×768 and 1280×720 before settling the final CSS.
 
 ### Modal behavior
 
@@ -163,6 +185,7 @@ Desktop anatomy:
 - Terminal, correction, split, and merge behavior remains functionally unchanged.
 - Destructive actions still require two-step confirmation.
 - No keyboard commit shortcuts are introduced.
+- The modal map must initialize only after its container has non-zero dimensions, or call Leaflet `invalidateSize()` after the overlay is painted, to avoid gray/zero-size tiles.
 
 ### Singleton mode
 
@@ -186,7 +209,7 @@ Use existing `GET /api/triage/queue` response from `src/frontend/src/lib/api/leg
 - aging/timeout flags
 - report status and timestamps
 
-No backend change is required for the design as written. If implementation discovers a missing field, add the smallest backend extension with tests.
+No backend change is required for the raw report fields verified for this design. The implementation must first verify whether derived spatial metadata is sufficient. If centroid, spread/radius, bounds, or aggregate values become too expensive or ambiguous to compute client-side, add the smallest backend extension with tests instead of repeatedly deriving unstable values in multiple components.
 
 ### Frontend state model
 
@@ -198,25 +221,40 @@ The page should derive:
 - `selectedReportId`: report highlighted inside the selected item
 - `mapViewport`: current map center/zoom/bounds if needed
 
+### State ownership
+
+The page owns cross-surface state:
+
+- `selectedTriageItemId`
+- `selectedTriageItemType: 'cluster' | 'singleton'`
+- `selectedReportId`
+- `isInspectionModalOpen`
+- `mapViewport` / current camera state
+- active filters and raw queue payload
+
+The modal receives the selected item, selected report, and callbacks. It may keep local action-form/tab state through the existing triage modal hook, but it should not create a second source of truth for page-level selection.
+
 ### Component boundaries
 
 Likely component split:
 
-- `TriagePage` — route shell, auth, loading, filters, queue fetch/reload
-- `TriageCanvasMap` — markers, selected marker state, viewport events
+- `TriagePage` — route shell, auth, loading, filters, queue fetch/reload, page-owned selection state
+- `TriageCanvasMap` — net-new map markers, selected marker rendering, viewport events
 - `TriageInvestigationBoard` — selected item details, evidence cards, `Inspect / Act`
+- `TriageEvidenceCard` or equivalent shared evidence-card primitive — used by both page board and modal where practical
 - `TriageQueueList` — ranked clusters/singletons fallback scan surface
-- existing `TriageInspectionModal` — enlarged and internally reorganized
+- existing `TriageInspectionModal` — enlarged, with action-tab rail relocated and a new spatial panel added
 - existing triage action panels/hooks — reused where possible
 
-Components should remain presentational where practical. API calls should stay in the route/client layer, matching frontend agent guidance.
+Components should remain presentational where practical. API calls should stay in the route/client layer, matching frontend agent guidance. The page board and modal should share evidence-card primitives instead of maintaining two parallel card implementations unless a concrete styling/behavior difference requires separation.
 
 ## Loading, Empty, Error, and Offline States
 
 - Loading: map and board show neutral skeleton/placeholder states.
 - Empty filters: explain active filters and provide a clear reset path.
 - Missing coordinates: keep the item visible in board/list, omit marker, show `No usable location`.
-- Refresh removes selected item: select the highest-priority remaining item and show a subtle notice.
+- Refresh removes selected item: select the highest-priority remaining item and show a subtle notice, but keep the current map camera/viewport stable to avoid spatial disorientation.
+- Refresh changes a selected item while the modal is open: keep the modal on a stable snapshot for the active action flow, then refresh the page board after close/reload unless implementation can safely hot-update without disrupting form state.
 - API failure: preserve the last visible state when possible and show a recoverable error.
 - Offline: do not add new mutation behavior. If no offline queue cache exists, show a friendly unavailable state consistent with existing offline-aware frontend patterns.
 
@@ -233,25 +271,35 @@ Components should remain presentational where practical. API calls should stay i
 
 Prioritized frontend behavior tests:
 
+Page-level layout tests should be rewritten, not merely preserved, because the current tests assert table-specific contracts such as `clusters-table` and `singletons-table`. Modal action tests should be preserved or adapted narrowly because they cover behavior that must remain unchanged.
+
 - `/incidents/triage` renders a map canvas and investigation board.
 - Cluster and singleton data still split correctly from `queue.clusters`.
 - Clicking a map marker updates the board without opening the modal.
 - Clicking `Inspect / Act` opens `TriageInspectionModal`.
 - Closing the modal preserves selected item on the page.
+- Refresh while the modal is open does not disrupt active action form state.
+- Refresh that removes the selected item keeps the map viewport stable and selects the next highest-priority item.
 - Missing-coordinate reports remain visible in board/list but do not render markers.
+- Overlapping singleton markers remain distinguishable by board selection/popup identity.
 - Modal renders as a large overlay.
 - Cluster modal mode shows three panels: spatial map, report evidence, action rail.
+- Existing action-tab rail behavior is still reachable after relocation into the action column.
 - Singleton modal mode hides cluster-only split/merge affordances when not applicable.
 - Existing terminal/correct/split/merge confirmation behavior remains covered.
 - Existing no-commit-keyboard-shortcut policy remains covered.
+- React Leaflet is mocked or dynamically isolated in tests following existing map test patterns.
 
 Verification commands for implementation:
 
 ```bash
-cd src/frontend && npx vitest run src/app/incidents/triage/page.test.tsx src/components/triage
+cd src/frontend && npx vitest run src/app/incidents/triage/page.test.tsx
+cd src/frontend && npx vitest run src/components/triage
 cd src/frontend && npm run lint
 cd src/frontend && npx vitest run
 ```
+
+Performance expectation: the initial implementation should remain responsive for the expected validator queue size using memoized cluster/singleton splits, derived centroid/spread calculations, and filter evaluations keyed to the raw queue payload and active filters. If manual testing or seeded fixtures show hundreds of markers/reports causing slow interaction, add marker clustering, viewport culling, or list virtualization as a follow-up rather than hiding the issue.
 
 Run broader CI pre-flight before PR/merge when implementation is complete.
 
