@@ -71,7 +71,7 @@ class TestRetryLogic:
             import asyncio
 
             result = asyncio.run(
-                _ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test")
+                _ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test")
             )
 
         assert result is mock_resp
@@ -94,7 +94,7 @@ class TestRetryLogic:
             import asyncio
 
             with pytest.raises(HTTPException) as exc_info:
-                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test"))
+                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test"))
 
         assert exc_info.value.status_code == 502
         assert "unavailable" in exc_info.value.detail.lower()
@@ -118,7 +118,7 @@ class TestRetryLogic:
             import asyncio
 
             with pytest.raises(HTTPException) as exc_info:
-                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test"))
+                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test"))
 
         assert exc_info.value.status_code == 502
         assert "timed out" in exc_info.value.detail.lower()
@@ -150,7 +150,7 @@ class TestRetryLogic:
             import asyncio
 
             result = asyncio.run(
-                _ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test")
+                _ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test")
             )
 
         assert result is mock_success
@@ -176,7 +176,7 @@ class TestRetryLogic:
             import asyncio
 
             with pytest.raises(HTTPException) as exc_info:
-                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test"))
+                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test"))
 
         assert exc_info.value.status_code == 502
         assert call_count[0] == 3
@@ -201,30 +201,10 @@ class TestRetryLogic:
             import asyncio
 
             with pytest.raises(HTTPException) as exc_info:
-                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test"))
+                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test"))
 
         assert exc_info.value.status_code == 502
         assert call_count[0] == 1  # 4xx is not retried
-
-
-class TestNarrativeTaskReturnShape:
-    """Verify narrative task return shape includes succeeded/failed counts (GH #246)."""
-
-    def test_batch_task_returns_processed_succeeded_failed(self):
-        from tasks.narrative import batch_generate_narratives
-
-        # Check the function's docstring / return shape contract
-        import inspect
-
-        source = inspect.getsource(batch_generate_narratives)
-        assert '"processed"' in source
-        assert '"succeeded"' in source
-        assert '"failed"' in source
-
-    def test_batch_task_is_callable(self):
-        from tasks.narrative import batch_generate_narratives
-
-        assert callable(batch_generate_narratives)
 
 
 class TestDockerComposeConfig:

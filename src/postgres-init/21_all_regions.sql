@@ -49,10 +49,17 @@ SELECT setval('wims.ref_regions_region_id_seq', 18, true);
 
 -- ── 3. Provinces per region ───────────────────────────────────────────────────
 
+-- NCR: replace old 'Metro Manila' with BFP fire districts
+DELETE FROM wims.ref_provinces WHERE region_id = 1 AND province_name = 'Metro Manila';
+
 INSERT INTO wims.ref_provinces (region_id, province_name)
 VALUES
-    -- NCR (region_id=1): use district names
-    (1, 'Metro Manila'),
+    -- NCR (region_id=1): BFP fire districts (used as province/district)
+    (1, 'Fire District 1'),
+    (1, 'Fire District 2'),
+    (1, 'Fire District 3'),
+    (1, 'Fire District 4'),
+    (1, 'Fire District 5'),
 
     -- CAR (region_id=2)
     (2, 'Abra'),
