@@ -16,6 +16,7 @@ Coverage:
 """
 
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
@@ -31,6 +32,8 @@ from tasks.anomaly_detection import (
     _detect_privilege_escalation,
     _detect_rapid_ip_switch,
     _detect_suspicious_query_pattern,
+    _detect_impossible_travel,
+    _haversine_km,
     _write_anomaly,
     detect_behavioral_anomalies,
 )
@@ -837,3 +840,60 @@ class TestQueryBounds:
         assert len(result) == 1
         assert result[0]["anomaly_type"] == "BULK_DELETE"
         assert result[0]["details"]["count"] == 11
+
+
+# ---------------------------------------------------------------------------
+# IMPOSSIBLE_TRAVEL
+# ---------------------------------------------------------------------------
+
+
+class TestImpossibleTravelDetector:
+    """Tests for _detect_impossible_travel, _haversine_km, and _load_geoip_reader.
+
+    Covers:
+      - Graceful degradation when GEOIP_DB_PATH is unset / file missing
+      - Haversine formula correctness (known distance, same point, antipodal)
+      - Detector returns empty list when no audit rows
+    """
+
+    def test_no_flag_when_geoip_db_unavailable(self):
+        """GEOIP_DB_PATH unset → _load_geoip_reader returns None → [] anomalies."""
+        with patch.dict(os.environ, {}, clear=True):
+            db = _make_db(fetch_rows=[])
+            result = _detect_impossible_travel(db)
+        assert result == []
+
+    def test_no_flag_when_no_audit_rows(self):
+        """No matching LOGIN_SUCCESS/LOGIN rows → [] anomalies."""
+        db = _make_db(fetch_rows=[])
+        result = _detect_impossible_travel(db)
+        assert result == []
+
+    def test_haversine_same_point(self):
+        """Same lat/lon → distance = 0."""
+        dist = _haversine_km(14.5995, 120.9842, 14.5995, 120.9842)
+        assert dist == 0.0
+
+    def test_haversine_manila_tokyo(self):
+        """Manila (14.5995, 120.9842) → Tokyo (35.6762, 139.6503) ≈ 2998 km."""
+        dist = _haversine_km(14.5995, 120.9842, 35.6762, 139.6503)
+        # Acceptable range: 2900–3100 km (ellipsoid vs sphere approx)
+        assert 2900 <= dist <= 3100
+
+    def test_haversine_antipodal_safe(self):
+        """Antipodal points (lat1=-lat2, lon1=lon2±180) should not raise.
+
+        Floating-point rounding can cause the intermediate `a` value to
+        exceed 1.0 at antipodal points, which would make math.asin
+        raise ValueError. The implementation clamps with min(..., 1.0)."""
+        # Roughly antipodal: Manila vs South Atlantic opposite
+        dist = _haversine_km(14.6, 120.98, -14.6, -59.02)
+        # Should be ~20 000 km (half the earth's circumference)
+        assert 19000 <= dist <= 21000
+
+    def test_detector_graceful_on_bad_reader(self):
+        """_load_geoip_reader returns None for missing/nonexistent file path."""
+        with patch.dict(os.environ, {"GEOIP_DB_PATH": "/nonexistent/GeoIP2-City.mmdb"}):
+            from tasks.anomaly_detection import _load_geoip_reader
+            reader = _load_geoip_reader()
+        assert reader is None
