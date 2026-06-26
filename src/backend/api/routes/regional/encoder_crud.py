@@ -27,7 +27,7 @@ from services.regional_incidents.helpers import (
     insert_incident_verification_history as _insert_incident_verification_history,
     normalize_general_category as _normalize_general_category,
 )
-from utils.audit import trusted_client_ip
+from utils.audit import log_system_audit, trusted_client_ip
 from utils.crypto import SecurityProviderError
 from schemas.regional import IncidentCreateRequest, IncidentUpdateRequest
 
@@ -301,6 +301,17 @@ def create_incident(
         notes="Encoder created new draft",
         action_label="CREATED_DRAFT",
         request_ip=trusted_client_ip(request),
+    )
+
+    # RP-09: write a system_audit_trails row for encoder incident creation,
+    # mirroring the national create path (incidents.py CREATE_INCIDENT).
+    log_system_audit(
+        db,
+        encoder_id,
+        "CREATE_INCIDENT",
+        "wims.fire_incidents",
+        incident_id,
+        request,
     )
 
     db.commit()
