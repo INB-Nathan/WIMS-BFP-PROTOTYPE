@@ -5,8 +5,6 @@ import io
 import logging
 from typing import Annotated, Optional
 
-logger = logging.getLogger(__name__)
-
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -17,6 +15,8 @@ from auth import get_system_admin
 from auth import get_db_with_rls
 from services.ai_service import analyze_audit_logs
 from utils.audit import log_system_audit
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
