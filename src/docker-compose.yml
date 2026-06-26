@@ -88,6 +88,9 @@ services:
       SMTP_AUTH: ${SMTP_AUTH:-true}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      # WS-B (RP-08/RP-18): Keycloak → WIMS audit event push
+      WIMS_AUDIT_INGEST_URL: http://backend:8000/api/auth/keycloak-event
+      WIMS_KEYCLOAK_EVENT_SECRET: ${WIMS_KEYCLOAK_EVENT_SECRET:-}
     networks:
       - wims_internal
     depends_on:
@@ -222,6 +225,8 @@ services:
       - OPENBAO_TOKEN_FILE=/openbao-creds/.wims-app-token
       - OPENBAO_TRANSIT_MOUNT=${OPENBAO_TRANSIT_MOUNT:-transit}
       - WIMS_CRYPTO_PROVIDER=${WIMS_CRYPTO_PROVIDER:-env_aesgcm}
+      # WS-B (RP-08/RP-18): shared secret for Keycloak → WIMS audit event push
+      - WIMS_KEYCLOAK_EVENT_SECRET=${WIMS_KEYCLOAK_EVENT_SECRET:-}
     volumes:
       - incident_attachments_data:/app/storage
       - ./suricata/logs:/var/log/suricata:ro

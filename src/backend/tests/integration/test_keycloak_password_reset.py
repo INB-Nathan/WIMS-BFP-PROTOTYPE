@@ -451,6 +451,27 @@ class TestForgotPasswordConfiguration:
             '  PUT /auth/admin/realms/bfp {"resetPasswordAllowed": true}'
         )
 
+    def test_realm_registers_wims_audit_event_listener(self):
+        """Both bfp-realm.json files must register 'wims-audit-event-listener' (WS-B / RP-08).
+
+        Source-inspection test — does not require Keycloak to be running.
+        """
+        import json
+        import pathlib
+
+        repo_root = pathlib.Path(__file__).parents[5]
+        realm_files = [
+            repo_root / "src" / "keycloak" / "bfp-realm.json",
+            repo_root / "src" / "keycloak" / "import" / "bfp-realm.json",
+        ]
+        for realm_path in realm_files:
+            assert realm_path.exists(), f"Missing realm file: {realm_path}"
+            realm = json.loads(realm_path.read_text(encoding="utf-8"))
+            listeners = realm.get("eventsListeners", [])
+            assert "wims-audit-event-listener" in listeners, (
+                f"{realm_path.name}: 'wims-audit-event-listener' not in eventsListeners {listeners}"
+            )
+
     def test_forgot_password_link_visible_on_login_page(self):
         """
         When resetPasswordAllowed=true, the login page must contain

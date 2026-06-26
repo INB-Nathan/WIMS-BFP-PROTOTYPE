@@ -61,6 +61,7 @@ from api.routes.geocode import router as geocode_router
 from api.routes.operations import router as operations_router
 from api.routes.auth import router as auth_router
 from api.routes.consent import router as consent_router
+from api.routes.security_events import router as security_events_router
 
 # WIMS role resolution — canonical source in auth.py
 from auth import resolve_wims_role_from_token as _resolve_role_from_token, JIT_PRIVILEGED_ROLES
@@ -774,6 +775,7 @@ app.include_router(dashboard.router)  # GET /api/dashboard/widgets
 app.include_router(operations_router)  # GET/POST/PATCH/DELETE /api/operations
 app.include_router(auth_router)  # POST /api/auth/change-email, POST /api/auth/verify-email
 app.include_router(consent_router)  # POST /api/auth/consent (public, no-auth)
+app.include_router(security_events_router)  # POST /api/auth/keycloak-event (Keycloak SPI ingest)
 
 # ---------------------------------------------------------------------------
 # Celery
@@ -848,6 +850,11 @@ return {0}
 WINDOW_SECONDS = 900
 RATE_LIMIT_THRESHOLD = 5
 
+# Keycloak Event SPI ingest — higher ceiling (100/60s) since it is
+# server-to-server with Bearer-token auth, not user-facing.
+KC_EVENT_WINDOW_SECONDS = 60
+KC_EVENT_RATE_LIMIT_THRESHOLD = 100
+
 
 # ---------------------------------------------------------------------------
 # Rate-limit middleware
@@ -855,13 +862,29 @@ RATE_LIMIT_THRESHOLD = 5
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     """Sliding-window rate limiter applied before every request."""
-    # Rate-limit the PKCE callback endpoint (real auth flow)
-    if request.url.path != "/api/auth/callback" or request.method != "POST":
+    path = request.url.path
+
+    # Rate-limit only specific POST endpoints:
+    #   /api/auth/callback       — PKCE callback (user-facing, strict)
+    #   /api/auth/keycloak-event — Keycloak SPI ingest (server-to-server, relaxed)
+    if request.method != "POST":
+        return await call_next(request)
+
+    is_callback = path == "/api/auth/callback"
+    is_kc_event = path == "/api/auth/keycloak-event"
+
+    if not is_callback and not is_kc_event:
         return await call_next(request)
 
     r = await _get_redis()
     if r is None:
-        # Redis down → fail closed (V16.5.3) with dev escape hatch
+        # Redis down → fail closed for user-facing callback;
+        # fail open for server-to-server Keycloak event (Bearer-authenticated).
+        if is_kc_event:
+            logger.warning(
+                "Redis down — failing open on /api/auth/keycloak-event (server-to-server)"
+            )
+            return await call_next(request)
         if os.environ.get("RATE_LIMIT_FAIL_OPEN", "").lower() in ("true", "1", "yes"):
             logger.warning(
                 "RATE_LIMIT_FAIL_OPEN is set — failing open on /api/auth/callback (dev only)"
@@ -877,22 +900,27 @@ async def rate_limit_middleware(request: Request, call_next):
     # or socket peer. NEVER parse X-Forwarded-For — spoofable (gap #14 / #446 follow-up).
     client_ip = trusted_client_ip(request)
 
-    # Read dynamic threshold / window from Redis (set by admin UI #363).
-    # Fall back to module-level defaults when config is missing or invalid.
-    window = WINDOW_SECONDS
-    threshold = RATE_LIMIT_THRESHOLD
-    try:
-        config = await r.hgetall("rate_limit_config:login")
-        if config:
-            parsed_window = int(config.get("window_seconds", ""))  # type: ignore[arg-type]
-            parsed_threshold = int(config.get("threshold", ""))  # type: ignore[arg-type]
-            if parsed_window > 0 and parsed_threshold > 0:
-                window = parsed_window
-                threshold = parsed_threshold
-    except (ValueError, TypeError):
-        pass  # non-numeric or missing → keep defaults
-    except Exception:
-        logger.warning("Redis hgetall failed — using default rate-limit config")
+    # Pick window/threshold by endpoint.
+    if is_kc_event:
+        window = KC_EVENT_WINDOW_SECONDS
+        threshold = KC_EVENT_RATE_LIMIT_THRESHOLD
+    else:
+        # Read dynamic threshold / window from Redis (set by admin UI #363).
+        # Fall back to module-level defaults when config is missing or invalid.
+        window = WINDOW_SECONDS
+        threshold = RATE_LIMIT_THRESHOLD
+        try:
+            config = await r.hgetall("rate_limit_config:login")
+            if config:
+                parsed_window = int(config.get("window_seconds", ""))  # type: ignore[arg-type]
+                parsed_threshold = int(config.get("threshold", ""))  # type: ignore[arg-type]
+                if parsed_window > 0 and parsed_threshold > 0:
+                    window = parsed_window
+                    threshold = parsed_threshold
+        except (ValueError, TypeError):
+            pass  # non-numeric or missing → keep defaults
+        except Exception:
+            logger.warning("Redis hgetall failed — using default rate-limit config")
 
     key = f"rate_limit:{client_ip}"
     now = time.time()

@@ -36,6 +36,38 @@ Self-service profile email edits (`PATCH /api/user/me`) treat email as a login i
 
 **Email verification flow (2026-06-17, #225):** Users initiate an email change via `POST /api/auth/change-email` (password verified against Keycloak's Direct Grant with optional TOTP support), a 6-digit cryptographically-random code is stored in Redis with 10-minute TTL, and a verification email is sent. The user then confirms via `POST /api/auth/verify-email`. On success the email is updated in both Keycloak and `wims.users`. Both endpoints have per-user Redis-based rate limiting (3 requests/10 min for change-email, 5 requests/10 min for verify-email) to deter brute-force and email bombing. Keycloak remains configured with `verifyEmail: false` in the development realm (the custom flow replaces built-in verification).
 
+### Keycloak EventListener SPI — RP-08 + RP-18 (WS-B, 2026-06-25)
+
+Closes the non-repudiation gap where true credential rejections and Keycloak-native password resets were never visible in `wims.system_audit_trails`.
+
+**Root cause:** The WIMS login page calls `signinRedirect()` directly to Keycloak. Failed logins and password resets happen entirely on Keycloak-hosted pages and never reach any WIMS route. The existing `POST /api/auth/security-event` endpoint (used for LOGOUT and for the rare post-OIDC-callback sync failure) is never called for these events.
+
+**Fix:** `src/keycloak/wims-audit-event-listener/` — a new Keycloak `EventListenerProvider` SPI that:
+- Filters `LOGIN_ERROR`, `USER_DISABLED_BY_BRUTE_FORCE`, `UPDATE_PASSWORD`, `RESET_PASSWORD_EMAIL` (LOGOUT is excluded — WS-A/frontend handles it to avoid duplicate rows).
+- POSTs `{event_type, username, error, keycloak_event_id}` to `http://backend:8000/api/auth/keycloak-event` with `Authorization: Bearer $WIMS_KEYCLOAK_EVENT_SECRET`.
+- Swallows all HTTP failures — audit ingest failure must never break a login.
+
+**Backend ingest endpoint:** `POST /api/auth/keycloak-event` in `src/backend/api/routes/security_events.py`.
+- **Fail-closed:** `_KC_SECRET = os.environ.get("WIMS_KEYCLOAK_EVENT_SECRET", "")` read at import. Blank → 401 on every request (never `os.environ["..."]` which would crash import on missing key).
+- **Mapping:** `LOGIN_ERROR` / `USER_DISABLED_BY_BRUTE_FORCE` → `FAILED_LOGIN` / `failure`; `UPDATE_PASSWORD` / `RESET_PASSWORD_EMAIL` → `PASSWORD_RESET` / `success`. Unknown event_type → 422.
+- **user_id always NULL:** no Keycloak → `wims.users` lookup to prevent account-existence leakage.
+- Writes one `wims.system_audit_trails` row via `log_system_audit(db, None, action_type, "wims.auth", None, request, new_values={username, error, source:"keycloak_spi", keycloak_event_id}, result=...)`.
+
+**Registration:** `eventsListeners` array in both `src/keycloak/bfp-realm.json` and `src/keycloak/import/bfp-realm.json` includes `"wims-audit-event-listener"`.
+
+**Build:** Single Maven build stage in `src/keycloak/Dockerfile` builds `demo-otp-provider` and `wims-audit-event-listener` sequentially to share the Maven dependency cache. Both JARs copied to `/opt/keycloak/providers/` before `kc.sh build`.
+
+**Env vars:**
+
+| Variable | Service | Value |
+|---|---|---|
+| `WIMS_AUDIT_INGEST_URL` | keycloak | `http://backend:8000/api/auth/keycloak-event` |
+| `WIMS_KEYCLOAK_EVENT_SECRET` | keycloak + backend | shared Bearer token (generate with `openssl rand -hex 32`) |
+
+**Deploy note:** `WIMS_KEYCLOAK_EVENT_SECRET` must be set on the VPS (both `keycloak` and `backend` services) **before** the new Keycloak image rolls out. SPI fails open if the secret is unset on Keycloak (logs warning, skips push). Backend fails closed if unset (401 every request — no false audit rows accepted).
+
+**Tests:** `src/backend/tests/test_security_events.py` (7 unit tests, no Docker required): missing header → 401, wrong secret → 401, unset backend secret → 401 (fail-closed), valid secret + LOGIN_ERROR → 202 (FAILED_LOGIN/failure), unknown event → 422, four event-type round-trip, user_id always None. Integration assertion added to `test_keycloak_password_reset.py::TestForgotPasswordConfiguration`.
+
 ## Fail-Closed Rule
 Any missing authentication context defaults to deny. Public unauthenticated behavior is limited to explicit public routes; all adjacent APIs should require valid role context.
 

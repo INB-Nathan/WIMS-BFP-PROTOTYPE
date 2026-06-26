@@ -82,6 +82,19 @@ This register prevents agents from hallucinating completion. A module is not com
 
 ## FRS Gap Closures (June 2026 batch)
 
+### RP-08 + RP-18 Keycloak EventListener SPI (closed 2026-06-25, WS-B)
+
+- **RP-08 — No FAILED_LOGIN audit for true credential rejections (PARTIAL → CLOSED)**
+  - **Root cause:** True Keycloak credential rejections (wrong password, brute-force lockout) happen inside Keycloak and never reach WIMS. `src/frontend/src/app/callback/page.tsx:43-46` fires `FAILED_LOGIN` only on the rare post-OIDC-callback sync failure, not on credential rejection.
+  - **Fix:** New `wims-audit-event-listener` Keycloak SPI captures `LOGIN_ERROR` and `USER_DISABLED_BY_BRUTE_FORCE` events and POSTs them to `POST /api/auth/keycloak-event`. Backend maps both → `FAILED_LOGIN`/`failure` in `wims.system_audit_trails` with `user_id=NULL` and `new_values.source="keycloak_spi"`.
+  - **Files:** `src/keycloak/wims-audit-event-listener/` (SPI Java module + pom.xml + META-INF service file), `src/keycloak/Dockerfile` (Maven build stage), both `bfp-realm.json` files (eventsListeners), `src/docker-compose.yml` (env vars), `src/backend/api/routes/security_events.py` (ingest endpoint), `src/backend/main.py` (router registration), `src/backend/tests/test_security_events.py` (7 unit tests).
+
+- **RP-18 — No PASSWORD_RESET audit — Keycloak-native flow (OPEN → CLOSED)**
+  - **Root cause:** The WIMS login page calls `signinRedirect()` directly to Keycloak. The forgot-password flow runs entirely on Keycloak-hosted pages. `POST /api/auth/security-event` with `event_type=PASSWORD_RESET` exists but has zero frontend callers.
+  - **Fix:** Same SPI captures `UPDATE_PASSWORD` (user completes reset-credentials form) and `RESET_PASSWORD_EMAIL` (Keycloak dispatches the reset email). Both map → `PASSWORD_RESET`/`success` in `wims.system_audit_trails`.
+  - **Env var:** `WIMS_KEYCLOAK_EVENT_SECRET` — shared Bearer token between Keycloak SPI and backend. Must be set on VPS (both services) before the new Keycloak image rolls out. Backend fails closed (401) if unset; SPI fails open (logs warning, skips push) if unset on Keycloak.
+  - **PR:** `feat/rp08-rp18-keycloak-event-spi` — branch + PR only; NOT merged.
+
 ### BREVO-EMAIL-CHANNEL (closed 2026-06-24)
 
 - **Problem:** Production email channel was broken at the network layer — DigitalOcean Droplets block outbound 25/465/587; Gmail SMTP on port 587 could not establish a TCP connection. The live-notifications work at `25d5eca` correctly wired `aiosmtplib` + Gmail SMTP, but emails never arrived. Keycloak transactional email (password reset, email verification) was also affected.
