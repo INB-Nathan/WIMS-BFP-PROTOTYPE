@@ -247,10 +247,11 @@ def test_kc_event_unknown_event_type_returns_422():
 
 
 # ---------------------------------------------------------------------------
-# All four event type mappings
+# All five event type mappings
 # ---------------------------------------------------------------------------
 
 _EXPECTED_MAPPINGS = [
+    ("LOGIN", "USER_LOGIN", "success"),
     ("LOGIN_ERROR", "FAILED_LOGIN", "failure"),
     ("USER_DISABLED_BY_PERMANENT_LOCKOUT", "FAILED_LOGIN", "failure"),
     ("UPDATE_PASSWORD", "PASSWORD_RESET", "success"),
