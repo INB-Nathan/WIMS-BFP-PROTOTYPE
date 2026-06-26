@@ -16,17 +16,24 @@
     </properties>
 
     <dependencies>
-        <!-- EventType, Event, AdminEvent are in keycloak-core -->
+        <!-- Config, EnumWithStableIndex -->
         <dependency>
             <groupId>org.keycloak</groupId>
             <artifactId>keycloak-core</artifactId>
             <version>${keycloak.version}</version>
             <scope>provided</scope>
         </dependency>
-        <!-- EventListenerProvider, EventListenerProviderFactory are in server-spi -->
+        <!-- Provider, ProviderFactory, KeycloakSession, KeycloakSessionFactory -->
         <dependency>
             <groupId>org.keycloak</groupId>
             <artifactId>keycloak-server-spi</artifactId>
+            <version>${keycloak.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- Event, EventType, AdminEvent, EventListenerProvider -->
+        <dependency>
+            <groupId>org.keycloak</groupId>
+            <artifactId>keycloak-server-spi-private</artifactId>
             <version>${keycloak.version}</version>
             <scope>provided</scope>
         </dependency>

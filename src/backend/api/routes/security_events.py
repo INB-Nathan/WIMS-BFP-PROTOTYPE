@@ -9,6 +9,7 @@ import time, every request is rejected with 401.
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 from typing import Annotated, Optional
@@ -24,16 +25,23 @@ logger = logging.getLogger("wims.keycloak_event")
 
 router = APIRouter(prefix="/api/auth", tags=["keycloak-event"])
 
-# Read once at import time. If blank → 401 on every request (fail-closed).
-# Never use os.environ["..."] here — a missing key would crash the import.
-_KC_SECRET: str = os.environ.get("WIMS_KEYCLOAK_EVENT_SECRET", "")
+
+def _get_kc_secret() -> str:
+    """Read WIMS_KEYCLOAK_EVENT_SECRET from env on each call (not at import time).
+
+    Enables secret rotation without a full backend restart. Returns empty string
+    if the env var is unset or blank — callers fail-closed with 401.
+    """
+    return os.environ.get("WIMS_KEYCLOAK_EVENT_SECRET", "")
+
 
 # Map Keycloak EventType names → (WIMS action_type, audit result).
 _KEYCLOAK_EVENT_MAP: dict[str, tuple[str, str]] = {
+    # KC 24 event type names — verified against keycloak-server-spi-private 24.0.0
     "LOGIN_ERROR": ("FAILED_LOGIN", "failure"),
-    "USER_DISABLED_BY_BRUTE_FORCE": ("FAILED_LOGIN", "failure"),
+    "USER_DISABLED_BY_PERMANENT_LOCKOUT": ("FAILED_LOGIN", "failure"),
     "UPDATE_PASSWORD": ("PASSWORD_RESET", "success"),
-    "RESET_PASSWORD_EMAIL": ("PASSWORD_RESET", "success"),
+    "SEND_RESET_PASSWORD": ("PASSWORD_RESET", "success"),
 }
 
 
@@ -45,8 +53,9 @@ class KeycloakEventRequest(BaseModel):
 
 
 def _verify_secret(request: Request) -> None:
-    """Validate Bearer token against _KC_SECRET; raise 401 on any mismatch."""
-    if not _KC_SECRET:
+    """Validate Bearer token against env secret; raise 401 on any mismatch."""
+    kc_secret = _get_kc_secret()
+    if not kc_secret:
         # Env var not set — fail-closed, reject all requests.
         raise HTTPException(status_code=401, detail="Keycloak event secret not configured")
 
@@ -55,7 +64,7 @@ def _verify_secret(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Missing Bearer token")
 
     token = auth_header[len("Bearer ") :]
-    if token != _KC_SECRET:
+    if not hmac.compare_digest(token, kc_secret):
         raise HTTPException(status_code=401, detail="Invalid token")
 
 

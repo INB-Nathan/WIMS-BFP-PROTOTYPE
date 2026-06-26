@@ -1541,7 +1541,7 @@
     "user": "${env.SMTP_USER:}",
     "password": "${env.SMTP_PASSWORD:}"
   },
-  "eventsEnabled": false,
+  "eventsEnabled": true,
   "eventsListeners": [
     "jboss-logging",
     "wims-audit-event-listener"

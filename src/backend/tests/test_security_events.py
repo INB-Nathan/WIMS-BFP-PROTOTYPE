@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+import api.routes.security_events as security_events_module
+
 
 def _make_client(mock_db):
     """Return a TestClient with get_db overridden and Redis disabled."""
@@ -117,8 +119,15 @@ def test_failed_login_event_returns_202(client_no_redis):
 
 # ====== KC Event SPI tests (POST /api/auth/keycloak-event) ======
 
+VALID_SECRET = "test-secret-abc123"
+KC_EVENT_URL = "/api/auth/keycloak-event"
+
+
 def _make_client(secret: str = VALID_SECRET) -> tuple[TestClient, MagicMock]:
-    """Return a TestClient with get_db mocked and _KC_SECRET patched to secret."""
+    """Return a TestClient with get_db mocked and _get_kc_secret patched to return secret."""
+    from main import app
+    from database import get_db
+
     mock_db = MagicMock()
     mock_db.execute.return_value = MagicMock()
 
@@ -132,6 +141,9 @@ def _make_client(secret: str = VALID_SECRET) -> tuple[TestClient, MagicMock]:
 
 @pytest.fixture(autouse=True)
 def _cleanup_overrides():
+    from main import app
+    from database import get_db
+
     yield
     app.dependency_overrides.pop(get_db, None)
 
@@ -143,14 +155,14 @@ def _cleanup_overrides():
 
 def test_missing_authorization_header_returns_401():
     client, _ = _make_client()
-    with patch.object(security_events_module, "_KC_SECRET", VALID_SECRET):
+    with patch.object(security_events_module, "_get_kc_secret", return_value=VALID_SECRET):
         r = client.post(KC_EVENT_URL, json={"event_type": "LOGIN_ERROR"})
     assert r.status_code == 401
 
 
 def test_wrong_secret_returns_401():
     client, _ = _make_client()
-    with patch.object(security_events_module, "_KC_SECRET", VALID_SECRET):
+    with patch.object(security_events_module, "_get_kc_secret", return_value=VALID_SECRET):
         r = client.post(
             KC_EVENT_URL,
             json={"event_type": "LOGIN_ERROR"},
@@ -160,9 +172,9 @@ def test_wrong_secret_returns_401():
 
 
 def test_unset_backend_secret_fail_closed():
-    """If WIMS_KEYCLOAK_EVENT_SECRET is blank at import, every request → 401."""
+    """If WIMS_KEYCLOAK_EVENT_SECRET is blank, every request → 401."""
     client, _ = _make_client()
-    with patch.object(security_events_module, "_KC_SECRET", ""):
+    with patch.object(security_events_module, "_get_kc_secret", return_value=""):
         r = client.post(
             KC_EVENT_URL,
             json={"event_type": "LOGIN_ERROR"},
@@ -179,7 +191,7 @@ def test_unset_backend_secret_fail_closed():
 def test_valid_secret_login_error_returns_202_failed_login():
     client, mock_db = _make_client()
     with (
-        patch.object(security_events_module, "_KC_SECRET", VALID_SECRET),
+        patch.object(security_events_module, "_get_kc_secret", return_value=VALID_SECRET),
         patch("api.routes.security_events.log_system_audit") as mock_audit,
     ):
         r = client.post(
@@ -209,7 +221,7 @@ def test_user_id_is_always_none():
     """log_system_audit must receive user_id=None (no account-existence lookup)."""
     client, mock_db = _make_client()
     with (
-        patch.object(security_events_module, "_KC_SECRET", VALID_SECRET),
+        patch.object(security_events_module, "_get_kc_secret", return_value=VALID_SECRET),
         patch("api.routes.security_events.log_system_audit") as mock_audit,
     ):
         client.post(
@@ -225,7 +237,7 @@ def test_user_id_is_always_none():
 
 def test_kc_event_unknown_event_type_returns_422():
     client, _ = _make_client()
-    with patch.object(security_events_module, "_KC_SECRET", VALID_SECRET):
+    with patch.object(security_events_module, "_get_kc_secret", return_value=VALID_SECRET):
         r = client.post(
             KC_EVENT_URL,
             json={"event_type": "SOME_UNKNOWN_EVENT"},
@@ -240,9 +252,9 @@ def test_kc_event_unknown_event_type_returns_422():
 
 _EXPECTED_MAPPINGS = [
     ("LOGIN_ERROR", "FAILED_LOGIN", "failure"),
-    ("USER_DISABLED_BY_BRUTE_FORCE", "FAILED_LOGIN", "failure"),
+    ("USER_DISABLED_BY_PERMANENT_LOCKOUT", "FAILED_LOGIN", "failure"),
     ("UPDATE_PASSWORD", "PASSWORD_RESET", "success"),
-    ("RESET_PASSWORD_EMAIL", "PASSWORD_RESET", "success"),
+    ("SEND_RESET_PASSWORD", "PASSWORD_RESET", "success"),
 ]
 
 
@@ -251,7 +263,7 @@ def test_four_events_round_trip(kc_event: str, wims_action: str, expected_result
     """Each Keycloak EventType maps to the correct WIMS action_type and result."""
     client, _ = _make_client()
     with (
-        patch.object(security_events_module, "_KC_SECRET", VALID_SECRET),
+        patch.object(security_events_module, "_get_kc_secret", return_value=VALID_SECRET),
         patch("api.routes.security_events.log_system_audit") as mock_audit,
     ):
         r = client.post(
@@ -268,4 +280,3 @@ def test_four_events_round_trip(kc_event: str, wims_action: str, expected_result
     assert kwargs.get("result") == expected_result
     nv = kwargs.get("new_values", {})
     assert nv.get("keycloak_event_id") == "kc-id-1"
-
