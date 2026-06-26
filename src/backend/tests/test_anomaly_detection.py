@@ -27,6 +27,9 @@ import pytest
 from tasks.anomaly_detection import (
     _PII_EXPORT_ACTION,
     _SUSPICIOUS_QUERY_THRESHOLD,
+    _PASSWORD_RESET_ACTION,
+    _PASSWORD_RESET_THRESHOLD,
+    _PASSWORD_RESET_WINDOW_MINUTES,
     _detect_bulk_delete,
     _detect_off_hours,
     _detect_privilege_escalation,
@@ -34,7 +37,9 @@ from tasks.anomaly_detection import (
     _detect_suspicious_query_pattern,
     _detect_impossible_travel,
     _haversine_km,
+    _detect_password_reset_abuse,
     _write_anomaly,
+    _DETECTORS,
     detect_behavioral_anomalies,
 )
 
@@ -898,3 +903,110 @@ class TestImpossibleTravelDetector:
 
             reader = _load_geoip_reader()
         assert reader is None
+
+
+# ---------------------------------------------------------------------------
+# PASSWORD_RESET_ABUSE (RP-26)
+# ---------------------------------------------------------------------------
+
+
+class TestPasswordResetAbuseDetector:
+    def test_no_flag_when_count_is_five(self):
+        """Exactly 5 PASSWORD_RESET events in a 15-min window → no anomaly
+        (threshold is >5)."""
+        db = _make_db(fetch_rows=[])
+        result = _detect_password_reset_abuse(db)
+        assert result == []
+
+    def test_flag_when_count_exceeds_five(self):
+        """6 PASSWORD_RESET events in a 15-min window → MEDIUM anomaly."""
+        db = _make_db(fetch_rows=[(_USER_A, _WINDOW_START, 6, "1.2.3.4")])
+        result = _detect_password_reset_abuse(db)
+        assert len(result) == 1
+        a = result[0]
+        assert a["anomaly_type"] == "PASSWORD_RESET_ABUSE"
+        assert a["severity"] == "MEDIUM"
+        assert a["subject_user_id"] == str(_USER_A)
+        assert a["details"]["count"] == 6
+        assert a["details"]["window_minutes"] == _PASSWORD_RESET_WINDOW_MINUTES
+        assert a["details"]["threshold"] == _PASSWORD_RESET_THRESHOLD
+        assert "PASSWORD_RESET_ABUSE:" in a["dedup_key"]
+        assert str(_USER_A) in a["dedup_key"]
+        assert a["source_ip"] == "1.2.3.4"
+
+    def test_multiple_users_flagged(self):
+        """Two users each with >5 resets → two anomalies."""
+        db = _make_db(
+            fetch_rows=[
+                (_USER_A, _WINDOW_START, 7, "1.2.3.4"),
+                (_USER_B, _WINDOW_START, 6, "5.6.7.8"),
+            ]
+        )
+        result = _detect_password_reset_abuse(db)
+        assert len(result) == 2
+        types = {r["anomaly_type"] for r in result}
+        assert types == {"PASSWORD_RESET_ABUSE"}
+
+    def test_cross_boundary_burst_detected(self):
+        """3 resets at :07 + 4 at :08 = 7 in sliding 15-min window → flagged.
+
+        With fixed floor buckets the :08 events might land in a different
+        15-min bucket, but the sliding window counts 7 for the :08 event.
+        """
+        window_2 = datetime(2026, 6, 12, 14, 8, 0, tzinfo=timezone.utc)
+        db = _make_db(fetch_rows=[(_USER_A, window_2, 7, "1.2.3.4")])
+        result = _detect_password_reset_abuse(db)
+        assert len(result) == 1
+        assert result[0]["details"]["count"] == 7
+        assert "202606121408" in result[0]["dedup_key"]
+
+    def test_dedup_key_format(self):
+        """dedup_key must be PASSWORD_RESET_ABUSE:{user_id}:{window_key}."""
+        db = _make_db(fetch_rows=[(_USER_A, _WINDOW_START, 6, "1.2.3.4")])
+        result = _detect_password_reset_abuse(db)
+        assert len(result) == 1
+        expected_prefix = f"PASSWORD_RESET_ABUSE:{_USER_A}:"
+        assert result[0]["dedup_key"].startswith(expected_prefix)
+
+    def test_sql_uses_exact_action_match(self):
+        """The detector SQL must use exact action_type match (not LIKE) for
+        PASSWORD_RESET — LIKE would also match PASSWORD_RESET_ABUSE audit
+        rows written by _write_anomaly, creating a feedback loop."""
+        db = _make_db(fetch_rows=[])
+        _detect_password_reset_abuse(db)
+        sql = str(db.execute.call_args[0][0])
+        assert "action_type = :action" in sql
+        assert "action_type LIKE" not in sql
+
+    def test_sql_has_limit_and_order(self):
+        """Detector SQL must have LIMIT :max_rows and ORDER BY timestamp DESC
+        for row-count bounding."""
+        db = _make_db(fetch_rows=[])
+        _detect_password_reset_abuse(db)
+        sql = str(db.execute.call_args[0][0])
+        assert "LIMIT :max_rows" in sql
+        assert "ORDER BY t1.timestamp DESC" in sql
+
+    def test_passes_threshold_and_window_params(self):
+        """Execute call must pass threshold, window_minutes, and scan_minutes."""
+        db = _make_db(fetch_rows=[])
+        _detect_password_reset_abuse(db)
+        params = db.execute.call_args[0][1] if len(db.execute.call_args[0]) > 1 else {}
+        assert params["action"] == _PASSWORD_RESET_ACTION
+        assert params["threshold"] == _PASSWORD_RESET_THRESHOLD
+        assert params["window_minutes"] == _PASSWORD_RESET_WINDOW_MINUTES
+        assert params["scan_minutes"] == _PASSWORD_RESET_WINDOW_MINUTES * 2
+        assert params["max_rows"] == 10_000
+
+
+def test_password_reset_abuse_in_detectors_list():
+    """_detect_password_reset_abuse must be registered in _DETECTORS so the
+    Celery beat task invokes it every 60s."""
+    assert _detect_password_reset_abuse in _DETECTORS, (
+        "_detect_password_reset_abuse is not in _DETECTORS — the Celery beat "
+        "task will not run it."
+    )
+    assert len(_DETECTORS) == 7, (
+        f"Expected 7 detectors after rebase, got {len(_DETECTORS)}"
+    )
+
