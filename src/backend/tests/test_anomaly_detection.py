@@ -895,5 +895,6 @@ class TestImpossibleTravelDetector:
         """_load_geoip_reader returns None for missing/nonexistent file path."""
         with patch.dict(os.environ, {"GEOIP_DB_PATH": "/nonexistent/GeoIP2-City.mmdb"}):
             from tasks.anomaly_detection import _load_geoip_reader
+
             reader = _load_geoip_reader()
         assert reader is None
