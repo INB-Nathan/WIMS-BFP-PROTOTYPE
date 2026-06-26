@@ -1,11 +1,11 @@
 ---
-title: PR #104 QA — #69 XAI Incident Narratives
+title: PR #104 QA — #69 XAI Incident Narratives (REMOVED)
 created: 2026-05-17
-updated: 2026-05-17
+updated: 2026-06-27
 type: backend
-tags: [wims-bfp, pr-qa, xai, narrative-generation, ollama, analytics]
-sources: [pr-104, src/backend/api/routes/analytics.py, src/backend/services/ai_service.py, src/backend/tasks/narrative.py, src/postgres-init/33_incident_ai_narrative.sql, src/backend/tests/test_incident_narrative.py]
-status: verified
+tags: [wims-bfp, pr-qa, xai, narrative-generation, ollama, analytics, removed]
+sources: []
+status: removed — orphaned feature, never wired to frontend
 ---
 
 # PR #104 QA — #69 XAI Incident Narratives

@@ -524,33 +524,3 @@ def top_n_route(
         damage_max=damage_max,
     )
     return data
-
-
-@router.post("/incidents/{incident_id}/narrative")
-async def generate_narrative(
-    incident_id: int,
-    user: Annotated[dict, Depends(get_analyst_or_admin)],
-    db: Annotated[Session, Depends(get_db_with_rls)],
-):
-    """
-    Generate an AI narrative for a verified fire incident via Qwen2.5-3B.
-    Only works on VERIFIED incidents. Stores result in fire_incidents.ai_narrative.
-    """
-    from services.ai_service import generate_incident_narrative
-
-    return await generate_incident_narrative(incident_id, db)
-
-
-@router.post("/incidents/batch-narratives", status_code=202)
-def trigger_batch_narratives(
-    user: Annotated[dict, Depends(get_analyst_or_admin)],
-    limit: int = Query(default=50, ge=1, le=500),
-):
-    """
-    Trigger batch AI narrative generation for VERIFIED incidents
-    without narratives. Dispatches to Celery task.
-    """
-    from tasks.narrative import batch_generate_narratives
-
-    task = batch_generate_narratives.delay(limit=limit)
-    return {"task_id": task.id, "limit": limit}
