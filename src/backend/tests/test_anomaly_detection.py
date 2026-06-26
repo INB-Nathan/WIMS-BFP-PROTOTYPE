@@ -556,6 +556,7 @@ class TestDetectBehavioralAnomaliesTask:
             fetch_result_empty,  # _detect_privilege_escalation
             fetch_result_empty,  # _detect_rapid_ip_switch
             fetch_result_empty,  # _detect_suspicious_query_pattern
+            fetch_result_empty,  # _detect_password_reset_abuse
             insert_result,  # _write_anomaly: anomaly_detections INSERT
             threat_result,  # _write_anomaly: security_threat_logs INSERT
         ]
@@ -599,7 +600,8 @@ class TestDetectBehavioralAnomaliesTask:
             fetch_result_empty,  # 5: _detect_privilege_escalation query
             fetch_result_empty,  # 6: _detect_rapid_ip_switch query
             fetch_result_empty,  # 7: _detect_suspicious_query_pattern query
-            MagicMock(),  # 8: safety margin
+            fetch_result_empty,  # 8: _detect_password_reset_abuse query
+            MagicMock(),  # 9: safety margin
         ]
 
         with patch("tasks.anomaly_detection.get_session", return_value=mock_db):
@@ -631,6 +633,7 @@ class TestDetectBehavioralAnomaliesTask:
             fetch_result_empty,  # _detect_privilege_escalation
             fetch_result_empty,  # _detect_rapid_ip_switch
             fetch_result_empty,  # _detect_suspicious_query_pattern
+            fetch_result_empty,  # _detect_password_reset_abuse
         ]
 
         with (
