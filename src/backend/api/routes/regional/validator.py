@@ -1043,15 +1043,21 @@ def export_validator_audit_logs(
     ).fetchall()
 
     # RP-23: record the export action itself in the audit trail.
-    log_system_audit(
-        db,
-        user["user_id"],
-        "AUDIT_EXPORT",
-        "wims.incident_verification_history",
-        None,
-        request,
-    )
-    db.commit()
+    # If the audit write fails, log and continue — the CSV export still
+    # succeeds (the data was already fetched).
+    try:
+        log_system_audit(
+            db,
+            user["user_id"],
+            "AUDIT_EXPORT",
+            "wims.incident_verification_history",
+            None,
+            request,
+        )
+        db.commit()
+    except Exception:
+        logger.warning("Failed to record AUDIT_EXPORT audit row", exc_info=True)
+        db.rollback()
 
     buf = io.StringIO()
     writer = csv.writer(buf)
