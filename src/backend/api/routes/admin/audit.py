@@ -4,7 +4,7 @@ import csv
 import io
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from auth import get_system_admin
 from auth import get_db_with_rls
 from services.ai_service import analyze_audit_logs
+from utils.audit import log_system_audit
 
 router = APIRouter()
 
@@ -170,7 +171,8 @@ def get_audit_logs(
 
 @router.get("/audit-logs/export")
 def export_audit_logs(
-    _admin: Annotated[dict, Depends(get_system_admin)],
+    admin: Annotated[dict, Depends(get_system_admin)],
+    request: Request,
     db: Annotated[Session, Depends(get_db_with_rls)],
     user_id: Optional[int] = Query(default=None),
     action_type: Optional[str] = Query(default=None),
@@ -181,7 +183,11 @@ def export_audit_logs(
     q: Optional[str] = Query(default=None),
 ):
     """Export the system audit trail as CSV (RP-23). Honors the same filters as
-    the list endpoint. SYSTEM_ADMIN only."""
+    the list endpoint. SYSTEM_ADMIN only.
+
+    RP-23: the export action itself is recorded in the audit trail so a
+    SYSTEM_ADMIN cannot deny exporting sensitive audit data.
+    """
     where_sql, params = _build_audit_where(
         user_id=user_id,
         action_type=action_type,
@@ -204,6 +210,18 @@ def export_audit_logs(
         """),
         params,
     ).fetchall()
+
+    # RP-23: record the export action itself in the audit trail so a
+    # SYSTEM_ADMIN cannot deny exporting sensitive audit data.
+    log_system_audit(
+        db,
+        admin["user_id"],
+        "AUDIT_EXPORT",
+        "wims.system_audit_trails",
+        None,
+        request,
+    )
+    db.commit()
 
     buf = io.StringIO()
     writer = csv.writer(buf)

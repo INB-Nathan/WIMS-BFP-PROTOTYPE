@@ -998,6 +998,7 @@ def get_validator_audit_logs(
 
 @router.get("/validator/audit-logs/export")
 def export_validator_audit_logs(
+    request: Request,
     user: Annotated[dict, Depends(get_national_validator)],
     db: Annotated[Session, Depends(get_db_with_rls)],
     date_from: Optional[str] = None,
@@ -1007,7 +1008,10 @@ def export_validator_audit_logs(
     role: Optional[str] = None,
     action: Optional[str] = None,
 ):
-    """Return an audit-log CSV. Honors the same filters as the list endpoint."""
+    """Return an audit-log CSV. Honors the same filters as the list endpoint.
+
+    RP-23: the export action itself is recorded in the audit trail.
+    """
     where_sql, params = _build_audit_log_query(
         date_from=date_from,
         date_to=date_to,
@@ -1037,6 +1041,17 @@ def export_validator_audit_logs(
         ),
         params,
     ).fetchall()
+
+    # RP-23: record the export action itself in the audit trail.
+    log_system_audit(
+        db,
+        user["user_id"],
+        "AUDIT_EXPORT",
+        "wims.incident_verification_history",
+        None,
+        request,
+    )
+    db.commit()
 
     buf = io.StringIO()
     writer = csv.writer(buf)
