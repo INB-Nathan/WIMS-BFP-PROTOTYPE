@@ -43,13 +43,13 @@ Closes the non-repudiation gap where true credential rejections and Keycloak-nat
 **Root cause:** The WIMS login page calls `signinRedirect()` directly to Keycloak. Failed logins and password resets happen entirely on Keycloak-hosted pages and never reach any WIMS route. The existing `POST /api/auth/security-event` endpoint (used for LOGOUT and for the rare post-OIDC-callback sync failure) is never called for these events.
 
 **Fix:** `src/keycloak/wims-audit-event-listener/` — a new Keycloak `EventListenerProvider` SPI that:
-- Filters `LOGIN_ERROR`, `USER_DISABLED_BY_BRUTE_FORCE`, `UPDATE_PASSWORD`, `RESET_PASSWORD_EMAIL` (LOGOUT is excluded — WS-A/frontend handles it to avoid duplicate rows).
+- Filters `LOGIN`, `LOGIN_ERROR`, `USER_DISABLED_BY_BRUTE_FORCE`, `UPDATE_PASSWORD`, `SEND_RESET_PASSWORD` (LOGOUT is excluded — WS-A/frontend handles it to avoid duplicate rows). `LOGIN` was added in the AuditMoreGapsFix branch (RP-07) so all roles' successful logins are audited, not just REGIONAL_ENCODER.
 - POSTs `{event_type, username, error, keycloak_event_id}` to `http://backend:8000/api/auth/keycloak-event` with `Authorization: Bearer $WIMS_KEYCLOAK_EVENT_SECRET`.
 - Swallows all HTTP failures — audit ingest failure must never break a login.
 
 **Backend ingest endpoint:** `POST /api/auth/keycloak-event` in `src/backend/api/routes/security_events.py`.
 - **Fail-closed:** `_KC_SECRET = os.environ.get("WIMS_KEYCLOAK_EVENT_SECRET", "")` read at import. Blank → 401 on every request (never `os.environ["..."]` which would crash import on missing key).
-- **Mapping:** `LOGIN_ERROR` / `USER_DISABLED_BY_BRUTE_FORCE` → `FAILED_LOGIN` / `failure`; `UPDATE_PASSWORD` / `RESET_PASSWORD_EMAIL` → `PASSWORD_RESET` / `success`. Unknown event_type → 422.
+- **Mapping:** `LOGIN` → `USER_LOGIN` / `success`; `LOGIN_ERROR` / `USER_DISABLED_BY_PERMANENT_LOCKOUT` → `FAILED_LOGIN` / `failure`; `UPDATE_PASSWORD` / `SEND_RESET_PASSWORD` → `PASSWORD_RESET` / `success`. Unknown event_type → 422.
 - **user_id always NULL:** no Keycloak → `wims.users` lookup to prevent account-existence leakage.
 - Writes one `wims.system_audit_trails` row via `log_system_audit(db, None, action_type, "wims.auth", None, request, new_values={username, error, source:"keycloak_spi", keycloak_event_id}, result=...)`.
 
@@ -346,6 +346,20 @@ FRS does not specify an IP blocklist (genuine product gap — see `frs-codebase-
 
 ## Real-Time Notifications (SSE)
 FRS Module 13 defines a notification system. The SSE event stream (`GET /api/events/stream`) provides real-time push via Redis pub/sub. Channels: `incident` (status changes/corrections), `verification` (triage cluster workflow), `security` (threat/HITL events), `system` (maintenance). Role-based channel authorization enforced at connect time. Publishers injected at: `verify_incident`, `update_incident`, `correct_verified_incident`, `claim_cluster_command`, `apply_terminal_action_command`, `ingest_eve_file` (Suricata), `analyze_threat_log` (AI), and `update_security_log` (HITL). Frontend consumer hook: `useEventStream.ts`. Nginx configured with `proxy_buffering off` for the SSE location block.
+
+## Behavioral Anomaly Detection (M8)
+`src/backend/tasks/anomaly_detection.py` — Celery beat task (60s) running six detectors against `wims.system_audit_trails`:
+
+| Detector | Threshold | Severity | Window | Anomaly Type |
+|---|---|---|---|---|
+| Bulk delete | >10 delete-class actions/user | HIGH | 5-min sliding | `BULK_DELETE` |
+| Off-hours | High-sensitivity actions 22:00–05:59 Asia/Manila | MEDIUM | 60s | `OFF_HOURS` |
+| Privilege escalation | `ROLE_CHANGE_TO_%` events | HIGH | 60s | `PRIVILEGE_ESCALATION` |
+| Rapid IP switch | 2+ distinct IPs/user | MEDIUM | 10-min sliding | `RAPID_IP_SWITCH` |
+| Suspicious query | >10 `PII_EXPORT`/user | HIGH | 5-min sliding | `SUSPICIOUS_QUERY_PATTERN` |
+| Password reset abuse | >5 `PASSWORD_RESET`/user | MEDIUM | 15-min sliding | `PASSWORD_RESET_ABUSE` |
+
+High-sensitivity actions for OFF_HOURS: `PII_EXPORT`, `BACKUP_TRIGGERED`, `BREACH_STATUS_UPDATE`, `CREATE_INCIDENT_FROM_ALERT`, `AUDIT_EXPORT`, `ROLE_CHANGE_TO_%`. New anomalies are dual-written to `wims.anomaly_detections` + `wims.security_threat_logs` (suricata_sid=NULL) so they surface in the Threat Telemetry UI. `PASSWORD_RESET_ABUSE` added in AuditMoreGapsFix branch (RP-26) — complements the nginx reset-credentials rate limit (1r/m burst=2) with an app-level anomaly signal.
 
 ## Transport Security (TLS)
 FRS Module 6 requires TLS 1.2 or higher for all network communication. **Updated 2026-06-26 (M6b #153):** `src/nginx/nginx.conf` allows `TLSv1.2 TLSv1.3`, restoring TLS 1.2 compatibility for legacy clients. TLS 1.3 is preferred when the client supports it. **Cipher suite hardened 2026-05-30 (GH #154):** AES-128-GCM ciphers removed. TLS 1.2 cipher list restricted to AES-256-GCM + ChaCha20-Poly1305 only (`ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305`). TLS 1.3 ciphersuites restricted to `TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256` via `ssl_conf_command`. ChaCha20-Poly1305 provides efficient encryption on mobile devices without AES-NI hardware acceleration.

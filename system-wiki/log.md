@@ -1,3 +1,39 @@
+## [2026-06-26] fix: repudiation test gaps — RP-07, RP-09, RP-23, RP-26
+
+Branch: `AuditMoreGapsFix` (off `master` at `3fba675`). NOT merged — PM review pending.
+
+### RP-07: Log all successful logins via Keycloak SPI
+- **Gap:** Only `REGIONAL_ENCODER` logins were audited as `USER_LOGIN` (frontend-only `POST /api/regional/login-event` in `callback/page.tsx`). Validators, analysts, and admins left no `USER_LOGIN` row.
+- **Fix:** Added `EventType.LOGIN` to `WimsAuditEventListenerProvider.CAPTURED_EVENTS`. Added `"LOGIN": ("USER_LOGIN", "success")` to `_KEYCLOAK_EVENT_MAP` in `security_events.py`. Removed the role-gated frontend `login-event` call from `callback/page.tsx` — the SPI is now the single source of truth for all roles.
+- **Tests:** `test_security_events.py` `test_four_events_round_trip` extended with `LOGIN` (now 5 event types).
+- **Files:** `WimsAuditEventListenerProvider.java`, `security_events.py`, `test_security_events.py`, `callback/page.tsx`
+
+### RP-09: Audit regional encoder create in system_audit_trails
+- **Gap:** `encoder_crud.create_incident` wrote to `incident_verification_history` (`CREATED_DRAFT`) but never called `log_system_audit`, so `system_audit_trails` had no record of regional encoder incident creation. The national create path (`incidents.py:923`) already wrote `CREATE_INCIDENT`.
+- **Fix:** Imported `log_system_audit` in `encoder_crud.py` and added a call with `action_type='CREATE_INCIDENT'`, `table_affected='wims.fire_incidents'`, `record_id=incident_id` after the IVH insert, before `db.commit()`.
+- **Tests:** `test_encoder_create_audit.py` — asserts audit call positional args and commit ordering.
+- **Files:** `encoder_crud.py`, `test_encoder_create_audit.py`
+
+### RP-23: Audit the audit-log export action itself
+- **Gap:** The audit-log CSV export endpoints (`admin/audit.py:export_audit_logs` and `validator.py:export_validator_audit_logs`) streamed CSV but never called `log_system_audit`. A SYSTEM_ADMIN or NATIONAL_VALIDATOR could deny exporting sensitive audit data.
+- **Fix:** Added `Request` param + `log_system_audit('AUDIT_EXPORT')` to both export endpoints, after rows fetched, before CSV generation. Added `AUDIT_EXPORT` to the OFF_HOURS high-sensitivity action list in `anomaly_detection.py` so off-hours exports are flagged.
+- **Tests:** `test_audit_export_audit.py` — 3 tests: admin export audit call, non-admin rejection, validator export audit call.
+- **Files:** `admin/audit.py`, `validator.py`, `anomaly_detection.py`, `test_audit_export_audit.py`
+
+### RP-26: Password-reset abuse anomaly detector
+- **Gap:** No app-level anomaly detector for `PASSWORD_RESET` bursts. nginx rate-limits reset-credentials POSTs (1r/m burst=2); the Keycloak SPI logs each `PASSWORD_RESET` event. But unlike `BULK_DELETE` and `SUSPICIOUS_QUERY_PATTERN`, there was no anomaly detector for repeated reset attempts.
+- **Fix:** New `_detect_password_reset_abuse()` detector in `anomaly_detection.py`, modeled on `_detect_suspicious_query_pattern`. >5 `PASSWORD_RESET` actions per user in any 15-min sliding window → MEDIUM anomaly. Scans last 30 min. Uses exact `action_type = :action` match (not LIKE) to avoid a feedback loop with `PASSWORD_RESET_ABUSE` audit rows. Added to `_DETECTORS` list (now 6 detectors). Updated module docstring.
+- **Tests:** `test_anomaly_detection.py` `TestPasswordResetAbuseDetector` — 8 tests + 1 registration test (no-flag at threshold, flag above threshold, multiple users, cross-boundary burst, dedup key format, exact-match SQL guard, LIMIT/ORDER guard, param passing, detectors-list registration).
+- **Files:** `anomaly_detection.py`, `test_anomaly_detection.py`
+
+### CI pre-flight results
+- Gate 1 (ruff check): **All checks passed**
+- Gate 2 (ruff format): **250 files already formatted** (after auto-formatting 2 new test files)
+- Gate 3 (pytest): 13 new tests pass (5 SPI + 1 encoder audit + 3 export audit + 9 anomaly detector); DB-startup-patch tests skip (no local Postgres)
+- Gate 4a (npm run lint): **0 errors**, 27 warnings (pre-existing)
+- Gate 4b (npx vitest run): **1013/1013 passed** (90 test files)
+- Gate 4c (npm run build): **Build succeeded**
+
 ## [2026-06-25] fix(rp20): direct-insert audit trigger on wims.fire_incidents (WS-C)
 
 - **Scope:** RP-20 non-repudiation gap — an INSERT into `wims.fire_incidents` executed via psql or admin tool (bypassing the application session) was not recorded in `wims.system_audit_trails`. Closed by a PostgreSQL AFTER INSERT trigger that fires only when the `app.audit_source` GUC is absent/not `'app'`.
