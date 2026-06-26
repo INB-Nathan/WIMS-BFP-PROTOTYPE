@@ -354,7 +354,11 @@ def _detect_suspicious_query_pattern(db: Session) -> list[dict[str, Any]]:
             GROUP BY user_id, window_start
             LIMIT :max_rows
         """),
-        {"action": _PII_EXPORT_ACTION, "threshold": _SUSPICIOUS_QUERY_THRESHOLD, "max_rows": _MAX_AUDIT_ROWS},
+        {
+            "action": _PII_EXPORT_ACTION,
+            "threshold": _SUSPICIOUS_QUERY_THRESHOLD,
+            "max_rows": _MAX_AUDIT_ROWS,
+        },
     ).fetchall()
 
     results = []
