@@ -72,9 +72,7 @@ def test_create_incident_writes_create_incident_audit_row(monkeypatch):
     audit_spy.assert_called_once()
     args, kwargs = audit_spy.call_args
     # Positional: (db, user_id, action_type, table_affected, record_id, request)
-    assert args[2] == "CREATE_INCIDENT", (
-        f"Expected action_type='CREATE_INCIDENT', got {args[2]!r}"
-    )
+    assert args[2] == "CREATE_INCIDENT", f"Expected action_type='CREATE_INCIDENT', got {args[2]!r}"
     assert args[3] == "wims.fire_incidents"
     assert args[4] == created_id
     assert args[0] is db  # same session — audit is in the same transaction

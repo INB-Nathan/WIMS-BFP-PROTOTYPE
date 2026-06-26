@@ -1003,10 +1003,6 @@ def test_password_reset_abuse_in_detectors_list():
     """_detect_password_reset_abuse must be registered in _DETECTORS so the
     Celery beat task invokes it every 60s."""
     assert _detect_password_reset_abuse in _DETECTORS, (
-        "_detect_password_reset_abuse is not in _DETECTORS — the Celery beat "
-        "task will not run it."
+        "_detect_password_reset_abuse is not in _DETECTORS — the Celery beat task will not run it."
     )
-    assert len(_DETECTORS) == 7, (
-        f"Expected 7 detectors after rebase, got {len(_DETECTORS)}"
-    )
-
+    assert len(_DETECTORS) == 7, f"Expected 7 detectors after rebase, got {len(_DETECTORS)}"
