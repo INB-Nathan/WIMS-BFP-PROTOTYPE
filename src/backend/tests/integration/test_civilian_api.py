@@ -425,11 +425,13 @@ def test_get_report_clusters_cache_and_stale_fallback(client, db_session):
         assert data1.get("stale") is False
         assert data1.get("degraded") is False
 
-        # 2. Cache hit (DB not called)
+        # 2. Cache hit (DB not called for cluster query).
+        # get_db() executes SET LOCAL app.audit_source='app' once per request
+        # (WS-C GUC guard), so call_count is 1 even on the cache-hit path.
         with mock.patch("sqlalchemy.orm.Session.execute") as mock_exec:
             resp2 = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
             assert resp2.status_code == 200
-            assert mock_exec.call_count == 0
+            assert mock_exec.call_count == 1  # GUC SET only; no cluster query on cache hit
             assert resp2.json()["areas"] == data1["areas"]
 
         # 3. DB fails, fresh cache expired -> serve stale
@@ -438,7 +440,12 @@ def test_get_report_clusters_cache_and_stale_fallback(client, db_session):
             if not key.endswith(":stale"):
                 r.delete(key)
 
-        with mock.patch("sqlalchemy.orm.Session.execute", side_effect=Exception("DB dead")):
+        # get_db() fires SET LOCAL app.audit_source='app' (WS-C GUC guard) as
+        # the first db.execute() call per request — allow it through, then fail
+        # the cluster query so the route falls back to the stale cache.
+        with mock.patch(
+            "sqlalchemy.orm.Session.execute", side_effect=[mock.MagicMock(), Exception("DB dead")]
+        ):
             resp3 = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
             assert resp3.status_code == 200
             data3 = resp3.json()
@@ -448,7 +455,9 @@ def test_get_report_clusters_cache_and_stale_fallback(client, db_session):
 
         # 4. DB fails, no stale cache -> degraded
         r.flushdb()
-        with mock.patch("sqlalchemy.orm.Session.execute", side_effect=Exception("DB dead")):
+        with mock.patch(
+            "sqlalchemy.orm.Session.execute", side_effect=[mock.MagicMock(), Exception("DB dead")]
+        ):
             resp4 = client.get("/api/civilian/report-clusters?lat=14.5995&lon=120.9842")
             assert resp4.status_code == 200
             data4 = resp4.json()

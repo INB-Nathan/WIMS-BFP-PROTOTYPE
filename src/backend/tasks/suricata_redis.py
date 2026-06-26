@@ -14,6 +14,7 @@ import os
 import uuid
 
 import redis
+from sqlalchemy import text
 
 from celery_config import celery_app
 from database import get_session, set_rls_context
@@ -126,6 +127,7 @@ def subscribe_suricata_alerts() -> int:
     db = get_session()
     try:
         set_rls_context(db, SYSTEM_SURICATA_USER_ID)
+        db.execute(text("SET LOCAL app.audit_source = 'app'"))
 
         for stream_name, messages in entries:
             for message_id, fields in messages:

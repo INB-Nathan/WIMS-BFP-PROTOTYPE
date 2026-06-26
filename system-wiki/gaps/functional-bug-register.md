@@ -65,6 +65,16 @@ Functional bugs reported by teammates during evaluation. All map to M12 User Man
 
 ---
 
+---
+
+## Security / Audit Integrity
+
+| # | Bug | Detail | Reported By | Status |
+|---|---|---|---|---|
+| F-13 | RP-20: Direct DB INSERT into `wims.fire_incidents` not detected | An INSERT executed directly via psql/admin tool (bypassing the application session) was not detected or recorded in `wims.system_audit_trails`. Any user with direct database access could insert incidents without leaving an audit trail, breaking non-repudiation for the official incident record. Fix: `63_fire_incidents_insert_audit_trigger.sql` — AFTER INSERT SECURITY DEFINER trigger that fires when `app.audit_source` GUC is absent/not `'app'` and writes `DIRECT_DB_INSERT` to `system_audit_trails`; `get_db()` and `get_db_with_rls()` now execute `SET LOCAL app.audit_source = 'app'` to suppress the trigger for all legitimate application paths. Branch `fix/rp20-direct-insert-audit`. | Security audit (WS-C) | Fixed in code; PR pending |
+
+---
+
 ## Related
 - [[gaps/ui-ux-gap-register]] — UI/UX improvement gaps
 - [[gaps/frs-codebase-gap-register]] — FRS/codebase verification targets
