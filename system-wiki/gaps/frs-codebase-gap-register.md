@@ -163,7 +163,12 @@ This register prevents agents from hallucinating completion. A module is not com
 - **Frontend fix:** `logout()` now POSTs `{ event_type: "LOGOUT", username: user?.preferred_username ?? null }` to `/api/auth/security-event` with a 1500ms AbortController timeout and `.catch(()=>{})` fail-safe before calling `/api/auth/logout`. Session teardown always completes regardless of the audit call outcome.
 - **Tests added:** `src/backend/tests/test_security_events.py` (4 cases: LOGOUT→202+uid=NULL, unknown→422, 31st→429, FAILED_LOGIN→202); `src/frontend/src/context/AuthContext.test.tsx` new describe block (2 cases: ordering + resilience when fetch rejects).
 - **Branch:** `fix/rp19-logout-audit`
-- **Remaining open:** RP-05 (IVH UPDATE block), RP-06 (data_hash coverage), RP-08+RP-18 server-side via Keycloak SPI (WS-B), RP-20 (direct-insert detection, WS-C), RP-23 (CSV export audit, WS-D).
+- **Remaining open:** RP-05 (IVH UPDATE block — fixed in 67_repudiation_hardening.sql), RP-06 (data_hash coverage — fixed in helpers.py HASHED_NSD_FIELDS), RP-08+RP-18 server-side via Keycloak SPI (WS-B — merged PR #459), RP-20 (direct-insert detection, WS-C — merged PR #458), RP-23 (CSV export audit — fixed in branch AuditMoreGapsFix, PR pending).
+- **[2026-06-26] AuditMoreGapsFix branch — 4 gaps closed (PR pending PM review):**
+  - RP-07: All successful logins now logged via Keycloak SPI `EventType.LOGIN` → `USER_LOGIN` (was encoder-only via frontend).
+  - RP-09: Regional encoder `create_incident` now writes `CREATE_INCIDENT` to `system_audit_trails` (was IVH-only).
+  - RP-23: Audit-log CSV export endpoints now call `log_system_audit('AUDIT_EXPORT')` (was unaudited).
+  - RP-26: New `PASSWORD_RESET_ABUSE` anomaly detector (>5/15min → MEDIUM, added to `_DETECTORS`).
 
 ## Related
 - [[concepts/frs-module-map]]

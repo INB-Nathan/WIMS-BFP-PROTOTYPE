@@ -14,8 +14,9 @@ import org.keycloak.events.EventType;
 import org.keycloak.events.admin.AdminEvent;
 
 /**
- * Keycloak EventListenerProvider that pushes LOGIN_ERROR, USER_DISABLED_BY_PERMANENT_LOCKOUT,
- * UPDATE_PASSWORD, and SEND_RESET_PASSWORD events to the WIMS backend audit endpoint.
+ * Keycloak EventListenerProvider that pushes LOGIN, LOGIN_ERROR,
+ * USER_DISABLED_BY_PERMANENT_LOCKOUT, UPDATE_PASSWORD, and SEND_RESET_PASSWORD
+ * events to the WIMS backend audit endpoint.
  *
  * Auth: Bearer token from WIMS_KEYCLOAK_EVENT_SECRET env var.
  * Failures are logged and swallowed — never interrupt login on audit failure.
@@ -25,6 +26,7 @@ public class WimsAuditEventListenerProvider implements EventListenerProvider {
     private static final Logger logger = Logger.getLogger(WimsAuditEventListenerProvider.class);
 
     private static final Set<EventType> CAPTURED_EVENTS = Set.of(
+        EventType.LOGIN,
         EventType.LOGIN_ERROR,
         EventType.USER_DISABLED_BY_PERMANENT_LOCKOUT,
         EventType.UPDATE_PASSWORD,

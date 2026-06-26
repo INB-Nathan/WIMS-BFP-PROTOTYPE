@@ -22,3 +22,5 @@ Each is a real mistake a sub-agent made.
 13. **Prove it with a specific line and file.** "Clean code" needs receipts.
 14. **Don't assume a commit's parent branch without verifying.** Seeing a commit in `git log --oneline` for the whole repo doesn't mean it's on master. Always run `git branch --contains <commit>` before claiming a branch is behind.
 15. **Validate CI before merging.** Running local lint/tests isn't enough — GitHub CI runs `npm run lint`, `ruff check`, `ruff format --check`, `pytest`, and `vitest` in a fresh environment. Run the exact CI commands locally first, or you'll get red merge gates.
+
+16. **Run ruff before every commit.** E402: don't place code between import blocks. `ruff check .` and `ruff format --check .` are cheap; skipping them pushes red.

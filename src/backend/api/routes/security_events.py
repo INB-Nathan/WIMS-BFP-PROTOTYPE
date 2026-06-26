@@ -38,6 +38,7 @@ def _get_kc_secret() -> str:
 # Map Keycloak EventType names → (WIMS action_type, audit result).
 _KEYCLOAK_EVENT_MAP: dict[str, tuple[str, str]] = {
     # KC 24 event type names — verified against keycloak-server-spi-private 24.0.0
+    "LOGIN": ("USER_LOGIN", "success"),
     "LOGIN_ERROR": ("FAILED_LOGIN", "failure"),
     "USER_DISABLED_BY_PERMANENT_LOCKOUT": ("FAILED_LOGIN", "failure"),
     "UPDATE_PASSWORD": ("PASSWORD_RESET", "success"),

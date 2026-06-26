@@ -60,10 +60,10 @@ function CallbackContent() {
                     .then((r) => (r.ok ? r.json() : null))
                     .catch(() => null);
                 const role = session?.role ?? session?.user?.role ?? null;
-                // Record login event in audit trail for encoder activity log.
-                if (role === 'REGIONAL_ENCODER') {
-                    fetch('/api/regional/login-event', { method: 'POST' }).catch(() => {});
-                }
+                // RP-07: successful login is now recorded by the Keycloak
+                // wims-audit-event-listener SPI (EventType.LOGIN → USER_LOGIN)
+                // for all roles, not just REGIONAL_ENCODER. The previous
+                // frontend-only POST /api/regional/login-event call is removed.
                 const savedRedirect = sessionStorage.getItem('wims:redirect_after_login');
                 if (savedRedirect) sessionStorage.removeItem('wims:redirect_after_login');
                 router.push(resolvePostLoginRedirect(role, savedRedirect, window.location.origin));

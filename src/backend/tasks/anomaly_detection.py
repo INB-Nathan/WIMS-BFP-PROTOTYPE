@@ -1,6 +1,6 @@
 """M8: Behavioral anomaly detection — Celery beat task (60s).
 
-Six detectors run against wims.system_audit_trails using SQL sliding windows:
+Seven detectors run against wims.system_audit_trails using SQL sliding windows:
   - BULK_DELETE              >10 delete-class actions per user in any 5-min window (HIGH)
   - OFF_HOURS                High-sensitivity actions 22:00–05:59 Asia/Manila (MEDIUM)
   - PRIVILEGE_ESCALATION     ROLE_CHANGE_TO_% events (HIGH)
@@ -13,9 +13,15 @@ Six detectors run against wims.system_audit_trails using SQL sliding windows:
                              (speed > 900 km/h assumed infeasible). Requires
                              GEOIP_DB_PATH env var pointing to a MaxMind GeoLite2-City
                              .mmdb file. Gracefully skipped when DB unavailable.
+  - PASSWORD_RESET_ABUSE     >5 PASSWORD_RESET actions per user in any 15-min window (MEDIUM)
+                             App-level signal complementing nginx reset-credentials
+                             rate limit (1r/m burst=2). Source: Keycloak SPI
+                             UPDATE_PASSWORD / SEND_RESET_PASSWORD events (RP-26).
 
-Row-count bounds: RAPID_IP_SWITCH and BULK_DELETE use ORDER BY timestamp DESC
-LIMIT to cap scanned rows at _MAX_AUDIT_ROWS (10 000) per detector invocation.
+Row-count bounds: RAPID_IP_SWITCH, BULK_DELETE, and PASSWORD_RESET_ABUSE
+use ORDER BY timestamp DESC LIMIT to cap scanned rows at _MAX_AUDIT_ROWS
+(10 000) per detector invocation.  SUSPICIOUS_QUERY_PATTERN also uses
+LIMIT (inner subquery is bounded by the 10-min lookback window).
 The bound is generous (~16.7 events/s sustained for 10 min) and preserves
 most-recent-first ordering so real anomalies are not hidden.  OFF_HOURS and
 PRIVILEGE_ESCALATION operate on a 60 s window with specific action-type
@@ -52,6 +58,11 @@ logger = logging.getLogger(__name__)
 
 _PII_EXPORT_ACTION = "PII_EXPORT"
 _SUSPICIOUS_QUERY_THRESHOLD = 10
+
+# RP-26: password-reset abuse detector
+_PASSWORD_RESET_ACTION = "PASSWORD_RESET"
+_PASSWORD_RESET_THRESHOLD = 5
+_PASSWORD_RESET_WINDOW_MINUTES = 15
 
 # ---------------------------------------------------------------------------
 # Row-count bound for detector queries that scan recent audit windows.
@@ -135,7 +146,8 @@ def _detect_off_hours(db: Session) -> list[dict[str, Any]]:
 
     No explicit row-count bound is needed here: the 60-second window combined
     with specific action-type filters (PII_EXPORT, BACKUP_TRIGGERED,
-    BREACH_STATUS_UPDATE, CREATE_INCIDENT_FROM_ALERT, ROLE_CHANGE_TO_%)
+    BREACH_STATUS_UPDATE, CREATE_INCIDENT_FROM_ALERT, AUDIT_EXPORT,
+    ROLE_CHANGE_TO_%)
     naturally limits the result set to a handful of rows under any reasonable
     audit volume.
     """
@@ -146,7 +158,7 @@ def _detect_off_hours(db: Session) -> list[dict[str, Any]]:
             WHERE (
                 action_type IN (
                     'PII_EXPORT', 'BACKUP_TRIGGERED', 'BREACH_STATUS_UPDATE',
-                    'CREATE_INCIDENT_FROM_ALERT'
+                    'CREATE_INCIDENT_FROM_ALERT', 'AUDIT_EXPORT'
                 )
                 OR action_type LIKE 'ROLE_CHANGE_TO_%'
             )
@@ -340,8 +352,13 @@ def _detect_suspicious_query_pattern(db: Session) -> list[dict[str, Any]]:
             ) sub
             WHERE cnt > :threshold
             GROUP BY user_id, window_start
+            LIMIT :max_rows
         """),
-        {"action": _PII_EXPORT_ACTION, "threshold": _SUSPICIOUS_QUERY_THRESHOLD},
+        {
+            "action": _PII_EXPORT_ACTION,
+            "threshold": _SUSPICIOUS_QUERY_THRESHOLD,
+            "max_rows": _MAX_AUDIT_ROWS,
+        },
     ).fetchall()
 
     results = []
@@ -360,6 +377,83 @@ def _detect_suspicious_query_pattern(db: Session) -> list[dict[str, Any]]:
                     "threshold": _SUSPICIOUS_QUERY_THRESHOLD,
                 },
                 "dedup_key": f"SUSPICIOUS_QUERY_PATTERN:{user_id}:{window_key}",
+                "source_ip": source_ip,
+            }
+        )
+    return results
+
+
+def _detect_password_reset_abuse(db: Session) -> list[dict[str, Any]]:
+    """Return anomaly dicts for users with >_PASSWORD_RESET_THRESHOLD
+    PASSWORD_RESET actions in any 15-min sliding window within the last
+    30 minutes (RP-26).
+
+    Uses a correlated subquery (same pattern as _detect_bulk_delete and
+    _detect_suspicious_query_pattern) so that every PASSWORD_RESET event
+    counts its own trailing-15-min window — cross-boundary burst evasion
+    is prevented.
+
+    Detection source: wims.system_audit_trails. The Keycloak
+    wims-audit-event-listener SPI writes PASSWORD_RESET rows when
+    Keycloak emits UPDATE_PASSWORD or SEND_RESET_PASSWORD events.
+    nginx already rate-limits reset-credentials POSTs (1r/m burst=2);
+    this detector provides the app-level anomaly signal for repeated
+    reset attempts that slip through the network-level limiter.
+    """
+    rows = db.execute(
+        text("""
+            SELECT user_id,
+                   window_start,
+                   MAX(cnt) AS cnt,
+                   (ARRAY_AGG(DISTINCT ip_address))[1] AS source_ip
+            FROM (
+                SELECT
+                    user_id,
+                    ip_address,
+                    date_trunc('minute', timestamp)
+                        - (EXTRACT(MINUTE FROM timestamp)::int % :window_minutes) * interval '1 minute'
+                        AS window_start,
+                    (SELECT COUNT(*)
+                     FROM wims.system_audit_trails t2
+                     WHERE t2.user_id = t1.user_id
+                       AND t2.action_type = :action
+                       AND t2.timestamp >= t1.timestamp - (:window_minutes || ' minutes')::interval
+                       AND t2.timestamp <= t1.timestamp
+                    ) AS cnt
+                FROM wims.system_audit_trails t1
+                WHERE t1.action_type = :action
+                  AND t1.timestamp >= now() - (:scan_minutes || ' minutes')::interval
+                  AND t1.user_id IS NOT NULL
+                ORDER BY t1.timestamp DESC
+                LIMIT :max_rows
+            ) sub
+            WHERE cnt > :threshold
+            GROUP BY user_id, window_start
+        """),
+        {
+            "action": _PASSWORD_RESET_ACTION,
+            "threshold": _PASSWORD_RESET_THRESHOLD,
+            "window_minutes": _PASSWORD_RESET_WINDOW_MINUTES,
+            "scan_minutes": _PASSWORD_RESET_WINDOW_MINUTES * 2,
+            "max_rows": _MAX_AUDIT_ROWS,
+        },
+    ).fetchall()
+
+    results = []
+    for row in rows:
+        user_id, window_start, cnt, source_ip = row
+        window_key = window_start.strftime("%Y%m%d%H%M") if window_start else "unknown"
+        results.append(
+            {
+                "anomaly_type": "PASSWORD_RESET_ABUSE",
+                "subject_user_id": str(user_id),
+                "severity": "MEDIUM",
+                "details": {
+                    "count": int(cnt),
+                    "window_minutes": _PASSWORD_RESET_WINDOW_MINUTES,
+                    "threshold": _PASSWORD_RESET_THRESHOLD,
+                },
+                "dedup_key": f"PASSWORD_RESET_ABUSE:{user_id}:{window_key}",
                 "source_ip": source_ip,
             }
         )
@@ -580,6 +674,7 @@ _DETECTORS = [
     _detect_rapid_ip_switch,
     _detect_suspicious_query_pattern,
     _detect_impossible_travel,
+    _detect_password_reset_abuse,
 ]
 
 
