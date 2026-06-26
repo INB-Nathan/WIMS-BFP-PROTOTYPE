@@ -7,7 +7,7 @@
 .triage-modal {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 1000;
   background:
     radial-gradient(ellipse at top, rgba(153, 27, 27, 0.18), transparent 60%),
     radial-gradient(ellipse at bottom right, rgba(15, 23, 42, 0.55), rgba(15, 23, 42, 0.85));
@@ -1598,7 +1598,7 @@
 .triage-confirm {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 1100;
   background: rgba(15, 23, 42, 0.6);
   backdrop-filter: blur(3px);
   display: flex;
