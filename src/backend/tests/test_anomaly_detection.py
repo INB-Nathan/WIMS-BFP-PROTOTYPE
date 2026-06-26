@@ -849,6 +849,23 @@ class TestQueryBounds:
         assert result[0]["anomaly_type"] == "BULK_DELETE"
         assert result[0]["details"]["count"] == 11
 
+    def test_suspicious_query_sql_has_limit(self):
+        """SUSPICIOUS_QUERY_PATTERN outer query must contain LIMIT :max_rows."""
+        db = _make_db(fetch_rows=[])
+        _detect_suspicious_query_pattern(db)
+
+        sql = str(db.execute.call_args[0][0])
+        assert "LIMIT :max_rows" in sql
+
+    def test_suspicious_query_passes_max_rows_param(self):
+        """SUSPICIOUS_QUERY_PATTERN execute call must pass max_rows param."""
+        db = _make_db(fetch_rows=[])
+        _detect_suspicious_query_pattern(db)
+
+        params = db.execute.call_args[0][1] if len(db.execute.call_args[0]) > 1 else {}
+        assert "max_rows" in params
+        assert params["max_rows"] == 10_000
+
 
 # ---------------------------------------------------------------------------
 # IMPOSSIBLE_TRAVEL

@@ -18,8 +18,10 @@ Seven detectors run against wims.system_audit_trails using SQL sliding windows:
                              rate limit (1r/m burst=2). Source: Keycloak SPI
                              UPDATE_PASSWORD / SEND_RESET_PASSWORD events (RP-26).
 
-Row-count bounds: RAPID_IP_SWITCH and BULK_DELETE use ORDER BY timestamp DESC
-LIMIT to cap scanned rows at _MAX_AUDIT_ROWS (10 000) per detector invocation.
+Row-count bounds: RAPID_IP_SWITCH, BULK_DELETE, and PASSWORD_RESET_ABUSE
+use ORDER BY timestamp DESC LIMIT to cap scanned rows at _MAX_AUDIT_ROWS
+(10 000) per detector invocation.  SUSPICIOUS_QUERY_PATTERN also uses
+LIMIT (inner subquery is bounded by the 10-min lookback window).
 The bound is generous (~16.7 events/s sustained for 10 min) and preserves
 most-recent-first ordering so real anomalies are not hidden.  OFF_HOURS and
 PRIVILEGE_ESCALATION operate on a 60 s window with specific action-type
@@ -350,8 +352,9 @@ def _detect_suspicious_query_pattern(db: Session) -> list[dict[str, Any]]:
             ) sub
             WHERE cnt > :threshold
             GROUP BY user_id, window_start
+            LIMIT :max_rows
         """),
-        {"action": _PII_EXPORT_ACTION, "threshold": _SUSPICIOUS_QUERY_THRESHOLD},
+        {"action": _PII_EXPORT_ACTION, "threshold": _SUSPICIOUS_QUERY_THRESHOLD, "max_rows": _MAX_AUDIT_ROWS},
     ).fetchall()
 
     results = []

@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
-from fastapi.responses import Response
+from fastapi.responses import StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -1093,11 +1093,9 @@ def export_validator_audit_logs(
             ]
         )
 
-    export_date = datetime.utcnow().strftime("%Y%m%d")
-    return Response(
-        content=buf.getvalue().encode("utf-8"),
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
         media_type="text/csv",
-        headers={
-            "Content-Disposition": f"attachment; filename=audit-log-{export_date}.csv",
-        },
+        headers={"Content-Disposition": "attachment; filename=system_audit_trail.csv"},
     )
