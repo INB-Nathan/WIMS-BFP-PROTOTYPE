@@ -115,7 +115,7 @@ export default function TriagePage() {
     const identity = getTriageItemIdentity(item);
     if (!identity) return;
     setSelectedIdentity(identity);
-    setSelectedReportId(item.reports[0]?.report_id ?? null);
+    setSelectedReportId(identity.type === 'singleton' ? item.reports[0]?.report_id ?? null : null);
     setSelectionNotice(null);
   }
 
@@ -123,7 +123,7 @@ export default function TriagePage() {
     const identity = getTriageItemIdentity(item);
     if (!identity) return;
     setSelectedIdentity(identity);
-    setSelectedReportId(item.reports[0]?.report_id ?? null);
+    setSelectedReportId(identity.type === 'singleton' ? item.reports[0]?.report_id ?? null : null);
     void openInspection(item, identity.type);
   }
 
