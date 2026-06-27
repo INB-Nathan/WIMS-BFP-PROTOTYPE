@@ -122,6 +122,7 @@ export function OperationsConsole({
               <LinkableReportSearch
                 operation={selectedOperation}
                 mode="link"
+                pageSize={Number.MAX_SAFE_INTEGER}
                 onLink={(reportId) => onLinkReport(selectedOperation.operation_id, reportId)}
               />
             )}

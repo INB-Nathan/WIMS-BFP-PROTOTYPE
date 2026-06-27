@@ -12,6 +12,7 @@ interface ValidatorPageHeaderProps {
   bulkLoading: boolean;
   bulkProgress: string | null;
   onBulkApprove: () => void;
+  onSyncNow?: () => void;
 }
 
 /**
@@ -29,6 +30,7 @@ export function ValidatorPageHeader({
   bulkLoading,
   bulkProgress,
   onBulkApprove,
+  onSyncNow,
 }: ValidatorPageHeaderProps) {
   return (
     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -71,6 +73,17 @@ export function ValidatorPageHeader({
             {queuedValidatorOpsCount} queued
           </span>
         )}
+        {queuedValidatorOpsCount > 0 && isOnline && (
+          <button
+            onClick={onSyncNow}
+            disabled={syncing}
+            aria-label="Sync queued validator actions"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors disabled:opacity-50"
+          >
+            {syncing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+            Sync queued actions
+          </button>
+        )}
         {!isOnline && (
           <span
             className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold"
@@ -87,7 +100,8 @@ export function ValidatorPageHeader({
         {selectedCount > 0 && (
           <button
             onClick={onBulkApprove}
-            disabled={bulkLoading}
+            disabled={bulkLoading || !isOnline}
+            title={!isOnline ? "Go online to bulk approve" : undefined}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors disabled:opacity-50"
             style={{ backgroundColor: "#16A34A" }}
             onMouseEnter={(e) => {

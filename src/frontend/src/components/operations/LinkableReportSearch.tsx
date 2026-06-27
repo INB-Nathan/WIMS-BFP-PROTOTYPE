@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useReducer, useState } from 'react';
+import { useEffect, useMemo, useReducer, useState } from 'react';
 import { Search } from 'lucide-react';
 import { fetchLinkableReports, type LinkableReportDetail, type Operation } from '@/lib/api/operations';
 
@@ -31,18 +31,28 @@ export function LinkableReportSearch({
   operation,
   mode,
   selectedReportIds = [],
+  pageSize = 5,
   onLink,
   onSelect,
 }: {
   operation: Operation | null;
   mode: 'link' | 'select';
   selectedReportIds?: number[];
+  pageSize?: number;
   onLink?: (reportId: number) => void;
   onSelect?: (report: LinkableReportDetail) => void;
 }) {
   const [query, setQuery] = useState('');
+  const [page, setPage] = useState(0);
   const [state, dispatch] = useReducer(fetchReducer, { loading: true, error: null, reports: [] });
   const { loading, error, reports } = state;
+  const safePageSize = Math.max(1, pageSize);
+  const pageCount = Math.max(1, Math.ceil(reports.length / safePageSize));
+  const currentPage = Math.min(page, pageCount - 1);
+  const pagedReports = useMemo(
+    () => reports.slice(currentPage * safePageSize, currentPage * safePageSize + safePageSize),
+    [currentPage, reports, safePageSize],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -54,7 +64,10 @@ export function LinkableReportSearch({
       longitude: operation?.longitude ?? undefined,
     })
       .then((data) => {
-        if (!cancelled) dispatch({ type: 'FETCH_SUCCESS', reports: data });
+        if (!cancelled) {
+          setPage(0);
+          dispatch({ type: 'FETCH_SUCCESS', reports: data });
+        }
       })
       .catch(() => {
         if (!cancelled) dispatch({ type: 'FETCH_ERROR', error: 'Unable to load linkable reports.' });
@@ -70,7 +83,10 @@ export function LinkableReportSearch({
         <Search className="h-4 w-4 text-slate-400" />
         <input
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setPage(0);
+          }}
           placeholder="Search reports by category or location..."
           className="w-full bg-transparent outline-none"
         />
@@ -78,8 +94,8 @@ export function LinkableReportSearch({
       {loading && <p className="text-xs text-slate-500">Loading civilian reports…</p>}
       {error && <p className="text-xs font-medium text-red-700">{error}</p>}
       {!loading && !error && reports.length === 0 && <p className="text-xs text-slate-500">No linkable reports match the current filters.</p>}
-      <div className="space-y-2">
-        {reports.map((report) => {
+      <div className="max-h-80 space-y-2 overflow-y-auto pr-1" data-testid="linkable-report-results">
+        {pagedReports.map((report) => {
           const categoryLabel = report.sub_category ? `${report.category} / ${report.sub_category}` : report.category;
           const selected = selectedReportIds.includes(report.report_id);
           const disabled = report.link_disabled || selected;
@@ -109,6 +125,31 @@ export function LinkableReportSearch({
           );
         })}
       </div>
+      {!loading && !error && reports.length > safePageSize && (
+        <div className="flex items-center justify-between gap-2 border-t border-slate-200 pt-2 text-xs text-slate-600">
+          <button
+            type="button"
+            aria-label="Previous civilian report results page"
+            onClick={() => setPage((value) => Math.max(0, value - 1))}
+            disabled={currentPage === 0}
+            className="rounded-md border border-slate-200 bg-white px-2 py-1 font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Previous
+          </button>
+          <span className="font-bold">
+            Page {currentPage + 1} of {pageCount}
+          </span>
+          <button
+            type="button"
+            aria-label="Next civilian report results page"
+            onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))}
+            disabled={currentPage >= pageCount - 1}
+            className="rounded-md border border-slate-200 bg-white px-2 py-1 font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Next
+          </button>
+        </div>
+      )}
     </section>
   );
 }

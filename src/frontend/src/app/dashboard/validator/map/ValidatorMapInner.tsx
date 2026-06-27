@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useMapEvents } from 'react-leaflet';
 import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -15,8 +16,9 @@ function severityColor(severity: string): string {
   }
 }
 
-function markerRadius(count: number): number {
-  return Math.min(8 + count * 1.5, 30);
+function markerRadius(count: number, zoom: number): number {
+  const zoomCap = zoom <= 7 ? 16 : zoom <= 9 ? 22 : 30;
+  return Math.min(7 + Math.log2(count + 1) * 3, zoomCap);
 }
 
 function severityFillOpacity(count: number): number {
@@ -37,14 +39,24 @@ interface ValidatorMapInnerProps {
 
 function ViewportHandler({
   onViewportChange,
+  onZoomChange,
 }: {
   onViewportChange: (bounds: L.LatLngBounds, zoom: number) => void;
+  onZoomChange: (zoom: number) => void;
 }) {
   const map = useMapEvents({
     moveend: () => {
-      onViewportChange(map.getBounds(), map.getZoom());
+      const zoom = map.getZoom();
+      onZoomChange(zoom);
+      onViewportChange(map.getBounds(), zoom);
     },
   });
+
+  useEffect(() => {
+    const zoom = map.getZoom();
+    onZoomChange(zoom);
+    onViewportChange(map.getBounds(), zoom);
+  }, [map, onViewportChange, onZoomChange]);
 
   return null;
 }
@@ -55,6 +67,8 @@ export default function ValidatorMapInner({
   onViewportChange,
   clusters,
 }: ValidatorMapInnerProps) {
+  const [currentZoom, setCurrentZoom] = useState(10);
+
   return (
     <MapContainer
       center={[14.5995, 120.9842]}
@@ -67,13 +81,13 @@ export default function ValidatorMapInner({
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
 
-      <ViewportHandler onViewportChange={onViewportChange} />
+      <ViewportHandler onViewportChange={onViewportChange} onZoomChange={setCurrentZoom} />
 
       {clusters.map((c, i) => (
         <CircleMarker
           key={`${c.lat}-${c.lng}-${i}`}
           center={[c.lat, c.lng]}
-          radius={markerRadius(c.count)}
+          radius={markerRadius(c.count, currentZoom)}
           pathOptions={{
             color: severityColor(c.severity),
             fillColor: severityColor(c.severity),

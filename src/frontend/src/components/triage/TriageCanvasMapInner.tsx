@@ -1,6 +1,7 @@
 'use client';
 
-import { Circle, CircleMarker, MapContainer, Popup, TileLayer } from 'react-leaflet';
+import { useEffect, useMemo } from 'react';
+import { Circle, CircleMarker, MapContainer, Popup, TileLayer, useMap } from 'react-leaflet';
 import type { TriageClusterEntry, TriageReportEntry } from '@/lib/api';
 import {
   deriveClusterGeometry,
@@ -33,6 +34,40 @@ function offsetForIndex(value: number): [number, number] {
   return [Math.cos(ring) * delta, Math.sin(ring) * delta];
 }
 
+function TriageMapViewport({
+  selectedItem,
+  selectedReportId,
+}: {
+  selectedItem: TriageClusterEntry | null;
+  selectedReportId: number | null;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!selectedItem) return;
+
+    if (selectedReportId != null) {
+      const report = selectedItem.reports.find((entry) => entry.report_id === selectedReportId);
+      if (report && isValidPhilippinesCoordinate(report.latitude, report.longitude)) {
+        map.setView([report.latitude, report.longitude], Math.max(map.getZoom(), 15), { animate: true });
+        return;
+      }
+    }
+
+    const geometry = deriveClusterGeometry(selectedItem);
+    if (geometry.bounds && geometry.validReports.length > 1) {
+      map.fitBounds(geometry.bounds, { animate: true, maxZoom: 15, padding: [32, 32] });
+      return;
+    }
+
+    if (geometry.centroid) {
+      map.setView(geometry.centroid, Math.max(map.getZoom(), 15), { animate: true });
+    }
+  }, [map, selectedItem, selectedReportId]);
+
+  return null;
+}
+
 export default function TriageCanvasMapInner({
   items,
   selectedIdentity,
@@ -40,6 +75,11 @@ export default function TriageCanvasMapInner({
   onSelectItem,
   onSelectReport,
 }: TriageCanvasMapInnerProps) {
+  const selectedItem = useMemo(() => {
+    if (!selectedIdentity) return null;
+    return items.find((item) => sameIdentity(getTriageItemIdentity(item), selectedIdentity)) ?? null;
+  }, [items, selectedIdentity]);
+
   return (
     <MapContainer
       center={[12.8, 121.8]}
@@ -51,6 +91,7 @@ export default function TriageCanvasMapInner({
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
+      <TriageMapViewport selectedItem={selectedItem} selectedReportId={selectedReportId} />
 
       {items.map((item) => {
         const identity = getTriageItemIdentity(item);
