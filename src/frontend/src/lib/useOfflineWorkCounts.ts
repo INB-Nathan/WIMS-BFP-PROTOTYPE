@@ -54,15 +54,19 @@ export function useOfflineWorkCounts(): OfflineWorkCounts {
         loading: false,
       });
     } catch {
-      // IndexedDB unavailable — remain on last known counts or zero
+      // IndexedDB unavailable — remain on last known counts or zero, but stop showing loading.
+      setCounts((prev) => ({ ...prev, loading: false }));
     }
   }, [encoderId]);
 
   useEffect(() => {
-    void refresh();
+    const initialRefresh = setTimeout(() => {
+      void refresh();
+    }, 0);
 
     intervalRef.current = setInterval(refresh, REFRESH_INTERVAL_MS);
     return () => {
+      clearTimeout(initialRefresh);
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [refresh]);

@@ -233,8 +233,9 @@ describe('IncidentConflictMergePanel', () => {
       />
     );
 
-    const dialog = screen.getByRole('dialog');
+    const dialog = screen.getByRole('dialog', { name: /concurrent edit conflict/i });
     expect(dialog).toBeTruthy();
     expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(dialog.getAttribute('aria-labelledby')).toBe('conflict-dialog-heading');
   });
 });

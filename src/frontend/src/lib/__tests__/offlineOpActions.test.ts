@@ -9,13 +9,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as offlineStore from '../offlineStore';
 
 // Must be hoisted before module import
-const { deleteOfflineOp, deleteOfflineOpCascade } = await vi.hoisted(async () => {
+const { deleteOfflineOp, deleteOfflineOpCascade, getOfflineOp } = await vi.hoisted(async () => {
   const mockDelete = vi.fn();
   const mockCascade = vi.fn();
-  return { deleteOfflineOp: mockDelete, deleteOfflineOpCascade: mockCascade };
+  const mockGet = vi.fn();
+  return { deleteOfflineOp: mockDelete, deleteOfflineOpCascade: mockCascade, getOfflineOp: mockGet };
 });
 
 vi.mock('../offlineStore', async (importOriginal) => {
@@ -24,6 +24,7 @@ vi.mock('../offlineStore', async (importOriginal) => {
     ...(actual as object),
     deleteOfflineOp,
     deleteOfflineOpCascade,
+    getOfflineOp,
   };
 });
 
@@ -53,6 +54,7 @@ function makeOp(overrides: Partial<Parameters<typeof cancelOfflineOperation>[0]>
 describe('cancelOfflineOperation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getOfflineOp.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -97,6 +99,17 @@ describe('cancelOfflineOperation', () => {
   it('throws when syncStatus is syncing', async () => {
     const op = makeOp({ operation: 'update', serverId: 42, syncStatus: 'syncing' });
     await expect(cancelOfflineOperation(op)).rejects.toThrow('Cannot cancel syncing operation');
+    expect(deleteOfflineOp).not.toHaveBeenCalled();
+    expect(deleteOfflineOpCascade).not.toHaveBeenCalled();
+  });
+
+  it('re-reads latest op and refuses stale UI copies that are now syncing', async () => {
+    const staleOp = makeOp({ operation: 'update', serverId: 42, syncStatus: 'pending' });
+    getOfflineOp.mockResolvedValue(makeOp({ operation: 'update', serverId: 42, syncStatus: 'syncing' }));
+
+    await expect(cancelOfflineOperation(staleOp)).rejects.toThrow('Cannot cancel syncing operation');
+
+    expect(getOfflineOp).toHaveBeenCalledWith('test-local-id');
     expect(deleteOfflineOp).not.toHaveBeenCalled();
     expect(deleteOfflineOpCascade).not.toHaveBeenCalled();
   });

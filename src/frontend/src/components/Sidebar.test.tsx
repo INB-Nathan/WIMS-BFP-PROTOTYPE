@@ -177,14 +177,24 @@ describe('Sidebar — Offline Work badge (Item 10)', () => {
     expect(screen.queryByText('0')).not.toBeInTheDocument();
   });
 
-  it('does NOT show Offline Work for SYSTEM_ADMIN role', () => {
+  it('does NOT show Offline Work or badge count for SYSTEM_ADMIN role', () => {
     mockUseAuth.mockReturnValue({
       user: { role: 'SYSTEM_ADMIN' },
       loading: false,
       logout: vi.fn(),
     });
+    mockOfflineWorkCounts.mockReturnValue({
+      pendingCount: 3,
+      failedCount: 2,
+      conflictCount: 1,
+      draftCount: 0,
+      totalActionableCount: 6,
+      loading: false,
+    });
     render(<Sidebar isOpen={true} onClose={vi.fn()} />);
     expect(screen.queryByText('Offline Work')).not.toBeInTheDocument();
+    expect(screen.queryByText('6')).not.toBeInTheDocument();
+    expect(mockOfflineWorkCounts).toHaveBeenCalled();
   });
 
   it('does NOT show Offline Work for NATIONAL_VALIDATOR role', () => {

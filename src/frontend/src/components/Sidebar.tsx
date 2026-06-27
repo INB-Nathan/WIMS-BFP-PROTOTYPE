@@ -71,10 +71,11 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         return pathname === path || pathname?.startsWith(`${path}/`);
     };
 
-    // Offline work badge count — only meaningful for encoder roles
-    const { totalActionableCount } = role === 'REGIONAL_ENCODER' || role === 'ENCODER'
-      ? useOfflineWorkCounts()
-      : { totalActionableCount: 0 };
+    // Offline work badge count — only meaningful for encoder roles.
+    // The hook must still be called unconditionally to preserve React hook order.
+    const offlineWorkCounts = useOfflineWorkCounts();
+    const isEncoderRole = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
+    const totalActionableCount = isEncoderRole ? offlineWorkCounts.totalActionableCount : 0;
 
     // Navigation items based on role
     const navSections = getNavSections(role, totalActionableCount);

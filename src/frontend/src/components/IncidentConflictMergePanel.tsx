@@ -106,12 +106,17 @@ export function IncidentConflictMergePanel({
   const activeGroups = groupsWithConflicts(conflictFields);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="conflict-dialog-heading"
+    >
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="px-5 py-4 border-b flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold text-gray-900" aria-label="Concurrent Edit Conflict">Concurrent Edit Conflict</h2>
+            <h2 id="conflict-dialog-heading" className="text-base font-semibold text-gray-900">Concurrent Edit Conflict</h2>
             <p className="text-sm text-gray-500 mt-0.5">
               The same incident was saved from another tab or session while you were editing. Choose which version to keep for each field.
             </p>

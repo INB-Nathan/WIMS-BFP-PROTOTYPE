@@ -126,57 +126,52 @@ export function SyncStatusBar() {
     );
   }
 
-  // Show conflict callout — always when conflictCount > 0, regardless of pendingCount
-  if (conflictCount > 0) {
+  // Show conflict and failed callouts independently — both can be present.
+  if (conflictCount > 0 || failedCount > 0) {
     return (
-      <div
-        className="flex items-center gap-2 rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-sm text-orange-800"
-        role="alert"
-      >
-        <span className="inline-block h-2 w-2 rounded-full bg-orange-500" />
-        <span>{conflictCount} item{conflictCount !== 1 ? 's' : ''} need your attention</span>
-        {pendingCount > 0 && (
-          <span className="text-xs text-orange-600">
-            ({pendingCount} queued)
-          </span>
+      <div className="flex flex-col gap-2" role="alert">
+        {conflictCount > 0 && (
+          <div className="flex items-center gap-2 rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-sm text-orange-800">
+            <span className="inline-block h-2 w-2 rounded-full bg-orange-500" />
+            <span>{conflictCount} item{conflictCount !== 1 ? 's' : ''} need your attention</span>
+            {pendingCount > 0 && (
+              <span className="text-xs text-orange-600">
+                ({pendingCount} queued)
+              </span>
+            )}
+            <a
+              href="/dashboard/regional/conflicts"
+              className="ml-auto w-full sm:w-auto rounded-md bg-orange-600 px-3 py-1 text-xs font-medium text-white hover:bg-orange-700 text-center min-h-[44px] flex items-center justify-center"
+            >
+              Review
+            </a>
+          </div>
         )}
-        <a
-          href="/dashboard/regional/conflicts"
-          className="ml-auto w-full sm:w-auto rounded-md bg-orange-600 px-3 py-1 text-xs font-medium text-white hover:bg-orange-700 text-center min-h-[44px] flex items-center justify-center"
-        >
-          Review
-        </a>
-      </div>
-    );
-  }
 
-  // Show failed callout — always when failedCount > 0, regardless of pendingCount
-  if (failedCount > 0) {
-    return (
-      <div
-        className="flex flex-wrap items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800"
-        role="alert"
-      >
-        <span className="inline-block h-2 w-2 rounded-full bg-red-500" />
-        <span>{failedCount} item{failedCount !== 1 ? 's' : ''} failed to sync</span>
-        {pendingCount > 0 && (
-          <span className="text-xs text-red-600">
-            ({pendingCount} queued)
-          </span>
+        {failedCount > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+            <span className="inline-block h-2 w-2 rounded-full bg-red-500" />
+            <span>{failedCount} item{failedCount !== 1 ? 's' : ''} failed to sync</span>
+            {pendingCount > 0 && (
+              <span className="text-xs text-red-600">
+                ({pendingCount} queued)
+              </span>
+            )}
+            <button
+              onClick={syncNow}
+              disabled={syncing}
+              className="ml-auto w-full sm:w-auto rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-center min-h-[44px] flex items-center justify-center"
+            >
+              Retry All
+            </button>
+            <Link
+              href="/dashboard/regional/offline-work"
+              className="text-xs text-red-600 underline hover:text-red-800 min-h-[44px] flex items-center"
+            >
+              Details
+            </Link>
+          </div>
         )}
-        <button
-          onClick={syncNow}
-          disabled={syncing}
-          className="ml-auto w-full sm:w-auto rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-center min-h-[44px] flex items-center justify-center"
-        >
-          Retry All
-        </button>
-        <Link
-          href="/dashboard/regional/offline-work"
-          className="text-xs text-red-600 underline hover:text-red-800 min-h-[44px] flex items-center"
-        >
-          Details
-        </Link>
       </div>
     );
   }

@@ -75,6 +75,18 @@ function formatCreatedAt(ts: number): string {
   });
 }
 
+function formatSyncErrors(
+  errors: Array<{ localId: string; operation: string; status?: number; error?: string }>,
+): string {
+  return errors
+    .map((err) => {
+      const status = err.status ? `HTTP ${err.status}: ` : '';
+      const label = OPERATION_LABELS[err.operation] || err.operation;
+      return `${label} ${err.localId}: ${status}${err.error ?? 'Unknown error'}`;
+    })
+    .join('; ');
+}
+
 export default function OfflineWorkPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
@@ -137,7 +149,7 @@ export default function OfflineWorkPage() {
         toast.warning(`${result.failed} item${result.failed !== 1 ? 's' : ''} failed to sync.`);
       }
       if (result.errors?.length) {
-        toast.error(`Sync errors: ${result.errors.join(', ')}`);
+        toast.error(`Sync errors: ${formatSyncErrors(result.errors)}`);
       }
       await loadAll();
     } catch {
@@ -172,11 +184,11 @@ export default function OfflineWorkPage() {
 
   if (!isEncoder) return null;
 
-  const sections: { key: Section; count: number; color: string; ops: OfflineOpDecrypted[] }[] = [
-    { key: 'drafts', count: drafts.length, color: 'text-blue-600', ops: drafts },
-    { key: 'queued', count: pendingOps.length, color: 'text-amber-600', ops: pendingOps },
-    { key: 'failed', count: failedOps.length, color: 'text-red-600', ops: failedOps },
-    { key: 'conflicts', count: conflictOps.length, color: 'text-orange-600', ops: conflictOps },
+  const sections: { key: Section; count: number; ops: OfflineOpDecrypted[] }[] = [
+    { key: 'drafts', count: drafts.length, ops: drafts },
+    { key: 'queued', count: pendingOps.length, ops: pendingOps },
+    { key: 'failed', count: failedOps.length, ops: failedOps },
+    { key: 'conflicts', count: conflictOps.length, ops: conflictOps },
   ];
   const activeCount = sections.find((s) => s.key === activeSection)?.count ?? 0;
   const activeOps = sections.find((s) => s.key === activeSection)?.ops ?? [];
@@ -214,7 +226,7 @@ export default function OfflineWorkPage() {
 
       {/* ── Section tabs ── */}
       <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-2" role="tablist">
-        {sections.map(({ key, count, color }) => (
+        {sections.map(({ key, count }) => (
           <button
             key={key}
             type="button"

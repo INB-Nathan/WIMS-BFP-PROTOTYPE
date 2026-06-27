@@ -263,7 +263,7 @@ describe('SyncStatusBar', () => {
     expect(screen.getByRole('button', { name: /retry all/i })).toBeInTheDocument();
   });
 
-  it('prioritises conflict over failed when both present', () => {
+  it('shows conflict and failed callouts when both present', () => {
     mockUseAutoSync.mockReturnValue({
       syncing: false,
       lastSyncedAt: null,
@@ -276,9 +276,10 @@ describe('SyncStatusBar', () => {
 
     render(<SyncStatusBar />);
 
-    // Conflict takes priority because the check comes first
     expect(screen.getByText(/3 items.*need your attention/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 items.*failed to sync/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /review/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /retry all/i })).toBeInTheDocument();
   });
 
   it('shows determinate progress during active sync when syncProgress.total > 0', () => {
