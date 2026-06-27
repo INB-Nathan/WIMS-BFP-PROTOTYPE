@@ -65,6 +65,11 @@ export function usePreloadDashboardData(): void {
       return;
     }
 
+    // ── Operations: preload for any role with access (encoder, validator, admin) ──
+    void import('@/lib/api/offlineOperations').then((m) => {
+      void m.fetchOperationsOfflineAware();
+    });
+
     // ── System admin: preload health + metrics + workers ──
     if (role === 'SYSTEM_ADMIN') {
       void import('@/lib/api').then((api) => {
