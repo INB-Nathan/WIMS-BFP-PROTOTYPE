@@ -18,7 +18,24 @@ export function usePreloadDashboardData(): void {
   const { user, loading } = useAuth();
 
   useEffect(() => {
-    if (loading || !user?.id) return;
+    if (loading) return;
+
+    // ── Civilian (unauthenticated): preload my reports if device ID stored ──
+    if (!user?.id) {
+      try {
+        const deviceId = typeof localStorage !== 'undefined'
+          ? localStorage.getItem('wims_civilian_device_id')
+          : null;
+        if (deviceId) {
+          void import('@/lib/api/offlineCivilianReads').then((m) => {
+            void m.fetchMyReportsOfflineAware(deviceId);
+          });
+        }
+      } catch {
+        // localStorage unavailable (private mode) — silently skip
+      }
+      return;
+    }
 
     const role = (user as { role?: string })?.role ?? '';
 
