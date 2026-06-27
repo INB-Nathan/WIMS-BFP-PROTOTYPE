@@ -222,7 +222,7 @@ export default function OfflineWorkPage() {
             aria-selected={activeSection === key}
             aria-controls={`section-${key}`}
             onClick={() => setActiveSection(key)}
-            className={`inline-flex items-center gap-1.5 rounded-t-lg px-4 py-2 text-sm font-medium transition-colors ${
+            className={`inline-flex items-center gap-1.5 rounded-t-lg px-4 py-2 text-sm font-medium transition-colors min-h-[44px] ${
               activeSection === key
                 ? 'border-b-2 border-blue-600 text-blue-700'
                 : 'text-gray-600 hover:text-gray-900'
@@ -250,6 +250,7 @@ export default function OfflineWorkPage() {
       <div
         id={`section-${activeSection}`}
         role="tabpanel"
+        aria-live="polite"
         className="space-y-4"
       >
         {/* ── Global retry (failed section) ── */}
@@ -262,7 +263,7 @@ export default function OfflineWorkPage() {
               type="button"
               onClick={handleRetryAll}
               disabled={syncing || retrying}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${retrying ? 'animate-spin' : ''}`} aria-hidden />
               {retrying ? 'Retrying…' : 'Retry All'}
@@ -280,7 +281,7 @@ export default function OfflineWorkPage() {
               type="button"
               onClick={handleRetryAll}
               disabled={syncing || retrying}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${retrying ? 'animate-spin' : ''}`} aria-hidden />
               {retrying ? 'Syncing…' : 'Sync Now'}
@@ -385,7 +386,7 @@ export default function OfflineWorkPage() {
                       {isConflictLink && (
                         <Link
                           href="/dashboard/regional/conflicts"
-                          className="inline-flex items-center gap-1 rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700"
+                          className="inline-flex items-center gap-1 rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700 min-h-[44px]"
                         >
                           <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
                           Resolve
@@ -394,7 +395,7 @@ export default function OfflineWorkPage() {
                       {detailPath && !isConflictLink && (
                         <Link
                           href={detailPath}
-                          className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                          className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 min-h-[44px]"
                         >
                           {op.operation === 'create' ? 'Open Draft' : 'View Incident'}
                         </Link>
@@ -404,7 +405,7 @@ export default function OfflineWorkPage() {
                           type="button"
                           disabled={syncing || cancellingId === op.localId}
                           onClick={() => setConfirmCancel(op)}
-                          className="inline-flex items-center gap-1 rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="inline-flex items-center gap-1 rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
                           aria-label={`Cancel ${operationDisplay(op)}`}
                         >
                           <XCircle className="h-3.5 w-3.5" aria-hidden />
@@ -461,7 +462,7 @@ export default function OfflineWorkPage() {
               <button
                 type="button"
                 onClick={() => setConfirmCancel(null)}
-                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 min-h-[44px]"
               >
                 Keep Operation
               </button>
@@ -469,7 +470,7 @@ export default function OfflineWorkPage() {
                 type="button"
                 disabled={syncing || cancellingId !== null}
                 onClick={handleCancelConfirm}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
               >
                 {cancellingId === confirmCancel.localId ? 'Cancelling…' : 'Yes, Cancel'}
               </button>

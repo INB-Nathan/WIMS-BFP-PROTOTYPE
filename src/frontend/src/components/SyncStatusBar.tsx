@@ -142,7 +142,7 @@ export function SyncStatusBar() {
         )}
         <a
           href="/dashboard/regional/conflicts"
-          className="ml-auto rounded-md bg-orange-600 px-3 py-1 text-xs font-medium text-white hover:bg-orange-700"
+          className="ml-auto w-full sm:w-auto rounded-md bg-orange-600 px-3 py-1 text-xs font-medium text-white hover:bg-orange-700 text-center min-h-[44px] flex items-center justify-center"
         >
           Review
         </a>
@@ -154,7 +154,7 @@ export function SyncStatusBar() {
   if (failedCount > 0) {
     return (
       <div
-        className="flex items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800"
+        className="flex flex-wrap items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800"
         role="alert"
       >
         <span className="inline-block h-2 w-2 rounded-full bg-red-500" />
@@ -167,13 +167,13 @@ export function SyncStatusBar() {
         <button
           onClick={syncNow}
           disabled={syncing}
-          className="ml-auto rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="ml-auto w-full sm:w-auto rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-center min-h-[44px] flex items-center justify-center"
         >
           Retry All
         </button>
         <Link
           href="/dashboard/regional/offline-work"
-          className="text-xs text-red-600 underline hover:text-red-800"
+          className="text-xs text-red-600 underline hover:text-red-800 min-h-[44px] flex items-center"
         >
           Details
         </Link>

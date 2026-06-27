@@ -32,6 +32,7 @@ const SEVERITY_STYLES: Record<string, { bg: string; text: string; border: string
 
 function OfflineSyncBadges({ status }: { status: RegionalIncidentOfflineStatus }) {
   const style = SEVERITY_STYLES[status.severity] ?? SEVERITY_STYLES.pending;
+  const summary = status.labels.slice(0, 2).join(', ');
 
   return (
     <>
@@ -39,6 +40,7 @@ function OfflineSyncBadges({ status }: { status: RegionalIncidentOfflineStatus }
         <span
           key={label}
           className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${style.bg} ${style.text} ${style.border}`}
+          aria-label={`Offline status: ${label}`}
         >
           {label}
         </span>
@@ -46,6 +48,7 @@ function OfflineSyncBadges({ status }: { status: RegionalIncidentOfflineStatus }
       {status.labels.length > 2 && (
         <span
           className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${style.bg} ${style.text} ${style.border}`}
+          aria-label={`Offline status: ${status.labels.length - 2} more pending operations including ${summary}`}
         >
           +{status.labels.length - 2} more
         </span>
@@ -121,7 +124,7 @@ export function IncidentCard({
           <StatusBadge status={inc.verification_status} />
           {offlineStatus && <OfflineSyncBadges status={offlineStatus} />}
           {offlineUncached && (
-            <span className="rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-500">
+            <span className="rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-500" aria-label="This incident is not available offline">
               Go online to view
             </span>
           )}
@@ -174,7 +177,7 @@ export function IncidentCard({
             type="button"
             disabled={hasQueuedArchive}
             onClick={(e) => hasQueuedArchive ? undefined : isArchiveView ? onUnarchive(inc.incident_id, e) : onArchive(inc.incident_id, e)}
-            className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+            className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors min-h-[44px] ${
               hasQueuedArchive
                 ? 'cursor-not-allowed border-amber-200 bg-amber-50 text-amber-600'
                 : 'border-gray-200 bg-white hover:bg-gray-50'

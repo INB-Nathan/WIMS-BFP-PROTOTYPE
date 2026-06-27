@@ -166,7 +166,7 @@ export function OfflineModeManager({ variant = 'panel' }: { variant?: 'banner' |
               type="button"
               onClick={runEnable}
               disabled={!isOnline || busy}
-              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-white transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-white transition-colors disabled:opacity-50 min-h-[44px]"
               style={{ backgroundColor: '#0369a1' }}
               title={isOnline ? 'Download / refresh offline data' : 'Connect to the internet to enable offline mode'}
             >
@@ -177,7 +177,8 @@ export function OfflineModeManager({ variant = 'panel' }: { variant?: 'banner' |
               <button
                 type="button"
                 onClick={cancelEnable}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 min-h-[44px]"
+                aria-label="Cancel offline setup"
               >
                 Cancel
               </button>
@@ -186,7 +187,7 @@ export function OfflineModeManager({ variant = 'panel' }: { variant?: 'banner' |
               type="button"
               onClick={runClear}
               disabled={clearing}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50 min-h-[44px]"
               title="Remove all incidents and cached data stored offline on this device"
             >
               {clearing ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Trash2 className="h-3.5 w-3.5" aria-hidden />}

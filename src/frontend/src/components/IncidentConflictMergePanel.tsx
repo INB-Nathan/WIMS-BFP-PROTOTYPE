@@ -167,7 +167,7 @@ export function IncidentConflictMergePanel({
                         <button
                           type="button"
                           onClick={() => setChoices((c) => ({ ...c, [field]: 'client' }))}
-                          className={`text-left p-3 transition-colors ${
+                          className={`text-left p-3 transition-colors min-h-[44px] ${
                             choices[field] === 'client'
                               ? 'bg-blue-50 ring-1 ring-inset ring-blue-400'
                               : 'hover:bg-gray-50'
@@ -176,7 +176,7 @@ export function IncidentConflictMergePanel({
                           <div className="flex items-center gap-1.5 mb-1">
                             <span className={`w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 ${
                               choices[field] === 'client' ? 'border-blue-500 bg-blue-500' : 'border-gray-300'
-                            }`} />
+                            }`} aria-hidden />
                             <span className="text-xs font-medium text-blue-700">Your version</span>
                           </div>
                           <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words font-sans">
@@ -188,7 +188,7 @@ export function IncidentConflictMergePanel({
                         <button
                           type="button"
                           onClick={() => setChoices((c) => ({ ...c, [field]: 'server' }))}
-                          className={`text-left p-3 transition-colors ${
+                          className={`text-left p-3 transition-colors min-h-[44px] ${
                             choices[field] === 'server'
                               ? 'bg-amber-50 ring-1 ring-inset ring-amber-400'
                               : 'hover:bg-gray-50'
@@ -197,7 +197,7 @@ export function IncidentConflictMergePanel({
                           <div className="flex items-center gap-1.5 mb-1">
                             <span className={`w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 ${
                               choices[field] === 'server' ? 'border-amber-500 bg-amber-500' : 'border-gray-300'
-                            }`} />
+                            }`} aria-hidden />
                             <span className="text-xs font-medium text-amber-700">Server version</span>
                           </div>
                           <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words font-sans">
