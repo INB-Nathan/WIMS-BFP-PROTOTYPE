@@ -3,11 +3,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
-import { Search, Loader2, Pencil, Plus, Trash2, Link2 } from 'lucide-react';
+import { Search, Pencil, Plus, Trash2, Link2 } from 'lucide-react';
+import { GhostOperationCards } from '@/components/ui/GhostOperationsCard';
 import { MapPickerInner } from '@/components/MapPickerInner';
 import { OperationsConsole } from '@/components/operations/OperationsConsole';
 import {
-  fetchOperations,
   createOperation,
   updateOperation,
   deleteOperation,
@@ -18,6 +18,7 @@ import {
   type OperationCreate,
   type LinkableReportDetail,
 } from '@/lib/api/operations';
+import { fetchOperationsOfflineAware } from '@/lib/api/offlineOperations';
 import { LinkableReportSearch } from '@/components/operations/LinkableReportSearch';
 
 type TabValue = 'ON-GOING' | 'FIRE OUT' | 'ALL';
@@ -53,8 +54,8 @@ export default function HomePage() {
   const loadOps = useCallback(async () => {
     setOpsLoading(true);
     try {
-      const data = await fetchOperations();
-      setOps(data);
+      const result = await fetchOperationsOfflineAware();
+      setOps(result.response);
     } catch {
       /* non-critical — board renders empty */
     } finally {
@@ -112,8 +113,25 @@ export default function HomePage() {
 
   if (authLoading)
     return (
-      <div className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>
-        Loading Operations Center...
+      <div className="space-y-6 p-6" aria-hidden="true">
+        {/* Header skeleton */}
+        <div className="animate-pulse card">
+          <div className="card-body">
+            <div className="h-10 w-full rounded-lg bg-gray-200" />
+          </div>
+        </div>
+        {/* Board skeleton */}
+        <div className="animate-pulse card">
+          <div className="card-body space-y-4">
+            <div className="h-6 w-48 rounded bg-gray-200" />
+            <div className="flex gap-2">
+              <div className="h-8 w-24 rounded-md bg-gray-200" />
+              <div className="h-8 w-24 rounded-md bg-gray-200" />
+              <div className="h-8 w-16 rounded-md bg-gray-200" />
+            </div>
+            <GhostOperationCards />
+          </div>
+        </div>
       </div>
     );
 
@@ -191,9 +209,7 @@ export default function HomePage() {
           </div>
 
           {opsLoading ? (
-            <div className="flex justify-center p-8">
-              <Loader2 className="h-6 w-6 animate-spin text-slate-500" />
-            </div>
+            <GhostOperationCards />
           ) : filteredOps.length === 0 ? (
             <div className="rounded-md border border-slate-200 p-8 text-center text-sm text-slate-500">
               No operations found.

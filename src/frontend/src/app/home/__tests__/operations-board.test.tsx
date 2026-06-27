@@ -5,8 +5,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mocks — must be declared before any dynamic imports of the component
 // ---------------------------------------------------------------------------
 
-vi.mock('@/lib/api/operations', () => ({
-  fetchOperations: vi.fn().mockResolvedValue([
+vi.mock('@/lib/api/offlineOperations', () => ({
+  fetchOperationsOfflineAware: vi.fn().mockResolvedValue({
+    response: [
     {
       operation_id: 1,
       fire_status: 'ACTIVE',
@@ -51,7 +52,69 @@ vi.mock('@/lib/api/operations', () => ({
         },
       ],
     },
+    ],
+  }),
+  createOperation: vi.fn().mockResolvedValue({}),
+  updateOperation: vi.fn().mockResolvedValue({}),
+  deleteOperation: vi.fn().mockResolvedValue(undefined),
+  fetchLinkableReports: vi.fn().mockResolvedValue([
+    {
+      report_id: 7,
+      status: 'PENDING',
+      category: 'STRUCTURAL',
+      sub_category: 'Residential',
+      reported_at: '2026-06-10T07:45:00Z',
+      latitude: 14.61,
+      longitude: 120.99,
+      trust_score: 70,
+      safety_status: 'I_AM_SAFE',
+      reporting_context: 'WITNESS',
+      linked_operation_id: null,
+      linked_operation_label: null,
+      distance_meters: 120,
+      link_disabled: false,
+      disabled_reason: null,
+    },
+    {
+      report_id: 8,
+      status: 'LINKED',
+      category: 'STRUCTURAL',
+      sub_category: 'Warehouse',
+      reported_at: '2026-06-10T07:40:00Z',
+      latitude: 14.62,
+      longitude: 121,
+      trust_score: 60,
+      safety_status: 'UNKNOWN',
+      reporting_context: 'WITNESS',
+      linked_operation_id: 99,
+      linked_operation_label: 'Operation #99',
+      distance_meters: 240,
+      link_disabled: true,
+      disabled_reason: 'Already linked to Operation #99',
+    },
+    ...[9, 10, 11, 12, 13].map((id) => ({
+      report_id: id,
+      status: 'PENDING',
+      category: 'STRUCTURAL',
+      sub_category: `Mock ${id}`,
+      reported_at: '2026-06-10T07:35:00Z',
+      latitude: 14.6 + id / 1000,
+      longitude: 120.9 + id / 1000,
+      trust_score: 50,
+      safety_status: 'I_AM_SAFE',
+      reporting_context: 'WITNESS',
+      linked_operation_id: null,
+      linked_operation_label: null,
+      distance_meters: id * 10,
+      link_disabled: false,
+      disabled_reason: null,
+    })),
   ]),
+  linkReport: vi.fn().mockResolvedValue({}),
+  unlinkReport: vi.fn().mockResolvedValue({}),
+}));
+
+vi.mock('@/lib/api/operations', () => ({
   createOperation: vi.fn().mockResolvedValue({}),
   updateOperation: vi.fn().mockResolvedValue({}),
   deleteOperation: vi.fn().mockResolvedValue(undefined),
@@ -229,9 +292,9 @@ describe('Operations Board', () => {
   });
 
   it('shows loading spinner while fetching', async () => {
-    const { fetchOperations } = await import('@/lib/api/operations');
+    const { fetchOperationsOfflineAware } = await import('@/lib/api/offlineOperations');
     // Make it never resolve so we catch the loading state
-    (fetchOperations as ReturnType<typeof vi.fn>).mockReturnValueOnce(new Promise(() => {}));
+    (fetchOperationsOfflineAware as ReturnType<typeof vi.fn>).mockReturnValueOnce(new Promise(() => {}));
 
     const { default: HomePage } = await import('../page');
     render(<HomePage />);
@@ -242,8 +305,8 @@ describe('Operations Board', () => {
   });
 
   it('shows "No operations found" when list is empty', async () => {
-    const { fetchOperations } = await import('@/lib/api/operations');
-    (fetchOperations as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
+    const { fetchOperationsOfflineAware } = await import('@/lib/api/offlineOperations');
+    (fetchOperationsOfflineAware as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ response: [], fromCache: false });
 
     const { default: HomePage } = await import('../page');
     render(<HomePage />);
@@ -321,8 +384,9 @@ describe('Operations Board — Split Console', () => {
       }),
     }));
 
-    const { fetchOperations } = await import('@/lib/api/operations');
-    (fetchOperations as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+    const { fetchOperationsOfflineAware } = await import('@/lib/api/offlineOperations');
+    (fetchOperationsOfflineAware as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      response: [
       {
         operation_id: 1,
         fire_status: 'ACTIVE',
@@ -355,7 +419,7 @@ describe('Operations Board — Split Console', () => {
           },
         ],
       },
-    ]);
+    ], fromCache: false });
 
     const { default: HomePage } = await import('../page?encoder-readonly-linked-reports');
     render(<HomePage />);
@@ -387,8 +451,9 @@ describe('Operations Board — Map Centering and Linked Reports', () => {
   });
 
   it('clicking an operation centers the map on that operation', async () => {
-    const { fetchOperations } = await import('@/lib/api/operations');
-    (fetchOperations as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+    const { fetchOperationsOfflineAware } = await import('@/lib/api/offlineOperations');
+    (fetchOperationsOfflineAware as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      response: [
       {
         operation_id: 1,
         fire_status: 'ACTIVE',
@@ -405,7 +470,7 @@ describe('Operations Board — Map Centering and Linked Reports', () => {
         linked_report_ids: [],
         linked_reports: [],
       },
-    ]);
+    ], fromCache: false });
 
     const { default: HomePage } = await import('../page?split-center');
     render(<HomePage />);
@@ -422,8 +487,9 @@ describe('Operations Board — Map Centering and Linked Reports', () => {
   });
 
   it('renders linked report markers for the selected operation', async () => {
-    const { fetchOperations } = await import('@/lib/api/operations');
-    (fetchOperations as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+    const { fetchOperationsOfflineAware } = await import('@/lib/api/offlineOperations');
+    (fetchOperationsOfflineAware as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      response: [
       {
         operation_id: 1,
         fire_status: 'ACTIVE',
@@ -456,7 +522,7 @@ describe('Operations Board — Map Centering and Linked Reports', () => {
           },
         ],
       },
-    ]);
+    ], fromCache: false });
 
     const { default: HomePage } = await import('../page?linked-report-marker');
     render(<HomePage />);
