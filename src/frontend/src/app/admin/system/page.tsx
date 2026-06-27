@@ -37,6 +37,7 @@ import {
     BackupFile,
     listBackups,
 } from '@/lib/api';
+import { GhostAdminLayout, GhostMonitorSection } from '@/components/ui/GhostAdminPanel';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { getConnectivitySnapshot, subscribeConnectivity, probeConnectivity } from '@/lib/connectivity';
 import { resetFailedOp, deleteOfflineOp } from '@/lib/offlineStore';
@@ -955,9 +956,12 @@ export default function AdminSystemPage() {
     };
 
     if (loading || role !== 'SYSTEM_ADMIN') {
+        if (loading) {
+            return <GhostAdminLayout />;
+        }
         return (
             <div className="flex items-center justify-center min-h-[50vh] text-gray-500">
-                {loading ? 'Loading...' : 'Redirecting...'}
+                Redirecting...
             </div>
         );
     }
@@ -1115,18 +1119,7 @@ export default function AdminSystemPage() {
                 </div>
                 <div className="card-body space-y-4">
                     {loadingMonitoring ? (
-                        /* Skeleton loading state (#344) */
-                        <div className="space-y-4 animate-pulse">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                                {Array.from({ length: 5 }).map((_, i) => (
-                                    <div key={i} className="p-4 rounded-lg bg-gray-100 h-24" />
-                                ))}
-                            </div>
-                            <div className="space-y-2">
-                                <div className="h-4 bg-gray-100 rounded w-32" />
-                                <div className="h-10 bg-gray-100 rounded w-full" />
-                            </div>
-                        </div>
+                        <GhostMonitorSection />
                     ) : (
                         <>
                             {systemMetrics ? (
