@@ -506,6 +506,8 @@ describe('Operations Board — Validator Link Search', () => {
 
     await waitFor(() => expect(screen.getByText('Report #7')).toBeDefined());
     expect(screen.getByText('Already linked to Operation #99')).toBeDefined();
+    expect(screen.getByText('Report #13')).toBeDefined();
+    expect(screen.queryByText(/Page 1 of/)).toBeNull();
     screen.getByRole('button', { name: 'Link report 7' }).click();
 
     const { linkReport } = await import('@/lib/api/operations');
@@ -518,8 +520,8 @@ describe('Operations Board — Validator Link Search', () => {
 
     await waitFor(() => expect(screen.getByText('New Operation')).toBeDefined());
     screen.getByText('New Operation').click();
-    await waitFor(() => expect(screen.getAllByText('Select civilian reports').length).toBeGreaterThan(0));
-    screen.getAllByText('Select civilian reports')[0].click();
+    await waitFor(() => expect(screen.getByText('Select civilian reports')).toBeDefined());
+    screen.getByText('Select civilian reports').click();
 
     await waitFor(() => expect(screen.getByText('Report #7')).toBeDefined());
     screen.getByRole('button', { name: 'Select report 7' }).click();
@@ -528,6 +530,28 @@ describe('Operations Board — Validator Link Search', () => {
       expect(screen.getByDisplayValue(/Report #7 \(14\.61/)).toBeDefined();
       expect(screen.getByText(/1 selected report/)).toBeDefined();
       expect(screen.getByTestId('selected-report-summaries')).toHaveTextContent('Report #7');
+      expect(screen.getByTestId('selected-report-summaries')).toHaveAttribute('aria-label', 'Selected report summaries');
+    });
+  });
+
+  it('removes a selected civilian report from the create operation modal', async () => {
+    const { default: HomePage } = await import('../page?remove-linked-report-chip');
+    render(<HomePage />);
+
+    await waitFor(() => expect(screen.getByText('New Operation')).toBeDefined());
+    screen.getByText('New Operation').click();
+    await waitFor(() => expect(screen.getByText('Select civilian reports')).toBeDefined());
+    screen.getByText('Select civilian reports').click();
+
+    await waitFor(() => expect(screen.getByText('Report #7')).toBeDefined());
+    screen.getByRole('button', { name: 'Select report 7' }).click();
+    await waitFor(() => expect(screen.getByText(/1 selected report/)).toBeDefined());
+
+    screen.getAllByRole('button', { name: 'Remove report 7' })[0].click();
+
+    await waitFor(() => {
+      expect(screen.getByText(/0 selected report/)).toBeDefined();
+      expect(screen.queryByTestId('selected-report-summaries')).toBeNull();
     });
   });
 
@@ -537,15 +561,15 @@ describe('Operations Board — Validator Link Search', () => {
 
     await waitFor(() => expect(screen.getByText('New Operation')).toBeDefined());
     screen.getByText('New Operation').click();
-    await waitFor(() => expect(screen.getAllByText('Select civilian reports').length).toBeGreaterThan(0));
-    screen.getAllByText('Select civilian reports')[0].click();
+    await waitFor(() => expect(screen.getByText('Select civilian reports')).toBeDefined());
+    screen.getByText('Select civilian reports').click();
 
     await waitFor(() => expect(screen.getByText('Page 1 of 2')).toBeDefined());
     const results = screen.getByTestId('linkable-report-results');
     expect(within(results).getByText('Report #7')).toBeDefined();
     expect(within(results).queryByText('Report #12')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next civilian report results page' }));
 
     await waitFor(() => expect(screen.getByText('Page 2 of 2')).toBeDefined());
     expect(within(results).queryByText('Report #7')).toBeNull();

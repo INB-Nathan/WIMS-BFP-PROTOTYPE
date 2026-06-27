@@ -129,6 +129,7 @@ export function LinkableReportSearch({
         <div className="flex items-center justify-between gap-2 border-t border-slate-200 pt-2 text-xs text-slate-600">
           <button
             type="button"
+            aria-label="Previous civilian report results page"
             onClick={() => setPage((value) => Math.max(0, value - 1))}
             disabled={currentPage === 0}
             className="rounded-md border border-slate-200 bg-white px-2 py-1 font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
@@ -140,6 +141,7 @@ export function LinkableReportSearch({
           </span>
           <button
             type="button"
+            aria-label="Next civilian report results page"
             onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))}
             disabled={currentPage >= pageCount - 1}
             className="rounded-md border border-slate-200 bg-white px-2 py-1 font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"

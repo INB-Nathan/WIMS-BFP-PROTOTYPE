@@ -414,18 +414,9 @@ function OperationFormModal({
                 </div>
               </div>
               <div className="rounded-lg border border-slate-200 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="text-xs font-bold text-slate-700">Linked civilian reports</p>
-                    <p className="text-xs text-slate-500">{selectedReports.length} selected report(s)</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowReportPicker((value) => !value)}
-                    className="rounded-md border border-red-200 px-2 py-1 text-xs font-bold text-red-700 hover:bg-red-50"
-                  >
-                    {showReportPicker ? 'Hide reports' : 'Select civilian reports'}
-                  </button>
+                <div>
+                  <p className="text-xs font-bold text-slate-700">Linked civilian reports</p>
+                  <p className="text-xs text-slate-500">{selectedReports.length} selected report(s)</p>
                 </div>
                 {selectedReports.length === 0 ? (
                   <p className="mt-2 text-xs text-amber-700">No civilian reports linked yet. You can save without links.</p>
@@ -506,7 +497,12 @@ function OperationFormModal({
                 </div>
 
                 {selectedReports.length > 0 && (
-                  <div className="mt-3 space-y-2" data-testid="selected-report-summaries">
+                  <div
+                    className="mt-3 space-y-2"
+                    data-testid="selected-report-summaries"
+                    role="region"
+                    aria-label="Selected report summaries"
+                  >
                     {selectedReports.map((report) => (
                       <div key={report.report_id} className="rounded-lg border border-blue-100 bg-blue-50 p-2 text-xs text-blue-900">
                         <div className="flex items-start justify-between gap-2">
