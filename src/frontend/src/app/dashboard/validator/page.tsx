@@ -11,7 +11,7 @@ import {
   Archive, CalendarDays,
 } from "lucide-react";
 import {
-  apiFetch, ApiRequestError, fetchValidatorStats,
+  apiFetch, ApiRequestError,
   submitVerificationOfflineAware,
   archiveIncidentOfflineAware,
   unarchiveIncidentOfflineAware,
@@ -28,6 +28,7 @@ import { useScrollSafeUpdate } from "@/lib/useScrollSafeUpdate";
 import { useHoverHint } from "@/lib/useHoverHint";
 import { StatCard, StatsDateFilterChips, StickyBanner, EmptyState } from "@/components/ui";
 import type { StatsDateFilterValue } from "@/components/ui";
+import { fetchValidatorStatsOfflineAware } from "@/lib/api/offlineValidatorStats";
 import { WidgetGrid, AddWidgetDropdown } from "@/components/dashboard";
 import { useDashboardWidgets } from "@/hooks/useDashboardWidgets";
 import { ValidatorPageHeader } from "@/components/validator/ValidatorPageHeader";
@@ -38,6 +39,8 @@ import { BulkApproveConfirmModal } from "@/components/validator/BulkApproveConfi
 import { BulkDuplicateModal } from "@/components/validator/BulkDuplicateModal";
 import { IncidentTableRow } from "@/components/validator/IncidentTableRow";
 import type { ValidatorIncident, ActionType } from "@/components/validator/types";
+import { GhostStatCard } from "@/components/ui/GhostIncidentCard";
+import { GhostValidatorTable } from "@/components/ui/GhostValidatorRow";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -452,7 +455,9 @@ export default function ValidatorDashboard() {
       }
       // Keep the pending-count badge in sync after every queue refresh.
       void refreshQueuedValidatorOpsCount();
-      void fetchValidatorStats(statsDateBoundsRef.current).then(setStats).catch(() => {});
+      void fetchValidatorStatsOfflineAware(statsDateBoundsRef.current)
+        .then((r) => setStats(r.response))
+        .catch(() => {});
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load queue");
     } finally {
@@ -466,7 +471,9 @@ export default function ValidatorDashboard() {
   // Subsequent fires (statsDateFilter change) still update stats without a full queue refetch.
   useEffect(() => {
     if (statsInitialMountRef.current) { statsInitialMountRef.current = false; return; }
-    fetchValidatorStats(statsDateBounds).then(setStats).catch(() => { /* non-critical */ });
+    fetchValidatorStatsOfflineAware(statsDateBounds)
+      .then((r) => setStats(r.response))
+      .catch(() => { /* non-critical */ });
   }, [statsDateBounds]);
 
   useEffect(() => {
@@ -715,8 +722,17 @@ export default function ValidatorDashboard() {
         {showStats && <StatsDateFilterChips value={statsDateFilter} onChange={setStatsDateFilter} />}
       </div>
 
-      {/* ── Incident stats cards ── */}
-      {showStats && incidentCards.length > 0 && (
+      {/* ── Incident stats cards — ghost while loading ── */}
+      {showStats && !stats && (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+          <GhostStatCard />
+          <GhostStatCard />
+          <GhostStatCard />
+          <GhostStatCard />
+          <GhostStatCard />
+        </div>
+      )}
+      {showStats && stats && incidentCards.length > 0 && (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
           {incidentCards.map((card) => (
             <StatCard key={card.key} card={card} />
@@ -822,7 +838,7 @@ export default function ValidatorDashboard() {
             </select>
 
             <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              {loading ? 'Loading…' : `${total.toLocaleString()} total`}
+              {loading ? <span className="inline-block h-3 w-16 animate-pulse rounded bg-gray-200 align-middle" /> : `${total.toLocaleString()} total`}
             </span>
 
             <div className="ml-auto flex flex-wrap items-center gap-3">
@@ -877,9 +893,28 @@ export default function ValidatorDashboard() {
           </p>
         </div>
 
-        {/* Loading / error states */}
+        {/* Ghost table rows while loading — pulsing skeleton */}
         {loading && (
-          <div className="py-14 text-center text-sm" style={{ color: 'var(--text-muted)' }}>Loading…</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr style={{ backgroundColor: '#FAFAFA', borderBottom: '1px solid var(--border-color)' }}>
+                  <th className="px-4 py-3 w-8"></th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>Submitted</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Status</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Region</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Station</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>Call Received</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Category</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Alarm</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <GhostValidatorTable />
+              </tbody>
+            </table>
+          </div>
         )}
         {error && !loading && (
           <div className="border-b border-red-100 bg-red-50 px-5 py-3 text-sm text-red-800">{error}</div>
