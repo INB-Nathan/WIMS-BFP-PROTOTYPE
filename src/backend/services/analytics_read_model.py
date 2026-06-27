@@ -757,15 +757,39 @@ def get_filter_options(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ) -> list[str]:
-    """Return sorted non-empty province or municipality names for cascading filters."""
-    field_map = {
-        "province": "a.province_name",
-        "municipality": "a.municipality_name",
-    }
-    if field not in field_map:
+    """Return sorted province or municipality names for cascading filters.
+
+    Provinces are served from canonical ``wims.ref_provinces`` (all provinces
+    in the user's region, regardless of incident data).
+    Municipalities are served from ``wims.analytics_incident_facts`` (only
+    municipalities with incident data matching the current filters).
+    """
+    if field == "province":
+        if region_id is not None:
+            rows = db.execute(
+                text("""
+                    SELECT p.province_name
+                    FROM wims.ref_provinces p
+                    WHERE p.region_id = :region_id
+                    ORDER BY p.province_name
+                """),
+                {"region_id": region_id},
+            ).fetchall()
+        else:
+            rows = db.execute(
+                text("""
+                    SELECT p.province_name
+                    FROM wims.ref_provinces p
+                    ORDER BY p.province_name
+                """),
+            ).fetchall()
+        return [r[0] for r in rows]
+
+    if field != "municipality":
         raise ValueError("field must be province or municipality")
 
-    clauses = [f"{field_map[field]} IS NOT NULL", f"btrim({field_map[field]}) <> ''"]
+    # Municipalities still read from facts (ref_cities incomplete in DB)
+    clauses = ["a.municipality_name IS NOT NULL", "btrim(a.municipality_name) <> ''"]
     params: dict[str, Any] = {}
     _append_common_filters(
         clauses,
@@ -773,12 +797,12 @@ def get_filter_options(
         start_date=start_date,
         end_date=end_date,
         region_id=region_id,
-        province=province if field == "municipality" else None,
+        province=province,
     )
     where_sql = " AND ".join(clauses)
     rows = db.execute(
         text(f"""
-            SELECT DISTINCT {field_map[field]} AS name
+            SELECT DISTINCT a.municipality_name AS name
             FROM wims.analytics_incident_facts a
             WHERE {where_sql}
             ORDER BY name

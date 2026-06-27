@@ -65,7 +65,7 @@ BEGIN
             VALUES
                 (
                     'AFOR-SEED-NCR-QC01-STR-JAN-2026-0001',
-                    1, 'NCR', 'Metro Manila', 'Quezon City', 'Batasan Hills',
+                    1, 'NCR', 'Fire District 5', 'Quezon City', 'Batasan Hills',
                     121.0521, 14.6869, '2026-01-08 09:12:00+08'::timestamptz,
                     '2', 'STRUCTURAL', 'Residential', 'Electrical ignition',
                     'Partial', 2, 5, 18, 0, 0, 1, 0, 42, 185000.00,
@@ -73,7 +73,7 @@ BEGIN
                 ),
                 (
                     'AFOR-SEED-NCR-MNL1-STR-JAN-2026-0002',
-                    1, 'NCR', 'Metro Manila', 'Manila', 'Tondo',
+                    1, 'NCR', 'Fire District 1', 'Manila', 'Tondo',
                     120.9687, 14.6176, '2026-01-16 22:41:00+08'::timestamptz,
                     '3', 'STRUCTURAL', 'Commercial', 'Open flame',
                     'Major', 6, 19, 63, 2, 0, 0, 0, 71, 950000.00,
@@ -81,7 +81,7 @@ BEGIN
                 ),
                 (
                     'AFOR-SEED-NCR-MKT1-VEH-FEB-2026-0003',
-                    1, 'NCR', 'Metro Manila', 'Makati', 'Poblacion',
+                    1, 'NCR', 'Fire District 3', 'Makati', 'Poblacion',
                     121.0299, 14.5655, '2026-02-03 18:05:00+08'::timestamptz,
                     '1', 'VEHICULAR', 'Vehicle fire', 'Engine compartment',
                     'Contained', 0, 0, 0, 0, 0, 0, 0, 18, 75000.00,
@@ -89,7 +89,7 @@ BEGIN
                 ),
                 (
                     'AFOR-SEED-NCR-PAS1-STR-FEB-2026-0004',
-                    1, 'NCR', 'Metro Manila', 'Pasig', 'San Antonio',
+                    1, 'NCR', 'Fire District 4', 'Pasig', 'San Antonio',
                     121.0614, 14.5821, '2026-02-21 14:27:00+08'::timestamptz,
                     'Task Force Bravo', 'STRUCTURAL', 'High-rise', 'Kitchen fire',
                     'Major', 4, 12, 41, 1, 0, 2, 0, 64, 1325000.00,
@@ -97,7 +97,7 @@ BEGIN
                 ),
                 (
                     'AFOR-SEED-NCR-MUN1-NON-MAR-2026-0005',
-                    1, 'NCR', 'Metro Manila', 'Muntinlupa', 'Alabang',
+                    1, 'NCR', 'Fire District 3', 'Muntinlupa', 'Alabang',
                     121.0437, 14.4231, '2026-03-04 07:55:00+08'::timestamptz,
                     '1', 'NON_STRUCTURAL', 'Grass fire', 'Open burning',
                     'Contained', 0, 0, 0, 0, 0, 0, 0, 21, 12000.00,
@@ -105,7 +105,7 @@ BEGIN
                 ),
                 (
                     'AFOR-SEED-NCR-CAL1-STR-MAR-2026-0006',
-                    1, 'NCR', 'Metro Manila', 'Caloocan', 'Bagong Silang',
+                    1, 'NCR', 'Fire District 2', 'Caloocan', 'Bagong Silang',
                     121.0445, 14.7764, '2026-03-17 02:18:00+08'::timestamptz,
                     'General Alarm', 'STRUCTURAL', 'Residential cluster', 'Candle',
                     'Major', 12, 31, 109, 3, 1, 4, 0, 96, 2850000.00,

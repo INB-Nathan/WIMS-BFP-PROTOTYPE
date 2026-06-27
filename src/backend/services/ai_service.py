@@ -1,4 +1,4 @@
-"""IDS-to-SLM AI Analysis via Ollama (qwen2.5:3b)."""
+"""IDS-to-SLM AI Analysis via Ollama (qwen2.5:1.5b)."""
 
 from __future__ import annotations
 
@@ -15,9 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from services.event_bus import publish_security_event
-from services.kms import get_crypto_provider
 from utils.config import get_config
-from utils.crypto import SecurityProviderError
 from utils.external_service import (
     CircuitBreakerOpenError,
     ExternalServiceClient,
@@ -26,7 +24,7 @@ from utils.external_service import (
 from utils.metrics import AI_INFERENCE_DURATION
 
 logger = logging.getLogger("wims.ai_service")
-OLLAMA_MODEL = "qwen2.5:3b"
+OLLAMA_MODEL = "qwen2.5:1.5b"
 
 # ---------------------------------------------------------------------------
 # Ollama HTTP timeout (seconds). Override via OLLAMA_TIMEOUT env var.
@@ -264,165 +262,6 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
         "admin_action_taken": row[9],
         "resolved_at": row[10].isoformat() if row[10] else None,
         "reviewed_by": str(row[11]) if row[11] else None,
-    }
-
-
-async def generate_incident_narrative(
-    incident_id: int,
-    db,
-) -> dict:
-    """
-    Generate a plain-language AI narrative for a verified fire incident.
-    Fetches incident data, calls Ollama qwen2.5:3b, stores result in DB.
-    Returns dict with incident_id, ai_narrative, ai_narrative_confidence.
-    """
-    row = db.execute(
-        text("""
-            SELECT
-                fi.incident_id,
-                fi.verification_status,
-                fi.ai_narrative_enc,
-                fi.ai_narrative_encryption_iv,
-                fi.ai_narrative_crypto_provider,
-                fi.ai_narrative_key_version,
-                nd.general_category,
-                nd.alarm_level,
-                nd.civilian_injured,
-                nd.civilian_deaths,
-                nd.firefighter_injured,
-                nd.firefighter_deaths,
-                nd.estimated_damage_php,
-                nd.fire_station_name,
-                nd.total_response_time_minutes,
-                nd.extent_of_damage,
-                nd.stage_of_fire,
-                nd.city_municipality,
-                nd.province_district
-            FROM wims.fire_incidents fi
-            LEFT JOIN wims.incident_nonsensitive_details nd
-                ON nd.incident_id = fi.incident_id
-            WHERE fi.incident_id = :iid
-              AND fi.is_archived = FALSE
-        """),
-        {"iid": incident_id},
-    ).fetchone()
-
-    if not row:
-        raise HTTPException(status_code=404, detail="Incident not found")
-
-    if row[1] != "VERIFIED":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Narratives only generated for VERIFIED incidents. Current status: {row[1]}",
-        )
-
-    prompt = (
-        f"You are a Bureau of Fire Protection analyst. "
-        f"Summarize this fire incident in 2-3 plain English sentences for a policy report. "
-        f"Incident details: "
-        f"Category={row[6] or 'Unknown'}, "
-        f"Alarm Level={row[7] or 'Unknown'}, "
-        f"Location={row[18] or 'Unknown'}, {row[17] or 'Unknown'}, "
-        f"Civilian injured={row[8] or 0}, "
-        f"Civilian deaths={row[9] or 0}, "
-        f"Firefighter injured={row[10] or 0}, "
-        f"Firefighter deaths={row[11] or 0}, "
-        f"Estimated damage (PHP)={row[12] or 0}, "
-        f"Fire station={row[13] or 'Unknown'}, "
-        f"Response time (min)={row[14] or 'Unknown'}, "
-        f"Extent of damage={row[15] or 'Unknown'}, "
-        f"Fire stage={row[16] or 'Unknown'}. "
-        f"Output strictly JSON with keys 'narrative' (string, 2-3 sentences) "
-        f"and 'confidence' (float 0.0-1.0)."
-    )
-
-    _t0 = time.perf_counter()
-    try:
-        response = await _ollama_post_with_retry(
-            {
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "format": "json",
-            },
-            call_label="generate_incident_narrative",
-            db=db,
-        )
-        await _record_inference_metric("generate_incident_narrative", time.perf_counter() - _t0)
-        raw = response.json().get("response", "{}")
-        parsed = json.loads(raw)
-        narrative = parsed.get("narrative", "")
-        confidence = float(parsed.get("confidence", 0.5))
-        confidence = max(0.0, min(1.0, confidence))
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Ollama narrative generation failed: {str(e)[:200]}",
-        ) from e
-
-    # ── Encrypt narrative before storing ────────────────────────────────────
-    aad = f"incident_id:{incident_id}:ai_narrative".encode("utf-8")
-    try:
-        provider = get_crypto_provider()
-        nonce_b64, ct_b64 = provider.encrypt_json({"narrative": narrative}, aad)
-        crypto_provider_val = provider.crypto_provider
-        key_version_val = provider.current_version
-        enc_iv = nonce_b64 if crypto_provider_val == "env_aesgcm" else None
-    except (SecurityProviderError, Exception) as exc:
-        logger.error(
-            "Narrative encryption unavailable for incident_id=%s (%s); falling through",
-            incident_id,
-            exc,
-        )
-        # Encryption unavailable — store plaintext as fallback
-        db.execute(
-            text("""
-                UPDATE wims.fire_incidents
-                SET ai_narrative = :narrative,
-                    ai_narrative_confidence = :confidence
-                WHERE incident_id = :iid
-            """),
-            {
-                "narrative": narrative,
-                "confidence": confidence,
-                "iid": incident_id,
-            },
-        )
-        db.commit()
-        return {
-            "incident_id": incident_id,
-            "ai_narrative": narrative,
-            "ai_narrative_confidence": confidence,
-        }
-
-    db.execute(
-        text("""
-            UPDATE wims.fire_incidents
-            SET ai_narrative_enc              = :blob,
-                ai_narrative_encryption_iv     = :iv,
-                ai_narrative_crypto_provider   = :crypto_provider,
-                ai_narrative_key_version       = :key_version,
-                ai_narrative                   = NULL,
-                ai_narrative_confidence        = :confidence
-            WHERE incident_id = :iid
-        """),
-        {
-            "iid": incident_id,
-            "blob": ct_b64,
-            "iv": enc_iv,
-            "crypto_provider": crypto_provider_val,
-            "key_version": key_version_val,
-            "confidence": confidence,
-        },
-    )
-    db.commit()
-
-    return {
-        "incident_id": incident_id,
-        "ai_narrative": narrative,
-        "ai_narrative_confidence": confidence,
     }
 
 
