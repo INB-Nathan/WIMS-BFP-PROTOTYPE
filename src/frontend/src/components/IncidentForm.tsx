@@ -1829,8 +1829,16 @@ export function IncidentForm({
                     setLatitude(lat);
                     setLongitude(lng);
                     const geo = await reverseGeocode(lat, lng);
-                    if (geo?.barangay && !barangayManuallySetRef.current) {
-                      setFormState((prev) => ({ ...prev, barangay: geo.barangay }));
+                    if (geo) {
+                      setFormState((prev) => ({
+                        ...prev,
+                        barangay: geo.barangay && !barangayManuallySetRef.current ? geo.barangay : prev.barangay,
+                        city_municipality: geo.city || prev.city_municipality,
+                        province_district: geo.province || prev.province_district,
+                        incident_address:
+                          prev.incident_address ||
+                          [geo.barangay, geo.city, geo.province].filter(Boolean).join(', '),
+                      }));
                     }
                   }}
                 />

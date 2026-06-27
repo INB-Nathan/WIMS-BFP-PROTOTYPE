@@ -77,7 +77,6 @@ export const PH_PROVINCES: PhProvince[] = [
   { regionId: 2,  provinceName: 'Ifugao' },
   { regionId: 2,  provinceName: 'Kalinga' },
   { regionId: 2,  provinceName: 'Mountain Province' },
-  { regionId: 2,  provinceName: 'Baguio City' },
 
   // Region I
   { regionId: 3,  provinceName: 'Ilocos Norte' },
@@ -129,13 +128,10 @@ export const PH_PROVINCES: PhProvince[] = [
   { regionId: 9,  provinceName: 'Capiz' },
   { regionId: 9,  provinceName: 'Guimaras' },
   { regionId: 9,  provinceName: 'Iloilo' },
-  { regionId: 9,  provinceName: 'Negros Occidental' },
 
   // Region VII
   { regionId: 10, provinceName: 'Bohol' },
   { regionId: 10, provinceName: 'Cebu' },
-  { regionId: 10, provinceName: 'Negros Oriental' },
-  { regionId: 10, provinceName: 'Siquijor' },
 
   // Region VIII
   { regionId: 11, provinceName: 'Biliran' },
@@ -188,6 +184,7 @@ export const PH_PROVINCES: PhProvince[] = [
   // NIR
   { regionId: 18, provinceName: 'Negros Occidental' },
   { regionId: 18, provinceName: 'Negros Oriental' },
+  { regionId: 18, provinceName: 'Siquijor' },
 ];
 
 /** NCR city/municipality options per Fire District. */
@@ -296,7 +293,6 @@ const REGION_CAR_CITIES: Record<string, string[]> = {
   'Ifugao': ['Aguinaldo', 'Alfonso Lista', 'Asipulo', 'Banaue', 'Hingyon', 'Hungduan', 'Kiangan', 'Lagawe', 'Lamut', 'Mayoyao', 'Tinoc'],
   'Kalinga': ['Balbalan', 'Lubuagan', 'Pasil', 'Pinukpuk', 'Rizal', 'Tanudan', 'Tinglayan', 'Tabuk City'],
   'Mountain Province': ['Barlig', 'Bauko', 'Besao', 'Bontoc', 'Natonin', 'Paracelis', 'Sabangan', 'Sadanga', 'Sagada', 'Tadian'],
-  'Baguio City': ['Baguio City'],
 };
 
 /** Region V (Bicol Region) — city/municipality options per province */
@@ -316,15 +312,12 @@ const REGION_VI_CITIES: Record<string, string[]> = {
   'Capiz': ['Cuartero', 'Dao', 'Dumalag', 'Dumarao', 'Ivisan', 'Jamindan', 'Maayon', 'Mambusao', 'Panay', 'Panitan', 'Pilar', 'Pontevedra', 'President Roxas', 'Roxas City', 'Sapian', 'Sigma', 'Tapaz'],
   'Guimaras': ['Buenavista', 'Jordan', 'Nueva Valencia', 'San Lorenzo', 'Sibunag'],
   'Iloilo': ['Ajuy', 'Alimodian', 'Anilao', 'Badiangan', 'Balasan', 'Banate', 'Barotac Nuevo', 'Barotac Viejo', 'Batad', 'Bingawan', 'Cabatuan', 'Calinog', 'Carles', 'Concepcion', 'Dingle', 'Dueñas', 'Dumangas', 'Estancia', 'Guimbal', 'Igbaras', 'Iloilo City', 'Janiuay', 'Lambunao', 'Leganes', 'Lemery', 'Leon', 'Maasin', 'Miagao', 'Mina', 'New Lucena', 'Oton', 'Passi City', 'Pavia', 'Pototan', 'San Dionisio', 'San Enrique', 'San Joaquin', 'San Miguel', 'San Rafael', 'Sara', 'Santa Barbara', 'Tigbauan', 'Tubungan', 'Zarraga'],
-  'Negros Occidental': ['Bacolod City', 'Bago City', 'Binalbagan', 'Cadiz City', 'Calatrava', 'Candoni', 'Cauayan', 'Enrique B Magalona', 'Escalante City', 'Himamaylan City', 'Hinigaran', 'Hinoba-an', 'Ilog', 'Kabankalan City', 'La Carlota City', 'La Castellana', 'Manapla', 'Moises Padilla', 'Murcia', 'Pulupandan', 'Pontevedra', 'Salvador Benedicto', 'Sagay City', 'San Carlos City', 'San Enrique', 'Silay City', 'Sipalay City', 'Talisay City', 'Toboso', 'Valladolid', 'Victorias City'],
 };
 
 /** Region VII (Central Visayas) — city/municipality options per province */
 const REGION_VII_CITIES: Record<string, string[]> = {
   'Bohol': ['Alburquerque', 'Alicia', 'Anda', 'Antequera', 'Baclayon', 'Balilihan', 'Batuan', 'Bien Unido', 'Bilar', 'Buenavista', 'Calape', 'Candijay', 'Pres Carlos P Garcia', 'Carmen', 'Catigbian', 'Clarin', 'Corella', 'Cortes', 'Dagohoy', 'Danao', 'Dauis', 'Dimiao', 'Duero', 'Garcia Hernandez', 'Guindulman', 'Inabanga', 'Jagna', 'Jetafe', 'Lila', 'Loay', 'Loboc', 'Loon', 'Mabini', 'Maribojoc', 'Panglao', 'Pilar', 'Sagbayan', 'San Isidro', 'San Miguel', 'Sevilla', 'Sierra Bullones', 'Sikatuna', 'Tagbilaran City', 'Talibon', 'Trinidad', 'Tubigon', 'Ubay', 'Valencia'],
   'Cebu': ['Alcantara', 'Alcoy', 'Alegria', 'Aloguinsan', 'Argao', 'Asturias', 'Badian', 'Balamban', 'Bantayan', 'Barili', 'Bogo City', 'Boljoon', 'Borbon', 'Carcar City', 'Carmen', 'Catmon', 'Cebu City', 'Compostela', 'Consolacion', 'Cordova', 'Daanbantayan', 'Dalaguete', 'Danao City', 'Dumanjug', 'Ginatilan', 'Lapu-Lapu City', 'Liloan', 'Madredejos', 'Malabuyoc', 'Mandaue City', 'Medellin', 'Minglanilla', 'Moalboal', 'Naga City', 'Oslob', 'Pilar', 'Pinamungajan', 'Poro', 'Ronda', 'Samboan', 'San Fernando', 'San Francisco', 'San Remigio', 'Santander', 'Sibonga', 'Sogod', 'Santa Fe', 'Tabogon', 'Tabuelan', 'Talisay City', 'Toledo City', 'Tuburan', 'Tudela'],
-  'Negros Oriental': ['Amlan', 'Ayungon', 'Bacong', 'Bais City', 'Basay', 'Bayawan City', 'Bindoy', 'Canlaon City', 'Dauin', 'Dumaguete City', 'Guihulngan City', 'Jimalalud', 'La Libertad', 'Mabinay', 'Manjuyod', 'Pamplona', 'San Jose', 'Siaton', 'Sibulan', 'Santa Catalina', 'Tanjay City', 'Tayasan', 'Valencia', 'Vallehermoso', 'Zamboanguita'],
-  'Siquijor': ['Enrique Villanueva', 'Larena', 'Lazi', 'Maria', 'San Juan'],
 };
 
 /** Region VIII (Eastern Visayas) — city/municipality options per province */
@@ -393,6 +386,7 @@ const BARMM_CITIES: Record<string, string[]> = {
 const NIR_CITIES: Record<string, string[]> = {
   'Negros Occidental': ['Bacolod City', 'Bago City', 'Binalbagan', 'Cadiz City', 'Calatrava', 'Candoni', 'Cauayan', 'Enrique B Magalona', 'Escalante City', 'Himamaylan City', 'Hinigaran', 'Hinoba-an', 'Ilog', 'Kabankalan City', 'La Carlota City', 'La Castellana', 'Manapla', 'Moises Padilla', 'Murcia', 'Pulupandan', 'Pontevedra', 'Salvador Benedicto', 'Sagay City', 'San Carlos City', 'San Enrique', 'Silay City', 'Sipalay City', 'Talisay City', 'Toboso', 'Valladolid', 'Victorias City'],
   'Negros Oriental': ['Amlan', 'Ayungon', 'Bacong', 'Bais City', 'Basay', 'Bayawan City', 'Bindoy', 'Canlaon City', 'Dauin', 'Dumaguete City', 'Guihulngan City', 'Jimalalud', 'La Libertad', 'Mabinay', 'Manjuyod', 'Pamplona', 'San Jose', 'Siaton', 'Sibulan', 'Santa Catalina', 'Tanjay City', 'Tayasan', 'Valencia', 'Vallehermoso', 'Zamboanguita'],
+  'Siquijor': ['Enrique Villanueva', 'Larena', 'Lazi', 'Maria', 'San Juan'],
 };
 
 /** Returns city/municipality options for the given region + province.

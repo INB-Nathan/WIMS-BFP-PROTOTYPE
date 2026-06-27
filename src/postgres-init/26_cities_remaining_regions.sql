@@ -295,23 +295,6 @@ FROM (VALUES
   ('VI','Iloilo','Sara'),('VI','Iloilo','Santa Barbara'),('VI','Iloilo','Tigbauan'),
   ('VI','Iloilo','Tubungan'),('VI','Iloilo','Zarraga'),
 
-  ('VI','Negros Occidental','Bacolod City'),('VI','Negros Occidental','Bago City'),
-  ('VI','Negros Occidental','Binalbagan'),('VI','Negros Occidental','Cadiz City'),
-  ('VI','Negros Occidental','Calatrava'),('VI','Negros Occidental','Candoni'),
-  ('VI','Negros Occidental','Cauayan'),('VI','Negros Occidental','Enrique B Magalona'),
-  ('VI','Negros Occidental','Escalante City'),('VI','Negros Occidental','Himamaylan City'),
-  ('VI','Negros Occidental','Hinigaran'),('VI','Negros Occidental','Hinoba-an'),
-  ('VI','Negros Occidental','Ilog'),('VI','Negros Occidental','Kabankalan City'),
-  ('VI','Negros Occidental','La Carlota City'),('VI','Negros Occidental','La Castellana'),
-  ('VI','Negros Occidental','Manapla'),('VI','Negros Occidental','Moises Padilla'),
-  ('VI','Negros Occidental','Murcia'),('VI','Negros Occidental','Pulupandan'),
-  ('VI','Negros Occidental','Pontevedra'),('VI','Negros Occidental','Salvador Benedicto'),
-  ('VI','Negros Occidental','Sagay City'),('VI','Negros Occidental','San Carlos City'),
-  ('VI','Negros Occidental','San Enrique'),('VI','Negros Occidental','Silay City'),
-  ('VI','Negros Occidental','Sipalay City'),('VI','Negros Occidental','Talisay City'),
-  ('VI','Negros Occidental','Toboso'),('VI','Negros Occidental','Valladolid'),
-  ('VI','Negros Occidental','Victorias City'),
-
   -- ── Region VII ─────────────────────────────────────────────────────────────
   ('VII','Bohol','Alburquerque'),('VII','Bohol','Alicia'),('VII','Bohol','Anda'),
   ('VII','Bohol','Antequera'),('VII','Bohol','Baclayon'),('VII','Bohol','Balilihan'),
@@ -349,23 +332,6 @@ FROM (VALUES
   ('VII','Cebu','Sogod'),('VII','Cebu','Santa Fe'),('VII','Cebu','Tabogon'),
   ('VII','Cebu','Tabuelan'),('VII','Cebu','Talisay City'),('VII','Cebu','Toledo City'),
   ('VII','Cebu','Tuburan'),('VII','Cebu','Tudela'),
-
-  ('VII','Negros Oriental','Amlan'),('VII','Negros Oriental','Ayungon'),
-  ('VII','Negros Oriental','Bacong'),('VII','Negros Oriental','Bais City'),
-  ('VII','Negros Oriental','Basay'),('VII','Negros Oriental','Bayawan City'),
-  ('VII','Negros Oriental','Bindoy'),('VII','Negros Oriental','Canlaon City'),
-  ('VII','Negros Oriental','Dauin'),('VII','Negros Oriental','Dumaguete City'),
-  ('VII','Negros Oriental','Guihulngan City'),('VII','Negros Oriental','Jimalalud'),
-  ('VII','Negros Oriental','La Libertad'),('VII','Negros Oriental','Mabinay'),
-  ('VII','Negros Oriental','Manjuyod'),('VII','Negros Oriental','Pamplona'),
-  ('VII','Negros Oriental','San Jose'),('VII','Negros Oriental','Siaton'),
-  ('VII','Negros Oriental','Sibulan'),('VII','Negros Oriental','Santa Catalina'),
-  ('VII','Negros Oriental','Tanjay City'),('VII','Negros Oriental','Tayasan'),
-  ('VII','Negros Oriental','Valencia'),('VII','Negros Oriental','Vallehermoso'),
-  ('VII','Negros Oriental','Zamboanguita'),
-
-  ('VII','Siquijor','Enrique Villanueva'),('VII','Siquijor','Larena'),
-  ('VII','Siquijor','Lazi'),('VII','Siquijor','Maria'),('VII','Siquijor','San Juan'),
 
   -- ── Region VIII ────────────────────────────────────────────────────────────
   ('VIII','Biliran','Almeria'),('VIII','Biliran','Cabucgayan'),('VIII','Biliran','Caibiran'),
@@ -766,7 +732,10 @@ FROM (VALUES
   ('NIR','Negros Oriental','Sibulan'),('NIR','Negros Oriental','Santa Catalina'),
   ('NIR','Negros Oriental','Tanjay City'),('NIR','Negros Oriental','Tayasan'),
   ('NIR','Negros Oriental','Valencia'),('NIR','Negros Oriental','Vallehermoso'),
-  ('NIR','Negros Oriental','Zamboanguita')
+  ('NIR','Negros Oriental','Zamboanguita'),
+
+  ('NIR','Siquijor','Enrique Villanueva'),('NIR','Siquijor','Larena'),
+  ('NIR','Siquijor','Lazi'),('NIR','Siquijor','Maria'),('NIR','Siquijor','San Juan')
 
 ) AS v(rcode, pname, cname)
 JOIN wims.ref_regions r ON r.region_code = v.rcode

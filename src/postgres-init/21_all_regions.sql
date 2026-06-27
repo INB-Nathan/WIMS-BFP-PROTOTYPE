@@ -68,7 +68,6 @@ VALUES
     (2, 'Ifugao'),
     (2, 'Kalinga'),
     (2, 'Mountain Province'),
-    (2, 'Baguio City'),
 
     -- Region I (region_id=3)
     (3, 'Ilocos Norte'),
@@ -120,13 +119,10 @@ VALUES
     (9, 'Capiz'),
     (9, 'Guimaras'),
     (9, 'Iloilo'),
-    (9, 'Negros Occidental'),
 
     -- Region VII (region_id=10)
     (10, 'Bohol'),
     (10, 'Cebu'),
-    (10, 'Negros Oriental'),
-    (10, 'Siquijor'),
 
     -- Region VIII (region_id=11)
     (11, 'Biliran'),
@@ -178,7 +174,8 @@ VALUES
 
     -- NIR (region_id=18)
     (18, 'Negros Occidental'),
-    (18, 'Negros Oriental')
+    (18, 'Negros Oriental'),
+    (18, 'Siquijor')
 ON CONFLICT (region_id, province_name) DO NOTHING;
 
 -- ── 4. Assign canonical dev encoders to their regions ───────────────────────
