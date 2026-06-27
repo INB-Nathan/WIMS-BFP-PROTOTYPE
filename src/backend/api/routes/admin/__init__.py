@@ -3,25 +3,27 @@
 from fastapi import APIRouter
 
 from . import (
-    users,
-    backups,
-    security,
-    rate_limits,
-    monitoring,
     analytics,
-    audit,
-    scheduled_reports,
-    config,
-    breach,
-    privacy,
     anomalies,
+    audit,
+    backup_schedule,
+    backups,
+    breach,
+    config,
     ip_blocklist,
+    monitoring,
+    privacy,
+    rate_limits,
+    scheduled_reports,
+    security,
     sync,
+    users,
 )
 
 router = APIRouter(tags=["admin"])
 router.include_router(users.router)
 router.include_router(backups.router)
+router.include_router(backup_schedule.router)
 router.include_router(security.router)
 router.include_router(rate_limits.router)
 router.include_router(monitoring.router)
