@@ -241,9 +241,32 @@ describe('updateOfflineOp', () => {
     expect(after.createdAt).toBe(originalCreatedAt);
   });
 
-  it('silently no-ops when op is not found', async () => {
-    // Should not throw
-    await expect(updateOfflineOp('nonexistent-id', { field: 'value' })).resolves.toBeUndefined();
+  it('throws when op is not found', async () => {
+    await expect(updateOfflineOp('nonexistent-id', { field: 'value' })).rejects.toThrow(
+      'Operation not found'
+    );
+  });
+
+  it('throws when op syncStatus is not pending', async () => {
+    const localId = crypto.randomUUID();
+    // Seed a synced op (not pending)
+    await queueOfflineOp({
+      localId,
+      operation: 'create',
+      serverId: null,
+      linkedLocalId: null,
+      serverUpdatedAt: null,
+      regionId: 1,
+      encoderId: ENCODER_ID,
+      payload: { latitude: 14.5995, longitude: 120.9842, general_category: 'STRUCTURAL' },
+      createdAt: Date.now(),
+    });
+    // Manually set to synced
+    opsStore.set(localId, { ...opsStore.get(localId)!, syncStatus: 'synced' });
+
+    await expect(updateOfflineOp(localId, { field: 'value' })).rejects.toThrow(
+      'Operation cannot be edited right now (status: synced)'
+    );
   });
 });
 

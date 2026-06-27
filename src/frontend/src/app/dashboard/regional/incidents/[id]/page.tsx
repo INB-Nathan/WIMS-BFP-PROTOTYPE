@@ -15,6 +15,7 @@ import {
   type RegionalIncidentDetailResponse,
 } from '@/lib/api';
 import { fetchRegionalIncidentOfflineAware } from '@/lib/api/offlineRegional';
+import { submitVerificationOfflineAware } from '@/lib/api/offlineValidator';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { deleteOfflineOpCascade, deleteOfflineOp, getOfflineOp, getLinkedSubmitOpLocalId, queueOfflineOp, type OfflineOpDecrypted } from '@/lib/offlineStore';
 import { toast as sonnerToast } from 'sonner';
@@ -922,18 +923,51 @@ export default function RegionalIncidentDetailPage() {
     if (!action) return;
     setValidatorLoading(true);
     setValidatorError(null);
-    const url = opts?.force
-      ? `/regional/incidents/${incidentId}/verification?force=true`
-      : `/regional/incidents/${incidentId}/verification`;
+
+    // Force-accept is a duplicate-resolution flow that requires server
+    // interaction — cannot be queued offline.
+    if (opts?.force) {
+      const url = `/regional/incidents/${incidentId}/verification?force=true`;
+      try {
+        await apiFetch(url, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            action,
+            notes: validatorNotes.trim() || null,
+            ...(opts?.originalIncidentId ? { original_incident_id: opts.originalIncidentId } : {}),
+          }),
+        });
+        await load();
+        setValidatorAction(null);
+        setValidatorNotes('');
+        setValidatorDupMatchedId(null);
+        return;
+      } catch (e) {
+        if (e instanceof ApiRequestError && e.status === 409) {
+          const d = e.detail as { code?: string; matched_incident_id?: number } | null;
+          if (d?.code === 'DUPLICATE_DETECTED' && d.matched_incident_id) {
+            setValidatorAction(null);
+            setValidatorDupMatchedId(d.matched_incident_id);
+            return;
+          }
+        }
+        setValidatorError(e instanceof Error ? e.message : 'Action failed.');
+        return;
+      } finally {
+        setValidatorLoading(false);
+      }
+    }
+
     try {
-      await apiFetch(url, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          action,
-          notes: validatorNotes.trim() || null,
-          ...(opts?.originalIncidentId ? { original_incident_id: opts.originalIncidentId } : {}),
-        }),
-      });
+      const result = await submitVerificationOfflineAware(
+        incidentId,
+        action as 'accept' | 'reject',
+        validatorNotes.trim() || null,
+        opts?.originalIncidentId,
+      );
+      if (result.queued) {
+        sonnerToast.info('Verify action saved offline — will sync when reconnected.');
+      }
       await load();
       setValidatorAction(null);
       setValidatorNotes('');
