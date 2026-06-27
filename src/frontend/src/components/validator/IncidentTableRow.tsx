@@ -15,6 +15,8 @@ interface Props {
   selectedIds: Set<number>;
   acceptingId: number | null;
   runtimeDuplicates: Map<number, number>;
+  queuedIncidentIds: Set<number>;
+  isOnline: boolean;
   onRowClick: (incidentId: number) => void;
   onTogglePending: (inc: ValidatorIncident, checked: boolean) => void;
   onHoverStart: (incidentId: number, e: MouseEvent<HTMLElement>) => void;
@@ -35,6 +37,8 @@ export function IncidentTableRow({
   selectedIds,
   acceptingId,
   runtimeDuplicates,
+  queuedIncidentIds,
+  isOnline,
   onRowClick,
   onTogglePending,
   onHoverStart,
@@ -48,6 +52,7 @@ export function IncidentTableRow({
   onReject,
 }: Props) {
   const baseColor = idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA';
+  const isQueued = queuedIncidentIds.has(inc.incident_id);
 
   return (
     <tr
@@ -127,7 +132,15 @@ export function IncidentTableRow({
       </td>
       <td className="px-4 py-4 whitespace-nowrap">
         <div className="flex gap-1.5 items-center">
-          {isArchiveView ? (
+          {isQueued ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-full border border-amber-300 px-2.5 py-1 text-xs font-semibold"
+              style={{ backgroundColor: '#FEF3C7', color: '#92400E' }}
+              title="This incident has a pending queued action waiting for sync"
+            >
+              Queued
+            </span>
+          ) : isArchiveView ? (
             <>
               <button
                 onClick={(e) => { e.stopPropagation(); onUnarchive(inc); }}
@@ -140,9 +153,10 @@ export function IncidentTableRow({
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(inc); }}
-                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-red-200 bg-white font-medium transition-colors hover:bg-red-50"
+                disabled={!isOnline}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-red-200 bg-white font-medium transition-colors hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ color: '#991B1B' }}
-                title="Permanently delete this archived incident"
+                title={!isOnline ? 'Go online to delete' : 'Permanently delete this archived incident'}
               >
                 Delete
               </button>

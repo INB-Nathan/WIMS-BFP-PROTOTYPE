@@ -307,4 +307,47 @@ describe('Validator dashboard page — offline wiring', () => {
       expect(screen.getByText(/1\s+queued/)).toBeInTheDocument();
     });
   });
+
+  // ── T2.9: Sync queued actions button when pending ops and online ──
+  it('renders sync queued actions button when pending ops exist and online', async () => {
+    pendingIncidentsOverride = [
+      {
+        id: 1,
+        opType: 'verify',
+        localId: 'v1',
+        payload: { incident_id: 101, action: 'accept' },
+        createdAt: Date.now(),
+        status: 'pending',
+      },
+    ];
+
+    render(<ValidatorDashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Sync queued actions')).toBeInTheDocument();
+    });
+  });
+
+  // ── T2.10: No sync button when pending ops exist but offline ──
+  it('does not render sync queued actions button when pending ops exist but offline', async () => {
+    networkStatusOverride = { isOnline: false, isReconnecting: false };
+    pendingIncidentsOverride = [
+      {
+        id: 1,
+        opType: 'verify',
+        localId: 'v1',
+        payload: { incident_id: 101, action: 'accept' },
+        createdAt: Date.now(),
+        status: 'pending',
+      },
+    ];
+
+    render(<ValidatorDashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/1\s+queued/)).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText('Sync queued actions')).not.toBeInTheDocument();
+  });
 });

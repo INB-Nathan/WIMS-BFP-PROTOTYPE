@@ -95,6 +95,7 @@ export default function ValidatorDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [cacheMeta, setCacheMeta] = useState<{ cachedAt?: number } | null>(null);
   const [queuedValidatorOpsCount, setQueuedValidatorOpsCount] = useState(0);
+  const [queuedIncidentIds, setQueuedIncidentIds] = useState<Set<number>>(new Set());
   const [syncNotification, setSyncNotification] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_ALL);
@@ -220,11 +221,16 @@ export default function ValidatorDashboard() {
   const refreshQueuedValidatorOpsCount = useCallback(async () => {
     try {
       const pending = await getPendingIncidents();
-      setQueuedValidatorOpsCount(
-        pending.filter((op) => op.opType === 'verify' || op.opType === 'archive_action').length,
-      );
+      const filtered = pending.filter((op) => op.opType === 'verify' || op.opType === 'archive_action');
+      setQueuedValidatorOpsCount(filtered.length);
+      setQueuedIncidentIds(new Set(
+        filtered
+          .filter((op) => (op.payload as { incident_id?: number })?.incident_id != null)
+          .map((op) => (op.payload as { incident_id: number }).incident_id),
+      ));
     } catch {
       setQueuedValidatorOpsCount(0);
+      setQueuedIncidentIds(new Set());
     }
   }, []);
 
@@ -276,7 +282,7 @@ export default function ValidatorDashboard() {
     try {
       const result = await archiveIncidentOfflineAware(inc.incident_id);
       if (result.queued) {
-        // Queued for sync — refresh UI to reflect pending state
+        setSyncNotification('Archive queued — will sync when online.');
         await fetchQueue();
         return;
       }
@@ -291,6 +297,7 @@ export default function ValidatorDashboard() {
     try {
       const result = await unarchiveIncidentOfflineAware(inc.incident_id);
       if (result.queued) {
+        setSyncNotification('Unarchive queued — will sync when online.');
         await fetchQueue();
         return;
       }
@@ -320,6 +327,7 @@ export default function ValidatorDashboard() {
         null,
       );
       if (result.queued) {
+        setSyncNotification('Accept queued — will sync when online.');
         await fetchQueue();
         return;
       }
@@ -548,7 +556,7 @@ export default function ValidatorDashboard() {
           : undefined,
       );
       if (result.queued) {
-        // Queued for offline sync — refresh UI to reflect pending state
+        setSyncNotification(`${effectiveAction === 'accept' ? 'Accept' : effectiveAction === 'reject' ? 'Reject' : effectiveAction === 'accept_replace' ? 'Accept (replace)' : 'Action'} queued — will sync when online.`);
         await fetchQueue();
         setActionTarget(null);
         setActionType(null);
@@ -674,7 +682,7 @@ export default function ValidatorDashboard() {
         >
           Showing cached data
           {cacheMeta.cachedAt ? ` from ${new Date(cacheMeta.cachedAt).toLocaleTimeString()}` : ''}.
-          {' '}Reconnect to see the latest queue.
+          {' '}This may not reflect the latest server state. Go online to refresh and queue offline actions.
         </StickyBanner>
       )}
 
@@ -688,6 +696,8 @@ export default function ValidatorDashboard() {
         selectedCount={selectedIds.size}
         bulkLoading={bulkLoading}
         bulkProgress={bulkProgress}
+        queuedIncidentIds={queuedIncidentIds}
+        onSyncNow={autoSync.syncNow}
         onBulkApprove={() => setShowBulkConfirmModal(true)}
       />
 
@@ -931,6 +941,8 @@ export default function ValidatorDashboard() {
                       setValidatorDupMatchedId(inc.duplicate_of ?? runtimeDuplicates.get(inc.incident_id)!);
                     }}
                     onAccept={(inc) => setConfirmAcceptTarget(inc)}
+                    queuedIncidentIds={queuedIncidentIds}
+                    isOnline={networkStatus.isOnline}
                     onReject={(inc) => openAction(inc, "reject")}
                   />
                 ))}
