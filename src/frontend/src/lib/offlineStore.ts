@@ -859,9 +859,16 @@ export async function updateOfflineOp(
     const tx = db.transaction(OPS_STORE, 'readwrite');
     const store = tx.objectStore(OPS_STORE);
     const existing: OfflineOp | undefined = await store.get(localId);
-    if (!existing || existing.syncStatus !== 'pending') {
+    if (!existing) {
         await tx.done;
-        return;
+        throw new Error('Operation not found — it may have been cancelled, deleted, or already synced.');
+    }
+    if (existing.syncStatus !== 'pending') {
+        await tx.done;
+        throw new Error(
+            `Operation cannot be edited right now (status: ${existing.syncStatus}). ` +
+            'Only pending operations can be modified. If it is syncing, wait for sync to complete.'
+        );
     }
     // Validate payload before encrypting (D10). Errors propagate to the UI
     // hook layer (offlineRegionalActions wraps updateOfflineOp in try/catch).
