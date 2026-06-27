@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
@@ -90,6 +90,23 @@ vi.mock('@/lib/api/operations', () => ({
       link_disabled: true,
       disabled_reason: 'Already linked to Operation #99',
     },
+    ...[9, 10, 11, 12, 13].map((id) => ({
+      report_id: id,
+      status: 'PENDING',
+      category: 'STRUCTURAL',
+      sub_category: `Mock ${id}`,
+      reported_at: '2026-06-10T07:35:00Z',
+      latitude: 14.6 + id / 1000,
+      longitude: 120.9 + id / 1000,
+      trust_score: 50,
+      safety_status: 'I_AM_SAFE',
+      reporting_context: 'WITNESS',
+      linked_operation_id: null,
+      linked_operation_label: null,
+      distance_meters: id * 10,
+      link_disabled: false,
+      disabled_reason: null,
+    })),
   ]),
   linkReport: vi.fn().mockResolvedValue({}),
   unlinkReport: vi.fn().mockResolvedValue({}),
@@ -501,8 +518,8 @@ describe('Operations Board — Validator Link Search', () => {
 
     await waitFor(() => expect(screen.getByText('New Operation')).toBeDefined());
     screen.getByText('New Operation').click();
-    await waitFor(() => expect(screen.getByText('Select civilian reports')).toBeDefined());
-    screen.getByText('Select civilian reports').click();
+    await waitFor(() => expect(screen.getAllByText('Select civilian reports').length).toBeGreaterThan(0));
+    screen.getAllByText('Select civilian reports')[0].click();
 
     await waitFor(() => expect(screen.getByText('Report #7')).toBeDefined());
     screen.getByRole('button', { name: 'Select report 7' }).click();
@@ -510,6 +527,28 @@ describe('Operations Board — Validator Link Search', () => {
     await waitFor(() => {
       expect(screen.getByDisplayValue(/Report #7 \(14\.61/)).toBeDefined();
       expect(screen.getByText(/1 selected report/)).toBeDefined();
+      expect(screen.getByTestId('selected-report-summaries')).toHaveTextContent('Report #7');
     });
+  });
+
+  it('paginates civilian report results inside the create operation modal', async () => {
+    const { default: HomePage } = await import('../page?create-report-pagination');
+    render(<HomePage />);
+
+    await waitFor(() => expect(screen.getByText('New Operation')).toBeDefined());
+    screen.getByText('New Operation').click();
+    await waitFor(() => expect(screen.getAllByText('Select civilian reports').length).toBeGreaterThan(0));
+    screen.getAllByText('Select civilian reports')[0].click();
+
+    await waitFor(() => expect(screen.getByText('Page 1 of 2')).toBeDefined());
+    const results = screen.getByTestId('linkable-report-results');
+    expect(within(results).getByText('Report #7')).toBeDefined();
+    expect(within(results).queryByText('Report #12')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    await waitFor(() => expect(screen.getByText('Page 2 of 2')).toBeDefined());
+    expect(within(results).queryByText('Report #7')).toBeNull();
+    expect(within(results).getByText('Report #12')).toBeDefined();
   });
 });

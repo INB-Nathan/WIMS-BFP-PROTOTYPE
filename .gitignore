@@ -48,6 +48,7 @@ Thumbs.db
 .cursor/
 .ai-context/
 .claude/
+.superpowers/
 
 # Local dev workspace (not for version control)
 local-docs/

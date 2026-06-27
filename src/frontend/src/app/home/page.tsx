@@ -292,6 +292,10 @@ function OperationFormModal({
     }
   }
 
+  function handleRemoveReport(reportId: number) {
+    setSelectedReports((current) => current.filter((report) => report.report_id !== reportId));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -317,163 +321,231 @@ function OperationFormModal({
 
   return (
     <div
-      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-[1000] flex items-stretch justify-center bg-black/40 p-0 sm:items-center sm:p-4"
       onClick={onClose}
     >
       <form
-        className="z-[1001] w-full max-w-md rounded-md bg-white p-5 shadow-xl space-y-4"
+        className="z-[1001] flex h-full w-full flex-col overflow-hidden bg-white shadow-xl sm:h-auto sm:max-h-[calc(100vh-2rem)] sm:max-w-5xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
         onSubmit={(e) => void handleSubmit(e)}
       >
-        <h3 className="text-base font-semibold text-slate-900">
-          {initial ? 'Edit Operation' : 'New Operation'}
-        </h3>
-        {error && <p className="text-sm text-red-700">{error}</p>}
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Status</label>
-            <select
-              value={fireStatus}
-              onChange={(e) => setFireStatus(e.target.value as FireStatus)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="ACTIVE">Active</option>
-              <option value="CONTAINED">Contained</option>
-              <option value="FIRE_OUT">Fire Out</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Start Time *</label>
-            <input
-              type="datetime-local"
-              required
-              value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Location *</label>
-            <input
-              required
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder="Address or descriptive location"
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              Pin on Map
-            </label>
-            <MapPickerInner
-              center={lat && lng ? [lat, lng] : [14.5995, 120.9842]}
-              zoom={12}
-              value={lat && lng ? { lat, lng } : null}
-              onChange={(newLat, newLng) => {
-                setLat(newLat);
-                setLng(newLng);
-                // Auto-fill location from coordinates if empty
-                if (!location) setLocation(`(${newLat.toFixed(5)}, ${newLng.toFixed(5)})`);
-              }}
-              mapHeight="220px"
-            />
-            {lat !== null && lng !== null && (
-              <p className="text-xs text-slate-500 mt-1">
-                📍 {lat.toFixed(5)}, {lng.toFixed(5)}
-                <button
-                  type="button"
-                  onClick={() => { setLat(null); setLng(null); setRadius(null); }}
-                  className="ml-2 text-red-600 hover:underline"
-                >
-                  Clear pin
-                </button>
-              </p>
-            )}
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              Fire Radius (meters)
-            </label>
-            <input
-              type="number"
-              min="0"
-              step="10"
-              value={radius ?? ''}
-              onChange={(e) => {
-                const val = e.target.value ? parseFloat(e.target.value) : null;
-                setRadius(val);
-                // Auto-calculate hectares: π * r² / 10000
-                if (val && val > 0) {
-                  const ha = (Math.PI * val * val) / 10000;
-                  setSizeHa(ha.toFixed(2));
-                }
-              }}
-              placeholder="e.g. 500"
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              Size (hectares){' '}
-              <span className="text-slate-400 font-normal">— auto from radius</span>
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              value={sizeHa}
-              onChange={(e) => setSizeHa(e.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-          <div className="rounded-lg border border-slate-200 p-3">
-            <div className="flex items-center justify-between gap-2">
+        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-5 py-4">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-red-700">Operations</p>
+          <h3 className="text-lg font-black text-slate-950">
+            {initial ? 'Edit Operation' : 'New Operation'}
+          </h3>
+          <p className="text-xs text-slate-500">
+            Add operation details, set the map pin, and optionally link civilian reports.
+          </p>
+          {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 p-4">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.95fr)]">
+            <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-700">Status</label>
+                  <select
+                    value={fireStatus}
+                    onChange={(e) => setFireStatus(e.target.value as FireStatus)}
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    <option value="ACTIVE">Active</option>
+                    <option value="CONTAINED">Contained</option>
+                    <option value="FIRE_OUT">Fire Out</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-700">Start Time *</label>
+                  <input
+                    type="datetime-local"
+                    required
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
               <div>
-                <p className="text-xs font-bold text-slate-700">Linked civilian reports</p>
-                <p className="text-xs text-slate-500">{selectedReports.length} selected report(s)</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowReportPicker((value) => !value)}
-                className="rounded-md border border-red-200 px-2 py-1 text-xs font-bold text-red-700 hover:bg-red-50"
-              >
-                Select civilian reports
-              </button>
-            </div>
-            {selectedReports.length === 0 && (
-              <p className="mt-2 text-xs text-amber-700">No civilian reports linked yet. You can save without links.</p>
-            )}
-            {selectedReports.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {selectedReports.map((report) => (
-                  <span key={report.report_id} className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700">
-                    Report #{report.report_id}
-                  </span>
-                ))}
-              </div>
-            )}
-            {showReportPicker && (
-              <div className="mt-3">
-                <LinkableReportSearch
-                  operation={null}
-                  mode="select"
-                  selectedReportIds={selectedReports.map((report) => report.report_id)}
-                  onSelect={handleSelectReport}
+                <label className="mb-1 block text-xs font-medium text-slate-700">Location *</label>
+                <input
+                  required
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder="Address or descriptive location"
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
                 />
               </div>
-            )}
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Notes</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={3}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-700">
+                    Fire Radius (meters)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="10"
+                    value={radius ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value ? parseFloat(e.target.value) : null;
+                      setRadius(val);
+                      if (val && val > 0) {
+                        const ha = (Math.PI * val * val) / 10000;
+                        setSizeHa(ha.toFixed(2));
+                      }
+                    }}
+                    placeholder="e.g. 500"
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-700">
+                    Size (hectares){' '}
+                    <span className="font-normal text-slate-400">— auto from radius</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={sizeHa}
+                    onChange={(e) => setSizeHa(e.target.value)}
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-bold text-slate-700">Linked civilian reports</p>
+                    <p className="text-xs text-slate-500">{selectedReports.length} selected report(s)</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowReportPicker((value) => !value)}
+                    className="rounded-md border border-red-200 px-2 py-1 text-xs font-bold text-red-700 hover:bg-red-50"
+                  >
+                    {showReportPicker ? 'Hide reports' : 'Select civilian reports'}
+                  </button>
+                </div>
+                {selectedReports.length === 0 ? (
+                  <p className="mt-2 text-xs text-amber-700">No civilian reports linked yet. You can save without links.</p>
+                ) : (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {selectedReports.map((report) => (
+                      <span key={report.report_id} className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700">
+                        Report #{report.report_id}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveReport(report.report_id)}
+                          aria-label={`Remove report ${report.report_id}`}
+                          className="rounded-full px-1 hover:bg-blue-100"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-700">Notes</label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={4}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+            </section>
+
+            <aside className="space-y-3">
+              <section className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <label className="block text-xs font-bold uppercase tracking-[0.12em] text-slate-700">
+                    Pin on Map
+                  </label>
+                  {lat !== null && lng !== null && (
+                    <button
+                      type="button"
+                      onClick={() => { setLat(null); setLng(null); setRadius(null); }}
+                      className="text-xs font-bold text-red-600 hover:underline"
+                    >
+                      Clear pin
+                    </button>
+                  )}
+                </div>
+                <MapPickerInner
+                  center={lat && lng ? [lat, lng] : [14.5995, 120.9842]}
+                  zoom={12}
+                  value={lat && lng ? { lat, lng } : null}
+                  onChange={(newLat, newLng) => {
+                    setLat(newLat);
+                    setLng(newLng);
+                    if (!location) setLocation(`(${newLat.toFixed(5)}, ${newLng.toFixed(5)})`);
+                  }}
+                  mapHeight="260px"
+                />
+                {lat !== null && lng !== null && (
+                  <p className="mt-1 text-xs text-slate-500">📍 {lat.toFixed(5)}, {lng.toFixed(5)}</p>
+                )}
+              </section>
+
+              <section className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-700">Civilian reports</p>
+                    <p className="text-xs text-slate-500">Search and select reports without expanding the modal height.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowReportPicker((value) => !value)}
+                    className="rounded-md border border-red-200 px-2 py-1 text-xs font-bold text-red-700 hover:bg-red-50"
+                  >
+                    {showReportPicker ? 'Hide' : 'Select civilian reports'}
+                  </button>
+                </div>
+
+                {selectedReports.length > 0 && (
+                  <div className="mt-3 space-y-2" data-testid="selected-report-summaries">
+                    {selectedReports.map((report) => (
+                      <div key={report.report_id} className="rounded-lg border border-blue-100 bg-blue-50 p-2 text-xs text-blue-900">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="font-black">Report #{report.report_id}</p>
+                            <p>{report.category}{report.sub_category ? ` / ${report.sub_category}` : ''}</p>
+                            {report.distance_meters != null && <p>{Math.round(report.distance_meters)} m away</p>}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveReport(report.report_id)}
+                            aria-label={`Remove report ${report.report_id}`}
+                            className="font-black text-blue-700 hover:text-blue-900"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {showReportPicker && (
+                  <div className="mt-3">
+                    <LinkableReportSearch
+                      operation={null}
+                      mode="select"
+                      selectedReportIds={selectedReports.map((report) => report.report_id)}
+                      pageSize={5}
+                      onSelect={handleSelectReport}
+                    />
+                  </div>
+                )}
+              </section>
+            </aside>
           </div>
         </div>
-        <div className="flex gap-3 justify-end">
+
+        <div className="sticky bottom-0 z-10 flex justify-end gap-3 border-t border-slate-200 bg-white px-5 py-4">
           <button
             type="button"
             onClick={onClose}
