@@ -696,7 +696,6 @@ export default function ValidatorDashboard() {
         selectedCount={selectedIds.size}
         bulkLoading={bulkLoading}
         bulkProgress={bulkProgress}
-        queuedIncidentIds={queuedIncidentIds}
         onSyncNow={autoSync.syncNow}
         onBulkApprove={() => setShowBulkConfirmModal(true)}
       />

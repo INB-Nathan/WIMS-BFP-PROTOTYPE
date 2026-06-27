@@ -25,6 +25,7 @@ function makeIncident(overrides: Partial<ValidatorIncident> = {}): ValidatorInci
     is_duplicate: false,
     duplicate_of: null,
     reference_number: null,
+    is_resubmitted: false,
     ...overrides,
   };
 }
