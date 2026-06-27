@@ -182,7 +182,7 @@ beforeEach(() => {
 
 describe('encryption at rest — legacy incident queue', () => {
   it('encrypts payload on queueIncident', async () => {
-    await queueIncident({ description: 'secret fire data', lat: 14.5, lon: 120.9 });
+    await queueIncident({ description: 'secret fire data', lat: 14.5, lon: 120.9 }, { opType: 'verify' });
 
     const raw = [...legacyQueueStore.values()][0] as {
       encrypted?: { iv: unknown; data: unknown };
@@ -197,14 +197,14 @@ describe('encryption at rest — legacy incident queue', () => {
 
   it('decrypts payload on getPendingIncidents', async () => {
     const original = { description: 'test incident', lat: 15.1 };
-    await queueIncident(original);
+    await queueIncident(original, { opType: 'verify' });
 
     const pending = await getPendingIncidents();
     expect(pending[0].payload).toEqual(original);
   });
 
   it('updates re-encrypt with new ciphertext (unique IV)', async () => {
-    await queueIncident({ description: 'Original' });
+    await queueIncident({ description: 'Original' }, { opType: 'verify' });
     const beforeItem = [...legacyQueueStore.values()][0] as { encrypted: { iv: number[]; data: number[] } };
     const beforeData = [...beforeItem.encrypted.data];
     const beforeIv = [...beforeItem.encrypted.iv];
@@ -388,9 +388,9 @@ describe('unique IV per encryption', () => {
 
   it('produces unique IV for each queueIncident call', async () => {
     const payload = { desc: 'same payload' };
-    await queueIncident(payload);
-    await queueIncident(payload);
-    await queueIncident(payload);
+    await queueIncident(payload, { opType: 'verify' });
+    await queueIncident(payload, { opType: 'verify' });
+    await queueIncident(payload, { opType: 'verify' });
 
     const items = [...legacyQueueStore.values()] as Array<{ encrypted: { iv: number[] } }>;
     const ivs = items.map((i) => Buffer.from(i.encrypted.iv).toString('hex'));
