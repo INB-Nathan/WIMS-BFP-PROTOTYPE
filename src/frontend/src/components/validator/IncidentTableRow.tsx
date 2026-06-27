@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import type { MouseEvent } from "react";
 import { Archive } from "lucide-react";
@@ -62,7 +62,7 @@ export function IncidentTableRow({
       tabIndex={0}
       role="link"
       aria-label={`View incident ${inc.incident_id}`}
-      className="cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#C62828] focus-visible:ring-inset"
+      className="cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1A3263] focus-visible:ring-inset"
       style={{ backgroundColor: baseColor, borderBottom: '1px solid var(--border-color)' }}
       onMouseEnter={(e) => {
         (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-light)';
@@ -123,7 +123,7 @@ export function IncidentTableRow({
         {formatClassification(inc.general_category)}
       </td>
       <td className="px-4 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
-        {inc.alarm_level ?? "—"}
+        {inc.alarm_level ?? "â€”"}
       </td>
       <td className="px-4 py-4 whitespace-nowrap">
         <div className="flex gap-1.5 items-center">
@@ -141,7 +141,7 @@ export function IncidentTableRow({
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(inc); }}
                 className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-red-200 bg-white font-medium transition-colors hover:bg-red-50"
-                style={{ color: '#991B1B' }}
+                style={{ color: '#1A3263' }}
                 title="Permanently delete this archived incident"
               >
                 Delete
@@ -179,15 +179,15 @@ export function IncidentTableRow({
                   onMouseEnter={(e) => { if (acceptingId !== inc.incident_id) (e.currentTarget as HTMLElement).style.backgroundColor = '#15803D'; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#16A34A'; }}
                 >
-                  {acceptingId === inc.incident_id ? "…" : "Accept"}
+                  {acceptingId === inc.incident_id ? "â€¦" : "Accept"}
                 </button>
               )}
               <button
                 onClick={(e) => { e.stopPropagation(); onReject(inc); }}
                 className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors"
-                style={{ backgroundColor: '#991B1B' }}
+                style={{ backgroundColor: '#1A3263' }}
                 onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-dark)'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#991B1B'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#1A3263'; }}
               >
                 Reject
               </button>
@@ -198,3 +198,4 @@ export function IncidentTableRow({
     </tr>
   );
 }
+

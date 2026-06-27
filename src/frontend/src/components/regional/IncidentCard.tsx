@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import type { MouseEvent } from "react";
 import { Archive } from "lucide-react";
@@ -107,7 +107,7 @@ export function IncidentCard({
       className={
         offlineUncached
           ? 'cursor-not-allowed rounded-xl border border-gray-200 bg-white p-5 shadow-sm opacity-60 outline-none'
-          : 'cursor-pointer rounded-xl border border-gray-200 bg-white p-5 shadow-sm outline-none transition-all hover:border-red-200 hover:bg-red-50/30 hover:shadow-md focus-visible:ring-2 focus-visible:ring-[#C62828]'
+          : 'cursor-pointer rounded-xl border border-gray-200 bg-white p-5 shadow-sm outline-none transition-all hover:border-red-200 hover:bg-red-50/30 hover:shadow-md focus-visible:ring-2 focus-visible:ring-[#1A3263]'
       }
       style={{ borderColor: offlineUncached ? undefined : statusBorderColor(inc.verification_status) }}
     >
@@ -185,7 +185,7 @@ export function IncidentCard({
             style={{ color: hasQueuedArchive ? undefined : 'var(--text-secondary)' }}
             title={
               hasQueuedArchive
-                ? `An archive ${isArchiveView ? 'restore' : 'action'} is already queued — it will sync when back online`
+                ? `An archive ${isArchiveView ? 'restore' : 'action'} is already queued â€” it will sync when back online`
                 : isArchiveView ? 'Restore this incident to the active list' : 'Archive this verified incident'
             }
           >
@@ -197,3 +197,4 @@ export function IncidentCard({
     </article>
   );
 }
+

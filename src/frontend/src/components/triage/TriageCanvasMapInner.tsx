@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { Circle, CircleMarker, MapContainer, Popup, TileLayer } from 'react-leaflet';
 import type { TriageClusterEntry, TriageReportEntry } from '@/lib/api';
@@ -77,7 +77,7 @@ export default function TriageCanvasMapInner({
               <Popup>
                 <div className="text-xs min-w-[160px]">
                   <p className="font-semibold text-sm">Cluster #{identity.id}</p>
-                  <p>{item.member_count} report(s) · {item.severity}</p>
+                  <p>{item.member_count} report(s) Â· {item.severity}</p>
                   <button type="button" className="mt-2 text-red-700 font-semibold" onClick={() => onSelectItem(item)}>
                     Select cluster
                   </button>
@@ -104,7 +104,7 @@ export default function TriageCanvasMapInner({
               },
             }}
             pathOptions={{
-              color: selectedReport ? '#7f1d1d' : color,
+              color: selectedReport ? '#142849' : color,
               fillColor: color,
               fillOpacity: selectedReport ? 0.95 : 0.72,
               weight: selectedReport ? 4 : 2,
@@ -125,3 +125,4 @@ export default function TriageCanvasMapInner({
     </MapContainer>
   );
 }
+

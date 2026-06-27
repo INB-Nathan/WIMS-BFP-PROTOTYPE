@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
@@ -358,7 +358,7 @@ export default function ImportIncidentPage() {
                                     onClick={handleUpload}
                                     disabled={uploading || incidents.some(i => i._status === 'INVALID') || incidents.length === 0}
                                     className="px-6 py-2 text-white rounded-md font-bold shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                                    style={{ backgroundColor: '#991B1B' }}
+                                    style={{ backgroundColor: '#1A3263' }}
                                 >
                                     {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                                     Commit Valid Rows
@@ -419,3 +419,4 @@ export default function ImportIncidentPage() {
         </div>
     );
 }
+

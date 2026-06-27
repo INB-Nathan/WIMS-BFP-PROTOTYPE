@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState } from 'react';
 import { Download, X, FileText, FileSpreadsheet, File } from 'lucide-react';
@@ -242,7 +242,7 @@ export function ExportPreviewModal({ format, filters, filtersSummary, onClose }:
             onClick={handleExport}
             disabled={exportState === 'queued' || exportState === 'polling' || exportState === 'downloading'}
             className="flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-            style={{ backgroundColor: '#991B1B' }}
+            style={{ backgroundColor: '#1A3263' }}
           >
             <Download className="h-4 w-4" />
             {exportState === 'idle' && 'Queue Export'}
@@ -257,3 +257,4 @@ export function ExportPreviewModal({ format, filters, filtersSummary, onClose }:
     </div>
   );
 }
+

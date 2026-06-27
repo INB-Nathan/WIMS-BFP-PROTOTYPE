@@ -77,10 +77,10 @@ export function TrendCharts({ data }: TrendChartsProps) {
           <Line
             type="monotone"
             dataKey="count"
-            stroke="#991b1b"
+            stroke="#1A3263"
             strokeWidth={2}
-            dot={{ r: 3, fill: '#991b1b', strokeWidth: 0 }}
-            activeDot={{ r: 5, fill: '#7f1d1d', strokeWidth: 0 }}
+            dot={{ r: 3, fill: '#1A3263', strokeWidth: 0 }}
+            activeDot={{ r: 5, fill: '#142849', strokeWidth: 0 }}
           />
         </LineChart>
       </ResponsiveContainer>

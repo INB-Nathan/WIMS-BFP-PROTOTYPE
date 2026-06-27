@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -51,8 +51,8 @@ const ACTION_BADGE_STYLE: Record<string, React.CSSProperties> = {
   CREATED_DRAFT: { backgroundColor: '#f9fafb', color: '#374151', border: '1px solid #d1d5db' },
   EDITED: { backgroundColor: '#fefce8', color: '#854d0e', border: '1px solid #fef08a' },
   WITHDRAWN: { backgroundColor: '#fff7ed', color: '#9a3412', border: '1px solid #fed7aa' },
-  DELETED_DRAFT: { backgroundColor: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca' },
-  DELETED_PENDING: { backgroundColor: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca' },
+  DELETED_DRAFT: { backgroundColor: '#fef2f2', color: '#1A3263', border: '1px solid #fecaca' },
+  DELETED_PENDING: { backgroundColor: '#fef2f2', color: '#1A3263', border: '1px solid #fecaca' },
 };
 
 const PAGE_SIZE = 15;
@@ -112,7 +112,7 @@ export default function EncoderAuditPage() {
           className="text-sm font-medium px-4 py-2 rounded-lg text-white"
           style={{ backgroundColor: 'var(--bfp-maroon)' }}
         >
-          ← Back to Dashboard
+          â† Back to Dashboard
         </Link>
       </div>
     );
@@ -188,12 +188,12 @@ export default function EncoderAuditPage() {
               className="flex items-center gap-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
               style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
             >
-              ↺ Refresh
+              â†º Refresh
             </button>
           </div>
 
           {loading && (
-            <div className="text-sm py-12 text-center" style={{ color: 'var(--text-muted)' }}>Loading…</div>
+            <div className="text-sm py-12 text-center" style={{ color: 'var(--text-muted)' }}>Loadingâ€¦</div>
           )}
           {error && !loading && (
             <div className="rounded-md p-3 text-sm mb-4" style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c' }}>
@@ -227,7 +227,7 @@ export default function EncoderAuditPage() {
                               year: 'numeric', month: '2-digit', day: '2-digit',
                               hour: '2-digit', minute: '2-digit', hour12: false,
                             })
-                          : '—'}
+                          : 'â€”'}
                       </td>
                       <td className="px-6 py-3 text-sm font-mono">
                         {it.incident_id != null ? (
@@ -239,7 +239,7 @@ export default function EncoderAuditPage() {
                             #{it.incident_id}
                           </Link>
                         ) : (
-                          <span style={{ color: 'var(--text-muted)' }}>—</span>
+                          <span style={{ color: 'var(--text-muted)' }}>â€”</span>
                         )}
                       </td>
                       <td className="px-6 py-3 text-sm">
@@ -247,11 +247,11 @@ export default function EncoderAuditPage() {
                           className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
                           style={ACTION_BADGE_STYLE[it.action_label ?? ''] ?? { backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db' }}
                         >
-                          {ACTION_LABEL_MAP[it.action_label ?? ''] ?? it.action_label ?? '—'}
+                          {ACTION_LABEL_MAP[it.action_label ?? ''] ?? it.action_label ?? 'â€”'}
                         </span>
                       </td>
                       <td className="px-6 py-3 text-sm font-mono" style={{ color: 'var(--text-secondary)' }}>
-                        {it.ip_address ?? '—'}
+                        {it.ip_address ?? 'â€”'}
                       </td>
                     </tr>
                   ))}
@@ -267,7 +267,7 @@ export default function EncoderAuditPage() {
               className="px-3 py-1 border rounded disabled:opacity-40"
               style={{ borderColor: 'var(--border-color)' }}
             >
-              ← Prev
+              â† Prev
             </button>
             <span>
               Page {page + 1} of {totalPages} ({total} entries)
@@ -278,7 +278,7 @@ export default function EncoderAuditPage() {
               className="px-3 py-1 border rounded disabled:opacity-40"
               style={{ borderColor: 'var(--border-color)' }}
             >
-              Next →
+              Next â†’
             </button>
           </div>
         </div>
@@ -286,3 +286,4 @@ export default function EncoderAuditPage() {
     </div>
   );
 }
+

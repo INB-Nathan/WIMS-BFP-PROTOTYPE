@@ -40,7 +40,7 @@ export function ResponseTimeChart({ data }: ResponseTimeChartProps) {
           }}
           contentStyle={{ fontSize: 12, borderRadius: 4, border: '1px solid #d8dbe0' }}
         />
-        <Bar dataKey="avg" fill="#991b1b" radius={[4, 4, 0, 0]} maxBarSize={48} />
+        <Bar dataKey="avg" fill="#1A3263" radius={[4, 4, 0, 0]} maxBarSize={48} />
       </BarChart>
     </ResponsiveContainer>
   );

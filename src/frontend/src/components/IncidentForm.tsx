@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
@@ -60,7 +60,7 @@ const STRUCTURAL_FORM_NAV_LINKS: readonly SectionDotNavLink[] = [
   { id: 'structural-sec-disposition', label: 'Disposition' },
 ];
 
-// ── Constants ────────────────────────────────────────────────────────────────
+// â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const STAGE_OF_FIRE_OPTIONS = [
   'Incipient',
@@ -69,7 +69,7 @@ const STAGE_OF_FIRE_OPTIONS = [
   'Decay',
 ];
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function isNetworkError(err: unknown): boolean {
   if (err instanceof TypeError) return true;
@@ -87,7 +87,7 @@ function isNetworkError(err: unknown): boolean {
   return false;
 }
 
-// ── Component ────────────────────────────────────────────────────────────────
+// â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export function IncidentForm({
   initialData,
@@ -242,7 +242,7 @@ export function IncidentForm({
     tools_others: '',
     hydrant_location_distance: '',
 
-    // D. Fire Alarm Level — datetime + commander per entry
+    // D. Fire Alarm Level â€” datetime + commander per entry
     alarm_foua: '', alarm_foua_commander: '',
     alarm_1st: '', alarm_1st_commander: '',
     alarm_2nd: '', alarm_2nd_commander: '',
@@ -310,7 +310,7 @@ export function IncidentForm({
   } | null>(null);
 
 
-  // ── Derived reference number values ───────────────────────────────────────
+  // â”€â”€ Derived reference number values â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const incidentTypeCode = useMemo(
     () => getTypeCode(formState.classification_of_involved, formState.type_of_involved_general_category),
@@ -327,7 +327,7 @@ export function IncidentForm({
     });
   }, [isEncoder, assignedRegionId, selectedRegionId, incidentTypeCode, formState.notification_dt_date]);
 
-  // ── Utility helpers ────────────────────────────────────────────────────────
+  // â”€â”€ Utility helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const toDateTimeLocalValue = useCallback((raw: unknown): string => {
     if (!raw) return '';
@@ -376,7 +376,7 @@ export function IncidentForm({
       .trim();
 
   const resolveRegionId = (): number | null => {
-    // For encoders, their assigned region always wins — prevents submitting to wrong region
+    // For encoders, their assigned region always wins â€” prevents submitting to wrong region
     if (isEncoder && assignedRegionId) return assignedRegionId;
     if (selectedRegionId) return selectedRegionId;
     if (assignedRegionId) return assignedRegionId;
@@ -390,7 +390,7 @@ export function IncidentForm({
     return match?.regionId ?? null;
   };
 
-  // ── Effects ────────────────────────────────────────────────────────────────
+  // â”€â”€ Effects â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   // Clear unsaved-changes flag when the form unmounts (successful navigation away).
   useEffect(() => {
@@ -409,7 +409,7 @@ export function IncidentForm({
     return () => window.removeEventListener('beforeunload', handler);
   }, []);
 
-  // Lock encoder to their assigned region always — also clears province/city if import brought wrong-region data
+  // Lock encoder to their assigned region always â€” also clears province/city if import brought wrong-region data
   useEffect(() => {
     if (!assignedRegionId) return;
     if (isEncoder) {
@@ -540,7 +540,7 @@ export function IncidentForm({
           'Structural': 'STRUCTURAL', 'Non-Structural': 'NON_STRUCTURAL',
           'Transportation': 'TRANSPORTATION', 'Vehicular': 'TRANSPORTATION',
           'Wildland': 'WILDLAND',
-          // Backend normalizes TRANSPORTATION → VEHICULAR; map it back for the form dropdown
+          // Backend normalizes TRANSPORTATION â†’ VEHICULAR; map it back for the form dropdown
           'VEHICULAR': 'TRANSPORTATION',
         };
         return legacyMap[raw] ?? raw;
@@ -566,10 +566,10 @@ export function IncidentForm({
         if (exact) return exact.name;
         const ci = opts.find((o) => o.name.toLowerCase() === rawType.toLowerCase());
         if (ci) return ci.name;
-        // Try code match (e.g. "INF" → "Informal Settlement")
+        // Try code match (e.g. "INF" â†’ "Informal Settlement")
         const byCode = opts.find((o) => o.code.toLowerCase() === rawType.toLowerCase());
         if (byCode) return byCode.name;
-        // Try partial name match for legacy stored values (e.g. "Apartment" → "Apartment Building")
+        // Try partial name match for legacy stored values (e.g. "Apartment" â†’ "Apartment Building")
         const partial = opts.find((o) => o.name.toLowerCase().startsWith(rawType.toLowerCase()) || rawType.toLowerCase().startsWith(o.name.toLowerCase()));
         if (partial) return partial.name;
         return rawType; // fall back to raw value; user can correct
@@ -671,7 +671,7 @@ export function IncidentForm({
         || sen.disposition_noted_by || '',
     }));
 
-    // Auto-geocode using only the complete address field — no city/province appended.
+    // Auto-geocode using only the complete address field â€” no city/province appended.
     // Only fires when no coordinates are pre-supplied (import without a prior map pin).
     const hydratedAddress = ns.incident_address || (sen as Record<string, unknown>).street_address as string || '';
     const hasCoords = typeof initialData.latitude === 'number' && typeof initialData.longitude === 'number';
@@ -691,8 +691,8 @@ export function IncidentForm({
   }, [alarmEntryToDateTimeLocal, initialData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // M4 Bug 8-D: Sync the free-text "Others" field to the "Others" checkbox.
-  // Non-empty text → ensure "Others" is in problems_encountered.
-  // Empty text  → remove "Others" from problems_encountered.
+  // Non-empty text â†’ ensure "Others" is in problems_encountered.
+  // Empty text  â†’ remove "Others" from problems_encountered.
   useEffect(() => {
     const othersText = String(formState.problems_others || '').trim();
     const hasText = othersText.length > 0;
@@ -735,7 +735,7 @@ export function IncidentForm({
     }
   }, [initialData]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Derive effective region ID — encoder's assigned region always wins
+  // Derive effective region ID â€” encoder's assigned region always wins
   const getEffectiveRegionId = (): number => {
     if (isEncoder && assignedRegionId) return assignedRegionId;
     if (selectedRegionId && selectedRegionId > 0) return selectedRegionId;
@@ -746,7 +746,7 @@ export function IncidentForm({
     return 0;
   };
 
-  // Scroll to first highlighted error field when initialErrors are provided (edit→submit flow)
+  // Scroll to first highlighted error field when initialErrors are provided (editâ†’submit flow)
   useEffect(() => {
     if (!initialErrors?.length) return;
     const timer = setTimeout(() => {
@@ -756,7 +756,7 @@ export function IncidentForm({
     return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Event handlers ─────────────────────────────────────────────────────────
+  // â”€â”€ Event handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -793,7 +793,7 @@ export function IncidentForm({
     setOtherPersonnel(updated);
   };
 
-  // ── Draft autosave (create mode only) ─────────────────────────────────────
+  // â”€â”€ Draft autosave (create mode only) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   // On mount: look for an existing draft in IndexedDB; offer to restore.
   // Falls back to localStorage for browsers where IndexedDB is unavailable.
@@ -833,7 +833,7 @@ export function IncidentForm({
           }
         }
       } catch {
-        // IndexedDB unavailable (e.g. private browsing) — fall back to localStorage
+        // IndexedDB unavailable (e.g. private browsing) â€” fall back to localStorage
         draftLocalId.current = crypto.randomUUID();
         if (draftStorageKey) {
           const raw = localStorage.getItem(draftStorageKey);
@@ -870,7 +870,7 @@ export function IncidentForm({
     return () => clearTimeout(timer);
   }, [formState, latitude, longitude, existingIncidentId, initialData, user?.id, assignedRegionId, draftStorageKey]);
 
-  // ── Submit ─────────────────────────────────────────────────────────────────
+  // â”€â”€ Submit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -898,7 +898,7 @@ export function IncidentForm({
       }
     }
 
-    // Full required-field validation — mirrors detail page handleSubmitClick
+    // Full required-field validation â€” mirrors detail page handleSubmitClick
     const isEmpty = (v: unknown) => !v || String(v).trim() === '' || String(v).trim().toUpperCase() === 'N/A';
     const submitErrors = new Set<string>();
     if (!formState.responder_type) submitErrors.add('responder_type');
@@ -1124,7 +1124,7 @@ export function IncidentForm({
       },
     } as unknown as Incident;
 
-    // ── Offline-local edit: update the queued op in place, no API call ──────
+    // â”€â”€ Offline-local edit: update the queued op in place, no API call â”€â”€â”€â”€â”€â”€
     if (offlineLocalId) {
       try {
         await updateOfflineOp(offlineLocalId, {
@@ -1142,7 +1142,7 @@ export function IncidentForm({
     }
 
     if (existingIncidentId) {
-      // ── Edit mode: flat PUT payload ──────────────────────────────────────
+      // â”€â”€ Edit mode: flat PUT payload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       const updatePayload: Record<string, unknown> = {
         notification_dt: incident.incident_nonsensitive_details.notification_dt,
         alarm_level: incident.incident_nonsensitive_details.alarm_level,
@@ -1216,7 +1216,7 @@ export function IncidentForm({
           onSaved?.();
         }
       } catch (err: unknown) {
-        // OCC conflict (server changed while editing) takes precedence — surface the
+        // OCC conflict (server changed while editing) takes precedence â€” surface the
         // merge UI rather than queueing a blind offline overwrite.
         if (err instanceof ApiRequestError && err.status === 409 && onConflict) {
           const d = err.detail as { message?: string; server_version?: Record<string, unknown> } | null;
@@ -1254,7 +1254,7 @@ export function IncidentForm({
               createdAt: Date.now() + 1,
             });
           }
-          sonnerToast.info('Connection lost — saved locally. Will sync when you reconnect.');
+          sonnerToast.info('Connection lost â€” saved locally. Will sync when you reconnect.');
           onSaved?.();
         } else {
           showToast(`Save failed: ${(err as Error).message}`);
@@ -1265,7 +1265,7 @@ export function IncidentForm({
       return;
     }
 
-    // ── Create mode ──────────────────────────────────────────────────────────
+    // â”€â”€ Create mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const payload = { region_id: effectiveRegionId, incidents: [incident] };
 
     try {
@@ -1290,7 +1290,7 @@ export function IncidentForm({
                 return;
               }
             }
-            // Any other submit failure — go to detail so user can retry
+            // Any other submit failure â€” go to detail so user can retry
             showToast(`Saved as draft. Submit failed: ${(submitErr as Error).message}`);
             clearStoredDraft();
             router.push(`/dashboard/regional/incidents/${incidentId}`);
@@ -1300,7 +1300,7 @@ export function IncidentForm({
         clearStoredDraft();
         router.push(`/dashboard/regional/incidents/${incidentId}`);
       } else {
-        // Offline — promote the draft to a queued create op so the sync engine picks it up.
+        // Offline â€” promote the draft to a queued create op so the sync engine picks it up.
         const opLocalId = draftLocalId.current ?? crypto.randomUUID();
         const _nowIso = new Date().toISOString();
         await queueOfflineOp({
@@ -1336,7 +1336,7 @@ export function IncidentForm({
         // Assign a fresh localId so subsequent autosaves don't overwrite this queued op.
         draftLocalId.current = crypto.randomUUID();
         clearStoredDraft();
-        sonnerToast.info('Saved locally — will sync when you reconnect.');
+        sonnerToast.info('Saved locally â€” will sync when you reconnect.');
         router.push('/dashboard/regional');
         return;
       }
@@ -1353,7 +1353,7 @@ export function IncidentForm({
         );
       } else if (isNetworkError(err)) {
         markConnectivityOffline();
-        // Request failed mid-flight — queue so the encoder doesn't lose their work.
+        // Request failed mid-flight â€” queue so the encoder doesn't lose their work.
         const opLocalId = draftLocalId.current ?? crypto.randomUUID();
         const _nowIso2 = new Date().toISOString();
         await queueOfflineOp({
@@ -1386,7 +1386,7 @@ export function IncidentForm({
         }
         draftLocalId.current = crypto.randomUUID();
         clearStoredDraft();
-        sonnerToast.info('Connection lost — saved locally. Will sync when you reconnect.');
+        sonnerToast.info('Connection lost â€” saved locally. Will sync when you reconnect.');
         router.push('/dashboard/regional');
         return;
       } else {
@@ -1397,7 +1397,7 @@ export function IncidentForm({
     }
   };
 
-  // ── Auto-fill for testing ──────────────────────────────────────────────────
+  // â”€â”€ Auto-fill for testing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const handleAutoFill = () => {
     const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
@@ -1527,9 +1527,9 @@ export function IncidentForm({
     ]);
   };
 
-  // ── JSX helpers ────────────────────────────────────────────────────────────
+  // â”€â”€ JSX helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  // Manila-time today and current time — used for max constraints on date/time inputs
+  // Manila-time today and current time â€” used for max constraints on date/time inputs
   const todayManilaDate = (() => {
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -1557,7 +1557,7 @@ export function IncidentForm({
   const reqMark = <span className="text-red-600"> *</span>;
   const isEditMode = !!existingIncidentId;
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-md max-w-4xl mx-auto space-y-6">
@@ -1570,12 +1570,12 @@ export function IncidentForm({
           style={{ pointerEvents: 'auto' }}
         >
           <span className="flex-1 leading-snug">{toast}</span>
-          <button type="button" onClick={() => setToast(null)} className="text-white/70 hover:text-white text-xl leading-none -mt-0.5 shrink-0">×</button>
+          <button type="button" onClick={() => setToast(null)} className="text-white/70 hover:text-white text-xl leading-none -mt-0.5 shrink-0">Ã—</button>
         </div>
       )}
 
       {/* Header Bar */}
-      <div className="flex flex-wrap justify-between items-center gap-2 bg-[#991B1B] -m-6 mb-4 p-4 rounded-t-lg text-white">
+      <div className="flex flex-wrap justify-between items-center gap-2 bg-[#1A3263] -m-6 mb-4 p-4 rounded-t-lg text-white">
         <h2 className="text-xl font-bold">{isEditMode ? 'Edit Incident Report' : 'AFOR Report Entry'}</h2>
         <div className="flex items-center gap-2">
           {!isEditMode && (
@@ -1592,7 +1592,7 @@ export function IncidentForm({
         </div>
       </div>
 
-      {/* Draft restore banner — manual entry (create mode) only; hidden in edit or import-correction mode */}
+      {/* Draft restore banner â€” manual entry (create mode) only; hidden in edit or import-correction mode */}
       {draftRestoreData && !existingIncidentId && !initialData && (
         <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-800">
           <span className="flex-1">
@@ -1637,7 +1637,7 @@ export function IncidentForm({
         }}
       >
 
-        {/* ── A. RESPONSE DETAILS ── */}
+        {/* â”€â”€ A. RESPONSE DETAILS â”€â”€ */}
         <section id="structural-sec-response" className="scroll-mt-24 space-y-4 border-b pb-6">
           <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">A. Response Details</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1682,7 +1682,7 @@ export function IncidentForm({
                   <p className={`${inputCls} text-gray-700 bg-gray-50 cursor-default`}>
                     {assignedRegionId
                       ? (PH_REGIONS.find((r) => r.regionId === assignedRegionId)?.regionName ?? formState.region)
-                      : profileLoading ? 'Loading…' : formState.region || 'No region assigned'}
+                      : profileLoading ? 'Loadingâ€¦' : formState.region || 'No region assigned'}
                   </p>
                   <p className="mt-1 text-xs text-gray-400">Region is set to your assigned area.</p>
                 </>
@@ -1786,16 +1786,16 @@ export function IncidentForm({
               />
             </div>
 
-            {/* Compact fire scene location — shown near the complete address once a pin is set */}
+            {/* Compact fire scene location â€” shown near the complete address once a pin is set */}
             {latitude !== null && longitude !== null && (
               <div className="md:col-span-2 text-xs text-green-800 font-medium bg-green-50 border border-green-200 rounded px-3 py-2 flex items-center gap-2">
-                <span>📍 Fire Scene: {latitude.toFixed(6)}, {longitude.toFixed(6)}</span>
+                <span>ðŸ“ Fire Scene: {latitude.toFixed(6)}, {longitude.toFixed(6)}</span>
                 <button type="button" onClick={() => { userEditedDraftRef.current = true; setLatitude(null); setLongitude(null); setMapSearchQuery(undefined); }}
                   className="ml-auto text-red-600 hover:underline">Clear pin</button>
               </div>
             )}
 
-            {/* ── Map Pin (inline in Response Details) ── */}
+            {/* â”€â”€ Map Pin (inline in Response Details) â”€â”€ */}
             <div className="md:col-span-2 space-y-2" data-field-error={fieldErrors.has('map_location') ? 'true' : undefined}>
               <label className={`${labelCls} flex items-center gap-1`}>
                 Fire Scene Location (Map Pin){reqMark}
@@ -1844,7 +1844,7 @@ export function IncidentForm({
                 />
               </div>
               {latitude === null && longitude === null && (
-                <p className="text-xs text-amber-700 font-medium">No location pinned — click the map to mark the fire scene.</p>
+                <p className="text-xs text-amber-700 font-medium">No location pinned â€” click the map to mark the fire scene.</p>
               )}
             </div>
 
@@ -1936,7 +1936,7 @@ export function IncidentForm({
           </div>
         </section>
 
-        {/* ── B. NATURE AND CLASSIFICATION ── */}
+        {/* â”€â”€ B. NATURE AND CLASSIFICATION â”€â”€ */}
         <section id="structural-sec-class" className="scroll-mt-24 space-y-4 border-b pb-6">
           <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">B. Nature and Classification of Involved</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2084,7 +2084,7 @@ export function IncidentForm({
           <PersonnelOnDutySection formState={formState as Record<string, unknown>} handleChange={handleChange} inputCls={inputCls} />
         </div>
 
-        {/* ── G. OTHER BFP PERSONNEL ── */}
+        {/* â”€â”€ G. OTHER BFP PERSONNEL â”€â”€ */}
         <section className="space-y-4 border-b pb-6">
           <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">G. Other BFP Personnel and Significant Personalities at the Scene</h3>
           <div className="space-y-2">
@@ -2100,7 +2100,7 @@ export function IncidentForm({
           </div>
         </section>
 
-        {/* ── H. NARRATIVE ── */}
+        {/* â”€â”€ H. NARRATIVE â”€â”€ */}
         <section id="structural-sec-narrative" className="scroll-mt-24 space-y-4 border-b pb-6">
           <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">H. Narrative Content (In Chronological Order)</h3>
           <textarea
@@ -2117,13 +2117,13 @@ export function IncidentForm({
           <ProblemsChecklistSection formState={formState} setFormState={setFormState as React.Dispatch<React.SetStateAction<Record<string, unknown>>>} handleChange={handleChange} inputCls={inputCls} />
         </div>
 
-        {/* ── J. RECOMMENDATIONS ── */}
+        {/* â”€â”€ J. RECOMMENDATIONS â”€â”€ */}
         <section id="structural-sec-recommendations" className="scroll-mt-24 space-y-4 border-b pb-6">
           <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">J. Recommendations</h3>
           <textarea name="recommendations" rows={4} className={inputCls} placeholder="Provide clear and actionable recommendations..." value={formState.recommendations} onChange={handleChange} />
         </section>
 
-        {/* ── K. DISPOSITION ── */}
+        {/* â”€â”€ K. DISPOSITION â”€â”€ */}
         <section id="structural-sec-disposition" className="scroll-mt-24 space-y-4">
           <h3 className="font-bold text-lg text-red-900 border-l-4 border-red-800 pl-2">K. Disposition</h3>
           <textarea name="disposition" rows={4} className={inputCls} placeholder="As of this date, no complaint has been filed..." value={formState.disposition} onChange={handleChange} />
@@ -2149,7 +2149,7 @@ export function IncidentForm({
         <div className="flex flex-col sm:flex-row gap-3">
           <button type="submit" disabled={loading} className="flex-1 bg-gray-700 text-white py-3 rounded font-bold hover:bg-gray-600 disabled:opacity-50 flex justify-center items-center gap-2 shadow-lg">
             {loading ? <Loader2 className="animate-spin w-5 h-5" /> : <Save className="w-5 h-5" />}
-            {loading ? (isEditMode ? 'Saving Changes…' : 'Saving Draft…') : (isEditMode ? 'Save Changes' : 'Save as Draft')}
+            {loading ? (isEditMode ? 'Saving Changesâ€¦' : 'Saving Draftâ€¦') : (isEditMode ? 'Save Changes' : 'Save as Draft')}
           </button>
           <button
             type="button"
@@ -2158,13 +2158,13 @@ export function IncidentForm({
             className="flex-1 bg-red-800 text-white py-3 rounded font-bold hover:bg-red-700 disabled:opacity-50 flex justify-center items-center gap-2 shadow-lg"
           >
             {loading ? <Loader2 className="animate-spin w-5 h-5" /> : <Send className="w-5 h-5" />}
-            {loading ? 'Submitting…' : 'Submit for Review'}
+            {loading ? 'Submittingâ€¦' : 'Submit for Review'}
           </button>
         </div>
 
       </form>
 
-      {/* ── Region Mismatch Modal ── */}
+      {/* â”€â”€ Region Mismatch Modal â”€â”€ */}
       {regionMismatchMsg && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 space-y-4">
@@ -2185,7 +2185,7 @@ export function IncidentForm({
         </div>
       )}
 
-      {/* ── Duplicate Incident Modal ── */}
+      {/* â”€â”€ Duplicate Incident Modal â”€â”€ */}
       {duplicateModalData && (
         <DuplicateIncidentModal
           duplicates={duplicateModalData.duplicates}
@@ -2194,12 +2194,12 @@ export function IncidentForm({
             classification: formatClassification(formState.classification_of_involved),
             typeOfInvolved: formState.type_of_involved_general_category,
             incidentTypeCode,
-            stationName: formState.fire_station_name || '—',
+            stationName: formState.fire_station_name || 'â€”',
             fireDate: formState.notification_dt_date,
             fireTime: formState.notification_dt_time,
             alarmLevel: formState.alarm_level,
             address: formState.incident_address,
-            referencePreview: referenceNumberPreview || '(incomplete — fill region, type, and date)',
+            referencePreview: referenceNumberPreview || '(incomplete â€” fill region, type, and date)',
           }}
           onKeepBoth={() => {
             void duplicateModalData.proceedCallback();
@@ -2258,7 +2258,7 @@ export function IncidentForm({
             // inherit the original's reference number and archive it on approval.
             setDuplicateModalData(null);
             const effectiveRegionId = resolveRegionId();
-            if (!effectiveRegionId) { showToast('Region not set — cannot save.'); return; }
+            if (!effectiveRegionId) { showToast('Region not set â€” cannot save.'); return; }
             const updateNote = `[UPDATE REQUEST for incident #${existingId}]\n`;
             const currentNarrative = formState.narrative_report || '';
             const narrativeWithNote = currentNarrative.startsWith('[UPDATE REQUEST')
@@ -2296,13 +2296,13 @@ export function IncidentForm({
                   recommendations: formState.recommendations || 'N/A',
                   parent_incident_id: existingId,
                 }, { skipAuthRedirect: true });
-                // Navigate to detail page — encoder submits for review from there
+                // Navigate to detail page â€” encoder submits for review from there
                 showToast(`Update draft #${result.incident_id} saved. Open it to submit for review.`);
                 router.push(`/dashboard/regional/incidents/${result.incident_id}`);
               } catch (err: unknown) {
                 const msg = (err as Error).message ?? 'Unknown error';
                 if (msg.toLowerCase().includes('session') || msg.includes('401')) {
-                  showToast('Session expired — please log in again. Your form data is still here.');
+                  showToast('Session expired â€” please log in again. Your form data is still here.');
                 } else {
                   showToast(`Save failed: ${msg}`);
                 }
@@ -2318,3 +2318,4 @@ export function IncidentForm({
     </div>
   );
 }
+

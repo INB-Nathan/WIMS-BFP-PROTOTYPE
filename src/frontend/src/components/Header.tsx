@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
@@ -146,7 +146,7 @@ function getBreadcrumbs(pathname: string): string[] {
 function getRoleBadgeColor(role: string | null): { bg: string; text: string } {
     switch (role) {
         case 'SYSTEM_ADMIN':
-            return { bg: '#fee2e2', text: '#991b1b' };
+            return { bg: '#fee2e2', text: '#1A3263' };
         case 'ADMIN':
             return { bg: '#fef3c7', text: '#92400e' };
         case 'NATIONAL_VALIDATOR':
@@ -159,3 +159,4 @@ function getRoleBadgeColor(role: string | null): { bg: string; text: string } {
             return { bg: '#f3f4f6', text: '#6b7280' };
     }
 }
+

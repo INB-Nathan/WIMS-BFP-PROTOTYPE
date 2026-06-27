@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -939,7 +939,7 @@ export default function AdminSystemPage() {
     }
 
     const totalActiveSessions = loadingSessions
-        ? '…'
+        ? 'â€¦'
         : activeSessions.length.toString();
 
     const systemStats = [
@@ -958,8 +958,8 @@ export default function AdminSystemPage() {
             {(!networkStatus.isOnline || connectivitySnapshot.state === 'offline') && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
                     {!networkStatus.isOnline
-                        ? 'You are offline — showing cached data'
-                        : 'Backend unreachable — showing cached data'}
+                        ? 'You are offline â€” showing cached data'
+                        : 'Backend unreachable â€” showing cached data'}
                 </div>
             )}
 
@@ -1016,7 +1016,7 @@ export default function AdminSystemPage() {
                                 disabled={pruningWorkers}
                                 className="px-4 py-2 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-50"
                             >
-                                {pruningWorkers ? 'Pruning…' : 'Prune'}
+                                {pruningWorkers ? 'Pruningâ€¦' : 'Prune'}
                             </button>
                         </div>
                     </div>
@@ -1045,7 +1045,7 @@ export default function AdminSystemPage() {
                                 disabled={deletingReportId !== null}
                                 className="px-4 py-2 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-50"
                             >
-                                {deletingReportId !== null ? 'Deleting…' : 'Delete'}
+                                {deletingReportId !== null ? 'Deletingâ€¦' : 'Delete'}
                             </button>
                         </div>
                     </div>
@@ -1142,7 +1142,7 @@ export default function AdminSystemPage() {
                                                     {systemMetrics.ai_inference.avg_latency_ms}ms
                                                 </div>
                                                 <div className="text-xs text-gray-400">
-                                                    avg · {systemMetrics.ai_inference.count} call{systemMetrics.ai_inference.count !== 1 ? 's' : ''}
+                                                    avg Â· {systemMetrics.ai_inference.count} call{systemMetrics.ai_inference.count !== 1 ? 's' : ''}
                                                 </div>
                                             </>
                                         ) : (
@@ -1154,10 +1154,10 @@ export default function AdminSystemPage() {
                                         {systemMetrics.network ? (
                                             <>
                                                 <div className="text-sm font-medium mt-1" style={{ color: 'var(--text-primary)' }}>
-                                                    ↑ {(systemMetrics.network.bytes_sent / 1048576).toFixed(1)} MB sent
+                                                    â†‘ {(systemMetrics.network.bytes_sent / 1048576).toFixed(1)} MB sent
                                                 </div>
                                                 <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                                                    ↓ {(systemMetrics.network.bytes_recv / 1048576).toFixed(1)} MB recv
+                                                    â†“ {(systemMetrics.network.bytes_recv / 1048576).toFixed(1)} MB recv
                                                 </div>
                                             </>
                                         ) : (
@@ -1238,7 +1238,7 @@ export default function AdminSystemPage() {
                                         title="Prune OFFLINE workers older than retention threshold"
                                     >
                                         <Trash2 className="w-3 h-3" />
-                                        {pruningWorkers ? 'Pruning…' : 'Prune Old Workers'}
+                                        {pruningWorkers ? 'Pruningâ€¦' : 'Prune Old Workers'}
                                     </button>
                                 </div>
                                 {pruneResult && (
@@ -1270,7 +1270,7 @@ export default function AdminSystemPage() {
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{w.status}</td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{w.active_tasks}</td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                            {w.last_seen ? new Date(w.last_seen).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : '—'}
+                                                            {w.last_seen ? new Date(w.last_seen).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : 'â€”'}
                                                         </td>
                                                     </tr>
                                                 ))}
@@ -1280,7 +1280,7 @@ export default function AdminSystemPage() {
                                         {workersTotal > 0 && (
                                             <div className="px-1 py-2 flex flex-wrap items-center justify-between gap-2">
                                                 <div className="text-xs text-gray-500">
-                                                    Showing {workersPage * workersPageSize + 1}–{Math.min((workersPage + 1) * workersPageSize, workersTotal)} of {workersTotal} workers
+                                                    Showing {workersPage * workersPageSize + 1}â€“{Math.min((workersPage + 1) * workersPageSize, workersTotal)} of {workersTotal} workers
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <select
@@ -1334,7 +1334,7 @@ export default function AdminSystemPage() {
                         <button
                             onClick={() => { setShowCreateUser(true); setCreatedUser(null); }}
                             className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-md text-white"
-                            style={{ backgroundColor: '#991B1B' }}
+                            style={{ backgroundColor: '#1A3263' }}
                         >
                             <UserPlus className="w-4 h-4" /> Create User
                         </button>
@@ -1351,7 +1351,7 @@ export default function AdminSystemPage() {
                             type="text"
                             value={governanceQuery}
                             onChange={(e) => setGovernanceQuery(e.target.value)}
-                            placeholder="Search username…"
+                            placeholder="Search usernameâ€¦"
                             className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
                             style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
                             aria-label="Filter by username"
@@ -1423,7 +1423,7 @@ export default function AdminSystemPage() {
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                             {loadingUsers ? (
-                                <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400">Loading users…</td></tr>
+                                <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400">Loading usersâ€¦</td></tr>
                             ) : paginatedUsers.length === 0 ? (
                                 <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">
                                     {filteredUsers.length === 0 && users.length > 0 ? 'No users match the current filters.' : 'No users found.'}
@@ -1442,10 +1442,10 @@ export default function AdminSystemPage() {
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{u.role}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                            {regions.find((r) => r.region_id === u.assigned_region_id)?.region_name ?? u.assigned_region_id ?? '—'}
+                                            {regions.find((r) => r.region_id === u.assigned_region_id)?.region_name ?? u.assigned_region_id ?? 'â€”'}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">{u.is_active ? <CheckCircle className="w-5 h-5 text-green-600" /> : <XCircle className="w-5 h-5 text-red-500" />}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{u.created_at ? new Date(u.created_at).toLocaleDateString() : 'â€”'}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-right">
                                             <button
                                                 onClick={() => {
@@ -1469,7 +1469,7 @@ export default function AdminSystemPage() {
                 {filteredUsers.length > 0 && (
                     <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex flex-wrap items-center justify-between gap-3">
                         <div className="text-xs text-gray-500">
-                            Showing {(governancePage - 1) * governancePageSize + 1}–{Math.min(governancePage * governancePageSize, filteredUsers.length)} of {filteredUsers.length} users
+                            Showing {(governancePage - 1) * governancePageSize + 1}â€“{Math.min(governancePage * governancePageSize, filteredUsers.length)} of {filteredUsers.length} users
                         </div>
                         <div className="flex items-center gap-2">
                             <select
@@ -1527,7 +1527,7 @@ export default function AdminSystemPage() {
                             type="text"
                             value={sessionsQuery}
                             onChange={(e) => { setSessionsQuery(e.target.value); setSessionsPage(1); }}
-                            placeholder="Filter by username…"
+                            placeholder="Filter by usernameâ€¦"
                             className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
                             style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
                             aria-label="Filter sessions by username"
@@ -1547,7 +1547,7 @@ export default function AdminSystemPage() {
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                             {loadingSessions ? (
-                                <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400">Loading sessions…</td></tr>
+                                <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400">Loading sessionsâ€¦</td></tr>
                             ) : paginatedSessions.length === 0 ? (
                                 <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-500">
                                     {filteredSessions.length === 0 && activeSessions.length > 0 ? 'No sessions match the username filter.' : 'No active sessions found.'}
@@ -1578,7 +1578,7 @@ export default function AdminSystemPage() {
                 {filteredSessions.length > 0 && (
                     <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex flex-wrap items-center justify-between gap-3">
                         <div className="text-xs text-gray-500">
-                            Showing {(sessionsPage - 1) * sessionsPageSize + 1}–{Math.min(sessionsPage * sessionsPageSize, filteredSessions.length)} of {filteredSessions.length} sessions
+                            Showing {(sessionsPage - 1) * sessionsPageSize + 1}â€“{Math.min(sessionsPage * sessionsPageSize, filteredSessions.length)} of {filteredSessions.length} sessions
                         </div>
                         <div className="flex items-center gap-2">
                             <select
@@ -1633,7 +1633,7 @@ export default function AdminSystemPage() {
                         aria-label="Search security logs"
                         value={securitySearchQ}
                         onChange={e => setSecuritySearchQ(e.target.value)}
-                        placeholder="Search logs (narrative, IP, severity…)"
+                        placeholder="Search logs (narrative, IP, severityâ€¦)"
                         className="flex-1 border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2"
                         style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
                     />
@@ -1775,7 +1775,7 @@ export default function AdminSystemPage() {
                                 <tr>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Severity</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source → Dest</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source â†’ Dest</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SID</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">View</th>
@@ -1786,12 +1786,12 @@ export default function AdminSystemPage() {
                                     <tr key={log.log_id} className="hover:bg-gray-50">
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <span className={`px-2 py-1 text-xs font-semibold rounded-full ${log.severity_level === 'CRITICAL' ? 'bg-red-100 text-red-800' : log.severity_level === 'HIGH' ? 'bg-orange-100 text-orange-800' : log.severity_level === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'}`}>
-                                                {log.severity_level ?? '—'}
+                                                {log.severity_level ?? 'â€”'}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{log.timestamp ? new Date(log.timestamp).toLocaleString() : '—'}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">{log.source_ip ?? '—'} → {log.destination_ip ?? '—'}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{log.suricata_sid ?? '—'}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{log.timestamp ? new Date(log.timestamp).toLocaleString() : 'â€”'}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">{log.source_ip ?? 'â€”'} â†’ {log.destination_ip ?? 'â€”'}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{log.suricata_sid ?? 'â€”'}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm">{log.admin_action_taken ? <span className="text-green-700 font-medium">{log.admin_action_taken}</span> : <span className="text-gray-400 italic">Unreviewed</span>}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-right">
                                             <div className="flex items-center justify-end gap-2">
@@ -1802,7 +1802,7 @@ export default function AdminSystemPage() {
                                                         className="text-purple-600 hover:text-purple-800 text-sm font-medium flex items-center gap-1 disabled:opacity-50"
                                                     >
                                                         <Sparkles className="w-4 h-4" />
-                                                        {analyzingLogId === log.log_id ? 'Analyzing…' : 'Analyze with AI'}
+                                                        {analyzingLogId === log.log_id ? 'Analyzingâ€¦' : 'Analyze with AI'}
                                                     </button>
                                                 )}
                                                 <button onClick={() => setSelectedLog(log)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">View</button>
@@ -1819,7 +1819,7 @@ export default function AdminSystemPage() {
                 {!loadingLogs && telemetryTotal > 0 && (
                     <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
                         <span className="text-xs text-gray-500">
-                            Showing {Math.min((telemetryPage * TELEMETRY_PAGE_SIZE) + 1, telemetryTotal)}–{Math.min((telemetryPage + 1) * TELEMETRY_PAGE_SIZE, telemetryTotal)} of {telemetryTotal}
+                            Showing {Math.min((telemetryPage * TELEMETRY_PAGE_SIZE) + 1, telemetryTotal)}â€“{Math.min((telemetryPage + 1) * TELEMETRY_PAGE_SIZE, telemetryTotal)} of {telemetryTotal}
                         </span>
                         <div className="flex items-center gap-2">
                             <button
@@ -1846,7 +1846,7 @@ export default function AdminSystemPage() {
                 )}
             </section>
 
-            {/* System Audit — dedicated page CTA (#352) */}
+            {/* System Audit â€” dedicated page CTA (#352) */}
             <section id="audit" className="card overflow-hidden">
                 <div className="card-header flex items-center gap-2" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
                     <FileText className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
@@ -1897,7 +1897,7 @@ export default function AdminSystemPage() {
                 </div>
                 <div className="overflow-x-auto">
                     {loadingFailedSyncs ? (
-                        <div className="p-8 text-center text-gray-500">Loading failed syncs…</div>
+                        <div className="p-8 text-center text-gray-500">Loading failed syncsâ€¦</div>
                     ) : failedSyncs.length === 0 ? (
                         <div className="p-8 text-center text-gray-500">No failed sync operations.</div>
                     ) : (
@@ -1916,7 +1916,7 @@ export default function AdminSystemPage() {
                                 {failedSyncs.map((op) => (
                                     <tr key={op.localId} className="hover:bg-gray-50">
                                         <td className="px-6 py-4 whitespace-nowrap text-xs font-mono text-gray-600" title={op.localId}>
-                                            {op.localId.slice(0, 8)}…
+                                            {op.localId.slice(0, 8)}â€¦
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{op.operation}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 max-w-[200px] truncate" title={op.errorMessage}>
@@ -1924,7 +1924,7 @@ export default function AdminSystemPage() {
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{op.retryCount}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                            {op.failed_at ? new Date(op.failed_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : '—'}
+                                            {op.failed_at ? new Date(op.failed_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : 'â€”'}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-right">
                                             <div className="flex items-center justify-end gap-2">
@@ -1933,7 +1933,7 @@ export default function AdminSystemPage() {
                                                     disabled={retryingOpId === op.localId}
                                                     className="text-blue-600 hover:text-blue-800 text-sm font-medium disabled:opacity-50"
                                                 >
-                                                    {retryingOpId === op.localId ? 'Retrying…' : 'Retry'}
+                                                    {retryingOpId === op.localId ? 'Retryingâ€¦' : 'Retry'}
                                                 </button>
                                                 <button
                                                     onClick={() => handleDeleteSyncOp(op.localId)}
@@ -1941,7 +1941,7 @@ export default function AdminSystemPage() {
                                                     className="text-red-600 hover:text-red-800 text-sm font-medium disabled:opacity-50 flex items-center gap-1"
                                                 >
                                                     <Trash2 className="w-3 h-3" />
-                                                    {deletingOpId === op.localId ? 'Deleting…' : 'Delete'}
+                                                    {deletingOpId === op.localId ? 'Deletingâ€¦' : 'Delete'}
                                                 </button>
                                             </div>
                                         </td>
@@ -2031,7 +2031,7 @@ export default function AdminSystemPage() {
                         <button
                             onClick={() => setShowCreateReport(true)}
                             className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-md text-white"
-                            style={{ backgroundColor: '#991B1B' }}
+                            style={{ backgroundColor: '#1A3263' }}
                         >
                             <Plus className="w-4 h-4" /> New Schedule
                         </button>
@@ -2065,7 +2065,7 @@ export default function AdminSystemPage() {
                                                 <Mail className="w-3 h-3" /> {r.recipients.length}
                                             </span>
                                         ) : (
-                                            <span className="text-gray-400">—</span>
+                                            <span className="text-gray-400">â€”</span>
                                         )}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
@@ -2092,7 +2092,7 @@ export default function AdminSystemPage() {
                                             disabled={deletingReportId === r.id}
                                             className="text-red-600 hover:text-red-800 text-sm font-medium disabled:opacity-50"
                                         >
-                                            {deletingReportId === r.id ? 'Deleting…' : (
+                                            {deletingReportId === r.id ? 'Deletingâ€¦' : (
                                                 <Trash2 className="w-4 h-4" />
                                             )}
                                         </button>
@@ -2196,7 +2196,7 @@ export default function AdminSystemPage() {
                                     className="flex-1 py-2.5 rounded-lg text-white font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
                                     style={{ backgroundColor: 'var(--sidebar-bg)' }}
                                 >
-                                    {creatingReport ? <><RefreshCw className="w-4 h-4 animate-spin" /> Creating…</> : <><Plus className="w-4 h-4" /> Create Schedule</>}
+                                    {creatingReport ? <><RefreshCw className="w-4 h-4 animate-spin" /> Creatingâ€¦</> : <><Plus className="w-4 h-4" /> Create Schedule</>}
                                 </button>
                                 <button
                                     onClick={() => setShowCreateReport(false)}
@@ -2453,7 +2453,7 @@ export default function AdminSystemPage() {
                         <div className="p-5 border-b border-gray-200 flex justify-between items-center bg-gray-50">
                             <div className="flex items-center gap-2">
                                 <Monitor className="w-4 h-4 text-gray-500" />
-                                <h3 className="text-base font-bold">Active Sessions — {selectedSessionUser.username}</h3>
+                                <h3 className="text-base font-bold">Active Sessions â€” {selectedSessionUser.username}</h3>
                             </div>
                             <button onClick={() => setSelectedSessionUser(null)} className="text-gray-500 hover:text-gray-700">
                                 <XCircle className="w-5 h-5" />
@@ -2461,7 +2461,7 @@ export default function AdminSystemPage() {
                         </div>
                         <div className="p-5 space-y-3">
                             {loadingSessionUser ? (
-                                <p className="text-sm text-gray-500 text-center py-4">Loading sessions…</p>
+                                <p className="text-sm text-gray-500 text-center py-4">Loading sessionsâ€¦</p>
                             ) : sessionUserError ? (
                                 <p className="text-sm text-red-600 text-center py-4">{sessionUserError}</p>
                             ) : (sessionsByUser[selectedSessionUser.user_id] ?? []).length === 0 ? (
@@ -2472,9 +2472,9 @@ export default function AdminSystemPage() {
                                         <li key={s.id} className="py-2.5 text-sm">
                                             <div className="flex justify-between items-start">
                                                 <div>
-                                                    <div className="font-mono text-gray-700">{s.ipAddress ?? '—'}</div>
+                                                    <div className="font-mono text-gray-700">{s.ipAddress ?? 'â€”'}</div>
                                                     <div className="text-xs text-gray-400 mt-0.5">
-                                                        Started: {s.start ? new Date(s.start).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : '—'} &middot; Last access: {s.lastAccess ? new Date(s.lastAccess).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : '—'}
+                                                        Started: {s.start ? new Date(s.start).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : 'â€”'} &middot; Last access: {s.lastAccess ? new Date(s.lastAccess).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : 'â€”'}
                                                     </div>
                                                 </div>
                                             </div>
@@ -2490,7 +2490,7 @@ export default function AdminSystemPage() {
                                     className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-sm font-medium rounded hover:bg-red-700 disabled:opacity-50"
                                 >
                                     <LogOut className="w-4 h-4" />
-                                    {terminatingUser === selectedSessionUser.user_id ? 'Terminating…' : 'Terminate All'}
+                                    {terminatingUser === selectedSessionUser.user_id ? 'Terminatingâ€¦' : 'Terminate All'}
                                 </button>
                             </div>
                         </div>
@@ -2513,14 +2513,14 @@ export default function AdminSystemPage() {
                         </div>
 
                         {createdUser ? (
-                            /* Success state — show the temporary password */
+                            /* Success state â€” show the temporary password */
                             <div className="p-6 space-y-4">
                                 <div className="flex items-center gap-2 text-green-700 font-semibold">
                                     <CheckCircle className="w-5 h-5" />
                                     <span>User created successfully!</span>
                                 </div>
                                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
-                                    <p className="text-sm text-amber-800 font-medium">{createdUser.note ?? '⚠ Distribute this temporary password to the user securely. They must change it on first login.'}</p>
+                                    <p className="text-sm text-amber-800 font-medium">{createdUser.note ?? 'âš  Distribute this temporary password to the user securely. They must change it on first login.'}</p>
                                     <div>
                                         <p className="text-xs text-gray-500 mb-1">Username</p>
                                         <p className="text-sm bg-white border border-gray-200 rounded px-3 py-1.5">{createdUser.username}</p>
@@ -2529,7 +2529,7 @@ export default function AdminSystemPage() {
                                         <p className="text-xs text-gray-500 mb-1">Temporary Password</p>
                                         <div className="flex items-center gap-2">
                                             <p className="text-sm bg-white border border-gray-200 rounded px-3 py-1.5 flex-1 tracking-widest">
-                                                {showTempPassword ? createdUser.temporary_password : '••••••••••••••'}
+                                                {showTempPassword ? createdUser.temporary_password : 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢'}
                                             </p>
                                             <button onClick={() => setShowTempPassword(!showTempPassword)} className="p-2 text-gray-500 hover:text-gray-700">
                                                 {showTempPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -2591,7 +2591,7 @@ export default function AdminSystemPage() {
                                             placeholder="e.g. encoder_juan"
                                             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
                                         />
-                                        <p className="text-xs text-gray-400 mt-1">3–50 characters: letters, numbers, underscores, hyphens. Used to log in via Keycloak.</p>
+                                        <p className="text-xs text-gray-400 mt-1">3â€“50 characters: letters, numbers, underscores, hyphens. Used to log in via Keycloak.</p>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Role <span className="text-red-500">*</span></label>
@@ -2641,7 +2641,7 @@ export default function AdminSystemPage() {
                                         className="flex-1 py-2.5 rounded-lg text-white font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
                                         style={{ backgroundColor: 'var(--sidebar-bg)' }}
                                     >
-                                        {isCreating ? <><RefreshCw className="w-4 h-4 animate-spin" /> Creating…</> : <><UserPlus className="w-4 h-4" /> Create User</>}
+                                        {isCreating ? <><RefreshCw className="w-4 h-4 animate-spin" /> Creatingâ€¦</> : <><UserPlus className="w-4 h-4" /> Create User</>}
                                     </button>
                                     <button
                                         onClick={() => { setShowCreateUser(false); setCreatedUser(null); }}
@@ -2662,7 +2662,7 @@ export default function AdminSystemPage() {
                         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center" style={{ backgroundColor: 'var(--sidebar-bg)' }}>
                             <div className="flex items-center gap-2">
                                 <Users className="w-5 h-5 text-white" />
-                                <h3 className="text-base font-bold text-white">Edit User — {editUserModal.username}</h3>
+                                <h3 className="text-base font-bold text-white">Edit User â€” {editUserModal.username}</h3>
                             </div>
                             <button onClick={() => setEditUserModal(null)} className="text-white/70 hover:text-white">
                                 <XCircle className="w-5 h-5" />
@@ -2688,7 +2688,7 @@ export default function AdminSystemPage() {
                                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
                                     style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
                                 >
-                                    <option value="">— No region —</option>
+                                    <option value="">â€” No region â€”</option>
                                     {regions.map((r) => <option key={r.region_id} value={r.region_id}>{r.region_name}</option>)}
                                 </select>
                             </div>
@@ -2729,7 +2729,7 @@ export default function AdminSystemPage() {
                                     className="flex-1 py-2.5 rounded-lg text-white font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
                                     style={{ backgroundColor: 'var(--sidebar-bg)' }}
                                 >
-                                    {savingUser ? <><RefreshCw className="w-4 h-4 animate-spin" /> Saving…</> : 'Save Changes'}
+                                    {savingUser ? <><RefreshCw className="w-4 h-4 animate-spin" /> Savingâ€¦</> : 'Save Changes'}
                                 </button>
                                 <button
                                     onClick={() => setEditUserModal(null)}
@@ -2745,3 +2745,4 @@ export default function AdminSystemPage() {
         </div>
     );
 }
+

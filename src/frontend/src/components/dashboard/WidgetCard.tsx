@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState, useRef } from "react";
 import { X } from "lucide-react";
@@ -8,7 +8,7 @@ import type { WidgetDefinition } from "./widget-definitions";
 export interface WidgetCardProps {
   widget: WidgetDefinition;
   onRemove?: (id: string) => void;
-  /** All active widget IDs — the card fetches its own data independently */
+  /** All active widget IDs â€” the card fetches its own data independently */
   data?: WidgetData;
   loading?: boolean;
   error?: string | null;
@@ -116,7 +116,7 @@ export function WidgetCard({ widget, onRemove, data, loading, error }: WidgetCar
             className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
             style={{ backgroundColor: "#FEE2E2" }}
           >
-            <IconComp className="w-5 h-5" style={{ color: "#991B1B" }} />
+            <IconComp className="w-5 h-5" style={{ color: "#1A3263" }} />
           </div>
           {onRemove && (
             <button
@@ -153,7 +153,7 @@ export function WidgetCard({ widget, onRemove, data, loading, error }: WidgetCar
             className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
             style={{ backgroundColor: "#FEE2E2" }}
           >
-            <IconComp className="w-5 h-5" style={{ color: "#991B1B" }} />
+            <IconComp className="w-5 h-5" style={{ color: "#1A3263" }} />
           </div>
           {onRemove && (
             <button
@@ -191,7 +191,7 @@ export function WidgetCard({ widget, onRemove, data, loading, error }: WidgetCar
   return null;
 }
 
-// ── Self-fetching wrapper ─────────────────────────────────────────────────────
+// â”€â”€ Self-fetching wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export interface SelfFetchingWidgetCardProps {
   widget: WidgetDefinition;
@@ -247,3 +247,4 @@ export function SelfFetchingWidgetCard({ widget, onRemove }: SelfFetchingWidgetC
     />
   );
 }
+

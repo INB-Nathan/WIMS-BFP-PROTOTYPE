@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect } from "react";
 import { apiFetch } from "@/lib/api";
@@ -107,15 +107,16 @@ export function ValidatorDuplicateModal({
         {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
         <div className="flex flex-wrap gap-2 justify-end mt-4">
           <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-40">Cancel</button>
-          <button onClick={handleReject} disabled={loading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#991B1B' }}>Reject</button>
+          <button onClick={handleReject} disabled={loading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#1A3263' }}>Reject</button>
           <button onClick={handleReplace} disabled={loading} className="px-4 py-2 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">
-            {loading ? "Saving…" : "Replace Existing"}
+            {loading ? "Savingâ€¦" : "Replace Existing"}
           </button>
           <button onClick={handleVerify} disabled={loading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#16A34A' }}>
-            {loading ? "Saving…" : "Verify as New"}
+            {loading ? "Savingâ€¦" : "Verify as New"}
           </button>
         </div>
       </div>
     </div>
   );
 }
+

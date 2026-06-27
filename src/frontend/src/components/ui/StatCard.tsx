@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import type { LucideIcon } from "lucide-react";
 
@@ -53,7 +53,7 @@ export function StatCard({ card }: StatCardProps) {
   );
 }
 
-// ── Shared grid constants ──────────────────────────────────────────────────
+// â”€â”€ Shared grid constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export const STATS_DATE_FILTERS = [
   { label: "Today", value: "today" },
@@ -98,7 +98,7 @@ export function StatsDateFilterChips({
                 ? {
                     backgroundColor: "#FEE2E2",
                     borderColor: "#FCA5A5",
-                    color: "#991B1B",
+                    color: "#1A3263",
                   }
                 : {
                     backgroundColor: "#fff",
@@ -114,3 +114,4 @@ export function StatsDateFilterChips({
     </div>
   );
 }
+

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
@@ -37,7 +37,7 @@ export default function ProfilePage() {
         if (typedUser?.role === 'NATIONAL_ANALYST') return 'All Regions';
         if (typedUser?.role === 'SYSTEM_ADMIN') return 'National';
         const id = typedUser?.assignedRegionId;
-        if (id == null) return '—';
+        if (id == null) return 'â€”';
         return PH_REGIONS.find((r) => r.regionId === id)?.regionName ?? `Region ${id}`;
     })();
 
@@ -182,7 +182,7 @@ export default function ProfilePage() {
             };
             if (pwdForm.otp_code.trim()) payload.otp_code = pwdForm.otp_code.trim();
             await changeMyPassword(payload);
-            setPwdMsg({ type: 'success', text: 'Password changed successfully. Logging you out for security…' });
+            setPwdMsg({ type: 'success', text: 'Password changed successfully. Logging you out for securityâ€¦' });
             setPwdForm({ current_password: '', new_password: '', confirm_password: '', otp_code: '' });
             setTimeout(() => logout(), 1500);
         } catch (e: unknown) {
@@ -206,7 +206,7 @@ export default function ProfilePage() {
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-[50vh] text-gray-500">
-                Loading…
+                Loadingâ€¦
             </div>
         );
     }
@@ -230,17 +230,17 @@ export default function ProfilePage() {
                     <div className="grid grid-cols-2 gap-4 text-sm">
                         <div>
                             <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>Username / Email</p>
-                            <p style={{ color: 'var(--text-primary)' }}>{typedUser?.username ?? '—'}</p>
+                            <p style={{ color: 'var(--text-primary)' }}>{typedUser?.username ?? 'â€”'}</p>
                         </div>
                         <div>
                             <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>Role</p>
                             <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold text-white" style={{ backgroundColor: 'var(--sidebar-bg)' }}>
-                                {roleLabel[typedUser?.role ?? ''] ?? typedUser?.role ?? '—'}
+                                {roleLabel[typedUser?.role ?? ''] ?? typedUser?.role ?? 'â€”'}
                             </span>
                         </div>
                         <div>
                             <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>User ID</p>
-                            <p className="text-xs text-gray-400">{typedUser?.id ?? '—'}</p>
+                            <p className="text-xs text-gray-400">{typedUser?.id ?? 'â€”'}</p>
                         </div>
                         <div>
                             <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>Assigned Region</p>
@@ -253,7 +253,7 @@ export default function ProfilePage() {
                 </div>
             </section>
 
-            {/* Offline Mode (encoders only — renders nothing for other roles) */}
+            {/* Offline Mode (encoders only â€” renders nothing for other roles) */}
             <OfflineModeManager variant="panel" />
 
             {/* Edit Profile Card */}
@@ -305,7 +305,7 @@ export default function ProfilePage() {
                                 Email
                             </label>
                             <span className="text-xs" style={{ color: 'var(--text-primary)' }}>
-                                Current: <span className="font-medium">{currentProfile?.email || typedUser?.email || '—'}</span>
+                                Current: <span className="font-medium">{currentProfile?.email || typedUser?.email || 'â€”'}</span>
                             </span>
                         </div>
                         <input
@@ -346,7 +346,7 @@ export default function ProfilePage() {
                                 Contact Number
                             </label>
                             <span className="text-xs" style={{ color: 'var(--text-primary)' }}>
-                                Current: <span className="font-medium">{currentProfile?.contact_number || '—'}</span>
+                                Current: <span className="font-medium">{currentProfile?.contact_number || 'â€”'}</span>
                             </span>
                         </div>
                         <input
@@ -390,7 +390,7 @@ export default function ProfilePage() {
                         className="flex items-center gap-2 px-5 py-2 rounded-lg text-white font-semibold text-sm disabled:opacity-50"
                         style={{ backgroundColor: 'var(--sidebar-bg)' }}
                     >
-                        {savingProfile ? <><RefreshCw className="w-4 h-4 animate-spin" /> Saving…</> : <><Save className="w-4 h-4" /> Save Changes</>}
+                        {savingProfile ? <><RefreshCw className="w-4 h-4 animate-spin" /> Savingâ€¦</> : <><Save className="w-4 h-4" /> Save Changes</>}
                     </button>
                 </div>
             </section>
@@ -452,7 +452,7 @@ export default function ProfilePage() {
                         className="flex items-center gap-2 px-5 py-2 rounded-lg text-white font-semibold text-sm disabled:opacity-50"
                         style={{ backgroundColor: 'var(--sidebar-bg)' }}
                     >
-                        {savingNotif ? <><RefreshCw className="w-4 h-4 animate-spin" /> Saving…</> : <><Save className="w-4 h-4" /> Save Preferences</>}
+                        {savingNotif ? <><RefreshCw className="w-4 h-4 animate-spin" /> Savingâ€¦</> : <><Save className="w-4 h-4" /> Save Preferences</>}
                     </button>
                 </div>
             </section>
@@ -486,7 +486,7 @@ export default function ProfilePage() {
                         </div>
                     </div>
 
-                    {/* OTP field — shown for users with 2FA enrolled */}
+                    {/* OTP field â€” shown for users with 2FA enrolled */}
                     <div>
                         <label className="block text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
                             Authenticator Code <span className="font-normal normal-case" style={{ color: 'var(--text-secondary)' }}>(only if 2FA is enabled)</span>
@@ -580,12 +580,13 @@ export default function ProfilePage() {
                         onClick={handleChangePassword}
                         disabled={savingPwd || !pwdForm.current_password || !pwdForm.new_password || !pwdForm.confirm_password}
                         className="flex items-center gap-2 px-5 py-2 rounded-lg font-semibold text-sm disabled:opacity-50 text-white"
-                        style={{ backgroundColor: '#991B1B' }}
+                        style={{ backgroundColor: '#1A3263' }}
                     >
-                        {savingPwd ? <><RefreshCw className="w-4 h-4 animate-spin" /> Changing…</> : <><Lock className="w-4 h-4" /> Change Password</>}
+                        {savingPwd ? <><RefreshCw className="w-4 h-4 animate-spin" /> Changingâ€¦</> : <><Lock className="w-4 h-4" /> Change Password</>}
                     </button>
                 </div>
             </section>
         </div>
     );
 }
+

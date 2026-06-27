@@ -759,7 +759,7 @@ export default function AnalystIncidentDetailPage() {
               disabled={exportLoading !== null}
               title={exportUnavailableOffline ? "Unavailable offline" : undefined}
               className="inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:opacity-90 disabled:opacity-50 aria-disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-offset-2"
-              style={{ backgroundColor: '#991B1B',  }}
+              style={{ backgroundColor: '#1A3263' }}
               aria-disabled={exportLoading !== null || exportUnavailableOffline}
             >
               <Download className="h-4 w-4" aria-hidden="true" />

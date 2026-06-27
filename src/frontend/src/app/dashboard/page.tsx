@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -233,7 +233,7 @@ export default function DashboardPage() {
         { key: 'STRUCTURAL', title: 'Structural', icon: Building2, value: analytics?.by_general_category?.find(c => c.general_category === 'STRUCTURAL')?.count.toLocaleString() ?? '0', borderColor: '#f97316' },
         { key: 'NON_STRUCTURAL', title: 'Non-Structural', icon: TreePine, value: analytics?.by_general_category?.find(c => c.general_category === 'NON_STRUCTURAL')?.count.toLocaleString() ?? '0', borderColor: '#22c55e' },
         { key: 'VEHICULAR', title: 'Vehicular', icon: Car, value: analytics?.by_general_category?.find(c => c.general_category === 'VEHICULAR')?.count.toLocaleString() ?? '0', borderColor: '#3b82f6' },
-        { key: 'response', title: 'Avg Response', icon: Clock, value: '00 min', borderColor: '#991b1b', disabled: true },
+        { key: 'response', title: 'Avg Response', icon: Clock, value: '00 min', borderColor: '#1A3263', disabled: true },
     ];
 
     return (
@@ -354,7 +354,7 @@ export default function DashboardPage() {
                             <div className="flex gap-2">
                                 <button onClick={handleApplyFilters}
                                     className="flex-1 text-sm font-bold py-2 px-3 rounded-md text-white transition-colors"
-                                    style={{ backgroundColor: '#991B1B' }}>Apply</button>
+                                    style={{ backgroundColor: '#1A3263' }}>Apply</button>
                                 <button onClick={handleClearFilters}
                                     className="text-sm py-2 px-3 rounded-md border hover:bg-gray-50 transition-colors"
                                     style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}>Clear</button>
@@ -485,7 +485,7 @@ export default function DashboardPage() {
                         <div className="p-4 flex justify-end" style={{ borderTop: `1px solid var(--border-color)` }}>
                             <button onClick={() => setShowHelp(false)}
                                 className="text-sm font-bold text-white px-4 py-2 rounded-md transition-colors"
-                                style={{ backgroundColor: '#991B1B' }}>Close</button>
+                                style={{ backgroundColor: '#1A3263' }}>Close</button>
                         </div>
                     </div>
                 </div>
@@ -494,7 +494,7 @@ export default function DashboardPage() {
     );
 }
 
-// ─── Subcomponents ─────────────────────────────────────────
+// â”€â”€â”€ Subcomponents â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function SummaryCard({ title, value, icon, borderColor, isExpanded, showChevron, disabled }: {
     title: string; value: string; icon: React.ReactNode; borderColor: string;
@@ -540,3 +540,4 @@ function FilterSelect({ label, value, onChange, type, options, disabled }: {
         </div>
     );
 }
+

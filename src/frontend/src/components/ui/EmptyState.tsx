@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import type { ReactNode } from "react";
 
@@ -44,7 +44,7 @@ export function EmptyState({
           type="button"
           onClick={onShowAllTime}
           className="mt-4 inline-flex items-center rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-900"
-          style={{ backgroundColor: "#991B1B" }}
+          style={{ backgroundColor: "#1A3263" }}
         >
           Search All Time
         </button>
@@ -53,3 +53,4 @@ export function EmptyState({
     </div>
   );
 }
+

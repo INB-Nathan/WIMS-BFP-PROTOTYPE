@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -60,7 +60,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     };
 
     const isActive = (path: string) => {
-        // /incidents/triage has its own nav item — don't also highlight /incidents
+        // /incidents/triage has its own nav item â€” don't also highlight /incidents
         if (path === '/incidents' && pathname?.startsWith('/incidents/triage')) return false;
         // /dashboard/validator should not stay active when the user navigates to /incidents
         if (path === '/dashboard/validator' && (pathname?.startsWith('/incidents'))) return false;
@@ -71,7 +71,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         return pathname === path || pathname?.startsWith(`${path}/`);
     };
 
-    // Offline work badge count — only meaningful for encoder roles.
+    // Offline work badge count â€” only meaningful for encoder roles.
     // The hook must still be called unconditionally to preserve React hook order.
     const offlineWorkCounts = useOfflineWorkCounts();
     const isEncoderRole = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
@@ -148,13 +148,13 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                                             flex items-center gap-3 mx-3 px-3 py-2.5 text-sm font-medium rounded-lg
                                             transition-all duration-150 relative group
                                             ${active
-                                                ? 'text-[#C62828]'
+                                                ? 'text-[#1A3263]'
                                                 : 'hover:translate-x-1'
                                             }
                                         `}
                                         style={active ? {
-                                            backgroundColor: '#FDECEC',
-                                            borderLeft: '3px solid #C62828',
+                                            backgroundColor: '#E8E2DB',
+                                            borderLeft: '3px solid #1A3263',
                                             paddingLeft: '9px',
                                         } : {
                                             color: 'rgba(255,255,255,0.75)',
@@ -172,7 +172,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                                     >
                                         <span
                                             className="flex-shrink-0 w-[17px] h-[17px] flex items-center justify-center"
-                                            style={{ color: active ? '#C62828' : 'inherit' }}
+                                            style={{ color: active ? '#1A3263' : 'inherit' }}
                                         >
                                             <item.icon className="w-[17px] h-[17px]" />
                                         </span>
@@ -191,7 +191,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
                 {/* Footer */}
                 <div className="px-5 py-3 border-t border-white/10 text-[10px] text-center flex-shrink-0" style={{ color: 'var(--sidebar-text-muted)' }}>
-                    BFP © 2026
+                    BFP Â© 2026
                 </div>
             </aside>
         </>
@@ -341,3 +341,4 @@ function getNavSections(role: string | null, badgeCount: number = 0): NavSection
 
     return sections;
 }
+

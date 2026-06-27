@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { RefreshCw } from "lucide-react";
 
@@ -77,7 +77,7 @@ export function ValidatorPageHeader({
             style={{
               backgroundColor: "#FEE2E2",
               borderColor: "#FCA5A5",
-              color: "#991B1B",
+              color: "#1A3263",
             }}
             title="You are offline. Changes will be queued and synced when you reconnect."
           >
@@ -98,7 +98,7 @@ export function ValidatorPageHeader({
             }}
           >
             {bulkLoading
-              ? (bulkProgress ?? "Processing…")
+              ? (bulkProgress ?? "Processingâ€¦")
               : `Bulk Approve (${selectedCount})`}
           </button>
         )}
@@ -106,3 +106,4 @@ export function ValidatorPageHeader({
     </div>
   );
 }
+
