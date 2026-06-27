@@ -127,6 +127,8 @@ export default function RegionalDashboardPage() {
   const [isFromCache, setIsFromCache] = useState(false);
   const [cachedAt, setCachedAt] = useState<number | undefined>();
   const [queuedOps, setQueuedOps] = useState<OfflineOpDecrypted[]>([]);
+  const [conflictCount, setConflictCount] = useState(0);
+  const [failedCount, setFailedCount] = useState(0);
   const [offlineStatusByServerId, setOfflineStatusByServerId] = useState<
     Map<number, RegionalIncidentOfflineStatus>
   >(new Map());
@@ -270,10 +272,14 @@ export default function RegionalDashboardPage() {
           getConflictOps(encoderId),
           getFailedOps(encoderId),
         ]);
+        setConflictCount(conflictOps.length);
+        setFailedCount(failedOps.length);
         const allActionableOps = [...ops, ...conflictOps, ...failedOps];
         setOfflineStatusByServerId(buildOfflineStatusByServerId(allActionableOps));
       } else {
         setQueuedOps([]);
+        setConflictCount(0);
+        setFailedCount(0);
         setOfflineStatusByServerId(new Map());
       }
     } catch (e) {
@@ -702,8 +708,8 @@ export default function RegionalDashboardPage() {
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Offline Work</h2>
           <p className="text-sm text-gray-500">
-            {queuedOps.length > 0
-              ? `${queuedOps.length} pending sync`
+            {queuedOps.length + failedCount + conflictCount > 0
+              ? `${queuedOps.length} pending · ${failedCount} failed · ${conflictCount} conflicts`
               : 'No pending offline work.'}
           </p>
         </div>
@@ -713,9 +719,9 @@ export default function RegionalDashboardPage() {
         >
           <Clock className="h-4 w-4" aria-hidden />
           Offline Work
-          {queuedOps.length > 0 && (
+          {queuedOps.length + failedCount + conflictCount > 0 && (
             <span className="ml-1 rounded-full bg-white/20 px-2 py-0.5 text-xs font-bold">
-              {queuedOps.length}
+              {queuedOps.length + failedCount + conflictCount}
             </span>
           )}
         </Link>
