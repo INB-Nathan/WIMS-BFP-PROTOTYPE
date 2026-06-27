@@ -166,7 +166,7 @@ export default function HomePage() {
             {isValidator && (
               <button
                 onClick={() => setShowForm(true)}
-                className="inline-flex items-center gap-2 rounded-md bg-red-700 px-3 py-2 text-sm font-medium text-white hover:bg-red-800"
+                className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-white" style={{ backgroundColor: '#1A3263' }}
               >
                 <Plus className="h-4 w-4" /> New Operation
               </button>
@@ -484,7 +484,7 @@ function OperationFormModal({
           <button
             type="submit"
             disabled={saving}
-            className="rounded-md bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800 disabled:opacity-50"
+            className="rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-50" style={{ backgroundColor: '#1A3263' }}
           >
             {saving ? 'Saving…' : 'Save'}
           </button>

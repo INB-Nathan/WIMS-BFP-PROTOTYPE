@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -60,7 +60,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     };
 
     const isActive = (path: string) => {
-        // /incidents/triage has its own nav item â€” don't also highlight /incidents
+        // /incidents/triage has its own nav item — don't also highlight /incidents
         if (path === '/incidents' && pathname?.startsWith('/incidents/triage')) return false;
         // /dashboard/validator should not stay active when the user navigates to /incidents
         if (path === '/dashboard/validator' && (pathname?.startsWith('/incidents'))) return false;
@@ -71,7 +71,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         return pathname === path || pathname?.startsWith(`${path}/`);
     };
 
-    // Offline work badge count â€” only meaningful for encoder roles.
+    // Offline work badge count — only meaningful for encoder roles.
     // The hook must still be called unconditionally to preserve React hook order.
     const offlineWorkCounts = useOfflineWorkCounts();
     const isEncoderRole = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
@@ -178,7 +178,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                                         </span>
                                         <span className="truncate">{item.label}</span>
                                         {item.badge && (
-                                            <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-red-500 text-white font-bold flex-shrink-0">
+                                            <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full font-bold flex-shrink-0" style={{ backgroundColor: '#FAB95B', color: '#1A3263' }}>
                                                 {item.badge}
                                             </span>
                                         )}
@@ -191,7 +191,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
                 {/* Footer */}
                 <div className="px-5 py-3 border-t border-white/10 text-[10px] text-center flex-shrink-0" style={{ color: 'var(--sidebar-text-muted)' }}>
-                    BFP Â© 2026
+                    BFP © 2026
                 </div>
             </aside>
         </>

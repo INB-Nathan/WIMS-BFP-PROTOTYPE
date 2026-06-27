@@ -1066,7 +1066,7 @@ export default function RegionalIncidentDetailPage() {
             </div>
             <p className="text-sm text-gray-700 whitespace-pre-line">{regionMismatchMsg}</p>
             <button
-              className="w-full bg-red-800 text-white rounded py-2 font-semibold hover:bg-red-700"
+              className="w-full text-white rounded py-2 font-semibold" style={{ backgroundColor: '#1A3263' }}
               onClick={() => setRegionMismatchMsg(null)}
             >
               Dismiss
@@ -1094,7 +1094,7 @@ export default function RegionalIncidentDetailPage() {
               <button
                 onClick={() => { setDuplicateFound(null); void handleSubmit({ force: true }); }}
                 disabled={actionLoading}
-                className="px-4 py-2 text-sm font-semibold text-white bg-red-800 rounded-lg hover:bg-red-700 disabled:opacity-50"
+                className="px-4 py-2 text-sm font-semibold text-white rounded-lg disabled:opacity-50" style={{ backgroundColor: '#1A3263' }}
               >
                 {actionLoading ? 'Submitting…' : 'Submit Anyway'}
               </button>
@@ -1134,7 +1134,7 @@ export default function RegionalIncidentDetailPage() {
               <button
                 onClick={() => { setPendingDuplicateFound(null); void handleSubmit({ force: true }); }}
                 disabled={actionLoading}
-                className="px-4 py-2 text-sm font-semibold text-white bg-red-800 rounded-lg hover:bg-red-700 disabled:opacity-50"
+                className="px-4 py-2 text-sm font-semibold text-white rounded-lg disabled:opacity-50" style={{ backgroundColor: '#1A3263' }}
               >
                 {actionLoading ? 'Submitting…' : 'Submit Anyway'}
               </button>
@@ -1301,7 +1301,7 @@ export default function RegionalIncidentDetailPage() {
                   setShowMissingFieldsModal(false);
                   setIsEditing(true);
                 }}
-                className="px-4 py-2 text-sm font-semibold text-white bg-red-800 rounded-lg hover:bg-red-700"
+                className="px-4 py-2 text-sm font-semibold text-white rounded-lg" style={{ backgroundColor: '#1A3263' }}
               >
                 Continue Editing
               </button>
@@ -1388,7 +1388,7 @@ export default function RegionalIncidentDetailPage() {
                     <button
                       onClick={handleSubmitClick}
                       disabled={actionLoading}
-                      className="inline-flex items-center gap-1.5 rounded bg-red-800 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" style={{ backgroundColor: '#1A3263' }}
                     >
                       <Send className="h-3.5 w-3.5" />
                       {detail.verification_status === 'REJECTED' ? 'Resubmit for Review' : 'Submit for Review'}
@@ -1576,8 +1576,8 @@ export default function RegionalIncidentDetailPage() {
                 <span
                   className={`h-3.5 w-3.5 rounded-full border shadow-sm transition-all duration-200 motion-safe:group-hover:scale-125 motion-safe:group-focus:scale-125 ${
                     activeSectionId === id
-                      ? 'border-red-800 bg-red-800 ring-4 ring-red-100'
-                      : 'border-slate-400 bg-white group-hover:border-red-700 group-focus:border-red-700 group-hover:bg-red-50 group-focus:bg-red-50'
+                      ? 'border-[#1A3263] bg-[#1A3263] ring-4 ring-blue-100'
+                      : 'border-slate-400 bg-white group-hover:border-[#1A3263] group-focus:border-[#1A3263] group-hover:bg-[#E8E2DB] group-focus:bg-[#E8E2DB]'
                   }`}
                 />
                 <span className="pointer-events-none absolute right-9 top-1/2 -translate-y-1/2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 opacity-0 shadow-sm transition-all duration-150 group-hover:-translate-x-1 group-hover:opacity-100 group-focus:-translate-x-1 group-focus:opacity-100">

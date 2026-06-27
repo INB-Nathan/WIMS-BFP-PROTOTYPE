@@ -96,12 +96,12 @@ export function LinkableReportSearch({
               {report.disabled_reason && <p className="mt-2 text-xs font-medium text-amber-700">{report.disabled_reason}</p>}
               {selected && <p className="mt-2 text-xs font-medium text-green-700">Selected for this operation</p>}
               {!disabled && mode === 'link' && onLink && (
-                <button type="button" aria-label={`Link report ${report.report_id}`} onClick={() => onLink(report.report_id)} className="mt-3 rounded-md bg-red-700 px-3 py-1.5 text-xs font-bold text-white">
+                <button type="button" aria-label={`Link report ${report.report_id}`} onClick={() => onLink(report.report_id)} className="mt-3 rounded-md px-3 py-1.5 text-xs font-bold text-white" style={{ backgroundColor: '#1A3263' }}>
                   Link report
                 </button>
               )}
               {!disabled && mode === 'select' && onSelect && (
-                <button type="button" aria-label={`Select report ${report.report_id}`} onClick={() => onSelect(report)} className="mt-3 rounded-md bg-red-700 px-3 py-1.5 text-xs font-bold text-white">
+                <button type="button" aria-label={`Select report ${report.report_id}`} onClick={() => onSelect(report)} className="mt-3 rounded-md px-3 py-1.5 text-xs font-bold text-white" style={{ backgroundColor: '#1A3263' }}>
                   Select report
                 </button>
               )}

@@ -23,9 +23,10 @@ export function FilterChips({ options, value, onChange, className = '' }: Filter
             onClick={() => onChange(opt.value)}
             className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
               active
-                ? 'bg-red-700 text-white'
+                ? 'text-white'
                 : 'border border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
             }`}
+            style={active ? { backgroundColor: '#1A3263' } : undefined}
           >
             {opt.label}
           </button>

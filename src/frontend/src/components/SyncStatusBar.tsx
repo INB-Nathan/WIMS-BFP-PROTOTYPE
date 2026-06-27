@@ -77,7 +77,7 @@ export function SyncStatusBar() {
         </span>
         <a
           href="/login"
-          className="ml-auto rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700"
+          className="ml-auto rounded-md px-3 py-1 text-xs font-medium text-white" style={{ backgroundColor: '#1A3263' }}
         >
           Log In to Sync
         </a>
@@ -160,7 +160,7 @@ export function SyncStatusBar() {
             <button
               onClick={syncNow}
               disabled={syncing}
-              className="ml-auto w-full sm:w-auto rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-center min-h-[44px] flex items-center justify-center"
+              className="ml-auto w-full sm:w-auto rounded-md px-3 py-1 text-xs font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed text-center min-h-[44px] flex items-center justify-center" style={{ backgroundColor: '#1A3263' }}
             >
               Retry All
             </button>

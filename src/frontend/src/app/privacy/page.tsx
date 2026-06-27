@@ -1,15 +1,15 @@
-﻿import type { Metadata } from 'next';
+import type { Metadata } from 'next';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
-  title: 'Data Retention Policy â€” WIMS-BFP',
+  title: 'Data Retention Policy — WIMS-BFP',
   description: 'Data Retention Policy for the WIMS-BFP Wildfire Incident Management System',
 };
 
 export default function PrivacyPage() {
   return (
     <div className="min-h-screen" style={{ background: 'var(--content-bg)' }}>
-      {/* â”€â”€ Hero â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Hero ────────────────────────────────────────────────────── */}
       <header
         className="text-center py-8 px-4 relative overflow-hidden"
         style={{ background: 'var(--bfp-gradient)' }}
@@ -37,7 +37,7 @@ export default function PrivacyPage() {
           Data Retention Policy
         </h1>
         <p className="text-sm text-white/50 mt-0.5">
-          WIMS-BFP â€” Wildfire Incident Management System
+          WIMS-BFP — Wildfire Incident Management System
         </p>
         <span
           className="inline-block mt-3 px-3 py-1 rounded-full text-[0.675rem] font-medium tracking-wider text-white/70"
@@ -47,7 +47,7 @@ export default function PrivacyPage() {
         </span>
       </header>
 
-      {/* â”€â”€ Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Card ────────────────────────────────────────────────────── */}
       <main>
         <div className="max-w-3xl mx-auto px-4 -mt-6 pb-8">
           <div
@@ -89,7 +89,7 @@ export default function PrivacyPage() {
                 />
               </Section>
 
-              {/* Section 3 â€” Consent Notice */}
+              {/* Section 3 — Consent Notice */}
               <Section num={3} title="Consent Notice">
                 <p className="mb-2">
                   Displayed on the WIMS-BFP report page (wimsbfp.tech) before the user
@@ -113,7 +113,7 @@ export default function PrivacyPage() {
                     By submitting a fire report through this application, you consent to
                     the collection, processing, and retention of your personal data in
                     accordance with this Data Retention Policy. Submission implies
-                    agreement â€” no separate checkbox required. This application operates
+                    agreement — no separate checkbox required. This application operates
                     under the legitimate interest of the Bureau of Fire Protection for
                     incident response, investigation, and national fire statistics in
                     compliance with RA 10173.
@@ -121,7 +121,7 @@ export default function PrivacyPage() {
                 </div>
               </Section>
 
-              {/* Section 4 â€” Data Categories & Retention */}
+              {/* Section 4 — Data Categories & Retention */}
               <Section num={4} title="Data Categories &amp; Retention Periods">
                 <SubSection title="A. Civilian Reports">
                   <p className="mb-2">
@@ -166,7 +166,7 @@ export default function PrivacyPage() {
                   <BulletList
                     items={[
                       'Retained for the same period as the incident record it is attached to',
-                      'Treated as SPI (Sensitive Personal Information) under RA 10173 Sec. 3(b) â€” IP + UA combination can identify a natural person',
+                      'Treated as SPI (Sensitive Personal Information) under RA 10173 Sec. 3(b) — IP + UA combination can identify a natural person',
                       'Not stored separately or indefinitely as a profile or tracking set',
                     ]}
                   />
@@ -244,7 +244,7 @@ export default function PrivacyPage() {
                 <BulletList
                   items={[
                     'Role: receives and processes all data subject requests, breach notifications, and retention waiver requests',
-                    'Contact: [TO BE ASSIGNED â€” must be designated per NPC Circular 16-01]',
+                    'Contact: [TO BE ASSIGNED — must be designated per NPC Circular 16-01]',
                     'Review cycle: this retention policy is reviewed annually or after any material system change',
                   ]}
                   strongPrefix
@@ -256,16 +256,16 @@ export default function PrivacyPage() {
         </div>
       </main>
 
-      {/* â”€â”€ Footer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Footer ──────────────────────────────────────────────────── */}
       <footer className="text-center pb-8 px-4">
         <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
-          Bureau of Fire Protection Â· WIMS-BFP
+          Bureau of Fire Protection · WIMS-BFP
         </p>
         <p className="text-[0.675rem] mt-0.5" style={{ color: 'var(--text-muted)' }}>
-          Wildfire Incident Management System â€” Republic of the Philippines
+          Wildfire Incident Management System — Republic of the Philippines
         </p>
         <p className="text-[0.675rem] mt-1" style={{ color: 'var(--text-muted)' }}>
-          Last updated: June 2026 Â·{' '}
+          Last updated: June 2026 ·{' '}
           <Link
             href="/"
             className="underline underline-offset-2"
@@ -279,7 +279,7 @@ export default function PrivacyPage() {
   );
 }
 
-// â”€â”€ Sub-components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Sub-components ──────────────────────────────────────────────────────────
 
 function Section({
   num,

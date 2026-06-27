@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import type { MouseEvent } from "react";
 import { Archive } from "lucide-react";
@@ -185,7 +185,7 @@ export function IncidentCard({
             style={{ color: hasQueuedArchive ? undefined : 'var(--text-secondary)' }}
             title={
               hasQueuedArchive
-                ? `An archive ${isArchiveView ? 'restore' : 'action'} is already queued â€” it will sync when back online`
+                ? `An archive ${isArchiveView ? 'restore' : 'action'} is already queued — it will sync when back online`
                 : isArchiveView ? 'Restore this incident to the active list' : 'Archive this verified incident'
             }
           >

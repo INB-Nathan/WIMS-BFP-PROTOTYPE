@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
@@ -135,7 +135,7 @@ export default function RegionalDashboardPage() {
   const [cachedDetailIds, setCachedDetailIds] = useState<Set<number>>(new Set());
   const [syncNotification, setSyncNotification] = useState<SyncedIncidentSummary[] | null>(null);
 
-  // Stats visibility â€” hidden by default each login; persisted across page navigations.
+  // Stats visibility — hidden by default each login; persisted across page navigations.
   // Auto-collapsed when offline (stats can't refresh and would be misleading).
   const [showStats, setShowStats] = useState<boolean>(() => {
     try {
@@ -148,7 +148,7 @@ export default function RegionalDashboardPage() {
   }, [isOnline]);
 
   // Pre-cache the RSC payload and JS chunks for offline-capable routes.
-  // Fires on mount unconditionally â€” router.prefetch silently fails when offline,
+  // Fires on mount unconditionally — router.prefetch silently fails when offline,
   // so no guard needed. Firing early (not waiting for isOnline state) avoids the
   // race condition where the user goes offline before the health probe resolves.
   useEffect(() => {
@@ -161,10 +161,10 @@ export default function RegionalDashboardPage() {
     router.prefetch('/home');
     // Warm the incident-detail route. The page is 'use client' (no server data
     // fetch), so prefetching any concrete id caches the SAME shell/RSC that the
-    // SW keys canonically â€” making every incident, including offline-created
+    // SW keys canonically — making every incident, including offline-created
     // local IDs, viewable offline even when the encoder has no server incidents.
     router.prefetch('/dashboard/regional/incidents/1');
-  }, [router]); // router is stable â€” this runs once on mount
+  }, [router]); // router is stable — this runs once on mount
   const toggleStats = () => {
     setShowStats((prev) => {
       const next = !prev;
@@ -199,7 +199,7 @@ export default function RegionalDashboardPage() {
   const updateFiltersWithoutScrollShift = useScrollSafeUpdate();
   const { hoverHint, clearHoverHint, scheduleHoverHint, hideHoverHintOnMove } = useHoverHint();
 
-  // â”€â”€ Widget customization â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Widget customization ────────────────────────────────────────────────
   const widgetConfig = useDashboardWidgets(
     role === 'NATIONAL_VALIDATOR' ? 'NATIONAL_VALIDATOR' : 'REGIONAL_ENCODER',
   );
@@ -310,7 +310,7 @@ export default function RegionalDashboardPage() {
       const { incidents } = (e as CustomEvent<{ incidents: SyncedIncidentSummary[] }>).detail;
       // Task 10: sync-completion eviction trigger. Self-gated by an internal
       // 1h timestamp so this is cheap to call on every sync event. Wrapped
-      // in try/catch + void â€” eviction is best-effort and must never block
+      // in try/catch + void — eviction is best-effort and must never block
       // the sync-complete handler's UI refresh.
       try {
         void maybePruneCaches();
@@ -359,7 +359,7 @@ export default function RegionalDashboardPage() {
   if (loading || !canAccessRegional) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-gray-500">
-        Loading Dashboardâ€¦
+        Loading Dashboard…
       </div>
     );
   }
@@ -402,7 +402,7 @@ export default function RegionalDashboardPage() {
     try {
       const result = await archiveEncoderIncidentOfflineAware(incidentId, encoderArchiveContext());
       if (result.queued) {
-        setArchiveError('Archive queued â€” it will sync when you reconnect.');
+        setArchiveError('Archive queued — it will sync when you reconnect.');
         return;
       }
       await loadIncidents();
@@ -417,7 +417,7 @@ export default function RegionalDashboardPage() {
     try {
       const result = await unarchiveEncoderIncidentOfflineAware(incidentId, encoderArchiveContext());
       if (result.queued) {
-        setArchiveError('Unarchive queued â€” it will sync when you reconnect.');
+        setArchiveError('Unarchive queued — it will sync when you reconnect.');
         return;
       }
       await loadIncidents();
@@ -455,13 +455,13 @@ export default function RegionalDashboardPage() {
     const p = op.payload as Record<string, unknown>;
     const ns = (p.incident_nonsensitive_details ?? {}) as Record<string, unknown>;
     const sens = (p.incident_sensitive_details ?? {}) as Record<string, unknown>;
-    const category = String(ns.general_category ?? p.general_category ?? 'â€”');
-    const station = String(ns.fire_station_name ?? p.fire_station_name ?? 'â€”');
+    const category = String(ns.general_category ?? p.general_category ?? '—');
+    const station = String(ns.fire_station_name ?? p.fire_station_name ?? '—');
     const location = [
       sens.street_address ?? p.street_address,
       ns.city_municipality ?? p.city_municipality,
       ns.province_district ?? p.province_district,
-    ].filter(Boolean).join(', ') || 'â€”';
+    ].filter(Boolean).join(', ') || '—';
     const savedAt = new Date(op.createdAt).toLocaleString('en-PH', {
       month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
     });
@@ -596,7 +596,7 @@ export default function RegionalDashboardPage() {
   return (
     <div className="space-y-6 pb-8" style={{ backgroundColor: 'var(--content-bg)' }}>
 
-      {/* â”€â”€ Sync notification modal â”€â”€ */}
+      {/* ── Sync notification modal ── */}
       {syncNotification && (
         <SyncNotificationModal
           incidents={syncNotification}
@@ -604,7 +604,7 @@ export default function RegionalDashboardPage() {
         />
       )}
 
-      {/* â”€â”€ Archive error banner â”€â”€ */}
+      {/* ── Archive error banner ── */}
       {archiveError && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {archiveError}
@@ -625,7 +625,7 @@ export default function RegionalDashboardPage() {
         onShowRejected={showRejectedAndScroll}
       />
 
-      {/* â”€â”€ Page header â”€â”€ */}
+      {/* ── Page header ── */}
       <RegionalPageHeader
         showStats={showStats}
         onToggleStats={toggleStats}
@@ -634,7 +634,7 @@ export default function RegionalDashboardPage() {
         onRefreshAll={refreshAll}
       />
 
-      {/* â”€â”€ Stats section (collapsible, auto-hidden when offline) â”€â”€ */}
+      {/* ── Stats section (collapsible, auto-hidden when offline) ── */}
       {showStats && (
         <>
           {/* Period filter */}
@@ -656,7 +656,7 @@ export default function RegionalDashboardPage() {
         </>
       )}
 
-      {/* â”€â”€ Customizable widget grid â”€â”€ */}
+      {/* ── Customizable widget grid ── */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
           Dashboard Widgets
@@ -681,7 +681,7 @@ export default function RegionalDashboardPage() {
         onRemoveWidget={widgetConfig.removeWidget}
       />
 
-      {/* â”€â”€ Stale cache banner â€” only shown when confirmed offline â”€â”€ */}
+      {/* ── Stale cache banner — only shown when confirmed offline ── */}
       {isFromCache && !isOnline && (
         <div
           className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800"
@@ -692,7 +692,7 @@ export default function RegionalDashboardPage() {
             <span className="font-semibold">Showing cached data</span>
             {cachedAt !== undefined && (
               <span className="ml-1 font-normal">
-                â€” last updated {formatCacheAge(cachedAt)}
+                — last updated {formatCacheAge(cachedAt)}
               </span>
             )}
             <span className="ml-1 font-normal text-amber-700">
@@ -703,19 +703,19 @@ export default function RegionalDashboardPage() {
       )}
 
 
-      {/* â”€â”€ Offline Work quick link â”€â”€ */}
+      {/* ── Offline Work quick link ── */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Offline Work</h2>
           <p className="text-sm text-gray-500">
             {queuedOps.length + failedCount + conflictCount > 0
-              ? `${queuedOps.length} pendingÂ Â· ${failedCount} failedÂ Â· ${conflictCount} conflicts`
+              ? `${queuedOps.length} pendingÂ · ${failedCount} failedÂ · ${conflictCount} conflicts`
               : 'No pending offline work.'}
           </p>
         </div>
         <Link
           href="/dashboard/regional/offline-work"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800 transition-colors"
+          className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors" style={{ backgroundColor: '#FAB95B', color: '#1A3263' }}
         >
           <Clock className="h-4 w-4" aria-hidden />
           Offline Work
@@ -727,7 +727,7 @@ export default function RegionalDashboardPage() {
         </Link>
       </div>
 
-      {/* â”€â”€ Incidents section â”€â”€ */}
+      {/* ── Incidents section ── */}
       <section
         ref={incidentsSectionRef}
         className="rounded-2xl overflow-hidden"
@@ -747,8 +747,8 @@ export default function RegionalDashboardPage() {
             </div>
             <p className="text-sm whitespace-nowrap" style={{ color: 'var(--text-secondary)' }} aria-live="polite">
               {incidentsLoading
-                ? 'Loadingâ€¦'
-                : `${fromRow}â€“${toRow} of ${incidentsTotal.toLocaleString()}`}
+                ? 'Loading…'
+                : `${fromRow}–${toRow} of ${incidentsTotal.toLocaleString()}`}
             </p>
           </div>
 
@@ -964,7 +964,7 @@ export default function RegionalDashboardPage() {
               {incidentsLoading ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-                    Loading incidentsâ€¦
+                    Loading incidents…
                   </td>
                 </tr>
               ) : incidents.length === 0 && queuedOps.length === 0 ? (
@@ -1076,11 +1076,11 @@ export default function RegionalDashboardPage() {
                     </td>
                     <td className="px-5 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
                       <div className="flex items-center gap-2">
-                        <span>{inc.fire_station_name || 'â€”'}</span>
+                        <span>{inc.fire_station_name || '—'}</span>
                       </div>
                     </td>
                     <td className="px-5 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                      {inc.location_display ?? 'â€”'}
+                      {inc.location_display ?? '—'}
                     </td>
                     <td className="px-5 py-4 whitespace-nowrap text-sm" style={{ color: 'var(--text-secondary)' }}>
                       {formatIncidentDate(inc.updated_at)}

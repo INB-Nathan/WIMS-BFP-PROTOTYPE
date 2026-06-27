@@ -56,7 +56,7 @@ export function TriageEvidenceCard({
           </h3>
         </div>
         <div className="flex flex-wrap justify-end gap-1">
-          {selected && <span className="rounded-full bg-red-700 px-2 py-0.5 text-xs font-bold text-white">Selected</span>}
+          {selected && <span className="rounded-full px-2 py-0.5 text-xs font-bold text-white" style={{ backgroundColor: '#1A3263' }}>Selected</span>}
           {suggested && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">Suggested</span>}
           {terminal && <span className="rounded-full bg-slate-900 px-2 py-0.5 text-xs font-bold text-white">{report.status}</span>}
         </div>

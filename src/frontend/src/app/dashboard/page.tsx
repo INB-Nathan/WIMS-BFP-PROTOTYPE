@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -494,7 +494,7 @@ export default function DashboardPage() {
     );
 }
 
-// â”€â”€â”€ Subcomponents â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Subcomponents ─────────────────────────────────────────
 
 function SummaryCard({ title, value, icon, borderColor, isExpanded, showChevron, disabled }: {
     title: string; value: string; icon: React.ReactNode; borderColor: string;

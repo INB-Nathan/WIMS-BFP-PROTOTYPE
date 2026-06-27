@@ -59,7 +59,7 @@ export default function AforError({
             <div className="flex flex-wrap items-center justify-center gap-3">
                 <button
                     onClick={() => window.location.reload()}
-                    className="inline-flex items-center gap-2 rounded-md bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800 transition-colors"
+                    className="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white transition-colors" style={{ backgroundColor: '#1A3263' }}
                 >
                     <RefreshCw className="w-4 h-4" />
                     Reload page

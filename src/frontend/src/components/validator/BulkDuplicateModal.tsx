@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { UpdateRequestDiffPanel } from "@/components/UpdateRequestDiffPanel";
 import type { ValidatorIncident } from "./types";
@@ -15,7 +15,7 @@ export function BulkDuplicateModal({ target, regionDisplay, onResolve }: Props) 
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
         <h2 className="text-lg font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Duplicate Detected in Batch</h2>
         <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
-          Incident #{target.incident_id} Â· {target.fire_station_name ?? "Unknown station"} Â· {regionDisplay(target.region_id)}
+          Incident #{target.incident_id} · {target.fire_station_name ?? "Unknown station"} · {regionDisplay(target.region_id)}
         </p>
         <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-xl text-sm text-orange-800">
           This incident may be a duplicate of a verified record. Choose how to proceed.

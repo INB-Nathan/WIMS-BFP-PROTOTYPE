@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { RefreshCw } from "lucide-react";
 
@@ -98,7 +98,7 @@ export function ValidatorPageHeader({
             }}
           >
             {bulkLoading
-              ? (bulkProgress ?? "Processingâ€¦")
+              ? (bulkProgress ?? "Processing…")
               : `Bulk Approve (${selectedCount})`}
           </button>
         )}

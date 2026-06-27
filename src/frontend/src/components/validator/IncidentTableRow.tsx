@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import type { MouseEvent } from "react";
 import { Archive } from "lucide-react";
@@ -123,7 +123,7 @@ export function IncidentTableRow({
         {formatClassification(inc.general_category)}
       </td>
       <td className="px-4 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
-        {inc.alarm_level ?? "â€”"}
+        {inc.alarm_level ?? "—"}
       </td>
       <td className="px-4 py-4 whitespace-nowrap">
         <div className="flex gap-1.5 items-center">
@@ -179,15 +179,15 @@ export function IncidentTableRow({
                   onMouseEnter={(e) => { if (acceptingId !== inc.incident_id) (e.currentTarget as HTMLElement).style.backgroundColor = '#15803D'; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#16A34A'; }}
                 >
-                  {acceptingId === inc.incident_id ? "â€¦" : "Accept"}
+                  {acceptingId === inc.incident_id ? "…" : "Accept"}
                 </button>
               )}
               <button
                 onClick={(e) => { e.stopPropagation(); onReject(inc); }}
                 className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors"
-                style={{ backgroundColor: '#1A3263' }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-dark)'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#1A3263'; }}
+                style={{ backgroundColor: '#DC2626' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#B91C1C'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#DC2626'; }}
               >
                 Reject
               </button>

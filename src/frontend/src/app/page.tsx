@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
@@ -39,16 +39,16 @@ import {
 } from 'lucide-react';
 import { CalmEmergencyBlock } from './CalmEmergencyBlock';
 import { EmergencyReferenceCard } from '@/components/EmergencyReferenceCard';
-// â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Constants ────────────────────────────────────────────────────────────────
 
 const GPS_TIMEOUT_MS = 10_000;
 const GPS_MISMATCH_THRESHOLD_M = 200;
 
-// â”€â”€ MapPicker error boundary + manual fallback â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── MapPicker error boundary + manual fallback ──────────────────────────────
 // The /report context step renders <MapPicker />, which is a `next/dynamic()`
 // import of MapPickerInner (a ~340-line component that pulls in react-leaflet
-// + leaflet). When the user opens /report offline from a fresh cache â€” or
-// when the SW cache is full (QuotaExceededError on wims-bfp-cache-v9) â€” the
+// + leaflet). When the user opens /report offline from a fresh cache — or
+// when the SW cache is full (QuotaExceededError on wims-bfp-cache-v9) — the
 // dynamic chunk cannot be served and React throws ChunkLoadError during
 // render. Without a boundary that error bubbles to the app-level error page
 // ("Application error: a client-side exception has occurred") and the user
@@ -56,7 +56,7 @@ const GPS_MISMATCH_THRESHOLD_M = 200;
 //
 // Boundary catches the throw and renders <ManualLocationFallback />: two
 // number inputs that call the same handlePinChange() the map would, so the
-// rest of the form (Continue â†’ category â†’ details â†’ submit/queue) works
+// rest of the form (Continue → category → details → submit/queue) works
 // identically. The user can also try the map again via the "Retry map" link
 // which resets the boundary state.
 class MapPickerErrorBoundary extends React.Component<
@@ -230,7 +230,7 @@ const SAFETY_STATUSES: { value: SafetyStatus; label: string; labelFil: string; d
   { value: 'UNKNOWN', label: 'I am not sure', labelFil: 'Hindi ako sigurado', desc: 'I cannot tell my safety status', descFil: 'Hindi ko alam ang kalagayan ko', urgent: false },
 ];
 
-// â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Types ────────────────────────────────────────────────────────────────────
 
 type Step = 'context' | 'safety' | 'category' | 'details' | 'review' | 'submitted' | 'update' | 'queued_offline';
 
@@ -242,7 +242,7 @@ interface GeoState {
   timedOut: boolean;
 }
 
-// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371000;
@@ -254,7 +254,7 @@ function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): num
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// â”€â”€ Components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Components ───────────────────────────────────────────────────────────────
 
 function ProgressBar({ current, total }: { current: number; total: number }) {
   const labels = ['Safety', 'Context', 'Category', 'Details'];
@@ -452,7 +452,7 @@ function GpsMismatchModal({ pinDist, onConfirm, onCancel }: { pinDist: number; o
   );
 }
 
-// â”€â”€ Main Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Main Page ───────────────────────────────────────────────────────────────
 
 export default function ReportPage() {
   const router = useRouter();
@@ -472,7 +472,7 @@ export default function ReportPage() {
 
   const [geo, setGeo] = useState<GeoState>({ latitude: null, longitude: null, source: null, denied: false, timedOut: false });
   const [phoneGeo, setPhoneGeo] = useState<{ lat: number; lng: number } | null>(null);
-  // Tracks GPS permission/timeout state for phone â€” kept separate from the pin geo
+  // Tracks GPS permission/timeout state for phone — kept separate from the pin geo
   const [phoneGeoStatus, setPhoneGeoStatus] = useState<{ denied: boolean; timedOut: boolean }>({ denied: false, timedOut: false });
   const [showGpsMismatch, setShowGpsMismatch] = useState(false);
   const [gpsMismatchDist, setGpsMismatchDist] = useState(0);
@@ -494,7 +494,7 @@ export default function ReportPage() {
   const [updateParentReport, setUpdateParentReport] = useState<CivilianReportTrackingResponse | null>(null);
   const [updateLoading, setUpdateLoading] = useState(false);
 
-  // â”€â”€ Offline submit state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Offline submit state ────────────────────────────────────────────────────
   // queuedLocalId is set when the offline-aware wrapper queues a report. The
   // queued_offline step shows the localId so the user can find it again after
   // sync (the localId is the idempotency key, not the server id).
@@ -512,11 +512,11 @@ export default function ReportPage() {
   // submission.
   const { isOnline } = useNetworkStatus();
 
-  // â”€â”€ Auto-retry on reconnect â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Auto-retry on reconnect ─────────────────────────────────────────────
   // When the user lands on a "stuck" screen because they were offline (review
   // blocked, submit failed with network error, or append failed with network
   // error), we want to automatically retry the failed action as soon as
-  // connectivity returns â€” rather than making the user watch a "Try again"
+  // connectivity returns — rather than making the user watch a "Try again"
   // button and click it themselves. Each useEffect below fires the retry
   // exactly once when isOnline transitions to true while we're on the
   // corresponding stuck screen.
@@ -562,16 +562,16 @@ export default function ReportPage() {
     }
   }, [isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // â”€â”€ Eager prefetch: MapPickerInner chunk â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Eager prefetch: MapPickerInner chunk ─────────────────────────────────
   // The context step renders <MapPicker />, which is a `next/dynamic()` import
   // of MapPickerInner. Without this prefetch, the dynamic import only fires
-  // when the context step actually renders â€” by which point the user may have
+  // when the context step actually renders — by which point the user may have
   // gone offline, the SW cache may be full (QuotaExceededError on
   // wims-bfp-cache-v9), and the chunk load fails with ChunkLoadError.
   // Importing MapPickerInner directly here fires the chunk fetch on mount,
   // while the user is still reading the safety step. The SW then caches the
   // chunk so it loads instantly when the context step renders. If the prefetch
-  // fails (offline), the failure is swallowed â€” the MapPickerErrorBoundary
+  // fails (offline), the failure is swallowed — the MapPickerErrorBoundary
   // catches any actual render failure and shows the manual lat/lng fallback.
   useEffect(() => {
     void import('@/components/MapPickerInner').catch(() => {
@@ -588,12 +588,12 @@ export default function ReportPage() {
   const stepOrder: Step[] = ['safety', 'context', 'category', 'details'];
   const currentStepIndex = stepOrder.indexOf(step as Step);
 
-  // â”€â”€ GPS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── GPS ────────────────────────────────────────────────────────────────────
 
   /**
    * requestGps mode:
-   *  - 'gps'       : WITNESS â€” set geo as the incident location AND populate phoneGeo
-   *  - 'phone-only': NEARBY/SECONDHAND â€” populate phoneGeo + phoneGeoStatus only; do NOT overwrite the pin
+   *  - 'gps'       : WITNESS — set geo as the incident location AND populate phoneGeo
+   *  - 'phone-only': NEARBY/SECONDHAND — populate phoneGeo + phoneGeoStatus only; do NOT overwrite the pin
    */
   function requestGps(mode: 'gps' | 'phone-only' = 'gps') {
     if (!navigator.geolocation) {
@@ -651,7 +651,7 @@ export default function ReportPage() {
       setGpsWarningConfirmed(false);
       requestGps('phone-only');
     }
-    // When context changes away from WITNESS, reset geo to require a pin â€” but only
+    // When context changes away from WITNESS, reset geo to require a pin — but only
     // if the user has not already placed a manual pin (never clobber an existing pin).
     if (reportingContext !== 'WITNESS' && geo.source === 'gps') {
       setGeo({ latitude: null, longitude: null, source: null, denied: false, timedOut: false });
@@ -685,7 +685,7 @@ export default function ReportPage() {
     // re-bind on step change since we only care about the context step.
   }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // â”€â”€ Context step â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Context step ────────────────────────────────────────────────────────────
 
   function handleContextSelect(ctx: ReportingContext) {
     setReportingContext(ctx);
@@ -724,20 +724,20 @@ export default function ReportPage() {
     setShowGpsMismatch(false);
   }
 
-  // â”€â”€ Safety step â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Safety step ─────────────────────────────────────────────────────────────
 
   function handleSafetySelect(status: SafetyStatus) {
     setSafetyStatus(status);
   }
 
-  // â”€â”€ Category step â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Category step ───────────────────────────────────────────────────────────
 
   function handleCategorySelect(cat: CivilianCategory) {
     setCategory(cat);
     setSubCategory(null);
   }
 
-  // â”€â”€ Submit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Submit ──────────────────────────────────────────────────────────────────
 
   function getStoredDeviceId(): string | null {
     return window.localStorage.getItem('wims_civilian_device_id');
@@ -843,12 +843,12 @@ export default function ReportPage() {
     setDuplicateSuggestions([]);
     // The review step needs to fetch duplicate suggestions online so the user
     // can decide whether to file a new report or augment an existing one.
-    // Offline â†’ block with a clear "connect" message (handoff decision #6).
+    // Offline → block with a clear "connect" message (handoff decision #6).
     try {
       checkReviewEligibility();
     } catch (err) {
       setReviewBlockedReason(err instanceof Error ? err.message : 'Connect to the internet to continue.');
-      // Move to the review step so the blocked screen renders â€” the user sees
+      // Move to the review step so the blocked screen renders — the user sees
       // the connect-to-continue message + retry button + 911 boundary.
       setStep('review');
       return;
@@ -910,8 +910,8 @@ export default function ReportPage() {
         // so the user sees the localId and knows the update will sync later.
         setAppendSubmitted(true);
         setAppendError(
-          'You are offline â€” your update is saved and will be sent when you reconnect. ' +
-            'Offline ka â€” nai-save ang update at ipapadala kapag nakakonekta ulit.'
+          'You are offline — your update is saved and will be sent when you reconnect. ' +
+            'Offline ka — nai-save ang update at ipapadala kapag nakakonekta ulit.'
         );
       } else {
         setAppendSubmitted(true);
@@ -966,7 +966,7 @@ export default function ReportPage() {
     }
   }
 
-  // â”€â”€ Review screen (non-life-safety final check) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Review screen (non-life-safety final check) ─────────────────────────
 
   if (step === 'review' && reviewBlockedReason) {
     // Review was attempted while offline. The duplicate-suggestion check
@@ -1068,7 +1068,7 @@ export default function ReportPage() {
               {witnessName && (
                 <div className="flex justify-between">
                   <span style={{ color: 'var(--text-secondary)' }}>Witness</span>
-                  <span style={{ color: 'var(--text-primary)' }}>{witnessName}{witnessPhone ? ` â€” ${witnessPhone}` : ''}</span>
+                  <span style={{ color: 'var(--text-primary)' }}>{witnessName}{witnessPhone ? ` — ${witnessPhone}` : ''}</span>
                 </div>
               )}
               <div className="flex justify-between">
@@ -1083,7 +1083,7 @@ export default function ReportPage() {
             </div>
 
             {/*
-              911 emergency boundary â€” ALL users before final submit CTA.
+              911 emergency boundary — ALL users before final submit CTA.
               Required: "does not replace emergency call" in EN+FIL.
             */}
             <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -1107,7 +1107,7 @@ export default function ReportPage() {
                 <div className="mt-2 space-y-1">
                   {duplicateSuggestions.map((suggestion) => (
                     <div key={suggestion.report_id} className="flex justify-between gap-3 text-xs">
-                      <span>Report #{suggestion.report_id} Â· {Math.round(suggestion.distance_m)}m away</span>
+                      <span>Report #{suggestion.report_id} · {Math.round(suggestion.distance_m)}m away</span>
                       <span>{suggestion.status}</span>
                     </div>
                   ))}
@@ -1175,7 +1175,7 @@ export default function ReportPage() {
     );
   }
 
-  // â”€â”€ Update Report (appending to existing) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Update Report (appending to existing) ─────────────────────────────────
 
   if (isUpdateMode) {
     return (
@@ -1233,7 +1233,7 @@ export default function ReportPage() {
                   id="civilian-update-description"
                   value={appendDescription}
                   onChange={(e) => setAppendDescription(e.target.value)}
-                  placeholder="Describe any new details, changes, or additional observationsâ€¦"
+                  placeholder="Describe any new details, changes, or additional observations…"
                   rows={5}
                   className="w-full rounded-xl border px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2"
                   style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
@@ -1253,13 +1253,13 @@ export default function ReportPage() {
                   style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
                 />
                 <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                  Optional â€” only fill this if the information you are providing has a different timestamp.
+                  Optional — only fill this if the information you are providing has a different timestamp.
                 </p>
               </div>
 
               {updateLoading && (
                 <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
-                  Loading report detailsâ€¦
+                  Loading report details…
                 </div>
               )}
 
@@ -1295,7 +1295,7 @@ export default function ReportPage() {
                   className="flex-1 flex items-center justify-center py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-50"
                   style={{ background: 'var(--bfp-gradient)' }}
                 >
-                  {appending ? 'Submittingâ€¦' : 'Submit Update'}
+                  {appending ? 'Submitting…' : 'Submit Update'}
                 </button>
               </div>
             </div>
@@ -1306,7 +1306,7 @@ export default function ReportPage() {
     );
   }
 
-  // â”€â”€ Queued offline screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Queued offline screen ────────────────────────────────────────────────
   // Reached when the offline-aware wrapper queued the report instead of
   // sending it. The user sees their localId (the idempotency key + tracking
   // hint), confirmation that BFP will receive the report on reconnect, and
@@ -1362,7 +1362,7 @@ export default function ReportPage() {
                       Kung may agarang peligro, tumawag sa 911 ngayon.
                     </p>
                     <p className="text-xs text-red-600 mt-1">
-                      This report helps BFP review public signals â€” it does not replace an emergency call.
+                      This report helps BFP review public signals — it does not replace an emergency call.
                     </p>
                   </div>
                 </div>
@@ -1382,7 +1382,7 @@ export default function ReportPage() {
     );
   }
 
-  // â”€â”€ Submitted success screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Submitted success screen ─────────────────────────────────────────────
 
   if (step === 'submitted') {
     return (
@@ -1407,7 +1407,7 @@ export default function ReportPage() {
             </p>
 
               {/*
-              911 emergency boundary â€” ALL submissions, every safety status.
+              911 emergency boundary — ALL submissions, every safety status.
               Required: "does not replace emergency call" in EN+FIL.
             */}
             <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 text-left">
@@ -1417,10 +1417,10 @@ export default function ReportPage() {
                   <p className="text-sm font-semibold text-red-700">Call 911 if you have not done so.</p>
                   <p className="text-xs text-red-600 mt-0.5">Kung kailangan mo ng agarang tulong, tumawag na sa 911.</p>
                   <p className="text-xs text-red-600 mt-1">
-                    This report helps BFP review public signals â€” it does not replace an emergency call.
+                    This report helps BFP review public signals — it does not replace an emergency call.
                   </p>
                   <p className="text-xs text-red-600 mt-0.5">
-                    Ang report na ito ay tumutulong sa BFP na suriin ang mga signal mula sa publiko â€” hindi ito kapalit ng agarang tawag sa 911.
+                    Ang report na ito ay tumutulong sa BFP na suriin ang mga signal mula sa publiko — hindi ito kapalit ng agarang tawag sa 911.
                   </p>
                 </div>
               </div>
@@ -1464,7 +1464,7 @@ export default function ReportPage() {
               </Link>
             </div>
 
-            {/* â”€â”€ Update Report â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+            {/* ── Update Report ─────────────────────────────────────── */}
             {!appendSubmitted ? (
               <div className="rounded-xl border p-4 mb-4 text-left" style={{ borderColor: 'var(--card-elevated-border)', backgroundColor: 'var(--card-bg)' }}>
                 <p className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
@@ -1556,11 +1556,11 @@ export default function ReportPage() {
     );
   }
 
-  // â”€â”€ Multi-step form â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Multi-step form ─────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--content-bg)' }}>
-      {/* Hero â€” matches /fire-stations style */}
+      {/* Hero — matches /fire-stations style */}
       <div className="text-center py-8 px-4" style={{ background: 'var(--bfp-gradient)' }}>
         <div className="relative w-14 h-14 mx-auto mb-3">
           <Image src="/bfp-logo.svg" alt="BFP Logo" fill className="object-contain" />
@@ -1572,7 +1572,7 @@ export default function ReportPage() {
         <p className="text-xs text-white/60 mt-0.5">Mag-ulat ng Emergency</p>
       </div>
 
-      {/* Emergency hotlines â€” like /fire-stations */}
+      {/* Emergency hotlines — like /fire-stations */}
       <div className="max-w-lg mx-auto px-4 -mt-4">
         <EmergencyReferenceCard compact />
       </div>
@@ -1586,7 +1586,7 @@ export default function ReportPage() {
         <div className="card-body space-y-5 px-6 pb-6">
           {currentStepIndex >= 0 && <ProgressBar current={currentStepIndex} total={stepOrder.length} />}
 
-          {/* â”€â”€ STEP 1: Context + Location â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+          {/* ── STEP 1: Context + Location ─────────────────────────────── */}
           {step === 'context' && (
             <>
               {/* SECONDHAND challenge modal */}
@@ -1680,7 +1680,7 @@ export default function ReportPage() {
                       {geo.latitude !== null ? (
                         <>
                           <MapPin className="w-4 h-4 text-green-600 flex-shrink-0" />
-                          <span>GPS acquired â€” {geo.latitude.toFixed(5)}, {geo.longitude?.toFixed(5)}</span>
+                          <span>GPS acquired — {geo.latitude.toFixed(5)}, {geo.longitude?.toFixed(5)}</span>
                         </>
                       ) : (
                         <>
@@ -1718,16 +1718,16 @@ export default function ReportPage() {
 
                   {(phoneGeoStatus.denied || phoneGeoStatus.timedOut) && reportingContext !== 'WITNESS' && (
                     <>
-                      {/* 911 reminder â€” life-safety path only */}
+                      {/* 911 reminder — life-safety path only */}
                       {isLifeSafety && (
                         <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 mb-2">
                           <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-600" />
                           <div>
                             <p className="text-xs font-semibold text-red-700">
-                              For immediate danger, call 911. Your report helps BFP â€” but for life-threatening situations, call emergency services first.
+                              For immediate danger, call 911. Your report helps BFP — but for life-threatening situations, call emergency services first.
                             </p>
                             <p className="text-xs text-red-600 mt-0.5">
-                              Kung may agarang peligro, tumawag sa 911. Ang report mo ay tumutulong sa BFP â€” ngunit para sa mga Sitwasyong may banta sa buhay, tumawag muna sa emergency services.
+                              Kung may agarang peligro, tumawag sa 911. Ang report mo ay tumutulong sa BFP — ngunit para sa mga Sitwasyong may banta sa buhay, tumawag muna sa emergency services.
                             </p>
                           </div>
                         </div>
@@ -1747,7 +1747,7 @@ export default function ReportPage() {
                     </>
                   )}
 
-                  {/* NEARBY reminder â€” non-blocking, shows above Continue */}
+                  {/* NEARBY reminder — non-blocking, shows above Continue */}
                   {reportingContext === 'NEARBY' && gpsSource === 'acquired' && (
                     <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 mb-2">
                       <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600" />
@@ -1794,7 +1794,7 @@ export default function ReportPage() {
             </>
           )}
 
-          {/* â”€â”€ STEP 2: Safety Status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+          {/* ── STEP 2: Safety Status ─────────────────────────────────── */}
           {step === 'safety' && (
             <>
               <div>
@@ -1833,7 +1833,7 @@ export default function ReportPage() {
                 </div>
               )}
 
-              {/* â”€â”€ Public map: show nearby fire clusters (display-only) â”€â”€ */}
+              {/* ── Public map: show nearby fire clusters (display-only) ── */}
               <div className="mt-2">
                 <p className="text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
                   Nearby fire activity / Mga kalapit na sunog
@@ -1860,7 +1860,7 @@ export default function ReportPage() {
             </>
           )}
 
-          {/* â”€â”€ STEP 3: Category + Sub-category â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+          {/* ── STEP 3: Category + Sub-category ──────────────────────── */}
           {step === 'category' && (
             <>
               <div>
@@ -1947,7 +1947,7 @@ export default function ReportPage() {
             </>
           )}
 
-          {/* â”€â”€ STEP 4: Additional Details â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+          {/* ── STEP 4: Additional Details ───────────────────────────── */}
           {step === 'details' && (
             <>
               <div className="space-y-4">
@@ -2057,7 +2057,7 @@ export default function ReportPage() {
         </div>
       </div>
 
-      {/* â”€â”€ Consent Notice & Footer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Consent Notice & Footer ──────────────────────────────────── */}
       <div className="max-w-lg mx-auto px-4 pb-4">
         <p className="text-xs leading-relaxed text-center" style={{ color: 'var(--text-secondary)' }}>
           By submitting a fire report, you consent to the collection, processing, and
@@ -2069,10 +2069,10 @@ export default function ReportPage() {
           >
             Data Retention Policy
           </Link>
-          . Submission implies agreement â€” no separate checkbox required.
+          . Submission implies agreement — no separate checkbox required.
         </p>
         <p className="text-[0.675rem] text-center mt-3" style={{ color: 'var(--text-muted)' }}>
-          WIMS-BFP Â· Bureau of Fire Protection Â·{' '}
+          WIMS-BFP · Bureau of Fire Protection ·{' '}
           <Link
             href="/privacy"
             className="underline underline-offset-2"

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState, useRef } from "react";
 import { X } from "lucide-react";
@@ -8,7 +8,7 @@ import type { WidgetDefinition } from "./widget-definitions";
 export interface WidgetCardProps {
   widget: WidgetDefinition;
   onRemove?: (id: string) => void;
-  /** All active widget IDs â€” the card fetches its own data independently */
+  /** All active widget IDs — the card fetches its own data independently */
   data?: WidgetData;
   loading?: boolean;
   error?: string | null;
@@ -191,7 +191,7 @@ export function WidgetCard({ widget, onRemove, data, loading, error }: WidgetCar
   return null;
 }
 
-// â”€â”€ Self-fetching wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Self-fetching wrapper ─────────────────────────────────────────────────────
 
 export interface SelfFetchingWidgetCardProps {
   widget: WidgetDefinition;

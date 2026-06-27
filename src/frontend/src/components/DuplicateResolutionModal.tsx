@@ -153,7 +153,7 @@ export function DuplicateResolutionModal({
           <button
             type="button"
             onClick={submit}
-            className="px-4 py-2 text-sm rounded bg-red-800 text-white hover:bg-red-700"
+            className="px-4 py-2 text-sm rounded text-white" style={{ backgroundColor: '#1A3263' }}
           >
             Confirm Decisions
           </button>

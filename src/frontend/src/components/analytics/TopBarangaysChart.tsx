@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer } from 'recharts';
 import type { TopBarangayItem } from '@/lib/api';
@@ -22,7 +22,7 @@ export function TopBarangaysChart({ data }: TopBarangaysChartProps) {
   // Truncate long barangay names for readability
   const formatted = data.map((d) => ({
     ...d,
-    barangay: d.barangay.length > 18 ? d.barangay.slice(0, 16) + 'â€¦' : d.barangay,
+    barangay: d.barangay.length > 18 ? d.barangay.slice(0, 16) + '…' : d.barangay,
   }));
 
   return (
