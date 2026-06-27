@@ -50,22 +50,28 @@ In `_apply_backup_retention()`, after `backup_path.unlink()`, add:
 
 ```python
 # Delete sibling manifest to prevent orphaned files
-manifest_path = backup_path.with_suffix(".sql.enc.manifest.json")
+# Use string concat, NOT with_suffix — the filename has two extensions (.sql.enc)
+manifest_path = BACKUP_DIR / (backup_path.name + ".manifest.json")
 try:
     manifest_path.unlink()
 except FileNotFoundError:
     pass
 ```
 
+> **Why not `with_suffix`:** `Path.with_suffix` replaces only the **last** extension, turning `wims_20260627_143000.sql.enc` into `wims_20260627_143000.sql.enc.manifest.json` — note the doubled `.sql`. This makes the filename mismatch the reader side (`f"{name}.manifest.json"`). Always use `BACKUP_DIR / (backup_path.name + ".manifest.json")`.
+
 ### Step 1.3 — Add manifest writing to `trigger_backup`
 
 **File:** `src/backend/api/routes/admin/backups.py`
 
-In `trigger_backup`, after `encrypted_path = encrypt_backup(output_path)` succeeds and before `_apply_backup_retention()`, run snapshot queries and write manifest:
+**Timing:** Run snapshot queries BEFORE `pg_dump` so the manifest matches the backup contents (data could change between the snapshot and the dump start, but this minimizes the window). Write manifest AFTER encryption succeeds.
+
+In `trigger_backup`, after the timestamp is generated but BEFORE `subprocess.run(["pg_dump", ...])`, run snapshot queries:
 
 ```python
-# ── Backup manifest snapshot ──────────────────────────────
+# ── Backup manifest snapshot (before pg_dump) ────────────
 from sqlalchemy import text
+manifest_data = {}
 try:
     snapshot = db.execute(text("""
         SELECT
@@ -77,7 +83,7 @@ try:
             (SELECT MAX(created_at) FROM wims.users) AS last_user_change
     """)).mappings().one()
 
-    manifest = {
+    manifest_data = {
         "backup_filename": filename,
         "triggered_at": created_at,
         "provider": _resolve_backup_provider(),
@@ -92,12 +98,20 @@ try:
             "user_change": snapshot["last_user_change"].isoformat() if snapshot["last_user_change"] else None,
         },
     }
-
-    manifest_path = encrypted_path.with_suffix(".sql.enc.manifest.json")
-    manifest_path.write_text(json.dumps(manifest, indent=2))
 except Exception:
-    logger.warning("Failed to write backup manifest (non-fatal)", exc_info=True)
+    logger.warning("Failed to capture backup manifest snapshot (non-fatal)", exc_info=True)
 ```
+
+Later, after `encrypted_path = encrypt_backup(output_path)` succeeds, write the manifest:
+
+```python
+# ── Write backup manifest ─────────────────────────────────
+if manifest_data:
+    manifest_path = BACKUP_DIR / (encrypted_path.name + ".manifest.json")
+    manifest_path.write_text(json.dumps(manifest_data, indent=2))
+```
+
+> **Filename convention:** Use `BACKUP_DIR / (encrypted_path.name + ".manifest.json")` — NOT `with_suffix`. `Path.with_suffix` replaces only the last extension, producing a mangled name (e.g. `wims_20260627_143000.sql.manifest.json`). String concatenation on the filename produces the correct `wims_20260627_143000.sql.enc.manifest.json`.
 
 Add `import json` at the top of the file.
 
@@ -105,7 +119,7 @@ Add `import json` at the top of the file.
 
 **File:** `src/backend/api/routes/admin/backups.py`
 
-In `list_backups`, after constructing each file dict, read sibling manifest:
+In `list_backups`, after constructing each file dict, read sibling manifest. Use string concatenation for the manifest path, matching the writer in Step 1.3:
 
 ```python
 files = []
@@ -118,7 +132,8 @@ for f in BACKUP_DIR.glob("wims_*.sql.enc"):
     }
 
     # Fold manifest data server-side (avoid N+1 client fetch)
-    manifest_path = BACKUP_DIR / f"{f.name}.manifest.json"
+    # Path: wims_20260627_143000.sql.enc + ".manifest.json" (string concat, NOT with_suffix)
+    manifest_path = BACKUP_DIR / (f.name + ".manifest.json")
     if manifest_path.exists():
         try:
             manifest_data = json.loads(manifest_path.read_text())
@@ -129,9 +144,10 @@ for f in BACKUP_DIR.glob("wims_*.sql.enc"):
             }
         except (json.JSONDecodeError, OSError):
             entry["manifest"] = None
+            entry["provider"] = None
     else:
         entry["provider"] = None
-        entry["manifest"] = None  # legacy backup
+        entry["manifest"] = None  # legacy backup — no manifest available
 
     files.append(entry)
 ```
@@ -142,7 +158,7 @@ Also add `import json` if not already added.
 
 **File:** `src/backend/api/routes/admin/backups.py`
 
-New route handler:
+New route handler. Manifest path uses string concatenation (not `with_suffix`) to match the writer:
 
 ```python
 @router.delete("/backup/{filename}", status_code=204)
@@ -164,8 +180,8 @@ async def delete_backup(
 
     file_path.unlink()
 
-    # Delete sibling manifest
-    manifest_path = file_path.with_suffix(".sql.enc.manifest.json")
+    # Delete sibling manifest (string concat, NOT with_suffix)
+    manifest_path = BACKUP_DIR / (filename + ".manifest.json")
     try:
         manifest_path.unlink()
     except FileNotFoundError:
@@ -214,20 +230,24 @@ _max_backup_bytes = int(os.getenv("WIMS_MAX_BACKUP_BYTES", str(1024 * 1024 * 102
 with tempfile.TemporaryDirectory() as tmpdir:
     tmp_enc = Path(tmpdir) / filename
 
-    # Stream upload to disk (not in-memory)
+    # Stream upload to disk (not in-memory) with incremental size cap + SHA-256
+    sha256_hash = hashlib.sha256()
+    total_bytes = 0
     with open(tmp_enc, "wb") as f:
         while chunk := await file.read(64 * 1024):
+            total_bytes += len(chunk)
+            if total_bytes > _max_backup_bytes:
+                # Abort early — disk exhaustion guard
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File exceeds the {_max_backup_bytes // (1024 * 1024)} MB limit",
+                )
             f.write(chunk)
+            sha256_hash.update(chunk)
 
-    # Filesystem-level size cap (after write, not before)
-    if tmp_enc.stat().st_size > _max_backup_bytes:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File exceeds the {_max_backup_bytes // (1024 * 1024)} MB limit",
-        )
-
-    # Read first 8 bytes for header validation
-    header = tmp_enc.read_bytes(8)
+    # Read first 8 bytes for header validation (use file open, NOT Path.read_bytes)
+    with open(tmp_enc, "rb") as fh:
+        header = fh.read(8)
     if not header.startswith(b"WIMSBAO1"):
         raise HTTPException(
             status_code=400,
@@ -237,8 +257,8 @@ with tempfile.TemporaryDirectory() as tmpdir:
             ),
         )
 
-    # Compute SHA-256 from file content
-    sha256_digest = hashlib.sha256(tmp_enc.read_bytes()).hexdigest()
+    # SHA-256 was already computed incrementally during streaming
+    sha256_digest = sha256_hash.hexdigest()
 
     # Decrypt from disk (not from memory)
     try:
@@ -274,20 +294,6 @@ from auth import get_system_admin, get_db_with_rls
 logger = logging.getLogger("wims.admin")
 router = APIRouter()
 
-_CRON_RE = re.compile(
-    r"^"
-    r"((\*|(\d+(-\d+)?)(/\d+)?)(,(\d+(-\d+)?)(/\d+)?)*|\*)"
-    r"\s+"
-    r"((\*|(\d+(-\d+)?)(/\d+)?)(,(\d+(-\d+)?)(/\d+)?)*|\*)"
-    r"\s+"
-    r"((\*|(\d+(-\d+)?)(/\d+)?)(,(\d+(-\d+)?)(/\d+)?)*|\*)"
-    r"\s+"
-    r"((\*|(\d+(-\d+)?)(/\d+)?)(,(\d+(-\d+)?)(/\d+)?)*|\*)"
-    r"\s+"
-    r"((\*|(\d+(-\d+)?)(/\d+)?)(,(\d+(-\d+)?)(/\d+)?)*|\*)"
-    r"$"
-)
-
 
 class BackupScheduleCreate(BaseModel):
     enabled: bool
@@ -296,14 +302,13 @@ class BackupScheduleCreate(BaseModel):
     @field_validator("cron_expr")
     @classmethod
     def cron_must_be_valid(cls, v: str) -> str:
-        if not _CRON_RE.match(v.strip()):
-            raise ValueError("Invalid cron expression — use standard 5-field format")
-        # Validate with croniter
+        """Validate cron expression using croniter (no hand-rolled regex)."""
+        stripped = v.strip()
         try:
-            croniter(v.strip(), datetime.now())
-        except (ValueError, KeyError):
-            raise ValueError(f"Cannot parse cron expression: {v}")
-        return v.strip()
+            croniter(stripped, datetime.now())
+        except (ValueError, KeyError) as e:
+            raise ValueError(f"Invalid cron expression: {e}")
+        return stripped
 
 
 @router.get("/backup-schedule")
@@ -382,9 +387,9 @@ from datetime import datetime, timezone
 from croniter import croniter
 from sqlalchemy import text
 
-from app import celery_app
-from db import get_session
-from utils.rls import set_rls_context
+from celery_config import celery_app
+from db import get_session, set_rls_context
+from uuid import UUID
 
 logger = logging.getLogger("wims.tasks.scheduled_backup")
 
@@ -394,7 +399,8 @@ def execute_due_backup(self) -> dict:
     """Check if a scheduled backup is due and execute it."""
     session = get_session()
     try:
-        set_rls_context(session, system_admin=True)
+        SYSTEM_ADMIN_ID = UUID("00000000-0000-0000-0000-000000000001")
+        set_rls_context(session, SYSTEM_ADMIN_ID)
 
         row = session.execute(
             text("SELECT enabled, cron_expr, last_run_at FROM wims.backup_schedule WHERE id = 1")
@@ -413,12 +419,13 @@ def execute_due_backup(self) -> dict:
         if next_run > now:
             return {"status": "skipped", "reason": f"next run at {next_run.isoformat()}"}
 
-        # Optimistic lock: update last_run_at to prevent double-fire
+        # Optimistic lock: update last_run_at to prevent double-fire.
+        # Use IS NOT DISTINCT FROM so NULL = NULL matches (first-run fix).
         result = session.execute(
             text("""
                 UPDATE wims.backup_schedule
                 SET last_run_at = now(), updated_at = now()
-                WHERE id = 1 AND last_run_at = :last_run_at
+                WHERE id = 1 AND last_run_at IS NOT DISTINCT FROM :last_run_at
                 RETURNING last_run_at
             """),
             {"last_run_at": row["last_run_at"]},
@@ -428,11 +435,10 @@ def execute_due_backup(self) -> dict:
         if result.rowcount == 0:
             return {"status": "skipped", "reason": "concurrent trigger won the lock"}
 
-        # Execute backup logic (reuse from backups module)
-        # Call the backup trigger logic directly
+        # Execute backup logic (reuse from backups module, thread the DB session)
         from api.routes.admin.backups import _trigger_backup_impl
 
-        backup_result = _trigger_backup_impl()
+        backup_result = _trigger_backup_impl(db=session)
 
         # Update filename on success
         session.execute(
@@ -510,15 +516,15 @@ export interface RestoreResult {
 }
 
 export async function triggerBackup(): Promise<BackupTriggerResult> {
-  return apiFetch('/api/admin/backup', { method: 'POST' });
+  return apiFetch('/admin/backup', { method: 'POST' });
 }
 
 export async function listBackups(): Promise<BackupFile[]> {
-  return apiFetch('/api/admin/backups');
+  return apiFetch('/admin/backups');
 }
 
 export async function downloadBackup(filename: string): Promise<Blob> {
-  const res = await fetch(`${API_BASE}/api/admin/backup/${encodeURIComponent(filename)}`, {
+  const res = await fetch(`${API_BASE}/admin/backup/${encodeURIComponent(filename)}`, {
     headers: { Authorization: `Bearer ${getToken()}` },
   });
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
@@ -526,18 +532,18 @@ export async function downloadBackup(filename: string): Promise<Blob> {
 }
 
 export async function deleteBackup(filename: string): Promise<void> {
-  await apiFetch(`/api/admin/backup/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+  await apiFetch(`/admin/backup/${encodeURIComponent(filename)}`, { method: 'DELETE' });
 }
 
 export async function getBackupManifest(filename: string): Promise<Record<string, unknown>> {
-  return apiFetch(`/api/admin/backup/${encodeURIComponent(filename)}/manifest`);
+  return apiFetch(`/admin/backup/${encodeURIComponent(filename)}/manifest`);
 }
 
 export async function restoreBackup(file: File): Promise<RestoreResult> {
   const formData = new FormData();
   formData.append('file', file);
   const token = getToken();
-  const res = await fetch(`${API_BASE}/api/admin/restore`, {
+  const res = await fetch(`${API_BASE}/admin/restore`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: formData,
@@ -550,27 +556,27 @@ export async function restoreBackup(file: File): Promise<RestoreResult> {
 }
 
 export async function getBackupSchedule(): Promise<BackupSchedule | null> {
-  return apiFetch('/api/admin/backup-schedule');
+  return apiFetch('/admin/backup-schedule');
 }
 
 export async function saveBackupSchedule(schedule: { enabled: boolean; cron_expr: string }): Promise<BackupSchedule> {
-  return apiFetch('/api/admin/backup-schedule', {
+  return apiFetch('/admin/backup-schedule', {
     method: 'POST',
     body: JSON.stringify(schedule),
   });
 }
 
-// Helper: get auth token from storage (adjust to match existing auth pattern)
+// Helper: get auth token. Must match the app's actual auth pattern.
+// Check existing admin API calls in admin.ts for the token retrieval mechanism
+// (likely from AuthContext or a token getter). Do NOT hardcode localStorage
+// without verifying the actual auth flow first.
 function getToken(): string {
-  // Use existing token retrieval — e.g., from AuthContext or localStorage
-  // This should match how other API slices get the token
-  return typeof window !== 'undefined'
-    ? localStorage.getItem('access_token') || ''
-    : '';
+  // TODO: match the actual token retrieval used by other admin fetches
+  return '';
 }
 ```
 
-**Note:** The `getToken()` function should use the same auth mechanism as the rest of the app (likely from `AuthContext`). Update to match existing patterns.
+> **Token retrieval:** The `getToken()` placeholder must match the actual auth mechanism used by `apiFetch` (likely through `AuthContext` or an interceptor). Check `admin.ts` or the app's auth provider before implementing.
 
 ### Step 2.2 — Add backup barrel exports
 
@@ -776,5 +782,5 @@ Wrap backup operations with offline-aware pattern matching `offlineAdmin.ts` whe
 | `trigger_backup` runs synchronously (120s timeout) | Frontend shows spinner + "Backing up..." for the duration; future: offload to Celery |
 | Concurrent triggers (two admins + scheduled) | Add Redis sentinel with TTL=180s or `BACKUP_RUNNING` file |
 | Restore replaces live DB — no undo | Multi-step confirmation (type filename), warning banner, audit log |
-| Manifest snapshots show stale data if queries run after pg_dump | Run snapshot BEFORE pg_dump so it matches the backup contents; accept minor skew |
+| Manifest snapshot vs pg_dump timing | Snapshot runs BEFORE pg_dump (Step 1.3); accepts minor skew between snapshot and dump finish |
 | Large backup files cause slow page loads in list_backups | `list_backups` reads manifest files (small JSON) per backup — negligible for 100 files |
