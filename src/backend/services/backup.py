@@ -97,15 +97,17 @@ def trigger_backup(db: Session) -> dict:
     filename = f"wims_{timestamp}.sql"
     output_path = BACKUP_DIR / filename
 
-    db_url = os.environ.get("DATABASE_URL", "")
+    # Use DATABASE_ADMIN_URL for pg_dump (superuser bypasses RLS on FORCE RLS tables).
+    # Fall back to DATABASE_URL when ADMIN_URL is not set (e.g. CI where postgres is superuser).
+    dump_url = os.environ.get("DATABASE_ADMIN_URL") or os.environ.get("DATABASE_URL", "")
     try:
-        parsed = urllib.parse.urlparse(db_url)
+        parsed = urllib.parse.urlparse(dump_url)
     except Exception:
-        logger.exception("Invalid DATABASE_URL")
-        raise BackupError("Invalid DATABASE_URL")
+        logger.exception("Invalid DATABASE_ADMIN_URL / DATABASE_URL")
+        raise BackupError("Invalid DATABASE_ADMIN_URL / DATABASE_URL")
 
     if parsed.scheme != "postgresql":
-        raise BackupError("DATABASE_URL must use postgresql:// scheme")
+        raise BackupError("Database URL must use postgresql:// scheme")
 
     db_user = parsed.username or ""
     db_pass = parsed.password or ""
@@ -114,12 +116,13 @@ def trigger_backup(db: Session) -> dict:
     db_name = parsed.path.lstrip("/") or ""
 
     if not db_host or not db_user:
-        raise BackupError("Invalid DATABASE_URL format")
+        raise BackupError("Invalid database URL format")
 
     env = os.environ.copy()
     env["PGPASSWORD"] = db_pass
 
     # ── Backup manifest snapshot (before pg_dump) ────────────────────
+    # Uses the app session (with RLS context) — NOT the admin connection.
     from utils.backup_crypto import _resolve_backup_provider
 
     manifest_data = {}
