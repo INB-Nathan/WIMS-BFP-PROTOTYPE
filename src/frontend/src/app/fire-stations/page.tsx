@@ -14,6 +14,7 @@ const FireStationsMapInner = dynamic(
 
 export default function FireStationsPage() {
     const [stations, setStations] = useState<EmergencyServiceStation[] | null>(null);
+    const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
     const [failed, setFailed] = useState(false);
     const [loading, setLoading] = useState(true);
 
@@ -24,6 +25,27 @@ export default function FireStationsPage() {
             })
             .catch(() => setFailed(true))
             .finally(() => setLoading(false));
+    }, []);
+
+    useEffect(() => {
+        if (!navigator.geolocation) return;
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const nextLocation: [number, number] = [position.coords.latitude, position.coords.longitude];
+                setUserLocation(nextLocation);
+
+                fetchEmergencyServices(nextLocation[0], nextLocation[1])
+                    .then((res) => setStations(res.stations))
+                    .catch(() => {
+                        // Keep the already-loaded nationwide station list if distance refresh fails.
+                    });
+            },
+            () => {
+                // Keep the default national view when users deny or location is unavailable.
+            },
+            { timeout: 10_000, maximumAge: 30_000 },
+        );
     }, []);
 
     return (
@@ -119,7 +141,7 @@ export default function FireStationsPage() {
                                 </div>
                             </div>
                         ) : stations && stations.length > 0 ? (
-                            <FireStationsMapInner stations={stations} />
+                            <FireStationsMapInner stations={stations} userLocation={userLocation} />
                         ) : stations && stations.length === 0 ? (
                             <div className="h-full flex items-center justify-center" style={{ backgroundColor: 'var(--content-bg)' }}>
                                 <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
