@@ -27,6 +27,21 @@ vi.mock('@/context/AuthContext', () => ({
   useAuth: () => mockUseAuth(),
 }));
 
+const { mockOfflineWorkCounts } = vi.hoisted(() => ({
+  mockOfflineWorkCounts: vi.fn(() => ({
+    pendingCount: 0,
+    failedCount: 0,
+    conflictCount: 0,
+    draftCount: 0,
+    totalActionableCount: 0,
+    loading: false,
+  })),
+}));
+
+vi.mock('@/lib/useOfflineWorkCounts', () => ({
+  useOfflineWorkCounts: () => mockOfflineWorkCounts(),
+}));
+
 // Mock next/image
 vi.mock('next/image', () => ({
   default: ({ alt, ...props }: { alt: string; [key: string]: unknown }) => {
@@ -99,5 +114,106 @@ describe('Sidebar — Rate Limits entry', () => {
     });
     render(<Sidebar isOpen={true} onClose={vi.fn()} />);
     expect(screen.getByText('Configuration')).toBeInTheDocument();
+  });
+});
+
+describe('Sidebar — Offline Work badge (Item 10)', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('shows Offline Work nav item for REGIONAL_ENCODER', () => {
+    mockUseAuth.mockReturnValue({
+      user: { role: 'REGIONAL_ENCODER', id: 'enc-1' },
+      loading: false,
+      logout: vi.fn(),
+    });
+    mockOfflineWorkCounts.mockReturnValue({
+      pendingCount: 3,
+      failedCount: 1,
+      conflictCount: 2,
+      draftCount: 0,
+      totalActionableCount: 6,
+      loading: false,
+    });
+    render(<Sidebar isOpen={true} onClose={vi.fn()} />);
+    expect(screen.getByText('Offline Work')).toBeInTheDocument();
+    // Badge shows 6 (totalActionableCount)
+    expect(screen.getByText('6')).toBeInTheDocument();
+  });
+
+  it('Offline Work link points to /dashboard/regional/offline-work', () => {
+    mockUseAuth.mockReturnValue({
+      user: { role: 'REGIONAL_ENCODER', id: 'enc-2' },
+      loading: false,
+      logout: vi.fn(),
+    });
+    mockOfflineWorkCounts.mockReturnValue({
+      totalActionableCount: 1,
+      loading: false,
+    });
+    render(<Sidebar isOpen={true} onClose={vi.fn()} />);
+    const link = screen.getByText('Offline Work').closest('a');
+    expect(link).toHaveAttribute('href', '/dashboard/regional/offline-work');
+  });
+
+  it('hides badge when totalActionableCount is zero', () => {
+    mockUseAuth.mockReturnValue({
+      user: { role: 'REGIONAL_ENCODER', id: 'enc-3' },
+      loading: false,
+      logout: vi.fn(),
+    });
+    mockOfflineWorkCounts.mockReturnValue({
+      pendingCount: 0,
+      failedCount: 0,
+      conflictCount: 0,
+      draftCount: 0,
+      totalActionableCount: 0,
+      loading: false,
+    });
+    render(<Sidebar isOpen={true} onClose={vi.fn()} />);
+    expect(screen.getByText('Offline Work')).toBeInTheDocument();
+    // No badge element with '0'
+    expect(screen.queryByText('0')).not.toBeInTheDocument();
+  });
+
+  it('does NOT show Offline Work or badge count for SYSTEM_ADMIN role', () => {
+    mockUseAuth.mockReturnValue({
+      user: { role: 'SYSTEM_ADMIN' },
+      loading: false,
+      logout: vi.fn(),
+    });
+    mockOfflineWorkCounts.mockReturnValue({
+      pendingCount: 3,
+      failedCount: 2,
+      conflictCount: 1,
+      draftCount: 0,
+      totalActionableCount: 6,
+      loading: false,
+    });
+    render(<Sidebar isOpen={true} onClose={vi.fn()} />);
+    expect(screen.queryByText('Offline Work')).not.toBeInTheDocument();
+    expect(screen.queryByText('6')).not.toBeInTheDocument();
+    expect(mockOfflineWorkCounts).toHaveBeenCalled();
+  });
+
+  it('does NOT show Offline Work for NATIONAL_VALIDATOR role', () => {
+    mockUseAuth.mockReturnValue({
+      user: { role: 'NATIONAL_VALIDATOR' },
+      loading: false,
+      logout: vi.fn(),
+    });
+    render(<Sidebar isOpen={true} onClose={vi.fn()} />);
+    expect(screen.queryByText('Offline Work')).not.toBeInTheDocument();
+  });
+
+  it('does NOT show Offline Work for NATIONAL_ANALYST role', () => {
+    mockUseAuth.mockReturnValue({
+      user: { role: 'NATIONAL_ANALYST' },
+      loading: false,
+      logout: vi.fn(),
+    });
+    render(<Sidebar isOpen={true} onClose={vi.fn()} />);
+    expect(screen.queryByText('Offline Work')).not.toBeInTheDocument();
   });
 });

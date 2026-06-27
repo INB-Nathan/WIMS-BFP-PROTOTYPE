@@ -97,6 +97,12 @@ const OP_PRECEDENCE: Record<OfflineOpType, number> = {
   delete: 3,
 };
 
+export interface SyncProgress {
+  done: number;
+  total: number;
+  currentOperation?: string;
+}
+
 export interface SyncResult {
   synced: number;
   conflicts: number;
@@ -393,7 +399,7 @@ async function processLegacyArchiveAction(item: PendingIncident): Promise<{ ok: 
  */
 export async function syncPendingIncidents(
   encoderId?: string,
-  options: { bypassBackoff?: boolean } = {}
+  options: { bypassBackoff?: boolean; onProgress?: (p: SyncProgress) => void } = {}
 ): Promise<SyncResult> {
   if (!(await isReachable())) {
     return { synced: 0, conflicts: 0, failed: 0, errors: [], syncedIncidents: [], abortReason: 'offline' };
@@ -461,7 +467,16 @@ export async function syncPendingIncidents(
     });
   };
 
+  let processedCount = 0;
+  const totalOps = ops.length + legacyItems.length;
+  const emitProgress = (currentOperation?: string) => {
+    options.onProgress?.({ done: processedCount, total: totalOps, currentOperation });
+  };
+
   for (const op of ops) {
+    processedCount++;
+    emitProgress(op.operation);
+
     // Skip ops already marked as permanently failed
     if (op.syncStatus === 'failed') {
       continue;
@@ -562,6 +577,9 @@ export async function syncPendingIncidents(
   }
 
   for (const item of legacyItems) {
+    processedCount++;
+    emitProgress(item.opType ?? 'create');
+
     let result: { ok: boolean; status?: number; error?: string };
     switch (item.opType) {
       case 'verify':

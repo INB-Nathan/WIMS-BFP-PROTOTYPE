@@ -14,7 +14,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNetworkStatus } from './useNetworkStatus';
 import { syncPendingIncidents, type SyncResult, type SyncedIncidentSummary } from './syncEngine';
-import { getPendingOpsCount, recoverStaleSyncingOps } from './offlineStore';
+import { getOfflineOpsCounts, recoverStaleSyncingOps } from './offlineStore';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
 
@@ -25,8 +25,10 @@ export interface AutoSyncState {
   lastSyncedAt: Date | null;
   pendingCount: number;
   conflictCount: number;
+  failedCount: number;
   authFailed: boolean;
   syncNow: () => Promise<void>;
+  syncProgress: { done: number; total: number } | null;
 }
 
 const OFFLINE_TOAST_ID = 'wims-connection-offline';
@@ -38,17 +40,21 @@ export function useAutoSync(): AutoSyncState {
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const [conflictCount, setConflictCount] = useState(0);
+  const [failedCount, setFailedCount] = useState(0);
   const [authFailed, setAuthFailed] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ done: number; total: number } | null>(null);
   const syncMutex = useRef(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasMountSynced = useRef(false);
   const authToastShownRef = useRef(false);
   const offlineToastShownRef = useRef(false);
 
-  const refreshPendingCount = useCallback(async () => {
+  const refreshOpsCounts = useCallback(async () => {
     if (!user?.id) return;
-    const count = await getPendingOpsCount(user.id);
-    setPendingCount(count);
+    const counts = await getOfflineOpsCounts(user.id);
+    setPendingCount(counts.pendingCount);
+    setConflictCount(counts.conflictCount);
+    setFailedCount(counts.failedCount);
   }, [user?.id]);
 
   const doSync = useCallback(async (options: { bypassBackoff?: boolean } = {}) => {
@@ -56,11 +62,17 @@ export function useAutoSync(): AutoSyncState {
     if (syncMutex.current) return;
     syncMutex.current = true;
     setSyncing(true);
+    setSyncProgress(null);
+
+    const onProgress = (p: { done: number; total: number }) => {
+      setSyncProgress(p);
+    };
 
     try {
-      const result: SyncResult = options.bypassBackoff
-        ? await syncPendingIncidents(user.id, options)
-        : await syncPendingIncidents(user.id);
+      const result: SyncResult = await syncPendingIncidents(user.id, {
+        ...options,
+        onProgress,
+      });
 
       setLastSyncedAt(new Date());
 
@@ -98,18 +110,19 @@ export function useAutoSync(): AutoSyncState {
         toast.warning(
           `Synced ${result.synced}. ${result.conflicts} item${result.conflicts === 1 ? '' : 's'} need your attention.`,
         );
-        setConflictCount((prev) => prev + result.conflicts);
+        // Don't increment — refreshOpsCounts after sync will pick up exact state
       } else if (result.failed > 0 && result.synced > 0) {
         toast.warning(`Synced ${result.synced}, ${result.failed} failed — will retry`);
       } else if (result.failed > 0) {
         toast.error(`${result.failed} item${result.failed === 1 ? '' : 's'} failed to sync`);
       }
     } finally {
+      setSyncProgress(null);
       setSyncing(false);
       syncMutex.current = false;
-      await refreshPendingCount();
+      await refreshOpsCounts();
     }
-  }, [user?.id, pendingCount, refreshPendingCount]);
+  }, [user?.id, pendingCount, refreshOpsCounts]);
 
   const syncNow = useCallback(async () => {
     if (debounceTimer.current) {
@@ -199,10 +212,10 @@ export function useAutoSync(): AutoSyncState {
   useEffect(() => {
     if (!user?.id) return;
     const encoderId = user.id;
-    void recoverStaleSyncingOps(encoderId).then(() => refreshPendingCount());
+    void recoverStaleSyncingOps(encoderId).then(() => refreshOpsCounts());
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  // intentionally not listing refreshPendingCount — it's stable but capturing it
+  // intentionally not listing refreshOpsCounts — it's stable but capturing it
   // would add an extra mount call since it references user?.id transitively.
 
-  return { syncing, lastSyncedAt, pendingCount, conflictCount, authFailed, syncNow };
+  return { syncing, lastSyncedAt, pendingCount, conflictCount, failedCount, authFailed, syncNow, syncProgress };
 }

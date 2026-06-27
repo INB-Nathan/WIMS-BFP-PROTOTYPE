@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { IncidentCard } from '../IncidentCard';
 import type { RegionalIncidentListItem } from '@/lib/api';
+import type { RegionalIncidentOfflineStatus } from '@/lib/regionalOfflineStatus';
 
 const incident: RegionalIncidentListItem = {
   incident_id: 42,
@@ -73,5 +74,138 @@ describe('IncidentCard offline detail availability', () => {
     fireEvent.click(card);
 
     expect(props.onCardClick).toHaveBeenCalledWith(42);
+  });
+});
+
+describe('IncidentCard offline sync badges', () => {
+  it('renders "Update queued" badge when offlineStatus has an update op', () => {
+    const offlineStatus: RegionalIncidentOfflineStatus = {
+      serverId: 42,
+      labels: ['Update queued'],
+      severity: 'pending',
+      operations: [{ operation: 'update', syncStatus: 'pending', localId: 'op-1' }],
+      localIds: ['op-1'],
+    };
+    renderCard({ offlineStatus });
+    expect(screen.getByText('Update queued')).toBeInTheDocument();
+  });
+
+  it('renders "Submit queued" badge', () => {
+    const offlineStatus: RegionalIncidentOfflineStatus = {
+      serverId: 42,
+      labels: ['Submit queued'],
+      severity: 'pending',
+      operations: [{ operation: 'submit', syncStatus: 'pending', localId: 'op-1' }],
+      localIds: ['op-1'],
+    };
+    renderCard({ offlineStatus });
+    expect(screen.getByText('Submit queued')).toBeInTheDocument();
+  });
+
+  it('renders "Delete queued" badge', () => {
+    const offlineStatus: RegionalIncidentOfflineStatus = {
+      serverId: 42,
+      labels: ['Delete queued'],
+      severity: 'pending',
+      operations: [{ operation: 'delete', syncStatus: 'pending', localId: 'op-1' }],
+      localIds: ['op-1'],
+    };
+    renderCard({ offlineStatus });
+    expect(screen.getByText('Delete queued')).toBeInTheDocument();
+  });
+
+  it('renders "Archive queued" badge', () => {
+    const offlineStatus: RegionalIncidentOfflineStatus = {
+      serverId: 42,
+      labels: ['Archive queued'],
+      severity: 'pending',
+      operations: [{ operation: 'archive_action', syncStatus: 'pending', localId: 'op-1' }],
+      localIds: ['op-1'],
+    };
+    renderCard({ offlineStatus });
+    expect(screen.getByText('Archive queued')).toBeInTheDocument();
+  });
+
+  it('renders "Restore queued" badge for unarchive action', () => {
+    const offlineStatus: RegionalIncidentOfflineStatus = {
+      serverId: 42,
+      labels: ['Restore queued'],
+      severity: 'pending',
+      operations: [{ operation: 'archive_action', syncStatus: 'pending', localId: 'op-1' }],
+      localIds: ['op-1'],
+    };
+    renderCard({ offlineStatus });
+    expect(screen.getByText('Restore queued')).toBeInTheDocument();
+  });
+
+  it('uses orange styling for conflict severity', () => {
+    const offlineStatus: RegionalIncidentOfflineStatus = {
+      serverId: 42,
+      labels: ['Conflict'],
+      severity: 'conflict',
+      operations: [{ operation: 'update', syncStatus: 'conflict', localId: 'op-1' }],
+      localIds: ['op-1'],
+    };
+    renderCard({ offlineStatus });
+    const badge = screen.getByText('Conflict');
+    expect(badge.className).toContain('bg-orange-100');
+    expect(badge.className).toContain('text-orange-800');
+  });
+
+  it('uses red styling for failed severity', () => {
+    const offlineStatus: RegionalIncidentOfflineStatus = {
+      serverId: 42,
+      labels: ['Sync failed'],
+      severity: 'failed',
+      operations: [{ operation: 'update', syncStatus: 'failed', localId: 'op-1' }],
+      localIds: ['op-1'],
+    };
+    renderCard({ offlineStatus });
+    const badge = screen.getByText('Sync failed');
+    expect(badge.className).toContain('bg-red-100');
+    expect(badge.className).toContain('text-red-800');
+  });
+
+  it('shows "+N more" when more than 2 labels', () => {
+    const offlineStatus: RegionalIncidentOfflineStatus = {
+      serverId: 42,
+      labels: ['Update queued', 'Submit queued', 'Delete queued'],
+      severity: 'pending',
+      operations: [
+        { operation: 'update', syncStatus: 'pending', localId: 'op-1' },
+        { operation: 'submit', syncStatus: 'pending', localId: 'op-2' },
+        { operation: 'delete', syncStatus: 'pending', localId: 'op-3' },
+      ],
+      localIds: ['op-1', 'op-2', 'op-3'],
+    };
+    renderCard({ offlineStatus });
+    expect(screen.getByText('Update queued')).toBeInTheDocument();
+    expect(screen.getByText('Submit queued')).toBeInTheDocument();
+    expect(screen.getByText('+1 more')).toBeInTheDocument();
+  });
+
+  it('disables archive button when archive_action is queued', () => {
+    const verifiedIncident = { ...incident, verification_status: 'VERIFIED' as const };
+    const offlineStatus: RegionalIncidentOfflineStatus = {
+      serverId: 42,
+      labels: ['Archive queued'],
+      severity: 'pending',
+      operations: [{ operation: 'archive_action', syncStatus: 'pending', localId: 'op-1' }],
+      localIds: ['op-1'],
+    };
+    const props = renderCard({ inc: verifiedIncident, offlineStatus });
+
+    const archiveBtn = screen.getByRole('button', { name: /archive queued/i });
+    expect(archiveBtn).toBeDisabled();
+  });
+
+  it('does not show offline sync badges when offlineStatus is undefined', () => {
+    renderCard();
+    expect(screen.queryByText('Update queued')).not.toBeInTheDocument();
+    expect(screen.queryByText('Submit queued')).not.toBeInTheDocument();
+    expect(screen.queryByText('Delete queued')).not.toBeInTheDocument();
+    expect(screen.queryByText('Archive queued')).not.toBeInTheDocument();
+    expect(screen.queryByText('Conflict')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sync failed')).not.toBeInTheDocument();
   });
 });

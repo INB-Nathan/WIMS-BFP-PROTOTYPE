@@ -18,9 +18,11 @@ import {
   fetchRegionalIncidentOfflineAware,
 } from './api/offlineRegional';
 import { getConnectivitySnapshot } from './connectivity';
-
-const OFFLINE_ENABLED_KEY = 'wims:offline_enabled';
-const OFFLINE_BANNER_DISMISSED_KEY = 'wims:offline_banner_dismissed';
+import {
+  isOfflineModeEnabled,
+  markOfflineModeEnabled,
+  clearOfflineModeEnabled,
+} from './offlineModeFlags';
 
 // Cap how many full detail records we pull so enabling offline mode stays quick
 // and doesn't hammer the API. List items are always cached (cheap); details are
@@ -32,6 +34,10 @@ export interface OfflineEnableProgress {
   step: string;
   done: number;
   total: number;
+  /** High-level phase name (e.g. 'pages', 'chunks', 'list', 'details'). */
+  phase?: string;
+  /** Human-readable description of the current sub-step. */
+  currentLabel?: string;
 }
 
 export interface OfflineEnableResult {
@@ -41,28 +47,8 @@ export interface OfflineEnableResult {
   error?: string;
 }
 
-export function isOfflineModeEnabled(): boolean {
-  try { return localStorage.getItem(OFFLINE_ENABLED_KEY) === 'true'; } catch { return false; }
-}
-
-export function markOfflineModeEnabled(): void {
-  try { localStorage.setItem(OFFLINE_ENABLED_KEY, 'true'); } catch { /* private mode */ }
-}
-
-export function clearOfflineModeEnabled(): void {
-  try {
-    localStorage.removeItem(OFFLINE_ENABLED_KEY);
-    localStorage.removeItem(OFFLINE_BANNER_DISMISSED_KEY);
-  } catch { /* private mode */ }
-}
-
-export function isOfflineBannerDismissed(): boolean {
-  try { return localStorage.getItem(OFFLINE_BANNER_DISMISSED_KEY) === 'true'; } catch { return false; }
-}
-
-export function dismissOfflineBanner(): void {
-  try { localStorage.setItem(OFFLINE_BANNER_DISMISSED_KEY, 'true'); } catch { /* private mode */ }
-}
+// Flag helpers (isOfflineModeEnabled, markOfflineModeEnabled, clearOfflineModeEnabled)
+// imported from offlineModeFlags to avoid circular dependency.
 
 /**
  * Download the JS chunks needed for offline encoding. Resolving these import()
@@ -89,12 +75,16 @@ export async function enableOfflineMode(
   opts: {
     prefetch?: (href: string) => void;
     onProgress?: (p: OfflineEnableProgress) => void;
+    signal?: AbortSignal;
   } = {},
 ): Promise<OfflineEnableResult> {
-  const { prefetch, onProgress } = opts;
+  const { prefetch, onProgress, signal } = opts;
 
   if (!encoderId) {
     return { ok: false, cachedDetails: 0, cachedList: 0, error: 'No active encoder session.' };
+  }
+  if (signal?.aborted) {
+    return { ok: false, cachedDetails: 0, cachedList: 0, error: 'Offline setup cancelled.' };
   }
   if (!getConnectivitySnapshot().isOnline) {
     return { ok: false, cachedDetails: 0, cachedList: 0, error: 'You must be online to enable offline mode.' };
@@ -102,18 +92,21 @@ export async function enableOfflineMode(
 
   try {
     // 1. Pre-cache navigation routes (RSC payloads + page shells).
-    onProgress?.({ step: 'Preparing pages…', done: 0, total: 1 });
+    onProgress?.({ step: 'Preparing pages…', phase: 'pages', done: 0, total: 1 });
+    if (signal?.aborted) throwCancelled();
     prefetch?.('/afor/create');
     prefetch?.('/afor/import');
     prefetch?.('/dashboard/regional');
     prefetch?.('/dashboard/regional/audit');
 
     // 2. Warm the heavy form/map chunks.
-    onProgress?.({ step: 'Downloading encoding forms…', done: 0, total: 1 });
+    onProgress?.({ step: 'Downloading encoding forms…', phase: 'chunks', done: 0, total: 1 });
+    if (signal?.aborted) throwCancelled();
     await warmChunks();
 
     // 3. Populate the incident list cache (writes every list item to IndexedDB).
-    onProgress?.({ step: 'Downloading your incidents…', done: 0, total: 1 });
+    onProgress?.({ step: 'Downloading your incidents…', phase: 'list', done: 0, total: 1 });
+    if (signal?.aborted) throwCancelled();
     const { response } = await fetchRegionalIncidentsOfflineAware(
       { limit: LIST_FETCH_LIMIT, offset: 0 },
       encoderId,
@@ -131,18 +124,29 @@ export async function enableOfflineMode(
 
     let done = 0;
     for (const id of ids) {
+      if (signal?.aborted) throwCancelled();
       try {
         await fetchRegionalIncidentOfflineAware(id, encoderId);
       } catch {
         // Skip individual failures — partial caching is still useful.
       }
       done += 1;
-      onProgress?.({ step: 'Caching incident details…', done, total: ids.length });
+      onProgress?.({
+        step: 'Caching incident details…',
+        phase: 'details',
+        currentLabel: `Incident #${id}`,
+        done,
+        total: ids.length,
+      });
     }
 
     markOfflineModeEnabled();
     return { ok: true, cachedDetails: ids.length, cachedList: items.length };
-  } catch (e) {
+  } catch (e: unknown) {
+    // AbortError is intentional — return clean result, not a re-throw.
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      return { ok: false, cachedDetails: 0, cachedList: 0, error: 'Offline setup cancelled.' };
+    }
     return {
       ok: false,
       cachedDetails: 0,
@@ -150,4 +154,9 @@ export async function enableOfflineMode(
       error: e instanceof Error ? e.message : 'Failed to enable offline mode.',
     };
   }
+}
+
+/** Throws AbortError when the user cancels. */
+function throwCancelled(): never {
+  throw new DOMException('The operation was aborted.', 'AbortError');
 }

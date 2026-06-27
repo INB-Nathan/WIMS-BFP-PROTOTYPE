@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useAuth } from '@/context/AuthContext';
 import { isFormDirty, setFormDirty } from '@/lib/formDirty';
+import { useOfflineWorkCounts } from '@/lib/useOfflineWorkCounts';
 import {
     LayoutDashboard,
     Home,
@@ -70,8 +71,14 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         return pathname === path || pathname?.startsWith(`${path}/`);
     };
 
+    // Offline work badge count — only meaningful for encoder roles.
+    // The hook must still be called unconditionally to preserve React hook order.
+    const offlineWorkCounts = useOfflineWorkCounts();
+    const isEncoderRole = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
+    const totalActionableCount = isEncoderRole ? offlineWorkCounts.totalActionableCount : 0;
+
     // Navigation items based on role
-    const navSections = getNavSections(role);
+    const navSections = getNavSections(role, totalActionableCount);
 
     return (
         <>
@@ -203,7 +210,7 @@ interface NavSection {
     items: NavItem[];
 }
 
-function getNavSections(role: string | null): NavSection[] {
+function getNavSections(role: string | null, badgeCount: number = 0): NavSection[] {
     if (!role) return [];
 
     const sections: NavSection[] = [];
@@ -249,6 +256,19 @@ function getNavSections(role: string | null): NavSection[] {
                 { label: 'Import AFOR', href: '/afor/import', icon: Upload },
                 { label: 'Activity Log', href: '/dashboard/regional/audit', icon: History },
             ]
+        });
+
+        // Offline Work nav item for encoders (useOfflineWorkCounts hook provides badge)
+        sections.push({
+            label: 'Offline',
+            items: [
+                {
+                    label: 'Offline Work',
+                    href: '/dashboard/regional/offline-work',
+                    icon: Clock,
+                    badge: badgeCount > 0 ? String(badgeCount) : undefined,
+                },
+            ],
         });
 
         sections.push({ label: 'Account', items: [{ label: 'My Profile', href: '/profile', icon: UserCircle }] });

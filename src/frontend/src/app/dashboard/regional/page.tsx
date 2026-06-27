@@ -1,11 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import {
   Flame, Building2, TreePine, Car, ChevronLeft, ChevronRight, Trees,
-  Home, Users, Layers, Truck, CalendarDays, Archive,
+  Home, Users, Layers, Truck, CalendarDays, Archive, Clock,
 } from 'lucide-react';
 import { apiFetch, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
 import { fetchRegionalIncidentsOfflineAware } from '@/lib/api/offlineRegional';
@@ -15,7 +16,7 @@ import {
 } from '@/lib/api/offlineRegionalActions';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { getConnectivitySnapshot } from '@/lib/connectivity';
-import { getPendingOps, getCachedIncidents, maybePruneCaches, type OfflineOpDecrypted } from '@/lib/offlineStore';
+import { getPendingOps, getConflictOps, getFailedOps, getCachedIncidents, maybePruneCaches, type OfflineOpDecrypted } from '@/lib/offlineStore';
 import { type SyncedIncidentSummary } from '@/lib/useAutoSync';
 import {
   REGIONAL_INCIDENT_GENERAL_CATEGORIES,
@@ -30,6 +31,7 @@ import { StatCard, StatsDateFilterChips } from '@/components/ui';
 import type { StatsDateFilterValue } from '@/components/ui';
 import { WidgetGrid, AddWidgetDropdown } from '@/components/dashboard';
 import { useDashboardWidgets } from '@/hooks/useDashboardWidgets';
+import { buildOfflineStatusByServerId, type RegionalIncidentOfflineStatus } from '@/lib/regionalOfflineStatus';
 import { formatIncidentDate, isDateOnly, getDateBounds as getDateBoundsUtil, categoryCount, formatCacheAge } from '@/lib/incident-utils';
 import { useScrollSafeUpdate } from '@/lib/useScrollSafeUpdate';
 import { useHoverHint } from '@/lib/useHoverHint';
@@ -125,6 +127,11 @@ export default function RegionalDashboardPage() {
   const [isFromCache, setIsFromCache] = useState(false);
   const [cachedAt, setCachedAt] = useState<number | undefined>();
   const [queuedOps, setQueuedOps] = useState<OfflineOpDecrypted[]>([]);
+  const [conflictCount, setConflictCount] = useState(0);
+  const [failedCount, setFailedCount] = useState(0);
+  const [offlineStatusByServerId, setOfflineStatusByServerId] = useState<
+    Map<number, RegionalIncidentOfflineStatus>
+  >(new Map());
   const [cachedDetailIds, setCachedDetailIds] = useState<Set<number>>(new Set());
   const [syncNotification, setSyncNotification] = useState<SyncedIncidentSummary[] | null>(null);
 
@@ -250,6 +257,7 @@ export default function RegionalDashboardPage() {
       // Surface pending create ops. Cross-reference against the current incident list
       // to avoid showing duplicate cards when an op's server incident is already cached
       // (e.g. sync succeeded but the op status wasn't flushed before going offline).
+      // Also build per-incident offline status overlays from pending, conflict, and failed ops.
       if (encoderId) {
         const serverIds = new Set(freshItems.map((i) => i.incident_id));
         const ops = await getPendingOps(encoderId);
@@ -258,8 +266,21 @@ export default function RegionalDashboardPage() {
           if (op.serverId !== null && serverIds.has(op.serverId)) return false;
           return true;
         }));
+
+        // Load conflict + failed ops for overlay badges on server incident cards
+        const [conflictOps, failedOps] = await Promise.all([
+          getConflictOps(encoderId),
+          getFailedOps(encoderId),
+        ]);
+        setConflictCount(conflictOps.length);
+        setFailedCount(failedOps.length);
+        const allActionableOps = [...ops, ...conflictOps, ...failedOps];
+        setOfflineStatusByServerId(buildOfflineStatusByServerId(allActionableOps));
       } else {
         setQueuedOps([]);
+        setConflictCount(0);
+        setFailedCount(0);
+        setOfflineStatusByServerId(new Map());
       }
     } catch (e) {
       setIncidents([]);
@@ -682,6 +703,30 @@ export default function RegionalDashboardPage() {
       )}
 
 
+      {/* ── Offline Work quick link ── */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Offline Work</h2>
+          <p className="text-sm text-gray-500">
+            {queuedOps.length + failedCount + conflictCount > 0
+              ? `${queuedOps.length} pending · ${failedCount} failed · ${conflictCount} conflicts`
+              : 'No pending offline work.'}
+          </p>
+        </div>
+        <Link
+          href="/dashboard/regional/offline-work"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800 transition-colors"
+        >
+          <Clock className="h-4 w-4" aria-hidden />
+          Offline Work
+          {queuedOps.length + failedCount + conflictCount > 0 && (
+            <span className="ml-1 rounded-full bg-white/20 px-2 py-0.5 text-xs font-bold">
+              {queuedOps.length + failedCount + conflictCount}
+            </span>
+          )}
+        </Link>
+      </div>
+
       {/* ── Incidents section ── */}
       <section
         ref={incidentsSectionRef}
@@ -896,6 +941,7 @@ export default function RegionalDashboardPage() {
                   onUnarchive={doEncoderUnarchive}
                   isDetailCached={!isOnline ? cachedDetailIds.has(inc.incident_id) : undefined}
                   isOnline={isOnline}
+                  offlineStatus={offlineStatusByServerId.get(inc.incident_id)}
                 />
               ))}
             </div>

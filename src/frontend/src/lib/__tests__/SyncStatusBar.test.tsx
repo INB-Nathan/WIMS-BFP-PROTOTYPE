@@ -37,7 +37,10 @@ describe('SyncStatusBar', () => {
       syncing: false,
       lastSyncedAt: new Date('2026-04-12T10:00:00Z'),
       pendingCount: 0,
+      conflictCount: 0,
+      failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -45,12 +48,15 @@ describe('SyncStatusBar', () => {
     expect(screen.getByText(/all synced/i)).toBeInTheDocument();
   });
 
-  it('shows pending count when items are queued', () => {
+  it('shows pending count when items are queued (no conflicts or failures)', () => {
     mockUseAutoSync.mockReturnValue({
       syncing: false,
       lastSyncedAt: null,
       pendingCount: 3,
+      conflictCount: 0,
+      failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -63,7 +69,10 @@ describe('SyncStatusBar', () => {
       syncing: true,
       lastSyncedAt: null,
       pendingCount: 2,
+      conflictCount: 0,
+      failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -78,7 +87,10 @@ describe('SyncStatusBar', () => {
       syncing: false,
       lastSyncedAt: new Date('2026-04-12T14:30:00Z'),
       pendingCount: 0,
+      conflictCount: 0,
+      failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -92,7 +104,10 @@ describe('SyncStatusBar', () => {
       syncing: false,
       lastSyncedAt: null,
       pendingCount: 5,
+      conflictCount: 0,
+      failedCount: 0,
       syncNow: syncNowMock,
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -108,7 +123,10 @@ describe('SyncStatusBar', () => {
       syncing: true,
       lastSyncedAt: null,
       pendingCount: 2,
+      conflictCount: 0,
+      failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -124,7 +142,10 @@ describe('SyncStatusBar', () => {
       syncing: false,
       lastSyncedAt: null,
       pendingCount: 1,
+      conflictCount: 0,
+      failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -138,7 +159,10 @@ describe('SyncStatusBar', () => {
       syncing: false,
       lastSyncedAt: null,
       pendingCount: 1,
+      conflictCount: 0,
+      failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -152,11 +176,145 @@ describe('SyncStatusBar', () => {
       syncing: false,
       lastSyncedAt: null,
       pendingCount: 3,
+      conflictCount: 0,
+      failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
 
     expect(screen.getByText(/reconnecting/i)).toBeInTheDocument();
+  });
+
+  it('shows conflict callout when conflictCount > 0 even when pendingCount > 0', () => {
+    mockUseAutoSync.mockReturnValue({
+      syncing: false,
+      lastSyncedAt: null,
+      pendingCount: 2,
+      conflictCount: 1,
+      failedCount: 0,
+      syncNow: vi.fn(),
+      syncProgress: null,
+    });
+
+    render(<SyncStatusBar />);
+
+    expect(screen.getByText(/1 item.*need your attention/i)).toBeInTheDocument();
+    // Conflict callout shows pending count in subtext
+    expect(screen.getByText(/2 queued/i)).toBeInTheDocument();
+    // Review link should exist
+    expect(screen.getByRole('link', { name: /review/i })).toHaveAttribute('href', '/dashboard/regional/conflicts');
+  });
+
+  it('shows conflict callout when conflictCount > 0 with pending=0', () => {
+    mockUseAutoSync.mockReturnValue({
+      syncing: false,
+      lastSyncedAt: null,
+      pendingCount: 0,
+      conflictCount: 2,
+      failedCount: 0,
+      syncNow: vi.fn(),
+      syncProgress: null,
+    });
+
+    render(<SyncStatusBar />);
+
+    expect(screen.getByText(/2 items.*need your attention/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /review/i })).toHaveAttribute('href', '/dashboard/regional/conflicts');
+  });
+
+  it('shows failed callout when failedCount > 0', () => {
+    mockUseAutoSync.mockReturnValue({
+      syncing: false,
+      lastSyncedAt: null,
+      pendingCount: 3,
+      conflictCount: 0,
+      failedCount: 1,
+      syncNow: vi.fn(),
+      syncProgress: null,
+    });
+
+    render(<SyncStatusBar />);
+
+    expect(screen.getByText(/1 item.*failed to sync/i)).toBeInTheDocument();
+    expect(screen.getByText(/3 queued/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /retry all/i })).toBeInTheDocument();
+  });
+
+  it('shows failed callout before normal pending bar when both present', () => {
+    mockUseAutoSync.mockReturnValue({
+      syncing: false,
+      lastSyncedAt: null,
+      pendingCount: 5,
+      conflictCount: 0,
+      failedCount: 2,
+      syncNow: vi.fn(),
+      syncProgress: null,
+    });
+
+    render(<SyncStatusBar />);
+
+    // Failed callout takes priority over normal queued bar
+    expect(screen.getByText(/2 items.*failed to sync/i)).toBeInTheDocument();
+    // The normal queued bar has a Sync Now button — should not appear
+    expect(screen.queryByRole('button', { name: /sync now/i })).not.toBeInTheDocument();
+    // Retry All button replaces Sync Now in the failed callout
+    expect(screen.getByRole('button', { name: /retry all/i })).toBeInTheDocument();
+  });
+
+  it('shows conflict and failed callouts when both present', () => {
+    mockUseAutoSync.mockReturnValue({
+      syncing: false,
+      lastSyncedAt: null,
+      pendingCount: 1,
+      conflictCount: 3,
+      failedCount: 2,
+      syncNow: vi.fn(),
+      syncProgress: null,
+    });
+
+    render(<SyncStatusBar />);
+
+    expect(screen.getByText(/3 items.*need your attention/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 items.*failed to sync/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /review/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /retry all/i })).toBeInTheDocument();
+  });
+
+  it('shows determinate progress during active sync when syncProgress.total > 0', () => {
+    mockUseAutoSync.mockReturnValue({
+      syncing: true,
+      lastSyncedAt: null,
+      pendingCount: 5,
+      conflictCount: 0,
+      failedCount: 0,
+      syncNow: vi.fn(),
+      syncProgress: { done: 2, total: 5 },
+    });
+
+    render(<SyncStatusBar />);
+
+    expect(screen.getByText(/syncing 2 of 5/i)).toBeInTheDocument();
+    expect(screen.getByTestId('sync-progress-bar')).toBeInTheDocument();
+    expect(screen.getByTestId('sync-progress-text')).toBeInTheDocument();
+  });
+
+  it('falls back to pendingCount text when syncing without progress', () => {
+    mockUseAutoSync.mockReturnValue({
+      syncing: true,
+      lastSyncedAt: null,
+      pendingCount: 5,
+      conflictCount: 0,
+      failedCount: 0,
+      syncNow: vi.fn(),
+      syncProgress: null,
+    });
+
+    render(<SyncStatusBar />);
+
+    // Should show the fallback text when no progress is available
+    expect(screen.getByText(/syncing 5 incidents/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('sync-progress-bar')).not.toBeInTheDocument();
   });
 });

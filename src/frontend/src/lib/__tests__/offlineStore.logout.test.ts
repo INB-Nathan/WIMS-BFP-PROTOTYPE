@@ -34,10 +34,17 @@ const OPS_STORE = 'offlineOps';
 
 beforeEach(() => {
   globalThis.indexedDB = new (IDBFactory as unknown as new () => IDBFactory)();
+  localStorage.clear();
 });
 
-const { clearAllCachedIncidents, cacheReferenceData, cacheReadResponse, saveDraftOp } =
-  await import('../offlineStore');
+const {
+  clearAllCachedIncidents,
+  cacheReferenceData,
+  cacheReadResponse,
+  saveDraftOp,
+  setActiveOfflineUser,
+  clearAllOfflineData,
+} = await import('../offlineStore');
 
 async function readAllKeys(storeName: string): Promise<unknown[]> {
   const db = await openDB(DB_NAME, DB_VERSION);
@@ -85,5 +92,49 @@ describe('clearAllCachedIncidents (logout wipe)', () => {
     await clearAllCachedIncidents();
     const after = (await readAllKeys(OPS_STORE)).length;
     expect(after).toBe(before);
+  });
+});
+
+describe('offlineModeFlags clearing (Item 1)', () => {
+  const OFFLINE_ENABLED_KEY = 'wims:offline_enabled';
+  const OFFLINE_BANNER_DISMISSED_KEY = 'wims:offline_banner_dismissed';
+
+  function seedFlags(): void {
+    localStorage.setItem(OFFLINE_ENABLED_KEY, 'true');
+    localStorage.setItem(OFFLINE_BANNER_DISMISSED_KEY, 'true');
+  }
+
+  function expectFlagsCleared(): void {
+    expect(localStorage.getItem(OFFLINE_ENABLED_KEY)).toBeNull();
+    expect(localStorage.getItem(OFFLINE_BANNER_DISMISSED_KEY)).toBeNull();
+  }
+
+  function expectFlagsSeeded(): void {
+    expect(localStorage.getItem(OFFLINE_ENABLED_KEY)).toBe('true');
+    expect(localStorage.getItem(OFFLINE_BANNER_DISMISSED_KEY)).toBe('true');
+  }
+
+  it('clears flags on different-user switch', async () => {
+    seedFlags();
+    await setActiveOfflineUser('user-A');
+    expectFlagsSeeded(); // same-user first-call preserves flags
+    await setActiveOfflineUser('user-B');
+    expectFlagsCleared();
+  });
+
+  it('preserves flags on same-user relogin', async () => {
+    seedFlags();
+    await setActiveOfflineUser('user-A');
+    expectFlagsSeeded();
+    await setActiveOfflineUser('user-A');
+    expectFlagsSeeded(); // same user again — flags survive
+  });
+
+  it('clears flags via clearAllOfflineData', async () => {
+    seedFlags();
+    await setActiveOfflineUser('user-A');
+    expectFlagsSeeded();
+    await clearAllOfflineData();
+    expectFlagsCleared();
   });
 });

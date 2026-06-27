@@ -17,15 +17,7 @@ export function FreshnessDot({ minutesAgo, isOnline }: FreshnessDotProps) {
   }
 
   if (minutesAgo == null) {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600">
-        <span
-          className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse"
-          aria-hidden="true"
-        />
-        Live
-      </span>
-    );
+    return null;
   }
 
   if (minutesAgo < 5) {

@@ -9,11 +9,12 @@
 
 'use client';
 
+import Link from 'next/link';
 import { useAutoSync } from '@/lib/useAutoSync';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 
 export function SyncStatusBar() {
-  const { syncing, lastSyncedAt, pendingCount, conflictCount, authFailed, syncNow } = useAutoSync();
+  const { syncing, lastSyncedAt, pendingCount, conflictCount, failedCount, authFailed, syncNow, syncProgress } = useAutoSync();
   const { isOnline, isChecking, isReconnecting } = useNetworkStatus();
 
   if (isChecking) {
@@ -86,39 +87,97 @@ export function SyncStatusBar() {
 
   // Actively syncing
   if (syncing) {
+    const showProgress = syncProgress && syncProgress.total > 0;
     return (
       <div
-        className="flex items-center gap-2 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-800"
+        className="flex flex-col gap-1 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-800"
         role="status"
       >
-        <span
-          data-testid="sync-spinner"
-          className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-blue-300 border-t-blue-700"
-        />
-        <span>Syncing {pendingCount} incident{pendingCount !== 1 ? 's' : ''}...</span>
+        <div className="flex items-center gap-2">
+          <span
+            data-testid="sync-spinner"
+            className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-blue-300 border-t-blue-700"
+          />
+          {showProgress ? (
+            <span data-testid="sync-progress-text">
+              Syncing {syncProgress!.done} of {syncProgress!.total}...
+            </span>
+          ) : (
+            <span>Syncing {pendingCount} incident{pendingCount !== 1 ? 's' : ''}...</span>
+          )}
+        </div>
+        {showProgress && (
+          <div
+            data-testid="sync-progress-bar"
+            className="h-1.5 w-full overflow-hidden rounded-full bg-blue-200"
+            role="progressbar"
+            aria-valuenow={syncProgress!.done}
+            aria-valuemin={0}
+            aria-valuemax={syncProgress!.total}
+            aria-label={`Syncing ${syncProgress!.done} of ${syncProgress!.total}`}
+          >
+            <div
+              className="h-full rounded-full bg-blue-600 transition-all duration-300 ease-out"
+              style={{ width: `${(syncProgress!.done / syncProgress!.total) * 100}%` }}
+            />
+          </div>
+        )}
       </div>
     );
   }
 
-  // All synced — but show conflict callout if any ops need resolution
+  // Show conflict and failed callouts independently — both can be present.
+  if (conflictCount > 0 || failedCount > 0) {
+    return (
+      <div className="flex flex-col gap-2" role="alert">
+        {conflictCount > 0 && (
+          <div className="flex items-center gap-2 rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-sm text-orange-800">
+            <span className="inline-block h-2 w-2 rounded-full bg-orange-500" />
+            <span>{conflictCount} item{conflictCount !== 1 ? 's' : ''} need your attention</span>
+            {pendingCount > 0 && (
+              <span className="text-xs text-orange-600">
+                ({pendingCount} queued)
+              </span>
+            )}
+            <a
+              href="/dashboard/regional/conflicts"
+              className="ml-auto w-full sm:w-auto rounded-md bg-orange-600 px-3 py-1 text-xs font-medium text-white hover:bg-orange-700 text-center min-h-[44px] flex items-center justify-center"
+            >
+              Review
+            </a>
+          </div>
+        )}
+
+        {failedCount > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+            <span className="inline-block h-2 w-2 rounded-full bg-red-500" />
+            <span>{failedCount} item{failedCount !== 1 ? 's' : ''} failed to sync</span>
+            {pendingCount > 0 && (
+              <span className="text-xs text-red-600">
+                ({pendingCount} queued)
+              </span>
+            )}
+            <button
+              onClick={syncNow}
+              disabled={syncing}
+              className="ml-auto w-full sm:w-auto rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-center min-h-[44px] flex items-center justify-center"
+            >
+              Retry All
+            </button>
+            <Link
+              href="/dashboard/regional/offline-work"
+              className="text-xs text-red-600 underline hover:text-red-800 min-h-[44px] flex items-center"
+            >
+              Details
+            </Link>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // All synced
   if (pendingCount === 0) {
-    if (conflictCount > 0) {
-      return (
-        <div
-          className="flex items-center gap-2 rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-sm text-orange-800"
-          role="alert"
-        >
-          <span className="inline-block h-2 w-2 rounded-full bg-orange-500" />
-          <span>{conflictCount} item{conflictCount !== 1 ? 's' : ''} need your attention</span>
-          <a
-            href="/dashboard/regional/conflicts"
-            className="ml-auto rounded-md bg-orange-600 px-3 py-1 text-xs font-medium text-white hover:bg-orange-700"
-          >
-            Review
-          </a>
-        </div>
-      );
-    }
     return (
       <div
         className="flex items-center gap-2 rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800"
@@ -135,7 +194,7 @@ export function SyncStatusBar() {
     );
   }
 
-  // Pending items, online, not syncing
+  // Pending items, online, not syncing, no conflicts or failures
   return (
     <div
       className="flex items-center gap-2 rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-700"

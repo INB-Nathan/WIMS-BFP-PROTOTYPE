@@ -52,7 +52,7 @@ export function OperationsConsole({
       >
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-red-700">Operations</p>
-          <h2 className="text-lg font-black text-slate-950">Live board</h2>
+          <h2 className="text-lg font-black text-slate-950">Board</h2>
         </div>
         <div className="space-y-2">
           {operations.map((op) => (

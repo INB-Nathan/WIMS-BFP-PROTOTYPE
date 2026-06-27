@@ -1,5 +1,6 @@
 import { openDB, IDBPDatabase } from 'idb';
 import { validateOfflinePayload } from './validation/offlineIncident';
+import { clearOfflineModeEnabled } from './offlineModeFlags';
 
 const DB_NAME = 'wims-bfp-db';
 const DB_VERSION = 6;
@@ -309,6 +310,7 @@ export async function setActiveOfflineUser(userId: string): Promise<void> {
 
     if (prev && prev !== userId) {
         await wipeAllOfflineData();
+        clearOfflineModeEnabled();
         // Pushback P1: the unencrypted REFERENCE_STORE has no per-user crypto
         // isolation, so the prior user's plaintext RLS-scoped ref data must
         // be wiped on user-switch (in addition to the crypto-key wipe above).
@@ -346,6 +348,7 @@ export async function clearAllOfflineData(): Promise<void> {
     await wipeAllOfflineData();
     activeUserId = null;
     try { localStorage.removeItem(ACTIVE_UID_LS_KEY); } catch { /* private mode */ }
+    clearOfflineModeEnabled();
 }
 
 async function encryptPayload(payload: unknown): Promise<EncryptedPayload> {
@@ -920,14 +923,59 @@ export async function getFailedOps(encoderId: string): Promise<OfflineOpDecrypte
 }
 
 /**
- * Count of pending + error + conflict + failed ops for this encoder (for badge display).
+ * Typed offline queue counts broken down by status bucket.
+ *
+ * `pendingCount` = syncable ops (pending + error)
+ * `failedCount`  = hit retry ceiling
+ * `conflictCount`= needs user resolution
+ * `totalActionableCount` = sum of all three
+ *
+ * Excludes `draft`, `synced`, and `syncing`.
+ */
+export interface OfflineOpsCounts {
+  pendingCount: number;
+  failedCount: number;
+  conflictCount: number;
+  totalActionableCount: number;
+}
+
+/**
+ * Count of pending + error syncable ops for this encoder.
+ * Does NOT include conflict or failed — use getOfflineOpsCounts for the full breakdown.
  */
 export async function getPendingOpsCount(encoderId: string): Promise<number> {
     const db = await getDB();
     const all: OfflineOp[] = await db.getAllFromIndex(OPS_STORE, 'by_encoder', encoderId);
     return all.filter(
-        (op) => op.syncStatus === 'pending' || op.syncStatus === 'error' || op.syncStatus === 'conflict' || op.syncStatus === 'failed'
+        (op) => op.syncStatus === 'pending' || op.syncStatus === 'error'
     ).length;
+}
+
+/**
+ * Returns separate pending, failed, and conflict counts for the encoder.
+ * Call this instead of getPendingOpsCount when you need the full breakdown.
+ */
+export async function getOfflineOpsCounts(encoderId: string): Promise<OfflineOpsCounts> {
+    const db = await getDB();
+    const all: OfflineOp[] = await db.getAllFromIndex(OPS_STORE, 'by_encoder', encoderId);
+    let pendingCount = 0;
+    let failedCount = 0;
+    let conflictCount = 0;
+    for (const op of all) {
+        if (op.syncStatus === 'pending' || op.syncStatus === 'error') {
+            pendingCount++;
+        } else if (op.syncStatus === 'failed') {
+            failedCount++;
+        } else if (op.syncStatus === 'conflict') {
+            conflictCount++;
+        }
+    }
+    return {
+        pendingCount,
+        failedCount,
+        conflictCount,
+        totalActionableCount: pendingCount + failedCount + conflictCount,
+    };
 }
 
 export async function markOpSyncing(localId: string): Promise<void> {
