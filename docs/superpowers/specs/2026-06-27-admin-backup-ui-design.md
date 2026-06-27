@@ -68,10 +68,15 @@ src/frontend/src/components/admin/   # (optional: extract shared components)
 |--------|---------|-------|
 | `DELETE /api/admin/backup/{filename}` | Delete a backup file | Not yet implemented |
 | `GET /api/admin/backup/{filename}/manifest` | Serve backup manifest metadata | Uses manifest file stored next to .sql.enc |
-| `POST /api/admin/backup-schedule` | Save backup schedule config | Stores cron + enabled in DB |
-| `GET /api/admin/backup-schedule` | Read current backup schedule | |
+| `DELETE /api/admin/backup/{filename}` | Delete a backup file + its manifest | Not yet implemented |
+| `GET /api/admin/backup/{filename}/manifest` | Serve backup manifest metadata | Uses manifest file stored next to .sql.enc |
+| `POST /api/admin/backup-schedule` | Save backup schedule config | Stored in `wims.backup_schedule` table |
+| `GET /api/admin/backup-schedule` | Read current backup schedule + next_run | Computed server-side |
 | New Celery beat task | Execute scheduled backup per cron | Registered in `celery_config.py` |
-| Modify `trigger_backup` | Write manifest alongside encrypted backup | Snapshot queries before encryption |
+| Modify `trigger_backup` | Write manifest alongside encrypted backup | Snapshot queries before encryption (runs on admin-context db session) |
+| Modify `_apply_backup_retention` | Also delete `.manifest.json` siblings | Prevent orphaned manifest files |
+| Modify `list_backups` | Fold manifest data into response | Read sibling `.manifest.json` server-side to avoid N+1 |
+| Modify `restore_backup` | Stream to disk instead of in-memory cap | Remove the 50 MB in-memory cap; enforce a configurable filesystem-level cap |
 
 ### Data Flow — Backup Trigger
 
@@ -293,16 +298,20 @@ If no backups exist at all, show:
 
 On each backup trigger, before encryption, run snapshot queries:
 
+Since the backup is encrypted (AES-256-GCM or OpenBao Transit), we cannot read its contents without the decryption key. The manifest captures a lightweight data snapshot **before** encryption, stored as a plain JSON file alongside the `.sql.enc` file, so the admin can see what's inside each backup without decrypting it.
+
+On each backup trigger, before encryption, run snapshot queries against the admin-context DB session:
+
 ```sql
--- Examples of what the manifest captures
-SELECT COUNT(*) AS incident_count FROM fire_incidents;
-SELECT COUNT(*) AS civilian_count FROM civilian_reports;
+SELECT COUNT(*) AS incident_count FROM wims.fire_incidents;
+SELECT COUNT(*) AS citizen_count FROM wims.citizen_reports;
 SELECT COUNT(*) AS user_count FROM wims.users;
-SELECT MAX(updated_at) AS last_incident_update FROM fire_incidents;
-SELECT MAX(created_at) AS last_civilian_report FROM civilian_reports;
+SELECT MAX(updated_at) AS last_incident_update FROM wims.fire_incidents;
+SELECT MAX(created_at) AS last_citizen_report FROM wims.citizen_reports;
 SELECT MAX(created_at) AS last_user_change FROM wims.users;
-SELECT COUNT(*) AS report_count FROM incident_reports;
 ```
+
+> **Note:** The schema uses `wims.citizen_reports` (not `civilian_reports`). All tables are schema-qualified with `wims.` since the snapshot runs through the SQLAlchemy session. RLS is fine — `SYSTEM_ADMIN` has unrestricted SELECT on all tables (verified in `10_rls_policies.sql:157`).
 
 Manifest JSON file (`wims_20260627_143000.manifest.json`) stored next to encrypted backup:
 
@@ -313,13 +322,12 @@ Manifest JSON file (`wims_20260627_143000.manifest.json`) stored next to encrypt
   "provider": "openbao_transit",
   "record_counts": {
     "incidents": 847,
-    "civilians": 2103,
-    "users": 24,
-    "reports": 312
+    "citizens": 2103,
+    "users": 24
   },
   "last_updates": {
     "incident": "2026-06-27T14:28:00Z",
-    "civilian_report": "2026-06-27T12:15:00Z",
+    "citizen_report": "2026-06-27T12:15:00Z",
     "user_change": "2026-06-27T10:00:00Z"
   }
 }
@@ -346,32 +354,121 @@ Save backup schedule configuration. Body:
 }
 ```
 
-Stored in a new `wims.backup_schedule` table or as a single-row config.
+Stored in a new `wims.backup_schedule` table (single-row config, upsert pattern).
 
 #### `GET /api/admin/backup-schedule`
 
-Returns the current schedule config (or null if never set):
+Returns the current schedule config (or null if never set). `next_run` is computed server-side using `croniter` against `last_run_at`:
 
 ```json
 {
   "enabled": true,
   "cron_expr": "0 2 * * *",
   "next_run": "2026-06-28T02:00:00Z",
-  "last_backup_at": "2026-06-27T14:30:00Z"
+  "last_run_at": "2026-06-27T14:30:00Z",
+  "last_backup_filename": "wims_20260627_143000.sql.enc"
 }
 ```
 
 ### 3.3 Celery Beat Task: `execute_scheduled_backup`
 
-- Check `wims.backup_schedule` for enabled + due cron
-- If due, call the same logic as `trigger_backup`
-- Registered in `celery_config.py` with a frequent check interval (e.g., every 5 minutes)
+- Check `wims.backup_schedule` for `enabled = true`
+- Compute if the cron has fired since `last_run_at` using `croniter` (against the current time window)
+- Dedup guard: if `last_run_at >= prev_cron_trigger`, skip (prevents double-fire within the 5-min check window)
+- If due, set `last_run_at = now()` in the schedule row (before executing, as an optimistic lock)
+- Execute the same logic as `trigger_backup`
+- Update `last_backup_filename` on success
+- Registered in `celery_config.py` with a 5-minute check interval
+- Concurrency guard: skip if a backup is already running (in-memory flag or `running` column in schedule table)
 
 ### 3.4 Modify `trigger_backup`
 
 After `pg_dump` succeeds and before encryption:
-1. Run snapshot queries against the live DB
+1. Run snapshot queries against the admin-context db session (not a fresh unscoped connection)
 2. Write manifest JSON to `BACKUP_DIR / {filename}.manifest.json`
+3. The manifest is written BEFORE encryption so it remains readable without the key
+
+**Semantics note:** `trigger_backup` returns HTTP 202 Accepted but currently runs synchronously (subprocess with 120s timeout). The 202 is misleading — no async job is created. The frontend should handle this as a synchronous wait. Future improvement: offload to Celery task for true async.
+
+**Concurrency guard:** Consider adding an in-memory or Redis lock to prevent two concurrent triggers (manual + scheduled overlap, or two admins clicking simultaneously). A simple approach: a `BACKUP_RUNNING` sentinel file or an atomic Redis key with TTL = 180s.
+
+### 3.5 Modify `_apply_backup_retention`
+
+When deleting a stale `.sql.enc` file, also delete its sibling manifest:
+
+```python
+# After backup_path.unlink()
+manifest_path = backup_path.with_suffix(".sql.enc.manifest.json")
+if manifest_path.exists():
+    manifest_path.unlink()
+```
+
+> The current retention regex (`^wims_\d{8}_\d{6}\.sql\.enc$`) already excludes `.manifest.json` files from the count, preventing them from being counted as backups. But orphaned manifests would accumulate. The fix above ensures they're cleaned up.
+
+### 3.6 Modify `list_backups` to Fold Manifest Data
+
+Current `list_backups` returns `[{filename, size_bytes, created_at}]`. Modify it to read each backup's sibling `.manifest.json` and include manifest fields in the response:
+
+```python
+manifest_path = BACKUP_DIR / (f.name + ".manifest.json")
+manifest_data = {}
+if manifest_path.exists():
+    try:
+        manifest_data = json.loads(manifest_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        pass  # treat missing/corrupt manifest gracefully
+```
+
+Response becomes:
+
+```json
+[
+  {
+    "filename": "wims_20260627_143000.sql.enc",
+    "size_bytes": 47350000,
+    "created_at": "2026-06-27T14:30:00Z",
+    "provider": "openbao_transit",
+    "manifest": {
+      "record_counts": {"incidents": 847, "citizens": 2103, "users": 24},
+      "last_updates": {
+        "incident": "2026-06-27T14:28:00Z",
+        "citizen_report": "2026-06-27T12:15:00Z",
+        "user_change": "2026-06-27T10:00:00Z"
+      }
+    }
+  }
+]
+```
+
+**Legacy backups** (pre-manifest) will have `manifest: null` — the frontend renders these as: "No manifest — backup data unavailable" with a dimmed appearance.
+
+### 3.7 Modify `restore_backup`: Stream to Disk, Remove In-Memory Cap
+
+The current `restore_backup` reads the entire upload into memory (`safe_read_upload`) and enforces a 50 MB default cap. This breaks once backups grow beyond 50 MB (the spec's own mockups show 45-46 MB with "~48 MB avg").
+
+Fix: stream the uploaded file directly to a temp file on disk, then check the file size as a configurable cap. Default cap raised to 1 GB:
+
+```python
+_max_backup_bytes = int(os.getenv("WIMS_MAX_BACKUP_BYTES", str(1024 * 1024 * 1024)))  # 1 GB default
+
+# Stream to temp file instead of in-memory
+with tempfile.TemporaryDirectory() as tmpdir:
+    tmp_enc = Path(tmpdir) / filename
+    with open(tmp_enc, "wb") as f:
+        while chunk := await file.read(64 * 1024):  # 64 KB chunks
+            f.write(chunk)
+    
+    # Check filesystem-level cap
+    if tmp_enc.stat().st_size > _max_backup_bytes:
+        raise HTTPException(status_code=413, detail=f"File exceeds the {_max_backup_bytes // (1024*1024)} MB limit")
+    
+    # Read first bytes for header validation only
+    header = tmp_enc.read_bytes(8)
+    if not header.startswith(b"WIMSBAO1"):
+        raise HTTPException(...)
+```
+
+This removes the in-memory cap that made restore non-functional for realistic backup sizes.
 
 ---
 
@@ -390,7 +487,8 @@ After `pg_dump` succeeds and before encryption:
 | Restore: decryption failed | Inline error: "Decryption failed. The encryption key may have changed since this backup was created." |
 | Restore: timeout (180s) | Toast: "Restore timed out. The database may be large — check database state manually." |
 | Restore: psql error | Inline error: "Database restore failed: {truncated error message from backend}" |
-| Restore: file too large | Inline error: "File exceeds the 50 MB limit." |
+| Restore: file too large | Inline error: "File exceeds the maximum upload size." |
+| Upload: auth required | Use blob fetch with Authorization header. A plain `<a>` anchor won't send auth. |
 | Schedule: invalid cron | Inline error: "Invalid cron expression. Use standard 5-field format." |
 | Network failure | Use existing offline-aware patterns (`offlineAdmin.ts`) |
 
@@ -399,10 +497,30 @@ After `pg_dump` succeeds and before encryption:
 ## Spec Self-Review
 
 - **Placeholders**: None. All sections are filled.
-- **Internal consistency**: The manifest is produced during trigger and consumed in timeline rows. The schedule section references a Celery beat task that would be added. The nudge threshold is explicitly 7 days.
-- **Scope**: Focused on backup management. Unrelated admin hub gaps (rate limits, worker status, etc.) are explicitly out of scope.
-- **Ambiguity**: Schedule persistence medium left open (new DB table vs single-row config) — both work, defer to implementation.
-- **Backend changes are required**: DELETE endpoint, manifest endpoint, schedule endpoints, Celery task, trigger modification. These are documented in Design Section 3.
+- **Internal consistency**: 
+  - Manifest is produced during trigger and consumed in list_backups. ✓
+  - Retention cleanup deletes both `.sql.enc` and `.manifest.json`. ✓
+  - Schedule dedup uses `last_run_at` + `croniter`. ✓
+  - Restore streams to disk (no in-memory size cap). ✓
+  - Manifest queries use correct table names (`wims.citizen_reports`, not `civilian_reports`). ✓
+  - The 7-day nudge threshold is explicit. ✓
+- **Scope**: Focused on backup management. Unrelated admin hub gaps (rate limits, worker status, system metrics) are explicitly out of scope.
+- **Ambiguity**: 
+  - Restore streaming approach is explicit (64 KB chunks, filesystem cap after write). ✓
+  - Schedule dedup is explicit (`last_run_at` + `croniter` + optimistic lock). ✓
+  - Manifest loading for legacy backups is explicit (`null` → dimmed display). ✓
+- **Backend changes required**: DELETE endpoint, manifest endpoint, schedule endpoints, Celery task, trigger modification, retention fix, list_backups manifest fold, restore streaming fix. All documented in Design Section 3.
+- **Known concerns addressed**:
+  - Table name correctness verified against actual schema (`wims.citizen_reports`, not `civilian_reports`; no `incident_reports` table — dropped that stat)
+  - 50 MB restore cap fixed (stream to disk, 1 GB default)
+  - Manifest orphan on retention fixed (delete sibling)
+  - N+1 manifest fetch fixed (fold into list_backups)
+  - Legacy backup no-manifest state handled (`manifest: null`)
+  - Download uses blob fetch (not plain anchor)
+  - 202 semantics noted (synchronous despite 202)
+  - Concurrency guard noted (lock or sentinel)
+  - RLS context noted (admin session is correct)
+  - Schedule dedup specified (last_run_at + croniter + optimistic lock)
 
 ---
 
